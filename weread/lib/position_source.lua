@@ -186,7 +186,7 @@ end
 
 -- Parent-side archive reads only. Pure hash verification and coordinate-map
 -- preparation can run in a worker using this bounded byte-string envelope.
-function M.snapshot_document(document, expected_book, uid, path)
+function M.document_metadata(document, expected_book, uid, path)
     local identity = FileIdentity.read_document(document, expected_book)
     if not identity.book_id or identity.book_id ~= tostring(expected_book) or not hash(identity.file_id) then
         return nil, "position_source/file_unavailable"
@@ -200,13 +200,27 @@ function M.snapshot_document(document, expected_book, uid, path)
         if not record or record.book_id ~= identity.book_id or record.file_id ~= identity.file_id
             or record.book_version ~= identity.book_version or (uid ~= nil and record.chapter_uid ~= tostring(uid))
             or (path ~= nil and record.render_path ~= path) then return nil end
-        local raw = document:getDocumentFileContent(M.raw_path(record.raw_sha256))
-        local rendered = document:getDocumentFileContent(record.render_path)
-        if type(raw) ~= "string" or #raw > M.MAX_BYTES or type(rendered) ~= "string" or #rendered > M.MAX_RENDERED_BYTES then return nil end
-        return { metadata = meta, raw = raw, rendered = rendered, identity = identity,
+        return { metadata = meta, record = record, identity = identity,
             book_id = record.book_id, chapter_uid = record.chapter_uid }
     end)
     if not ok or not snapshot then return nil, "position_source/unavailable" end
+    return snapshot
+end
+
+-- A small metadata peek can stay on the UI loop; large member reads and all
+-- body hashes can instead run against an independently opened worker archive.
+function M.snapshot_document(document, expected_book, uid, path)
+    local snapshot, err = M.document_metadata(document, expected_book, uid, path)
+    if not snapshot then return nil, err end
+    local ok = pcall(function()
+        snapshot.raw = document:getDocumentFileContent(M.raw_path(snapshot.record.raw_sha256))
+        snapshot.rendered = document:getDocumentFileContent(snapshot.record.render_path)
+    end)
+    snapshot.record = nil
+    if not ok or type(snapshot.raw) ~= "string" or #snapshot.raw > M.MAX_BYTES
+        or type(snapshot.rendered) ~= "string" or #snapshot.rendered > M.MAX_RENDERED_BYTES then
+        return nil, "position_source/unavailable"
+    end
     return snapshot
 end
 

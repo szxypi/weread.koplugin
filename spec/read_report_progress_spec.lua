@@ -6,6 +6,8 @@ package.path = "./?.lua;" .. package.path
 
 local cached_catalog
 local saved_catalog
+local last_read_options
+local last_enter_options
 package.preload["weread.lib.content"] = function()
     return {
         load_catalog_cache = function(_client, _settings, book)
@@ -27,6 +29,7 @@ package.preload["weread.lib.protocol"] = function()
             return "https://reader/" .. tostring(book_id)
         end,
         make_enter_read_payload = function(options)
+            last_enter_options = options
             return {
                 kind = "enter",
                 chapter_uid = options.chapter_uid,
@@ -35,6 +38,7 @@ package.preload["weread.lib.protocol"] = function()
             }
         end,
         make_read_payload = function(options)
+            last_read_options = options
             return {
                 kind = "report",
                 chapter_uid = options.chapter_uid,
@@ -199,6 +203,20 @@ test("report context backfills SQLite from catalog.json", function()
     }
     report:_build_context("book", false, book)
     eq(written_catalog, disk_catalog, "catalog.json backfills SQLite")
+end)
+
+test("source coordinates cannot enter the current reading-report protocol", function()
+    local report = fixture()
+    local book = { book_id = "book", psvts = "ps", pclts = "pc", token = "token" }
+    report:_send("book", book, {
+        chapter_uid = 22, chapter_idx = 2, chapter_offset = 150, percent = 25,
+        source_position = { chapter_uid = "22", chapter_offset = 12345, upload_verified = false },
+    }, 0)
+    eq(last_enter_options.chapter_offset, 150, "enter keeps existing wire offset")
+    eq(last_read_options.chapter_offset, 150, "report keeps existing wire offset")
+    eq(last_enter_options.source_position, nil, "enter excludes local source snapshot")
+    eq(last_read_options.source_position, nil, "report excludes local source snapshot")
+    eq(book.source_position, nil, "local source snapshot does not enter mutable report context")
 end)
 
 print(string.format(

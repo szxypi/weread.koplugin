@@ -22,6 +22,7 @@ local ReadReport = require("weread.lib.read_report")
 local ReadtimeCoverage = require("weread.lib.readtime_coverage")
 local ReaderPosition = require("weread.lib.reader_position")
 local Settings = require("weread.lib.settings")
+local SourcePosition = require("weread.lib.source_position")
 local Updater = require("weread.lib.updater")
 local UpdaterUI = require("weread.ui.updater")
 
@@ -136,6 +137,27 @@ function WeReadPlugin:init()
             return self:isNetworkConnected()
         end,
     }
+    self.source_position = SourcePosition:new{
+        scheduler = UIManager, codec = self.client,
+        get_document = function() return self.ui and self.ui.document end,
+        get_book_id = function() return self._current_weread_book_id end,
+        get_account = function() return self.settings:get("account", {}).user_vid end,
+        get_mode = function() return self.ui and self.ui.view and self.ui.view.view_mode end,
+        is_busy = function()
+            local highlight = self.ui and self.ui.highlight
+            return highlight and (highlight.selected_text ~= nil or highlight.select_mode == true) or false
+        end,
+        can_prepare = function()
+            if self.downloader and self.downloader._active_job then return false end
+            if self.prefetch_worker and self.prefetch_worker:busy() then return false end
+            local available = self.prefetch_worker and self.prefetch_worker:availableMemoryKB()
+            return not available or available >= 64 * 1024
+        end,
+        on_change = function(state, position)
+            if state ~= "ready" and self.closeReadingPositionMessage then self:closeReadingPositionMessage() end
+            if self.progress_sync then self.progress_sync:on_source_position_changed(state, position) end
+        end,
+    }
     self.progress_sync = ProgressSync:new{
         settings = self.settings,
         client = self.client,
@@ -143,6 +165,7 @@ function WeReadPlugin:init()
         get_document = function()
             return self.ui and self.ui.document
         end,
+        get_source_position = function() return self.source_position:current() end,
         get_footer = function()
             return self.ui and self.ui.view and self.ui.view.footer
         end,
@@ -243,6 +266,7 @@ Mixin.apply(WeReadPlugin, {
     (require("weread.ui.xpointer_overlay_controller")),
     (require("weread.ui.annotation_sync_controller")),
     (require("weread.ui.reader_navigation")),
+    (require("weread.ui.source_position")),
     (require("weread.lib.reader_lifecycle")),
 })
 

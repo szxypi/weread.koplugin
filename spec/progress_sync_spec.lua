@@ -94,6 +94,7 @@ local function fixture(remote, options)
         scheduler = scheduler,
         get_document = function() return document end,
         get_footer = options.get_footer,
+        get_source_position = options.get_source_position,
         get_view_mode = options.get_view_mode,
         detect_book = function() return "book" end,
         get_book = function() return book end,
@@ -888,6 +889,74 @@ test("late jump refresh preserves a subsequent page turn", function()
     f.drain()
     eq(f.sync.dirty, true, "jump refresh does not acknowledge a later page turn")
     eq(f.sync.local_position.percent, 75, "jump refresh keeps the actual current page")
+end)
+
+test("local source coordinates remain separate from the existing wire units", function()
+    local source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345,
+        file_id = string.rep("a", 64), basis = "filtered_xhtml_utf16", upload_verified = false }
+    local f = fixture({ chapterUid = 22, chapterOffset = 10, progress = 25 }, {
+        get_source_position = function() return source end,
+    })
+    local before = assert(f.sync:capture_local())
+    eq(before.chapter_offset == source.chapter_offset, false, "source offset did not replace wire units")
+    eq(before.source_position.chapter_offset, 12345, "read-only local source snapshot included")
+    before.source_position.chapter_offset = -1
+    eq(source.chapter_offset, 12345, "capture copied source snapshot")
+    eq(f.sync:status().source_position.basis, "filtered_xhtml_utf16", "status exposes precise local basis")
+    f.sync.current_book_id = "book"
+    f.sync.local_position = assert(f.sync:capture_local())
+    f.sync.dirty = false
+    f.sync:on_source_position_changed("ready", source)
+    eq(f.sync.source_state, "ready", "source readiness delivered")
+    eq(f.sync.dirty, false, "preparation did not create upload intent")
+    f.sync:on_source_position_changed("waiting", nil)
+    eq(f.sync.local_position.source_position, nil, "page invalidation cleared source snapshot")
+end)
+
+test("close keeps the final ready source snapshot after the source service stops", function()
+    local source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345,
+        file_id = string.rep("a", 64), basis = "filtered_xhtml_utf16", upload_verified = false }
+    local f = fixture({}, { get_source_position = function() return nil end })
+    local legacy = assert(f.sync:capture_local())
+    f.sync.verified, f.sync.dirty = true, true
+    f.sync:on_close_document(source)
+    source.chapter_offset = 999
+    f.drain()
+    eq(#f.uploads, 1, "existing close upload still executes")
+    eq(f.uploads[1].chapter_offset, legacy.chapter_offset, "close retained wire units")
+    eq(f.uploads[1].source_position.chapter_offset, 12345, "close copied final source snapshot")
+    eq(f.sync:status().source_position, nil, "closed service exposes no live position")
+
+    local disabled = fixture({})
+    disabled.sync.verified, disabled.sync.dirty = true, true
+    disabled.values.sync.upload_on_close = false
+    disabled.sync:on_close_document(source)
+    disabled.drain()
+    eq(#disabled.uploads, 0, "source readiness cannot enable disabled uploads")
+end)
+
+test("suspend retains a copied source snapshot only for the same book", function()
+    local source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345 }
+    local f = fixture({})
+    f.sync.local_position = assert(f.sync:capture_local())
+    f.sync.verified, f.sync.dirty = true, true
+    local legacy_offset = f.sync.local_position.chapter_offset
+    f.sync:on_suspend(source)
+    source.chapter_offset = 999
+    local pending = f.values.books.book.pending_upload_position
+    eq(pending.source_position.chapter_offset, 12345, "suspend copied ready source before cancellation")
+    eq(pending.chapter_offset, legacy_offset, "suspend retained wire units")
+    eq(#f.uploads, 0, "suspend only persists existing intent")
+
+    local other = fixture({})
+    other.sync.local_position = assert(other.sync:capture_local())
+    other.sync.verified, other.sync.dirty = true, true
+    other.sync:on_suspend({ book_id = "other", chapter_offset = 54321 })
+    eq(other.values.books.book.pending_upload_position.source_position, nil, "other book source rejected")
+    local unverified = fixture({})
+    unverified.sync.dirty = true
+    unverified.sync:on_suspend(source)
+    eq(unverified.values.books.book.pending_upload_position, nil, "source cannot bypass verification gate")
 end)
 
 print(string.format(

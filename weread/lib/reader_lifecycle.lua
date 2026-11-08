@@ -156,6 +156,7 @@ function M:onReaderReady()
     if self.onUnifiedAnnotationsReady then self:onUnifiedAnnotationsReady() end
 
     local annotations_ready = perf("annotations_ready", opened)
+    if self.source_position then self.source_position:on_reader_ready() end
     self.progress_sync:on_reader_ready()
     local prefetch_session_gen = self._reader_session_gen
     UIManager:scheduleIn(0.2, function()
@@ -173,15 +174,19 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    if self.source_position then self.source_position:on_view_changed() end
     self.progress_sync:on_page_update()
     if self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end
 end
 
 function M:onPosUpdate()
+    if self.source_position then self.source_position:on_view_changed() end
     if self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end
 end
 
 function M:onCloseDocument()
+    local source_position = self.source_position and self.source_position:current()
+    if self.source_position then self.source_position:stop() end
     if self.native_renewal then self.native_renewal:cancel() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.native_authorization then self.native_authorization:cancel() end
@@ -190,7 +195,7 @@ function M:onCloseDocument()
     -- Capture the immutable local position while the document is still alive.
     -- The network upload is scheduled; stopping ReadReport below also frees any
     -- in-flight report slot before that scheduled upload begins.
-    self.progress_sync:on_close_document()
+    self.progress_sync:on_close_document(source_position)
     self._reader_session_gen = (self._reader_session_gen or 0) + 1
     self.downloader:cancelPrefetch("document_closed")
     if self._cancelUnifiedAnnotationSync then self:_cancelUnifiedAnnotationSync() end
@@ -336,6 +341,8 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local source_position = self.source_position and self.source_position:current()
+    if self.source_position then self.source_position:pause("suspend") end
     if self.native_renewal then self.native_renewal:cancel() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.native_authorization then self.native_authorization:cancel() end
@@ -343,11 +350,12 @@ function M:onSuspend()
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self._cancelUnifiedAnnotationSync then self:_cancelUnifiedAnnotationSync() end
     self._annotation_pending_prefetch = nil
-    self.progress_sync:on_suspend()
+    self.progress_sync:on_suspend(source_position)
     self.read_report:on_suspend()
 end
 
 function M:onResume()
+    if self.source_position then self.source_position:resume("suspend") end
     self.progress_sync:on_resume()
     self.read_report:on_resume()
     if self.offline_time then self.offline_time:resume() end

@@ -1,0 +1,199 @@
+-- Live local position preparation. Reader-owned native calls are cooperative;
+-- source parsing/hashing runs in a separate process with an independent ZIP FD.
+local Context = require('weread.lib.source_context')
+local Identity = require('weread.lib.book_file_identity')
+local Source = require('weread.lib.position_source')
+local WorkerTask = require('weread.lib.source_position_worker')
+local Service = {}
+Service.__index = Service
+local function clone(value)
+    if type(value)~='table' then return value end
+    local result={}
+    for key,item in pairs(value) do result[key]=clone(item) end
+    return result
+end
+function Service:new(options)
+    return setmetatable({ scheduler=assert(options.scheduler), get_document=assert(options.get_document),
+        get_book_id=assert(options.get_book_id), get_account=options.get_account or function() return '' end,
+        get_mode=options.get_mode or function() return 'page' end, context=options.context or Context,
+        worker=options.worker, make_worker=options.make_worker or function()
+            return require('weread.lib.memory_worker'):new{scheduler=options.scheduler,codec=options.codec}
+        end, can_prepare=options.can_prepare or function() return true end,
+        is_busy=options.is_busy or function() return false end, on_change=options.on_change,
+        now=options.now or os.time, generation=0, sequence=0, state='idle', pauses={} },self)
+end
+function Service:_notify()
+    if self.on_change then pcall(self.on_change,self.state,clone(self.result)) end
+end
+function Service:_set(state,reason)
+    self.state,self.reason=state,reason
+    self:_notify()
+end
+function Service:_invalidate(state)
+    self.generation=self.generation+1
+    if self.task then self.scheduler:unschedule(self.task); self.task=nil end
+    if self.worker then self.worker:cancel() end
+    self.job,self.scope,self.result=nil,nil,nil
+    self:_set(state or 'idle')
+end
+function Service:stop() self:_invalidate('idle') end
+function Service:pause(reason)
+    self.pauses[reason or 'reader']=true
+    self:_invalidate('paused')
+end
+function Service:resume(reason)
+    self.pauses[reason or 'reader']=nil
+    if not next(self.pauses) then self:on_view_changed(true) end
+end
+function Service:on_reader_ready()
+    self.pauses={}
+    self:_invalidate('waiting')
+    self:on_view_changed(true)
+end
+function Service:on_account_changed()
+    self:_invalidate(next(self.pauses) and 'paused' or 'waiting')
+    if not next(self.pauses) then self:on_view_changed(true) end
+end
+function Service:_live()
+    local document=self.get_document()
+    local book_id=self.get_book_id()
+    if not document or not book_id or tostring(book_id):sub(1,7)=='MP_WXS_' then return nil end
+    book_id=tostring(book_id)
+    local location=self.context.location(document,self.get_mode())
+    if not location then return nil end
+    local identity=Identity.read_document(document,book_id)
+    if type(identity.file_id)~='string' or #identity.file_id~=64 or identity.book_id~=book_id then return nil end
+    return {document=document,file=document.file,book_id=book_id,location=location,identity=identity,
+        account=tostring(self.get_account() or ''),generation=self.generation}
+end
+function Service:_current(scope)
+    if not scope or scope.generation~=self.generation or next(self.pauses) then return false end
+    local live=self:_live()
+    if not live or live.document~=scope.document or live.file~=scope.file or live.account~=scope.account or live.book_id~=scope.book_id
+        or live.identity.file_id~=scope.identity.file_id or not Context.same_location(live.location,scope.location) then return false end
+    if scope.metadata then
+        local current=Source.document_metadata(scope.document,scope.book_id,nil,scope.render_path)
+        if not current or current.metadata~=scope.metadata then return false end
+    end
+    return true
+end
+function Service:_schedule(job,delay,callback)
+    if self.task then self.scheduler:unschedule(self.task) end
+    local task
+    task=function()
+        if self.task~=task then return end
+        self.task=nil
+        if self.job~=job then return end
+        if not self:_current(job.scope) then self:on_view_changed(true); return end
+        callback()
+    end
+    self.task=task
+    self.scheduler:scheduleIn(math.max(0.1,delay or 0.1),task)
+end
+function Service:_finish(job,value,reason)
+    if self.job~=job then return end
+    if not self:_current(job.scope) then self:on_view_changed(true); return end
+    self.job=nil
+    job.thread,job.input=nil,nil
+    self.scope=job.scope
+    self.result=value and clone(value) or nil
+    if self.result then self.result.captured_at=job.started end
+    self:_set(value and 'ready' or 'unavailable',reason)
+    if job.callback and self:_current(job.scope) and not self.is_busy() then
+        pcall(job.callback,clone(self.result),reason)
+    end
+end
+function Service:_defer(job)
+    job.retries=(job.retries or 0)+1
+    if job.retries>3 then self:_finish(job,nil,'resources_unavailable'); return end
+    job.thread,job.input=nil,nil
+    self:_set('deferred','resources_unavailable')
+    self:_schedule(job,3,function() self:_capture(job) end)
+end
+function Service:_launch(job)
+    if not self:_current(job.scope) then self:on_view_changed(true); return end
+    if not self.can_prepare() then self:_defer(job); return end
+    local input=job.input
+    self.worker=self.worker or self.make_worker()
+    self:_set('preparing')
+    local started=self.worker:start(function() return WorkerTask.capture(input) end,function(result)
+        if self.job~=job then return end
+        if not self:_current(job.scope) then self:on_view_changed(true); return end
+        local position=type(result)=='table' and result.position
+        local record=Source.decode_metadata(input.metadata)
+        if type(position)~='table' or result.request_id~=input.request_id or not record or position.book_id~=job.scope.book_id
+            or position.file_id~=job.scope.identity.file_id or position.chapter_uid~=record.chapter_uid
+            or position.raw_sha256~=record.raw_sha256 or position.render_path~=record.render_path
+            or position.book_version~=record.book_version or position.basis~='filtered_xhtml_utf16'
+            or position.upload_verified~=false or type(position.chapter_offset)~='number'
+            or position.chapter_offset<0 or position.chapter_offset>Source.MAX_BYTES*8 or position.chapter_offset%1~=0 then
+            self:_finish(job,nil,type(result)=='table' and result.error or 'position_unavailable')
+            return
+        end
+        local accepted={}
+        for _i,key in ipairs({'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256',
+            'render_path','basis','upload_verified'}) do accepted[key]=position[key] end
+        if type(position.chapter_title)=='string' and #position.chapter_title<=512 and not position.chapter_title:find('[%z%c]') then
+            accepted.chapter_title=position.chapter_title
+        end
+        self:_finish(job,accepted)
+    end)
+    if not started and self.job==job then self:_finish(job,nil,'worker_unavailable') end
+end
+function Service:_capture(job)
+    if self.is_busy() or not self.can_prepare() then self:_defer(job); return end
+    self:_set('preparing')
+    job.thread=job.thread or coroutine.create(function()
+        return self.context.capture(job.scope.document,job.scope.book_id,job.scope.location,{
+            is_current=function() return self.job==job and self:_current(job.scope) and not self.is_busy() end,
+            yield=function() coroutine.yield() end,
+        })
+    end)
+    local ok,input=coroutine.resume(job.thread)
+    if not self:_current(job.scope) then self:on_view_changed(true); return end
+    if not ok then self:_finish(job,nil,'context_unavailable'); return end
+    if coroutine.status(job.thread)~='dead' then
+        self:_schedule(job,0.1,function() self:_capture(job) end)
+        return
+    end
+    if not input or input.error then
+        if input and input.error=='cancelled' and self.is_busy() then self:_defer(job)
+        else self:_finish(job,nil,input and input.error or 'context_unavailable') end
+        return
+    end
+    job.scope.metadata,job.scope.render_path=input.metadata,input.render_path
+    self.sequence=self.sequence+1
+    input.request_id=self.sequence
+    job.input,job.thread=input,nil
+    self:_launch(job)
+end
+function Service:on_view_changed(force)
+    if next(self.pauses) then return false end
+    local live=self:_live()
+    if not live then self:_invalidate('unsupported'); return false end
+    local previous=self.job and self.job.scope or self.scope
+    if not force and previous and self:_current(previous) then return true end
+    self:_invalidate('waiting')
+    live.generation=self.generation
+    local job={scope=live,started=self.now()}
+    self.job=job
+    self:_schedule(job,0.3,function() self:_capture(job) end)
+    return true
+end
+function Service:current()
+    if self.result then
+        if self:_current(self.scope) then return clone(self.result),self.state end
+        return nil,'stale','position_unavailable'
+    end
+    return nil,self.state,self.reason
+end
+function Service:check(callback)
+    if next(self.pauses) then callback(nil,'paused'); return false end
+    local position=self:current()
+    if position then callback(position); return true end
+    if not self.job and not self:on_view_changed(true) then callback(nil,'source_unavailable'); return false end
+    if self.job then self.job.callback=callback; return true end
+    callback(nil,'position_unavailable')
+    return false
+end
+return Service

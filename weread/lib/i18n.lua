@@ -1,6 +1,16 @@
 local I18n = {}
 
 local zh = {
+    ["Check reading position"] = "检查阅读位置",
+    ["Checking the current reading position..."] = "正在检查当前页的阅读位置…",
+    ["Current chapter"] = "当前章节",
+    ["The current page has been located.\nChapter: %1\n\nPrecision cloud sync is still being validated."] = "已定位到当前页正文。\n章节：%1\n\n精确云端同步仍在验证中。",
+    ["This page has no text position to check."] = "当前页没有可检查位置的正文。",
+    ["This file has no original position data. Download the chapter again to check its position."] = "当前文件缺少定位所需的原文，请重新下载本章后再检查。",
+    ["The position data could not be verified. Download the chapter again."] = "无法核验当前文件的定位数据，请重新下载本章。",
+    ["Reading position is temporarily unavailable. Please try again shortly."] = "暂时无法检查阅读位置，请稍后再试。",
+    ["This page could not be matched to the original text."] = "暂时无法将当前页与原文对应。",
+
     ["Could not save the original chapter data. Check storage and try again."] = "无法保存章节原文，请检查存储空间后重试。",
     ["Could not verify the downloaded chapter data. Please download again."] = "无法校验已下载的章节数据，请重新下载。",
     ["Renew E-Ink authorization"] = "续期墨水屏授权",

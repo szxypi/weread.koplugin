@@ -185,6 +185,13 @@ function M:getMainMenuItems()
         if book_id ~= nil then
             if not WeRead.is_mp_book(book_id) then
                 reader_items[#reader_items + 1] = {
+                    text = _("Check reading position"),
+                    keep_menu_open = true,
+                    callback = self:safeCallback(_("Check reading position"), function()
+                        self:showReadingPosition()
+                    end),
+                }
+                reader_items[#reader_items + 1] = {
                     text = _("Sync progress now"),
                     keep_menu_open = true,
                     callback = self:safeCallback(_("Sync progress now"), function()

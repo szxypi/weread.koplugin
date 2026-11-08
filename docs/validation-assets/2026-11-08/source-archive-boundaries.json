@@ -1,0 +1,11 @@
+{
+  "passed": 8,
+  "descriptors_before": 4,
+  "repeated_reads": 20,
+  "cases": 8,
+  "descriptors_after": 4,
+  "public_network_used": false,
+  "files_extracted": 0,
+  "runtime": "KOReader native libarchive",
+  "status": "PASS"
+}

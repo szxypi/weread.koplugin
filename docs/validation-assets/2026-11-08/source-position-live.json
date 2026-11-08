@@ -1,0 +1,139 @@
+{
+  "status": "PARTIAL",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Ubuntu ARM64 / Xvfb",
+  "public_network_used": false,
+  "production_account_writes_attempted": 0,
+  "wire_precision_sync_enabled": false,
+  "runs": [
+    {
+      "kind": "live_source_state",
+      "candidate_sha256": "1f696ffa6a408bc739d7d65bc27098f1f5100d7a57bf6705bd8e90d6d3fb61e7",
+      "packaged_files_match_workspace": 120,
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "status": "PARTIAL",
+      "live_reader_capture": true,
+      "background_process_observed": true,
+      "native_document_kept_in_parent": true,
+      "menu_check": true,
+      "page_turn": true,
+      "account_change": true,
+      "suspend_resume_callbacks": true,
+      "low_memory_recovery": true,
+      "same_path_replacement": true,
+      "reopen_version": 8,
+      "verified_file_chapter_title": true,
+      "stale_dialog_closed": true,
+      "book_switch": true,
+      "initial_co": 16,
+      "page_two_co": 435,
+      "scroll": true,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "grayscale": true
+      },
+      "wire_precision_sync_enabled": false
+    },
+    {
+      "kind": "live_source_state",
+      "candidate_sha256": "1f696ffa6a408bc739d7d65bc27098f1f5100d7a57bf6705bd8e90d6d3fb61e7",
+      "packaged_files_match_workspace": 120,
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "wire_precision_sync_enabled": false,
+      "live_reader_capture": true,
+      "background_process_observed": true,
+      "native_document_kept_in_parent": true,
+      "menu_check": true,
+      "page_turn": true,
+      "scroll": true,
+      "suspend_resume_callbacks": true,
+      "low_memory_recovery": true,
+      "same_path_replacement": true,
+      "reopen_version": 8,
+      "verified_file_chapter_title": true,
+      "stale_dialog_closed": true,
+      "book_switch": true,
+      "initial_co": 16,
+      "page_two_co": 433,
+      "status": "PARTIAL",
+      "screen": {
+        "height": 1680,
+        "width": 1264,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "account_change": true
+    },
+    {
+      "kind": "existing_download_offline_time",
+      "candidate_sha256": "1f696ffa6a408bc739d7d65bc27098f1f5100d7a57bf6705bd8e90d6d3fb61e7",
+      "packaged_files_match_workspace": 120,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "real_client_http_download": true,
+      "images_and_footnotes": true,
+      "six_chapter_background_package": true,
+      "native_statistics_enabled": true,
+      "source_file_replacement": true,
+      "source_binding": {
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "progress_mapping_enabled": false,
+        "wire_progress_write_verified": false,
+        "extra_routes": {
+          "synchronous_range_chapters": 2,
+          "prefetch_worker_chapters": 1,
+          "images_disabled": true
+        },
+        "full": {
+          "transformed_chapter_dom_roundtrips": 2,
+          "chapters": 6,
+          "raw_before_images": 6,
+          "file_version": 7,
+          "file_id": "b38231c5b666bde53a438970baf9e23e414585a2d7d025f8390b2de929a3009f",
+          "raw_before_footnotes": 6,
+          "background_packaging": true
+        },
+        "reader": {
+          "point_offset": 24,
+          "file_id": "9ce518b146dd13ce53be5f98b2328582d23c4d8c32fef6c5a1537c3182accd8e",
+          "raw_bytes": 4421,
+          "target_page": 3,
+          "previous_page": 1,
+          "exact_prefix_verified": true,
+          "target_visible": true,
+          "raw_before_images": true,
+          "total_pages": 3,
+          "chapter_dom_roundtrip": true,
+          "file_version": 7,
+          "co": 1395
+        }
+      }
+    }
+  ],
+  "checks": {
+    "lua_specs": 100,
+    "luacheck_files": 233,
+    "luacheck_warnings": 0,
+    "python_tests": 71,
+    "source_context_checks": 13,
+    "source_worker_checks": 30,
+    "source_controller_checks": 41,
+    "progress_sync_checks": 175,
+    "read_report_progress_checks": 20
+  },
+  "limitations": [
+    "No production-account progress or shelf writes.",
+    "Precision wire fields remain unchanged; source coordinates are a local snapshot only.",
+    "Cloud anchor retention, precision write/readback, complex generated text and TXT remain unfinished.",
+    "Simulated KO2 dimensions do not validate hardware buttons, sleep, networking, memory peaks or battery use.",
+    "Separate source/DOM fixture emoji glyph coverage remains incomplete."
+  ]
+}

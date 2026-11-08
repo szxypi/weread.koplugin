@@ -60,6 +60,7 @@ function ProgressSync:new(options)
         scheduler = options.scheduler,
         get_document = options.get_document,
         get_footer = options.get_footer,
+        get_source_position = options.get_source_position,
         get_view_mode = options.get_view_mode,
         detect_book = options.detect_book,
         get_book = options.get_book,
@@ -213,6 +214,9 @@ function ProgressSync:capture_local()
         }
     )
     if not position then return nil, reason end
+    -- Keep source units separate from the existing word/percent contract.
+    -- The local source snapshot is read-only until wire write/readback validation.
+    if self.get_source_position then position.source_position = copy(self.get_source_position()) end
     position.book_id = book_id
     position.captured_at = self.now()
     position.current_chapter_uid = current_chapter
@@ -829,8 +833,11 @@ function ProgressSync:on_page_update()
     self.local_position = position
 end
 
-function ProgressSync:on_close_document()
+function ProgressSync:on_close_document(source_position)
     local position = self:capture_local() or self.local_position
+    if position and source_position and source_position.book_id == position.book_id then
+        position.source_position = copy(source_position)
+    end
     if position and self.verified
         and self:_config().upload_on_close == true then
         if not self.local_position
@@ -850,13 +857,16 @@ function ProgressSync:on_close_document()
     self.document_context = nil
 end
 
-function ProgressSync:on_suspend()
+function ProgressSync:on_suspend(source_position)
     self.generation = self.generation + 1
     self:_invalidate_pull()
     self._suspend_pending_upload = self.uploading == true
     self.upload_job, self.uploading = nil, false
     self.suspended_at = self.now()
     local position = self:capture_local() or self.local_position
+    if position and source_position and source_position.book_id == position.book_id then
+        position.source_position = copy(source_position)
+    end
     if position and self.local_position
         and not PositionMapper.same_position(position, self.local_position) then
         self.dirty = true
@@ -911,9 +921,19 @@ function ProgressSync:position_for_report(book_id)
     return position, nil, true
 end
 
+function ProgressSync:on_source_position_changed(state, position)
+    self.source_state = state
+    if self.local_position then
+        self.local_position.source_position = position and tostring(position.book_id) == tostring(self.current_book_id)
+            and copy(position) or nil
+    end
+end
+
 function ProgressSync:status()
     return {
         state = self.state,
+        source_state = self.source_state,
+        source_position = self.get_source_position and copy(self.get_source_position()) or nil,
         book_id = self.current_book_id,
         verified = self.verified,
         dirty = self.dirty,

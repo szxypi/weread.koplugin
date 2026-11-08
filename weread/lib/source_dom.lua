@@ -78,6 +78,23 @@ end
 local function clear(document)
     if type(document.clearSelection) == 'function' then pcall(document.clearSelection,document) end
 end
+function M.fragment(xpointer) return fragment(xpointer) end
+
+-- An empty range serialized with its ancestors gives the actual Source
+-- attribute without copying an entire chapter into the UI event loop.
+function M.member(document, xpointer)
+    return protected(function()
+        local xp = document:getNormalizedXPointer(xpointer)
+        local root = fragment(xp)
+        if not root then fail('chapter_unavailable') end
+        local html = document:getHTMLFromXPointers(xp, xp, 0, true)
+        if type(html) ~= 'string' or #html > 8192 then fail('text_limit') end
+        local header = html:match('<DocFragment%s+([^>]+)>')
+        local path = header and attributes(header).Source
+        if not path then fail('chapter_unavailable') end
+        return { root = root, render_path = path, xpointer = xp }
+    end)
+end
 function Index:_check()
     if self.invalid then fail(self.invalid) end
     if self.options.is_current then
