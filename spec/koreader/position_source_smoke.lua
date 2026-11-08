@@ -54,6 +54,29 @@ function M.reader(reader, flush, evidence)
     local dom_point = assert(dom:locate(target_co))
     assert(assert(dom:capture(dom_point.xpointer)).co == target_co, 'downloaded source/DOM roundtrip changed co')
     report.reader.chapter_dom_roundtrip = true
+    -- The current single-chapter download uses the same production entry as a
+    -- full-book source target, including transformed images and footnotes.
+    reader.rolling:onGotoPage(before)
+    flush()
+    local bound={book_id=tostring(book_id),chapter_uid='1',chapter_offset=target_co,
+        basis='filtered_xhtml_utf16',upload_verified=false}
+    for _,key in ipairs({'file_id','book_version','raw_sha256','render_path'}) do bound[key]=source[key] end
+    local done,navigated,why
+    assert(reader.weread:openSourcePosition(bound,function(value,reason) done,navigated,why=true,value,reason end))
+    local socket=require('socket')
+    local deadline=socket.gettime()+15
+    local manager=require('ui/uimanager')
+    manager:setInputTimeout(0)
+    repeat
+        manager:handleInput()
+        assert(socket.gettime()<deadline,'single-chapter source navigation timed out')
+        require('ffi/util').usleep(10000)
+    until done
+    assert(navigated,why)
+    assert(navigated.chapter_offset==target_co and doc:isXPointerInCurrentPage(dom_point.xpointer),
+        'production single-chapter target changed coordinate or viewport')
+    assert(reader.weread.source_position:current().retained_source_target,'single-chapter source target was not retained')
+    report.reader.production_source_navigation=true
     reader.rolling:onGotoPage(before)
     flush()
     print('PASS: embedded original -> filtered UTF16 co -> unique DOM anchor -> scalar XPointer -> native visible page')

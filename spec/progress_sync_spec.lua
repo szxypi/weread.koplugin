@@ -1104,6 +1104,60 @@ test("chapter-file transitions retain their original offset after opening the ta
     eq(f.sync.local_position.retained_remote_target, true, "new chapter reader uses retained position")
 end)
 
+test("native source targets remain file bound and separate from legacy progress", function()
+    local Source = require("weread.lib.position_source")
+    local Identity = require("weread.lib.book_file_identity")
+    local Crypto = require("weread.lib.crypto")
+    local native_point = "/body/DocFragment/body/p/text().12"
+    local marker = native_point
+    local f
+    f = fixture({}, {
+        get_navigation_xpointer = function() return marker end,
+        get_source_position = function() return f and f.sync:current_source_target() end,
+    })
+    local book = { book_id = "book", bookVersion = 7 }
+    local chapter = { chapterUid = 22 }
+    local raw = "<html><body><p>Unique synthetic chapter for native source target binding.</p></body></html>"
+    local original = assert(Source.capture(book, chapter, raw, "web_xhtml"))
+    local root = Identity.encode(book, {chapter}, Identity.capture(book), Crypto.sha256_hex(raw))
+    local identity = assert(Identity.decode(root))
+    local path = "OEBPS/text/chapter.xhtml"
+    local metadata = assert(Source.bind(original, identity, path, Crypto.sha256_hex(raw)))
+    f.document.getDocumentFileContent = function(_self, name)
+        if name == Identity.PATH then return root end
+        if name == Source.meta_path(22) or name == Source.path_meta_path(path) then return metadata end
+        error("source target binding read a body member")
+    end
+    f.document.getHTMLFromXPointers = function() return '<DocFragment Source="' .. path .. '"><body/>' end
+    f.document.getNormalizedXPointer = function(_self, xp) return xp end
+    f.document.getXPointer = function() return "viewport" end
+    f.document.isXPointerInCurrentPage = function() return true end
+    local position = { book_id = "book", chapter_uid = "22", chapter_offset = 32, file_id = identity.file_id,
+        book_version = 7, raw_sha256 = original.raw_sha256, render_path = path,
+        basis = "filtered_xhtml_utf16", upload_verified = false, raw = "BODY_CANARY" }
+    eq(f.sync:retain_source_target(position, native_point, metadata), true, "verified visible source target retained")
+    local held = assert(f.sync:current_source_target())
+    eq(held.retained_source_target, true, "source retention is explicit")
+    eq(held.raw, nil, "binding retained only approved metadata")
+    held.chapter_offset = 999
+    eq(f.sync:current_source_target().chapter_offset, 32, "returned source target is a copy")
+    local captured = assert(f.sync:capture_local())
+    eq(captured.chapter_offset, 150, "source target did not replace legacy wire units")
+    eq(captured.source_position.chapter_offset, 32, "source target exposed independently")
+    eq(f.sync.verified, false, "local source jump did not grant cloud upload rights")
+    local _, _, context = f.sync:capture_local()
+    local cancelled = 0
+    f.sync.on_before_navigate = function() cancelled = cancelled + 1 end
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    eq(cancelled, 1, "cloud application cancels any pending local source navigation first")
+    eq(f.sync:current_source_target(), nil, "new cloud choice clears an old source target even on the same native page")
+    assert(f.sync:retain_source_target(position, native_point, metadata))
+    marker = "new-point-in-the-same-page"
+    eq(f.sync:current_source_target(), nil, "new native marker invalidates source target")
+    position.file_id = string.rep("a", 64)
+    eq(f.sync:retain_source_target(position, native_point, metadata), false, "foreign file target rejected")
+end)
+
 test("close keeps the final ready source snapshot after the source service stops", function()
     local source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345,
         file_id = string.rep("a", 64), basis = "filtered_xhtml_utf16", upload_verified = false }

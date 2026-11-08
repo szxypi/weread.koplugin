@@ -23,6 +23,7 @@ local ReadtimeCoverage = require("weread.lib.readtime_coverage")
 local ReaderPosition = require("weread.lib.reader_position")
 local Settings = require("weread.lib.settings")
 local SourcePosition = require("weread.lib.source_position")
+local SourceNavigation = require("weread.lib.source_navigation")
 local Updater = require("weread.lib.updater")
 local UpdaterUI = require("weread.ui.updater")
 
@@ -143,6 +144,8 @@ function WeReadPlugin:init()
         get_book_id = function() return self._current_weread_book_id end,
         get_account = function() return self.settings:get("account", {}).user_vid end,
         get_mode = function() return self.ui and self.ui.view and self.ui.view.view_mode end,
+        get_retained = function() return self.progress_sync and self.progress_sync:current_source_target() end,
+        get_viewport_height = function() return self.progress_sync and self.progress_sync.get_viewport_height() end,
         is_busy = function()
             local highlight = self.ui and self.ui.highlight
             return highlight and (highlight.selected_text ~= nil or highlight.select_mode == true) or false
@@ -167,6 +170,9 @@ function WeReadPlugin:init()
         end,
         get_source_position = function() return self.source_position:current() end,
         get_navigation_xpointer = function() return self.ui and self.ui.rolling and self.ui.rolling.xpointer end,
+        on_before_navigate = function()
+            if self.source_navigation then self.source_navigation:cancel() end
+        end,
         get_viewport_height = function()
             local view = self.ui and self.ui.view
             if not view or not view.dimen then return nil end
@@ -241,6 +247,22 @@ function WeReadPlugin:init()
         end,
         notify = function(code, data)
             ProgressSyncDialog.notify(code, data)
+        end,
+    }
+    self.source_navigation = SourceNavigation:new{
+        scheduler = UIManager, codec = self.client,
+        get_document = self.source_position.get_document,
+        get_book_id = self.source_position.get_book_id,
+        get_account = self.source_position.get_account,
+        get_mode = self.source_position.get_mode,
+        get_viewport_height = self.progress_sync.get_viewport_height,
+        can_prepare = self.source_position.can_prepare,
+        is_busy = self.source_position.is_busy,
+        navigate = function(xpointer) return ReaderPosition.goto_xpointer(self.ui, xpointer) end,
+        on_start = function() self.source_position:pause("source_jump") end,
+        on_done = function() self.source_position:resume("source_jump") end,
+        on_applied = function(position, xpointer, metadata)
+            return self.progress_sync:retain_source_target(position, xpointer, metadata)
         end,
     }
     self:onDispatcherRegisterActions()

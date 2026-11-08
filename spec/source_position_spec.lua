@@ -163,4 +163,25 @@ service:on_view_changed(true);drain();old=worker.jobs[#worker.jobs];old_id=servi
 service:stop();old.callback(value(old_id))
 expect(service.state=='idle' and not service:current() and #tasks==0,'close retained source work')
 expect(events[#events]=='idle','source status change was not delivered')
+local held=value(service.sequence).position;held.retained_source_target=true
+service.get_retained=function() return held end
+service:on_reader_ready();drain()
+expect(service:current().retained_source_target,'bound target was not exposed by source service')
+local previous_jobs=#worker.jobs
+service:on_view_changed(true)
+held=nil
+expect(not service:current(),'invalidated held result escaped through the ordinary result cache')
+drain()
+expect(#worker.jobs==previous_jobs+1,'post-event marker change did not restart actual viewport capture')
+worker.jobs[#worker.jobs].callback(value(service.sequence))
+expect(service:current() and not service:current().retained_source_target,'held result survived fresh viewport capture')
+held=value(service.sequence).position;held.retained_source_target=true
+service:on_view_changed(true);drain();service:pause('suspend')
+expect(not service:current(),'paused source service exposed retained target')
+service:resume('suspend');drain();expect(service:current().retained_source_target,'retained target did not resume')
+held=nil
+expect(not service:current(),'same-line marker change without movement event exposed held result')
+local pending=#worker.jobs;drain()
+expect(#worker.jobs==pending+1,'observed same-line marker change did not schedule a fresh capture')
+service:stop();expect(not service:current(),'stopped source service exposed retained target')
 print(('source_position_spec: %d checks'):format(checks))

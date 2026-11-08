@@ -161,4 +161,22 @@ corrupt.document.getPrevVisibleChar=function() return xp(0) end
 local rejected,reject_reason=corrupt:locate(point.co)
 expect(not rejected and reject_reason=='source_dom/walk_diverged','wrong DOM walk accepted')
 expect(not corrupt:locate(point.co),'diverged checkpoint reused')
+local _,_,prepared_doc,prepared_archive=fixture(raw,text)
+prepared_doc.getHTMLFromXPointers=function(self) return self:getHTMLFromXPointer() end
+local native_read=prepared_doc.getDocumentFileContent
+prepared_doc.getDocumentFileContent=function(self,name)
+    expect(not name:find('/raw-',1,true) and not name:match('^OEBPS/text/'),'prepared DOM read raw/rendered member on UI thread')
+    return native_read(self,name)
+end
+local metadata=prepared_archive[Source.meta_path(11)]
+local native_index,prepared_reason=Dom.open_prepared(prepared_doc,'synthetic-dom',metadata)
+expect(native_index,prepared_reason)
+local prepared_point=assert(native_index:locate_anchor(assert(map:anchor(point.co))))
+expect(prepared_point.co==point.co and prepared_point.xpointer==located.xpointer,'prepared anchor changed native scalar point')
+expect(not native_index:locate(point.co),'prepared native index rebuilt original source map')
+for _,bad_anchor in ipairs({{}, {co=point.co,text='short',point_offset=0,basis='filtered_xhtml_utf16',point_unit='unicode_scalars'},
+    {co=point.co,text=assert(map:anchor(point.co)).text,point_offset=99999,basis='filtered_xhtml_utf16',point_unit='unicode_scalars'}}) do
+    expect(not native_index:locate_anchor(bad_anchor),'unbounded/invalid prepared anchor accepted')
+end
+expect(not Dom.open_prepared(prepared_doc,'other',metadata),'foreign prepared metadata accepted')
 print(('source_dom_spec: %d checks'):format(checks))

@@ -38,7 +38,7 @@ local function make_book(book_id,version)
     local bodies,sources={},{}
     for _,chapter in ipairs(chapters) do
         local parts={'<h1>'..chapter.title..'</h1><p>Edition '..version..' '..canary..'。</p>'}
-        for i=1,45 do
+        for i=1,450 do
             parts[#parts+1]='<p>第'..chapter.chapterUid..'章第'..i..'段：'
                 ..string.rep('阅读状态必须来自当前文档，后台任务不能覆盖新的页面。',3)..'</p>'
         end
@@ -84,6 +84,8 @@ local function pump_until(predicate,timeout)
         UIManager:handleInput()
         local job=service and service.worker and service.worker.job
         if job then assert(job.pid~=parent_pid);saw_worker=true end
+        local navigation_job=plugin and plugin.source_navigation and plugin.source_navigation.worker and plugin.source_navigation.worker.job
+        if navigation_job then assert(navigation_job.pid~=parent_pid);saw_worker=true end
         if predicate() then return end
         assert(socket.gettime()<deadline,'reader source state timed out: '..tostring(service and service.state)..'/'..tostring(service and service.reason))
         util.usleep(10000)
@@ -170,6 +172,8 @@ pump_until(function() return service.state=='deferred' end)
 assert(not (service.worker and service.worker.job),'low memory spawned source worker')
 plugin.prefetch_worker.availableMemoryKB=memory
 ready()
+local fixture_dir=debug.getinfo(1,'S').source:match('^@(.*/)')
+dofile(fixture_dir..'source_navigation_smoke.lua')(reader,plugin,pump_until,evidence)
 -- Replacing the active pathname cannot relabel an old open reader as version 8.
 WorkerTask.capture=function(input) socket.sleep(0.8);return original_capture(input) end
 service:on_view_changed(true)
@@ -186,6 +190,19 @@ reader:onClose()
 open(path)
 local reopened=ready();assert_reference(reopened)
 assert(reopened.book_version==8 and not old_service:current(),'reopening did not bind new file')
+-- An independent target-preparation child also dies when the reader closes;
+-- reopening the same pathname cannot revive its deferred native navigation.
+local original_target=WorkerTask.prepare_target
+WorkerTask.prepare_target=function(input) socket.sleep(0.8);return original_target(input) end
+local closed_navigation=plugin.source_navigation
+local old_target_callback=false
+assert(plugin:openSourcePosition(reopened,function() old_target_callback=true end))
+pump_until(function() return closed_navigation.worker and closed_navigation.worker.job~=nil end)
+local target_pid=closed_navigation.worker.job.pid
+reader:onClose();WorkerTask.prepare_target=original_target
+open(path);ready()
+pump_until(function() return util.isSubProcessDone(target_pid) end)
+assert(not old_target_callback and not closed_navigation.job,'closed target job committed into reopened reader')
 -- Closing and opening a different book rejects any old worker result.
 WorkerTask.capture=function(input) socket.sleep(0.8);return original_capture(input) end
 service:on_view_changed(true)
@@ -201,6 +218,7 @@ local result={status='PARTIAL',public_network_used=false,production_account_writ
     native_document_kept_in_parent=true,menu_check=true,page_turn=true,scroll=true,account_change=true,
     suspend_resume_callbacks=true,low_memory_recovery=true,same_path_replacement=true,reopen_version=8,
     verified_file_chapter_title=true,stale_dialog_closed=true,
+    source_navigation=true,source_navigation_close_reopen=true,
     book_switch=true,initial_co=initial.chapter_offset,page_two_co=after_turn.chapter_offset,
     screen={width=Device.screen:getWidth(),height=Device.screen:getHeight()}}
 reader:onClose()

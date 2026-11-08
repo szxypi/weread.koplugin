@@ -20,10 +20,32 @@ function Service:new(options)
             return require('weread.lib.memory_worker'):new{scheduler=options.scheduler,codec=options.codec}
         end, can_prepare=options.can_prepare or function() return true end,
         is_busy=options.is_busy or function() return false end, on_change=options.on_change,
+        get_retained=options.get_retained,
+        get_viewport_height=options.get_viewport_height,
         now=options.now or os.time, generation=0, sequence=0, state='idle', pauses={} },self)
 end
 function Service:_notify()
     if self.on_change then pcall(self.on_change,self.state,clone(self.result)) end
+end
+function Service:_held()
+    if not self.get_retained or next(self.pauses) or self.state=='idle' then return nil end
+    local ok,position=pcall(self.get_retained)
+    return ok and type(position)=='table' and clone(position) or nil
+end
+-- ReaderRolling can change its logical marker without emitting a movement
+-- event for a same-line jump. Recheck once after dispatch, or when a caller
+-- observes an expired held target. This never parses source on the UI thread.
+function Service:_verify_held_later()
+    if self.task or self.job then return end
+    local generation=self.generation
+    local task
+    task=function()
+        if self.task~=task then return end
+        self.task=nil
+        if self.generation==generation and not self:_held() then self:on_view_changed(true) end
+    end
+    self.task=task
+    self.scheduler:scheduleIn(0.1,task)
 end
 function Service:_set(state,reason)
     self.state,self.reason=state,reason
@@ -145,6 +167,7 @@ function Service:_capture(job)
     self:_set('preparing')
     job.thread=job.thread or coroutine.create(function()
         return self.context.capture(job.scope.document,job.scope.book_id,job.scope.location,{
+            viewport_height=self.get_viewport_height and self.get_viewport_height(),
             is_current=function() return self.job==job and self:_current(job.scope) and not self.is_busy() end,
             yield=function() coroutine.yield() end,
         })
@@ -171,8 +194,16 @@ function Service:on_view_changed(force)
     if next(self.pauses) then return false end
     local live=self:_live()
     if not live then self:_invalidate('unsupported'); return false end
+    local held=self:_held()
+    if held then
+        if self.job or self.task then self:_invalidate('waiting');live.generation=self.generation end
+        self.scope,self.result=live,held
+        self:_set('ready')
+        self:_verify_held_later()
+        return true
+    end
     local previous=self.job and self.job.scope or self.scope
-    if not force and previous and self:_current(previous) then return true end
+    if not force and previous and self:_current(previous) and not (self.result and self.result.retained_source_target) then return true end
     self:_invalidate('waiting')
     live.generation=self.generation
     local job={scope=live,started=self.now()}
@@ -181,6 +212,12 @@ function Service:on_view_changed(force)
     return true
 end
 function Service:current()
+    local held=self:_held()
+    if held then return held,'ready' end
+    if self.result and self.result.retained_source_target then
+        if not next(self.pauses) and self.state~='idle' then self:_verify_held_later() end
+        return nil,'stale','position_unavailable'
+    end
     if self.result then
         if self:_current(self.scope) then return clone(self.result),self.state end
         return nil,'stale','position_unavailable'

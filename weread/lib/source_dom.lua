@@ -177,25 +177,34 @@ local function final_text(index)
     fail('chapter_end_limit')
 end
 
-function M.open(document,book_id,uid,options)
+local function open_index(document,book_id,uid,options,metadata)
     return protected(function()
         local self = setmetatable({ document=document, options=options or {}, book_id=tostring(book_id),
             stats={steps=0,checkpoints=1} },Index)
         self:_check()
         -- This pins the current open archive, never a pathname or library record.
-        local source = Source.read_document(document,book_id,uid)
+        local source
+        if metadata then
+            local snapshot = Source.document_metadata(document,book_id,uid)
+            if snapshot and snapshot.metadata == metadata then source = snapshot.record end
+        else source = Source.read_document(document,book_id,uid) end
         if not source then fail('source_unavailable') end
         self.file_id,self.chapter_uid,self.render_path=source.file_id,source.chapter_uid,source.render_path
         self:_check()
         if source.format ~= 'web_xhtml' then fail('format_unsupported') end
-        self.map = Coordinates.build(source.raw)
-        if not self.map then fail("source_unsupported") end
+        if not metadata then
+            self.map = Coordinates.build(source.raw)
+            if not self.map then fail("source_unsupported") end
+        end
         local ordinal,total=spine(document,source.render_path)
         self.root=document:getNormalizedXPointer('/body/DocFragment[' .. ordinal .. ']')
         if type(self.root) ~= 'string' or fragment(self.root) ~= self.root then fail('chapter_unavailable') end
         -- Ordinal lookup is only a candidate. Verify CREngine's actual Source
         -- attribute against the archive-bound rendered member, ignoring titles.
-        do
+        if metadata then
+            local member = M.member(document,self.root .. '.0')
+            if not member or member.root ~= self.root or member.render_path ~= source.render_path then fail('chapter_mismatch') end
+        else
             local html = document:getHTMLFromXPointer(self.root,0,false)
             if type(html) ~= 'string' or #html > M.MAX_TEXT_BYTES*2 then fail('text_limit') end
             local header = html:match('^<DocFragment%s+([^>]+)>')
@@ -219,6 +228,18 @@ function M.open(document,book_id,uid,options)
         self:_check()
         return self
     end)
+end
+
+function M.open(document,book_id,uid,options)
+    return open_index(document,book_id,uid,options)
+end
+
+-- The original member bytes and both hashes were checked in the independent
+-- worker. This path only rechecks pinned metadata and builds the native index.
+function M.open_prepared(document,book_id,metadata,options)
+    local record = Source.decode_metadata(metadata)
+    if not record or record.book_id ~= tostring(book_id) then return nil, 'source_dom/source_unavailable' end
+    return open_index(document,book_id,record.chapter_uid,options,metadata)
 end
 
 local function copy(point) return {ptr=point.ptr,flat=point.flat,xp=point.xp} end
@@ -269,13 +290,28 @@ function Index:_protected(task)
 end
 
 function Index:locate(co)
+    local active,reason=protected(function() self:_check();return true end)
+    if not active then return nil,reason end
+    if not self.map then return nil,'source_dom/source_unavailable' end
+    local anchor,err=self.map:anchor(co)
+    if not anchor then
+        return nil,err == 'source_coordinates/offset_ambiguous' and 'source_dom/source_ambiguous' or 'source_dom/source_offset_unavailable'
+    end
+    return self:locate_anchor(anchor)
+end
+
+function Index:locate_anchor(anchor)
     return self:_protected(function()
         self:_check()
-        local anchor,err=self.map:anchor(co)
-        if not anchor then
-            if err == 'source_coordinates/offset_ambiguous' then fail('source_ambiguous') end
-            fail('source_offset_unavailable')
+        if type(anchor) ~= 'table' or type(anchor.text) ~= 'string' or #anchor.text > Coordinates.MAX_ANCHOR_BYTES
+            or anchor.basis ~= 'filtered_xhtml_utf16' or anchor.point_unit ~= 'unicode_scalars'
+            or type(anchor.co) ~= 'number' or anchor.co < 0 or anchor.co % 1 ~= 0 or anchor.co > Coordinates.MAX_BYTES*8
+            or type(anchor.point_offset) ~= 'number' or anchor.point_offset < 0 or anchor.point_offset % 1 ~= 0 then
+            fail('invalid_anchor')
         end
+        local text, count=normalize(anchor.text)
+        if text ~= anchor.text or count < 12 or anchor.point_offset > count then fail('invalid_anchor') end
+        local co=anchor.co
         local first,last=self.flat:find(anchor.text,1,true)
         if not first then fail('anchor_missing') end
         if self.flat:find(anchor.text,first+1,true) then fail('anchor_ambiguous') end
@@ -294,6 +330,7 @@ function Index:locate(co)
 end
 
 function Index:capture(xpointer)
+    if not self.map then return nil,'source_dom/source_unavailable' end
     return self:_protected(function()
         self:_check()
         local xp=self.document:getNormalizedXPointer(xpointer)

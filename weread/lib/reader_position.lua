@@ -102,4 +102,18 @@ function Position.goto_fraction(ui, value)
     return true
 end
 
+function Position.goto_xpointer(ui, xpointer)
+    if not ui or type(xpointer) ~= 'string' or xpointer == '' or #xpointer > 4096 then return false end
+    local ok, handled = pcall(function()
+        if ui.rolling and type(ui.rolling.onGotoXPointer) == 'function' then
+            return ui.rolling:onGotoXPointer(xpointer) ~= false
+        end
+        if type(ui.handleEvent) == 'function' then
+            return ui:handleEvent(require('ui/event'):new('GotoXPointer',xpointer)) == true
+        end
+        return false
+    end)
+    return ok and handled == true
+end
+
 return Position

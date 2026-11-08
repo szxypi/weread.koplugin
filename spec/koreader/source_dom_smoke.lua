@@ -62,6 +62,12 @@ local doc=reader.document
 local final_page_xp=assert(doc:getPageXPointer(doc:getPageCount()))
 local final_page_node=doc:getTextFromXPointer(final_page_xp)
 assert(not final_page_node or Dom.normalize(final_page_node)=='','last page is not image-only')
+reader.rolling:onGotoPage(doc:getPageCount())
+local Context=require('weread.lib.source_context')
+local image_context=Context.capture(doc,'900001',assert(Context.location(doc,reader.view.view_mode)),
+    {viewport_height=reader.weread.progress_sync.get_viewport_height()})
+assert(image_context.error=='no_visible_text','image-only viewport selected text from another page')
+reader.rolling:onGotoPage(1)
 local original=doc:getXPointer()
 local map=assert(Coordinates.build(raw))
 local point=assert(map:locate('跨段唯一目标从这里开始，这是下一段的完整正文用于定位。'))

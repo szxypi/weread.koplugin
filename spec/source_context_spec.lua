@@ -69,6 +69,16 @@ expect(not Context.same_location(located,loc),'view mode did not invalidate fram
 expect(not Context.same_location(located,{page=2,pos=0,xpointer=located.xpointer,view_mode='scroll'}),'page change ignored')
 local image_location={xpointer='/body/DocFragment[1]/body/p/img.0'}
 expect(Context.capture(doc,'synthetic',image_location).error=='no_visible_text','image was treated as text')
+local top,top_xp=fixture(text,0)
+local structural='/body/DocFragment[1]/body.0'
+local native_next=top.getNextVisibleChar
+top.getNextVisibleChar=function(self,point) return point==structural and top_xp(0) or native_next(self,point) end
+top.getPosFromXPointer=function() return 0 end
+local first=Context.capture(top,'synthetic',{xpointer=structural,view_mode='scroll'},{viewport_height=600})
+expect(first.point_offset==0 and first.chapter_uid=='11','scroll structural boundary did not resolve to visible first text')
+top.getPosFromXPointer=function() return 600 end
+expect(Context.capture(top,'synthetic',{xpointer=structural,view_mode='scroll'},{viewport_height=600}).error=='no_visible_text',
+    'structural boundary selected text below the viewport')
 local long=string.rep('abcdefghijklm',60)
 local long_doc=fixture(long,300)
 local current=true

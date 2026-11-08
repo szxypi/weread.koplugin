@@ -135,6 +135,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    if self.source_navigation then self.source_navigation:cancel() end
     if self.source_position then self.source_position:on_account_changed() end
     if self.native_renewal then self.native_renewal:cancel() end
     if self.native_authorization then self.native_authorization:cancel() end

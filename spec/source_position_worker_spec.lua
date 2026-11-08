@@ -66,4 +66,20 @@ local txt_input=copy(input)
 txt_input.metadata=assert(Source.bind(txt,identity,path,Crypto.sha256_hex(rendered)))
 expect(Worker.capture(txt_input,function() error('TXT must not be parsed as XHTML') end).error=='source_unsupported',
     'TXT failure suggested re-downloading rather than unsupported mapping')
+local jump_input=copy(input);jump_input.target=copy(result.position)
+local prepared=Worker.prepare_target(jump_input,read)
+expect(prepared.position.chapter_offset==32 and prepared.request_id==9,'target preparation changed position or request')
+expect(prepared.anchor.co==32 and prepared.anchor.point_unit=='unicode_scalars' and #prepared.anchor.text<=8192,
+    'prepared anchor lost exact scalar point or exceeded memory-pipe bound')
+expect(not prepared.raw and not prepared.metadata and not prepared.position.text and not prepared.anchor.raw,
+    'target result included more than one bounded quote')
+for _,change in ipairs({{book_id='other'},{chapter_uid='22'},{file_id=string.rep('a',64)},
+    {book_version=8},{raw_sha256=string.rep('b',64)},{render_path='other.xhtml'},
+    {basis='catalog_words'},{upload_verified=true},{chapter_offset=21},{chapter_offset=0/0}}) do
+    local target_input=copy(jump_input);target_input.target=copy(jump_input.target)
+    for key,value in pairs(change) do target_input.target[key]=value end
+    expect(not Worker.prepare_target(target_input,function() return members end).position,'invalid/foreign source target was prepared')
+end
+expect(Worker.prepare_target(jump_input,function() error('private archive diagnostic') end).error=='position_unavailable',
+    'private target-preparation diagnostic escaped worker')
 print(('source_position_worker_spec: %d checks'):format(checks))

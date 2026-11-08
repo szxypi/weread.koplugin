@@ -1,6 +1,8 @@
 local PositionMapper = require("weread.lib.position_mapper")
 local Crypto = require("weread.lib.crypto")
 local ReaderPosition = require("weread.lib.reader_position")
+local Source = require("weread.lib.position_source")
+local SourceDom = require("weread.lib.source_dom")
 
 local logger = require("weread.lib.logger").scoped("ProgressSync")
 
@@ -64,6 +66,7 @@ function ProgressSync:new(options)
         get_view_mode = options.get_view_mode,
         get_viewport_height = options.get_viewport_height,
         get_navigation_xpointer = options.get_navigation_xpointer,
+        on_before_navigate = options.on_before_navigate,
         detect_book = options.detect_book,
         get_book = options.get_book,
         get_chapters = options.get_chapters,
@@ -132,7 +135,7 @@ function ProgressSync:on_account_changed()
     self:_invalidate_pull()
     self.upload_job, self.uploading = nil, false
     self.pending_jump, self.document_context = nil, nil
-    self.remote_anchor = nil
+    self.remote_anchor, self.source_anchor = nil, nil
     self._suspend_pending_upload = nil
     self.current_book_id, self.local_position, self.remote_position = nil, nil, nil
     self.verified, self.dirty, self.state = false, false, "unverified"
@@ -197,26 +200,27 @@ function ProgressSync:_retain_target(context, target)
         xpointer = frame.xpointer, navigation_marker = self:_navigation_marker(), position = position }
 end
 
-function ProgressSync:_settle_reflow(anchor)
+function ProgressSync:_settle_reflow(anchor, slot)
+    slot = slot or "remote_anchor"
     if anchor.reflow_pending then return end
     anchor.reflow_pending = true
     local previous, samples, tick = nil, 0
     tick = function()
-        if self.remote_anchor ~= anchor then return end
+        if self[slot] ~= anchor then return end
         if self.suspended_at then anchor.reflow_pending = nil; return end
         local document = self.get_document()
         local frame = self:_viewport(document)
         samples = samples + 1
         if document ~= anchor.document or not self:_session_current(anchor.scope)
             or self:_navigation_marker() ~= anchor.navigation_marker then
-            self.remote_anchor = nil
+            self[slot] = nil
         elseif not ReaderPosition.contains_anchor(document, frame, anchor.xpointer) then
-            self:_unverify_target_layout()
+            self:_unverify_target_layout(slot)
         elseif previous and ReaderPosition.same_view(previous, frame)
             and not ReaderPosition.layout_changed(previous, frame) then
             anchor.frame, anchor.reflow_pending = frame, nil
         elseif samples >= 4 then
-            self:_unverify_target_layout()
+            self:_unverify_target_layout(slot)
         else
             previous = frame
             self.scheduler:scheduleIn(0.1, tick)
@@ -230,38 +234,81 @@ function ProgressSync:_settle_reflow(anchor)
     self.scheduler:scheduleIn(0.1, tick)
 end
 
-function ProgressSync:_unverify_target_layout()
-    self.remote_anchor = nil
+function ProgressSync:_unverify_target_layout(slot)
+    slot = slot or "remote_anchor"
+    self[slot] = nil
     self:_clear_verified("target_layout_unverified")
     self.state = "unverified"
 end
 
-function ProgressSync:_retained_target(document)
-    local anchor = self.remote_anchor
+function ProgressSync:_retained_target(document, slot)
+    slot = slot or "remote_anchor"
+    local anchor = self[slot]
     if not anchor then return nil end
     local frame = self:_viewport(document)
     if anchor.document ~= document or not self:_session_current(anchor.scope) or not frame then
-        self.remote_anchor = nil
+        self[slot] = nil
         return nil
     end
     if anchor.navigation_marker and self:_navigation_marker() ~= anchor.navigation_marker then
-        self.remote_anchor = nil
+        self[slot] = nil
         return nil
     end
     if not ReaderPosition.same_view(anchor.frame, frame) then
         if not (ReaderPosition.layout_changed(anchor.frame, frame) or anchor.reflow_pending) then
-            self.remote_anchor = nil
+            self[slot] = nil
             return nil
         end
         if not ReaderPosition.contains_anchor(document, frame, anchor.xpointer) then
-            self:_unverify_target_layout()
+            self:_unverify_target_layout(slot)
             return nil
         end
     end
     if anchor.navigation_marker and ReaderPosition.layout_changed(anchor.frame, frame) then
-        self:_settle_reflow(anchor)
+        self:_settle_reflow(anchor, slot)
     elseif not anchor.reflow_pending then anchor.frame = frame end
     return anchor.position
+end
+
+-- Only a target already tied to this exact EPUB may be pinned. This does not
+-- interpret cloud payloads, change outer progress units, or grant upload rights.
+function ProgressSync:retain_source_target(position, xpointer, metadata)
+    if type(position) ~= "table" or position.basis ~= "filtered_xhtml_utf16" or position.upload_verified ~= false
+        or type(position.chapter_offset) ~= "number" or position.chapter_offset < 0
+        or position.chapter_offset % 1 ~= 0 or position.chapter_offset > Source.MAX_BYTES * 8 then return false end
+    local document = self.get_document()
+    local book_id = tostring(self.detect_book() or "")
+    local snapshot = Source.document_metadata(document, book_id, position.chapter_uid, position.render_path)
+    if not snapshot or snapshot.metadata ~= metadata then return false end
+    for _, key in ipairs({"book_id", "chapter_uid", "file_id", "book_version", "raw_sha256", "render_path"}) do
+        if position[key] ~= snapshot.record[key] then return false end
+    end
+    local member = SourceDom.member(document, xpointer)
+    local frame = self:_viewport(document)
+    if not member or member.render_path ~= position.render_path
+        or not ReaderPosition.contains_anchor(document, frame, member.xpointer) then return false end
+    local accepted = { retained_source_target = true, basis = "filtered_xhtml_utf16", upload_verified = false }
+    for _, key in ipairs({"book_id", "chapter_uid", "chapter_offset", "file_id", "book_version", "raw_sha256", "render_path"}) do
+        accepted[key] = position[key]
+    end
+    if type(position.chapter_title) == "string" and #position.chapter_title <= 512 and not position.chapter_title:find("[%z%c]") then
+        accepted.chapter_title = position.chapter_title
+    end
+    self.source_anchor = { document = document, scope = self:_scope(), frame = frame, xpointer = member.xpointer,
+        navigation_marker = self:_navigation_marker(), position = accepted, metadata = metadata }
+    self.remote_anchor = nil
+    return true
+end
+
+function ProgressSync:current_source_target()
+    if self.suspended_at then return nil end
+    local anchor = self.source_anchor
+    if anchor then
+        local snapshot = Source.document_metadata(self.get_document(), anchor.position.book_id,
+            anchor.position.chapter_uid, anchor.position.render_path)
+        if not snapshot or snapshot.metadata ~= anchor.metadata then self.source_anchor = nil; return nil end
+    end
+    return copy(self:_retained_target(self.get_document(), "source_anchor"))
 end
 
 function ProgressSync:capture_local()
@@ -438,11 +485,15 @@ function ProgressSync:_apply_remote(remote, context, options)
         }
     )
     if not target then return false, reason end
+    if self.on_before_navigate then
+        local ready = pcall(self.on_before_navigate)
+        if not ready then return false, "jump_failed" end
+    end
 
     -- A cloud-position choice supersedes unsent local intent for this book.
     -- A task already waiting for the reporter must not undo that choice later.
     self:_discard_pending_upload(context.book_id)
-    self.remote_anchor = nil
+    self.remote_anchor, self.source_anchor = nil, nil
 
     if target.requires_chapter_open then
         self:_clear_verified("switching_chapter")
@@ -856,6 +907,10 @@ function ProgressSync:_apply_pending_jump(book_id)
         return false
     end
     self.pending_jump = nil
+    if self.on_before_navigate then
+        local ready = pcall(self.on_before_navigate)
+        if not ready then self.state = "error"; self.notify("jump_failed", {}); return true end
+    end
     local ok, err = self.goto_fraction(pending.fraction)
     if not ok then
         self.state = "error"
@@ -897,7 +952,7 @@ function ProgressSync:cancel_pending_jump(reason)
 end
 
 function ProgressSync:on_reader_ready()
-    self.remote_anchor = nil
+    self.remote_anchor, self.source_anchor = nil, nil
     self.generation = self.generation + 1
     self:_invalidate_pull()
     if self.upload_job and self.upload_job.book_id == tostring(self.detect_book() or "") then
@@ -974,13 +1029,15 @@ function ProgressSync:on_close_document(source_position)
     self.local_position = nil
     self.remote_position = nil
     self.document_context = nil
-    self.remote_anchor = nil
+    self.remote_anchor, self.source_anchor = nil, nil
 end
 
 function ProgressSync:on_suspend(source_position)
     local position = self:capture_local() or self.local_position
     self.generation = self.generation + 1
-    if self.remote_anchor then self.remote_anchor.scope.generation = self.generation end
+    for _, slot in ipairs({"remote_anchor", "source_anchor"}) do
+        if self[slot] then self[slot].scope.generation = self.generation end
+    end
     self:_invalidate_pull()
     self._suspend_pending_upload = self.uploading == true
     self.upload_job, self.uploading = nil, false

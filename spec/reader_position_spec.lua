@@ -87,4 +87,12 @@ eq(Position.contains_anchor(frame_doc, scroll, "point"), false, "unsupported nat
 frame_doc.getXPointer = function() return string.rep("x", 4097) end
 eq(Position.snapshot(frame_doc).xpointer, nil, "oversized native pointer is not retained")
 eq(Position.snapshot({}), nil, "missing native viewport cannot anchor a target")
+local native_target
+eq(Position.goto_xpointer({ rolling = { onGotoXPointer = function(_self, xp) native_target = xp;return true end } }, "point"),
+    true, "native XPointer navigation handled")
+eq(native_target, "point", "native target passed without percentage conversion")
+eq(Position.goto_xpointer({ handleEvent = function(_self, event) return event.name == "GotoXPointer" end }, "point"),
+    true, "XPointer event fallback handled")
+eq(Position.goto_xpointer({ handleEvent = function() return false end }, "point"), false, "unhandled XPointer event rejected")
+eq(Position.goto_xpointer({}, string.rep("x", 4097)), false, "oversized XPointer rejected")
 print("reader_position_spec: " .. checks .. " checks")

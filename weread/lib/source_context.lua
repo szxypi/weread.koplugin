@@ -2,6 +2,7 @@
 -- leave this module; the expensive source validation/indexing belongs in a worker.
 local Dom = require('weread.lib.source_dom')
 local Source = require('weread.lib.position_source')
+local ReaderPosition = require('weread.lib.reader_position')
 local M = { WIDTH=192, MAX_CONTEXT_BYTES=8192 }
 local function finite(value)
     return type(value)=='number' and value==value and value>=0 and value<1e15
@@ -42,7 +43,21 @@ function M.capture(document,book_id,location,options)
     local ok,result=pcall(function()
         check()
         local xp=location.xpointer
-        if not xp:find('/text()',1,true) then return {error='no_visible_text'} end
+        if not xp:find('/text()',1,true) then
+            -- At the top of scroll mode CREngine may report a structural
+            -- boundary instead of its first text node. Resolve only into text
+            -- that is actually inside this viewport, never past an image page.
+            if xp:find('/img',1,true) then return {error='no_visible_text'} end
+            local next_point=document:getNextVisibleChar(xp)
+            local frame=ReaderPosition.snapshot(document,location.view_mode,options.viewport_height)
+            if type(next_point)~='string' or not next_point:find('/text()',1,true)
+                or not ReaderPosition.contains_anchor(document,frame,next_point) then return {error='no_visible_text'} end
+            local previous=document:getPrevVisibleChar(next_point)
+            if previous and previous:find('/text()',1,true) and Dom.fragment(previous)==Dom.fragment(next_point)
+                and document.compareXPointers and document:compareXPointers(xp,previous)==1
+                and ReaderPosition.contains_anchor(document,frame,previous) then next_point=previous end
+            xp=next_point
+        end
         -- Validate one adjacent scalar without copying the whole native text
         -- node. A stale/out-of-bounds bookmark must not become a chapter-end co.
         local node,offset=xp:match('^(.-)%.(%d+)$')
