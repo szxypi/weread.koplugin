@@ -134,10 +134,71 @@ class ShelfWriteTests(unittest.TestCase):
         report = json.loads(output.getvalue())
         self.assertEqual(report["data_writes_attempted"], 0)
         self.assertEqual(report["network_requests"], 0)
-        with patch("sys.argv", ["verify_eink_shelf_write.py", "--apply"]), redirect_stderr(io.StringIO()):
-            with self.assertRaises(SystemExit) as invalid:
-                main()
-        self.assertNotEqual(invalid.exception.code, 0)
+        for arguments in (["--apply"], ["--roundtrip"],
+                          ["--interactive", "--roundtrip", "--operation", "remove", "--book-id", "private-book"]):
+            with patch("sys.argv", ["verify_eink_shelf_write.py", *arguments]), redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as invalid:
+                    main()
+            self.assertNotEqual(invalid.exception.code, 0)
+
+    def test_confirmed_roundtrip_two_posts_and_original_members_restored(self):
+        before, after = shelf("existing"), shelf("existing", "private-book")
+        probe, opener = self.probe([before, before, dict(succ=1), after,
+                                    after, after, dict(succ=1), before])
+        plan = probe.prepare(credentials(), "add", "private-book")
+        probe.apply_roundtrip(credentials(), plan, confirmed=True)
+        self.assertTrue(probe.report["roundtrip_verified"])
+        self.assertEqual(probe.report["data_writes_attempted"], 2)
+        self.assertEqual([step["operation"] for step in probe.report["operations"]], ["add", "remove"])
+        posts = [req for req in opener.requests if req.get_method() == "POST"]
+        self.assertEqual([req.full_url.rsplit("/", 1)[1] for req in posts], ["add", "delete"])
+        self.assertTrue(all(json.loads(req.data) == dict(bookIds=["private-book"]) for req in posts))
+        for private in ("private-book", "existing", "Private book title", credentials()["refreshToken"]):
+            self.assertNotIn(private, json.dumps(probe.report))
+
+    def test_roundtrip_existing_or_concurrently_added_target_is_never_removed(self):
+        for responses in ([shelf("private-book")], [shelf(), shelf("private-book")]):
+            probe, opener = self.probe(responses)
+            plan = probe.prepare(credentials(), "add", "private-book")
+            probe.apply_roundtrip(credentials(), plan, confirmed=True)
+            self.assertEqual(probe.report["result"], "NOOP")
+            self.assertFalse(probe.report["roundtrip_verified"])
+            self.assertTrue(all(req.get_method() == "GET" for req in opener.requests))
+
+    def test_roundtrip_unknown_add_receipt_never_dispatches_remove(self):
+        probe, opener = self.probe([shelf(), shelf(), TimeoutError(), shelf("private-book")])
+        plan = probe.prepare(credentials(), "add", "private-book")
+        probe.apply_roundtrip(credentials(), plan, confirmed=True)
+        self.assertEqual(probe.report["result"], "PARTIAL")
+        self.assertFalse(probe.report["roundtrip_verified"])
+        self.assertEqual(sum(req.get_method() == "POST" for req in opener.requests), 1)
+
+    def test_roundtrip_changed_members_or_remove_receipt_cannot_claim_restoration(self):
+        after = shelf("private-book")
+        for tail in ([shelf("private-book", "other")], [after, after, TimeoutError(), shelf()]):
+            probe, opener = self.probe([shelf(), shelf(), dict(succ=1), after, *tail])
+            plan = probe.prepare(credentials(), "add", "private-book")
+            if len(tail) == 1:
+                with self.assertRaises(ProbeError):
+                    probe.apply_roundtrip(credentials(), plan, confirmed=True)
+                self.assertEqual(sum(req.get_method() == "POST" for req in opener.requests), 1)
+            else:
+                probe.apply_roundtrip(credentials(), plan, confirmed=True)
+                self.assertEqual(probe.report["result"], "PARTIAL")
+                self.assertEqual(sum(req.get_method() == "POST" for req in opener.requests), 2)
+            self.assertFalse(probe.report["roundtrip_verified"])
+
+    def test_roundtrip_requires_exact_add_plan_and_confirmation(self):
+        probe, opener = self.probe([shelf(), shelf("private-book")])
+        plan = probe.prepare(credentials(), "add", "private-book")
+        with self.assertRaises(ProbeError):
+            probe.apply_roundtrip(credentials(), plan)
+        removal = probe.prepare(credentials(), "remove", "private-book")
+        for candidate in (plan, removal):
+            with self.assertRaises(ProbeError):
+                probe.apply_roundtrip(credentials(), candidate, confirmed=True)
+        self.assertEqual(probe.report["data_writes_attempted"], 0)
+        self.assertTrue(all(req.get_method() == "GET" for req in opener.requests))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,8 @@ using a fresh owner QR. Applying additionally requires --apply and an exact
 --confirm-book-id match. The assistant must obtain authorization for that
 specific cloud change before invoking apply. A possibly sent POST is never
 replayed, and no automatic rollback is attempted. Credentials stay in memory.
+--roundtrip explicitly selects an add/readback/remove/readback test; it stops
+if the target was already present, either receipt is unknown, or members change.
 
 Reference: MiuRead c1893562aa25a870b8dd076d7be062a3348f823e,
 miuread/eink_client.lua (AGPL-3.0-only, MiuRead contributors).
@@ -163,6 +165,38 @@ class ShelfWriteProbe(NativeProbe):
                            acknowledgement_recognized=accepted, desired_state_observed=observed,
                            unrelated_membership_changes=unrelated_changes, write_verified=verified)
 
+    def apply_roundtrip(self, credentials, plan, *, confirmed=False):
+        """Two explicitly authorized operations; never remove a pre-existing book."""
+        validate_credentials(credentials)
+        if (confirmed is not True or plan is not self.plan or not isinstance(plan, Plan)
+                or plan.operation != "add" or plan.owner != credentials["vid"]):
+            raise ProbeError("roundtrip: exact add preview and both-operation confirmation required")
+        self.report.update(roundtrip=True, roundtrip_verified=False, operations=[])
+        if plan.before:
+            self.plan = None
+            self.report.update(result="NOOP", target_already_present=True)
+            return
+
+        def remember(operation):
+            self.report["operations"].append(dict(operation=operation, **{
+                key: self.report.get(key) for key in ("result", "acknowledgement_recognized",
+                                                     "desired_state_observed", "write_verified")}))
+
+        self.apply(credentials, plan, confirmed=True)
+        remember("add")
+        # A concurrent add is NOOP; an uncertain receipt is PARTIAL. Neither
+        # proves that our add succeeded, so neither authorizes the second step.
+        if self.report["result"] != "PASS":
+            return
+        self.report["result"] = "PARTIAL"
+        removal = self.prepare(credentials, "remove", plan.identity)
+        if not removal.before or set(removal.members) != set(plan.members) | {plan.identity}:
+            self.plan = None
+            raise ProbeError("roundtrip: shelf changed after verified addition")
+        self.apply(credentials, removal, confirmed=True)
+        remember("remove")
+        self.report["roundtrip_verified"] = self.report["result"] == "PASS"
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -170,6 +204,7 @@ def main():
     parser.add_argument("--operation", choices=tuple(OPERATIONS))
     parser.add_argument("--book-id", help="one explicitly selected ordinary WeRead book")
     parser.add_argument("--apply", action="store_true", help="apply the specifically authorized operation once")
+    parser.add_argument("--roundtrip", action="store_true", help="explicit add/readback/remove/readback test; requires operation add")
     parser.add_argument("--confirm-book-id", help="must exactly match --book-id when applying")
     parser.add_argument("--output", type=Path, help="new metadata-only report; no IDs, titles or credentials")
     args = parser.parse_args()
@@ -177,6 +212,8 @@ def main():
         parser.error("interactive preview needs --operation and an ordinary --book-id")
     if args.apply and (not args.interactive or not args.book_id or args.confirm_book_id != args.book_id):
         parser.error("apply needs interactive mode and an exact --confirm-book-id match")
+    if args.roundtrip and (not args.interactive or args.operation != "add"):
+        parser.error("roundtrip needs an interactive add preview")
     if args.output and args.output.exists():
         parser.error("output already exists")
     probe = ShelfWriteProbe()
@@ -200,8 +237,13 @@ def main():
                 print("请扫码确认所选书籍的操作；未指定 --apply 时只生成预览。凭据不保存。", flush=True)
                 credentials, shelf = probe.finish(probe.wait_for_code(uid))
                 plan = probe.prepare(credentials, args.operation, args.book_id)
+                if args.roundtrip:
+                    probe.report.update(roundtrip=True, target_already_present=plan.before)
                 if args.apply:
-                    probe.apply(credentials, plan, confirmed=True)
+                    if args.roundtrip:
+                        probe.apply_roundtrip(credentials, plan, confirmed=True)
+                    else:
+                        probe.apply(credentials, plan, confirmed=True)
     except ProbeError as exc:
         probe.report.update(result="UNVERIFIED", reason=str(exc))
     except KeyboardInterrupt:
