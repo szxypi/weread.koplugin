@@ -220,11 +220,12 @@ function PositionMapper.remote_to_local(chapters, remote, options)
     local raw_percent = clamp(remote.percent, 0, 100) / 100
     local overall_fraction = raw_percent
     local chapter_fraction
+    local offset
 
     local has_offset = remote.has_chapter_offset ~= false
         and remote.chapter_offset ~= nil
     if target and has_offset and target.words > 0 then
-        local offset = clamp(remote.chapter_offset, 0, target.words)
+        offset = clamp(remote.chapter_offset, 0, target.words)
         chapter_fraction = offset / target.words
         if map.total_words > 0 then
             overall_fraction = (target.before + offset) / map.total_words
@@ -236,6 +237,8 @@ function PositionMapper.remote_to_local(chapters, remote, options)
             fraction = clamp(overall_fraction, 0, 1),
             overall_fraction = clamp(overall_fraction, 0, 1),
             chapter = target and target.source or nil,
+            chapter_offset = offset,
+            chapter_fraction = chapter_fraction,
             requires_chapter_open = false,
         }
     end
@@ -253,6 +256,8 @@ function PositionMapper.remote_to_local(chapters, remote, options)
         fraction = clamp(chapter_fraction, 0, 1),
         overall_fraction = clamp(overall_fraction, 0, 1),
         chapter = target.source,
+        chapter_offset = offset,
+        chapter_fraction = chapter_fraction,
         same_chapter = same_chapter,
         requires_chapter_open = not same_chapter,
     }

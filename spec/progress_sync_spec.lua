@@ -96,6 +96,8 @@ local function fixture(remote, options)
         get_footer = options.get_footer,
         get_source_position = options.get_source_position,
         get_view_mode = options.get_view_mode,
+        get_viewport_height = options.get_viewport_height,
+        get_navigation_xpointer = options.get_navigation_xpointer,
         detect_book = function() return "book" end,
         get_book = function() return book end,
         get_chapters = options.get_chapters or function() return chapters end,
@@ -911,6 +913,195 @@ test("local source coordinates remain separate from the existing wire units", fu
     eq(f.sync.dirty, false, "preparation did not create upload intent")
     f.sync:on_source_position_changed("waiting", nil)
     eq(f.sync.local_position.source_position, nil, "page invalidation cleared source snapshot")
+end)
+
+test("selected cloud target survives page rounding until actual navigation", function()
+    local f = fixture({})
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_idx = 2,
+        chapter_offset = 154, percent = 25.4, has_chapter_offset = true }, context))
+    eq(f.document.page, 25, "target is on the current native page")
+    local retained = assert(f.sync:capture_local())
+    eq(retained.chapter_offset, 154, "page origin did not replace selected target")
+    eq(retained.viewport_fraction, 0.25, "actual viewport remains distinguishable from retained target")
+    eq(retained.retained_remote_target, true, "retained target is explicit")
+    f.sync:on_page_update()
+    f.drain()
+    eq(f.sync.local_position.chapter_offset, 154, "redraw and delayed capture retained target")
+    eq(f.sync.dirty, false, "redraw did not create upload intent")
+    eq(assert(f.sync:position_for_report("book")).chapter_offset, 154, "report uses selected target")
+    f.document.page = 26
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 160, "real navigation resumes live capture")
+    eq(f.sync.dirty, true, "real movement is uploadable under existing gate")
+    f.document.page = 25
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 150, "returning to the page cannot revive an old target")
+end)
+
+test("retention preserves exact offsets and the selected chapter at a boundary", function()
+    local f = fixture({}, { get_chapters = function()
+        return { { chapterUid = 11, chapterIdx = 1, wordCount = 101 },
+            { chapterUid = 22, chapterIdx = 2, wordCount = 301 },
+            { chapterUid = 33, chapterIdx = 3, wordCount = 5 } }
+    end })
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    for _, offset in ipairs({ 4, 9, 14, 19, 301 }) do
+        assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = offset, percent = 25 }, context))
+        local retained = assert(f.sync:capture_local())
+        eq(retained.chapter_uid, 22, "retained source chapter is not inferred from percentage")
+        eq(retained.chapter_offset, offset, "known offset does not make a floating-point round trip")
+    end
+end)
+
+test("reflow retains a visible target but subsequent navigation never revives it", function()
+    local mode, layout, xp, visible, at = "page", 1, "original", true, 123
+    local f = fixture({}, { get_view_mode = function() return mode end })
+    f.document.getXPointer = function() return xp end
+    f.document.getDocumentRenderingHash = function() return layout end
+    f.document.getCurrentPos = function() return at end
+    f.document.getPosFromXPointer = function() return at end
+    f.document.info = { doc_height = 10000 }
+    f.document.isXPointerInCurrentPage = function() return visible end
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    layout, xp, f.document.page, at = 2, "reflowed", 30, 200
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 154, "visible native anchor survives reflow")
+    eq(f.sync.dirty, false, "reflow is not reading movement")
+    mode = "scroll"
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 154, "mode switch preserved the same native anchor")
+    at = at + 1
+    f.sync:on_page_update()
+    eq(f.sync.local_position.retained_remote_target, nil, "real scroll invalidates target even while anchor is visible")
+    mode, layout, xp, f.document.page, at = "page", 1, "original", 25, 123
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 150, "return to original layout does not revive target")
+
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    layout, xp, f.document.page, visible = 3, "unrelated", 40, false
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "reflow without visible anchor is not accepted")
+    eq(f.sync.verified, false, "unverified layout cannot report a guessed page-origin position")
+    f.sync:on_close_document()
+    f.drain()
+    eq(#f.uploads, 0, "unverified reflow cannot cause a reverse close upload")
+end)
+
+test("retained target is bound to document and account and survives short suspend", function()
+    local f = fixture({})
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.sync:on_suspend()
+    f.sync:on_resume()
+    eq(assert(f.sync:capture_local()).chapter_offset, 154, "short suspend without movement retains target")
+    f.values.account.user_vid = "fixture-other-owner"
+    eq(assert(f.sync:capture_local()).chapter_offset, 150, "changed account cannot retain old target")
+    f.values.account.user_vid = "fixture-account-a"
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "restored account cannot revive target")
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    local replacement = {}
+    for key, value in pairs(f.document) do replacement[key] = value end
+    f.sync.get_document = function() return replacement end
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "same-path document replacement invalidates target")
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(f.sync.remote_anchor, nil, "reader ready never inherits a prior target")
+end)
+
+test("layout settles once and an explicit native navigation marker cancels retention", function()
+    local layout, xp, marker, at = 1, "original", "original", 0
+    local f = fixture({}, {
+        get_navigation_xpointer = function() return marker end,
+        get_viewport_height = function() return 800 end,
+    })
+    f.document.getXPointer = function() return xp end
+    f.document.getDocumentRenderingHash = function() return layout end
+    f.document.getCurrentPos = function() return at end
+    f.document.isXPointerInCurrentPage = function() return true end
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.drain()
+    layout, xp, at, f.document.page = 2, "intermediate", 50, 30
+    f.sync:on_page_update()
+    xp, at = "settled", 60
+    f.sync:on_page_update()
+    eq(f.sync.local_position.chapter_offset, 154, "intermediate layout frame did not become reading movement")
+    eq(#f.queue, 1, "layout rebasing is coalesced")
+    f.step()
+    xp, at = "native-position-restored-on-draw", 70
+    eq(assert(f.sync:capture_local()).chapter_offset, 154, "post-draw native restoration retained target")
+    f.drain()
+    eq(f.sync.local_position.chapter_offset, 154, "settled layout retained target")
+    eq(f.sync.dirty, false, "intermediate frames did not mark progress dirty")
+    marker = "a-new-target-in-the-same-native-page"
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "same-page explicit jump cancels old target")
+
+    marker = "original"
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.drain()
+    layout, at = 3, 80
+    f.sync:on_page_update()
+    marker = "new-user-navigation-during-layout"
+    eq(assert(f.sync:capture_local()).retained_remote_target, nil, "user navigation during reflow cancels retention")
+    f.drain()
+    eq(f.sync.remote_anchor, nil, "late layout task cannot revive superseded anchor")
+
+    marker = "original"
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.drain()
+    layout, at = 4, 100
+    f.sync:on_page_update()
+    f.sync:on_suspend()
+    f.drain()
+    eq(f.sync.remote_anchor.reflow_pending, nil, "suspend stops layout sampling")
+    f.sync:on_resume()
+    eq(assert(f.sync:capture_local()).chapter_offset, 154, "resume can finish an interrupted layout")
+    f.drain()
+    layout = 5
+    f.sync:on_page_update()
+    for index = 1, 4 do
+        xp, at = "changing-" .. index, 100 + index * 10
+        f.step()
+    end
+    eq(f.sync.remote_anchor, nil, "never-stable layout has a bounded retry count")
+    eq(#f.queue, 0, "bounded layout work leaves no polling loop")
+    eq(f.sync.verified, false, "unstable layout requires position verification before reports")
+end)
+
+test("closing an unchanged selected cloud target does not upload its page origin", function()
+    local f = fixture({})
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+    f.sync:on_close_document()
+    f.drain()
+    eq(#f.uploads, 0, "cloud selection without reading movement does not write back")
+    eq(f.values.books.book.last_local_position.chapter_offset, 154, "persisted selection remains exact")
+    eq(f.sync.remote_anchor, nil, "close releases retained native anchor")
+end)
+
+test("chapter-file transitions retain their original offset after opening the target", function()
+    local catalog = { { chapterUid = 11, chapterIdx = 1, wordCount = 101 },
+        { chapterUid = 22, chapterIdx = 2, wordCount = 301 } }
+    local current = catalog[1]
+    local f = fixture({}, { get_chapters = function() return catalog end })
+    f.sync.get_file_context = function() return 1, current, false end
+    local before, _, context = f.sync:capture_local()
+    f.sync.local_position = before
+    assert(f.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 4, percent = 25 }, context))
+    eq(f.sync.pending_jump.chapter_offset, 4, "pending chapter stores exact selected offset")
+    current = catalog[2]
+    f.document.file = "/cache/book/chapter-two.epub"
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(assert(f.sync:capture_local()).chapter_offset, 4, "new chapter reader retained target offset")
+    eq(f.sync.local_position.retained_remote_target, true, "new chapter reader uses retained position")
 end)
 
 test("close keeps the final ready source snapshot after the source service stops", function()

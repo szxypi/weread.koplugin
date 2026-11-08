@@ -60,4 +60,31 @@ eq(Position.goto_fraction({ handleEvent = function(_self, event)
     return true
 end }, 0.503125), true, "event-only reader supported")
 eq(Position.goto_fraction({ handleEvent = function() end }, 0.5), false, "unhandled native event is not success")
+
+local frame_doc = {
+    getCurrentPage = function() return 2 end,
+    getCurrentPos = function() return 100 end,
+    getPageCount = function() return 20 end,
+    getXPointer = function() return "point" end,
+    getDocumentRenderingHash = function() return 123 end,
+    info = { doc_height = 5000 },
+    isXPointerInCurrentPage = function() return true end,
+    getPosFromXPointer = function() return 150 end,
+}
+local frame = assert(Position.snapshot(frame_doc, "page", 600))
+eq(frame.rendering_hash, 123, "native layout hash captured")
+eq(Position.same_view(frame, Position.snapshot(frame_doc, "page", 600)), true, "redraw is same viewport")
+eq(Position.contains_anchor(frame_doc, frame, "point"), true, "native page membership required")
+local scroll = assert(Position.snapshot(frame_doc, "scroll", 600))
+eq(Position.layout_changed(frame, scroll), true, "mode change is layout change")
+eq(Position.contains_anchor(frame_doc, scroll, "point"), true, "scroll anchor inside viewport accepted")
+frame_doc.getPosFromXPointer = function() return 700 end
+eq(Position.contains_anchor(frame_doc, scroll, "point"), false, "scroll anchor at bottom edge is outside")
+frame_doc.getPosFromXPointer = function() return 98 end
+eq(Position.contains_anchor(frame_doc, scroll, "point"), false, "scroll anchor above viewport is outside")
+frame_doc.getPosFromXPointer = function() error("unavailable") end
+eq(Position.contains_anchor(frame_doc, scroll, "point"), false, "unsupported native geometry is rejected")
+frame_doc.getXPointer = function() return string.rep("x", 4097) end
+eq(Position.snapshot(frame_doc).xpointer, nil, "oversized native pointer is not retained")
+eq(Position.snapshot({}), nil, "missing native viewport cannot anchor a target")
 print("reader_position_spec: " .. checks .. " checks")

@@ -34,6 +34,7 @@ local path = Content.save_book_epub(settings, book, chapters,
 book.cached_file, book.cached_chapters = path, { ["1"] = path, ["2"] = path }
 assert(Content.save_catalog_cache(require("weread.lib.client"):new(settings), settings, book, chapters))
 settings:set("books", { ["900001"] = book })
+settings:set("sync", { pull_on_open = false, upload_on_close = false })
 settings:flush()
 local UIManager = require("ui/uimanager")
 local reader = require("apps/reader/readerui"):new{
@@ -72,23 +73,66 @@ assert(math.abs(local_position.fraction - chosen / pages) < 1e-9, "capture reuse
 UIManager:forceRePaint()
 Device.screen:shot(evidence .. "/position-page.png")
 local page_result = { total_pages = pages, requested_fraction = fraction,
-    old_rounded_page = old_page, actual_page = chosen, captured_fraction = local_position.fraction }
+    old_rounded_page = old_page, actual_page = chosen, captured_fraction = local_position.fraction,
+    native_page_origin_offset = local_position.chapter_offset }
+-- Applying a cloud choice must retain its logical target inside a native page,
+-- rather than immediately reporting the page origin as an earlier position.
+local Mapper = require("weread.lib.position_mapper")
+local target = assert(Mapper.local_to_remote(chapters, fraction, { is_full_book = true }))
+target.has_chapter_offset, target.book_id = true, "900001"
+local _, _, context = plugin.progress_sync:capture_local()
+assert(plugin.progress_sync:_apply_remote(target, context))
+flush()
+local retained = assert(plugin.progress_sync:capture_local())
+assert(retained.chapter_uid == target.chapter_uid and retained.chapter_offset == target.chapter_offset,
+    "cloud target was replaced by rounded native page origin")
+assert(retained.retained_remote_target and retained.viewport_fraction < retained.fraction,
+    "fixture did not retain a mid-page target")
+local font_before = reader.font.configurable.font_size
+assert(reader:handleEvent(require("ui/event"):new("SetFontSize", font_before + 4)))
+flush()
+local reflowed = assert(plugin.progress_sync:capture_local())
+assert(document:getPageCount() ~= pages, "font change did not repaginate")
+assert(reflowed.retained_remote_target and reflowed.chapter_offset == target.chapter_offset,
+    "font reflow lost selected cloud target")
+page_result.retained_chapter_offset = target.chapter_offset
+page_result.retained_chapter_uid = target.chapter_uid
+page_result.retained_after_reflow = true
+page_result.pages_after_reflow = document:getPageCount()
 reader:handleEvent(require("ui/event"):new("SetViewMode", "scroll"))
 flush()
 assert(reader.view.view_mode == "scroll", "native scroll mode not set")
+assert(assert(plugin.progress_sync:capture_local()).chapter_offset == target.chapter_offset,
+    "mode switch lost retained target")
+local native_target = assert(plugin.progress_sync.remote_anchor.navigation_marker)
+local adjacent = assert(document:getNextVisibleChar(native_target))
+assert(reader:handleEvent(require("ui/event"):new("GotoXPointer", adjacent)))
+assert(not assert(plugin.progress_sync:capture_local()).retained_remote_target,
+    "same-page explicit jump retained an old target")
+assert(reader:handleEvent(require("ui/event"):new("GotoXPointer", native_target)))
+assert(not assert(plugin.progress_sync:capture_local()).retained_remote_target,
+    "returning to the original point revived an old target")
+assert(plugin.progress_sync:_apply_remote(target, context))
+assert(assert(plugin.progress_sync:capture_local()).retained_remote_target, "scroll target was not retained")
 local scroll_target = 0.503125
 assert(plugin.progress_sync.goto_fraction(scroll_target), "scroll jump failed")
+assert(plugin.progress_sync.dirty and not plugin.progress_sync.local_position.retained_remote_target,
+    "PosUpdate did not immediately record real scroll movement")
 local height, at = document.info.doc_height, document:getCurrentPos()
 assert(math.abs(at - height * scroll_target) <= 1, "scroll target was rounded to integer percent")
 reader.view.footer.percent_finished = 0.01
 local_position = assert(plugin.progress_sync:capture_local())
+assert(not local_position.retained_remote_target, "real scroll retained an old cloud target")
 assert(math.abs(local_position.fraction - at / height) < 1e-9, "scroll capture used stale footer/page position")
 UIManager:forceRePaint()
 Device.screen:shot(evidence .. "/position-scroll.png")
 local file = assert(io.open(evidence .. "/navigation.json", "w"))
 file:write(plugin.client:json_encode({ page = page_result, scroll = {
     requested_fraction = scroll_target, document_height = height, actual_position = at,
-    captured_fraction = local_position.fraction }, public_network_used = false }))
+    captured_fraction = local_position.fraction }, public_network_used = false,
+    cloud_target_retained = true, same_page_jump_invalidates = true, return_does_not_revive = true,
+    native_scroll_update = true, production_account_writes_attempted = 0,
+    precision_wire_sync_enabled = false }))
 file:close()
 print("PASS: native " .. pages .. "-page EPUB; integer rounding landed on " .. old_page
     .. ", fractional target landed on " .. chosen .. "; stale footer ignored in page/scroll modes")

@@ -40,6 +40,51 @@ function Position.fraction(document, footer, view_mode)
     if cached then return math.max(0, math.min(1, cached > 1 and cached / 100 or cached)) end
 end
 
+-- Small native viewport identity. A layout revision is distinct from moving
+-- the viewport, so a selected target can survive repagination without treating
+-- a later trip back to the same page as the original visit.
+function Position.snapshot(document, view_mode, viewport_height)
+    if not document then return nil end
+    local page, pos = read(document, "getCurrentPage"), read(document, "getCurrentPos")
+    if not page and not pos then return nil end
+    local function bounded(method)
+        if type(document[method]) ~= "function" then return nil end
+        local ok, value = pcall(document[method], document, true)
+        if not ok then return nil end
+        if type(value) == "string" and #value <= 4096 then return value end
+        if finite(value) then return value end
+    end
+    return { page = page, pos = pos, view_mode = view_mode or "page",
+        xpointer = bounded("getXPointer"), rendering_hash = bounded("getDocumentRenderingHash"),
+        pages = read(document, "getPageCount"), height = finite(document.info and document.info.doc_height),
+        viewport_height = finite(viewport_height) }
+end
+
+function Position.same_view(left, right)
+    return left and right and left.page == right.page and left.pos == right.pos
+        and left.view_mode == right.view_mode and left.xpointer == right.xpointer
+end
+
+function Position.layout_changed(left, right)
+    return left and right and (left.view_mode ~= right.view_mode
+        or (left.rendering_hash ~= nil and right.rendering_hash ~= nil and left.rendering_hash ~= right.rendering_hash)
+        or (left.pages ~= nil and right.pages ~= nil and left.pages ~= right.pages)
+        or (left.height ~= nil and right.height ~= nil and left.height ~= right.height))
+end
+
+function Position.contains_anchor(document, frame, xpointer)
+    if not document or not frame or type(xpointer) ~= "string" or xpointer == "" then return false end
+    local ok, visible = pcall(function()
+        if frame.view_mode == "scroll" then
+            local at = finite(document:getPosFromXPointer(xpointer))
+            if not at or not frame.pos then return false end
+            return at >= frame.pos - 1 and at < frame.pos + math.max(1, frame.viewport_height or 1)
+        end
+        return document:isXPointerInCurrentPage(xpointer) == true
+    end)
+    return ok and visible == true
+end
+
 function Position.goto_fraction(ui, value)
     local fraction = finite(value)
     if not fraction or not ui then return false, _("Could not navigate to the reading position.") end

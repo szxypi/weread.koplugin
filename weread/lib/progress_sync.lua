@@ -62,6 +62,8 @@ function ProgressSync:new(options)
         get_footer = options.get_footer,
         get_source_position = options.get_source_position,
         get_view_mode = options.get_view_mode,
+        get_viewport_height = options.get_viewport_height,
+        get_navigation_xpointer = options.get_navigation_xpointer,
         detect_book = options.detect_book,
         get_book = options.get_book,
         get_chapters = options.get_chapters,
@@ -130,6 +132,7 @@ function ProgressSync:on_account_changed()
     self:_invalidate_pull()
     self.upload_job, self.uploading = nil, false
     self.pending_jump, self.document_context = nil, nil
+    self.remote_anchor = nil
     self._suspend_pending_upload = nil
     self.current_book_id, self.local_position, self.remote_position = nil, nil, nil
     self.verified, self.dirty, self.state = false, false, "unverified"
@@ -158,6 +161,107 @@ function ProgressSync:_local_fraction()
     if not document then return nil end
     local footer = self.get_footer and self.get_footer()
     return ReaderPosition.fraction(document, footer, self.get_view_mode and self.get_view_mode())
+end
+
+function ProgressSync:_viewport(document)
+    return ReaderPosition.snapshot(document, self.get_view_mode and self.get_view_mode(),
+        self.get_viewport_height and self.get_viewport_height())
+end
+
+function ProgressSync:_navigation_marker()
+    if not self.get_navigation_xpointer then return nil end
+    local ok, marker = pcall(self.get_navigation_xpointer)
+    if ok and type(marker) == "string" and marker ~= "" and #marker <= 4096 then return marker end
+end
+
+function ProgressSync:_retain_target(context, target)
+    local document = self.get_document()
+    local frame = self:_viewport(document)
+    if not frame then return end
+    local position = PositionMapper.local_to_remote(context.chapters, target.fraction, {
+        catalog = self.document_context and self.document_context.position_catalog,
+        is_full_book = context.is_full_book,
+        current_chapter_uid = context.current_chapter
+            and (context.current_chapter.chapterUid or context.current_chapter.chapterId),
+        summary = context.book.summary or context.book.title or "",
+    })
+    if not position then return end
+    -- Do not round-trip a known chapter offset through a floating percentage:
+    -- that can lose one word, or select the next chapter at an exact boundary.
+    if target.chapter and target.chapter_offset ~= nil then
+        position.chapter_uid = target.chapter.chapterUid or target.chapter.chapterId or target.chapter.chapter_uid
+        position.chapter_idx = tonumber(target.chapter.chapterIdx or target.chapter.chapterIndex or target.chapter.chapter_idx) or 0
+        position.chapter_offset, position.chapter_fraction = target.chapter_offset, target.chapter_fraction
+    end
+    self.remote_anchor = { document = document, scope = self:_scope(), frame = frame,
+        xpointer = frame.xpointer, navigation_marker = self:_navigation_marker(), position = position }
+end
+
+function ProgressSync:_settle_reflow(anchor)
+    if anchor.reflow_pending then return end
+    anchor.reflow_pending = true
+    local previous, samples, tick = nil, 0
+    tick = function()
+        if self.remote_anchor ~= anchor then return end
+        if self.suspended_at then anchor.reflow_pending = nil; return end
+        local document = self.get_document()
+        local frame = self:_viewport(document)
+        samples = samples + 1
+        if document ~= anchor.document or not self:_session_current(anchor.scope)
+            or self:_navigation_marker() ~= anchor.navigation_marker then
+            self.remote_anchor = nil
+        elseif not ReaderPosition.contains_anchor(document, frame, anchor.xpointer) then
+            self:_unverify_target_layout()
+        elseif previous and ReaderPosition.same_view(previous, frame)
+            and not ReaderPosition.layout_changed(previous, frame) then
+            anchor.frame, anchor.reflow_pending = frame, nil
+        elseif samples >= 4 then
+            self:_unverify_target_layout()
+        else
+            previous = frame
+            self.scheduler:scheduleIn(0.1, tick)
+            return
+        end
+        -- Native layout can emit several intermediate PageUpdate/PosUpdate
+        -- events and restore the native position during the subsequent draw.
+        -- Two stable observations become the next movement baseline.
+        self:on_page_update()
+    end
+    self.scheduler:scheduleIn(0.1, tick)
+end
+
+function ProgressSync:_unverify_target_layout()
+    self.remote_anchor = nil
+    self:_clear_verified("target_layout_unverified")
+    self.state = "unverified"
+end
+
+function ProgressSync:_retained_target(document)
+    local anchor = self.remote_anchor
+    if not anchor then return nil end
+    local frame = self:_viewport(document)
+    if anchor.document ~= document or not self:_session_current(anchor.scope) or not frame then
+        self.remote_anchor = nil
+        return nil
+    end
+    if anchor.navigation_marker and self:_navigation_marker() ~= anchor.navigation_marker then
+        self.remote_anchor = nil
+        return nil
+    end
+    if not ReaderPosition.same_view(anchor.frame, frame) then
+        if not (ReaderPosition.layout_changed(anchor.frame, frame) or anchor.reflow_pending) then
+            self.remote_anchor = nil
+            return nil
+        end
+        if not ReaderPosition.contains_anchor(document, frame, anchor.xpointer) then
+            self:_unverify_target_layout()
+            return nil
+        end
+    end
+    if anchor.navigation_marker and ReaderPosition.layout_changed(anchor.frame, frame) then
+        self:_settle_reflow(anchor)
+    elseif not anchor.reflow_pending then anchor.frame = frame end
+    return anchor.position
 end
 
 function ProgressSync:capture_local()
@@ -214,6 +318,12 @@ function ProgressSync:capture_local()
         }
     )
     if not position then return nil, reason end
+    local retained = self:_retained_target(document)
+    if retained then
+        local viewport_fraction = position.fraction
+        for key, value in pairs(retained) do position[key] = copy(value) end
+        position.viewport_fraction, position.retained_remote_target = viewport_fraction, true
+    end
     -- Keep source units separate from the existing word/percent contract.
     -- The local source snapshot is read-only until wire write/readback validation.
     if self.get_source_position then position.source_position = copy(self.get_source_position()) end
@@ -332,6 +442,7 @@ function ProgressSync:_apply_remote(remote, context, options)
     -- A cloud-position choice supersedes unsent local intent for this book.
     -- A task already waiting for the reporter must not undo that choice later.
     self:_discard_pending_upload(context.book_id)
+    self.remote_anchor = nil
 
     if target.requires_chapter_open then
         self:_clear_verified("switching_chapter")
@@ -342,6 +453,8 @@ function ProgressSync:_apply_remote(remote, context, options)
             chapter_uid = target.chapter
                 and (target.chapter.chapterUid or target.chapter.chapterId),
             fraction = target.fraction,
+            chapter_offset = target.chapter_offset,
+            chapter_fraction = target.chapter_fraction,
             remote = copy(remote),
             notify = options.manual == true,
         }
@@ -358,11 +471,13 @@ function ProgressSync:_apply_remote(remote, context, options)
     end
     local ok, err = self.goto_fraction(target.fraction)
     if not ok then return false, err or "jump_failed" end
+    self:_retain_target(context, target)
+    local selected_position = self:capture_local()
     self.dirty = false
     self:_mark_verified(
         context.book_id,
         "remote_selected",
-        self.local_position,
+        selected_position or self.local_position,
         remote
     )
     if options.manual then
@@ -747,6 +862,9 @@ function ProgressSync:_apply_pending_jump(book_id)
         self.notify("jump_failed", { error = err })
         return true
     end
+    self:_retain_target(context, { fraction = pending.fraction, chapter = context.current_chapter,
+        chapter_offset = pending.chapter_offset, chapter_fraction = pending.chapter_fraction })
+    local_position = self:capture_local() or local_position
     self.dirty = false
     self:_mark_verified(
         book_id,
@@ -779,6 +897,7 @@ function ProgressSync:cancel_pending_jump(reason)
 end
 
 function ProgressSync:on_reader_ready()
+    self.remote_anchor = nil
     self.generation = self.generation + 1
     self:_invalidate_pull()
     if self.upload_job and self.upload_job.book_id == tostring(self.detect_book() or "") then
@@ -855,15 +974,17 @@ function ProgressSync:on_close_document(source_position)
     self.local_position = nil
     self.remote_position = nil
     self.document_context = nil
+    self.remote_anchor = nil
 end
 
 function ProgressSync:on_suspend(source_position)
+    local position = self:capture_local() or self.local_position
     self.generation = self.generation + 1
+    if self.remote_anchor then self.remote_anchor.scope.generation = self.generation end
     self:_invalidate_pull()
     self._suspend_pending_upload = self.uploading == true
     self.upload_job, self.uploading = nil, false
     self.suspended_at = self.now()
-    local position = self:capture_local() or self.local_position
     if position and source_position and source_position.book_id == position.book_id then
         position.source_position = copy(source_position)
     end

@@ -181,6 +181,7 @@ end
 
 function M:onPosUpdate()
     if self.source_position then self.source_position:on_view_changed() end
+    self.progress_sync:on_page_update()
     if self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end
 end
 

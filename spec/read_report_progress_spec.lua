@@ -210,6 +210,7 @@ test("source coordinates cannot enter the current reading-report protocol", func
     local book = { book_id = "book", psvts = "ps", pclts = "pc", token = "token" }
     report:_send("book", book, {
         chapter_uid = 22, chapter_idx = 2, chapter_offset = 150, percent = 25,
+        retained_remote_target = true, viewport_fraction = 0.24,
         source_position = { chapter_uid = "22", chapter_offset = 12345, upload_verified = false },
     }, 0)
     eq(last_enter_options.chapter_offset, 150, "enter keeps existing wire offset")
@@ -217,6 +218,8 @@ test("source coordinates cannot enter the current reading-report protocol", func
     eq(last_enter_options.source_position, nil, "enter excludes local source snapshot")
     eq(last_read_options.source_position, nil, "report excludes local source snapshot")
     eq(book.source_position, nil, "local source snapshot does not enter mutable report context")
+    eq(last_read_options.retained_remote_target, nil, "local retention marker does not enter protocol")
+    eq(last_read_options.viewport_fraction, nil, "native viewport metadata does not enter protocol")
 end)
 
 print(string.format(

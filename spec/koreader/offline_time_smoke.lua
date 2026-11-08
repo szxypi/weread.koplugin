@@ -26,7 +26,12 @@ return function(reader, request_count, flush_tasks)
     assert(collector:update("timer"), "native statistics collection failed")
     local first = collector:status().pending
     assert(first >= 5 and first == collector.active.last_seen - first_start, "actual dwell was not captured exactly once: " .. tostring(first))
-    assert(collector:update("timer") and collector:status().pending == first, "repeated native capture duplicated time")
+    local first_endpoint = collector.active.last_seen
+    assert(collector:update("timer"), "repeated native capture failed")
+    -- Consecutive real-clock calls can cross a second boundary. Only new wall
+    -- time may be added; the preceding six-second prefix must not be replayed.
+    assert(collector:status().pending - first == collector.active.last_seen - first_endpoint,
+        "repeated native capture duplicated time or lost newly elapsed time")
     reader:handleEvent(require("ui/event"):new("ReadingPaused"))
     assert(not collector.active and not collector.task, "native pause retained collector")
     local paused = collector:status().pending

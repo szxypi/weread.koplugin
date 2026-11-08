@@ -166,6 +166,14 @@ function WeReadPlugin:init()
             return self.ui and self.ui.document
         end,
         get_source_position = function() return self.source_position:current() end,
+        get_navigation_xpointer = function() return self.ui and self.ui.rolling and self.ui.rolling.xpointer end,
+        get_viewport_height = function()
+            local view = self.ui and self.ui.view
+            if not view or not view.dimen then return nil end
+            local footer = view.footer
+            local reserved = view.footer_visible and footer and not (footer.settings and footer.settings.reclaim_height)
+            return view.dimen.h - (reserved and footer:getHeight() or 0)
+        end,
         get_footer = function()
             return self.ui and self.ui.view and self.ui.view.footer
         end,
