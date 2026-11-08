@@ -21,6 +21,14 @@ MiuRead UI migration:
   miuread/bookstore_data.lua.
 Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
 Source: https://github.com/miumiupy98-art/miuread-koreader
+
+Source-coordinate protocol research:
+- scripts/verify_source_coordinates.py references MiuRead's wr_co.lua and
+  source_position.lua (MiuRead contributors, AGPL-3.0-only). It compares a public
+  preview and synthetic fixtures with the current official Web Reader parser.
+  Raw-XHTML UTF-16 coordinates are only partly validated: sanitizer-changing
+  tags remain unresolved. No new Lua progress-writing contract is enabled.
+  Official Web JavaScript is loaded for verification, not redistributed.
 The home/shelf/store navigation is adapted to the original WeRead services.
 
 The monthly grayscale reading-calendar organization in
