@@ -4,6 +4,9 @@
 
 package.path = "./?.lua;" .. package.path
 local BookReviews = require("weread.lib.book_reviews")
+assert(BookReviews.plain_text("2 < 3, 5 > 4") == "2 < 3, 5 > 4", "plain comparison text was stripped as HTML")
+assert(BookReviews.plain_text("<p>Native &amp; text</p><!-- comment --><b>Second</b>") == "Native & text\n\nSecond",
+    "native text projection retained HTML tags or comments")
 
 local failures, checks = 0, 0
 local current_test

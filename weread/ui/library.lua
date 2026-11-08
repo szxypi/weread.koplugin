@@ -101,6 +101,7 @@ end
 
 function M:closeWeReadUI()
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
+    if self.cancelBookMetadata then self:cancelBookMetadata() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end
     self._home_pending_redraw = nil
@@ -883,64 +884,11 @@ function M:showBookRecord(book)
 end
 
 function M:refreshBookRecord(book, old_view, options)
-    options = options or {}
-    if options.automatic and not self.settings:is_api_configured() and self.settings:is_cookie_configured() then
-        self:showBookMenu(book)
-        return
-    end
-    if not self:requireLogin(false, true) then
-        if options.automatic then self:showBookMenu(book) end
-        return
-    end
-    local book_id = book.book_id or book.bookId
-    if not self:isNetworkOnline() then
-        if options.automatic then self:showBookMenu(book) end
-        self:showOffline(_("Book info"))
-        return
-    end
-    self:showBusy(_("Loading book info..."))
-    local started = self:runOnlineTask(_("Book info"), function()
-        local ok, err = pcall(function()
-            local info = self.client:get_book_info(book_id)
-            if info then
-                for key, value in pairs(info) do
-                    if value ~= nil then book[key] = value end
-                end
-                book.categoryName = info.categoryName or info.category or book.categoryName
-            end
-            local progress_result = self.client:get_progress(book_id)
-            if progress_result and progress_result.book then
-                local remote = progress_result.book
-                book.progress = remote.progress or book.progress or 0
-                book.chapter_uid = remote.chapterUid or remote.chapterId
-                    or remote.chapter_uid or book.chapter_uid
-                book.chapter_idx = tonumber(remote.chapterIdx or remote.chapterIndex
-                    or remote.chapter_idx) or tonumber(book.chapter_idx)
-                book.chapter_offset = tonumber(remote.chapterOffset or remote.chapterPos
-                    or remote.offset) or tonumber(book.chapter_offset) or 0
-            end
-            book.book_id = book_id
-            book._library_account_key = self.library_db
-                and self.library_db:accountKey() or nil
-            book.detail_updated_at = os.time()
-            local books = self.settings:get("books", {})
-            books[book_id] = book
-            self.settings:set("books", books)
-            self.settings:flush()
-            if self.library_db then self.library_db:putBook(book) end
-        end)
-        self:closeBusy()
-        if not ok then
-            logger.err("load book info failed:", log_error(err))
-            if options.automatic then self:showBookMenu(book) end
-            self:showInfo(T(_("%1 failed:\n%2"), _("Book info"), display_error(err)))
-            return
-        end
-        if old_view then UIManager:close(old_view) end
-        self:showBookMenu(book)
-        self:showTransientInfo(_("Book information updated."), 2)
-    end)
-    if started == false and options.automatic then self:showBookMenu(book) end
+    return require("weread.ui.book_metadata").refresh(self, book, old_view, options)
+end
+
+function M:cancelBookMetadata()
+    return require("weread.ui.book_metadata").cancel(self)
 end
 
 function M:showBookMenu(book)
@@ -1086,6 +1034,7 @@ function M:showBookMenu(book)
         end),
         on_close = function()
             if self._book_detail_view == view then
+                self:cancelBookMetadata()
                 self._book_detail_view = nil
                 self.discovery_epoch = (self.discovery_epoch or 0) + 1
             end

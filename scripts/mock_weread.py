@@ -39,6 +39,13 @@ BOOKS = [dict(bookId=str(900001 + i), title=("山谷来信 · 离线测试" if i
               author="测试作者", cover="https://weread.qq.com/mock/cover.png",
               category="文学", intro="自写合成内容，用于 KOReader 集成测试。", wordCount=12000,
               totalChapter=6, type=0, bookVersion=7, updateTime=1700000000 + i, readUpdateTime=1700000000 + i) for i in range(26)]
+
+
+def book_metadata(book):
+    return dict(book,publisher="合成出版社",isbn="9780000000000",publishTime="2026-01-01",newRating=860,newRatingCount=12,
+                translator="合成译者",categoryName="文学 · 合成",intro="<p>自写合成简介，用于原生控件验证。</p><p>第二段文字与 &amp; 符号。</p>")
+
+
 CHAPTERS = [dict(chapterUid=i, chapterIdx=i, title=f"第{i}章 {title}", level=1,
                  wordCount=1800) for i, title in enumerate(TITLES, 1)]
 CATEGORIES = dict(data=[
@@ -233,7 +240,7 @@ class MockServer(ThreadingHTTPServer):
                     dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                     dict(archiveId=3, name="空分组", bookIds=[])])
             if api == "/book/info":
-                return 200, next(b for b in BOOKS if b["bookId"] == book_id)
+                return 200, book_metadata(next(b for b in BOOKS if b["bookId"] == book_id))
             if api == "/book/similar":
                 start = max(0, int(data.get("maxIdx", 0)))
                 count = max(1, min(100, int(data.get("count", 20))))
@@ -288,7 +295,7 @@ class MockServer(ThreadingHTTPServer):
             encoded = path.rsplit("/", 1)[1].split("k")
             book = next(b for b in BOOKS if weread_e(b["bookId"]) == encoded[0])
             chapter = next((c for c in CHAPTERS if len(encoded) > 1 and weread_e(c["chapterUid"]) == encoded[1]), CHAPTERS[0])
-            state = dict(reader=dict(bookInfo=book, psvts="mock-session", pclts="mock-clock",
+            state = dict(reader=dict(bookInfo=book_metadata(book), psvts="mock-session", pclts="mock-clock",
                                      currentChapter=chapter, progress=self.get_progress(book["bookId"])))
             return 200, "<script>window.__INITIAL_STATE__=" + json.dumps(state, ensure_ascii=False) + ";(function(){})();</script>"
         if path == "/web/book/chapterInfos" and method == "POST":

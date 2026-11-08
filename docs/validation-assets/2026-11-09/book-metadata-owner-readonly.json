@@ -1,0 +1,46 @@
+{
+  "result": "BOOK_METADATA_CONTRACT_VERIFIED",
+  "checked_at": "2026-11-08T15:51:01.276838+00:00",
+  "account_writes_attempted": 0,
+  "private_metadata_saved": false,
+  "credentials_written_to_files": false,
+  "lua_projection_matches": true,
+  "native_https_projection_matches": true,
+  "native_read_requests": 2,
+  "owner_verified": true,
+  "shelf_book_count": 139,
+  "sampled_book_count": 2,
+  "display_field_counts": {
+    "bookId": 2,
+    "title": 2,
+    "author": 2,
+    "intro": 2,
+    "publisher": 2,
+    "isbn": 2,
+    "cover": 2,
+    "newRating": 2,
+    "newRatingCount": 2,
+    "categoryName": 2,
+    "publishTime": 2,
+    "translator": 1
+  },
+  "positions_or_versions_exported": false,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    }
+  ]
+}

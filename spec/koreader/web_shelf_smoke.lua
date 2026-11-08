@@ -46,6 +46,7 @@ return function(plugin, count, flush_tasks, home, pump_until)
     local metadata_reads=count("/api/agent/gateway","/book/info")
     local book=cached[#cached]
     plugin:showBookRecord(book)
+    pump_until(function() return not plugin.book_metadata_context end)
     flush_tasks()
     assert(plugin._book_detail_view and count("/api/agent/gateway","/book/info")==metadata_reads,
         "keyless book entry prompted for optional metadata instead of opening")
@@ -65,6 +66,8 @@ return function(plugin, count, flush_tasks, home, pump_until)
     assert(not plugin:requireLogin(false,true),"key-only feature did not explain missing Skill authorization")
     assert(UIManager:getTopmostVisibleWidget().text:find("Skill",1,true),"missing-key explanation absent")
     UIManager:close(UIManager:getTopmostVisibleWidget())
+    local fixtures=debug.getinfo(1,"S").source:match("^@(.*/)")
+    dofile(fixtures.."book_metadata_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
     control{match="/web/shelf/sync",times=1,status=403,delay=0}
     refresh(false)
     assert(#plugin.library_db:getShelf()==26,"Web failure erased the shelf cache")

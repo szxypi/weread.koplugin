@@ -492,4 +492,33 @@ for _,response in ipairs({{code=302,body="private-progress"},{code=401,body="pri
     expect(not ok and not tostring(err):find("private-",1,true),"display failure leaked response or exceeded bounds")
 end
 expect(not table.concat(logs,"\n"):find("private-",1,true),"display request logged raw position or private diagnostics")
+local metadata_response={bookId="900001",title="Synthetic metadata",intro="<p>Synthetic introduction</p>",
+    publisher="Synthetic publisher",bookVersion=99,progress=99,psvts="private-clock"}
+local metadata_state='{"reader":{"bookInfo":{"bookId":"900001","title":"Synthetic"}}}'
+client.json_decode=function(_self,value)
+    if value==metadata_state then return {reader={bookInfo=metadata_response}} end
+    if value=="broken" then error("private-metadata-json") end
+    return metadata_response
+end
+responses[#responses+1]={code=200,body="<script>window.__INITIAL_STATE__="..metadata_state..";(function(){})();</script>",
+    headers={["set-cookie"]="ignored=value"}}
+local metadata=client:get_display_book_metadata("900001",{kind="web",cookies={wr_skey="XXX-metadata-snapshot"}})
+local metadata_request=requests[#requests]
+expect(metadata.publisher=="Synthetic publisher" and metadata.bookVersion==nil and metadata.progress==nil and metadata.psvts==nil,
+    "Web metadata escaped display projection")
+expect(metadata_request.method=="GET" and metadata_request.url=="https://weread.qq.com/web/reader/900001"
+    and metadata_request.headers.Cookie=="wr_skey=XXX-metadata-snapshot" and #merged_cookies==cookie_count,
+    "Web metadata changed credentials or route")
+responses[#responses+1]={code=200,body="metadata"}
+metadata=client:get_display_book_metadata("900001",{kind="gateway",api_key="captured-metadata-key"})
+metadata_request=requests[#requests]
+expect(encoded_display.api_name=="/book/info" and metadata_request.headers.Authorization=="Bearer captured-metadata-key"
+    and metadata_request.headers.Cookie==nil and metadata.title=="Synthetic metadata","captured metadata gateway contract")
+for _,response in ipairs({{code=302,body="private-metadata"},{code=403,body="private-metadata"},
+    {code=200,body=string.rep("x",4*1024*1024+1)},{code=200,body="no initial state"},{raise="private-metadata-transport"}}) do
+    responses[#responses+1]=response
+    ok,err=pcall(client.get_display_book_metadata,client,"900001",{kind="web",cookies={}})
+    expect(not ok and not tostring(err):find("private-",1,true),"metadata failure leaked body or exceeded bounds")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"metadata response entered diagnostics")
 print(("client_spec: %d checks"):format(checks))

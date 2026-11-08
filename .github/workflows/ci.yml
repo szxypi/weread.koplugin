@@ -80,6 +80,9 @@ jobs:
       - name: Display progress prototype checks
         run: python3 scripts/test_shelf_progress.py
 
+      - name: Book metadata prototype checks
+        run: python3 scripts/test_book_metadata.py
+
       - name: Bundled TLS trust store integrity
         working-directory: integrations/ssl
         run: sha256sum --check cacert.pem.sha256

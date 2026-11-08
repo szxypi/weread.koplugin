@@ -1,32 +1,7 @@
 -- Read-only display snapshots. Never write these into a reader's sync state.
 local M = { TTL = 120 }
-local Crypto = require("weread.lib.crypto")
-local Source = require("weread.lib.shelf_source")
-
-function M.book_id(value)
-    if type(value) ~= "string" and type(value) ~= "number" then return end
-    local id = tostring(value)
-    if #id <= 20 and id:match("^[1-9]%d*$") then return id end
-end
-
-function M.selection(settings)
-    if not settings then return end
-    local scope = settings.get_auth_scope and settings:get_auth_scope()
-    if settings.get_auth_scope and (not scope or not settings:auth_scope_matches(scope)) then return end
-    local key = settings:get("api_key", "")
-    if type(key) ~= "string" or key == "" or #key > 4096 or key:find("[%z%c%s]") then key = nil end
-    local web = Source.web_access(settings)
-    if not key and not web then return end
-    return { gateway = key and { kind = "gateway", api_key = key } or nil,
-        web = web and { kind = "web", cookies = web.cookies } or nil,
-        revision = Crypto.sha256_hex(table.concat({ scope and scope.vid or "", scope and tostring(scope.epoch) or "",
-            key or "", web and web.revision or "" }, "\0")) }
-end
-
-function M.matches(settings, selected)
-    local current = M.selection(settings)
-    return current ~= nil and selected ~= nil and current.revision == selected.revision
-end
+local Access = require("weread.lib.read_access")
+M.book_id, M.selection, M.matches = Access.book_id, Access.capture, Access.matches
 
 local function percent(value)
     local n = tonumber(value)
