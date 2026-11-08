@@ -114,6 +114,7 @@ function M:onReaderReady()
     -- Cache it so the per-tap handler (_onThoughtTap) does not have to re-scan
     -- the whole book table on every screen tap.
     self._current_weread_book_id = weread_book_id
+    if weread_book_id and self.recordRecentReading then self:recordRecentReading(weread_book_id) end
     if weread_book_id then
         -- Always register the tap interception: even when annotations are hidden
         -- we must intercept taps on thought links to suppress the native footnote

@@ -1,6 +1,19 @@
 local I18n = {}
 
 local zh = {
+    ["Home"] = "首页",
+    ["WeRead home"] = "微信读书首页",
+    ["Bookstore"] = "书城",
+    ["For you"] = "为你推荐",
+    ["Recently read"] = "最近阅读",
+    ["All books"] = "全部书籍",
+    ["Next batch"] = "下一批",
+    ["Previous batch"] = "上一批",
+    ["Cached"] = "缓存",
+    ["No recent reading. Refresh or open your bookshelf."] = "暂无最近阅读，请刷新或打开书架。",
+    ["Choose For you or search to discover books."] = "点击“为你推荐”或搜索，发现新书。",
+    ["Bookstore request failed:\n%1"] = "书城加载失败：\n%1",
+
     ["Get thoughts (%1 chapters)"] = "获取想法（%1章）",
     ["Continue matching · %1/%2 chapters, %3 underlines"] = "继续匹配 · %1/%2 章，%3 条划线",
     ["Underlines and thoughts management"] = "划线和想法管理",

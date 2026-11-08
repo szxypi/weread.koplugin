@@ -65,6 +65,23 @@ class MockTests(unittest.TestCase):
         for text in ("", "a", "你好", "🌿" * 31, "abcdef" * 103):
             self.assertEqual(decode_content_shards(*shards(text)), text)
 
+    def test_discovery_batches(self):
+        status, first = self.gateway("/book/recommend", count=20, maxIdx=0)
+        self.assertEqual(status, 200)
+        self.assertEqual(len(first["books"]), 20)
+        self.assertTrue(first["hasMore"])
+        cursor = first["books"][-1]["searchIdx"]
+        _, second = self.gateway("/book/recommend", count=20, maxIdx=cursor)
+        self.assertEqual(len(second["books"]), 6)
+        self.assertFalse(second["hasMore"])
+        self.assertNotEqual(first["books"][0]["bookId"], second["books"][0]["bookId"])
+        _, found = self.gateway("/store/search", keyword="合成读物", count=5)
+        self.assertEqual(len(found["results"][0]["books"]), 5)
+        self.assertTrue(found["hasMore"])
+        _, empty = self.gateway("/store/search", keyword="nonexistent")
+        self.assertEqual(empty["results"][0]["books"], [])
+        self.assertFalse(empty["hasMore"])
+
     def test_annotations_and_progress_write_read(self):
         _, result = self.gateway("/book/underlines", bookId=BOOK_ID, chapterUid=2)
         mark = result["underlines"][0]

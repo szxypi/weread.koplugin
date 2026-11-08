@@ -696,7 +696,65 @@ local function after_tap(callback)
     return function() UIManager:nextTick(callback) end
 end
 
+function LibraryView:actionBar(entries, navigation)
+    if not entries or #entries == 0 then return nil end
+    local buttons = {}
+    local width = math.floor(self.screen_w / #entries)
+    for index, entry in ipairs(entries) do
+        buttons[#buttons + 1] = Button:new{
+            text = entry.text, width = index == #entries and self.screen_w - width * (index - 1) or width,
+            height = Screen:scaleBySize(54), text_font_size = 18, avoid_text_truncation = false,
+            text_font_bold = entry.active == true,
+            enabled = entry.enabled ~= false,
+            radius = 0, margin = 0, padding = 0, bordersize = 0,
+            show_parent = self, callback = after_tap(entry.active and function() end or entry.callback or function() end),
+        }
+    end
+    if navigation then self._navigation_buttons = buttons else self._action_buttons = buttons end
+    return HorizontalGroup:new(buttons)
+end
+
+function LibraryView:portalHeader()
+    local HeaderLayout = require("weread.lib.home_header_layout")
+    local size = Screen:scaleBySize(72)
+    local items = HeaderLayout.arrange(self.screen_w, {
+        { key = "back", width = size, callback = function() self:onClose() end },
+        { key = "title", width = math.max(1, self.screen_w - 3 * size) },
+        { key = "search", width = size, callback = self.on_search },
+        { key = "refresh", width = size, callback = self.on_refresh },
+    }, 0)
+    local widgets, buttons, x = {}, {}, 0
+    for _, item in ipairs(items) do
+        if item.x > x then widgets[#widgets + 1] = HorizontalSpan:new{ width = item.x - x } end
+        local icons = { back = "chevron.left", search = "appbar.search", refresh = "appbar.search" }
+        local button = Button:new{
+            text = item.key == "title" and self.title or nil, icon = icons[item.key],
+            width = item.width, height = size, text_font_size = 24, text_font_bold = true,
+            avoid_text_truncation = false,
+            enabled = item.callback ~= nil, radius = 0, margin = 0, padding = 0, bordersize = 0,
+            show_parent = self, callback = after_tap(item.callback or function() end),
+        }
+        if item.key == "refresh" then
+            button.label_widget:free()
+            button.label_widget = IconWidget:new{
+                file = icons_dir .. "shelf-refresh.svg",
+                width = Screen:scaleBySize(36), height = Screen:scaleBySize(36),
+            }
+            button.label_container[1] = button.label_widget
+            self.refresh_button = button
+        end
+        widgets[#widgets + 1], buttons[#buttons + 1] = button, button
+        x = item.x + item.width
+    end
+    self._header_buttons = buttons
+    return VerticalGroup:new{
+        align = "left", HorizontalGroup:new(widgets),
+        LineWidget:new{ dimen = Geom:new{ w = self.screen_w, h = Size.border.thin } },
+    }
+end
+
 function LibraryView:headerBar()
+    if self.portal then return self:portalHeader() end
     local size = Screen:scaleBySize(HEADER_SIZE)
     local title = self.mode == "public_account" and _("Public Accounts")
         or T(_("Books · %1"), self.group_label or _("All"))
@@ -739,6 +797,7 @@ function LibraryView:headerBar()
 end
 
 function LibraryView:setRefreshing(refreshing)
+    if not self.refresh_button then return end
     self.refresh_button:enableDisable(not refreshing)
     UIManager:setDirty(self, "ui", self.refresh_button.dimen)
 end
@@ -926,7 +985,7 @@ function LibraryView:content()
     if #source == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
         table.insert(content, TextWidget:new{
-            text = self.keyword and self.keyword ~= "" and _("No shelf matches.") or _("No items."),
+            text = self.empty_text or (self.keyword and self.keyword ~= "" and _("No shelf matches.") or _("No items.")),
             face = Font:getFace("cfont", 20),
             max_width = self.content_width,
         })
@@ -1054,10 +1113,14 @@ function LibraryView:init()
     if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
 
     local header = self:headerBar()
+    local actions = self:actionBar(self.actions)
+    local navigation = self:actionBar(self.navigation, true)
     self:preparePagination()
     local page_bar = self:pageBar()
     local scroll_h = math.max(1, self.screen_h - header:getSize().h
-        - (page_bar and page_bar:getSize().h or 0))
+        - (page_bar and page_bar:getSize().h or 0)
+        - (actions and actions:getSize().h or 0)
+        - (navigation and navigation:getSize().h or 0))
     if self.cover_mode then
         local rows = math.max(1, math.floor(tonumber(self.cover_rows) or 2))
         self.cover_content_height = scroll_h
@@ -1072,6 +1135,7 @@ function LibraryView:init()
     self.scroll = scroll
     if self.scroll_offset and not self.paged then scroll:setScrolledOffset(self.scroll_offset) end
     local rows = { self._header_buttons }
+    if self._action_buttons then rows[#rows + 1] = self._action_buttons end
     for _i, item_row in ipairs(self._focus_item_rows) do
         rows[#rows + 1] = item_row
     end
@@ -1081,16 +1145,20 @@ function LibraryView:init()
         rows[#rows + 1] = self._page_buttons
         for _i, button in ipairs(self._page_buttons) do outside_scroll[button] = true end
     end
+    if self._navigation_buttons then rows[#rows + 1] = self._navigation_buttons end
+    for _, button in ipairs(self._action_buttons or {}) do outside_scroll[button] = true end
+    for _, button in ipairs(self._navigation_buttons or {}) do outside_scroll[button] = true end
     FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
-    FocusNav.initialFocus(self, 1, #self._focus_item_rows > 0 and 2 or 1)
+    FocusNav.initialFocus(self, 1, #self._focus_item_rows > 0 and (self._action_buttons and 3 or 2) or 1)
+    local body = { align = "left", header }
+    if actions then body[#body + 1] = actions end
+    body[#body + 1] = scroll
+    body[#body + 1] = page_bar or VerticalSpan:new{ width = 0 }
+    if navigation then body[#body + 1] = navigation end
     self[1] = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
         bordersize = 0, padding = 0, margin = 0,
-        dimen = self.dimen:copy(),
-        VerticalGroup:new{
-            align = "left", header, scroll,
-            page_bar or VerticalSpan:new{ width = 0 },
-        },
+        dimen = self.dimen:copy(), VerticalGroup:new(body),
     }
     if self.paged then
         -- Let horizontal swipes reach the shelf pager, not the inner scroller.
@@ -1134,6 +1202,7 @@ function LibraryView:onCloseWidget()
 end
 
 function LibraryView:onClose()
+    if self.on_close then self.on_close() end
     UIManager:close(self)
     return true
 end
@@ -1141,9 +1210,9 @@ end
 local M = {}
 
 -- Measure before fetching covers, so the worker and the visible grid agree.
-function M.getLayout(cover_mode, count, mode)
+function M.getLayout(cover_mode, count, mode, extra_height)
     local width, height = Screen:getWidth(), Screen:getHeight()
-    local header_height = Screen:scaleBySize(HEADER_SIZE) + Size.border.thin
+    local header_height = Screen:scaleBySize(HEADER_SIZE + (extra_height or 0)) + Size.border.thin
     local page_bar_height = Screen:scaleBySize(54)
     local function layout(reserved)
         if cover_mode then
@@ -1167,6 +1236,10 @@ function M.show(data, callbacks)
     callbacks = callbacks or {}
     local view = LibraryView:new{
         mode = data.mode,
+        portal = data.portal,
+        empty_text = data.empty_text,
+        actions = data.actions,
+        navigation = data.navigation,
         title = data.title,
         wp_enable = data.wp_enable ~= false,
         books = data.books,
@@ -1188,6 +1261,7 @@ function M.show(data, callbacks)
         cover_cell_height = data.cover_cell_height,
         cover_paths = data.cover_paths,
         cover_loading = data.cover_loading,
+        on_close = callbacks.on_close,
         on_switch = callbacks.on_switch,
         on_select_group = callbacks.on_select_group,
         on_display_change = callbacks.on_display_change,

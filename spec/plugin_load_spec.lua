@@ -216,8 +216,12 @@ expect(dispatcher_registered, "dispatcher actions were not registered")
 expect(menu_registered, "plugin was not registered in KOReader's main menu")
 expect(backup_cleaned,
     "successful plugin initialization did not clean the update backup")
-expect(plugin:launch() == true and bookshelf_opened,
-    "standard third-party launcher entry did not open the bookshelf")
+local home_opened = false
+plugin.showHome = function() home_opened = true return true end
+expect(plugin:launch() == true and home_opened,
+    "standard launcher entry did not open the home")
+expect(plugin:openBookshelf() == true and bookshelf_opened,
+    "stable bookshelf launcher no longer opens the bookshelf")
 expect(type(plugin.openBookshelf) == "function",
     "stable bookshelf entry point was not exposed")
 expect(package.loaded["weread.lib.client"] ~= nil,

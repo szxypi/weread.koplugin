@@ -99,6 +99,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    self.discovery_epoch = (self.discovery_epoch or 0) + 1
     -- Close from the topmost view down so no full-screen WeRead widget remains
     -- in UIManager's window stack after a document is opened.
     local seen = {}
@@ -118,6 +119,7 @@ end
 
 function M:onWeReadAccountChanged()
     self:closeWeReadUI()
+    self.discovery_state = nil
     self.shelf_regular = nil
     self.shelf_mp = nil
     self.shelf_books = nil
@@ -150,21 +152,29 @@ end
 function M:refreshBookshelf(old_view, view_options)
     if self.shelf_refreshing or not self:requireLogin(false, true) then return end
     self.shelf_refreshing = true
+    local refresh_epoch = self.discovery_epoch or 0
+    local account_key = self.library_db and self.library_db.accountKey and self.library_db:accountKey()
+    local function still_current()
+        return (self.discovery_epoch or 0) == refresh_epoch
+            and (not account_key or self.library_db:accountKey() == account_key)
+    end
     -- A finishing thumbnail batch must not replace the view being refreshed.
     self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
     self.shelf_cover_pending = nil
     if old_view then old_view:setRefreshing(true) end
     local function done()
         self.shelf_refreshing = nil
-        if old_view then old_view:setRefreshing(false) end
+        if old_view and still_current() then old_view:setRefreshing(false) end
         self:closeBusy()
     end
     self:showBusy(_("Loading bookshelf..."))
     local started = self:runOnlineTask(_("Bookshelf"), function()
+        if not still_current() then done() return end
         local ok, result = pcall(function()
             return self.client:get_shelf()
         end)
         done()
+        if not still_current() then return end
         if not ok then
             logger.err("load bookshelf failed:", log_error(result))
             self:showInfo(T(
@@ -181,6 +191,10 @@ function M:refreshBookshelf(old_view, view_options)
         if self.library_db then self.library_db:cacheShelf(all_books, archives) end
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
+        if view_options and view_options.on_loaded then
+            view_options.on_loaded()
+            return
+        end
         local next_options = {}
         for key, value in pairs(view_options or {}) do next_options[key] = value end
         next_options.prepared_shelf = nil
@@ -292,7 +306,11 @@ function M:fetchVisibleShelfCovers(view, items, options)
             }
             next_options.page = view.page
             next_options.skip_cover_fetch_once = true
-            self:showShelfView(options.mode or "books", options.keyword, view, next_options)
+            if options.on_redraw then
+                options.on_redraw(view.page)
+            else
+                self:showShelfView(options.mode or "books", options.keyword, view, next_options)
+            end
         end
         local pending = self.shelf_cover_pending
         self.shelf_cover_pending = nil
@@ -400,7 +418,9 @@ function M:showShelfView(mode, keyword, old_view, options)
     local paged = cover_mode or shelf_settings.paginated ~= false
     local page = paged and (options.page or self.shelf_view_pages[mode] or 1) or 1
     local source = mode == "public_account" and accounts or books
-    local layout = LibraryView.getLayout(cover_mode, #source, mode)
+    local navigation = self.discoveryNavigation and not options.on_select
+        and self:discoveryNavigation("shelf") or nil
+    local layout = LibraryView.getLayout(cover_mode, #source, mode, navigation and 54 or 0)
     local cover_layout = cover_mode and layout or nil
     local page_size = layout.page_size
     local cover_paths, cover_loading
@@ -423,6 +443,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     local view
     view = LibraryView.show({
         mode = mode,
+        navigation = navigation,
         title = options.title,
         wp_enable = options.wp_enable,
         books = books,
@@ -445,6 +466,12 @@ function M:showShelfView(mode, keyword, old_view, options)
         cover_paths = cover_paths,
         cover_loading = cover_loading,
     }, {
+        on_close = function()
+            if self.shelf_view == view then
+                self.shelf_view = nil
+                self:closeWeReadUI()
+            end
+        end,
         on_switch = function(new_mode)
             local next_options = {}
             for key, value in pairs(options) do next_options[key] = value end

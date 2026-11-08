@@ -14,3 +14,11 @@ Third-party material:
 This is an unofficial project. It is not affiliated with, endorsed by, or
 sponsored by WeRead, Tencent, or KOReader. All product names and trademarks
 belong to their respective owners.
+
+MiuRead UI migration:
+- weread/lib/home_header_layout.lua is adapted from miuread/home_header_layout.lua.
+- weread/lib/discovery_data.lua adapts book/page normalization from
+  miuread/bookstore_data.lua.
+Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
+Source: https://github.com/miumiupy98-art/miuread-koreader
+The home/shelf/store navigation is adapted to the original WeRead services.

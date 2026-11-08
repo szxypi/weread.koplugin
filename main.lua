@@ -36,7 +36,7 @@ end
 
 -- Both SimpleUI and ZenUI discover conventional plugin launch methods.
 function WeReadPlugin:launch()
-    return self:openBookshelf()
+    return self:showHome()
 end
 
 function WeReadPlugin:onZenUIReady()
@@ -225,6 +225,7 @@ Mixin.apply(WeReadPlugin, {
     (require("weread.ui.cache")),
     (require("weread.ui.read_report")),
     (require("weread.ui.library")),
+    (require("weread.ui.discovery")),
     (require("weread.ui.annotations_controller")),
     (require("weread.ui.xpointer_overlay_controller")),
     (require("weread.ui.annotation_sync_controller")),

@@ -117,6 +117,14 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _("WeRead home"),
+            callback = self:safeCallback(_("WeRead home"), function() self:showHome() end),
+        },
+        {
+            text = _("Bookstore"),
+            callback = self:safeCallback(_("Bookstore"), function() self:showBookstore() end),
+        },
+        {
             text = _("Bookshelf"),
             callback = self:safeCallback(_("Bookshelf"), function()
                 self:showBookshelf()

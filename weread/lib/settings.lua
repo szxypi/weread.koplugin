@@ -94,7 +94,7 @@ local defaults = {
     shelf = {
         sort_order = "time_desc",
         paginated = true,
-        view_mode = "list",
+        view_mode = "cover",
     },
     download_dir = "",
 }

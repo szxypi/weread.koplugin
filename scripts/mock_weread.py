@@ -36,7 +36,7 @@ QUOTE = "窗外的风穿过树梢，带来远处山谷的回声。"
 BOOKS = [dict(bookId=str(900001 + i), title=("山谷来信 · 离线测试" if i == 0 else f"合成读物 {i:02d}：用于长标题与分页验证"),
               author="测试作者", cover="https://weread.qq.com/mock/cover.png",
               category="文学", intro="自写合成内容，用于 KOReader 集成测试。", wordCount=12000,
-              totalChapter=6, type=0, updateTime=1700000000 + i) for i in range(26)]
+              totalChapter=6, type=0, updateTime=1700000000 + i, readUpdateTime=1700000000 + i) for i in range(26)]
 CHAPTERS = [dict(chapterUid=i, chapterIdx=i, title=f"第{i}章 {title}", level=1,
                  wordCount=1800) for i, title in enumerate(TITLES, 1)]
 
@@ -142,10 +142,17 @@ class MockServer(ThreadingHTTPServer):
                     dict(archiveId=3, name="空分组", bookIds=[])])
             if api == "/book/info":
                 return 200, next(b for b in BOOKS if b["bookId"] == book_id)
-            if api == "/store/search":
+            if api in {"/store/search", "/book/recommend"}:
                 keyword = data.get("keyword", "")
-                return 200, dict(results=[dict(books=[dict(bookInfo=b) for b in BOOKS
-                                                      if keyword in b["title"] or keyword in b["author"]])])
+                matches = [b for b in BOOKS if keyword in b["title"] or keyword in b["author"]]
+                start = max(0, int(data.get("maxIdx", 0)))
+                count = max(1, min(100, int(data.get("count", 20))))
+                batch = matches[start:start + count]
+                more = start + len(batch) < len(matches)
+                if api == "/book/recommend":
+                    return 200, dict(books=[dict(b, searchIdx=start + i + 1) for i, b in enumerate(batch)], hasMore=more)
+                return 200, dict(results=[dict(books=[dict(bookInfo=b, searchIdx=start + i + 1)
+                                                      for i, b in enumerate(batch)])], hasMore=more)
             if api == "/book/getprogress":
                 return 200, self.get_progress(book_id)
             if api == "/review/list":

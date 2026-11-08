@@ -362,4 +362,19 @@ host.shelf_group_key = "archive:7"
 host:onWeReadAccountChanged()
 expect(host.shelf_groups == nil and host.shelf_group_key == nil, "account switch retained old groups")
 
+host.runOnlineTask = function(_self, _label, callback) pending = callback return true end
+local late_fetches, home_reopened = 0, false
+host.client.get_shelf = function() late_fetches = late_fetches + 1 return { books = {} } end
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+host:closeWeReadUI()
+pending()
+expect(late_fetches == 0 and not home_reopened and not host.shelf_refreshing,
+    "leaving home before a queued refresh still fetched or reopened it")
+local account = "first"
+host.library_db.accountKey = function() return account end
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+account = "second"
+pending()
+expect(late_fetches == 0 and not home_reopened and not host.shelf_refreshing,
+    "queued home refresh crossed the account boundary")
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

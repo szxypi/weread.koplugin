@@ -1,0 +1,83 @@
+# 墨水屏首页、书架、书城：第一阶段
+
+## 范围
+
+本阶段以 `finlater/weread.koplugin` 为运行基底，迁移 MiuRead 的界面组织方式、
+自适应标题布局和书城响应整理逻辑。保持主仓库原有的登录、下载和阅读服务，
+没有整体替换为 MiuRead 的账号、数据库或同步系统。
+
+- 主仓库基线：`cf9eeeb3b3bd206fc47c3429d50d8e4acba7be3b`。
+- MiuRead 参考基线：`c1893562aa25a870b8dd076d7be062a3348f823e`。
+- 引用代码的来源和 AGPL 声明保留在 `NOTICE` 和对应文件头。
+
+## 入口与行为
+
+- 工具 → 微信读书 → 微信读书首页：显示最近阅读，最多 12 本。
+  本地开书记录与云端书架的阅读时间共同排序，不改变云端书架顺序。
+  本地记录按账号隔离；离线时展示已缓存书架，点击已下载书籍使用原有的整本／章节缓存选择逻辑。
+  首次安装没有书架缓存时，可以点击刷新获取书架。
+- 统一底部导航：首页、书架、书城。保留明确的返回入口。
+- 新配置默认封面书架；已保存的列表／封面偏好保持不变。
+  书架仍提供分组、筛选、排序、公众号、刷新和翻页。
+- 书城提供“为你推荐”和全库搜索。点击推荐后加载数据；进入页面本身不发起网络请求。
+  同一批的封面用原有网格翻页；“上一批／下一批”使用服务端游标。
+  同批重复书籍会去重；不推进的游标不会生成下一批入口。
+  当前批保留在内存，超过 15 分钟标记为缓存；刷新失败保持原内容。
+  重启后不会保留书城结果，但书架仍可离线使用。
+- 通用 `launch()` 入口进入首页；外部集成的 `openBookshelf()` 仍直接打开书架。
+
+书城只使用主仓库已有接口文档中的 gateway `/book/recommend` 和 `/store/search`。
+本阶段没有接入排行榜、分类、双通道 E-Ink 授权、离线时长补传或批注写入。
+此版本是第一阶段开发版，并非微信读书墨水屏 App 的完整功能复刻。
+
+## 文件组织
+
+- `weread/ui/discovery.lua`：首页、书城及导航协调。
+- `weread/lib/discovery_data.lua`：响应整理、去重、游标和最近阅读排序。
+- `weread/lib/home_header_layout.lua`：由 MiuRead 移植的标题栏布局。
+- `weread/ui/library_view.lua`：复用原有封面控件，增加导航和书城操作栏。
+- `weread/ui/library.lua`：封面后台加载重绘保持当前页面，关闭或切换账号后忽略迟到请求。
+
+## 本轮验证
+
+执行环境：macOS、Homebrew LuaJIT；日期：2026-11-08。
+
+| 验证 | 结果 |
+| --- | --- |
+| 76 组 Lua 单元／组件回归 | PASS |
+| Luacheck：170 个文件 | PASS，0 警告、0 错误 |
+| Lua 命名空间检查 | PASS |
+| 合成 HTTP 服务：5 组测试，包含推荐与搜索分页 | PASS |
+| KOReader 原生控件几何检查 | PASS |
+| 真正的 KOReader 窗口绘制、中文字体和点击验收 | BLOCKED：本机没有已构建运行环境 |
+| Kindle 真机显示、刷新残影和手势验收 | BLOCKED：尚未连接设备 |
+| 已登录微信读书的在线推荐和搜索 | BLOCKED：尚无测试账号环境 |
+
+几何检查使用 KOReader 固定提交 `1e2fa5f1239028ab4b37acae833cdc86a71e5258`
+中的真实 Button 和布局容器；字体、屏幕和事件使用替身。
+覆盖 320×480、600×800、800×600、1072×1448、1440×1920，
+每种尺寸验证空列表、单本和 30 本；检查总高度、宽度、封面可视区域及关闭回调。
+这不等于截图验收或真机验收。
+
+复验命令：
+
+```sh
+bash scripts/run_lua_specs.sh
+bash scripts/check_lua_namespace.sh
+luacheck main.lua _meta.lua weread spec
+python3 scripts/test_mock_weread.py
+KOREADER_WIDGET_DIR=/path/to/koreader luajit spec/koreader/discovery_geometry.lua
+KOREADER_WIDGET_DIR=/path/to/koreader luajit spec/koreader/shelf_picker_geometry.lua
+```
+
+## 试装
+
+候选包名为 `weread.koplugin-eink-ui-dev.zip`，沿用插件内部基线版本号，未发布正式版本。
+备份原插件后，将包内 `weread.koplugin` 目录放入 KOReader 的 `plugins`，完整重启。
+入口为“工具 → 微信读书 → 微信读书首页”。
+
+开发包的在线更新仍指向原作者仓库；试装期间不要使用在线更新，否则可能覆盖本轮界面。
+私有仓库更新通道不在本阶段范围内。
+
+真机验收重点：登录与空书架、刷新后首页、离线继续阅读、列表／封面切换、
+分组与公众号、推荐及搜索换批、断网保留结果、返回退出、账号切换、横屏和中文长标题。
