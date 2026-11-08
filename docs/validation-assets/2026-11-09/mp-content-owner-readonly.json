@@ -1,6 +1,6 @@
 {
   "result": "MP_CATALOG_UNVERIFIED",
-  "checked_at": "2026-11-08T20:56:19.484030+00:00",
+  "checked_at": "2026-11-08T21:09:35.979389+00:00",
   "account_writes_attempted": 0,
   "credential_renewal_attempts": 0,
   "credentials_written_to_files": false,
@@ -8,7 +8,17 @@
   "article_content_verified": true,
   "lua_content_projection_matches": true,
   "native_https_content_matches": true,
-  "native_content_reads": 1,
+  "native_read_requests": 3,
+  "native_catalog": [
+    {
+      "group_count": 0,
+      "error_code": -2041
+    },
+    {
+      "group_count": 0,
+      "error_code": -2041
+    }
+  ],
   "owner_verified": true,
   "mp_account_count": 2,
   "samples": [

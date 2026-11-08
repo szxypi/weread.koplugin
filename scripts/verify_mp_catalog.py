@@ -45,6 +45,12 @@ def book_id(value):
     return value if isinstance(value,str) and re.fullmatch(r'MP_WXS_[1-9][0-9]{0,19}',value) else None
 
 
+def error_code(value):
+    if value is None:return 0
+    if type(value) is int and -(2**31)<=value<2**31:return value
+    raise MPError('catalog_error_invalid')
+
+
 def shape(value):
     return {key:type(item).__name__ for key,item in value.items() if isinstance(key,str) and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',key)} if isinstance(value,dict) else {}
 
@@ -161,7 +167,7 @@ def main(argv=None):
             data=probe.catalog(count=100)
             groups=data.get('reviews')
             observation=dict(top_level=shape(data),group_count=len(groups) if isinstance(groups,list) else 0,
-                             errcode=data.get('errCode',data.get('errcode',0)))
+                             errcode=error_code(data.get('errCode',data.get('errcode',0))))
             if isinstance(groups,list) and groups:
                 observation['group_fields']=shape(groups[0])
                 subs=groups[0].get('subReviews') if isinstance(groups[0],dict) else None
@@ -177,7 +183,7 @@ def main(argv=None):
             report['article_content_verified']=True
             if args.lua_command:
                 refreshed={c.name:c.value for c in probe.cookies if c.name in ('wr_vid','wr_skey','wr_rt','wr_ql','wr_fp','wr_pf') and c.domain in ('.weread.qq.com','weread.qq.com') and c.path=='/'}
-                payload=dict(html=html,session=dict(vid=probe.vid,cookies=refreshed),review_id=KNOWN_REVIEW)
+                payload=dict(html=html,session=dict(vid=probe.vid,cookies=refreshed),review_id=KNOWN_REVIEW,mp_books=accounts[:2],web_headers=probe.web_headers)
                 encoded=json.dumps(payload,ensure_ascii=False).encode()
                 if len(encoded)>12*1024*1024:raise MPError('probe_too_large')
                 completed=subprocess.run(args.lua_command,input=encoded,capture_output=True,timeout=90)
@@ -185,7 +191,7 @@ def main(argv=None):
                 if completed.returncode or len(completed.stdout)>65536 or completed.stdout.count(frame)!=1:raise MPError('lua_content_probe_failed')
                 actual=json.loads(completed.stdout.split(frame)[1])
                 if actual.get('model')!=expected or actual.get('native')!=expected:raise MPError('content_projection_mismatch')
-                report.update(lua_content_projection_matches=True,native_https_content_matches=True,native_content_reads=actual.get('requests'))
+                report.update(lua_content_projection_matches=True,native_https_content_matches=True,native_read_requests=actual.get('requests'),native_catalog=actual.get('catalog'))
             html=None;expected.clear()
         probe.verify_account();store.save(probe);saved.clear()
         report.update(result='MP_CATALOG_READ_VERIFIED' if success else 'MP_CATALOG_UNVERIFIED',owner_verified=True,

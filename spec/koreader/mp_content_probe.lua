@@ -21,12 +21,19 @@ local ok,result=pcall(function()
     local output={model=project(input.html)};input.html=nil
     local scope={vid=input.session.vid,epoch=1}
     local settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_self,value) return value==scope end,
-        get=function(_self,key,default) if key=='cookies' then return input.session.cookies end;return default end}
+        get=function(_self,key,default) if key=='cookies' then return input.session.cookies end
+            if key=='wr_wrpa' then return input.web_headers and input.web_headers.wr_wrpa or '' end;return default end}
     local client=require('weread.lib.client'):new(settings)
+    local allowed={}
+    assert(type(input.mp_books)=='table' and #input.mp_books>=1 and #input.mp_books<=2)
+    for _,book in ipairs(input.mp_books) do
+        assert(type(book)=='string' and #book<=28 and book:match('^MP_WXS_[1-9]%d*$'))
+        allowed['https://weread.qq.com/web/mp/articles?bookId='..book..'&maxIdx=0&count=100']=true
+    end
     local request,reads=client.request,0
     function client:request(options)
-        assert(options.method=='GET' and options.url=='https://weread.qq.com/web/mp/content?reviewId='..input.review_id)
-        reads=reads+1;assert(reads==1)
+        assert(options.method=='GET' and (allowed[options.url] or options.url=='https://weread.qq.com/web/mp/content?reviewId='..input.review_id))
+        reads=reads+1;assert(reads<=#input.mp_books+1)
         local chunks,size={},0
         options.persist_response_cookies=false
         options.sink=function(chunk)
@@ -36,6 +43,12 @@ local ok,result=pcall(function()
         end
         local _,code,headers=request(self,options)
         return table.concat(chunks),code,headers
+    end
+    output.catalog={}
+    for _,book in ipairs(input.mp_books) do
+        local data,code=client:get_mp_articles(book,0,100,input.web_headers and input.web_headers.wr_ticket)
+        assert(code==nil or (type(code)=='number' and code==code and code%1==0 and code>=-2147483648 and code<2147483648))
+        output.catalog[#output.catalog+1]={error_code=code or 0,group_count=type(data)=='table' and type(data.reviews)=='table' and #data.reviews or 0}
     end
     output.native=project(client:get_mp_content(input.review_id,{skip_mp_auth_headers=true}))
     output.requests=reads

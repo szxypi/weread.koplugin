@@ -15,6 +15,7 @@
 使用仓库已有验证脚本中的已知文章样本，通过 `/web/mp/content` 取得正文页面。
 Python 按现有 Lua 的正文提取规则计算内存投影，Lua 对同一响应的投影一致；
 KOReader 原生 HTTPS 再独立 GET 一次，提取结果也一致。
+同一次原生验证另独立读取两个目录，两者同样为 `-2041`；原生请求总计三个 GET，没有续期 POST。
 [去敏记录](validation-assets/2026-11-09/mp-content-owner-readonly.json)仅保留状态和布尔值，
 正文、正文摘要、文章地址、会话头及 Cookie 均不进入报告或文件。
 

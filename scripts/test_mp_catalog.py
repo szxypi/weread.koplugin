@@ -98,6 +98,9 @@ class MPCatalogTests(unittest.TestCase):
 
     def test_shape_only_exports_static_field_names(self):
         self.assertEqual(mp.shape({'title':'private','12345678':'private','bad key':'private'}),{'title':'str'})
+        self.assertEqual(mp.error_code(-2041),-2041)
+        for value in ('private-error',True,2**32):
+            with self.assertRaisesRegex(mp.MPError,'^catalog_error_invalid$'):mp.error_code(value)
 
 
 if __name__=='__main__':unittest.main()
