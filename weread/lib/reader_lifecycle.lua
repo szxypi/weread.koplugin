@@ -161,6 +161,7 @@ function M:onReaderReady()
     if self.source_navigation then self.source_navigation:cancel() end
     if self.source_position then self.source_position:on_reader_ready() end
     self.progress_sync:on_reader_ready()
+    if self.onTranslationReaderReady then self:onTranslationReaderReady() end
     local prefetch_session_gen = self._reader_session_gen
     UIManager:scheduleIn(0.2, function()
         if prefetch_session_gen ~= self._reader_session_gen then return end
@@ -193,6 +194,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.closeReadingLanguageDocument then self:closeReadingLanguageDocument() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
@@ -357,6 +359,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end

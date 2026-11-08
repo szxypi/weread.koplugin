@@ -1,0 +1,97 @@
+{
+  "schema": 1,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "fixture": "synthetic only",
+  "runs": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "epub_unchanged": true,
+      "bookmark_position_preserved": true,
+      "native_font_size_changed": true,
+      "old_upload_cancelled": true,
+      "durable_upload_intent_preserved": true,
+      "delayed_pull_cancelled": true,
+      "read_only_source_target_retained": true,
+      "upload_permission_granted": false,
+      "network_requests": 0,
+      "result": "PASS",
+      "synthetic_only": true,
+      "native_engine": true,
+      "reader_menu_integrated": true,
+      "mode_persistence_integrated": true,
+      "independent_archive_worker": true,
+      "ui_heartbeat": true,
+      "archive_duplicate_missing_owner_rejected": true,
+      "paragraph_handoff": true,
+      "same_ids_cross_chapter": true,
+      "unpaired_original_and_links_preserved": true,
+      "ordinary_reopen_mode_and_size": true,
+      "suspend_and_dismiss_cancelled": true,
+      "dom_stale": false
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "ordinary_reopen_mode_and_size": true,
+      "suspend_and_dismiss_cancelled": true,
+      "dom_stale": false,
+      "epub_unchanged": true,
+      "bookmark_position_preserved": true,
+      "native_font_size_changed": true,
+      "old_upload_cancelled": true,
+      "durable_upload_intent_preserved": true,
+      "delayed_pull_cancelled": true,
+      "read_only_source_target_retained": true,
+      "upload_permission_granted": false,
+      "network_requests": 0,
+      "result": "PASS",
+      "synthetic_only": true,
+      "native_engine": true,
+      "reader_menu_integrated": true,
+      "mode_persistence_integrated": true,
+      "independent_archive_worker": true,
+      "ui_heartbeat": true,
+      "archive_duplicate_missing_owner_rejected": true,
+      "paragraph_handoff": true,
+      "same_ids_cross_chapter": true,
+      "unpaired_original_and_links_preserved": true
+    }
+  ],
+  "candidate_verification": [
+    {
+      "case": "translation-reader600-accepted",
+      "result": "PASS",
+      "installed_files": 149,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "translation-readerko2-accepted",
+      "result": "PASS",
+      "installed_files": 149,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "translation-reader-core600-accepted",
+      "result": "PASS",
+      "installed_files": 149,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "translation-reader-cloudko2-accepted",
+      "result": "PASS",
+      "installed_files": 149,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    }
+  ]
+}

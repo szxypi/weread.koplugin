@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
@@ -1905,6 +1906,30 @@ end
 
 function M:cancelReaderLinkImport()
     return require("weread.ui.reader_link").cancel(self)
+end
+
+function M:showReadingLanguage()
+    return require("weread.ui.translation").show(self)
+end
+
+function M:cancelReadingLanguage()
+    return require("weread.ui.translation").cancel(self)
+end
+
+function M:onTranslationReadSettings()
+    return require("weread.ui.translation").restore(self)
+end
+
+function M:onPreRenderDocument()
+    return require("weread.ui.translation").pre_render(self)
+end
+
+function M:onTranslationReaderReady()
+    return require("weread.ui.translation").reader_ready(self)
+end
+
+function M:closeReadingLanguageDocument()
+    return require("weread.ui.translation").document_close(self)
 end
 
 function M:showLocalNotesExport()

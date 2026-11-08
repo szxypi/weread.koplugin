@@ -1,6 +1,22 @@
 local I18n = {}
 
 local zh = {
+    ["Reading language"] = "阅读语言",
+    ["Reading language: %1"] = "阅读语言：%1",
+    ["Translation text size"] = "译文字号",
+    ["Translation text size: %1%"] = "译文字号：%1%",
+    ["Unavailable"] = "暂不可用",
+    ["Current"] = "当前",
+    ["Checking local translations…\nTap or press a key to cancel."] = "正在核对本机译文……\n点击屏幕或按键可取消。",
+    ["Verified translated blocks: %1; unpaired blocks kept: %2"] = "已核对 %1 个译文块；保留 %2 个未配对块",
+    ["Only verified pairs hide their original text. Unpaired paragraphs, illustrations and links remain visible."] = "仅隐藏已核对的对应原文。未配对段落、插图和链接会继续显示。",
+    ["Could not verify the local translation. Reopen or download this book again."] = "无法核对本机译文，请重新打开或下载本书。",
+    ["The book changed. Open reading language again."] = "书籍已发生变化，请重新打开阅读语言菜单。",
+    ["This local book has no verified translation for that mode. Download its translated chapters first."] = "本机书籍没有可用于该模式的已核对译文，请先下载对应译文章节。",
+    ["The reader is busy. Please try again shortly."] = "阅读器正在处理其他操作，请稍后重试。",
+    ["Could not restore the corresponding paragraph. Your saved book and notes are kept."] = "无法恢复对应段落，已保存的书籍和笔记仍保留。",
+    ["Could not save the reading language. Check storage and try again."] = "无法保存阅读语言，请检查存储空间后重试。",
+    ["Could not change the reading language. Reopen this book and try again."] = "无法切换阅读语言，请重新打开本书后重试。",
     ["Original"] = "原文",
     ["Bilingual"] = "双语",
     ["Translation only"] = "仅译文",

@@ -196,6 +196,10 @@ function M:getMainMenuItems()
         if book_id ~= nil then
             if not WeRead.is_mp_book(book_id) then
                 reader_items[#reader_items + 1] = {
+                    text = _("Reading language"),
+                    callback = self:safeCallback(_("Reading language"), function() self:showReadingLanguage() end),
+                }
+                reader_items[#reader_items + 1] = {
                     text = _("Check reading position"),
                     keep_menu_open = true,
                     callback = self:safeCallback(_("Check reading position"), function()
