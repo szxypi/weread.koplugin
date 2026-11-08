@@ -49,6 +49,11 @@ function M.reader(reader, flush, evidence)
         target_page = page, previous_page = before, total_pages = doc:getPageCount(),
         exact_prefix_verified = true, target_visible = true, raw_before_images = true,
         file_version = source.book_version, file_id = source.file_id }
+    local dom,dom_reason = require('weread.lib.source_dom').open(doc,book_id,1)
+    assert(dom,dom_reason)
+    local dom_point = assert(dom:locate(target_co))
+    assert(assert(dom:capture(dom_point.xpointer)).co == target_co, 'downloaded source/DOM roundtrip changed co')
+    report.reader.chapter_dom_roundtrip = true
     reader.rolling:onGotoPage(before)
     flush()
     print('PASS: embedded original -> filtered UTF16 co -> unique DOM anchor -> scalar XPointer -> native visible page')
@@ -56,7 +61,8 @@ end
 
 function M.full(path, book_id, chapters, evidence, client)
     local doc = assert(require('document/documentregistry'):openDocument(path))
-    assert(doc:loadDocument(false), 'downloaded full EPUB failed to open')
+    assert(doc:loadDocument(), 'downloaded full EPUB failed to open')
+    doc:render()
     local root = Identity.read_document(doc, book_id)
     local checked, footnotes = 0, 0
     for _, chapter in ipairs(chapters) do
@@ -68,12 +74,19 @@ function M.full(path, book_id, chapters, evidence, client)
         assert(source.raw:find('<aside id="note1"', 1, true), 'original footnote definition lost')
         if rendered:find('class="wr-footnotes"', 1, true) then footnotes = footnotes + 1 end
         assert(assert(Source.read_document(doc, book_id, nil, source.render_path)).capture_id == source.capture_id, 'full member alias differs')
-        assert(Coordinates.build(source.raw), 'full original source cannot build coordinate map')
+        local map = assert(Coordinates.build(source.raw), 'full original source cannot build coordinate map')
+        if checked == 0 or checked == #chapters-1 then
+            local dom,dom_reason = require('weread.lib.source_dom').open(doc,book_id,chapter.chapterUid)
+            assert(dom,dom_reason)
+            local point = assert(map:locate('这是第' .. tostring(chapter.chapterUid) .. '章的第16段。我们沿着小路慢慢前行'))
+            local located = assert(dom:locate(point.co))
+            assert(assert(dom:capture(located.xpointer)).co == point.co, 'transformed full chapter DOM roundtrip changed co')
+        end
         checked = checked + 1
     end
     assert(checked == 6 and footnotes == 6, 'full original/footnote transform coverage missing')
     report.full = { chapters = checked, raw_before_footnotes = footnotes, raw_before_images = checked,
-        file_version = root.book_version, file_id = root.file_id, background_packaging = true }
+        file_version = root.book_version, file_id = root.file_id, background_packaging = true, transformed_chapter_dom_roundtrips = 2 }
     doc:close()
     -- The synchronous range and background-prefetch worker also capture raw
     -- sources when image downloads are disabled.

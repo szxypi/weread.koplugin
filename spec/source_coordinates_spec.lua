@@ -118,4 +118,24 @@ for _, value in ipairs({
     eq(type(reason) == "string" and reason:match("^source_coordinates/[%a_]+$") ~= nil, true)
 end
 
+-- Scalar positions inside a context are converted through actual source
+-- runs; UTF-16 and encoded entities cannot use scalar-offset addition.
+local context = "ABCDE😀&中文FGHIJKLMNOPQRSTUVWXYZ"
+local point_map = build("<body><p>ABCDE😀&amp;中文FGHIJKLMNOPQRSTUVWXYZ</p></body>")
+for _, case in ipairs({ {0,9}, {5,14}, {6,16}, {7,21}, {9,23}, {30,44} }) do
+    eq(assert(point_map:locate_point(context, case[1])).co, case[2])
+end
+for _, invalid in ipairs({-1,31,0.5,"5",math.huge}) do
+    local missing, reason = point_map:locate_point(context, invalid)
+    eq(missing,nil)
+    eq(reason,"source_coordinates/invalid_point")
+end
+local pair_map = build("<body><p>&pair;1234567890abcdefghijklmnop</p></body>", {
+    decode_entity = function() return "XY" end,
+})
+local pair_point, pair_error = pair_map:locate_point("XY1234567890abcdefghijklmnop",1)
+eq(pair_point,nil)
+eq(pair_error,"source_coordinates/inside_entity_or_scalar")
+eq(assert(pair_map:locate_point("XY1234567890abcdefghijklmnop",2)).co,15)
+
 print("source_coordinates_spec: " .. checks .. " checks")

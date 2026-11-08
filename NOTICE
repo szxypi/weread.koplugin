@@ -29,8 +29,9 @@ Source-coordinate protocol research:
   Sanitizer-dependent coordinate runs and UTF-16 units were verified against
   the live parser before implementing weread/lib/source_coordinates.lua. The
   pure local Lua core does not enable a new progress-writing contract. Local
-  EPUB source binding and a native single-paragraph XPointer probe are now
-  verified; production reader integration and real-account write/readback
+  EPUB source binding and chapter-scoped source/DOM conversion are now
+  verified, including cross-block anchors and identical chapters. Production
+  reader integration and real-account write/readback
   remain pending.
   Official Web JavaScript is loaded for verification, not redistributed.
 The home/shelf/store navigation is adapted to the original WeRead services.

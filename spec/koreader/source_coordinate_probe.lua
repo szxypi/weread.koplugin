@@ -12,11 +12,18 @@ assert(type(payload) == "table" and type(payload.sources) == "table" and #payloa
 local maps = json.array{}
 for index, source in ipairs(payload.sources) do
     local map = assert(Source.build(source.html))
-    local positions = json.array{}
+    local positions, scalar_positions = json.array{}, json.array{}
     for query, quote in ipairs(source.queries) do
         local position = assert(map:locate(quote))
         positions[query] = { co = position.co, end_co = position.end_co }
+        local count = 0
+        for _character in quote:gmatch("[%z\1-\127\194-\244][\128-\191]*") do count = count + 1 end
+        scalar_positions[query] = json.array{}
+        for i, offset in ipairs({ 0, math.floor(count / 2), count }) do
+            local point = assert(map:locate_point(quote, offset))
+            scalar_positions[query][i] = { co = point.co, point_offset = offset }
+        end
     end
-    maps[index] = { segments = json.array(map.segments), flat = map.flat, positions = positions }
+    maps[index] = { segments = json.array(map.segments), flat = map.flat, positions = positions, scalar_positions = scalar_positions }
 end
 io.stdout:write(json.encode({ maps = maps }))

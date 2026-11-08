@@ -434,7 +434,8 @@ def check_lua(command, sources, rows):
     for raw in sources:
         model = FilteredSource(raw)
         flat = ''.join(char for char in model.characters if not char.isspace())
-        queries, positions = [], []
+        queries, positions, scalar_points = [], [], []
+        visible = [index for index, char in enumerate(model.characters) if not char.isspace()]
         for start in sorted({0, max(0, len(flat) // 2 - 12), max(0, len(flat) - 24)}):
             quote = flat[start:start + 24]
             first = flat.find(quote)
@@ -443,8 +444,12 @@ def check_lua(command, sources, rows):
             queries.append(quote)
             co, end_co = model.locate(quote)
             positions.append(dict(co=co, end_co=end_co))
+            scalar_points.append([dict(point_offset=offset,
+                co=model.ends[visible[first + len(quote) - 1]] if offset == len(quote)
+                else model.starts[visible[first + offset]])
+                for offset in sorted({0, len(quote) // 2, len(quote)})])
         payload.append(dict(html=raw, queries=queries))
-        expected.append((model, flat, positions))
+        expected.append((model, flat, positions, scalar_points))
     try:
         result = subprocess.run(command, input=json.dumps(dict(sources=payload)), text=True,
                                 capture_output=True, timeout=60, check=False)
@@ -457,17 +462,19 @@ def check_lua(command, sources, rows):
         raise CoordinateError("lua: probe unavailable or malformed") from None
     if not isinstance(maps, list) or len(maps) != len(expected):
         raise CoordinateError("lua: map count mismatch")
-    points = nodes = 0
+    points = scalar_count = nodes = 0
     for raw, actual, reference, parsed_rows in zip(sources, maps, expected, rows, strict=True):
-        model, flat, positions = reference
+        model, flat, positions, scalar_points = reference
         if (not isinstance(actual, dict) or actual.get('segments') != [list(segment) for segment in model.segments]
-                or actual.get('flat') != flat or actual.get('positions') != positions):
+                or actual.get('flat') != flat or actual.get('positions') != positions
+                or actual.get('scalar_positions') != scalar_points):
             raise CoordinateError("lua: model or local-position mismatch")
         # Equal streams are also checked against the independently executed
         # official parser; this is not only a Lua/Python implementation match.
         nodes += check_parser_rows(raw, parsed_rows, model=model)
         points += len(positions)
-    return dict(lua_verified=True, lua_cases=len(maps), lua_positions=points, lua_official_text_nodes=nodes)
+        scalar_count += sum(map(len, scalar_points))
+    return dict(lua_verified=True, lua_cases=len(maps), lua_positions=points, lua_scalar_positions=scalar_count, lua_official_text_nodes=nodes)
 
 
 def verify_public(book_id, channel="chrome", lua_command=None):

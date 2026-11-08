@@ -181,13 +181,15 @@ class SourceCoordinateTests(unittest.TestCase):
     def test_lua_crosscheck_requires_matching_streams_text_and_positions(self):
         text = 'abcdefghijklmnopqrstuvwx'
         raw = '<html><body><p>' + text + '</p></body></html>'
-        packet = dict(maps=[dict(segments=[[15, text]], flat=text, positions=[dict(co=15, end_co=39)])])
+        packet = dict(maps=[dict(segments=[[15, text]], flat=text, positions=[dict(co=15, end_co=39)],
+            scalar_positions=[[dict(co=15, point_offset=0), dict(co=27, point_offset=12), dict(co=39, point_offset=24)]])])
         with patch('verify_source_coordinates.subprocess.run', return_value=SimpleNamespace(
                 returncode=0, stdout=json.dumps(packet))):
             report = check_lua(['fake-probe'], [raw], [[dict(co=15, text=text)]])
         self.assertTrue(report['lua_verified'])
         self.assertEqual(report['lua_positions'], 1)
-        for key, value in (('flat', 'changed'), ('segments', [[14, text]]), ('positions', [dict(co=14, end_co=39)])):
+        for key, value in (('flat', 'changed'), ('segments', [[14, text]]), ('positions', [dict(co=14, end_co=39)]),
+                           ('scalar_positions', [[dict(co=26, point_offset=12)]])):
             bad = json.loads(json.dumps(packet))
             bad['maps'][0][key] = value
             with patch('verify_source_coordinates.subprocess.run', return_value=SimpleNamespace(
@@ -198,10 +200,21 @@ class SourceCoordinateTests(unittest.TestCase):
             check_lua(['fake-probe'], [raw], [[dict(co=15, text=text)]])
         self.assertNotIn('private-process-failure', str(error.exception))
 
+    def test_lua_scalar_points_count_utf16_and_original_entity_units(self):
+        text = 'ABCDE😀&中文FGHIJKLMNOPQRST'
+        raw = '<html><body><p>ABCDE😀&amp;中文FGHIJKLMNOPQRST</p></body></html>'
+        packet = dict(maps=[dict(segments=[[15, 'ABCDE😀&amp;中文FGHIJKLMNOPQRST']], flat=text,
+            positions=[dict(co=15, end_co=44)], scalar_positions=[[dict(co=15, point_offset=0),
+                dict(co=32, point_offset=12), dict(co=44, point_offset=24)]])])
+        with patch('verify_source_coordinates.subprocess.run', return_value=SimpleNamespace(
+                returncode=0, stdout=json.dumps(packet))):
+            report = check_lua(['fake-probe'], [raw], [[dict(co=15, text='ABCDE'), dict(co=22, text='&')]])
+        self.assertEqual(report['lua_scalar_positions'], 3)
+
     def test_lua_crosscheck_does_not_call_an_overlapping_quote_unique(self):
         text = 'x' * 40
         raw = '<html><body><p>' + text + '</p></body></html>'
-        packet = dict(maps=[dict(segments=[[15, text]], flat=text, positions=[])])
+        packet = dict(maps=[dict(segments=[[15, text]], flat=text, positions=[], scalar_positions=[])])
         with patch('verify_source_coordinates.subprocess.run', return_value=SimpleNamespace(
                 returncode=0, stdout=json.dumps(packet))) as run:
             report = check_lua(['fake-probe'], [raw], [[dict(co=15, text=text)]])

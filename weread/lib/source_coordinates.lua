@@ -263,6 +263,28 @@ function Map:locate(text, before, after)
     return nil, type(result) == "string" and result:match("^source_coordinates/[a-z_]+$") or "source_coordinates/unavailable"
 end
 
+-- Locate a scalar boundary inside a unique normalized quotation. DOM capture
+-- needs the position within context, including the chapter's final boundary;
+-- adding scalar counts to a UTF-16/XML source offset is never equivalent.
+function Map:locate_point(text, point_offset, before, after)
+    local ok, result = pcall(function()
+        local clean, count = normalized(text)
+        if type(point_offset) ~= "number" or point_offset ~= point_offset or point_offset % 1 ~= 0
+            or point_offset < 0 or point_offset > count then fail("invalid_point") end
+        local found, reason = self:locate(clean, before, after)
+        if not found then error(reason, 0) end
+        local co = found.end_co
+        if point_offset < count then
+            local at = 1
+            for _i = 1, point_offset do local width = select(2, scalar(clean, at)) at = at + width end
+            co = self:_point(found.first + at - 1)
+        end
+        return { co = co, point_offset = point_offset, basis = "filtered_xhtml_utf16" }
+    end)
+    if ok then return result end
+    return nil, type(result) == "string" and result:match("^source_coordinates/[a-z_]+$") or "source_coordinates/unavailable"
+end
+
 function Map:anchor(co)
     local ok, result = pcall(function()
         if type(co) ~= "number" or co ~= co or co % 1 ~= 0 or co < 0 or co > M.MAX_BYTES * 8 then fail("invalid_offset") end

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check local position precision in a packaged plugin and real KOReader."""
+"""Check local fractional or source/DOM positions in packaged, isolated KOReader."""
 import argparse
 import os
 from pathlib import Path
@@ -15,6 +15,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--koreader", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--probe", choices=("precision", "source-dom"), default="precision",
+                        help="fractional navigation (default) or chapter-scoped source/DOM mapping")
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
     parser.add_argument("--dpi", type=int, default=167)
@@ -32,11 +34,12 @@ def main():
         environment = os.environ | dict(KO_HOME=str(root / "profile"), WEREAD_EVIDENCE=str(root / "evidence"),
                                         XDG_RUNTIME_DIR=str(root / "xdg"),
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
-                                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
+                                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
+                                        EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
         log = root / "evidence/runtime.log"
         try:
             with log.open("w") as out:
-                result = subprocess.run(["./luajit", str(REPO / "spec/koreader/position_precision_smoke.lua")],
+                result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / ("source_dom_smoke.lua" if args.probe == "source-dom" else "position_precision_smoke.lua"))],
                                         cwd=runtime, env=environment, stdout=out, stderr=subprocess.STDOUT, timeout=120)
         finally:
             server.shutdown()
