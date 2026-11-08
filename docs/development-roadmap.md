@@ -73,3 +73,5 @@ xvfb-run -a python3 scripts/test_discovery_runtime.py \
 它验证绘制、回调与页面清理，不代表所有触摸手势或在线请求已验收。
 
 精确进度的公开只读验证及未完成项见 [原文位置原型](source-position-prototype.md)。
+真实账号的原文位置核对另有默认离线的 `verify_web_source_progress.py`；新扫码后只在内存比较指定书籍，
+不包含账号数据写入分支。18 组合成检查通过，真实位置／版本对照尚待本人扫码执行。
