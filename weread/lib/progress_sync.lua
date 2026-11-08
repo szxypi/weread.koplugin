@@ -3,6 +3,7 @@ local Crypto = require("weread.lib.crypto")
 local ReaderPosition = require("weread.lib.reader_position")
 local Source = require("weread.lib.position_source")
 local SourceDom = require("weread.lib.source_dom")
+local FileIdentity = require("weread.lib.book_file_identity")
 
 local logger = require("weread.lib.logger").scoped("ProgressSync")
 
@@ -84,6 +85,7 @@ function ProgressSync:new(options)
         now = options.now or os.time,
         state = "idle",
         generation = 0,
+        navigation_generation = 0,
         pull_retry_token = 0,
         account_generation = 0,
         dirty = false,
@@ -108,6 +110,7 @@ function ProgressSync:_scope()
         generation = self.generation, account_generation = self.account_generation,
         account = self:_account_key(), book_id = tostring(self.detect_book() or ""),
         path = document_path(self.get_document()),
+        navigation_generation = self.navigation_generation,
     }
 end
 
@@ -124,6 +127,57 @@ end
 function ProgressSync:_invalidate_pull()
     self.pull_retry_token = self.pull_retry_token + 1
     self.pull_job, self.pulling = nil, false
+end
+
+-- A local source request supersedes older cloud comparisons and decisions,
+-- without changing the reading session or granting upload verification.
+function ProgressSync:begin_local_navigation()
+    self.navigation_generation = self.navigation_generation + 1
+    self:_invalidate_pull()
+    self.pending_jump = nil
+    if self.state == "pulling" or self.state == "awaiting_choice" or self.state == "switching_chapter" then
+        self.state = self.verified and "verified" or "unverified"
+    end
+end
+
+function ProgressSync:chapter_request_current(pending, scope)
+    return pending ~= nil and self.pending_jump == pending and self:_account_current(pending)
+        and self:_session_current(scope) and scope.navigation_generation == self.navigation_generation
+end
+
+-- ReaderUI:switchDocument destroys this plugin and creates a new one. Carry a
+-- bounded, one-use intent in its after-open callback, never in settings.
+function ProgressSync:chapter_handoff(path)
+    local pending = self.pending_jump
+    local scope = self:_scope()
+    if type(path) ~= "string" or path == "" or #path > 4096 or path:find("%z")
+        or not self:chapter_request_current(pending, scope) then return nil end
+    local offset, fraction = pending.chapter_offset, pending.overall_fraction
+    if type(offset) ~= "number" or offset < 0 or offset ~= offset or offset >= math.huge
+        or type(fraction) ~= "number" or fraction < 0 or fraction > 1 or fraction ~= fraction then return nil end
+    local remote = { book_id = pending.book_id, chapter_uid = pending.chapter_uid,
+        chapter_idx = tonumber(pending.remote and pending.remote.chapter_idx) or 0,
+        chapter_offset = offset, has_chapter_offset = true, percent = fraction * 100 }
+    local token, used = {}, false
+    pending.handoff = token
+    return function(reader)
+        if used then return false end
+        used = true
+        if self.pending_jump ~= pending or pending.handoff ~= token or not self:_account_current(pending)
+            or self.generation ~= scope.generation + 1 or self.navigation_generation ~= scope.navigation_generation then return false end
+        pending.handoff, self.pending_jump = nil, nil
+        local next_sync = reader and reader.weread and reader.weread.progress_sync
+        local document = next_sync and next_sync.get_document()
+        if not next_sync or next_sync == self or document ~= reader.document or document_path(document) ~= path
+            or tostring(next_sync.detect_book() or "") ~= tostring(pending.book_id)
+            or next_sync:_account_key() ~= pending.account or next_sync.navigation_generation ~= 0 or next_sync.pending_jump then return false end
+        if FileIdentity.read_document(document, pending.book_id).version_source == "book_mismatch" then return false end
+        next_sync.pending_jump = { account = pending.account, account_generation = next_sync.account_generation,
+            book_id = pending.book_id, chapter_uid = pending.chapter_uid, chapter_offset = offset,
+            fraction = pending.fraction, overall_fraction = fraction, chapter_fraction = pending.chapter_fraction,
+            remote = remote, notify = pending.notify == true, expected_path = path }
+        return true
+    end
 end
 
 -- Authentication changes do not change the open EPUB. Invalidate its verified
@@ -504,6 +558,7 @@ function ProgressSync:_apply_remote(remote, context, options)
             chapter_uid = target.chapter
                 and (target.chapter.chapterUid or target.chapter.chapterId),
             fraction = target.fraction,
+            overall_fraction = target.overall_fraction,
             chapter_offset = target.chapter_offset,
             chapter_fraction = target.chapter_fraction,
             remote = copy(remote),
@@ -699,7 +754,7 @@ function ProgressSync:_resolve(local_position, remote, context, options)
         self.state = "awaiting_choice"
         local scope, decided = self:_scope(), false
         local function choice_is_current()
-            if decided or not self:_session_current(scope) then return false end
+            if decided or not self:_session_current(scope) or scope.navigation_generation ~= self.navigation_generation then return false end
             decided = true
             return true
         end
@@ -781,6 +836,7 @@ function ProgressSync:_pull(options)
     if self.pulling then return false end
     local retry_token = options.retry_token
     if retry_token == nil then
+        self.navigation_generation = self.navigation_generation + 1
         self.pull_retry_token = self.pull_retry_token + 1
         retry_token = self.pull_retry_token
     elseif retry_token ~= self.pull_retry_token then
@@ -817,7 +873,7 @@ function ProgressSync:_pull(options)
     self.pull_job = job
     local function current()
         if self.pull_job ~= job then return false end
-        if self:_session_current(scope) then return true end
+        if self:_session_current(scope) and scope.navigation_generation == self.navigation_generation then return true end
         self.pull_job, self.pulling = nil, false
         return false
     end
@@ -901,24 +957,26 @@ function ProgressSync:_apply_pending_jump(book_id)
         return false
     end
     local local_position, _reason, context = self:capture_local()
-    if not context or not context.current_chapter
-        or tostring(context.current_chapter.chapterUid or context.current_chapter.chapterId)
-            ~= tostring(pending.chapter_uid) then
+    if not context or (pending.expected_path and context.path ~= pending.expected_path) then
         return false
     end
+    local target = PositionMapper.remote_to_local(context.chapters, pending.remote, {
+        is_full_book = context.is_full_book, current_chapter_uid = context.current_chapter
+            and (context.current_chapter.chapterUid or context.current_chapter.chapterId),
+    })
+    if not target or target.requires_chapter_open then return false end
     self.pending_jump = nil
     if self.on_before_navigate then
         local ready = pcall(self.on_before_navigate)
         if not ready then self.state = "error"; self.notify("jump_failed", {}); return true end
     end
-    local ok, err = self.goto_fraction(pending.fraction)
+    local ok, err = self.goto_fraction(target.fraction)
     if not ok then
         self.state = "error"
         self.notify("jump_failed", { error = err })
         return true
     end
-    self:_retain_target(context, { fraction = pending.fraction, chapter = context.current_chapter,
-        chapter_offset = pending.chapter_offset, chapter_fraction = pending.chapter_fraction })
+    self:_retain_target(context, target)
     local_position = self:capture_local() or local_position
     self.dirty = false
     self:_mark_verified(
@@ -961,6 +1019,7 @@ function ProgressSync:on_reader_ready()
         self.upload_job, self.uploading = nil, false
     end
     local generation = self.generation
+    local navigation_generation = self.navigation_generation
     self.current_book_id = nil
     self.local_position = nil
     self.remote_position = nil
@@ -978,6 +1037,11 @@ function ProgressSync:on_reader_ready()
         end
         book_id = tostring(book_id)
         self.current_book_id = book_id
+        if navigation_generation ~= self.navigation_generation then
+            if not self.local_position then self.local_position = self:capture_local() end
+            if not self.verified then self.state = "unverified" end
+            return
+        end
         if self:_apply_pending_jump(book_id) then return end
 
         local local_position, reason = self:capture_local()

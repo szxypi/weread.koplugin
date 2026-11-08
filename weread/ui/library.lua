@@ -1635,16 +1635,16 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         _("No chapters."), { items_per_page = perpage })
 end
 
-function M:openFile(path)
+function M:openFile(path, after_open_callback)
     if not path or path == "" then
         self:showInfo(_("No cached file."))
         return
     end
     self:closeWeReadUI()
     if self.ui.document then
-        self.ui:switchDocument(path)
+        self.ui:switchDocument(path, nil, after_open_callback)
     else
-        self.ui:openFile(path)
+        self.ui:openFile(path, nil, nil, nil, after_open_callback)
     end
 end
 
@@ -1747,11 +1747,23 @@ function M:openProgressTargetChapter(book, chapter)
         return false, "target_chapter_unavailable"
     end
     local chapter_uid = chapter.chapterUid or chapter.chapterId
+    local sync = self.progress_sync
+    local pending, scope = sync and sync.pending_jump, sync and sync:_scope()
+    local function current()
+        return sync and sync:chapter_request_current(pending, scope)
+    end
+    local function open_target(path)
+        if not current() then return false end
+        local handoff = sync:chapter_handoff(path)
+        if not handoff then return false end
+        self:openFile(path, handoff)
+        return true
+    end
+    if not current() then return false, "target_chapter_unavailable" end
     local cached = chapter_uid and book.cached_chapters
         and book.cached_chapters[tostring(chapter_uid)]
     if cached and file_exists(cached) then
-        self:openFile(cached)
-        return true
+        return open_target(cached)
     end
 
     local title = chapter.title
@@ -1765,20 +1777,27 @@ function M:openProgressTargetChapter(book, chapter)
         ok_text = _("Download target chapter"),
         ok_callback = self:safeCallback(_("Download target chapter"), function()
             UIManager:close(confirm)
+            if not current() then return end
             self.downloader:start(book, { chapter }, "chapter", {
                 single_chapter = true,
-                open_on_complete = true,
+                silent_completion = true,
+                offer_read = false,
                 on_complete = function(ok, reason)
-                    if not ok and self.progress_sync then
-                        self.progress_sync:cancel_pending_jump(reason)
+                    if not current() then return end
+                    if not ok then
+                        sync:cancel_pending_jump(reason)
+                    else
+                        -- Both downloader paths finish their job after this
+                        -- callback. Open once its cleanup has completed.
+                        UIManager:scheduleIn(0.1, function() open_target(reason) end)
                     end
                 end,
             })
         end),
         cancel_text = _("Cancel"),
         cancel_callback = function()
-            if self.progress_sync then
-                self.progress_sync:cancel_pending_jump(
+            if current() then
+                sync:cancel_pending_jump(
                     "target_chapter_download_cancelled")
             end
         end,

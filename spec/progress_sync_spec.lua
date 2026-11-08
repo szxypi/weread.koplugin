@@ -1104,6 +1104,95 @@ test("chapter-file transitions retain their original offset after opening the ta
     eq(f.sync.local_position.retained_remote_target, true, "new chapter reader uses retained position")
 end)
 
+test("new local navigation revokes queued cloud reads and conflict choices", function()
+    local queued = {}
+    local f = fixture({ progress = 50, chapterUid = 33, chapterOffset = 100 }, {
+        run_online = function(_kind, callback) queued[#queued + 1] = callback;return true end,
+    })
+    local reads = 0
+    f.client.get_progress = function() reads = reads + 1;return {} end
+    f.sync:on_reader_ready();f.drain()
+    f.sync:begin_local_navigation()
+    queued[1]()
+    eq(reads, 0, "queued read cannot start after a newer local request")
+    eq(f.sync.verified, false, "local request does not grant upload rights")
+
+    local conflict = fixture({ progress = 50, chapterUid = 33, chapterOffset = 100 })
+    conflict.sync:on_reader_ready();conflict.drain()
+    local choice = conflict.choices[1]
+    conflict.sync:begin_local_navigation()
+    choice.use_remote();choice.keep_local()
+    eq(#conflict.jumps, 0, "superseded conflict choice cannot navigate")
+    eq(#conflict.uploads, 0, "superseded conflict choice cannot write")
+end)
+
+test("an early local request supersedes the delayed open comparison", function()
+    local f = fixture({ progress = 50, chapterUid = 33, chapterOffset = 100 })
+    local reads = 0
+    f.client.get_progress = function() reads = reads + 1;return {} end
+    f.sync:on_reader_ready()
+    f.sync:begin_local_navigation()
+    f.drain()
+    eq(reads, 0, "old open timer cannot start a new cloud pull")
+    eq(f.sync.current_book_id, "book", "reader bookkeeping still initialized")
+    eq(f.sync.verified, false, "early request preserves verification gate")
+end)
+
+test("chapter handoff reaches a new controller once and recomputes file geometry", function()
+    local catalog = { { chapterUid = 11, chapterIdx = 1, wordCount = 101 },
+        { chapterUid = 22, chapterIdx = 2, wordCount = 301 } }
+    local sender = fixture({}, { get_chapters = function() return catalog end })
+    sender.sync.get_file_context = function() return 1, catalog[1], false end
+    local before, _, context = sender.sync:capture_local();sender.sync.local_position = before
+    assert(sender.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 4, percent = 25 }, context))
+    local handoff = assert(sender.sync:chapter_handoff("/cache/book/chapter-two.epub"))
+    sender.sync:on_close_document()
+    local receiver = fixture({}, { get_chapters = function() return catalog end })
+    receiver.document.file = "/cache/book/chapter-two.epub"
+    receiver.sync.get_file_context = function() return 2, catalog[2], false end
+    receiver.sync:on_reader_ready()
+    local reader = { document = receiver.document, weread = { progress_sync = receiver.sync } }
+    eq(handoff(reader), true, "new reader accepts one explicit handoff")
+    eq(handoff(reader), false, "handoff cannot replay")
+    receiver.drain()
+    eq(receiver.sync.local_position.chapter_uid, 22, "receiver kept target chapter")
+    eq(receiver.sync.local_position.chapter_offset, 4, "receiver kept exact offset")
+    eq(receiver.sync.verified, true, "receiver applies selected target")
+    eq(sender.sync.pending_jump, nil, "sender releases transferred intent")
+
+    local full_sender = fixture({}, { get_chapters = function() return catalog end })
+    full_sender.sync.get_file_context = function() return 1, catalog[1], false end
+    local _, _, full_context = full_sender.sync:capture_local()
+    assert(full_sender.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25 }, full_context))
+    local full_handoff = assert(full_sender.sync:chapter_handoff("/cache/book/full.epub"))
+    full_sender.sync:on_close_document()
+    local full = fixture({}, { get_chapters = function() return catalog end })
+    full.sync:on_reader_ready()
+    assert(full_handoff({ document = full.document, weread = { progress_sync = full.sync } }))
+    full.drain()
+    eq(full.sync.local_position.chapter_offset, 154, "combined file retains selected chapter offset")
+    eq(full.jumps[1], 255/402, "combined file uses overall fraction instead of old chapter-file fraction")
+end)
+
+test("chapter handoff rejects replacement accounts, paths and newer requests", function()
+    for _, mode in ipairs({ "account", "path", "new_request" }) do
+        local sender = fixture({})
+        sender.sync.get_file_context = function() return 1, chapters[1], false end
+        local _, _, context = sender.sync:capture_local()
+        assert(sender.sync:_apply_remote({ chapter_uid = 22, chapter_offset = 154, percent = 25.4 }, context))
+        local handoff = assert(sender.sync:chapter_handoff("/cache/book/chapter-two.epub"))
+        if mode == "new_request" then sender.sync:begin_local_navigation() end
+        sender.sync:on_close_document()
+        local receiver = fixture({})
+        receiver.document.file = mode == "path" and "/different.epub" or "/cache/book/chapter-two.epub"
+        if mode == "account" then receiver.values.account.user_vid = "different-owner" end
+        receiver.sync:on_reader_ready()
+        eq(handoff({ document = receiver.document, weread = { progress_sync = receiver.sync } }), false,
+            "handoff rejected " .. mode)
+        eq(receiver.sync.pending_jump, nil, "foreign intent not installed")
+    end
+end)
+
 test("native source targets remain file bound and separate from legacy progress", function()
     local Source = require("weread.lib.position_source")
     local Identity = require("weread.lib.book_file_identity")

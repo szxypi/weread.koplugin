@@ -15,8 +15,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--koreader", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state"), default="precision",
-                        help="fractional navigation (default), source/DOM mapping, or live reader-state capture")
+    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation"), default="precision",
+                        help="fractional navigation (default), source/DOM mapping, live reader-state capture, or chapter handoff")
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
     parser.add_argument("--dpi", type=int, default=167)
@@ -40,7 +40,7 @@ def main():
         try:
             with log.open("w") as out:
                 probe = {"precision": "position_precision_smoke.lua", "source-dom": "source_dom_smoke.lua",
-                         "source-state": "source_position_smoke.lua"}[args.probe]
+                         "source-state": "source_position_smoke.lua", "navigation": "progress_navigation_smoke.lua"}[args.probe]
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / probe)],
                                         cwd=runtime, env=environment, stdout=out, stderr=subprocess.STDOUT, timeout=120)
         finally:

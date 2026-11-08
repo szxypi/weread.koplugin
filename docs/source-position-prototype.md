@@ -254,6 +254,19 @@ KO2 尺寸截图中的表情显示为问号；本轮验证的是 DOM 文本坐�
 
 ![原文目标所在页面与核验章节（KO2 尺寸，合成正文）](validation-assets/2026-11-08/source-navigation-target.png)
 
+## 章节目标交接与操作顺序
+
+实际 ReaderUI 切换章节会重建插件，不能只在旧 ProgressSync 中保留待跳转目标。
+`chapter_handoff` 使用原生打开后回调，核对旧请求、一次关书代次、账号、目标路径及新阅读器的书籍身份后，
+将有界目标交给新控制器一次。新控制器按实际单章／整书上下文重新计算现有映射，目标不写入设置。
+原文导航请求同时撤销旧云端比较和待切章操作；旧确认框、下载结果及延迟打开不能覆盖新请求。
+被替代的下载允许完成缓存，有效下载则在任务清理后切换阅读器。
+
+[两尺寸真实运行结果](validation-assets/2026-11-08/navigation-intent-local.json) 覆盖实际插件重建、
+原生确认框、HTTP 下载中发起新原文请求以及新下载后的再次切章。
+两次有效跨实例交接均保留第二章现有映射的偏移 154；102 组 Lua、238 文件零警告、71 组 Python 通过。
+这不替代云端原文目标适配或版本验证，也不证明现有字数模型中的偏移就是原文 `co`。
+
 ## 复验
 
 默认只做离线边界检查，不联网，不需要浏览器依赖：
@@ -302,6 +315,14 @@ xvfb-run -a python3 scripts/test_position_runtime.py --probe source-dom \
 ```
 
 省略 `--probe source-dom` 时，仍运行原有小数进度导航验证。
+
+跨阅读器章节交接、原生提示和实际本地 HTTP 下载协调使用新目录：
+
+```sh
+xvfb-run -a python3 scripts/test_position_runtime.py --probe navigation \
+  --koreader /absolute/path/to/koreader --run-dir /absolute/path/to/new-navigation-run \
+  --width 1264 --height 1680 --dpi 300
+```
 
 实时本地位置与独立归档边界使用两个新目录分别复验：
 

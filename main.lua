@@ -259,7 +259,10 @@ function WeReadPlugin:init()
         can_prepare = self.source_position.can_prepare,
         is_busy = self.source_position.is_busy,
         navigate = function(xpointer) return ReaderPosition.goto_xpointer(self.ui, xpointer) end,
-        on_start = function() self.source_position:pause("source_jump") end,
+        on_start = function()
+            self.progress_sync:begin_local_navigation()
+            self.source_position:pause("source_jump")
+        end,
         on_done = function() self.source_position:resume("source_jump") end,
         on_applied = function(position, xpointer, metadata)
             return self.progress_sync:retain_source_target(position, xpointer, metadata)
