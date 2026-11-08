@@ -188,6 +188,14 @@ class MockServer(ThreadingHTTPServer):
             return control["status"], dict(errcode=-1, errmsg="Injected mock failure")
 
         book_id = str(data.get("bookId") or query.get("bookId", [BOOK_ID])[0])
+        if path == "/web/login/renewal" and method == "POST":
+            if data != {"rq": "%2Fweb%2Fbook%2Fread", "ql": False}:
+                raise ValueError("invalid Web renewal request")
+            return 200, dict(succ=1)
+        if path == "/web/mp/articles" and method == "GET":
+            if not book_id.startswith("MP_WXS_"):
+                raise ValueError("invalid MP account")
+            return 200, dict(errCode=-2041, errMsg="Synthetic MP verification unavailable")
         if path == "/api/userInfo" and method == "GET" and query.get("userVid") == ["900000"]:
             return 200, dict(vid=900000, name="Synthetic Web reader")
         if path == "/api/skills/apikeyGet" and method == "GET" and query == {"only_show": ["1"]}:

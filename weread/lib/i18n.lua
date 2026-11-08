@@ -1,6 +1,7 @@
 local I18n = {}
 
 local zh = {
+    ["Public-account verification is temporarily unavailable. Cached articles can still be read. Please try again later."] = "公众号验证暂不可用，已缓存文章仍可阅读，请稍后重试。",
     ["Import reader link"] = "导入阅读链接",
     ["Importing reader link..."] = "正在导入阅读链接…",
     ["Imported books"] = "已导入书籍",

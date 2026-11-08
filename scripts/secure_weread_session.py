@@ -131,9 +131,13 @@ class MacKeychain:
 
 
 def validate(payload):
-    if not isinstance(payload, dict) or set(payload) != {"schema", "scope", "created_at", "vid", "cookies"}:
+    if not isinstance(payload, dict):
         raise StoreError("session_invalid")
-    if type(payload["schema"]) is not int or payload["schema"] != 1 or payload["scope"] != ACCOUNT:
+    fields={"schema", "scope", "created_at", "vid", "cookies"}
+    schema=payload.get("schema")
+    if type(schema) is not int or schema not in (1,2) or set(payload)!=(fields | ({"web"} if schema==2 else set())):
+        raise StoreError("session_invalid")
+    if payload["scope"] != ACCOUNT:
         raise StoreError("session_invalid")
     vid, cookies = payload["vid"], payload["cookies"]
     if not isinstance(vid, str) or not re.fullmatch(r"[1-9][0-9]{0,19}", vid) or not isinstance(cookies, dict):
@@ -145,27 +149,81 @@ def validate(payload):
     for value in cookies.values():
         if not isinstance(value, str) or not 0 < len(value) <= 4096 or any(ord(c) < 33 or ord(c) > 126 or c in ';"\\' for c in value):
             raise StoreError("session_invalid")
+    if schema==2:
+        web=payload["web"]
+        if (not isinstance(web,dict) or set(web)!={"revision","renewal_pending","headers"}
+                or type(web["revision"]) is not int or not 1<=web["revision"]<2**31
+                or type(web["renewal_pending"]) is not bool or not isinstance(web["headers"],dict)
+                or not set(web["headers"])<={"wr_ticket","wr_wrpa"}):
+            raise StoreError("session_invalid")
+        for value in web["headers"].values():
+            if not isinstance(value,str) or not 0<len(value)<=8192 or any(ord(c)<33 or ord(c)>126 or c in ';"\\' for c in value):
+                raise StoreError("session_invalid")
     return payload
+
+
+def _probe_payload(probe):
+    if not probe.authenticated:
+        raise StoreError("verified_login_required")
+    cookies={}
+    for cookie in probe.cookies:
+        if cookie.name in COOKIE_NAMES and cookie.domain in (".weread.qq.com", "weread.qq.com") and cookie.path=="/":
+            if cookie.name in cookies: raise StoreError("session_invalid")
+            cookies[cookie.name]=cookie.value
+    return validate(dict(schema=1,scope=ACCOUNT,created_at=datetime.now(timezone.utc).isoformat(),vid=probe.vid,cookies=cookies))
+
+
+def _same_revision(first,second):
+    return (first["vid"]==second["vid"] and first["cookies"]==second["cookies"]
+            and first.get("web")==second.get("web"))
 
 
 class SessionStore:
     def __init__(self, backend=None):
         self.backend = backend if backend is not None else MacKeychain()
 
-    def save(self, probe):
-        if not probe.authenticated:
-            raise StoreError("verified_login_required")
-        cookies = {}
-        for cookie in probe.cookies:
-            if cookie.name in COOKIE_NAMES and cookie.domain in (".weread.qq.com", "weread.qq.com") and cookie.path == "/":
-                if cookie.name in cookies:
-                    raise StoreError("session_invalid")
-                cookies[cookie.name] = cookie.value
-        payload = validate(dict(schema=1, scope=ACCOUNT, created_at=datetime.now(timezone.utc).isoformat(), vid=probe.vid, cookies=cookies))
-        data = json.dumps(payload, separators=(",", ":")).encode()
+    def _write(self,payload):
+        data=json.dumps(validate(payload),separators=(",",":")).encode()
+        if len(data)>MAX_BYTES: raise StoreError("session_invalid")
         self.backend.save(data)
-        if self.backend.load() != data:
-            raise StoreError("keychain_readback_mismatch")
+        if self.backend.load()!=data: raise StoreError("keychain_readback_mismatch")
+
+    def save(self, probe):
+        payload=_probe_payload(probe)
+        try: previous=self.load()
+        except StoreError as exc:
+            if str(exc)!="saved_session_missing": raise
+            previous=None
+        # Read-only probes must retain a saved header grant and an unknown
+        # renewal marker when the cookie authority has not changed.
+        if previous and previous.get("schema")==2 and previous["vid"]==payload["vid"]:
+            web=previous["web"]
+            if previous["cookies"]!=payload["cookies"]:
+                web=dict(revision=web["revision"]+1,renewal_pending=False,headers=web["headers"])
+            payload.update(schema=2,web=web)
+        self._write(payload)
+
+    def begin_renewal(self,expected):
+        current=self.load()
+        if not _same_revision(validate(expected),current): raise StoreError("session_changed")
+        web=current.get("web",{})
+        if web.get("renewal_pending"): raise StoreError("renewal_unconfirmed")
+        current.update(schema=2,web=dict(revision=web.get("revision",0)+1,renewal_pending=True,headers=web.get("headers",{})))
+        self._write(current)
+        return current
+
+    def finish_renewal(self,probe,expected,headers):
+        if not isinstance(headers,dict): raise StoreError("session_invalid")
+        current=self.load()
+        if not _same_revision(validate(expected),current) or not current.get("web",{}).get("renewal_pending"):
+            raise StoreError("session_changed")
+        payload=_probe_payload(probe)
+        if payload["vid"]!=current["vid"]: raise StoreError("session_changed")
+        retained=dict(current["web"]["headers"])
+        retained.update(headers)
+        payload.update(schema=2,web=dict(revision=current["web"]["revision"]+1,renewal_pending=False,headers=retained))
+        self._write(payload)
+        return payload
 
     def load(self):
         data = self.backend.load()

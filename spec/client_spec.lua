@@ -549,4 +549,30 @@ for _,response in ipairs({{code=429,body="private-statistics"},{code=302,body="p
     expect(not ok and not tostring(err):find("private-",1,true),"statistics gateway leaked/accepted oversized or failed response")
 end
 expect(not table.concat(logs,"\n"):find("private-",1,true),"statistics gateway logged private response")
+logs={}
+client.json_decode=function() return {errCode=-2041,errMsg='private-MP-message',info='private-MP-info'} end
+responses[#responses+1]={code=200,body='private-MP-catalog'}
+local mp_data,mp_code=client:get_mp_articles('MP_WXS_900001',0,100,'synthetic-MP-ticket')
+expect(not mp_data and mp_code==-2041,'MP business verification code was lost')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'MP business error exposed response fields')
+for _,method in ipairs({'get_mp_articles','get_mp_content'}) do
+    responses[#responses+1]={code=403,body='private-MP-body',headers={['set-cookie']='private-MP-cookie'}}
+    ok,err=pcall(client[method],client,'MP_WXS_900001')
+    expect(not ok and err=='mp_read/unavailable','MP HTTP error exposed raw body')
+end
+client.json_decode=function() error('private-MP-parser') end
+responses[#responses+1]={code=200,body='private-MP-malformed'}
+ok,err=pcall(client.get_mp_articles,client,'MP_WXS_900001',0,100)
+expect(not ok and err=='sensitive_json_invalid','MP JSON error exposed parser input')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'MP catalog/content diagnostics leaked details')
+
+logs={}
+responses[#responses+1]={code=403,body='private-renewal-body',headers={['set-cookie']='private-renewal-cookie'}}
+ok,err=pcall(client.renew_cookie,client)
+expect(not ok and err=='sensitive_http_unavailable','Web renewal HTTP error exposed credentials')
+responses[#responses+1]={code=200,body='private-renewal-parser-input'}
+ok,err=pcall(client.renew_cookie,client)
+expect(not ok and err=='sensitive_json_invalid','Web renewal JSON error exposed input')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'Web renewal diagnostics exposed fields')
+
 print(("client_spec: %d checks"):format(checks))

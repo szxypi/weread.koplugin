@@ -1246,7 +1246,11 @@ function M:fetchMPArticles(book)
         end
         if not result and (err_code == -2041 or err_code == -2012) then
             logger.warn("load MP articles rejected, error_code:", tostring(err_code))
-            self:showInfo(_("WeRead could not refresh the public-account credential. Please scan the QR code again."))
+            if err_code == -2041 then
+                self:showInfo(_("Public-account verification is temporarily unavailable. Cached articles can still be read. Please try again later."))
+            else
+                self:showInfo(_("WeRead could not refresh the public-account credential. Please scan the QR code again."))
+            end
             return
         end
         if not result then

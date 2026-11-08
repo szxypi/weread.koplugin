@@ -502,6 +502,7 @@ function Client:post_json(url, data, opts)
     local text, code, resp_headers = self:request(req_opts)
     if code and code >= 200 and code < 300 then
         return self:decode_http_json(text, {
+            sensitive = opts.sensitive == true,
             method = "POST",
             url = url,
             api_name = opts.diagnostic_api,
@@ -509,6 +510,7 @@ function Client:post_json(url, data, opts)
             headers = resp_headers,
         }), code, resp_headers
     end
+    if opts.sensitive then error("sensitive_http_unavailable", 0) end
     error(http_error(self, code, text, resp_headers))
 end
 
@@ -579,6 +581,8 @@ function Client:renew_cookie()
         -- Do not persist renewal cookies until the response explicitly confirms
         -- success; failed renewals must leave the current credential set intact.
         persist_response_cookies = false,
+        sensitive = true,
+        diagnostic_api = "web_renewal",
     })
     if not WeRead.is_success_response(result) then
         error("Cookie renewal response did not include succ=1")
@@ -907,11 +911,15 @@ function Client:get_mp_articles(book_id, max_idx, count, wr_ticket)
     local text, code, resp_headers = self:request({
         url = url,
         method = "GET",
+        sensitive = true,
+        diagnostic_api = "mp_read",
         headers = custom_headers,
     })
 
     if code and code >= 200 and code < 300 then
         local data = self:decode_http_json(text, {
+            sensitive = true,
+            api_name = "mp_catalog",
             method = "GET",
             url = url,
             code = code,
@@ -922,7 +930,7 @@ function Client:get_mp_articles(book_id, max_idx, count, wr_ticket)
         end
         return data, nil
     end
-    error(http_error(self, code, text, resp_headers))
+    error("mp_read/unavailable", 0)
 end
 
 function Client:get_mp_content(review_id, opts)
@@ -944,6 +952,8 @@ function Client:get_mp_content(review_id, opts)
     local text, code, resp_headers = self:request({
         url = url,
         method = "GET",
+        sensitive = true,
+        diagnostic_api = "mp_read",
         headers = custom_headers,
         timeout = opts.timeout,
     })
@@ -956,7 +966,7 @@ function Client:get_mp_content(review_id, opts)
             url = url,
         }
     end
-    error(http_error(self, code, text, resp_headers))
+    error("mp_read/unavailable", 0)
 end
 
 function Client:report_read(payload, referer)

@@ -47,6 +47,14 @@ class MockTests(unittest.TestCase):
         self.request("/__control", dict(delay=0, match="", status=503, times=0,
                                         empty_shelf=False, empty_annotations=False))
 
+    def test_mp_verification_failure_after_successful_web_renewal(self):
+        code,result=self.request('/web/login/renewal',dict(rq='%2Fweb%2Fbook%2Fread',ql=False))
+        self.assertEqual((code,result),(200,{'succ':1}))
+        code,result=self.request('/web/mp/articles?bookId=MP_WXS_900001&maxIdx=0&count=100')
+        self.assertEqual(code,200)
+        self.assertEqual(result['errCode'],-2041)
+        self.assertEqual(self.request('/web/login/renewal',{})[0],400)
+
     def test_contract_and_real_reference_decoder(self):
         status, shelf = self.gateway("/shelf/sync")
         self.assertEqual(status, 200)

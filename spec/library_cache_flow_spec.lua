@@ -177,4 +177,16 @@ host:showBookRecord({bookId='43',title='Imported metadata',detail_updated_at=123
 expect(shown_book and not auto_refresh and shown_book.progress==84 and shown_book.cached_chapters['1']=='/kept.epub'
     and shown_book.pending_upload_position.percent==84,'verified import refreshed twice or replaced current local state')
 
+local mp_calls,mp_renewals,mp_message=0,0,nil
+local mp_error=-2041
+host.client.get_mp_articles=function() mp_calls=mp_calls+1;return nil,mp_error end
+host.client.renew_cookie=function() mp_renewals=mp_renewals+1;return {succ=1} end
+host.showInfo=function(_self,text) mp_message=text end
+host:fetchMPArticles({book_id='MP_WXS_900001',title='Synthetic account'})
+expect(mp_calls==2 and mp_renewals==1 and mp_message:find('temporarily unavailable',1,true)
+    and not mp_message:find('QR code',1,true),'MP verification failure incorrectly demanded another scan')
+mp_error=-2012;mp_calls,mp_renewals=0,0
+host:fetchMPArticles({book_id='MP_WXS_900001',title='Synthetic account'})
+expect(mp_calls==2 and mp_renewals==1 and mp_message:find('QR code',1,true),'login error lost existing account guidance')
+
 print(("library_cache_flow_spec: %d checks"):format(checks))

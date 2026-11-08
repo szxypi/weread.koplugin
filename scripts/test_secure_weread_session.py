@@ -79,9 +79,75 @@ class SecureSessionTests(unittest.TestCase):
             self.assertNotIn('private-token',str(error.exception))
 
     def test_readback_mismatch_does_not_claim_saved_credentials(self):
-        backend=Backend();backend.load=lambda: b'wrong-readback'
+        backend=Backend();backend.load=lambda: b'wrong-readback' if backend.data is not None else None
         with self.assertRaisesRegex(StoreError,'^keychain_readback_mismatch$'):
             SessionStore(backend).save(probe())
+
+    def test_read_failure_never_overwrites_an_existing_record(self):
+        backend=Backend();backend.data=b'private-unreadable-record'
+        with self.assertRaisesRegex(StoreError,'^session_invalid$'):SessionStore(backend).save(probe())
+        self.assertEqual(backend.data,b'private-unreadable-record')
+
+    def test_pending_marker_saved_and_unknown_renewal_cannot_replay(self):
+        backend=Backend();store=SessionStore(backend);store.save(probe())
+        pending=store.begin_renewal(store.load())
+        self.assertTrue(store.load()['web']['renewal_pending'])
+        self.assertEqual(store.load(),pending)
+        with self.assertRaisesRegex(StoreError,'^renewal_unconfirmed$'):store.begin_renewal(pending)
+        store.save(probe())
+        self.assertTrue(store.load()['web']['renewal_pending'])
+
+    def test_renewal_commits_headers_after_verified_same_account(self):
+        backend=Backend();store=SessionStore(backend);store.save(probe())
+        pending=store.begin_renewal(store.load())
+        renewed=probe();renewed.set_cookie('wr_skey','synthetic-renewed-cookie')
+        committed=store.finish_renewal(renewed,pending,{'wr_ticket':'synthetic-mp-ticket','wr_wrpa':'synthetic-mp-protection'})
+        self.assertFalse(committed['web']['renewal_pending'])
+        self.assertEqual(committed['cookies']['wr_skey'],'synthetic-renewed-cookie')
+        store.save(renewed)
+        self.assertEqual(store.load()['web']['headers']['wr_ticket'],'synthetic-mp-ticket')
+        with self.assertRaisesRegex(StoreError,'^session_changed$'):store.finish_renewal(renewed,pending,{})
+
+    def test_missing_renewal_header_retains_previous_same_owner_grant(self):
+        store=SessionStore(Backend());store.save(probe())
+        first=store.finish_renewal(probe(),store.begin_renewal(store.load()),{'wr_ticket':'synthetic-old-ticket','wr_wrpa':'synthetic-old-protection'})
+        second=store.finish_renewal(probe(),store.begin_renewal(first),{'wr_ticket':'synthetic-new-ticket'})
+        self.assertEqual(second['web']['headers'],{'wr_ticket':'synthetic-new-ticket','wr_wrpa':'synthetic-old-protection'})
+
+    def test_verified_new_cookie_preserves_headers_but_replaces_pending_authority(self):
+        store=SessionStore(Backend());store.save(probe())
+        saved=store.finish_renewal(probe(),store.begin_renewal(store.load()),{'wr_ticket':'synthetic-old-ticket'})
+        pending=store.begin_renewal(saved)
+        current=probe();current.set_cookie('wr_skey','synthetic-new-authority')
+        store.save(current);actual=store.load()
+        self.assertFalse(actual['web']['renewal_pending'])
+        self.assertEqual(actual['web']['headers']['wr_ticket'],'synthetic-old-ticket')
+        with self.assertRaises(StoreError):store.finish_renewal(probe(),pending,{})
+
+    def test_replaced_cookie_cannot_receive_old_renewal(self):
+        backend=Backend();store=SessionStore(backend);store.save(probe())
+        pending=store.begin_renewal(store.load())
+        newer=probe();newer.set_cookie('wr_skey','synthetic-other-authority');store.save(newer)
+        before=backend.data
+        with self.assertRaisesRegex(StoreError,'^session_changed$'):store.finish_renewal(probe(),pending,{})
+        self.assertEqual(backend.data,before)
+
+    def test_unverified_or_other_owner_cannot_commit_headers(self):
+        backend=Backend();store=SessionStore(backend);store.save(probe())
+        pending=store.begin_renewal(store.load())
+        bad=probe();bad.authenticated=False
+        with self.assertRaises(StoreError):store.finish_renewal(bad,pending,{})
+        bad=probe();bad.vid='99009900';bad.set_cookie('wr_vid',bad.vid)
+        with self.assertRaises(StoreError):store.finish_renewal(bad,pending,{})
+        self.assertTrue(store.load()['web']['renewal_pending'])
+
+    def test_unsafe_header_or_marker_rejected(self):
+        value=payload();value.update(schema=2,web=dict(revision=1,renewal_pending=False,headers={}))
+        for headers in ({'unexpected':'private'},{'wr_ticket':'private\nheader'},{'wr_ticket':'x'*8193}):
+            bad=json.loads(json.dumps(value));bad['web']['headers']=headers
+            with self.assertRaisesRegex(StoreError,'^session_invalid$'):validate(bad)
+        value['web']['revision']=True
+        with self.assertRaises(StoreError):validate(value)
 
     def test_default_mode_never_instantiates_store(self):
         with patch('verify_web_source_progress.SessionStore') as store, redirect_stdout(io.StringIO()):
