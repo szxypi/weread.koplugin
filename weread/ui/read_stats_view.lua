@@ -492,7 +492,7 @@ function ReadStatsView:buildCalendarCard()
         self:cardTitle(T(_("Reading calendar · %1"), d.period_label)) }
     local cell_width = math.floor(self.content_width / 7)
     local cell_height = Screen:scaleBySize(32)
-    local weekdays = { "Mon short", "Tue short", "Wed short", "Thu short", "Fri short", "Sat short", "Sun short" }
+    local weekdays = { "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun" }
     local header = HorizontalGroup:new{}
     for _i, key in ipairs(weekdays) do
         table.insert(header, CenterContainer:new{
