@@ -539,6 +539,9 @@ TXT、复杂来源、真实账号进度写后回读、多设备及实体 KO2 验
 - 全部 89 组 Python、编译及差异格式通过；新增检查纳入 CI。本轮没有更改插件运行代码，未重复运行 UI 验收。
 - 默认命令的[去敏结果](validation-assets/2026-11-08/web-source-preflight-offline.json) 为 `OFFLINE_ONLY`：
   0 个网络请求，没有生产账号写入；真实扫码、位置对照及服务端版本含义仍未验证。
+- 随后另做[匿名登录出票检查](validation-assets/2026-11-08/web-source-auth-ticket-only.json)：
+  登录页面和会话 UID 两个固定 GET 均为 HTTP 200，UID 格式符合工具约束；未显示二维码、登录账号或读取账号数据。
+  临时 Cookie 已清理，这只证明当前出票入口可用。
 
 即使将来位置回读一致且本地原文模型能够反查，也不能据此认定服务器坐标或版本语义已被证明。
 工具仍保留 `PARTIAL`，不修改 Lua 上传字段或启用精确云端同步。
