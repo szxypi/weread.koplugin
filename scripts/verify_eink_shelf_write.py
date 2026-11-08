@@ -2,7 +2,8 @@
 """Prototype native shelf writes before a Lua implementation.
 
 Default: no network and no writes. --interactive previews one selected book
-using a fresh owner QR. Applying additionally requires --apply and an exact
+using a fresh owner QR; --saved-session reuses the owner-approved Keychain
+entry after matching its account to the Web entry. Applying requires --apply and an exact
 --confirm-book-id match. The assistant must obtain authorization for that
 specific cloud change before invoking apply. A possibly sent POST is never
 replayed, and no automatic rollback is attempted. Credentials stay in memory.
@@ -24,6 +25,8 @@ import webbrowser
 
 from verify_eink_login import BASE, NativeProbe, ProbeError
 from verify_eink_renewal import book_id, validate_credentials
+from secure_native_session import NativeSessionStore
+from secure_weread_session import SessionStore, StoreError
 
 OPERATIONS = {
     "add": ("/shelf/add", True), "remove": ("/shelf/delete", False),
@@ -200,7 +203,9 @@ class ShelfWriteProbe(NativeProbe):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--interactive", action="store_true", help="fresh owner QR and read-only operation preview")
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--interactive", action="store_true", help="fresh owner QR and read-only operation preview")
+    modes.add_argument("--saved-session", action="store_true", help="owner-approved Keychain authorization and read-only preview")
     parser.add_argument("--operation", choices=tuple(OPERATIONS))
     parser.add_argument("--book-id", help="one explicitly selected ordinary WeRead book")
     parser.add_argument("--apply", action="store_true", help="apply the specifically authorized operation once")
@@ -208,47 +213,57 @@ def main():
     parser.add_argument("--confirm-book-id", help="must exactly match --book-id when applying")
     parser.add_argument("--output", type=Path, help="new metadata-only report; no IDs, titles or credentials")
     args = parser.parse_args()
-    if args.interactive and (not args.operation or not writable_id(args.book_id)):
-        parser.error("interactive preview needs --operation and an ordinary --book-id")
-    if args.apply and (not args.interactive or not args.book_id or args.confirm_book_id != args.book_id):
-        parser.error("apply needs interactive mode and an exact --confirm-book-id match")
-    if args.roundtrip and (not args.interactive or args.operation != "add"):
-        parser.error("roundtrip needs an interactive add preview")
+    online = args.interactive or args.saved_session
+    if online and (not args.operation or not writable_id(args.book_id)):
+        parser.error("preview needs --operation and an ordinary --book-id")
+    if args.apply and (not online or not args.book_id or args.confirm_book_id != args.book_id):
+        parser.error("apply needs an explicit online mode and an exact --confirm-book-id match")
+    if args.roundtrip and (not online or args.operation != "add"):
+        parser.error("roundtrip needs an explicit online add preview")
     if args.output and args.output.exists():
         parser.error("output already exists")
     probe = ShelfWriteProbe()
     credentials = shelf = None
     try:
-        if not args.interactive:
+        if not online:
             probe.report.update(result="PENDING_TARGET_AND_OWNER", network_requests=0,
                                 pending=["selected_test_book", "owner_scan", "specific_write_authorization", "write_and_readback"])
         else:
-            try:
-                import qrcode
-            except ImportError:
-                parser.error("interactive mode needs the optional qrcode package")
-            with tempfile.TemporaryDirectory(prefix="weread-shelf-qr-") as directory:
-                uid = probe.create_qr()
-                image = Path(directory) / "scan.png"
-                qrcode.make("https://open.weixin.qq.com/connect/confirm?" + urlencode(dict(uuid=uid))).save(image)
-                image.chmod(0o600)
-                if not webbrowser.open(image.as_uri()):
-                    raise ProbeError("qr: could not show local image")
-                print("请扫码确认所选书籍的操作；未指定 --apply 时只生成预览。凭据不保存。", flush=True)
-                credentials, shelf = probe.finish(probe.wait_for_code(uid))
-                plan = probe.prepare(credentials, args.operation, args.book_id)
+            if args.saved_session:
+                owner = SessionStore().load()["vid"]
+                credentials = NativeSessionStore().load(owner)
+                probe.report.update(authorization_source="keychain", same_owner_verified=True)
+            else:
+                try:
+                    import qrcode
+                except ImportError:
+                    parser.error("interactive mode needs the optional qrcode package")
+                with tempfile.TemporaryDirectory(prefix="weread-shelf-qr-") as directory:
+                    uid = probe.create_qr()
+                    image = Path(directory) / "scan.png"
+                    qrcode.make("https://open.weixin.qq.com/connect/confirm?" + urlencode(dict(uuid=uid))).save(image)
+                    image.chmod(0o600)
+                    if not webbrowser.open(image.as_uri()):
+                        raise ProbeError("qr: could not show local image")
+                    print("请扫码确认所选书籍的操作；未指定 --apply 时只生成预览。凭据不保存。", flush=True)
+                    credentials, shelf = probe.finish(probe.wait_for_code(uid))
+            plan = probe.prepare(credentials, args.operation, args.book_id)
+            if args.roundtrip:
+                probe.report.update(roundtrip=True, target_already_present=plan.before)
+            if args.apply:
                 if args.roundtrip:
-                    probe.report.update(roundtrip=True, target_already_present=plan.before)
-                if args.apply:
-                    if args.roundtrip:
-                        probe.apply_roundtrip(credentials, plan, confirmed=True)
-                    else:
-                        probe.apply(credentials, plan, confirmed=True)
-    except ProbeError as exc:
+                    probe.apply_roundtrip(credentials, plan, confirmed=True)
+                else:
+                    probe.apply(credentials, plan, confirmed=True)
+    except (ProbeError, StoreError) as exc:
         probe.report.update(result="UNVERIFIED", reason=str(exc))
+    except Exception:
+        probe.report.update(result="UNVERIFIED", reason="shelf_verification_failed")
     except KeyboardInterrupt:
         probe.report.update(result="UNCONFIRMED_AFTER_DISPATCH" if probe.report["data_writes_attempted"] else "CANCELLED")
     finally:
+        if credentials:
+            credentials.clear()
         credentials = shelf = None
         probe.plan = probe.dispatch = None
     text = json.dumps(probe.report, ensure_ascii=False, indent=2) + "\n"

@@ -121,4 +121,14 @@ f = fixture(); f.set({ online = false }); f.controller:start()
 expect(f.messages[1] == "offline" and f.pop() == nil, "offline state never starts network")
 f = fixture(); f.set({ current = false }); f.controller:start()
 expect(f.messages[1]:find("login", 1, true) and f.pop() == nil, "identified current Web login required")
+for _,operation in ipairs({"start","clear","renew"}) do
+    f=fixture()
+    local stopped={}
+    for _,method in ipairs({"cancelShelfRefresh","cancelBookMetadata","cancelDiscoveryRequest"}) do
+        f.controller.host[method]=function() stopped[method]=true end
+    end
+    f.controller[operation](f.controller)
+    expect(stopped.cancelShelfRefresh and stopped.cancelBookMetadata and stopped.cancelDiscoveryRequest,
+        "authorization change retained a native read/renewal owner")
+end
 print("PASS: " .. checks .. " native authorization UI state/cancel/save/account checks")

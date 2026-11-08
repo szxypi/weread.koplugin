@@ -14,7 +14,8 @@ function M.capture(settings, store)
     if type(key) ~= "string" or key == "" or #key > 4096 or key:find("[%z%c%s]") then key = nil end
     local native = Native.capture(settings, store)
     if not native and not key then return nil,"native_required" end
-    return { native = native, api_key = key,
+    local base = Crypto.sha256_hex((key or "") .. "\0" .. (scope and scope.vid or "") .. "\0" .. tostring(scope and scope.epoch or ""))
+    return { native = native, api_key = key, base_revision = base,
         revision = Crypto.sha256_hex((native and native.fingerprint or "") .. "\0" .. (key or "")
             .. "\0" .. (scope and scope.vid or "") .. "\0" .. tostring(scope and scope.epoch or "")) }
 end
@@ -66,7 +67,8 @@ function M.project(client, kind, data, cursor)
     return value
 end
 
-function M.fetch(client, request, selected)
+function M.fetch(client, request, selected, options)
+    options = options or {}
     if request.kind=="category" then
         local value=M.project(client,"category",client:get_category_books(request.category_id,request.cursor,request.rank),request.cursor)
         value.source_kind,value.source_revision="public","public"
@@ -77,7 +79,7 @@ function M.fetch(client, request, selected)
     local function current() if not M.matches(client.settings,selected) then fail("session_changed") end end
     current()
     if request.source_revision and request.source_revision~=selected.revision then fail("source_changed") end
-    local kind=request.source_kind or (selected.native and "native" or "gateway")
+    local kind=request.source_kind or (not options.skip_native and selected.native and "native" or "gateway")
     if kind=="native" then
         if not selected.native then fail("source_changed") end
         local auth=Auth:new(client,{expected_vid=selected.native.scope.vid,is_current=function() return M.matches(client.settings,selected) end})
@@ -85,6 +87,8 @@ function M.fetch(client, request, selected)
         auth:cancel();current()
         if not ok then
             local reason=tostring(data)
+            if reason=="native_auth/discovery_"..request.kind.."/http_401" and options.recover_auth
+                and not selected.native.renewal_pending then fail("native_expired") end
             local fallback=reason:match("/http_50%d$") or reason:match("/http_40[13]$")
                 or reason:match("/transport$") or reason:match("/timeout$")
             if selected.api_key and (request.cursor or 0)==0 and not request.source_kind and fallback then

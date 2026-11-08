@@ -90,9 +90,15 @@ function Controller:_error(message)
     self.host:showInfo(message)
 end
 
+function Controller:_cancel_reads()
+    for _, method in ipairs({ "cancelShelfRefresh", "cancelBookMetadata", "cancelDiscoveryRequest" }) do
+        if self.host[method] then self.host[method](self.host) end
+    end
+end
+
 function Controller:start()
     self:cancel()
-    if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
+    self:_cancel_reads()
     if self.host.native_renewal then self.host.native_renewal:cancel() end
     self.scope = self.settings:get_auth_scope()
     if not self.settings:auth_scope_matches(self.scope) then
@@ -206,7 +212,7 @@ end
 
 function Controller:clear()
     self:cancel()
-    if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
+    self:_cancel_reads()
     if self.host.native_renewal then self.host.native_renewal:cancel() end
     local scope = self.settings:get_auth_scope()
     local revision = select(2, self.store:read())
@@ -217,6 +223,7 @@ end
 
 function Controller:clearForLogout()
     self:cancel()
+    self:_cancel_reads()
     if self.host.native_renewal then self.host.native_renewal:cancel() end
     -- Account reset immediately invalidates any old grant even if storage is
     -- unavailable; removing the bounded primary/backup also drops local tokens.
@@ -226,7 +233,7 @@ end
 
 function Controller:showMenu()
     self:cancel()
-    if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
+    self:_cancel_reads()
     local value = self.store:read()
     local source = require("weread.lib.shelf_source").mode(self.settings)
     local dialog
@@ -275,7 +282,7 @@ end
 
 function Controller:renew()
     self:cancel()
-    if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
+    self:_cancel_reads()
     local service = self.host.native_renewal
     if not service then return end
     if service.job and service.job.state == "save_failed" then

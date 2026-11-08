@@ -189,6 +189,8 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end
     local source_position = self.source_position and self.source_position:current()
     if self.source_position then self.source_position:stop() end
@@ -346,6 +348,8 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end
     local source_position = self.source_position and self.source_position:current()
     if self.source_position then self.source_position:pause("suspend") end

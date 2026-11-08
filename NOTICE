@@ -68,7 +68,8 @@ Native authorization protocol prototype:
   It implements QR authorization and renewal after real Python validation.
   The plugin's separate UI, session-bound credential store and memory-pipe
   worker provide authorization, verified local persistence and cancellation;
-  renewal includes manual entry and one attempt after a native shelf HTTP 401,
+  renewal includes manual entry and one attempt after a native HTTP 401 in
+  shelf, bookstore or metadata reads,
   with a checked on-disk pending marker to prevent uncertain-request replay.
 - scripts/verify_eink_login.py adapts the request flow from MiuRead's
   miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references

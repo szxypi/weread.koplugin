@@ -58,7 +58,7 @@ function M.capture(settings, store)
     local native = NativeAccess.capture(settings, store)
     local display = Access.capture(settings)
     if not native and not display then return end
-    return { native = native, display = display,
+    return { native = native, display = display, base_revision = display and display.revision or "",
         revision = Crypto.sha256_hex((native and native.fingerprint or "") .. "\0" .. (display and display.revision or "")) }
 end
 
@@ -68,20 +68,24 @@ function M.matches(settings, selected)
     return current ~= nil and current.revision == selected.revision
 end
 
-function M.fetch(client, book_id, selected)
+function M.fetch(client, book_id, selected, options)
+    options = options or {}
     book_id = Access.book_id(book_id)
     if not book_id then fail("invalid_book") end
     selected = selected or M.capture(client.settings)
     if not selected then fail("access_required") end
     local function current() if not M.matches(client.settings, selected) then fail("session_changed") end end
     current()
-    if selected.native then
+    if selected.native and not options.skip_native then
         local auth = Auth:new(client, { expected_vid = selected.native.scope.vid,
             is_current = function() return M.matches(client.settings, selected) end })
         local ok, value = pcall(auth.read_book_metadata, auth, selected.native.credentials, book_id)
         auth:cancel(); current()
         if ok then return { metadata = M.normalize_native(value, book_id), source = "native" } end
         local reason = tostring(value)
+        if reason == "native_auth/metadata/http_401" and options.recover_auth and not selected.native.renewal_pending then
+            fail("native_expired")
+        end
         local fallback = reason:match("/http_40[13]$") or reason:match("/http_50%d$")
             or reason:match("/transport$") or reason:match("/timeout$")
         if not fallback then fail("unavailable") end

@@ -1,5 +1,6 @@
 -- Cancellable bookstore requests. Network/parsing runs in a memory worker.
 local Source=require("weread.lib.discovery_source")
+local Recovery=require("weread.lib.native_read_recovery")
 local UIManager=require("ui/uimanager")
 local _=require("weread.lib.plugin_util").tr
 local M={}
@@ -10,6 +11,7 @@ function M.cancel(host)
     if not context then return end
     host.discovery_loading=nil
     if host.discovery_worker then host.discovery_worker:cancel() end
+    Recovery.cancel(host,context)
     if context.busy and host.busy_message==context.busy then host:closeBusy() end
 end
 
@@ -48,14 +50,31 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     local operation={account=account,epoch=epoch}
     host.discovery_request_context=operation
     host.discovery_loading=true
-    local function current()
+    local function current_view()
         return host.discovery_request_context==operation and account==host.library_db:accountKey()
-            and epoch==(host.discovery_epoch or 0) and (kind=="category" or Source.matches(host.settings,selected))
+            and epoch==(host.discovery_epoch or 0)
     end
+    local function current()
+        return current_view() and (kind=="category" or (operation.renewing and Recovery.current(host.settings,selected,Source.capture)
+            or Source.matches(host.settings,selected)))
+    end
+    local launch
     local function complete(value)
         if not current() then
             if host.discovery_request_context==operation then M.cancel(host) end
             return
+        end
+        if type(value)=="table" and value.native_expired then
+            local recovering=Recovery.start(host,operation,selected,{capture=Source.capture,is_current=current_view,
+                stale=function() if host.discovery_request_context==operation then M.cancel(host) end end,complete=function(success,renewed)
+                    selected=renewed
+                    if success then
+                        if request.source_kind=="native" then request.source_revision=renewed.revision end
+                        launch(false)
+                    elseif request.cursor==0 and not request.source_kind and renewed.api_key then launch(true)
+                    else complete(nil) end
+                end})
+            if recovering then return end
         end
         host.discovery_request_context=nil;host.discovery_loading=nil
         if operation.busy and host.busy_message==operation.busy then host:closeBusy() end
@@ -100,11 +119,16 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         end)
         if not ready then complete(nil);return end
         host.discovery_worker=worker
-        local ok,running=pcall(worker.start,worker,function()
-            local valid,page=pcall(Source.fetch,host.client,request,selected)
-            return valid and {ok=true,page=page} or {ok=false}
-        end,complete)
-        if not ok or not running then complete(nil) end
+        launch=function(skip_native)
+            local ok,running=pcall(worker.start,worker,function()
+                local valid,page=pcall(Source.fetch,host.client,request,selected,{
+                    recover_auth=host.native_renewal~=nil and not operation.recovery_attempted,skip_native=skip_native,
+                })
+                return valid and {ok=true,page=page} or {ok=false,native_expired=page=="discovery/native_expired"}
+            end,complete)
+            if not ok or not running then complete(nil) end
+        end
+        launch(false)
     end)
     if started==false and host.discovery_request_context==operation then M.cancel(host) end
 end

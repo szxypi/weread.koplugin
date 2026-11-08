@@ -11,6 +11,7 @@ from test_eink_login import Opener
 from test_eink_renewal import credentials
 from verify_eink_login import ProbeError
 from verify_eink_shelf_write import ShelfWriteProbe, main
+from secure_weread_session import StoreError
 
 
 def shelf(*ids, finished=0):
@@ -123,6 +124,7 @@ class ShelfWriteTests(unittest.TestCase):
         self.assertEqual(probe.report["result"], "UNVERIFIED")
         self.assertNotIn("private-error", json.dumps(probe.report))
         self.assertNotIn("private-body", json.dumps(probe.report))
+        self.assertTrue(rejection.closed)
 
     def test_cli_without_apply_or_owner_has_no_network(self):
         output = io.StringIO()
@@ -199,6 +201,40 @@ class ShelfWriteTests(unittest.TestCase):
                 probe.apply_roundtrip(credentials(), candidate, confirmed=True)
         self.assertEqual(probe.report["data_writes_attempted"], 0)
         self.assertTrue(all(req.get_method() == "GET" for req in opener.requests))
+
+    def test_saved_session_preview_has_one_read_no_qr_no_write_and_keeps_entries(self):
+        probe,opener=self.probe([shelf('existing')])
+        private_credentials=credentials()
+        with patch('sys.argv',['verify_eink_shelf_write.py','--saved-session','--operation','add','--book-id','private-book','--roundtrip']),\
+                patch('verify_eink_shelf_write.SessionStore') as web,patch('verify_eink_shelf_write.NativeSessionStore') as native,\
+                patch('verify_eink_shelf_write.ShelfWriteProbe',return_value=probe),redirect_stdout(io.StringIO()) as out,self.assertRaises(SystemExit) as exited:
+            web.return_value.load.return_value=dict(vid=private_credentials['vid'])
+            native.return_value.load.return_value=private_credentials
+            main()
+        self.assertEqual(exited.exception.code,0)
+        self.assertEqual([req.get_method() for req in opener.requests],['GET'])
+        self.assertEqual(json.loads(out.getvalue())['result'],'PREVIEW_ONLY')
+        self.assertNotIn('private-book',out.getvalue());self.assertNotIn('Private book title',out.getvalue())
+        native.return_value.delete.assert_not_called();web.return_value.delete.assert_not_called()
+        self.assertEqual(private_credentials,{})
+
+    def test_saved_apply_requires_the_exact_target_before_loading_any_store(self):
+        for args in (['--saved-session','--apply'],['--saved-session','--operation','add','--book-id','private-book','--apply'],
+                     ['--saved-session','--operation','add','--book-id','private-book','--apply','--confirm-book-id','other-book']):
+            with patch('sys.argv',['verify_eink_shelf_write.py',*args]),patch('verify_eink_shelf_write.NativeSessionStore') as native,\
+                    redirect_stderr(io.StringIO()),self.assertRaises(SystemExit) as exited:
+                main()
+            self.assertNotEqual(exited.exception.code,0);native.assert_not_called()
+
+    def test_saved_owner_mismatch_never_sends_or_deletes(self):
+        with patch('sys.argv',['verify_eink_shelf_write.py','--saved-session','--operation','add','--book-id','private-book']),\
+                patch('verify_eink_shelf_write.SessionStore') as web,patch('verify_eink_shelf_write.NativeSessionStore') as native,\
+                patch.object(ShelfWriteProbe,'request') as request,redirect_stdout(io.StringIO()) as out,self.assertRaises(SystemExit) as exited:
+            web.return_value.load.return_value=dict(vid='123')
+            native.return_value.load.side_effect=StoreError('native_owner_mismatch')
+            main()
+        self.assertEqual(exited.exception.code,1);request.assert_not_called();native.return_value.delete.assert_not_called()
+        self.assertEqual(json.loads(out.getvalue())['data_writes_attempted'],0)
 
 
 if __name__ == "__main__":

@@ -65,6 +65,7 @@ class NativeProbe:
                 data = json.loads(raw)
         except HTTPError as exc:
             record["status"] = exc.code
+            exc.close()
             raise ProbeError(stage + f": HTTP {exc.code}") from None
         except TimeoutError:
             raise ProbeTimeout(stage + ": request timed out") from None

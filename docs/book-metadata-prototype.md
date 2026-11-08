@@ -8,7 +8,7 @@
 
 当前账号有墨水屏授权时，优先固定 GET `https://i.weread.qq.com/book/info?bookId=…`；
 无原生授权时保留官方 Skill `/book/info` 优先、Web Reader GET 回退的路径。
-原生请求遇到 HTTP 401／403／50x、传输错误或超时时，才按已捕获凭据回退 Skill／Web；
+原生 HTTP 401 先尝试最多一次续期；仍失败或遇到 403／50x、传输错误、超时时，按已捕获凭据回退 Skill／Web；
 原生 429、业务拒绝、异常响应或书籍身份不匹配不继续请求其他通道，保留缓存。
 Web Reader 只从 JSON 初始状态提取 `reader.bookInfo`。
 后台进程只传回书名、作者／译者、简介、出版社、ISBN、分类、出版时间、封面及可用的字数／评分字段。
@@ -96,4 +96,7 @@ python3 scripts/verify_native_metadata.py --saved-session --native-http --lua-co
 加载期间本机进度更新、授权修订变化、取消／关闭、Skill／Web 回退和 429 缓存保护。
 使用[600×800 原生接口截图](validation-assets/2026-11-09/native-eink-metadata-600.png)与
 [KO2 尺寸截图](validation-assets/2026-11-09/native-eink-metadata-ko2.png)检查排版，截图不含真实账号内容。
-资料读取仍不新增自动续期，现有手动续期入口继续可用；真实过期／限流与实体 KO2 待验收。
+原生资料读取在 HTTP 401 时复用已有续期流程最多恢复一次，成功后重新读取资料；再次 401 不再续期。
+授权与普通凭据仍须匹配本次请求，取消／关书／休眠停止自有任务，回执不明保留待确认标记。
+未确认的续期不由后续资料请求重放；既有手动／本地保存重试入口继续可用。
+见[续期说明](eink-renewal-prototype.md#插件行为)。真实过期／限流与实体 KO2 待验收。

@@ -18,6 +18,20 @@ python3 scripts/test_eink_shelf_write.py
   --output /path/to/new-preview-report.json
 ```
 
+用户已允许本轮保留 Web／墨水屏开发凭据，现有条目可显式复用，不必再次扫码：
+
+```sh
+python3 scripts/verify_eink_shelf_write.py --saved-session \
+  --operation add --book-id 'BOOK_ID' --roundtrip \
+  --output /path/to/new-saved-preview.json
+```
+
+`--saved-session` 与 `--interactive` 互斥；从两个项目钥匙串条目核对账号后，
+只使用墨水屏凭据读取预览。未指定 `--apply` 时仍没有写入；该标志不构成代理执行写入的用户授权。
+预览失败、取消或结束不会删除已授权保存的条目，凭据不写入文件。
+[当前真实去敏预览](validation-assets/2026-11-09/shelf-write-saved-preview.json) 仅 1 个书架 GET，
+139 本、目标不在架、写入次数 0。已对选定测试书再次请求“加入／回读／移出／回读”两步确认，尚未执行。
+
 `operation` 支持 `add`、`remove`、`finish`、`unfinish`。预览不会提交修改。
 实际写入还要求 `--apply`，以及与目标完全相同的 `--confirm-book-id`。
 执行前必须获得针对这一本书及这一次操作的明确授权；当前会话只有登录和读取授权，不能据此执行写入。
@@ -41,5 +55,6 @@ python3 scripts/test_eink_shelf_write.py
 
 只允许授权、书架读取和当前精确预览对应的写入路径／请求体，不能用工具执行其他接口。
 凭据、账号、书名、目标 ID、原始快照及实际请求体只留在进程内存，不进入报告或工作文件。
-14 组离线检查覆盖请求体、预检、一次发送、错误归属／未确认拒绝、状态冲突、无操作、回执丢失、
-回读失败、HTTP 拒绝、默认命令不联网及两步测试的中止条件；真实请求、回执含义及账号效果仍须验证。
+17 组离线检查覆盖请求体、预检、一次发送、错误归属／未确认拒绝、状态冲突、无操作、回执丢失、
+回读失败、HTTP 拒绝、默认命令不联网、保存授权的只读复用／归属核对、精确目标门槛和两步测试的中止条件；
+真实写入请求、回执含义及账号效果仍须验证。
