@@ -1,0 +1,100 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "lua_specs": 117,
+  "python_tests": 203,
+  "luacheck_files": 295,
+  "luacheck_warnings": 0,
+  "lua_syntax_files": 297,
+  "account_requests_added": 0,
+  "physical_ko2_tested": false,
+  "cases": [
+    {
+      "case": "core_and_local_notes",
+      "screen": [
+        600,
+        800,
+        167
+      ],
+      "result": "PASS",
+      "native_repaint_warnings": 0,
+      "installed_files": 145,
+      "installed_files_match_worktree": true,
+      "local_notes": {
+        "synthetic_only": true,
+        "native_reader_menu": true,
+        "native_format_picker": true,
+        "background_process": true,
+        "ui_heartbeat": true,
+        "start_snapshot": true,
+        "markdown_escaped": true,
+        "json_round_trip": true,
+        "native_private_fields_excluded": true,
+        "existing_export_preserved": true,
+        "exclusive_file_creation": true,
+        "cancellation_removes_partial": true,
+        "session_guard": true,
+        "account_cleanup": true,
+        "suspend_cleanup": true,
+        "document_cleanup": true,
+        "replacement_inode_preserved": true,
+        "same_second_collision_verified": true,
+        "linux_private_permissions": true,
+        "custom_cache_root_excluded": true,
+        "storage_failure_clean": true,
+        "network_calls": 0,
+        "result": "PASS"
+      }
+    },
+    {
+      "case": "core_and_local_notes",
+      "screen": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "PASS",
+      "native_repaint_warnings": 0,
+      "installed_files": 145,
+      "installed_files_match_worktree": true,
+      "local_notes": {
+        "native_reader_menu": true,
+        "native_format_picker": true,
+        "background_process": true,
+        "ui_heartbeat": true,
+        "start_snapshot": true,
+        "markdown_escaped": true,
+        "json_round_trip": true,
+        "native_private_fields_excluded": true,
+        "existing_export_preserved": true,
+        "exclusive_file_creation": true,
+        "cancellation_removes_partial": true,
+        "session_guard": true,
+        "account_cleanup": true,
+        "synthetic_only": true,
+        "result": "PASS",
+        "replacement_inode_preserved": true,
+        "same_second_collision_verified": true,
+        "linux_private_permissions": true,
+        "custom_cache_root_excluded": true,
+        "document_cleanup": true,
+        "storage_failure_clean": true,
+        "network_calls": 0,
+        "suspend_cleanup": true
+      }
+    },
+    {
+      "case": "cloud_source_regression",
+      "screen": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "PASS",
+      "native_repaint_warnings": 0,
+      "installed_files": 145,
+      "installed_files_match_worktree": true
+    }
+  ]
+}

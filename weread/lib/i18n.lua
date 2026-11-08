@@ -1,6 +1,19 @@
 local I18n = {}
 
 local zh = {
+    ["Export local notes"] = "导出本机笔记",
+    ["This book has no local text highlights or attached notes to export."] = "本书没有可导出的本机文字划线或附注。",
+    ["Could not prepare local notes export."] = "无法准备本机笔记导出。",
+    ["Could not create the notes export. Check storage and try again."] = "无法创建笔记文件，请检查存储空间后重试。",
+    ["Exporting local notes…\nTap or press a key to cancel."] = "正在导出本机笔记……\n点击屏幕或按键可取消。",
+    ["Could not export local notes. Check storage and try again."] = "笔记导出失败，请检查存储空间后重试。",
+    ["Exported %1 local notes to:\n%2"] = "已导出 %1 条本机笔记：\n%2",
+    ["Export this book’s local text highlights and attached notes to:\n%1\n\nChoose a format."] = "将本书的本机文字划线和附注导出到：\n%1\n\n请选择格式。",
+    ["JSON"] = "JSON",
+    ["Markdown"] = "Markdown",
+    ["Note"] = "附注",
+    ["Recorded page"] = "记录页码",
+    ["Exported at"] = "导出时间",
     ["Public-account verification is temporarily unavailable. Cached articles can still be read. Please try again later."] = "公众号验证暂不可用，已缓存文章仍可阅读，请稍后重试。",
     ["Import reader link"] = "导入阅读链接",
     ["Importing reader link..."] = "正在导入阅读链接…",

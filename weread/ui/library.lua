@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
@@ -1904,6 +1905,14 @@ end
 
 function M:cancelReaderLinkImport()
     return require("weread.ui.reader_link").cancel(self)
+end
+
+function M:showLocalNotesExport()
+    return require("weread.ui.notes_export").show(self)
+end
+
+function M:cancelLocalNotesExport()
+    return require("weread.ui.notes_export").cancel(self)
 end
 
 

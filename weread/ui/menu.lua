@@ -187,7 +187,12 @@ function M:getMainMenuItems()
 
     if self.ui.document then
         local book_id = self:detectWeReadBook()
-        local reader_items = {}
+        local reader_items = {{
+            text = _("Export local notes"),
+            callback = self:safeCallback(_("Export local notes"), function()
+                self:showLocalNotesExport()
+            end),
+        }}
         if book_id ~= nil then
             if not WeRead.is_mp_book(book_id) then
                 reader_items[#reader_items + 1] = {
