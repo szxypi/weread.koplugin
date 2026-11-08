@@ -96,6 +96,21 @@ class MockTests(unittest.TestCase):
         _, progress = self.gateway("/book/getprogress", bookId=BOOK_ID)
         self.assertEqual(progress["book"]["chapterOffset"], 120)
 
+    def test_similar_session_and_batches(self):
+        status, first = self.gateway("/book/similar", bookId=BOOK_ID, count=20)
+        self.assertEqual(status, 200)
+        first = first["booksimilar"]
+        self.assertEqual(len(first["books"]), 20)
+        self.assertTrue(first["hasMore"])
+        self.assertTrue(all(row["book"]["bookInfo"]["bookId"] != BOOK_ID for row in first["books"]))
+        cursor, session = first["books"][-1]["idx"], first["sessionId"]
+        _, second = self.gateway("/book/similar", bookId=BOOK_ID, maxIdx=cursor, sessionId=session)
+        self.assertEqual(len(second["booksimilar"]["books"]), 5)
+        self.assertFalse(second["booksimilar"]["hasMore"])
+        self.assertEqual(self.gateway("/book/similar", bookId=BOOK_ID, maxIdx=cursor)[0], 400)
+        self.assertEqual(self.gateway("/book/similar", bookId="900002", maxIdx=cursor, sessionId=session)[0], 400)
+        self.assertEqual(self.gateway("/book/similar", bookId="unknown")[0], 400)
+
     def test_fault_once_delay_and_recovery(self):
         self.request("/__control", dict(match="/book/info", times=1, status=503, delay=0.02))
         start = time.monotonic()

@@ -57,6 +57,13 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 
 ## 实际截图
 
+后续相似推荐验证使用 `.validation/similar-600-v3/`、`similar-landscape/` 和
+`similar-large/`：真实详情页按钮 → 事件循环 → Client → 本地合成 HTTP，
+再通过书城原生按钮执行下一批、上一批。关闭详情后的排队任务没有发出请求或重开页面。
+首批 20 本、末批 5 本，来源书籍和推荐会话保持一致。测试服务器拒绝错误会话。
+本轮全部 77 组 Lua 回归与 6 组 Python 测试通过，Luacheck 172 文件零警告。
+此结果仍不证明真实微信读书授权和服务端可用性。
+
 封面与正文均为合成测试数据。以下截图由真实 KOReader 输出。
 
 ![首页](validation-assets/2026-11-08/home.png)

@@ -861,6 +861,12 @@ function M:showBookMenu(book)
         end),
     }
     local actions = {}
+    if self.showSimilarBooks then
+        actions[#actions + 1] = {
+            text = _("Similar books"),
+            callback = self:safeCallback(_("Similar books"), function() self:showSimilarBooks(book) end),
+        }
+    end
     if has_cache then
         actions[#actions + 1] = {
             text = _("Clear book cache"),
@@ -912,6 +918,12 @@ function M:showBookMenu(book)
         on_refresh = self:safeCallback(_("Get latest information"), function()
             self:refreshBookRecord(book, view)
         end),
+        on_close = function()
+            if self._book_detail_view == view then
+                self._book_detail_view = nil
+                self.discovery_epoch = (self.discovery_epoch or 0) + 1
+            end
+        end,
     })
     self._book_detail_view = view
     return view

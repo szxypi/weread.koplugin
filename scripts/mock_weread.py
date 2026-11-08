@@ -132,7 +132,7 @@ class MockServer(ThreadingHTTPServer):
 
         book_id = str(data.get("bookId") or query.get("bookId", [BOOK_ID])[0])
         if path == "/api/agent/gateway" and method == "POST":
-            if api in {"/book/info", "/book/getprogress", "/review/list", "/book/underlines", "/book/readreviews"}:
+            if api in {"/book/info", "/book/getprogress", "/review/list", "/book/underlines", "/book/readreviews", "/book/similar"}:
                 if "bookId" not in data or not any(b["bookId"] == book_id for b in BOOKS):
                     raise ValueError("missing or unknown bookId")
             if api == "/shelf/sync":
@@ -142,6 +142,18 @@ class MockServer(ThreadingHTTPServer):
                     dict(archiveId=3, name="空分组", bookIds=[])])
             if api == "/book/info":
                 return 200, next(b for b in BOOKS if b["bookId"] == book_id)
+            if api == "/book/similar":
+                start = max(0, int(data.get("maxIdx", 0)))
+                count = max(1, min(100, int(data.get("count", 20))))
+                session = "mock-similar-" + book_id
+                if (start > 0 and data.get("sessionId") != session
+                        or data.get("sessionId") not in (None, session)):
+                    raise ValueError("missing or mismatched similar session")
+                candidates = [b for b in BOOKS if b["bookId"] != book_id]
+                batch = candidates[start:start + count]
+                return 200, dict(booksimilar=dict(sessionId=session,
+                    books=[dict(idx=start + i + 1, book=dict(bookInfo=b)) for i, b in enumerate(batch)],
+                    hasMore=start + len(batch) < len(candidates)))
             if api in {"/store/search", "/book/recommend"}:
                 keyword = data.get("keyword", "")
                 matches = [b for b in BOOKS if keyword in b["title"] or keyword in b["author"]]

@@ -30,7 +30,10 @@ end
 
 function M.page(kind, data, cursor)
     if type(data) ~= "table" then error("Invalid bookstore response") end
-    local rows = data.books
+    local container = data
+    if kind == "similar" then container = data.booksimilar end
+    if type(container) ~= "table" then error("Missing bookstore container") end
+    local rows = container.books
     if kind == "search" then
         if type(data.results) ~= "table" then error("Missing search results") end
         rows = {}
@@ -53,9 +56,10 @@ function M.page(kind, data, cursor)
             end
         end
     end
-    local more = data.hasMore
+    local more = container.hasMore
     if more == nil then more = #rows >= M.PAGE_SIZE end
     return { books = books, next_cursor = last,
+        session_id = kind == "similar" and text(container.sessionId) or nil,
         has_more = (more == true or tonumber(more) == 1) and last > cursor }
 end
 

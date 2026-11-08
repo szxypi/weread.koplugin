@@ -34,16 +34,63 @@ assert(#search.books == 20)
 local response = plugin.client:get_shelf()
 local cover = plugin.client:get_binary("https://weread.qq.com/mock/cover.png", { skip_cookie = true })
 assert(plugin:getShelfCoverCache():store(response.books[1], cover))
--- Screens now render offline; any unexpected request fails the test.
-plugin.isNetworkOnline = function() return false end
-plugin.isNetworkConnected = function() return false end
-plugin.client.gateway = function() error("unexpected network request") end
-plugin.client.get_binary = function() error("unexpected image request") end
 local function paint(name)
     UIManager:forceRePaint()
     Screen:shot(evidence .. "/" .. name .. ".png")
     assert(plugin.shelf_view and plugin.shelf_view[1][1]:getSize().h == Screen:getHeight())
 end
+local function flush_tasks()
+    -- Native LibraryView buttons defer their callbacks, which then schedule HTTP.
+    for _i = 1, 3 do
+        UIManager:shiftScheduledTasksBy(-1e9)
+        UIManager:setInputTimeout(0)
+        UIManager:handleInput()
+    end
+end
+local function press(view, label)
+    for _, button in ipairs(view._action_buttons) do
+        if button.text == require("weread.lib.plugin_util").tr(label) then
+            button.callback()
+            return
+        end
+    end
+    error("missing button: " .. label)
+end
+-- Keep the real scheduled controller/HTTP path and invoke native button callbacks.
+plugin.isNetworkOnline = function() return true end
+plugin.isNetworkConnected = function() return false end
+plugin:showBookMenu(response.books[1])
+UIManager:forceRePaint()
+Screen:shot(evidence .. "/detail-similar-action.png")
+local detail = plugin._book_detail_view
+press(detail, "Similar books")
+flush_tasks()
+assert(plugin.discovery_state.kind == "similar" and #plugin.discovery_state.books == 20
+    and plugin.discovery_state.book_id == response.books[1].bookId and plugin._book_detail_view == nil)
+local session = plugin.discovery_state.session_id
+paint("store-similar")
+plugin.shelf_view._action_buttons[3].callback()
+flush_tasks()
+assert(#plugin.discovery_state.books == 5 and not plugin.discovery_state.has_more
+    and plugin.discovery_state.cursor == 20 and plugin.discovery_state.session_id == session)
+paint("store-similar-last")
+plugin.shelf_view._action_buttons[3].callback() -- last batch only offers Previous
+flush_tasks()
+assert(#plugin.discovery_state.books == 20 and plugin.discovery_state.cursor == 0
+    and #plugin.discovery_state.history == 0 and plugin.discovery_state.session_id == session)
+-- A pending request must not reopen a manually closed detail page.
+plugin:showBookMenu(response.books[2])
+press(plugin._book_detail_view, "Similar books")
+plugin._book_detail_view:onClose()
+flush_tasks()
+assert(plugin.discovery_state.book_id == response.books[1].bookId and not plugin.discovery_loading)
+plugin:closeWeReadUI()
+plugin.discovery_state = nil
+-- Screens now render offline; any unexpected request fails the test.
+plugin.isNetworkOnline = function() return false end
+plugin.isNetworkConnected = function() return false end
+plugin.client.gateway = function() error("unexpected network request") end
+plugin.client.get_binary = function() error("unexpected image request") end
 plugin:showHome()
 paint("home-empty")
 local books = response.books
@@ -73,5 +120,5 @@ plugin.shelf_view:onClose()
 assert(plugin.shelf_view == nil, "closing store retained a stale view")
 plugin:onWeReadAccountChanged()
 assert(plugin.discovery_state == nil, "account change retained discovery data")
-print("PASS: real HTTP recommendations/search/shelf/covers, plugin init, SQLite, rendering, pagination, close and account cleanup")
+print("PASS: real HTTP recommendations/search/similar/shelf/covers, scheduled similar buttons and sessions, plugin init, SQLite, rendering, pagination, close and account cleanup")
 UIManager:quit()

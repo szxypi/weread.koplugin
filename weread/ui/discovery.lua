@@ -119,6 +119,14 @@ function M:showDiscoverySearch()
     self:showInputDialog(dialog)
 end
 
+function M:showSimilarBooks(book)
+    local id = book and (book.bookId or book.book_id)
+    if not id or tostring(id) == "" then return end
+    self:loadDiscoveryBatch("similar", nil, 0, false, false, {
+        book_id = tostring(id), book_title = book.title or tostring(id),
+    })
+end
+
 function M:showBookstore()
     local state = self.discovery_state
     if state and state.account ~= self.library_db:accountKey() then
@@ -131,31 +139,41 @@ function M:showBookstore()
     }
     if state and state.has_more then
         actions[#actions + 1] = { text = _("Next batch"), callback = function()
-            self:loadDiscoveryBatch(state.kind, state.keyword, state.next_cursor)
+            self:loadDiscoveryBatch(state.kind, state.keyword, state.next_cursor, false, false, state)
         end }
     end
     if state and #state.history > 0 then
         actions[#actions + 1] = { text = _("Previous batch"), callback = function()
-            self:loadDiscoveryBatch(state.kind, state.keyword, state.history[#state.history], true)
+            self:loadDiscoveryBatch(state.kind, state.keyword, state.history[#state.history], true, false, state)
         end }
     end
     local title = _("Bookstore")
     if state then
         title = state.kind == "search" and PluginUtil.T(_("Search: %1"), state.keyword) or _("For you")
+        if state.kind == "similar" then title = PluginUtil.T(_("Similar to: %1"), state.book_title) end
         if os.time() - state.loaded_at > Data.CACHE_TTL then title = title .. " · " .. _("Cached") end
     end
     self:showDiscoveryPage("store", state and state.books or {}, {
         title = title, actions = actions,
-        empty_text = state and _("No search results.") or _("Choose For you or search to discover books."),
+        empty_text = state and (state.kind == "similar" and _("No similar books found.") or _("No search results."))
+            or _("Choose For you or search to discover books."),
         on_refresh = function()
             self:loadDiscoveryBatch(state and state.kind or "recommend", state and state.keyword,
-                state and state.cursor or 0, false, true)
+                state and state.cursor or 0, false, true, state)
         end,
     })
 end
 
-function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh)
+function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context)
     if self.discovery_loading or not self:requireLogin(false, true) then return end
+    cursor = cursor or 0
+    context = context or {}
+    if kind == "similar" and (not context.book_id or context.book_id == "") then return end
+    local book_id, book_title, session_id = context.book_id, context.book_title, context.session_id
+    if kind == "similar" and cursor > 0 and (not session_id or session_id == "") then
+        self:showInfo(_("Similar recommendations changed. Open similar books again."))
+        return
+    end
     local account = self.library_db:accountKey()
     local epoch, source_state = self.discovery_epoch or 0, self.discovery_state
     self.discovery_loading = true
@@ -165,11 +183,23 @@ function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh)
             return
         end
         local ok, result = pcall(function()
-            local data = self.client:gateway(kind == "search" and "/store/search" or "/book/recommend", {
+            local endpoint = kind == "search" and "/store/search"
+                or kind == "similar" and "/book/similar" or "/book/recommend"
+            local data = self.client:gateway(endpoint, {
                 keyword = keyword, count = Data.PAGE_SIZE, maxIdx = cursor,
                 scope = kind == "search" and 10 or nil,
+                bookId = kind == "similar" and book_id or nil,
+                sessionId = kind == "similar" and session_id ~= "" and session_id or nil,
             })
-            return Data.page(kind, data, cursor)
+            local page = Data.page(kind, data, cursor)
+            if kind == "similar" then
+                if session_id and session_id ~= "" and page.session_id ~= session_id then
+                    error(_("Similar recommendations changed. Open similar books again."))
+                end
+                -- An absent session can display a first batch but cannot safely paginate.
+                if page.session_id == "" then page.has_more = false end
+            end
+            return page
         end)
         self.discovery_loading = nil
         if account ~= self.library_db:accountKey() or (self.discovery_epoch or 0) ~= epoch then return end
@@ -178,7 +208,8 @@ function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh)
             return
         end
         local history = {}
-        if source_state and source_state.kind == kind and source_state.keyword == keyword then
+        if source_state and source_state.kind == kind and source_state.keyword == keyword
+            and (kind ~= "similar" or (source_state.book_id == book_id and source_state.session_id == session_id)) then
             for i, value in ipairs(source_state.history) do history[i] = value end
             if previous then table.remove(history)
             elseif not refresh and cursor ~= 0 then history[#history + 1] = source_state.cursor
@@ -187,8 +218,14 @@ function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh)
         -- Cursor history is bounded and contains no book/user payloads.
         if #history > 100 then table.remove(history, 1) end
         result.kind, result.keyword, result.cursor = kind, keyword, cursor
+        result.book_id, result.book_title = book_id, book_title
         result.history, result.account, result.loaded_at = history, account, os.time()
         self.discovery_state = result
+        if self._book_detail_view then
+            local detail = self._book_detail_view
+            self._book_detail_view = nil
+            UIManager:close(detail)
+        end
         self:showBookstore()
     end)
     if started == false then self.discovery_loading = nil end

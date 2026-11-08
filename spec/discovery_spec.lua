@@ -16,6 +16,15 @@ expect(not Data.page("recommend", { books = { { bookId = "a" } }, hasMore = true
     "non-advancing cursor must not cause an endless next-batch loop")
 expect(not pcall(Data.page, "recommend", {}, 0), "malformed response treated as empty success")
 expect(#Data.page("search", { results = {} }, 0).books == 0, "empty search rejected")
+local similar = Data.page("similar", { booksimilar = { sessionId = "session-a", hasMore = true, books = {
+    { idx = 21, book = { bookInfo = { bookId = "similar-a", title = "Similar A" } } },
+    { idx = 22, book = { bookInfo = { bookId = "similar-a" } } },
+} } }, 0)
+expect(#similar.books == 1 and similar.books[1].title == "Similar A"
+    and similar.next_cursor == 22 and similar.session_id == "session-a" and similar.has_more,
+    "nested similar response or cursor/session lost")
+expect(not pcall(Data.page, "similar", { books = {} }, 0), "similar container silently ignored")
+expect(#Data.page("similar", { booksimilar = { books = {} } }, 0).books == 0, "empty similar rejected")
 local books = { { bookId = "a", readUpdateTime = 10 }, { bookId = "b", readUpdateTime = 20 }, { bookId = "c" } }
 expect(Data.recent(books)[1].bookId == "b" and books[1].bookId == "a", "recent sort mutated shelf order")
 expect(#Data.recent(books) == 2, "unread books included in recent reading")
