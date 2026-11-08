@@ -106,3 +106,19 @@ Local offline reading-time collection:
   encoding, open-document pinning and checkpoint integration are implemented
   for this repository's download and reader lifecycle.
 Source: https://github.com/miumiupy98-art/miuread-koreader
+
+Official translation research and display model:
+- scripts/verify_translation_preflight.py references MiuRead eink_client.lua and
+  protocol.lua at c1893562aa25a870b8dd076d7be062a3348f823e (MiuRead contributors,
+  AGPL-3.0-only). Member/catalog reads and two existing translated chapter bodies
+  were owner-verified in Python before Lua model comparison on 2026-11-09.
+  The read-only guard forbids server translation-mode changes, generation,
+  trials, purchases and shelf/progress writes, including state-changing GETs.
+- weread/lib/translation.lua adapts MiuRead translation.lua at the same commit
+  (Copyright (C) 2026 MiuRead contributors, AGPL-3.0-only). Fragment-scoped CSS
+  also supports existing EPUBs without extra body attributes. Current id-less
+  adjacent paragraph pairs were verified on actual responses; text gaps,
+  conflicting IDs, media/link controls and recovered markup do not qualify.
+  Display/position model and synthetic native rendering validation are local;
+  reader-menu integration, persistence and generation remain separate work.
+Source: https://github.com/miumiupy98-art/miuread-koreader

@@ -1,0 +1,133 @@
+{
+  "result": "PASS",
+  "scope": "display_model_and_read_preflight",
+  "synthetic_runtime_only": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "reader_menu_integrated": false,
+  "mode_persistence_integrated": false,
+  "live_mode_switch_integrated": false,
+  "generation_verified": false,
+  "physical_ko2_tested": false,
+  "cases": [
+    {
+      "result": "PASS",
+      "case": "native_display_model",
+      "screen": [
+        600,
+        800,
+        167
+      ],
+      "installed_files": 147,
+      "installed_files_match_worktree": true,
+      "native_repaint_warnings": 0,
+      "display": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "native_engine": true,
+        "reader_menu_integrated": false,
+        "mode_persistence_integrated": false,
+        "epub_rewrite_required": false,
+        "fragments": 2,
+        "translation_blocks": 5,
+        "paired_blocks": 3,
+        "unpaired_blocks": 2,
+        "network_requests": 0,
+        "modes": [
+          {
+            "pages": 2,
+            "shared_id_and_idless_visibility": true,
+            "unpaired_original_preserved": true,
+            "mode": "original",
+            "fragment_scope_verified": true,
+            "native_target_valid": true,
+            "link_original_preserved": true
+          },
+          {
+            "pages": 2,
+            "shared_id_and_idless_visibility": true,
+            "unpaired_original_preserved": true,
+            "mode": "bilingual",
+            "fragment_scope_verified": true,
+            "native_target_valid": true,
+            "link_original_preserved": true
+          },
+          {
+            "pages": 2,
+            "shared_id_and_idless_visibility": true,
+            "unpaired_original_preserved": true,
+            "mode": "translation",
+            "fragment_scope_verified": true,
+            "native_target_valid": true,
+            "link_original_preserved": true
+          }
+        ]
+      }
+    },
+    {
+      "result": "PASS",
+      "case": "native_display_model",
+      "screen": [
+        1264,
+        1680,
+        300
+      ],
+      "installed_files": 147,
+      "installed_files_match_worktree": true,
+      "native_repaint_warnings": 0,
+      "display": {
+        "network_requests": 0,
+        "modes": [
+          {
+            "unpaired_original_preserved": true,
+            "mode": "original",
+            "fragment_scope_verified": true,
+            "native_target_valid": true,
+            "link_original_preserved": true,
+            "pages": 2,
+            "shared_id_and_idless_visibility": true
+          },
+          {
+            "unpaired_original_preserved": true,
+            "mode": "bilingual",
+            "fragment_scope_verified": true,
+            "native_target_valid": true,
+            "link_original_preserved": true,
+            "pages": 2,
+            "shared_id_and_idless_visibility": true
+          },
+          {
+            "unpaired_original_preserved": true,
+            "mode": "translation",
+            "fragment_scope_verified": true,
+            "native_target_valid": true,
+            "link_original_preserved": true,
+            "pages": 2,
+            "shared_id_and_idless_visibility": true
+          }
+        ],
+        "result": "PASS",
+        "synthetic_only": true,
+        "native_engine": true,
+        "reader_menu_integrated": false,
+        "mode_persistence_integrated": false,
+        "epub_rewrite_required": false,
+        "fragments": 2,
+        "translation_blocks": 5,
+        "paired_blocks": 3,
+        "unpaired_blocks": 2
+      }
+    },
+    {
+      "result": "PASS",
+      "case": "core_regression",
+      "screen": [
+        600,
+        800,
+        167
+      ],
+      "installed_files": 147,
+      "installed_files_match_worktree": true,
+      "native_repaint_warnings": 0
+    }
+  ]
+}
