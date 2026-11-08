@@ -68,6 +68,9 @@ python3 scripts/mock_weread.py --smoke --port 0 \
 这是一组固定冒烟，**不等于 C01–C20 全量验收**，也不包含 ComputerUse 点击。
 失败时先检查 `evidence/smoke.log`。验证未知外部地址被拦截会产生一条预期的 HTTP 501
 错误日志；不要因此忽略其它错误。
+核心冒烟和 `test_discovery_runtime.py` 会将 `[WeRead] forceRePaint failed:`
+视为失败，即使其它断言通过也不能报告成功。关闭详情并取消后台读取时，
+必须立即移除等待窗／停止任务，再由正常界面循环绘制关闭后的页面。
 
 不构建 KOReader 也能快速检查服务端与参考解码器：
 

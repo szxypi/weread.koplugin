@@ -81,8 +81,10 @@ return function(plugin,count,flush_tasks,home,pump_until)
     press(detail,"Similar books")
     pump_until(function() return plugin.discovery_worker.job~=nil end)
     detail:onClose()
-    assert(not plugin.discovery_loading and not plugin.discovery_worker.job,"closing seed details retained similar child")
-    UIManager:close(detail)
+    assert(not plugin.discovery_loading and not plugin.discovery_worker.job and not plugin._book_detail_view
+        and not plugin.busy_message,"closing seed details retained similar child, view or busy dialog")
+    UIManager:forceRePaint()
+    assert(UIManager:getTopmostVisibleWidget()~=detail,"closed details stayed on the widget stack")
     flush_tasks()
     assert(plugin.discovery_state==saved,"closed seed applied similar result")
     control{match="",delay=0,times=0}

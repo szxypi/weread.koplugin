@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Offline preflight tests: synthetic HTTP, real read-only SQLite, no account."""
+from contextlib import closing
 import hashlib
 import io
 import json
@@ -88,7 +89,7 @@ class ReadtimeProbeTests(unittest.TestCase):
     def fixture_ledger(self, root):
         key = hashlib.sha256(b"weread-library:123").hexdigest()[:20]
         path = Path(root) / f"offline-time-{key}.db"
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.executescript("""CREATE TABLE windows(id INTEGER,book_id TEXT,time_zone TEXT,book_version INTEGER);
                 CREATE TABLE segments(id INTEGER,window_id INTEGER,start_time INTEGER,duration INTEGER,state TEXT);
                 INSERT INTO windows VALUES(1,'book','+08:00',7),(2,'book','+08:00',8);
@@ -108,13 +109,13 @@ class ReadtimeProbeTests(unittest.TestCase):
             self.assertEqual(hashlib.sha256(path.read_bytes()).digest(), before)
             with self.assertRaises(ProbeError):
                 ledger_preview(path, "other-account", "book", 200)
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM segments WHERE state='pending'").fetchone()[0], 3)
 
     def test_distinct_file_fingerprints_are_not_combined_or_leaked(self):
         with tempfile.TemporaryDirectory() as root:
             path = self.fixture_ledger(root)
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute("ALTER TABLE windows ADD COLUMN file_id TEXT DEFAULT ''")
                 db.execute("ALTER TABLE windows ADD COLUMN version_source TEXT DEFAULT 'epub_snapshot'")
                 db.execute("UPDATE windows SET file_id=?", ("a" * 64,))
@@ -122,7 +123,7 @@ class ReadtimeProbeTests(unittest.TestCase):
             self.assertEqual(report["file_bound_seconds"], 50)
             self.assertEqual(report["unverified_source_seconds"], 0)
             self.assertNotIn("a" * 64, json.dumps(report))
-            with sqlite3.connect(path) as db:
+            with closing(sqlite3.connect(path)) as db, db:
                 db.execute("INSERT INTO windows VALUES(3,'book','+08:00',7,?,'epub_snapshot')", ("b" * 64,))
                 db.execute("UPDATE segments SET window_id=3 WHERE id=2")
             report = ledger_preview(path, "123", "book", 200)
@@ -135,7 +136,7 @@ class ReadtimeProbeTests(unittest.TestCase):
                                ("UPDATE windows SET time_zone='bad-zone'", 200)):
             with self.subTest(statement=statement), tempfile.TemporaryDirectory() as root:
                 path = self.fixture_ledger(root)
-                with sqlite3.connect(path) as db:
+                with closing(sqlite3.connect(path)) as db, db:
                     db.execute(statement)
                 with self.assertRaises(ProbeError):
                     ledger_preview(path, "123", "book", now)
@@ -143,7 +144,7 @@ class ReadtimeProbeTests(unittest.TestCase):
     def fixture_coverage(self, root):
         key = hashlib.sha256(b"weread-library:123").hexdigest()[:20]
         path = Path(root) / "reading-time-coverage.db"
-        with sqlite3.connect(path) as db:
+        with closing(sqlite3.connect(path)) as db, db:
             db.executescript("""CREATE TABLE coverage(scope TEXT,start_time INTEGER,end_time INTEGER);
                 CREATE TABLE coverage_meta(name TEXT,value INTEGER);
                 INSERT INTO coverage_meta VALUES('tracked_since',110);""")
@@ -163,7 +164,7 @@ class ReadtimeProbeTests(unittest.TestCase):
             self.assertEqual(report["eligible_seconds"], 15)
             self.assertEqual(report["seconds"], 50)
             self.assertEqual(before, [hashlib.sha256(path.read_bytes()).digest() for path in (ledger, journal)])
-            with sqlite3.connect(journal) as db:
+            with closing(sqlite3.connect(journal)) as db, db:
                 db.execute("UPDATE coverage SET end_time=1000 WHERE scope='other-account'")
             self.assertEqual(ledger_preview(ledger, "123", "book", 200)["eligible_seconds"], 15)
 
@@ -172,7 +173,7 @@ class ReadtimeProbeTests(unittest.TestCase):
             with self.subTest(statement=statement), tempfile.TemporaryDirectory() as root:
                 ledger = self.fixture_ledger(root)
                 journal = self.fixture_coverage(root)
-                with sqlite3.connect(journal) as db:
+                with closing(sqlite3.connect(journal)) as db, db:
                     db.execute(statement)
                 with self.assertRaises(ProbeError):
                     ledger_preview(ledger, "123", "book", 200)

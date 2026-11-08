@@ -65,7 +65,9 @@ function M:closeBusy()
         local dialog = self.busy_message
         self.busy_message = nil
         UIManager:close(dialog)
-        self:refreshUI()
+        -- A parent's CloseWidget callback can cancel its request after child
+        -- text buffers are freed, while that parent is still on the stack.
+        -- close() queues the repaint; let the event loop finish closing first.
     end
 end
 

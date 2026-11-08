@@ -62,8 +62,10 @@ return function(plugin,count,flush_tasks,home,pump_until)
     refresh();plugin.busy_message:onTapClose()
     assert(not plugin.book_metadata_context and not plugin.book_metadata_worker.job,"cancelled native metadata retained child")
     refresh();plugin._book_detail_view:onClose()
-    assert(not plugin.book_metadata_context and not plugin.book_metadata_worker.job,"closed details retained native metadata child")
-    UIManager:close(view)
+    assert(not plugin.book_metadata_context and not plugin.book_metadata_worker.job and not plugin._book_detail_view
+        and not plugin.busy_message,"closed details retained native metadata child, view or busy dialog")
+    UIManager:forceRePaint()
+    assert(UIManager:getTopmostVisibleWidget()~=view,"closed metadata details stayed on the widget stack")
     plugin:showBookMenu(cached())
 
     control{match="/book/info",times=1,status=503,delay=0}
