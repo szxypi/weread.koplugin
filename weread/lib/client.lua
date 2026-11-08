@@ -96,6 +96,10 @@ end
 
 local function log_response(label, context, text)
     context = context or {}
+    if context.sensitive then
+        logger.err(label, "api=", tostring(context.api_name or "unknown"), "status=", tostring(context.code or "unknown"))
+        return
+    end
     text = text or ""
     logger.err(
         label,
@@ -208,6 +212,7 @@ function Client:decode_http_json(text, context)
     local ok, data = pcall(self.json_decode, self, text)
     if not ok then
         log_response("HTTP JSON decode failed:", context, text)
+        if context and context.sensitive then error("sensitive_json_invalid", 0) end
         error(data, 0)
     end
 
@@ -271,6 +276,8 @@ function Client:request(opts)
     req_opts.redirect = false
     local diagnostic_api = req_opts.diagnostic_api
     req_opts.diagnostic_api = nil
+    local sensitive = req_opts.sensitive == true
+    req_opts.sensitive = nil
 
     if self.settings.mock_endpoint then
         -- Only this plugin's requests are redirected. Never forward credentials
@@ -294,6 +301,10 @@ function Client:request(opts)
     local results = { pcall(http.request, req_opts) }
     socketutil:reset_timeout()
     if not results[1] then
+        if sensitive then
+            logger.err("Sensitive HTTP transport failed:", "api=", tostring(diagnostic_api or "unknown"))
+            error("sensitive_request_failed", 0)
+        end
         logger.err(
             "HTTP transport failed:",
             "method=", tostring(req_opts.method),
@@ -317,7 +328,10 @@ function Client:request(opts)
     end
 
     local code = tonumber(raw_code)
-    if code and code >= 400 then
+    if sensitive and (not code or code >= 400) then
+        logger.warn("Sensitive HTTP response failed:", "api=", tostring(diagnostic_api or "unknown"),
+            "code=", tostring(code or "unavailable"))
+    elseif code and code >= 400 then
         log_response("HTTP response failed:", {
             method = req_opts.method,
             url = req_opts.url,

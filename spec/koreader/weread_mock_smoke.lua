@@ -34,6 +34,18 @@ local Content = require("weread.lib.content")
 local settings = Settings:new()
 assert(settings.mock_endpoint and settings.data_dir:match("/weread%-mock$"), "isolated mock environment")
 local client = Client:new(settings)
+-- Exercise the migrated protocol through the actual JSON, socket and sink
+-- implementations. Native fixture credentials stay in this local scope.
+do
+    local authorization = require("weread.lib.native_authorization"):new(client, { expected_vid = "900000" })
+    assert(authorization:begin():find("https://open.weixin.qq.com/connect/confirm?", 1, true), "native QR target")
+    assert(authorization:poll() == "confirmed", "native owner confirmation")
+    local credentials, native_shelf = authorization:finish()
+    assert(credentials.vid == "900000" and credentials.accessToken and credentials.refreshToken
+        and #credentials.deviceId == 32 and #native_shelf.books == 26, "native verified shelf")
+    assert(not pcall(authorization.finish, authorization), "native login was replayable")
+    print("PASS: native QR/ticket/login signature -> real Client/JSON/HTTP -> verified shelf; no credential persistence")
+end
 -- A configured Internet proxy must not intercept local mock traffic or probes.
 local http = require("socket.http")
 http.PROXY = "http://127.0.0.1:1"

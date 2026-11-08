@@ -83,6 +83,23 @@ class MockTests(unittest.TestCase):
         self.assertEqual(empty["results"][0]["books"], [])
         self.assertFalse(empty["hasMore"])
 
+    def test_native_authorization_fixture_validates_signature(self):
+        status, ticket = self.server.route("GET", "https://i.weread.qq.com/wxticket?nonceStr=weread", {})
+        self.assertEqual(status, 200)
+        self.assertIn("signature", ticket)
+        _, qr = self.server.route("GET", "https://open.weixin.qq.com/connect/sdk/qrconnect?appid=wxab9b71ad2b90ff34&signature=mock-native-ticket", {})
+        self.assertEqual(qr["errcode"], 0)
+        _, approved = self.server.route("GET", "https://long.open.weixin.qq.com/connect/l/qrconnect?uuid=mock-native-qr", {})
+        device, install = "eink334691225" + "1"*19, "eink31" + "1"*26
+        body = dict(code=approved["wx_code"], deviceId=device, installId=install, timestamp=1794100000123, random=112)
+        import hashlib
+        body["signature"] = hashlib.sha256(f"{body['timestamp']}{device}{body['random']}".encode()).hexdigest()
+        self.assertEqual(self.server.route("POST", "https://i.weread.qq.com/login", body)[1]["vid"], 900000)
+        body["signature"] = "incorrect"
+        with self.assertRaises(ValueError):
+            self.server.route("POST", "https://i.weread.qq.com/login", body)
+        self.assertEqual(len(self.server.route("GET", "https://i.weread.qq.com/shelf/sync", {})[1]["books"]), 26)
+
     def test_annotations_and_progress_write_read(self):
         _, result = self.gateway("/book/underlines", bookId=BOOK_ID, chapterUid=2)
         mark = result["underlines"][0]

@@ -32,6 +32,7 @@ package.preload["logger"] = function()
     return {
         info = function(...) capture("info", ...) end,
         err = function(...) capture("error", ...) end,
+        warn = function(...) capture("warn", ...) end,
     }
 end
 package.preload["socketutil"] = function()
@@ -403,4 +404,28 @@ expect(not pcall(public_client.get_category_books, public_client, "rising", -1),
 expect(not pcall(public_client.get_category_books, public_client, "rising", math.huge), "infinite cursor accepted")
 expect(not pcall(public_client.get_category_books, public_client, "rising", 0.5), "fractional cursor accepted")
 expect(#requests == before_invalid, "invalid category inputs sent HTTP")
+logs = {}
+responses[#responses + 1] = { body = "private-response-token", code = 401, headers = { location = "private-location" } }
+client:request({ url = "https://i.weread.qq.com/login?private-session", skip_cookie = true,
+    sensitive = true, diagnostic_api = "native_login" })
+expect(requests[#requests].sensitive == nil, "sensitivity flag leaked into HTTP library options")
+local sensitive_log = table.concat(logs, "\n")
+expect(sensitive_log:find("native_login", 1, true) and sensitive_log:find("401", 1, true), "redacted diagnostic omitted stage/status")
+expect(not sensitive_log:find("private-", 1, true), "sensitive HTTP response, URL or headers were logged")
+responses[#responses + 1] = { raise = "private-transport-token-url" }
+ok, err = pcall(client.request, client, { url = "https://i.weread.qq.com/login?private-session", skip_cookie = true,
+    sensitive = true, diagnostic_api = "native_login" })
+expect(not ok and not tostring(err):find("private-", 1, true), "sensitive transport exception was exposed")
+expect(not table.concat(logs, "\n"):find("private-", 1, true), "sensitive transport details were logged")
+responses[#responses + 1] = { code = "private-status", body = "private-response" }
+client:request({ url = "https://i.weread.qq.com/login?private-session", sensitive = true, diagnostic_api = "native_login" })
+expect(not table.concat(logs, "\n"):find("private-", 1, true), "unavailable sensitive response leaked diagnostics")
+logs = {}
+client.json_decode = function() error("private-parser-body") end
+ok, err = pcall(client.decode_http_json, client, "private-malformed-payload", {
+    sensitive = true, url = "https://weread.qq.com/?private-session", api_name = "qr_login", code = 200 })
+expect(not ok and not tostring(err):find("private-", 1, true), "sensitive JSON exception leaked body")
+client.json_decode = function() return { errcode = 123, accessToken = "private-token" } end
+client:decode_http_json("private-error-body", { sensitive = true, api_name = "qr_login", code = 200 })
+expect(not table.concat(logs, "\n"):find("private-", 1, true), "sensitive JSON error diagnostics leaked credentials")
 print(("client_spec: %d checks"):format(checks))

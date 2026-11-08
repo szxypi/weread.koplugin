@@ -96,6 +96,8 @@ function QRLogin:_request_json(url, opts, stage)
     stage = stage or "request"
     opts.url = url
     opts.skip_cookie = true
+    opts.sensitive = true
+    opts.diagnostic_api = "qr_" .. stage
     local text, code, headers, status = self.client:request(opts)
     if not code then
         return nil, headers, status or "request failed"
@@ -118,6 +120,8 @@ function QRLogin:_request_json(url, opts, stage)
         url = url,
         code = code,
         headers = headers,
+        sensitive = true,
+        api_name = "qr_" .. stage,
     })
     if type(data) ~= "table" then
         error("WeRead returned an invalid JSON response")
@@ -131,6 +135,8 @@ function QRLogin:_begin_protocol()
         url = SKILLS_PAGE_URL,
         method = "GET",
         skip_cookie = true,
+        sensitive = true,
+        diagnostic_api = "qr_page",
         maxredirects = 5,
         timeout = { 10, 20 },
         headers = {

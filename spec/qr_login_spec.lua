@@ -98,6 +98,7 @@ local function run_login(fingerprint)
     for i, request in ipairs(protocol_requests) do
         expect(request.url == expected_urls[i], "classic login endpoint changed")
         expect(request.skip_cookie, "login must not inherit old account credentials")
+        expect(request.sensitive, "QR authorization diagnostics must be redacted")
         expect(request.headers.Cookie:find("wr_fp=" .. fingerprint, 1, true),
             "fingerprint missing from login request " .. i)
         expect(not request.headers.Cookie:find("wr_gid=", 1, true),

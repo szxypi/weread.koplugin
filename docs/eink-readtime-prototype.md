@@ -13,7 +13,12 @@
 
 仅保存状态和结构的 [实际检查报告](validation-assets/2026-11-08/eink-readtime-preflight.json)
 为 `PARTIAL`。匿名 feature 响应不证明客户端默认签名参数、授权后的 config 或上传接口可用。
-本轮没有创建二维码、扫码、登录或发起账号数据写入。
+该次匿名检查没有创建二维码、扫码、登录或发起账号数据写入。
+
+2026-11-08 后续本人扫码验证已完成：`/login`、`/shelf/sync`、授权后的 config／feature 和
+书架中一本普通书籍的当前位置均返回 HTTP 200，配置 token 和位置字段检查通过。
+见 [已授权只读报告](validation-assets/2026-11-08/eink-authenticated-readonly.json)。
+凭据只在验证进程内使用，进程已退出；没有读取真机账本或上传时长，完整结果仍为 `PARTIAL`。
 
 ## 运行
 
@@ -54,7 +59,7 @@ python3 scripts/test_eink_readtime.py
 
 ## 正式补传前仍需完成
 
-1. 本人扫码后实际验证 config、feature、当前位置及账号账本绑定。
+1. config、feature 和当前位置的授权后读取已通过；仍需用真机实际账本验证账号绑定。
 2. 实际验证下载时观察到的 `bookVersion` 是否符合 E-Ink 补传接口的版本语义。
    本机已把下载快照写入 EPUB 的 `OEBPS/weread-source.txt`，由打开的 CREngine 文档读取并固定到当前会话；
    后台替换同一路径不会改写旧会话的来源。旧文件、混合／缺失版本的断点缓存保持版本 0，

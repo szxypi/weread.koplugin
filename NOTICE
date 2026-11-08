@@ -29,6 +29,10 @@ miuread/reading_stats_dialog.lua. Copyright (C) 2026 MiuRead contributors.
 AGPL-3.0-only; source repository as above.
 
 Native authorization protocol prototype:
+- weread/lib/native_authorization.lua adapts MiuRead's shelf_client.lua
+  (AGPL-3.0-only, MiuRead contributors), after real owner-scan, login and
+  read-only shelf validation by the Python prototype on 2026-11-08.
+  It implements the protocol core without credential persistence or renewal.
 - scripts/verify_eink_login.py adapts the request flow from MiuRead's
   miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references
   https://github.com/teng-lin/weread-omni/blob/main/src/auth/qrlogin.ts.

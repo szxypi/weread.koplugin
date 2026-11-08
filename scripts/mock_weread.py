@@ -157,9 +157,17 @@ class MockServer(ThreadingHTTPServer):
     def route(self, method, target, data):
         url = urlsplit(target)
         path = url.path
+        query = parse_qs(url.query)
+        if method == "GET" and url.hostname == "open.weixin.qq.com" and path == "/connect/sdk/qrconnect":
+            if query.get("appid") != ["wxab9b71ad2b90ff34"] or query.get("signature") != ["mock-native-ticket"]:
+                raise ValueError("invalid native QR ticket")
+            return 200, dict(errcode=0, uuid="mock-native-qr")
+        if method == "GET" and url.hostname == "long.open.weixin.qq.com" and path == "/connect/l/qrconnect":
+            if query.get("uuid") != ["mock-native-qr"]:
+                raise ValueError("invalid native QR session")
+            return 200, dict(wx_errcode=405, wx_code="mock-native-code")
         if url.hostname not in {"weread.qq.com", "i.weread.qq.com"}:
             raise LookupError("host is not implemented")
-        query = parse_qs(url.query)
         api = data.get("api_name", "") if path == "/api/agent/gateway" else ""
         with self.lock:
             control = self.control.copy()
@@ -173,6 +181,24 @@ class MockServer(ThreadingHTTPServer):
             return control["status"], dict(errcode=-1, errmsg="Injected mock failure")
 
         book_id = str(data.get("bookId") or query.get("bookId", [BOOK_ID])[0])
+        if url.hostname == "i.weread.qq.com":
+            if path == "/wxticket" and method == "GET":
+                return 200, dict(signature="mock-native-ticket", timeStamp=1700000000, expires_in=180)
+            if path == "/login" and method == "POST":
+                device, install = str(data.get("deviceId", "")), str(data.get("installId", ""))
+                timestamp, random = data.get("timestamp"), data.get("random")
+                if (data.get("code") != "mock-native-code" or len(device) != 32 or not device.startswith("eink334691225")
+                        or not device[13:].isdigit() or len(install) != 32 or not install.startswith("eink31")
+                        or not install[6:].isdigit() or type(timestamp) not in (int, float) or not 1 <= timestamp <= 4102444800000
+                        or timestamp != int(timestamp) or type(random) is not int or not 1 <= random <= 999):
+                    raise ValueError("invalid native login fields")
+                expected = hashlib.sha256(f"{int(timestamp)}{device}{random}".encode()).hexdigest()
+                if data.get("signature") != expected:
+                    raise ValueError("invalid native login signature")
+                return 200, dict(vid=900000, accessToken="mock-native-access", refreshToken="mock-native-refresh")
+            if path == "/shelf/sync" and method == "GET":
+                books = [{key: value for key, value in dict(book, version=7).items() if key != "bookVersion"} for book in BOOKS]
+                return 200, dict(books=books, archive=[], bookProgress=[], synckey=1)
         if path == "/api/agent/gateway" and method == "POST":
             if api == "/readdata/detail":
                 return 200, reading_statistics(data.get("mode", "monthly"), int(data.get("baseTime", 0)))
@@ -443,6 +469,9 @@ def main():
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader/weread_mock_smoke.lua")],
                                         cwd=args.koreader, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=90)
             if result.returncode == 0:
+                for secret in ("mock-native-access", "mock-native-refresh", "mock-native-code", "mock-native-ticket", "mock-native-qr"):
+                    assert secret not in log.read_text(), "native fixture credentials entered runtime diagnostics"
+                    assert secret not in (args.run_dir / "evidence/requests.jsonl").read_text(), "native fixture credentials entered request log"
                 full_books = list((args.run_dir / "profile/weread-mock/cache").rglob("* - full.epub"))
                 assert len(full_books) == 1, "expected one completed full EPUB"
                 with zipfile.ZipFile(full_books[0]) as epub:
