@@ -28,7 +28,7 @@ function Navigation:new(options)
         get_book_id=assert(options.get_book_id),get_account=options.get_account or function() return '' end,
         get_mode=options.get_mode or function() return 'page' end,get_viewport_height=options.get_viewport_height,
         navigate=assert(options.navigate),on_applied=assert(options.on_applied),
-        on_start=options.on_start,on_done=options.on_done,
+        on_start=options.on_start,on_done=options.on_done,on_cancel=options.on_cancel,
         can_prepare=options.can_prepare or function() return true end,is_busy=options.is_busy or function() return false end,
         worker=options.worker,make_worker=options.make_worker or function()
             return require('weread.lib.memory_worker'):new{scheduler=options.scheduler,codec=options.codec}
@@ -58,6 +58,7 @@ function Navigation:cancel()
     if job then
         job.thread,job.anchor,job.input=nil,nil,nil
         if self.on_done then pcall(self.on_done) end
+        if self.on_cancel then pcall(self.on_cancel,job) end
     end
     self.state='idle'
 end

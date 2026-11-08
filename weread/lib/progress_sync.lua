@@ -140,6 +140,31 @@ function ProgressSync:begin_local_navigation()
     end
 end
 
+-- A read-only cloud choice must not be undone by an older queued local write.
+-- Keep its durable intent until navigation succeeds, but close the report gate
+-- and cancel this book's unsent task before starting the read/locate pipeline.
+function ProgressSync:begin_cloud_source_navigation()
+    self:begin_local_navigation()
+    local id=tostring(self.detect_book() or '')
+    if self.upload_job and self.upload_job.book_id==id then self.upload_job,self.uploading=nil,false end
+    self:_clear_verified('cloud_source_navigation')
+    self.dirty,self.state=false,'unverified'
+end
+
+function ProgressSync:accept_cloud_source_target(position)
+    if type(position)~='table' or position.basis~='filtered_xhtml_utf16' or position.upload_verified~=false
+        or position.book_id~=tostring(self.detect_book() or '') then return false end
+    local held=self:current_source_target()
+    if not held then return false end
+    for _,key in ipairs({'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path'}) do
+        if held[key]~=position[key] then return false end
+    end
+    self:_clear_verified('cloud_source_selected')
+    self:_discard_pending_upload(position.book_id)
+    self.dirty,self.state=false,'unverified'
+    return true
+end
+
 function ProgressSync:chapter_request_current(pending, scope)
     return pending ~= nil and self.pending_jump == pending and self:_account_current(pending)
         and self:_session_current(scope) and scope.navigation_generation == self.navigation_generation

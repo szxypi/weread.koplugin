@@ -1,6 +1,14 @@
 local I18n = {}
 
 local zh = {
+    ["Open cloud reading position precisely"] = "精确打开云端阅读位置",
+    ["Cloud reading position"] = "云端阅读位置",
+    ["Checking cloud reading position..."] = "正在核对云端阅读位置…",
+    ["Cloud reading position opened. Progress reporting is waiting for verification."] = "已打开云端阅读位置，进度上报正在等待核对。",
+    ["Cloud position opened, but sync state could not be saved. Check storage before syncing."] = "已打开云端位置，但未能保存同步状态，请检查存储空间后再同步。",
+    ["This file has no matching original text. Download the target chapter or full book and try again."] = "当前文件没有匹配的原文，请下载目标章节或整本书后重试。",
+    ["Could not verify the cloud reading position. Your current location is kept."] = "无法核对云端阅读位置，已保留当前阅读位置。",
+    ["Could not locate the cloud position in this file. Please check the current page."] = "无法在当前文件中定位云端位置，请检查当前页面。",
     ["Reading statistics need E-Ink authorization or an official API key."] = "阅读统计需要墨水屏授权或官方接口密钥。",
     ["Statistics loaded but could not be saved for offline use. Check storage."] = "统计已读取，但未能保存离线数据，请检查存储空间。",
     ["The bookstore needs E-Ink authorization or an official API key."] = "书城需要墨水屏授权或官方接口密钥。",

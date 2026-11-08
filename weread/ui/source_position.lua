@@ -5,8 +5,19 @@ local M = {}
 -- Internal entry for file-bound positions. Cloud payloads require a separately
 -- validated adapter; they must not be passed here as catalog-word offsets.
 function M:openSourcePosition(position, callback)
+    local cloud=self.cloud_source_request
+    if cloud and not cloud.dispatching then self:cancelCloudSourcePosition() end
     if not self.source_navigation then return false,'target_unavailable' end
     return self.source_navigation:jump(position,callback)
+end
+function M:showCloudSourcePosition()
+    return require('weread.ui.cloud_source').start(self)
+end
+function M:cancelCloudSourcePosition()
+    return require('weread.ui.cloud_source').cancel(self)
+end
+function M:onCloudSourceViewChanged()
+    return require('weread.ui.cloud_source').on_view_changed(self)
 end
 local function message(reason)
     if reason=='no_visible_text' then return _('This page has no text position to check.') end

@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import threading
 
-from mock_weread import MockServer, prepare
+from mock_weread import MockServer, prepare, chapter_html
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -15,7 +15,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--koreader", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation"), default="precision",
+    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source"), default="precision",
                         help="fractional navigation (default), source/DOM mapping, live reader-state capture, or chapter handoff")
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
@@ -25,6 +25,10 @@ def main():
         parser.error("screen dimensions and DPI must be positive")
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     server = MockServer(0)
+    if args.probe == 'cloud-source':
+        from verify_source_coordinates import FilteredSource
+        offset=FilteredSource(chapter_html(6)).locate('这是第6章的第16段。我们沿着小路慢慢前行')[0]
+        server.progress['900001']=dict(chapterUid=6,chapterIdx=6,chapterOffset=offset,progress=83,summary='Synthetic cloud target')
     try:
         prepare(root, runtime, server.server_port, args.width, args.height, args.dpi)
         (root / "xdg").mkdir(mode=0o700)
@@ -40,12 +44,15 @@ def main():
         try:
             with log.open("w") as out:
                 probe = {"precision": "position_precision_smoke.lua", "source-dom": "source_dom_smoke.lua",
-                         "source-state": "source_position_smoke.lua", "navigation": "progress_navigation_smoke.lua"}[args.probe]
+                         "source-state": "source_position_smoke.lua", "navigation": "progress_navigation_smoke.lua",
+                         "cloud-source": "cloud_source_smoke.lua"}[args.probe]
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / probe)],
                                         cwd=runtime, env=environment, stdout=out, stderr=subprocess.STDOUT, timeout=120)
         finally:
             server.shutdown()
             thread.join()
+        if result.returncode == 0:
+            assert '[WeRead] forceRePaint failed:' not in log.read_text(), 'native repaint failed; inspect the isolated runtime log'
         print(("PASS" if result.returncode == 0 else "FAIL") + f": {log}")
         raise SystemExit(result.returncode)
     finally:

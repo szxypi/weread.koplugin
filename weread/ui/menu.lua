@@ -192,6 +192,12 @@ function M:getMainMenuItems()
                     end),
                 }
                 reader_items[#reader_items + 1] = {
+                    text = _("Open cloud reading position precisely"),
+                    callback = self:safeCallback(_("Open cloud reading position precisely"), function()
+                        self:showCloudSourcePosition()
+                    end),
+                }
+                reader_items[#reader_items + 1] = {
                     text = _("Sync progress now"),
                     keep_menu_open = true,
                     callback = self:safeCallback(_("Sync progress now"), function()

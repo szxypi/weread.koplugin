@@ -39,8 +39,11 @@ Source-coordinate protocol research:
   pure local Lua core does not enable a new progress-writing contract. Local
   EPUB source binding and chapter-scoped source/DOM conversion are now
   verified, including cross-block anchors and identical chapters. Production
-  reader integration and real-account write/readback
-  remain pending.
+  reader integration and read-only cloud navigation now bind matching EPUB
+  sources. scripts/verify_cloud_source_target.py verified real cloud/Reader
+  positions and original text before weread/lib/source_cloud.lua integration
+  on 2026-11-09; independent native Lua HTTPS compared the same projection.
+  Precise real-account write/readback remains pending.
   Official Web JavaScript is loaded for verification, not redistributed.
 The home/shelf/store navigation is adapted to the original WeRead services.
 

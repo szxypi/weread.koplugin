@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end

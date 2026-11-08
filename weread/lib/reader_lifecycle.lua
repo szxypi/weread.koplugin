@@ -156,6 +156,7 @@ function M:onReaderReady()
     if self.onUnifiedAnnotationsReady then self:onUnifiedAnnotationsReady() end
 
     local annotations_ready = perf("annotations_ready", opened)
+    if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.source_navigation then self.source_navigation:cancel() end
     if self.source_position then self.source_position:on_reader_ready() end
     self.progress_sync:on_reader_ready()
@@ -175,6 +176,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
     if self.source_position then self.source_position:on_view_changed() end
     self.progress_sync:on_page_update()
@@ -182,6 +184,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
     if self.source_position then self.source_position:on_view_changed() end
     self.progress_sync:on_page_update()
@@ -189,6 +192,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.cancelProfileRefresh then self:cancelProfileRefresh() end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
@@ -350,6 +354,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.cancelProfileRefresh then self:cancelProfileRefresh() end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end

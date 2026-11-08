@@ -137,4 +137,11 @@ expect(refused.nav.state=='unavailable' and #refused.binds==0,'native rejection 
 local failed=fixture();failed.nav.dom.open_prepared=function() error('private native diagnostic') end
 assert(failed.jump());failed.drain();failed.worker.jobs[1].callback(failed.packet());failed.drain()
 expect(failed.results[1].reason=='target_unavailable','private native diagnostic escaped controller')
+local owned=fixture();local cancelled=0
+owned.nav.on_cancel=function(job) assert(job and job.scope);cancelled=cancelled+1 end
+assert(owned.jump());owned.drain();owned.nav:cancel();owned.nav:cancel()
+expect(cancelled==1,'navigation cancellation did not notify its owner once')
+owned=fixture();cancelled=0;owned.nav.on_cancel=function() cancelled=cancelled+1 end
+assert(owned.jump());owned.drain();owned.worker.jobs[1].callback(owned.packet());owned.drain()
+expect(owned.nav.state=='ready' and cancelled==0,'successful navigation used cancellation cleanup')
 print(('source_navigation_spec: %d checks'):format(checks))

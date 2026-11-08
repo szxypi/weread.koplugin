@@ -171,6 +171,7 @@ function WeReadPlugin:init()
         get_source_position = function() return self.source_position:current() end,
         get_navigation_xpointer = function() return self.ui and self.ui.rolling and self.ui.rolling.xpointer end,
         on_before_navigate = function()
+            if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
             if self.source_navigation then self.source_navigation:cancel() end
         end,
         get_viewport_height = function()
@@ -264,6 +265,7 @@ function WeReadPlugin:init()
             self.source_position:pause("source_jump")
         end,
         on_done = function() self.source_position:resume("source_jump") end,
+        on_cancel = function(job) require("weread.ui.cloud_source").navigation_cancelled(self, job) end,
         on_applied = function(position, xpointer, metadata)
             return self.progress_sync:retain_source_target(position, xpointer, metadata)
         end,

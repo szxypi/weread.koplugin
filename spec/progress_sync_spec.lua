@@ -808,6 +808,35 @@ test("selecting cloud cancels queued local writes", function()
     eq(f.sync.uploading, false, "superseded upload ownership released")
 end)
 
+test("source cloud navigation defers old intent and never grants report permission", function()
+    local callbacks={}
+    local f=fixture({}, {run_online=function(_kind,callback) callbacks[#callbacks+1]=callback;return true end})
+    local local_position=f.sync:capture_local()
+    f.sync:_mark_verified('book','fixture',local_position,{})
+    f.sync:_upload_snapshot(local_position,'before_source_cloud',false)
+    f.sync:begin_cloud_source_navigation()
+    callbacks[1]()
+    eq(#f.uploads,0,'source choice cancels unsent local request')
+    eq(f.sync.verified,false,'source choice blocks automatic reporting')
+    eq(f.values.books.book.pending_upload_position.percent,local_position.percent,'failed or cancelled lookup retains durable local intent')
+    local held={book_id='book',chapter_uid='22',chapter_offset=15,file_id=string.rep('a',64),book_version=7,
+        raw_sha256=string.rep('b',64),render_path='chapter.xhtml',basis='filtered_xhtml_utf16',upload_verified=false}
+    f.sync.current_source_target=function() return held end
+    local wrong={};for key,value in pairs(held) do wrong[key]=value end;wrong.chapter_offset=16
+    eq(f.sync:accept_cloud_source_target(wrong),false,'foreign source target cannot discard local intent')
+    eq(f.sync:accept_cloud_source_target(held),true,'applied held cloud target supersedes local intent')
+    eq(f.values.books.book.pending_upload_position,nil,'successful source choice discards old local intent')
+    eq(f.sync.verified,false,'read target cannot grant wire verification')
+    local provided,reason=f.sync:position_for_report('book')
+    eq(provided,nil,'unverified precise target cannot report')
+    eq(reason,'progress_unverified','precise target keeps the report gate closed')
+    local other=fixture({})
+    local foreign={book_id='other-book'};other.sync.upload_job,other.sync.uploading=foreign,true
+    other.sync:begin_cloud_source_navigation()
+    eq(other.sync.upload_job,foreign,'source choice does not cancel a different book upload')
+    eq(other.sync.uploading,true,'other book keeps upload ownership')
+end)
+
 test("suspend invalidates queued pulls and short resume retries unverified session", function()
     local callbacks = {}
     local f = fixture({}, { run_online = function(_kind, callback)
