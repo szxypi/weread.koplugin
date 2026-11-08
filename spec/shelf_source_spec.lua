@@ -1,0 +1,116 @@
+package.path = "./?.lua;./?/init.lua;" .. package.path
+local Source = require("weread.lib.shelf_source")
+local checks = 0
+local function expect(value, label) checks = checks + 1 assert(value, label) end
+local function fixture(mode)
+    local data = { books = {{ bookId = 123, title = "Native book", author = "Author", version = 700,
+        bookVersion = 999, cover = "https://example.invalid/cover", readUpdateTime = "10", finishReading = 1,
+        unknown_secret = "private-response" }}, archive = {{ archiveId = 5, name = "Group", bookIds = { 123 } }} }
+    local current, revision, present, native_fail, web_fail, on_request = true, 1, true, false, false, nil
+    local config, requests, web_calls = { source = mode or "auto" }, {}, 0
+    local credentials = { vid = "123", accessToken = "test-native-access", refreshToken = "test-native-refresh",
+        deviceId = string.rep("1", 32) }
+    local scope = { vid = "123", epoch = 1 }
+    local settings = { data_dir = "/unused", get = function(_self, key)
+        if key == "shelf" then return config elseif key == "api_key" then return "test-key" end
+    end, get_auth_scope = function() return scope end,
+        auth_scope_matches = function(_self, candidate) return current and candidate == scope end }
+    local store = { read = function() return present and credentials or nil, revision end }
+    local client = { settings = settings,
+        request = function(_self, request)
+            requests[#requests + 1] = request
+            if on_request then on_request() end
+            if native_fail then error("private-url-with-token", 0) end
+            return "fixture", 200
+        end,
+        json_decode = function() return data end,
+        get_gateway_shelf = function()
+            web_calls = web_calls + 1
+            if web_fail then error("gateway fixture failure", 0) end
+            return { books = {{ bookId = "web", title = "Gateway book" }}, archive = {} }, 200, {}
+        end,
+    }
+    return { client = client, settings = settings, store = store, requests = requests, data = data,
+        fetch = function(options) options = options or {} options.store = store return Source.fetch(client, options) end,
+        counts = function() return #requests, web_calls end,
+        change = function(options)
+            if options.mode then config.source = options.mode end
+            if options.current ~= nil then current = options.current end
+            if options.revision then revision = options.revision end
+            if options.present ~= nil then present = options.present end
+            if options.native_fail ~= nil then native_fail = options.native_fail end
+            if options.web_fail ~= nil then web_fail = options.web_fail end
+            if options.on_request then on_request = options.on_request end
+        end }
+end
+local f = fixture()
+local result = f.fetch()
+expect(result._shelf_source == "native" and result._native_revision == 1, "automatic prefers verified native grant")
+expect(result.books[1].bookId == "123" and result.archive[1].bookIds[1] == "123", "IDs canonicalized for groups")
+expect(result.books[1]._native_version == 700 and result.books[1].bookVersion == nil and result.books[1].version == nil,
+    "unverified native version cannot become a Web download version")
+expect(result.books[1].unknown_secret == nil and result.books[1].readUpdateTime == 10, "bounded display metadata normalized")
+expect(f.data.books[1].bookId == 123 and f.data.books[1].bookVersion == 999, "source snapshot not mutated")
+local request = f.requests[1]
+expect(request.url == "https://i.weread.qq.com/shelf/sync" and request.method == "GET" and request.body == nil,
+    "native source sends only previously verified read endpoint")
+expect(request.sensitive and request.skip_cookie and request.persist_response_cookies == false
+    and request.headers.accessToken == "test-native-access" and request.headers.Cookie == nil
+    and request.headers.Authorization == nil, "native request isolated and diagnostics redacted")
+local _, web = f.counts()
+expect(web == 0, "successful native source does not also fetch gateway")
+f = fixture("gateway"); result = f.fetch()
+local native
+native, web = f.counts()
+expect(result._shelf_source == "gateway" and native == 0 and web == 1, "explicit standard skips native auth entirely")
+f = fixture(); f.change({ native_fail = true }); result = f.fetch()
+native, web = f.counts()
+expect(result._shelf_source == "gateway" and result._native_fallback and native == 1 and web == 1,
+    "automatic failure falls back exactly once with public indication")
+f = fixture("native"); f.change({ native_fail = true })
+local ok, err = pcall(f.fetch)
+_, web = f.counts()
+expect(not ok and err == "shelf_source/native_unavailable" and web == 0, "native-only failure cannot switch source")
+f = fixture("native"); f.change({ present = false })
+ok, err = pcall(f.fetch)
+native, web = f.counts()
+expect(not ok and err == "shelf_source/native_required" and native == 0 and web == 0, "native-only requires authorization")
+local ready, reason = Source.ready(f.settings, f.store)
+expect(not ready and reason == "native_required", "UI receives native authorization requirement")
+f = fixture(); f.change({ present = false }); result = f.fetch()
+native, web = f.counts()
+expect(native == 0 and web == 1 and not result._native_fallback and result._native_revision == nil,
+    "unconfigured automatic uses established gateway without a native revision guard")
+for _i, change in ipairs({ { current = false }, { revision = 2 }, { mode = "gateway" }, { present = false } }) do
+    f = fixture()
+    f.change({ on_request = function() f.change(change) end })
+    ok, err = pcall(f.fetch)
+    _, web = f.counts()
+    expect(not ok and err == "shelf_source/session_changed" and web == 0, "changed owner/grant/source stops without fallback")
+end
+f = fixture(); f.change({ current = false })
+ok = pcall(function() f.fetch({ is_current = function() return false end }) end)
+native, web = f.counts()
+expect(not ok and native == 0 and web == 0, "stale queued refresh dispatches no HTTP")
+f = fixture()
+f.settings.get_auth_scope = function(_self, from_disk) return from_disk and { vid = "456", epoch = 2 } or nil end
+ok, err = pcall(f.fetch)
+native, web = f.counts()
+expect(not ok and err == "shelf_source/session_changed" and native == 0 and web == 0,
+    "missing local owner cannot bypass a different identified on-disk login")
+expect(not Source.ready(f.settings, f.store), "inconsistent owner requires a new login before shelf access")
+for _i, mutate in ipairs({
+    function(data) data.books = nil end,
+    function(data) data.books[2] = data.books[1] end,
+    function(data) data.books[1].bookId = "" end,
+    function(data) data.archive[1].bookIds = "invalid" end,
+    function(data) data.books.extra = {} end,
+}) do
+    f = fixture(); mutate(f.data)
+    result = f.fetch()
+    expect(result._native_fallback and result.books[1].bookId == "web", "invalid native snapshot cannot replace cache with partial books")
+end
+f = fixture("native"); f.data.books, f.data.archive = {}, {}
+result = f.fetch()
+expect(#result.books == 0 and #result.archive == 0 and result._shelf_source == "native", "valid empty shelf remains empty")
+print("PASS: " .. checks .. " shelf source routing/normalization/account checks")

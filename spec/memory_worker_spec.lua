@@ -2,7 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local Worker = require("weread.lib.memory_worker")
 local checks = 0
 local function expect(value, label) checks = checks + 1 assert(value, label) end
-local function fixture()
+local function fixture(max_bytes)
     local queue, pending, bytes, completed, terminated, closed, now = {}, nil, "", false, false, false, 0
     local scheduler = {
         scheduleIn = function(_self, delay, fn) expect(delay >= 0.1, "cooperative scheduling") queue[#queue + 1] = fn end,
@@ -20,7 +20,8 @@ local function fixture()
         close = function() closed = true end,
         terminate = function() terminated, completed = true, true end,
     }
-    local worker = Worker:new{ scheduler = scheduler, codec = codec, runner = runner, now = function() return now end }
+    local worker = Worker:new{ scheduler = scheduler, codec = codec, runner = runner, now = function() return now end,
+        max_bytes = max_bytes }
     return { worker = worker, run = function() pending(43) end,
         tick = function() local fn = table.remove(queue, 1) if fn then fn() end end,
         idle = function() while #queue > 0 do table.remove(queue, 1)() end end,
@@ -50,6 +51,10 @@ f = fixture(); got = false
 f.worker:start(function() return "bad" end, function(value) got = value or "failed" end)
 f.run(); f.idle()
 expect(got == "failed", "decoder exception is redacted")
+f = fixture(131072); got = nil
+f.worker:start(function() return string.rep("x", 100000) end, function(value) got = value end)
+f.run(); f.idle()
+expect(got and #got.private == 100000, "configured shelf capacity accepts data above the authorization limit")
 f = fixture(); f.runner.run = function() return false, "private-error" end
 expect(not f.worker:start(function() end, function() error("must not callback") end), "fork failure returned without diagnostic data")
 print("PASS: " .. checks .. " bounded memory worker checks")

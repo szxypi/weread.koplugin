@@ -99,6 +99,11 @@ class MockTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             self.server.route("POST", "https://i.weread.qq.com/login", body)
         self.assertEqual(len(self.server.route("GET", "https://i.weread.qq.com/shelf/sync", {})[1]["books"]), 26)
+        native = "https://i.weread.qq.com/shelf/sync"
+        snapshot = self.server.route("GET", native, {})[1]
+        self.assertEqual(snapshot["books"][0]["version"], 700)
+        self.assertEqual(len(snapshot["archive"]), 3)
+        self.assertNotIn("bookVersion", snapshot["books"][0])
 
     def test_annotations_and_progress_write_read(self):
         _, result = self.gateway("/book/underlines", bookId=BOOK_ID, chapterUid=2)

@@ -617,7 +617,15 @@ function Client:gateway(api_name, params)
     })
 end
 
-function Client:get_shelf()
+function Client:shelf_authentication()
+    return require("weread.lib.shelf_source").ready(self.settings)
+end
+
+function Client:get_shelf(options)
+    return require("weread.lib.shelf_source").fetch(self, options)
+end
+
+function Client:get_gateway_shelf()
     logger.info(
         "shelf sync request:",
         "api=/shelf/sync",

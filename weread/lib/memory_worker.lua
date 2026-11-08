@@ -41,8 +41,11 @@ local function runner()
 end
 
 function Worker:new(options)
+    local limit = options.max_bytes or LIMIT
+    assert(type(limit) == "number" and limit >= LIMIT and limit <= 8 * 1024 * 1024 and limit % 1 == 0,
+        "invalid memory worker capacity")
     return setmetatable({ scheduler = assert(options.scheduler), codec = assert(options.codec),
-        runner = options.runner or runner(), now = options.now or os.time }, self)
+        runner = options.runner or runner(), now = options.now or os.time, limit = limit }, self)
 end
 
 function Worker:_collect(job)
@@ -67,7 +70,7 @@ function Worker:start(task, callback)
         local success, value = pcall(task)
         local encoded, bytes = pcall(self.codec.json_encode, self.codec,
             success and value or { error = "worker_failed" })
-        if not encoded or type(bytes) ~= "string" or #bytes > LIMIT then bytes = '{"error":"worker_failed"}' end
+        if not encoded or type(bytes) ~= "string" or #bytes > self.limit then bytes = '{"error":"worker_failed"}' end
         self.runner.write(output, bytes)
     end)
     if not ok or type(pid) ~= "number" or type(fd) ~= "number" then return false end
@@ -78,10 +81,10 @@ function Worker:start(task, callback)
         local chunk = self.runner.read(job.fd)
         if chunk then
             job.size = job.size + #chunk
-            if job.size <= LIMIT then job.chunks[#job.chunks + 1] = chunk end
+            if job.size <= self.limit then job.chunks[#job.chunks + 1] = chunk end
         end
         local done = self.runner.done(job.pid)
-        if not chunk or job.size > LIMIT or self.now() - job.started > 75 then
+        if not chunk or job.size > self.limit or self.now() - job.started > 75 then
             self:cancel()
             callback(nil)
         elseif done and #chunk == 0 then

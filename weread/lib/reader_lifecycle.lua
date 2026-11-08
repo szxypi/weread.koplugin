@@ -182,6 +182,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.native_authorization then self.native_authorization:cancel() end
     if self.offline_time then self.offline_time:stop("no_book") end
     FileIdentity.forget(self.ui and self.ui.document)
@@ -334,6 +335,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.native_authorization then self.native_authorization:cancel() end
     if self.offline_time then self.offline_time:suspend() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end

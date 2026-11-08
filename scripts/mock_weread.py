@@ -197,8 +197,12 @@ class MockServer(ThreadingHTTPServer):
                     raise ValueError("invalid native login signature")
                 return 200, dict(vid=900000, accessToken="mock-native-access", refreshToken="mock-native-refresh")
             if path == "/shelf/sync" and method == "GET":
-                books = [{key: value for key, value in dict(book, version=7).items() if key != "bookVersion"} for book in BOOKS]
-                return 200, dict(books=books, archive=[], bookProgress=[], synckey=1)
+                books = [{key: value for key, value in dict(book, version=700).items() if key != "bookVersion"}
+                         for book in ([] if control["empty_shelf"] else BOOKS)]
+                return 200, dict(books=books, archive=[
+                    dict(archiveId=1, name="旅途", bookIds=[b["bookId"] for b in BOOKS[:15]]),
+                    dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
+                    dict(archiveId=3, name="空分组", bookIds=[])], bookProgress=[], synckey=1)
         if path == "/api/agent/gateway" and method == "POST":
             if api == "/readdata/detail":
                 return 200, reading_statistics(data.get("mode", "monthly"), int(data.get("baseTime", 0)))
@@ -408,7 +412,7 @@ def prepare(run_dir, runtime, port, width=600, height=800, dpi=167):
     (run_dir / "evidence/build.json").write_text(json.dumps(dict(
         fixture_version=1, plugin_sha=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
         workspace_status=subprocess.check_output(["git", "status", "--short"], cwd=REPO, text=True),
-        runtime=str(runtime), ko_home=str(profile), screen=dict(width=width, height=height, dpi=dpi),
+        runtime=str(runtime), ko_home=str(profile), screen=dict(width=width, height=height, dpi=dpi, bb_type="BB8", grayscale=True),
     ), ensure_ascii=False, indent=2) + "\n")
     (profile / "settings.reader.lua").write_text('return { language = "zh_CN", color_rendering = false, auto_save_settings_interval_minutes = 0 }\n')
     (profile / "settings/weread-environment.lua").write_text(
@@ -420,6 +424,7 @@ def prepare(run_dir, runtime, port, width=600, height=800, dpi=167):
     launcher.write_text("#!/bin/sh\nset -eu\n" + "\n".join(f"export {key}={shlex.quote(str(value))}" for key, value in {
         "KO_HOME": profile,
         "EMULATE_READER": 1, "EMULATE_READER_W": width, "EMULATE_READER_H": height, "EMULATE_READER_DPI": dpi,
+        "EMULATE_BW_SCREEN": 1, "EMULATE_BB_TYPE": "BB8",
     }.items()) + f"\ncd {shlex.quote(str(runtime))}\nexec ./luajit {shlex.quote(str(bootstrap))} {shlex.quote(str(run_dir / 'books'))} > {shlex.quote(str(run_dir / 'evidence/runtime.log'))} 2>&1\n")
     launcher.chmod(0o755)
     app = run_dir / "WeReadMock.app/Contents"
@@ -462,7 +467,8 @@ def main():
         thread.start()
         env = os.environ | dict(KO_HOME=str(args.run_dir / "profile"),
                                 EMULATE_READER="1", EMULATE_READER_W=str(args.width),
-                                EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
+                                EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
+                                EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
         log = args.run_dir / "evidence/smoke.log"
         try:
             with log.open("w") as out:

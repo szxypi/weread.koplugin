@@ -42,20 +42,29 @@ function M:showTransientInfo(text, timeout)
     })
 end
 
-function M:showBusy(text)
+function M:showBusy(text, on_cancel)
     self:closeBusy()
-    self.busy_message = InfoMessage:new{
+    local dialog
+    dialog = InfoMessage:new{
         text = text,
-        dismissable = false,
+        dismissable = on_cancel ~= nil,
+        dismiss_callback = function()
+            if self.busy_message == dialog and on_cancel then
+                self.busy_message = nil
+                on_cancel()
+            end
+        end,
     }
+    self.busy_message = dialog
     UIManager:show(self.busy_message)
     self:refreshUI()
 end
 
 function M:closeBusy()
     if self.busy_message then
-        UIManager:close(self.busy_message)
+        local dialog = self.busy_message
         self.busy_message = nil
+        UIManager:close(dialog)
         self:refreshUI()
     end
 end

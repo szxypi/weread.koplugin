@@ -12,6 +12,7 @@ local _, T = PluginUtil.tr, PluginUtil.T
 local Controller = {}
 Controller.__index = Controller
 local STATE_FIELDS = { "uid", "last", "confirmed_code", "login_attempted", "pending_credentials", "closed" }
+local SOURCE_LABELS = { auto = "Automatic", gateway = "Standard bookshelf", native = "E-Ink bookshelf" }
 
 function Controller:new(host, client, settings, options)
     options = options or {}
@@ -89,6 +90,7 @@ end
 
 function Controller:start()
     self:cancel()
+    if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
     self.scope = self.settings:get_auth_scope()
     if not self.settings:auth_scope_matches(self.scope) then
         self:_error(_("Please complete QR code login before authorizing E-Ink access."))
@@ -201,6 +203,7 @@ end
 
 function Controller:clear()
     self:cancel()
+    if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
     local scope = self.settings:get_auth_scope()
     local revision = select(2, self.store:read())
     local ok = revision and self.store:clear(scope, revision)
@@ -218,9 +221,12 @@ end
 
 function Controller:showMenu()
     self:cancel()
+    if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
     local value = self.store:read()
+    local source = require("weread.lib.shelf_source").mode(self.settings)
     local dialog
     dialog = ButtonDialog:new{
+        modal = true,
         title = value and _("E-Ink authorization is saved for the current account.") or _("E-Ink access is not authorized."),
         buttons = {
             {{ text = value and _("Authorize E-Ink again") or _("Authorize E-Ink access"), callback = function()
@@ -229,9 +235,32 @@ function Controller:showMenu()
             {{ text = _("Clear E-Ink authorization"), enabled = value ~= nil, callback = function()
                 self.scheduler:close(dialog) self:clear()
             end }},
+            {{ text = T(_("Bookshelf source: %1"), _(SOURCE_LABELS[source])), callback = function()
+                self.scheduler:close(dialog) self:chooseSource()
+            end }},
             {{ text = _("Cancel"), callback = function() self.scheduler:close(dialog) end }},
         },
     }
+    self.scheduler:show(dialog)
+end
+
+function Controller:chooseSource()
+    local dialog
+    local buttons = {}
+    for _i, source in ipairs({ "auto", "gateway", "native" }) do
+        buttons[#buttons + 1] = {{ text = _(SOURCE_LABELS[source]), callback = function()
+            self.scheduler:close(dialog)
+            if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
+            if not self.settings:set_shelf_source(source) then
+                self.host:showInfo(_("Could not save bookshelf source. Please try again."))
+                return
+            end
+            self:showMenu()
+        end }}
+    end
+    buttons[#buttons + 1] = {{ text = _("Cancel"), callback = function() self.scheduler:close(dialog) end }}
+    dialog = ButtonDialog:new{ modal = true, title = _("Automatic uses E-Ink authorization when available and falls back to the standard bookshelf. E-Ink bookshelf uses only E-Ink access."),
+        buttons = buttons }
     self.scheduler:show(dialog)
 end
 

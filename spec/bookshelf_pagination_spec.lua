@@ -377,4 +377,36 @@ account = "second"
 pending()
 expect(late_fetches == 0 and not home_reopened and not host.shelf_refreshing,
     "queued home refresh crossed the account boundary")
+local jobs, cancelled = {}, 0
+host.client.shelf_authentication = function() return true end
+host.isNetworkConnected = function() return true end
+host.shelf_refresh_worker = {
+    start = function(_self, task, callback) jobs[#jobs + 1] = { task = task, callback = callback } return true end,
+    cancel = function() cancelled = cancelled + 1 end,
+}
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+local old_job = table.remove(jobs, 1)
+host:closeWeReadUI()
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+local fresh_context = host.shelf_refresh_context
+old_job.callback(old_job.task())
+expect(host.shelf_refresh_context == fresh_context and host.shelf_refreshing and late_fetches == 0,
+    "late async shelf result canceled or fetched for a newer view")
+local job = table.remove(jobs, 1)
+job.callback(job.task())
+expect(home_reopened and not host.shelf_refreshing and late_fetches == 1, "current async shelf could not complete")
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1)
+account = "third"
+job.callback(job.task())
+expect(not home_reopened and late_fetches == 1 and not host.shelf_refreshing,
+    "async shelf crossed an account boundary before HTTP")
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1)
+local async_result = job.task()
+shelf_settings.source = "native"
+job.callback(async_result)
+expect(not home_reopened and not host.shelf_refreshing, "result from prior source choice reopened shelf")
+expect(cancelled > 0, "leaving shelf did not cancel native background worker")
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

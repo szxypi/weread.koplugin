@@ -241,6 +241,26 @@ settings:update_auth({ account = { user_vid = "123", login_time = 10 } })
 expect(values.auth_epoch == 1000, "new Web login advances beyond disk session generation")
 settings:reset_account()
 expect(settings:get_auth_scope() == nil, "logout invalidates native account scope")
+persist_scope()
+local old_flush = store.flush
+local source_failure = false
+store.flush = function()
+    if source_failure then error("synthetic write failure") end
+    local source_file = assert(io.open(scope_path, "w"))
+    source_file:write(string.format("return {shelf={source=%q}}", values.shelf.source))
+    source_file:close()
+end
+expect(settings:set_shelf_source("native") and settings:get("shelf").source == "native",
+    "source preference did not survive primary-file readback")
+source_failure = true
+expect(not settings:set_shelf_source("gateway") and settings:get("shelf").source == "native",
+    "failed source preference write must restore prior selection")
+source_failure = false
+expect(not settings:set_shelf_source("invalid"), "unknown source preference accepted")
+local source_file = assert(io.open(scope_path, "w"))
+source_file:write("return {account={user_vid='456'}, cookies={wr_vid='456'}, auth_epoch=2000}") source_file:close()
+expect(not settings:set_shelf_source("gateway"), "stale source picker overwrote a new on-disk account")
+store.flush = old_flush
 os.remove(scope_path)
 settings.settings_file = original_path
 

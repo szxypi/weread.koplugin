@@ -94,6 +94,7 @@ local defaults = {
         release_url = "",
     },
     shelf = {
+        source = "auto",
         sort_order = "time_desc",
         paginated = true,
         view_mode = "cover",
@@ -318,6 +319,21 @@ function Settings:auth_scope_matches(scope)
     return type(scope) == "table" and current ~= nil and disk ~= nil
         and current.vid == scope.vid and disk.vid == scope.vid
         and current.epoch == scope.epoch and disk.epoch == scope.epoch
+end
+
+function Settings:set_shelf_source(source)
+    if source ~= "auto" and source ~= "native" and source ~= "gateway" then return false end
+    local scope, disk = self:get_auth_scope(), self:get_auth_scope(true)
+    if (scope or disk) and not self:auth_scope_matches(scope) then return false end
+    local previous = deepcopy(self:get("shelf", {}))
+    local updated = deepcopy(previous)
+    updated.source = source
+    local ok = pcall(function() self:set("shelf", updated) self:flush() end)
+    local read_ok, data = pcall(dofile, self.settings_file)
+    if ok and read_ok and type(data) == "table" and type(data.shelf) == "table" and data.shelf.source == source then return true end
+    self:set("shelf", previous)
+    pcall(self.flush, self)
+    return false
 end
 
 function Settings:delete(key)

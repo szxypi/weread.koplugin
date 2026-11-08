@@ -1,6 +1,17 @@
 local I18n = {}
 
 local zh = {
+    ["E-Ink bookshelf could not be read. Authorize again, or choose Automatic or Standard bookshelf."] = "无法读取墨水屏书架。请重新授权，或将读取方式改为自动选择／常规书架。",
+    ["Bookshelf is unavailable. Check the network and authorization, then try again."] = "暂时无法读取书架，请检查网络和授权后重试。",
+    ["Automatic"] = "自动选择",
+    ["Could not start bookshelf refresh. Please try again."] = "无法开始刷新书架，请重试。",
+    ["Bookshelf source: %1"] = "书架读取方式：%1",
+    ["Standard bookshelf"] = "常规书架",
+    ["E-Ink bookshelf"] = "墨水屏书架",
+    ["Could not save bookshelf source. Please try again."] = "保存书架读取方式失败，请重试。",
+    ["Automatic uses E-Ink authorization when available and falls back to the standard bookshelf. E-Ink bookshelf uses only E-Ink access."] = "自动模式优先使用已授权的墨水屏书架，不可用时使用常规书架。选择墨水屏书架后仅使用墨水屏授权读取。",
+    ["E-Ink bookshelf is unavailable. Using the standard bookshelf for this refresh."] = "墨水屏书架暂不可用，本次已使用常规书架。",
+    ["Bookshelf refresh was interrupted. Please try again."] = "书架刷新已中断，请重试。",
     ["E-Ink authorization"] = "墨水屏授权",
     ["Please complete QR code login before authorizing E-Ink access."] = "请先完成微信扫码登录，再进行墨水屏授权。",
     ["E-Ink authorization storage is unavailable."] = "无法读取墨水屏授权，请检查存储后重试。",

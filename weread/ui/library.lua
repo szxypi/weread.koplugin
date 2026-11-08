@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end
     self._home_pending_redraw = nil
@@ -172,34 +173,71 @@ function M:applyShelfSnapshot(all_books, archives)
     end
 end
 
+function M:requireShelfLogin()
+    if self.client.shelf_authentication then
+        local ready, reason = self.client:shelf_authentication()
+        if ready then return true end
+        if reason == "native_required" and self.native_authorization then
+            self.native_authorization:showMenu()
+            return false
+        end
+    end
+    return self:requireLogin(false, true)
+end
+
+function M:cancelShelfRefresh()
+    local context = self.shelf_refresh_context
+    if not context then return end
+    context.cancelled = true
+    self.shelf_refresh_context, self.shelf_refreshing = nil, nil
+    if self.shelf_refresh_worker then self.shelf_refresh_worker:cancel() end
+    if context.old_view then pcall(context.old_view.setRefreshing, context.old_view, false) end
+    if self.busy_message == context.busy then self:closeBusy() end
+end
+
 function M:refreshBookshelf(old_view, view_options)
-    if self.shelf_refreshing or not self:requireLogin(false, true) then return end
+    if self.shelf_refreshing or not self:requireShelfLogin() then return end
     self.shelf_refreshing = true
+    local context = { old_view = old_view }
+    self.shelf_refresh_context = context
     local refresh_epoch = self.discovery_epoch or 0
     local account_key = self.library_db and self.library_db.accountKey and self.library_db:accountKey()
+    local scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local source = require("weread.lib.shelf_source").mode(self.settings)
     local function still_current()
-        return (self.discovery_epoch or 0) == refresh_epoch
+        return not context.cancelled and (self.discovery_epoch or 0) == refresh_epoch
             and (not account_key or self.library_db:accountKey() == account_key)
+            and (not scope or self.settings:auth_scope_matches(scope))
+            and require("weread.lib.shelf_source").mode(self.settings) == source
     end
     -- A finishing thumbnail batch must not replace the view being refreshed.
     self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
     self.shelf_cover_pending = nil
     if old_view then old_view:setRefreshing(true) end
     local function done()
-        self.shelf_refreshing = nil
+        if self.shelf_refresh_context ~= context then return end
+        self.shelf_refresh_context, self.shelf_refreshing = nil, nil
         if old_view and still_current() then old_view:setRefreshing(false) end
-        self:closeBusy()
+        if self.busy_message == context.busy then self:closeBusy() end
     end
-    self:showBusy(_("Loading bookshelf..."))
-    local started = self:runOnlineTask(_("Bookshelf"), function()
-        if not still_current() then done() return end
-        local ok, result = pcall(function()
-            return self.client:get_shelf()
-        end)
+    self:showBusy(_("Loading bookshelf..."), function() self:cancelShelfRefresh() end)
+    context.busy = self.busy_message
+    local function complete(ok, result)
         done()
         if not still_current() then return end
+        if ok and type(result) == "table" and result._native_revision ~= nil then
+            local selected = require("weread.lib.shelf_source").selection(self.settings)
+            if not selected.credentials or selected.revision ~= result._native_revision then return end
+        end
         if not ok then
             logger.err("load bookshelf failed:", log_error(result))
+            if result == "shelf_source/native_unavailable" or result == "shelf_source/native_required" then
+                self:showInfo(_("E-Ink bookshelf could not be read. Authorize again, or choose Automatic or Standard bookshelf."))
+                return
+            end
+            if type(result) == "string" and result:match("^shelf_source/") then
+                result = _("Bookshelf is unavailable. Check the network and authorization, then try again.")
+            end
             self:showInfo(T(
                 _("Load bookshelf failed:\n%1\n\nIf other account features still work, use Search to find and download books."),
                 display_error(result)
@@ -212,6 +250,10 @@ function M:refreshBookshelf(old_view, view_options)
             or {}
         local archives = type(result) == "table" and type(result.archive) == "table" and result.archive or {}
         if self.library_db then self.library_db:cacheShelf(all_books, archives) end
+        self.shelf_active_source = type(result) == "table" and result._shelf_source or "gateway"
+        if type(result) == "table" and result._native_fallback then
+            self:showTransientInfo(_("E-Ink bookshelf is unavailable. Using the standard bookshelf for this refresh."), 3)
+        end
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
         if view_options and view_options.on_loaded then
@@ -232,8 +274,41 @@ function M:refreshBookshelf(old_view, view_options)
             nil,
             next_options
         )
-    end)
-    if started == false then done() end
+    end
+    local started
+    if self.client.shelf_authentication then
+        if not self:isNetworkConnected() then
+            done()
+            self:showOffline(_("Bookshelf"))
+            return
+        end
+        if not self.shelf_refresh_worker then
+            self.shelf_refresh_worker = require("weread.lib.memory_worker"):new{
+                scheduler = UIManager, codec = self.client, max_bytes = 8 * 1024 * 1024,
+            }
+        end
+        started = self.shelf_refresh_worker:start(function()
+            if not still_current() then return { ok = false, error = "shelf_source/session_changed" } end
+            local ok, value = pcall(self.client.get_shelf, self.client, { is_current = still_current })
+            if ok then return { ok = true, value = value } end
+            return { ok = false, error = type(value) == "string" and value:match("^shelf_source/[a-z_]+$")
+                or "shelf_source/unavailable" }
+        end, function(result)
+            if self.shelf_refresh_context ~= context then return end
+            complete(type(result) == "table" and result.ok == true, type(result) == "table" and (result.value or result.error)
+                or _("Bookshelf refresh was interrupted. Please try again."))
+        end)
+    else
+        started = self:runOnlineTask(_("Bookshelf"), function()
+            if not still_current() then done() return end
+            local ok, result = pcall(self.client.get_shelf, self.client)
+            complete(ok, result)
+        end)
+    end
+    if started == false then
+        done()
+        if self.client.shelf_authentication then self:showInfo(_("Could not start bookshelf refresh. Please try again.")) end
+    end
 end
 
 local function shelf_search_match(book, keyword)

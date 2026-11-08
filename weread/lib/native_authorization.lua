@@ -133,15 +133,25 @@ function Auth:poll()
     return result.wx_errcode == 402 and "expired" or "declined"
 end
 
-function Auth:verify()
-    self:_current("verify")
-    local credentials = self.pending_credentials
-    if not credentials then fail("verify", "unavailable") end
+function Auth:read_shelf(credentials)
+    self:_current("shelf")
+    if type(credentials) ~= "table" or not vid(credentials.vid) or not text(credentials.accessToken, 8192) then
+        fail("shelf", "invalid_credentials")
+    end
+    if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("shelf", "account_mismatch") end
     local shelf = self:_request("shelf", BASE .. "/shelf/sync", nil, credentials)
     if type(shelf.books) ~= "table" then fail("shelf", "invalid") end
     for key in pairs(shelf.books) do
         if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > #shelf.books then fail("shelf", "invalid") end
     end
+    return shelf
+end
+
+function Auth:verify()
+    self:_current("verify")
+    local credentials = self.pending_credentials
+    if not credentials then fail("verify", "unavailable") end
+    local shelf = self:read_shelf(credentials)
     local verified = copy(credentials)
     self:cancel()
     return verified, shelf
