@@ -3,11 +3,12 @@
 import io
 import json
 import unittest
+from types import SimpleNamespace
 from contextlib import redirect_stdout
 from unittest.mock import patch
 
-from verify_source_coordinates import (CoordinateError, MAX_SOURCE_BYTES, PublicProbe, SourceText,
-                                       boundaries, check_parser_rows, from_co, main)
+from verify_source_coordinates import (CoordinateError, FilteredSource, MAX_SOURCE_BYTES, PublicProbe, SourceText,
+                                       boundaries, check_lua, check_parser_rows, from_co, main)
 
 
 class SourceCoordinateTests(unittest.TestCase):
@@ -123,6 +124,89 @@ class SourceCoordinateTests(unittest.TestCase):
         self.assertEqual(report['result'], 'OFFLINE_ONLY')
         self.assertEqual(report['network_requests'], 0)
         self.assertNotIn('source', report)
+
+    def test_filtered_run_ignores_tag_lengths_until_retained_tag_resets_base(self):
+        raw = '<html><body><p>before<a href="long-value">linked</a>after<strong>retained</strong>end</p></body></html>'
+        model = FilteredSource(raw)
+        self.assertEqual(model.segments[0], (15, 'beforelinkedafter'))
+        self.assertEqual(model.segments[1], (raw.index('retained'), 'retained'))
+        self.assertEqual(model.segments[2], (raw.index('end</p>'), 'end'))
+        start, _end = model.locate('beforelinkedafter')
+        self.assertEqual(start, 15)
+
+    def test_nested_and_self_closing_ignored_tags_keep_the_same_filtered_run(self):
+        raw = '<html><body><p>before<a>outer<q>inner</q>tail</a>after<wbr/>last</p></body></html>'
+        model = FilteredSource(raw)
+        self.assertEqual(model.segments, [(15, 'beforeouterinnertailafterlast')])
+
+    def test_literal_angles_expand_filtered_coordinate_width(self):
+        model = FilteredSource('<html><body><p>left > right <3 tail</p></body></html>')
+        self.assertEqual(model.segments, [(15, 'left &gt; right &lt;3 tail')])
+        index = model.characters.index('r')
+        self.assertEqual(model.starts[index], 25)
+
+    def test_filtered_unicode_entity_and_reverse_anchor_keep_exact_units(self):
+        raw = '\ufeff<html><body><p>abcdefghijklm<a>甲😀乙&amp;丙0123456789</a>tail</p></body></html>'
+        model = FilteredSource(raw)
+        co, _end = model.locate('甲😀乙&丙0123456789')
+        self.assertEqual(co, 29)
+        self.assertTrue(model.anchor_at(co).startswith('甲😀乙&'))
+        with self.assertRaises(CoordinateError):
+            model.anchor_at(co + 2)
+
+    def test_filtered_comments_are_removed_before_coordinate_counting(self):
+        model = FilteredSource('<html><body><p>before<!--kept-->after<a/>tail</p></body></html>')
+        self.assertEqual(model.segments, [(15, 'beforeaftertail')])
+        self.assertEqual(''.join(model.characters), 'beforeaftertail')
+        self.assertEqual(model.starts[6], 21)
+
+    def test_filtered_model_rejects_unsupported_structure_and_ambiguous_reverse_co(self):
+        for raw in ('<html><BODY>upper</BODY></html>', '<html><body>bad\x00</body></html>',
+                    '<body>one</body><body>two</body>', '<body><![CDATA[text]]></body>',
+                    '<body><script>"<p>markup</p>"</script></body>',
+                    '<html><head><script>"<body>fake</body>"</script></head><body>real</body></html>'):
+            with self.assertRaises(CoordinateError):
+                FilteredSource(raw)
+        model = FilteredSource('<html><body><p>' + '>' * 20 + '</p><p>abcdefghijklmnop</p></body></html>')
+        with self.assertRaises(CoordinateError):
+            model.anchor_at(43)
+
+    def test_filtered_model_matches_nodes_that_raw_and_globally_stripped_models_cannot(self):
+        raw = '<html><body><p>prefix</p><a>Marker</a><p>suffix</p></body></html>'
+        rows = [dict(co=15, text='prefix'), dict(co=25, text='Marker'), dict(co=41, text='suffix')]
+        self.assertEqual(check_parser_rows(raw, rows, model=FilteredSource(raw)), 3)
+        with self.assertRaises(CoordinateError):
+            check_parser_rows(raw, rows)
+
+    def test_lua_crosscheck_requires_matching_streams_text_and_positions(self):
+        text = 'abcdefghijklmnopqrstuvwx'
+        raw = '<html><body><p>' + text + '</p></body></html>'
+        packet = dict(maps=[dict(segments=[[15, text]], flat=text, positions=[dict(co=15, end_co=39)])])
+        with patch('verify_source_coordinates.subprocess.run', return_value=SimpleNamespace(
+                returncode=0, stdout=json.dumps(packet))):
+            report = check_lua(['fake-probe'], [raw], [[dict(co=15, text=text)]])
+        self.assertTrue(report['lua_verified'])
+        self.assertEqual(report['lua_positions'], 1)
+        for key, value in (('flat', 'changed'), ('segments', [[14, text]]), ('positions', [dict(co=14, end_co=39)])):
+            bad = json.loads(json.dumps(packet))
+            bad['maps'][0][key] = value
+            with patch('verify_source_coordinates.subprocess.run', return_value=SimpleNamespace(
+                    returncode=0, stdout=json.dumps(bad))), self.assertRaises(CoordinateError):
+                check_lua(['fake-probe'], [raw], [[dict(co=15, text=text)]])
+        with patch('verify_source_coordinates.subprocess.run', return_value=SimpleNamespace(
+                returncode=0, stdout='private-process-failure')), self.assertRaises(CoordinateError) as error:
+            check_lua(['fake-probe'], [raw], [[dict(co=15, text=text)]])
+        self.assertNotIn('private-process-failure', str(error.exception))
+
+    def test_lua_crosscheck_does_not_call_an_overlapping_quote_unique(self):
+        text = 'x' * 40
+        raw = '<html><body><p>' + text + '</p></body></html>'
+        packet = dict(maps=[dict(segments=[[15, text]], flat=text, positions=[])])
+        with patch('verify_source_coordinates.subprocess.run', return_value=SimpleNamespace(
+                returncode=0, stdout=json.dumps(packet))) as run:
+            report = check_lua(['fake-probe'], [raw], [[dict(co=15, text=text)]])
+        self.assertEqual(report['lua_positions'], 0)
+        self.assertEqual(json.loads(run.call_args.kwargs['input'])['sources'][0]['queries'], [])
 
 
 if __name__ == '__main__':

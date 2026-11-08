@@ -19,6 +19,7 @@ from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
+import subprocess
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -48,6 +49,15 @@ FIXTURES = (
 )
 FILTER_CASES = tuple((tag, '<html><body><p>prefix</p><' + tag + '>Marker</' + tag + '><p>suffix</p></body></html>')
                      for tag in sorted(SANITIZER_TAGS | {'script', 'style', 'unknown'}))
+FILTERED_FIXTURES = (
+    '<html><body><p>before<a href="https://example.invalid/">linked</a>after<strong>retained</strong>end</p></body></html>',
+    '<html><body><p>before<a>outer<q>inner</q>outer-end</a>after</p><p>reset</p></body></html>',
+    '<html><body><p>before<!--kept comment-->after<a/>tail</p></body></html>',
+    '<html><body><p>left > right &amp; middle <3 tail</p><p>reset</p></body></html>',
+    '<html><body><p>' + '>' * 20 + '</p><p>abcdefghijklmnop</p></body></html>',
+    '\ufeff<html><body><p>abcdefghijklm<a>甲😀乙&amp;丙0123456789</a>tail</p></body></html>',
+    '<html><body><p>before<script/>after <3 &amp; more<style/>tail</p></body></html>',
+)
 
 
 class CoordinateError(Exception):
@@ -82,6 +92,8 @@ class SourceText(HTMLParser):
     def __init__(self, raw):
         super().__init__(convert_charrefs=False)
         self.raw, self.offsets = boundaries(raw)
+        if '<body' not in self.raw or any(ord(char) < 32 and char not in '\t\r\n' for char in self.raw):
+            raise CoordinateError("source: unsupported XHTML structure")
         self.line_starts = [0] + [m.end() for m in re.finditer("\n", self.raw)]
         self.body, self.suppressed = False, []
         self.saw_body = False
@@ -165,6 +177,131 @@ class SourceText(HTMLParser):
         if len(matches) != 1:
             raise CoordinateError("anchor: missing or ambiguous")
         return matches[0]
+
+
+class FilteredSource(HTMLParser):
+    """Coordinate runs between retained tags, before DOM glyph normalization.
+
+    The official filter removes ignored tags but retains their text. The text
+    parser counts through that filtered run from the original *retained* tag's
+    end; the next retained tag resets the source base. This is neither a raw
+    index nor the index in an entirely stripped/rebuilt document.
+    """
+    def __init__(self, raw):
+        super().__init__(convert_charrefs=False)
+        self.raw, self.offsets = boundaries(raw)
+        if (self.raw.count('<body') != 1 or self.raw.count('</body') != 1
+                or any(ord(char) < 32 and char not in '\t\r\n' for char in self.raw)):
+            raise CoordinateError("source: unsupported XHTML structure")
+        self.line_starts = [0] + [m.end() for m in re.finditer("\n", self.raw)]
+        self.body, self.saw_body, self.raw_text_tag = False, False, None
+        self.base, self.pieces, self.segments = 0, [], []
+        self.characters, self.starts, self.ends = [], [], []
+        self.feed(self.raw)
+        self.close()
+        if not self.saw_body or self.body:
+            raise CoordinateError("source: complete body required")
+        self.flush_run()
+        # Reuse the conservative local text matcher, retaining coordinates in
+        # the filtered run. This does not enable any progress upload.
+        for base, text in self.segments:
+            visible = SourceText('<html><body>' + text + '</body></html>')
+            self.characters.extend(visible.characters)
+            self.starts.extend(base + co - 12 for co in visible.starts)
+            self.ends.extend(base + co - 12 for co in visible.ends)
+
+    def position(self):
+        line, column = self.getpos()
+        return self.line_starts[line - 1] + column
+
+    def flush_run(self):
+        if self.pieces:
+            self.segments.append((self.base, ''.join(self.pieces)))
+            self.pieces = []
+
+    def retained(self, end):
+        self.flush_run()
+        self.base = self.offsets[end]
+
+    def handle_starttag(self, tag, _attrs):
+        if tag == 'body':
+            if self.saw_body:
+                raise CoordinateError("source: multiple bodies")
+            self.saw_body, self.body = True, True
+        if self.body and tag in BODY_TAGS:
+            self.retained(self.position() + len(self.get_starttag_text()))
+        if self.body and tag in ('script', 'style') and not self.get_starttag_text().rstrip().endswith('/>'):
+            self.raw_text_tag = tag
+
+    def handle_startendtag(self, tag, attrs):
+        if tag == 'body':
+            raise CoordinateError("source: complete body required")
+        self.handle_starttag(tag, attrs)
+
+    def handle_endtag(self, tag):
+        if self.body and tag in BODY_TAGS:
+            end = self.raw.find('>', self.position())
+            if end < 0:
+                raise CoordinateError("source: incomplete closing tag")
+            self.retained(end + 1)
+        if tag == 'body':
+            self.body = False
+        if tag == self.raw_text_tag:
+            self.raw_text_tag = None
+
+    def handle_data(self, text):
+        if self.body:
+            if self.raw_text_tag and '<' in text:
+                raise CoordinateError("source: unsupported raw-text markup")
+            # XSS's escapeHtml only replaces angle brackets. Existing entities
+            # stay encoded and still consume their complete source width.
+            self.pieces.append(text.replace('<', '&lt;').replace('>', '&gt;'))
+
+    def entity(self, encoded):
+        if self.body:
+            start = self.position()
+            if self.raw[start:start + len(encoded)] != encoded:
+                raise CoordinateError("source: unterminated entity")
+            self.pieces.append(encoded)
+
+    def handle_entityref(self, name):
+        self.entity('&' + name + ';')
+
+    def handle_charref(self, name):
+        self.entity('&#' + name + ';')
+
+    def handle_comment(self, _text):
+        # The text run reaching the official span parser excludes comments;
+        # their width does not count until the next retained-tag reset.
+        pass
+
+    def unknown_decl(self, _data):
+        if self.body:
+            raise CoordinateError("source: unsupported body declaration")
+
+    def handle_decl(self, _data):
+        if self.body:
+            raise CoordinateError("source: unsupported body declaration")
+
+    def handle_pi(self, _data):
+        if self.body:
+            raise CoordinateError("source: unsupported body declaration")
+
+    locate = SourceText.locate
+
+    def anchor_at(self, co, size=36):
+        if type(co) is not int or co < 0:
+            raise CoordinateError("offset: invalid")
+        candidates = [i for i, start in enumerate(self.starts) if start == co]
+        if len(candidates) != 1:
+            raise CoordinateError("offset: missing or ambiguous visible boundary")
+        index = candidates[0]
+        text = ''.join(self.characters[index:index + size])
+        # Confirm the return anchor itself is unique. Repeated text cannot be
+        # silently assigned to the first occurrence during the reverse jump.
+        if self.locate(text)[0] != co:
+            raise CoordinateError("offset: reverse anchor mismatch")
+        return text
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -252,46 +389,88 @@ PARSE_SOURCES = """sources => {
 }"""
 
 
-def check_parser_rows(raw, rows, statistics=None):
+def check_parser_rows(raw, rows, statistics=None, model=None):
     raw, _offsets = boundaries(raw)
-    encoded = raw.encode("utf-16-le")
+    streams = [(0, raw.encode("utf-16-le"))] if model is None else [
+        (base, text.encode("utf-16-le")) for base, text in model.segments]
     if not isinstance(rows, list) or not rows:
         raise CoordinateError("parser: no source-coordinate text nodes")
     for row in rows:
         co, text = row.get("co"), row.get("text")
-        if type(co) is not int or co < 0 or co * 2 >= len(encoded) or not isinstance(text, str) or not text:
+        if type(co) is not int or co < 0 or not isinstance(text, str) or not text:
             raise CoordinateError("parser: invalid text node")
-        end = co * 2 + max(128, len(text.encode("utf-16-le", "surrogatepass")) * 40)
-        tail = encoded[co * 2:end].decode("utf-16-le", "surrogatepass")
-        # JS may split an astral scalar into two single-surrogate spans.
-        # Compare code units, preserving those halves, rather than replacing them.
-        expected = unescape(tail).encode("utf-16-le", "surrogatepass")
         actual = text.encode("utf-16-le", "surrogatepass")
-        if not expected.startswith(actual):
-            if text == "\n" and tail.startswith("\r"):
-                if statistics is not None:
-                    statistics["normalized_newline_nodes"] = statistics.get("normalized_newline_nodes", 0) + 1
+        matched = False
+        for base, encoded in streams:
+            position = (co - base) * 2
+            if position < 0 or position >= len(encoded):
                 continue
-            # Some numeric entities are emitted literally by the current Web
-            # parser, although CREngine decodes them. Their coordinates still
-            # address the original encoded source, including every entity byte.
-            if tail.encode("utf-16-le", "surrogatepass").startswith(actual):
-                if statistics is not None:
-                    statistics["literal_entity_nodes"] = statistics.get("literal_entity_nodes", 0) + 1
-                continue
-            # The current official parser splits astral scalars into separate
-            # spans. DOMParser replaces each isolated surrogate with U+FFFD.
-            # Verify its *coordinate*, record this limitation, and never treat
-            # the interior boundary as a safe local scalar position.
-            unit = int.from_bytes(encoded[co * 2:co * 2 + 2], "little")
-            if text != "\ufffd" or not 0xD800 <= unit <= 0xDFFF:
-                raise CoordinateError("parser: source coordinate mismatch")
-            if statistics is not None:
-                statistics["surrogate_replacement_nodes"] = statistics.get("surrogate_replacement_nodes", 0) + 1
+            end = position + max(128, len(actual) * 40)
+            tail = encoded[position:end].decode("utf-16-le", "surrogatepass")
+            expected = unescape(tail).encode("utf-16-le", "surrogatepass")
+            kind = None
+            if expected.startswith(actual):
+                matched = True
+            elif text == "\n" and tail.startswith("\r"):
+                kind, matched = "normalized_newline_nodes", True
+            elif tail.encode("utf-16-le", "surrogatepass").startswith(actual):
+                kind, matched = "literal_entity_nodes", True
+            elif text == "\ufffd" and 0xD800 <= int.from_bytes(encoded[position:position + 2], "little") <= 0xDFFF:
+                # The official parser splits astral scalars. DOMParser repairs
+                # each half; this validates its coordinate, not a safe local
+                # boundary. Local reverse lookup still refuses interior halves.
+                kind, matched = "surrogate_replacement_nodes", True
+            if matched:
+                if statistics is not None and kind:
+                    statistics[kind] = statistics.get(kind, 0) + 1
+                break
+        if not matched:
+            raise CoordinateError("parser: source coordinate mismatch")
     return len(rows)
 
 
-def verify_public(book_id, channel="chrome"):
+def check_lua(command, sources, rows):
+    payload, expected = [], []
+    for raw in sources:
+        model = FilteredSource(raw)
+        flat = ''.join(char for char in model.characters if not char.isspace())
+        queries, positions = [], []
+        for start in sorted({0, max(0, len(flat) // 2 - 12), max(0, len(flat) - 24)}):
+            quote = flat[start:start + 24]
+            first = flat.find(quote)
+            if len(quote) < 12 or flat.find(quote, first + 1) >= 0:
+                continue
+            queries.append(quote)
+            co, end_co = model.locate(quote)
+            positions.append(dict(co=co, end_co=end_co))
+        payload.append(dict(html=raw, queries=queries))
+        expected.append((model, flat, positions))
+    try:
+        result = subprocess.run(command, input=json.dumps(dict(sources=payload)), text=True,
+                                capture_output=True, timeout=60, check=False)
+        if result.returncode != 0 or len(result.stdout) > 16 * 1024 * 1024:
+            raise CoordinateError("lua: probe failed")
+        maps = json.loads(result.stdout)["maps"]
+    except CoordinateError:
+        raise
+    except Exception:
+        raise CoordinateError("lua: probe unavailable or malformed") from None
+    if not isinstance(maps, list) or len(maps) != len(expected):
+        raise CoordinateError("lua: map count mismatch")
+    points = nodes = 0
+    for raw, actual, reference, parsed_rows in zip(sources, maps, expected, rows, strict=True):
+        model, flat, positions = reference
+        if (not isinstance(actual, dict) or actual.get('segments') != [list(segment) for segment in model.segments]
+                or actual.get('flat') != flat or actual.get('positions') != positions):
+            raise CoordinateError("lua: model or local-position mismatch")
+        # Equal streams are also checked against the independently executed
+        # official parser; this is not only a Lua/Python implementation match.
+        nodes += check_parser_rows(raw, parsed_rows, model=model)
+        points += len(positions)
+    return dict(lua_verified=True, lua_cases=len(maps), lua_positions=points, lua_official_text_nodes=nodes)
+
+
+def verify_public(book_id, channel="chrome", lua_command=None):
     from playwright.sync_api import sync_playwright
     probe = PublicProbe()
     url, source = probe.fetch(book_id)
@@ -318,12 +497,13 @@ def verify_public(book_id, channel="chrome"):
                 .map(n => new URL(n.src)).filter(u => u.origin === 'https://cdn.weread.qq.com'
                     && /^\\/web\\/wrwebnjlogic\\/js\\/[a-zA-Z0-9.]+\\.js$/.test(u.pathname))
                 .map(u => u.origin + u.pathname)""")
-            sources = [source, *FIXTURES]
+            sources = [source, *FIXTURES, *FILTERED_FIXTURES]
             rows = page.evaluate(PARSE_SOURCES, sources + [raw for _tag, raw in FILTER_CASES])
             if len(rows) != len(sources) + len(FILTER_CASES):
                 raise CoordinateError("parser: sample count changed")
             counts, statistics, rejected = [], {}, 0
-            for index, (raw, result) in enumerate(zip(sources, rows[:len(sources)], strict=True)):
+            baseline_count = 1 + len(FIXTURES)
+            for index, (raw, result) in enumerate(zip(sources[:baseline_count], rows[:baseline_count], strict=True)):
                 try:
                     SourceText(raw)
                 except CoordinateError as exc:
@@ -339,6 +519,12 @@ def verify_public(book_id, channel="chrome"):
                     counts.append(check_parser_rows(raw, result, statistics))
                 except CoordinateError as exc:
                     raise CoordinateError("sample " + str(index) + ": " + str(exc)) from None
+            filtered_counts, filtered_statistics = [], {}
+            for index, (raw, result) in enumerate(zip(sources + [raw for _tag, raw in FILTER_CASES], rows, strict=True)):
+                try:
+                    filtered_counts.append(check_parser_rows(raw, result, filtered_statistics, FilteredSource(raw)))
+                except CoordinateError as exc:
+                    raise CoordinateError("filtered sample " + str(index) + ": " + str(exc)) from None
             counterexamples = []
             for (tag, raw), result in zip(FILTER_CASES, rows[len(sources):], strict=True):
                 models = (raw, re.sub(r'</?' + re.escape(tag) + r'\b[^>]*>', '', raw))
@@ -351,14 +537,18 @@ def verify_public(book_id, channel="chrome"):
                         matches.append(False)
                 if any(matches):
                     raise CoordinateError("parser: sanitizer counterexample behavior changed")
-                counterexamples.append(dict(tag=tag, raw_coordinates_match=False, stripped_tag_coordinates_match=False))
+                counterexamples.append(dict(tag=tag, raw_coordinates_match=False, stripped_tag_coordinates_match=False,
+                                            filtered_run_coordinates_match=True))
             if any(cookie["name"] in ("wr_skey", "wr_rt", "wr_vid") for cookie in context.cookies()):
                 raise CoordinateError("browser: unexpectedly authenticated")
-            return dict(result="PARTIAL", public_stages=probe.stages, source_bytes=len(source.encode()),
+            lua = check_lua(lua_command, sources + [raw for _tag, raw in FILTER_CASES], rows) if lua_command else dict(lua_verified=False)
+            return dict(result="PARTIAL", **lua, public_stages=probe.stages, source_bytes=len(source.encode()),
                         source_utf16_units=boundaries(source)[1][-1], public_text_nodes=counts[0],
                         source_sha256=hashlib.sha256(source.encode()).hexdigest(), reference_assets=assets,
                         browser_version=browser.version, supported_body_tags=sorted(BODY_TAGS),
-                        unresolved_sanitizer_tags=sorted(SANITIZER_TAGS),
+                        verified_filtered_tags=sorted(SANITIZER_TAGS), filtered_model_verified=True,
+                        filtered_case_count=len(filtered_counts), filtered_text_nodes=sum(filtered_counts),
+                        filtered_statistics=filtered_statistics,
                         sanitizer_counterexamples=counterexamples,
                         fixture_text_nodes=counts[1:], browser_authenticated=False,
                         surrogate_replacement_nodes=statistics.get("surrogate_replacement_nodes", 0),
@@ -378,20 +568,25 @@ def main():
     parser.add_argument("--book-id", help="one public ordinary book; needed with --public")
     parser.add_argument("--browser-channel", default="chrome", help="isolated browser channel, default system Chrome")
     parser.add_argument("--output", type=Path, help="new metadata-only report")
+    parser.add_argument("--lua-command", nargs=argparse.REMAINDER, help="optional memory-only Lua probe command; put it last")
     args = parser.parse_args()
     if args.output and args.output.exists():
         parser.error("output already exists")
     if args.public and not args.book_id:
         parser.error("public verification needs --book-id")
+    if args.lua_command is not None and (not args.public or not args.lua_command):
+        parser.error("Lua comparison needs --public and a non-empty probe command")
     report = dict(checked_at=datetime.now(timezone.utc).isoformat(), probe="web_source_coordinates")
     try:
         for raw in FIXTURES:
             _source, offsets = boundaries(raw)
             assert all(from_co(offsets, co) == i for i, co in enumerate(offsets))
-        report.update(offline_fixtures=len(FIXTURES), account_writes_attempted=0)
+        local_models = [FilteredSource(raw) for raw in (*FIXTURES, *FILTERED_FIXTURES, *(raw for _tag, raw in FILTER_CASES))]
+        report.update(offline_fixtures=len(FIXTURES), filtered_fixtures=len(FILTERED_FIXTURES),
+                      offline_filtered_models=len(local_models), account_writes_attempted=0)
         if args.public:
             try:
-                report.update(verify_public(args.book_id, args.browser_channel))
+                report.update(verify_public(args.book_id, args.browser_channel, args.lua_command))
             except CoordinateError:
                 raise
             except Exception:

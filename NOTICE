@@ -26,8 +26,10 @@ Source-coordinate protocol research:
 - scripts/verify_source_coordinates.py references MiuRead's wr_co.lua and
   source_position.lua (MiuRead contributors, AGPL-3.0-only). It compares a public
   preview and synthetic fixtures with the current official Web Reader parser.
-  Raw-XHTML UTF-16 coordinates are only partly validated: sanitizer-changing
-  tags remain unresolved. No new Lua progress-writing contract is enabled.
+  Sanitizer-dependent coordinate runs and UTF-16 units were verified against
+  the live parser before implementing weread/lib/source_coordinates.lua. The
+  pure local Lua core does not enable a new progress-writing contract; EPUB
+  binding, reader integration and real-account write/readback remain pending.
   Official Web JavaScript is loaded for verification, not redistributed.
 The home/shelf/store navigation is adapted to the original WeRead services.
 
