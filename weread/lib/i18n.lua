@@ -1,6 +1,7 @@
 local I18n = {}
 
 local zh = {
+    ["No published version is available for this project yet."] = "本项目尚未发布正式版本，请继续使用当前版本。",
     ["Home"] = "首页",
     ["WeRead home"] = "微信读书首页",
     ["Bookstore"] = "书城",

@@ -2,12 +2,27 @@
 -- luacheck: globals fastforward_ui_events
 require("setupkoenv")
 local home = assert(os.getenv("KO_HOME"))
-package.path = "spec/front/unit/?.lua;" .. package.path
-require("commonrequire")
-disable_plugins()
+G_defaults = require("luadefaults"):open()
+G_reader_settings = require("luasettings"):open(home .. "/settings.reader.lua")
 G_reader_settings:saveSetting("language", "zh_CN")
+G_reader_settings:saveSetting("color_rendering", false)
 G_reader_settings:saveSetting("extra_plugin_paths", { home .. "/plugins" })
-load_plugin("weread.koplugin")
+require("gettext").changeLang("zh_CN")
+local Device = require("device")
+require("document/canvascontext"):init(Device)
+-- Isolate the candidate using the native PluginLoader (no unit-test runtime).
+local PluginLoader = require("pluginloader")
+PluginLoader.enabled_plugins, PluginLoader.disabled_plugins, PluginLoader.loaded_plugins = {}, {}, {}
+for _, entry in ipairs(PluginLoader:_discover()) do
+    if entry.name == "weread" then PluginLoader:_load{ entry } end
+end
+assert(#PluginLoader.enabled_plugins == 1, "candidate discovery failed")
+local function fastforward_ui_events()
+    local manager = require("ui/uimanager")
+    manager:shiftScheduledTasksBy(-1e9)
+    manager:setInputTimeout(0)
+    manager:handleInput()
+end
 -- PluginLoader restores package.path after loading; later lazy requires in
 -- this standalone test need the same installed candidate directory.
 package.path = home .. "/plugins/weread.koplugin/?.lua;" .. package.path

@@ -65,16 +65,16 @@ local release, release_err = Updater.parse_release({
     draft = false,
     prerelease = false,
     body = "## What's Changed\n\n**Added** `updates`",
-    html_url = "https://github.com/finlater/weread.koplugin/releases/tag/v0.7.0",
+    html_url = "https://github.com/szxypi/weread.koplugin/releases/tag/v0.7.0",
     assets = {
         {
             name = "weread.koplugin-v0.7.0.zip",
-            browser_download_url = "https://github.com/finlater/weread.koplugin/releases/download/v0.7.0/weread.koplugin-v0.7.0.zip",
+            browser_download_url = "https://github.com/szxypi/weread.koplugin/releases/download/v0.7.0/weread.koplugin-v0.7.0.zip",
             size = 1234,
         },
         {
             name = "weread.koplugin-v0.7.0.zip.sha256",
-            browser_download_url = "https://github.com/finlater/weread.koplugin/releases/download/v0.7.0/weread.koplugin-v0.7.0.zip.sha256",
+            browser_download_url = "https://github.com/szxypi/weread.koplugin/releases/download/v0.7.0/weread.koplugin-v0.7.0.zip.sha256",
         },
     },
 })
@@ -248,4 +248,31 @@ local meta_version = meta:match('version%s*=%s*"([^"]+)"')
 local main_version = main:match('version%s*=%s*"([^"]+)"')
 expect(meta_version == main_version, "main.lua and _meta.lua versions must match")
 
+expect(Updater.API_URL == "https://api.github.com/repos/szxypi/weread.koplugin/releases/latest",
+    "updater still targets upstream")
+local foreign_release = {
+    version = "99.0.0",
+    archive_url = "https://github.com/finlater/weread.koplugin/releases/download/v99.0.0/weread.koplugin-v99.0.0.zip",
+    checksum_url = "https://github.com/finlater/weread.koplugin/releases/download/v99.0.0/weread.koplugin-v99.0.0.zip.sha256",
+}
+update_state.available_version, update_state.archive_url, update_state.checksum_url =
+    foreign_release.version, foreign_release.archive_url, foreign_release.checksum_url
+local migrated = Updater:new{ settings = updater.settings, current_version = "1.7.0", plugin_dir = updater.plugin_dir }
+expect(not migrated:has_update() and update_state.archive_url == "" and update_state.last_check == 0,
+    "upstream update cache survived migration")
+local installed, install_error = migrated:install_release(foreign_release)
+expect(not installed and install_error == "release does not belong to this project",
+    "foreign package reached installation")
+expect(migrated:cached_release() == nil, "foreign cache was exposed")
+expect(Updater.valid_assets(release), "own project assets rejected")
+local bad_tag = { version = "0.8.0", archive_url = release.archive_url, checksum_url = release.checksum_url }
+expect(not Updater.valid_assets(bad_tag), "asset version mismatch accepted")
+local calls = 0
+migrated._http_get = function() calls = calls + 1 return nil, "HTTP 404" end
+local empty, empty_error = migrated:fetch_release()
+expect(empty == nil and empty_error == "no_published_release" and calls == 1,
+    "empty release channel should stop after authoritative 404")
+migrated._http_get = function() return nil, "HTTP 503" end
+local failed, failure = migrated:fetch_release()
+expect(not failed and failure == "HTTP 503", "service failure misreported as empty channel")
 print(("updater_spec: %d checks"):format(checks))

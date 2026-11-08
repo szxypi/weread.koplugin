@@ -731,7 +731,7 @@ function LibraryView:portalHeader()
             text = item.key == "title" and self.title or nil, icon = icons[item.key],
             width = item.width, height = size, text_font_size = 24, text_font_bold = true,
             avoid_text_truncation = false,
-            enabled = item.callback ~= nil, radius = 0, margin = 0, padding = 0, bordersize = 0,
+            enabled = item.key == "title" or item.callback ~= nil, radius = 0, margin = 0, padding = 0, bordersize = 0,
             show_parent = self, callback = after_tap(item.callback or function() end),
         }
         if item.key == "refresh" then

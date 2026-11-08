@@ -5,7 +5,7 @@ require("setupkoenv")
 local home = assert(os.getenv("KO_HOME"))
 local root = assert(home:match("^(.*)/profile$"), "use an isolated test profile")
 local interactive = os.getenv("WEREAD_UPDATER_INTERACTIVE") == "1"
-if interactive then
+if interactive or os.getenv("WEREAD_UPDATER_RUNTIME") == "1" then
     G_defaults = require("luadefaults"):open()
     G_reader_settings = require("luasettings"):open(home .. "/settings.reader.lua")
 else
@@ -138,8 +138,8 @@ assert(not top(), "native back/close left a viewer open")
 local original_tag = metadata.tag_name
 metadata.tag_name = "v9999.9.2"
 metadata.assets = {
-    { name = "weread.koplugin-v9999.9.2.zip", browser_download_url = Updater.RELEASE_PREFIX .. "v9999.9.2/test.zip" },
-    { name = "weread.koplugin-v9999.9.2.zip.sha256", browser_download_url = Updater.RELEASE_PREFIX .. "v9999.9.2/test.sha256" },
+    { name = "weread.koplugin-v9999.9.2.zip", browser_download_url = Updater.RELEASE_PREFIX .. "v9999.9.2/weread.koplugin-v9999.9.2.zip" },
+    { name = "weread.koplugin-v9999.9.2.zip.sha256", browser_download_url = Updater.RELEASE_PREFIX .. "v9999.9.2/weread.koplugin-v9999.9.2.zip.sha256" },
 }
 check(false)
 assert(top() and top().title:find("9999.9.2", 1, true), "newer release did not notify")

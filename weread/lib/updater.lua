@@ -13,8 +13,8 @@ Updater.AUTO_CHECK_INTERVAL = 60 * 60
 Updater.REMINDER_INTERVAL = 24 * 60 * 60
 Updater.MAX_NOTES_BYTES = 64 * 1024
 Updater.MAX_PACKAGE_BYTES = 10 * 1024 * 1024
-Updater.API_URL = "https://api.github.com/repos/finlater/weread.koplugin/releases/latest"
-Updater.RELEASE_PREFIX = "https://github.com/finlater/weread.koplugin/releases/download/"
+Updater.API_URL = "https://api.github.com/repos/szxypi/weread.koplugin/releases/latest"
+Updater.RELEASE_PREFIX = "https://github.com/szxypi/weread.koplugin/releases/download/"
 Updater.GITHUB_MIRRORS = {
     "https://gh-proxy.com/",
     "https://ghfast.top/",
@@ -183,7 +183,8 @@ function Updater.parse_release(data)
         return type(url) == "string"
             and url:sub(1, #Updater.RELEASE_PREFIX) == Updater.RELEASE_PREFIX
     end
-    if not valid_url(archive_url) or not valid_url(checksum_url) then
+    if not valid_url(archive_url) or not valid_url(checksum_url)
+        or not Updater.valid_assets{ version = version, archive_url = archive_url, checksum_url = checksum_url } then
         return nil, "release package or checksum is missing"
     end
     if archive_size and archive_size > Updater.MAX_PACKAGE_BYTES then
@@ -199,6 +200,12 @@ function Updater.parse_release(data)
     }
 end
 
+function Updater.valid_assets(release)
+    if type(release) ~= "table" or not Updater.compare_versions(release.version, release.version) then return false end
+    local base = Updater.RELEASE_PREFIX .. "v" .. release.version .. "/weread.koplugin-v" .. release.version .. ".zip"
+    return release.archive_url == base and release.checksum_url == base .. ".sha256"
+end
+
 function Updater:new(options)
     options = options or {}
     local obj = {
@@ -207,7 +214,15 @@ function Updater:new(options)
         plugin_dir = options.plugin_dir or plugin_dir_from_source(),
     }
     assert(obj.plugin_dir and obj.plugin_dir ~= "", "plugin directory unavailable")
-    return setmetatable(obj, self)
+    setmetatable(obj, self)
+    local state = obj:_state()
+    if state.archive_url and state.archive_url ~= "" and not Updater.valid_assets{
+        version = state.available_version, archive_url = state.archive_url, checksum_url = state.checksum_url,
+    } then
+        obj:clear_available_update()
+        obj:_save_state{ last_check = 0, skipped_version = "", snoozed_version = "", snooze_until = 0 }
+    end
+    return obj
 end
 
 function Updater:_state()
@@ -314,6 +329,9 @@ function Updater:_http_get_with_mirrors(url, destination, on_download, total_hin
             return ok
         end
         if err == "download exceeds size limit" then return nil, err end
+        if candidate == url and url == Updater.API_URL and err == "HTTP 404" then
+            return nil, "no_published_release"
+        end
         last_error = err
         logger.warn("update resource source failed:", "source=", tostring(index),
             "proxy=", tostring(candidate ~= url), "error=", tostring(err))
@@ -353,6 +371,9 @@ end
 
 function Updater:cached_release()
     local state = self:_state()
+    if not Updater.valid_assets{
+        version = state.available_version, archive_url = state.archive_url, checksum_url = state.checksum_url,
+    } then return nil end
     if not self:has_update() then return nil end
     return {
         version = state.available_version,
@@ -383,6 +404,7 @@ function Updater:cleanup_backup()
 end
 
 function Updater:install_release(release, on_progress)
+    if not Updater.valid_assets(release) then return nil, "release does not belong to this project" end
     local function report(stage, percent, current, total)
         if on_progress then
             on_progress{
