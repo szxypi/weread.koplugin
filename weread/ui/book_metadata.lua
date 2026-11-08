@@ -23,7 +23,7 @@ function M.refresh(host, book, old_view, options)
     if old_view and host._book_detail_view ~= old_view then return false end
     M.cancel(host)
     local id = Access.book_id(book.book_id or book.bookId)
-    local access = Access.capture(host.settings)
+    local access = Metadata.capture(host.settings)
     if not id then return false end
     if not host:isNetworkOnline() then
         if options.automatic then host:showBookMenu(book) else host:showOffline(_("Book info")) end
@@ -42,7 +42,7 @@ function M.refresh(host, book, old_view, options)
         return host.book_metadata_context == context and (host.discovery_epoch or 0) == context.epoch
             and (not host.library_db or host.library_db:accountKey() == context.account)
             and (not old_view or host._book_detail_view == old_view)
-            and Access.matches(host.settings, access)
+            and Metadata.matches(host.settings, access)
     end
     local function finish()
         host.book_metadata_context = nil
@@ -69,7 +69,7 @@ function M.refresh(host, book, old_view, options)
             end
             finish()
             local valid, metadata = pcall(Metadata.normalize, type(result) == "table" and result.metadata, id)
-            if not valid or (result.source ~= "gateway" and result.source ~= "web") then failed(); return end
+            if not valid or (result.source ~= "gateway" and result.source ~= "web" and result.source ~= "native") then failed(); return end
             -- Re-read after the network task: reading and downloads may have
             -- changed local state while the metadata request was outstanding.
             local committed, latest = pcall(function()

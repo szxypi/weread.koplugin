@@ -137,6 +137,15 @@ class MockTests(unittest.TestCase):
         for query in ('count=21&maxIdx=0','count=20&maxIdx=-1','count=20&maxIdx=0&extra=1'):
             with self.assertRaises(ValueError):self.server.route('GET',base+'/book/recommend?'+query,{})
 
+    def test_native_metadata_has_distinct_version_and_word_field(self):
+        base='https://i.weread.qq.com/book/info?'
+        _,value=self.server.route('GET',base+'bookId='+BOOK_ID,{})
+        self.assertEqual(value['totalWords'],12000)
+        self.assertEqual(value['version'],700)
+        self.assertNotIn('bookVersion',value);self.assertNotIn('wordCount',value)
+        for query in ('bookId='+BOOK_ID+'&other=1','bookId='+BOOK_ID+'&bookId='+BOOK_ID,'bookId=not-a-book'):
+            with self.assertRaises(ValueError):self.server.route('GET',base+query,{})
+
     def test_annotations_and_progress_write_read(self):
         _, result = self.gateway("/book/underlines", bookId=BOOK_ID, chapterUid=2)
         mark = result["underlines"][0]

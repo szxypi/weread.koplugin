@@ -200,6 +200,14 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
+            if path == "/book/info" and method == "GET":
+                if set(query) != {"bookId"} or len(query["bookId"]) != 1 or not any(b["bookId"] == book_id for b in BOOKS):
+                    raise ValueError("invalid native metadata query")
+                source = book_metadata(next(b for b in BOOKS if b["bookId"] == book_id))
+                source["totalWords"] = source.pop("wordCount")
+                source.pop("bookVersion", None)
+                source.update(version=700,progress=99,chapterOffset=321,finishReading=1)
+                return 200, source
             if path in {"/store/search", "/book/recommend", "/book/detailinfo"} and method == "GET":
                 required = {"maxIdx", "count"}
                 if path == "/store/search":required |= {"keyword", "scope"}

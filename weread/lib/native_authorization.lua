@@ -179,6 +179,18 @@ function Auth:read_discovery(credentials, kind, options)
     return self:_request("discovery_" .. kind, BASE .. path .. "?" .. table.concat(query, "&"), nil, credentials)
 end
 
+-- Native metadata verified by verify_native_metadata.py before Lua integration.
+function Auth:read_book_metadata(credentials, book_id)
+    if type(credentials) ~= "table" or not vid(credentials.vid) or not text(credentials.accessToken, 8192) then
+        fail("metadata", "invalid_credentials")
+    end
+    if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("metadata", "account_mismatch") end
+    if type(book_id) ~= "string" and type(book_id) ~= "number" then fail("metadata", "invalid_book") end
+    book_id = tostring(book_id)
+    if #book_id > 20 or not book_id:match("^[1-9]%d*$") then fail("metadata", "invalid_book") end
+    return self:_request("metadata", BASE .. "/book/info?bookId=" .. Protocol.urlencode(book_id), nil, credentials)
+end
+
 function Auth:verify()
     self:_current("verify")
     local credentials = self.pending_credentials
