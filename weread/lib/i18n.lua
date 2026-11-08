@@ -1,6 +1,9 @@
 local I18n = {}
 
 local zh = {
+    ["Could not load this book’s chapter list. Check your connection and login, then try again."] = "无法加载本书目录，请检查网络和登录状态后重试。",
+    ["Could not load this book’s reading page. Check your connection and login, then try again."] = "无法加载本书阅读页，请检查网络和登录状态后重试。",
+    ["The reading page could not be verified for this book. Refresh the book details and try again."] = "阅读页未通过本书核对，请刷新书籍资料后重试。",
     ["Export local notes"] = "导出本机笔记",
     ["This book has no local text highlights or attached notes to export."] = "本书没有可导出的本机文字划线或附注。",
     ["Could not prepare local notes export."] = "无法准备本机笔记导出。",

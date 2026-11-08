@@ -529,6 +529,7 @@ function Client:get_text(url, opts)
     if code and code >= 200 and code < 300 then
         return text, code, resp_headers
     end
+    if opts.sensitive then error("sensitive_http_unavailable", 0) end
     error(http_error(self, code, text, resp_headers))
 end
 

@@ -2,6 +2,7 @@ local Crypto = require("weread.lib.crypto")
 local FileIdentity = require("weread.lib.book_file_identity")
 local PositionSource = require("weread.lib.position_source")
 local ReaderState = require("weread.lib.reader_state")
+local ReaderContext = require("weread.lib.reader_context")
 local WeRead = require("weread.lib.protocol")
 local logger = require("weread.lib.logger")
 
@@ -1592,49 +1593,53 @@ function Content.download_remote_images_to_files(client, xhtml, used_names, work
     return body, assets
 end
 
+local function reader_context_error(loading)
+    local tr = require("weread.lib.i18n").tr
+    error(tr(loading and "Could not load this book’s reading page. Check your connection and login, then try again."
+        or "The reading page could not be verified for this book. Refresh the book details and try again."), 0)
+end
+
+local function verified_reader_url(book, chapter_uid)
+    local valid, url = pcall(ReaderContext.url, book, chapter_uid)
+    if not valid then reader_context_error() end
+    return url
+end
+
 function Content.ensure_reader_state(client, book)
-    local book_id = book.book_id or book.bookId
-    local reader_url = book.reader_url or WeRead.reader_url(book_id)
-    local reader_html = client:get_text(reader_url, { referer = reader_url })
-    local state = Content.extract_reader_state(reader_html, function(encoded)
+    local reader_url = verified_reader_url(book)
+    -- A rejected response cannot leave a previously usable download session.
+    book.psvts, book.pclts, book.token = nil, nil, nil
+    local loaded, reader_html = pcall(client.get_text, client, reader_url, { referer = reader_url,
+        sensitive = true, diagnostic_api = "reader_context" })
+    if not loaded then reader_context_error(true) end
+    local valid, state = pcall(ReaderContext.project, book, reader_html, function(encoded)
         return client:json_decode(encoded)
     end)
-    book.book_id = book.book_id or state.book_id or book.bookId
+    if not valid then reader_context_error() end
+    book.book_id = state.book_id
     book.title = book.title or state.title
     book.author = book.author or state.author
-    -- These values belong to one Web Reader session. Never retain a cached
-    -- value when the freshly opened reader omits it (notably pclts).
-    book.psvts = state.psvts
-    book.pclts = state.pclts
-    book.token = state.token
+    book.psvts, book.pclts, book.token = state.psvts, state.pclts, state.token
     book.reader_url = reader_url
-
     ReaderState.apply_to_book(book, state)
-
-    if not book.psvts then
-        error("reader.psvts not found")
-    end
     return state
 end
 
---- Refresh psvts before downloading a chapter (matches per-chapter reader page fetch).
+--- Refresh the same-book context before each chapter download.
 function Content.refresh_reader_state(client, book, chapter)
-    book.psvts = nil
-    local book_id = book.book_id or book.bookId
-    if chapter and chapter.chapterUid then
-        book.reader_url = WeRead.reader_url(book_id, chapter.chapterUid)
-    else
-        book.reader_url = book.reader_url or WeRead.reader_url(book_id)
-    end
-    Content.ensure_reader_state(client, book)
+    book.reader_url = verified_reader_url(book, chapter and chapter.chapterUid)
+    return Content.ensure_reader_state(client, book)
 end
 
 function Content.fetch_catalog(client, book)
     local book_id = book.book_id or book.bookId
-    local reader_url = book.reader_url or WeRead.reader_url(book_id)
-    local catalog = client:post_json("https://weread.qq.com/web/book/chapterInfos", {
+    local reader_url = verified_reader_url(book)
+    local loaded, catalog = pcall(client.post_json, client, "https://weread.qq.com/web/book/chapterInfos", {
         bookIds = { tostring(book_id) },
-    }, { referer = reader_url })
+    }, { referer = reader_url, sensitive = true, diagnostic_api = "chapter_catalog" })
+    if not loaded then
+        error(require("weread.lib.i18n").tr("Could not load this book’s chapter list. Check your connection and login, then try again."), 0)
+    end
     local chapters = Content.readable_chapters(Content.normalize_chapters(catalog, book_id))
     book.chapters = chapters
     return chapters

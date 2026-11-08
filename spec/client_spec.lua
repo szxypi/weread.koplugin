@@ -575,4 +575,13 @@ ok,err=pcall(client.renew_cookie,client)
 expect(not ok and err=='sensitive_json_invalid','Web renewal JSON error exposed input')
 expect(not table.concat(logs,'\n'):find('private-',1,true),'Web renewal diagnostics exposed fields')
 
+logs={}
+for _,reader_code in ipairs({302,403}) do
+    responses[#responses+1]={code=reader_code,body='private-reader-body',headers={['set-cookie']='private-reader-cookie'}}
+    ok,err=pcall(client.get_text,client,'https://weread.qq.com/web/reader/synthetic',
+        {sensitive=true,diagnostic_api='reader_context'})
+    expect(not ok and err=='sensitive_http_unavailable','sensitive Reader HTTP error exposed body')
+end
+expect(not table.concat(logs,'\n'):find('private-',1,true),'Reader diagnostics exposed private body')
+
 print(("client_spec: %d checks"):format(checks))
