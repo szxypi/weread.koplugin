@@ -121,6 +121,9 @@ end
 package.preload["weread.ui.native_authorization"] = function()
     return { new = function() return { kind = "native_authorization" } end }
 end
+package.preload["weread.lib.native_renewal"] = function()
+    return { new = function() return { kind = "native_renewal" } end }
+end
 package.preload["weread.lib.read_report"] = function()
     return {
         new = function(_self, options)

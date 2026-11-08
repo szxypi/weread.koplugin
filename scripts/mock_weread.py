@@ -187,14 +187,21 @@ class MockServer(ThreadingHTTPServer):
             if path == "/login" and method == "POST":
                 device, install = str(data.get("deviceId", "")), str(data.get("installId", ""))
                 timestamp, random = data.get("timestamp"), data.get("random")
-                if (data.get("code") != "mock-native-code" or len(device) != 32 or not device.startswith("eink334691225")
-                        or not device[13:].isdigit() or len(install) != 32 or not install.startswith("eink31")
-                        or not install[6:].isdigit() or type(timestamp) not in (int, float) or not 1 <= timestamp <= 4102444800000
+                if (len(device) != 32 or not device.startswith("eink334691225") or not device[13:].isdigit()
+                        or type(timestamp) not in (int, float) or not 1 <= timestamp <= 4102444800000
                         or timestamp != int(timestamp) or type(random) is not int or not 1 <= random <= 999):
                     raise ValueError("invalid native login fields")
                 expected = hashlib.sha256(f"{int(timestamp)}{device}{random}".encode()).hexdigest()
                 if data.get("signature") != expected:
                     raise ValueError("invalid native login signature")
+                if "refreshToken" in data:
+                    if (data["refreshToken"] != "mock-native-refresh" or "code" in data or "installId" in data
+                            or data.get("inBackground") != 0 or data.get("kickType") != 1 or data.get("refCgi") != ""):
+                        raise ValueError("invalid native renewal fields")
+                    return 200, dict(vid=900000, accessToken="mock-native-access")
+                if (data.get("code") != "mock-native-code" or len(install) != 32 or not install.startswith("eink31")
+                        or not install[6:].isdigit()):
+                    raise ValueError("invalid native QR fields")
                 return 200, dict(vid=900000, accessToken="mock-native-access", refreshToken="mock-native-refresh")
             if path == "/shelf/sync" and method == "GET":
                 books = [{key: value for key, value in dict(book, version=700).items() if key != "bookVersion"}
@@ -355,8 +362,11 @@ class Handler(BaseHTTPRequestHandler):
             parsed = urlsplit(target)
         except ValueError:
             parsed = urlsplit("")
+        api = data.get("api_name")
+        if parsed.path == "/login":
+            api = "native_renewal" if "refreshToken" in data else "native_qr"
         self.server.record(dict(method=self.command, host=parsed.hostname, path=parsed.path,
-                                api=data.get("api_name"), book=data.get("bookId"), chapter=data.get("chapterUid"),
+                                api=api, book=data.get("bookId"), chapter=data.get("chapterUid"),
                                 encoded_chapter=data.get("c"), status=status))
         if isinstance(result, bytes):
             content_type, body = "image/png", result

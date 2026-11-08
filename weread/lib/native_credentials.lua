@@ -22,8 +22,20 @@ local function same(a, b)
     return true
 end
 
-function Store:new(settings)
-    return setmetatable({ settings = settings, path = settings.data_dir .. "/native-authorization.lua" }, self)
+local function sync_file(path)
+    local util = require("ffi/util")
+    local file = io.open(path, "rb")
+    if not file then return false end
+    local ok, synced = pcall(util.fsyncOpenedFile, file, true)
+    file:close()
+    if not ok or synced ~= true then return false end
+    return util.fsyncDirectory(path) == true
+end
+
+function Store:new(settings, dependencies)
+    dependencies = dependencies or {}
+    return setmetatable({ settings = settings, path = settings.data_dir .. "/native-authorization.lua",
+        sync = dependencies.sync or sync_file }, self)
 end
 
 function Store:_read()
@@ -44,6 +56,7 @@ function Store:_read()
         or data.revision < 0 or data.revision % 1 ~= 0 or data.revision > 9007199254740990 then return nil, "unavailable" end
     if data.authorization ~= nil and (not valid_credentials(data.authorization)
         or type(data.authorization.epoch) ~= "number") then return nil, "unavailable" end
+    if data.renewal_pending ~= nil and type(data.renewal_pending) ~= "boolean" then return nil, "unavailable" end
     return data
 end
 
@@ -52,29 +65,48 @@ function Store:read()
     if not data then return nil, nil, err end
     local value = data.authorization
     if value and self.settings:auth_scope_matches({ vid = value.vid, epoch = value.epoch }) then
-        return value, data.revision
+        return value, data.revision, nil, data.renewal_pending == true
     end
     return nil, data.revision
 end
 
-function Store:_write(value, scope, revision)
+function Store:_write(value, scope, revision, renewal_pending)
     if not self.settings:auth_scope_matches(scope) then return false, "account_changed" end
     local previous = self:_read()
     if not previous then return false, "unavailable" end
     if previous.revision ~= revision then return false, "replaced" end
-    local record = { revision = revision + 1, authorization = value }
+    local record = { revision = revision + 1, authorization = value, renewal_pending = renewal_pending }
     local ok = pcall(function()
         local output = LuaSettings:open(self.path)
         output.data = record
         output:flush()
     end)
+    -- LuaSettings ignores fsync's boolean result. Explicitly check both file
+    -- and directory synchronization before claiming a durable pending marker.
+    local sync_ok, synced = pcall(self.sync, self.path)
     local actual = self:_read()
     -- Flush does not report all write failures; only claim success after a
     -- fresh primary-file read and a second account/session check.
-    if not ok or not actual or actual.revision ~= record.revision or not same(actual.authorization, value)
+    if not ok or not sync_ok or synced ~= true or not actual or actual.revision ~= record.revision or not same(actual.authorization, value)
+        or actual.renewal_pending ~= renewal_pending
         or not self.settings:auth_scope_matches(scope) then return false, "save_failed" end
     os.remove(self.path .. ".old")
     return true, record.revision
+end
+
+function Store:begin_renewal(scope, revision)
+    local credentials, current, err, pending = self:read()
+    if err or not credentials then return false, "unavailable" end
+    if current ~= revision then return false, "replaced" end
+    if pending then return false, "renewal_unconfirmed" end
+    return self:_write(credentials, scope, revision, true)
+end
+
+function Store:release_renewal(scope, revision)
+    local credentials, current, err, pending = self:read()
+    if err or not credentials or not pending then return false, "unavailable" end
+    if current ~= revision then return false, "replaced" end
+    return self:_write(credentials, scope, revision)
 end
 
 function Store:save(credentials, scope, revision, count)

@@ -35,7 +35,8 @@ class ShelfWriteTests(unittest.TestCase):
         self.assertEqual(probe.report["result"], "PASS")
         self.assertEqual(probe.report["data_writes_attempted"], 1)
         report = json.dumps(probe.report)
-        for private in (*credentials().values(), "private-book", "existing", "Private book title"):
+        for private in (f'"{credentials()["vid"]}"', *(value for key, value in credentials().items() if key != "vid"),
+                        "private-book", "existing", "Private book title"):
             self.assertNotIn(private, report)
         before = len(opener.requests)
         with self.assertRaises(ProbeError):

@@ -135,6 +135,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    if self.native_renewal then self.native_renewal:cancel() end
     if self.native_authorization then self.native_authorization:cancel() end
     if self.offline_time then self.offline_time:stop("account_unavailable") end
     if self.read_report then self.read_report:stop("account_changed") end
@@ -191,6 +192,7 @@ function M:cancelShelfRefresh()
     context.cancelled = true
     self.shelf_refresh_context, self.shelf_refreshing = nil, nil
     if self.shelf_refresh_worker then self.shelf_refresh_worker:cancel() end
+    if context.renewal_job and self.native_renewal then self.native_renewal:cancel(context.renewal_job) end
     if context.old_view then pcall(context.old_view.setRefreshing, context.old_view, false) end
     if self.busy_message == context.busy then self:closeBusy() end
 end
@@ -204,6 +206,9 @@ function M:refreshBookshelf(old_view, view_options)
     local account_key = self.library_db and self.library_db.accountKey and self.library_db:accountKey()
     local scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
     local source = require("weread.lib.shelf_source").mode(self.settings)
+    if self.native_renewal then
+        context.native_revision = require("weread.lib.shelf_source").selection(self.settings).revision
+    end
     local function still_current()
         return not context.cancelled and (self.discovery_epoch or 0) == refresh_epoch
             and (not account_key or self.library_db:accountKey() == account_key)
@@ -222,7 +227,21 @@ function M:refreshBookshelf(old_view, view_options)
     end
     self:showBusy(_("Loading bookshelf..."), function() self:cancelShelfRefresh() end)
     context.busy = self.busy_message
+    local launch
     local function complete(ok, result)
+        if not still_current() then done() return end
+        if not ok and result == "shelf_source/native_expired" and self.native_renewal and not context.recovery_attempted then
+            context.recovery_attempted = true
+            local function renewed(success)
+                if self.shelf_refresh_context ~= context or not still_current() then done() return end
+                if success then launch(false, false)
+                elseif source == "auto" then launch(false, true)
+                else complete(false, "shelf_source/native_unavailable") end
+            end
+            local renewing, job = self.native_renewal:start({ expected_revision = context.native_revision }, renewed)
+            if renewing then context.renewal_job = job else renewed(false) end
+            return
+        end
         done()
         if not still_current() then return end
         if ok and type(result) == "table" and result._native_revision ~= nil then
@@ -287,17 +306,23 @@ function M:refreshBookshelf(old_view, view_options)
                 scheduler = UIManager, codec = self.client, max_bytes = 8 * 1024 * 1024,
             }
         end
-        started = self.shelf_refresh_worker:start(function()
-            if not still_current() then return { ok = false, error = "shelf_source/session_changed" } end
-            local ok, value = pcall(self.client.get_shelf, self.client, { is_current = still_current })
-            if ok then return { ok = true, value = value } end
-            return { ok = false, error = type(value) == "string" and value:match("^shelf_source/[a-z_]+$")
-                or "shelf_source/unavailable" }
-        end, function(result)
-            if self.shelf_refresh_context ~= context then return end
-            complete(type(result) == "table" and result.ok == true, type(result) == "table" and (result.value or result.error)
-                or _("Bookshelf refresh was interrupted. Please try again."))
-        end)
+        launch = function(recover_auth, skip_native)
+            local ok = self.shelf_refresh_worker:start(function()
+                if not still_current() then return { ok = false, error = "shelf_source/session_changed" } end
+                local fetched, value = pcall(self.client.get_shelf, self.client,
+                    { is_current = still_current, recover_auth = recover_auth, skip_native = skip_native })
+                if fetched then return { ok = true, value = value } end
+                return { ok = false, error = type(value) == "string" and value:match("^shelf_source/[a-z_]+$")
+                    or "shelf_source/unavailable" }
+            end, function(result)
+                if self.shelf_refresh_context ~= context then return end
+                complete(type(result) == "table" and result.ok == true, type(result) == "table" and (result.value or result.error)
+                    or _("Bookshelf refresh was interrupted. Please try again."))
+            end)
+            if not ok then complete(false, "shelf_source/unavailable") end
+            return ok
+        end
+        started = launch(self.native_renewal ~= nil, false)
     else
         started = self:runOnlineTask(_("Bookshelf"), function()
             if not still_current() then done() return end

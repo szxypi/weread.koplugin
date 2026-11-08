@@ -330,6 +330,7 @@ function QRLogin:cancel()
 end
 
 function QRLogin:start()
+    if self.host.native_renewal then self.host.native_renewal:cancel() end
     if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
     if self.host.native_authorization then self.host.native_authorization:cancel() end
     if not self.host:isNetworkOnline() then

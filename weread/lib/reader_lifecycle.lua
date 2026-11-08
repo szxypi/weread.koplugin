@@ -182,6 +182,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.native_renewal then self.native_renewal:cancel() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.native_authorization then self.native_authorization:cancel() end
     if self.offline_time then self.offline_time:stop("no_book") end
@@ -335,6 +336,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.native_renewal then self.native_renewal:cancel() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.native_authorization then self.native_authorization:cancel() end
     if self.offline_time then self.offline_time:suspend() end

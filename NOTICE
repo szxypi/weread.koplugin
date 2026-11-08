@@ -32,10 +32,11 @@ Native authorization protocol prototype:
 - weread/lib/native_authorization.lua adapts MiuRead's shelf_client.lua
   (AGPL-3.0-only, MiuRead contributors), after real owner-scan, login and
   read-only shelf validation by the Python prototype on 2026-11-08.
-  It implements the protocol core without credential persistence or renewal.
+  It implements QR authorization and renewal after real Python validation.
   The plugin's separate UI, session-bound credential store and memory-pipe
   worker provide authorization, verified local persistence and cancellation;
-  automatic renewal remains unimplemented.
+  renewal includes manual entry and one attempt after a native shelf HTTP 401,
+  with a checked on-disk pending marker to prevent uncertain-request replay.
 - scripts/verify_eink_login.py adapts the request flow from MiuRead's
   miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references
   https://github.com/teng-lin/weread-omni/blob/main/src/auth/qrlogin.ts.
@@ -46,8 +47,9 @@ Native authorization protocol prototype:
 - scripts/verify_eink_renewal.py and scripts/verify_eink_shelf_write.py
   reference MiuRead's shelf_client.lua and eink_client.lua (AGPL-3.0-only,
   MiuRead contributors) for renewal and single-book shelf-write prototypes.
-  Their real renewal/write/readback contracts remain unverified; they have
-  not been integrated into the plugin's Lua API.
+  Two renewals and their read-only shelf checks were owner-verified on
+  2026-11-08 before Lua renewal integration. The shelf-write contract remains
+  unverified and is not integrated into the plugin's Lua API.
 
 Local offline reading-time collection:
 - weread/lib/offline_time_stats.lua adapts native statistics extraction from

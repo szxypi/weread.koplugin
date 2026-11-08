@@ -113,4 +113,19 @@ end
 f = fixture("native"); f.data.books, f.data.archive = {}, {}
 result = f.fetch()
 expect(#result.books == 0 and #result.archive == 0 and result._shelf_source == "native", "valid empty shelf remains empty")
+f = fixture()
+local original_request = f.client.request
+f.client.request = function(self, options) original_request(self, options) return "fixture", 401 end
+ok, err = pcall(f.fetch, { recover_auth = true })
+_, web = f.counts()
+expect(not ok and err == "shelf_source/native_expired" and web == 0, "401 recovery signal precedes gateway fallback")
+local original_read = f.store.read
+f.store.read = function() local value, current_revision = original_read() return value, current_revision, nil, true end
+result = f.fetch({ recover_auth = true })
+expect(result._shelf_source == "gateway" and result._native_fallback, "pending renewal cannot trigger automatic replay")
+f = fixture(); result = f.fetch({ skip_native = true })
+native, web = f.counts()
+expect(native == 0 and web == 1 and result._native_fallback, "failed renewal can fall back without a second native attempt")
+f = fixture("native"); result = f.fetch({ skip_native = true })
+expect(result._shelf_source == "native", "native-only policy cannot be bypassed by fallback options")
 print("PASS: " .. checks .. " shelf source routing/normalization/account checks")

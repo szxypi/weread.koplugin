@@ -43,7 +43,7 @@ function M.selection(settings, store)
     end
     if mode ~= "gateway" and scope and settings.data_dir and settings:auth_scope_matches(scope) then
         store = store or require("weread.lib.native_credentials"):new(settings)
-        result.credentials, result.revision = store:read()
+        result.credentials, result.revision, result.storage_error, result.renewal_pending = store:read()
         result.store = store
     end
     result.has_gateway = type(settings:get("api_key", "")) == "string" and settings:get("api_key", "") ~= ""
@@ -106,6 +106,9 @@ function M.fetch(client, options)
     end
     if not current(true) then fail("session_changed") end
     local fallback
+    if options.skip_native and selected.mode == "auto" then
+        selected.credentials, selected.revision, fallback = nil, nil, true
+    end
     if selected.credentials then
         local auth = Auth:new(client, { expected_vid = selected.scope.vid, is_current = function() return current(true) end })
         local ok, result = pcall(function() return M.normalize(auth:read_shelf(selected.credentials)) end)
@@ -114,6 +117,9 @@ function M.fetch(client, options)
         if ok then
             result._shelf_source, result._native_revision = "native", selected.revision
             return result, 200, {}
+        end
+        if result == "native_auth/shelf/http_401" and options.recover_auth and not selected.renewal_pending then
+            fail("native_expired")
         end
         if selected.mode == "native" then fail("native_unavailable") end
         fallback = true

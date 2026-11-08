@@ -38,7 +38,8 @@ class RenewalTests(unittest.TestCase):
         self.assertEqual(old, credentials())
         self.assertEqual(len(shelf["books"]), 1)
         report = json.dumps(probe.report)
-        for secret in (*old.values(), *renewed.values(), "Private title", "\"book\""):
+        for secret in (f'"{old["vid"]}"', *(value for key, value in old.items() if key != "vid"),
+                       *(value for key, value in renewed.items() if key != "vid"), "Private title", "\"book\""):
             self.assertNotIn(secret, report)
         self.assertTrue(probe.report["renewal_verified"])
         self.assertEqual(probe.report["renewal_attempts"], 1)
@@ -64,12 +65,24 @@ class RenewalTests(unittest.TestCase):
 
     def test_wrong_owner_or_missing_fields_never_reads_shelf(self):
         for response in (dict(vid=456, accessToken="a", refreshToken="b"),
-                         dict(accessToken="a", refreshToken="b"), dict(vid=123, accessToken="a"),
+                         dict(accessToken="a", refreshToken="b"), dict(vid=123, refreshToken="b"),
+                         dict(vid=123, accessToken="a", refreshToken=""),
                          dict(vid=123, accessToken="private\n", refreshToken="b")):
             opener = Opener([response])
             with self.assertRaises(ProbeError):
                 RenewalProbe(opener).renew(credentials())
             self.assertEqual(len(opener.requests), 1)
+
+    def test_omitted_refresh_token_is_retained_and_reusable(self):
+        opener = Opener([dict(vid=123, accessToken="new-access-1"), dict(books=[]),
+                         dict(vid=123, accessToken="new-access-2"), dict(books=[])])
+        probe = RenewalProbe(opener)
+        first, _shelf = probe.renew(credentials())
+        second, _shelf = probe.renew(first)
+        self.assertEqual(second["refreshToken"], credentials()["refreshToken"])
+        self.assertEqual(json.loads(opener.requests[2].data)["refreshToken"], credentials()["refreshToken"])
+        self.assertFalse(probe.report["refresh_token_returned"])
+        self.assertEqual(len(probe.report["verified_renewals"]), 2)
 
     def test_invalid_private_credentials_send_nothing(self):
         for key, value in (("vid", "0"), ("vid", True), ("accessToken", ""), ("refreshToken", "a\n"),

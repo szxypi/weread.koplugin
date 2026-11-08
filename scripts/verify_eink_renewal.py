@@ -112,7 +112,7 @@ class RenewalProbe(NativeProbe):
         vid = str(data.get("vid", ""))
         if vid != previous["vid"]:
             raise ProbeError("renewal: missing or mismatched owner")
-        renewed = {key: data.get(key) for key in ("accessToken", "refreshToken")}
+        renewed = dict(accessToken=data.get("accessToken"), refreshToken=data.get("refreshToken", previous["refreshToken"]))
         renewed.update(vid=vid, deviceId=previous["deviceId"])
         validate_credentials(renewed)
         shelf = self.request("renewed_shelf", BASE + "/shelf/sync", credentials=renewed)
@@ -121,8 +121,12 @@ class RenewalProbe(NativeProbe):
             raise ProbeError("renewed_shelf: incompatible display snapshot")
         self.report.update(renewal_verified=True, owner_unchanged=True, device_reused=True,
                            access_token_changed=renewed["accessToken"] != previous["accessToken"],
+                           refresh_token_returned="refreshToken" in data,
                            refresh_token_changed=renewed["refreshToken"] != previous["refreshToken"],
                            renewed_shelf_contract=contract)
+        self.report.setdefault("verified_renewals", []).append(dict(
+            owner_unchanged=True, device_reused=True, refresh_token_returned="refreshToken" in data,
+            refresh_token_changed=renewed["refreshToken"] != previous["refreshToken"], books=contract["books"]))
         return renewed, shelf
 
 
@@ -130,6 +134,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--interactive", action="store_true", help="fresh owner QR, renewal and read-only shelf verification")
     parser.add_argument("--output", type=Path, help="create a metadata-only report; never a credential file")
+    parser.add_argument("--rounds", type=int, choices=(1, 2), default=1, help="verify one renewal or a two-renewal credential chain")
     args = parser.parse_args()
     if args.output and args.output.exists():
         parser.error("output already exists")
@@ -156,7 +161,9 @@ def main():
                 probe.report["initial_shelf_contract"] = shelf_contract(shelf)
                 if not probe.report["initial_shelf_contract"]["display_contract_valid"]:
                     raise ProbeError("initial_shelf: incompatible display snapshot")
-                credentials, shelf = probe.renew(credentials)
+                for _index in range(args.rounds):
+                    credentials, shelf = probe.renew(credentials)
+                probe.report["renewal_chain_verified"] = args.rounds == 2
             probe.report["result"] = "PASS"
     except ProbeError as exc:
         probe.report.update(result="UNVERIFIED", reason=str(exc))

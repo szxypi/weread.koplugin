@@ -104,6 +104,13 @@ class MockTests(unittest.TestCase):
         self.assertEqual(snapshot["books"][0]["version"], 700)
         self.assertEqual(len(snapshot["archive"]), 3)
         self.assertNotIn("bookVersion", snapshot["books"][0])
+        body.pop("code")
+        body.pop("installId")
+        body.update(refreshToken="mock-native-refresh", inBackground=0, kickType=1, refCgi="")
+        body["signature"] = hashlib.sha256(f"{int(body['timestamp'])}{device}{body['random']}".encode()).hexdigest()
+        renewed = self.server.route("POST", "https://i.weread.qq.com/login", body)[1]
+        self.assertEqual(renewed["accessToken"], "mock-native-access")
+        self.assertNotIn("refreshToken", renewed)
 
     def test_annotations_and_progress_write_read(self):
         _, result = self.gateway("/book/underlines", bookId=BOOK_ID, chapterUid=2)

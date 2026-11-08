@@ -409,4 +409,43 @@ shelf_settings.source = "native"
 job.callback(async_result)
 expect(not home_reopened and not host.shelf_refreshing, "result from prior source choice reopened shelf")
 expect(cancelled > 0, "leaving shelf did not cancel native background worker")
+shelf_settings.source = "auto"
+host.showTransientInfo = function() end
+local renewal_callback, renewal_starts, renewal_cancels = nil, 0, 0
+host.native_renewal = {
+    start = function(_self, _options, callback)
+        renewal_starts = renewal_starts + 1
+        renewal_callback = callback
+        return true, { token = renewal_starts }
+    end,
+    cancel = function() renewal_cancels = renewal_cancels + 1 end,
+}
+host.client.get_shelf = function(_self, options)
+    if options.recover_auth then error("shelf_source/native_expired", 0) end
+    return { books = {}, archive = {}, _shelf_source = options.skip_native and "gateway" or "native" }
+end
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(host.shelf_refreshing and renewal_starts == 1 and not home_reopened, "expired shelf did not wait for one renewal")
+renewal_callback(true)
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(home_reopened and not host.shelf_refreshing and host.shelf_active_source == "native", "successful renewal did not retry native shelf")
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task()); renewal_callback(false)
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(home_reopened and host.shelf_active_source == "gateway" and renewal_starts == 2, "failed renewal did not use one permitted fallback")
+shelf_settings.source = "native"
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task()); renewal_callback(false)
+expect(not home_reopened and not host.shelf_refreshing and #jobs == 0, "native-only renewal failure bypassed source policy")
+shelf_settings.source = "auto"
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task())
+local late_renewal = renewal_callback
+host:closeWeReadUI()
+late_renewal(true)
+expect(renewal_cancels > 0 and not home_reopened and #jobs == 0, "cancelled renewal reopened closed shelf")
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

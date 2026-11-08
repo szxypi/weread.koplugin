@@ -1,6 +1,7 @@
 -- E-Ink QR protocol validated by scripts/verify_eink_login.py on 2026-11-08.
 -- Adapted from MiuRead shelf_client.lua (AGPL-3.0-only). No persistence, writes
--- to the shelf, Web-Cookie conversion, automatic renewal or diagnostic payloads.
+-- to the shelf, Web-Cookie conversion or diagnostic payloads. Renewal follows
+-- scripts/verify_eink_renewal.py's real two-renewal/readback check on 2026-11-08.
 local Crypto = require("weread.lib.crypto")
 local Protocol = require("weread.lib.protocol")
 local Auth = {}
@@ -179,6 +180,35 @@ function Auth:finish()
     if not account or not text(data.accessToken, 8192) or not text(data.refreshToken, 8192) then fail("login", "invalid") end
     if self.expected_vid and account ~= self.expected_vid then self:cancel() fail("login", "account_mismatch") end
     self.pending_credentials = { vid = account, accessToken = data.accessToken, refreshToken = data.refreshToken, deviceId = device }
+    return self:verify()
+end
+
+function Auth:renew(previous)
+    self:_current("renewal")
+    if self.pending_credentials then return self:verify() end
+    if self.renewal_attempted or self.uid then fail("renewal", "unavailable") end
+    if type(previous) ~= "table" or not vid(previous.vid) or not text(previous.accessToken, 8192)
+        or not text(previous.refreshToken, 8192) or not text(previous.deviceId, 32) or #previous.deviceId ~= 32 then
+        fail("renewal", "invalid_credentials")
+    end
+    local account = vid(previous.vid)
+    if self.expected_vid and account ~= self.expected_vid then fail("renewal", "account_mismatch") end
+    local random, timestamp = tonumber(self.digits(3)) % 999 + 1, self.now_ms()
+    if type(timestamp) ~= "number" or timestamp ~= timestamp or timestamp % 1 ~= 0
+        or timestamp < 1 or timestamp > 4102444800000 then fail("renewal", "invalid_clock") end
+    local body = { deviceId = previous.deviceId, deviceName = "BOOX", deviceType = 3,
+        timestamp = timestamp, random = random, trackId = "", refreshToken = previous.refreshToken,
+        inBackground = 0, kickType = 1, refCgi = "",
+        signature = Crypto.sha256_hex(string.format("%.0f", timestamp) .. previous.deviceId .. tostring(random)) }
+    local data = self:_request("renewal", BASE .. "/login", body, nil, nil, function() self.renewal_attempted = true end)
+    if vid(data.vid) ~= account then fail("renewal", "account_mismatch") end
+    -- Real responses omit refreshToken. The original token was successfully
+    -- reused for a second renewal and shelf read in the Python owner probe.
+    local refresh = data.refreshToken
+    if refresh == nil then refresh = previous.refreshToken end
+    if not text(data.accessToken, 8192) or not text(refresh, 8192) then fail("renewal", "invalid") end
+    self.pending_credentials = { vid = account, deviceId = previous.deviceId,
+        accessToken = data.accessToken, refreshToken = refresh }
     return self:verify()
 end
 

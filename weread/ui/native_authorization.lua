@@ -29,6 +29,8 @@ function Controller:_close()
 end
 
 function Controller:cancel()
+    if self.renewal_job and self.host.native_renewal then self.host.native_renewal:cancel(self.renewal_job) end
+    self.renewal_job = nil
     self.generation = self.generation + 1
     if self.scheduled then self.scheduler:unschedule(self.scheduled) self.scheduled = nil end
     if self.worker then self.worker:cancel() end
@@ -91,6 +93,7 @@ end
 function Controller:start()
     self:cancel()
     if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
+    if self.host.native_renewal then self.host.native_renewal:cancel() end
     self.scope = self.settings:get_auth_scope()
     if not self.settings:auth_scope_matches(self.scope) then
         self:_error(_("Please complete QR code login before authorizing E-Ink access."))
@@ -204,6 +207,7 @@ end
 function Controller:clear()
     self:cancel()
     if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
+    if self.host.native_renewal then self.host.native_renewal:cancel() end
     local scope = self.settings:get_auth_scope()
     local revision = select(2, self.store:read())
     local ok = revision and self.store:clear(scope, revision)
@@ -213,6 +217,7 @@ end
 
 function Controller:clearForLogout()
     self:cancel()
+    if self.host.native_renewal then self.host.native_renewal:cancel() end
     -- Account reset immediately invalidates any old grant even if storage is
     -- unavailable; removing the bounded primary/backup also drops local tokens.
     os.remove(self.store.path)
@@ -232,6 +237,11 @@ function Controller:showMenu()
             {{ text = value and _("Authorize E-Ink again") or _("Authorize E-Ink access"), callback = function()
                 self.scheduler:close(dialog) self:start()
             end }},
+            {{ text = self.host.native_renewal and self.host.native_renewal.job
+                and self.host.native_renewal.job.state == "save_failed" and _("Retry saving renewed authorization")
+                or _("Renew E-Ink authorization"), enabled = value ~= nil and self.host.native_renewal ~= nil, callback = function()
+                self.scheduler:close(dialog) self:renew()
+            end }},
             {{ text = _("Clear E-Ink authorization"), enabled = value ~= nil, callback = function()
                 self.scheduler:close(dialog) self:clear()
             end }},
@@ -242,6 +252,56 @@ function Controller:showMenu()
         },
     }
     self.scheduler:show(dialog)
+end
+
+function Controller:_renewal_saved()
+    self.renewal_job = nil
+    self:_close()
+    if self.host.refreshLoginMenu then self.host:refreshLoginMenu() end
+    self.host:showInfo(_("E-Ink authorization renewed and saved."))
+end
+
+function Controller:_retry_renewal_save()
+    local ok, err = self.host.native_renewal:retry_save()
+    if ok then self:_renewal_saved()
+    elseif err == "session_changed" then
+        self:cancel()
+        self.host:showInfo(_("Account or authorization changed. Please reopen E-Ink authorization."))
+    else
+        self:_show(ConfirmBox, { text = _("Could not save renewed authorization. Retry saving without another renewal request?"),
+            ok_text = _("Retry"), ok_callback = function() self:_retry_renewal_save() end })
+    end
+end
+
+function Controller:renew()
+    self:cancel()
+    if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
+    local service = self.host.native_renewal
+    if not service then return end
+    if service.job and service.job.state == "save_failed" then
+        self.renewal_job = service.job
+        self:_retry_renewal_save()
+        return
+    end
+    if not self.host:isNetworkConnected() then self.host:showOffline(_("E-Ink authorization")) return end
+    local generation = self.generation
+    self:_show(InfoMessage, { text = _("Renewing E-Ink authorization…\nTap or press a key to cancel.") })
+    local started, job = service:start({}, function(ok, err)
+        if generation ~= self.generation then return end
+        if ok then self:_renewal_saved()
+        elseif err == "save_failed" then self:_retry_renewal_save()
+        else
+            self.renewal_job = nil
+            self:_close()
+            self.host:showInfo(_("E-Ink renewal could not be confirmed. Please authorize again."))
+        end
+    end)
+    if started then self.renewal_job = job
+    else
+        self:_close()
+        self.host:showInfo(job == "renewal_unconfirmed" and _("A previous renewal is unconfirmed. Please authorize again.")
+            or _("E-Ink renewal could not start. Check authorization and storage, then try again."))
+    end
 end
 
 function Controller:chooseSource()

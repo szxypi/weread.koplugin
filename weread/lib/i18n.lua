@@ -1,6 +1,14 @@
 local I18n = {}
 
 local zh = {
+    ["Renew E-Ink authorization"] = "续期墨水屏授权",
+    ["Retry saving renewed authorization"] = "重试保存续期授权",
+    ["E-Ink authorization renewed and saved."] = "墨水屏授权已续期并保存。",
+    ["Could not save renewed authorization. Retry saving without another renewal request?"] = "保存续期授权失败。是否仅重试保存？不会再次发送续期请求。",
+    ["Renewing E-Ink authorization…\nTap or press a key to cancel."] = "正在续期墨水屏授权…\n点击屏幕或按键可取消。",
+    ["E-Ink renewal could not be confirmed. Please authorize again."] = "无法确认墨水屏授权续期结果，请重新扫码授权。",
+    ["A previous renewal is unconfirmed. Please authorize again."] = "上次续期结果尚未确认，请重新扫码授权。",
+    ["E-Ink renewal could not start. Check authorization and storage, then try again."] = "无法开始续期，请检查授权与存储后重试。",
     ["E-Ink bookshelf could not be read. Authorize again, or choose Automatic or Standard bookshelf."] = "无法读取墨水屏书架。请重新授权，或将读取方式改为自动选择／常规书架。",
     ["Bookshelf is unavailable. Check the network and authorization, then try again."] = "暂时无法读取书架，请检查网络和授权后重试。",
     ["Automatic"] = "自动选择",

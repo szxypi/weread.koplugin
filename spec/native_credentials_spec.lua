@@ -30,7 +30,9 @@ local settings = { data_dir = "/unused", auth_scope_matches = function(_self, va
     return value and current.vid == value.vid and current.epoch == value.epoch
 end }
 local Store = require("weread.lib.native_credentials")
-local store = Store:new(settings)
+local sync_failed = false
+local dependencies = { sync = function() return not sync_failed end }
+local store = Store:new(settings, dependencies)
 store.path = path
 local credentials = { vid = "123", accessToken = "test-native-access", refreshToken = "test-native-refresh",
     deviceId = string.rep("1", 32) }
@@ -38,7 +40,7 @@ local value, revision = store:read()
 expect(value == nil and revision == 0, "fresh authorization is empty")
 local ok, next_revision = store:save(credentials, scope, revision, 26)
 expect(ok and next_revision == 1, "verified authorization saved")
-local reopened = Store:new(settings)
+local reopened = Store:new(settings, dependencies)
 reopened.path = path
 value, revision = reopened:read()
 expect(value and value.accessToken == credentials.accessToken and revision == 1 and value.book_count == 26,
@@ -74,6 +76,25 @@ expect(io.open(path .. ".old", "r") == nil, "old credential backup removed")
 local invalid = { vid = "123", accessToken = "secret\n", refreshToken = "test", deviceId = string.rep("1", 32) }
 before = writes
 expect(not store:save(invalid, scope, 2, 26) and writes == before, "malformed credentials never written")
+expect(store:save(credentials, scope, 2, 26), "grant saved before renewal intent")
+ok, revision = store:begin_renewal(scope, 3)
+expect(ok and revision == 4, "renewal intent advances revision durably")
+local pending, read_error
+value, revision, read_error, pending = reopened:read()
+expect(value and not read_error and revision == 4 and pending, "new object sees pending intent before POST")
+ok, value = reopened:begin_renewal(scope, revision)
+expect(not ok and value == "renewal_unconfirmed", "restart cannot replay a possibly consumed refresh token")
+expect(reopened:release_renewal(scope, revision), "proved pre-dispatch failure releases intent")
+value, revision, read_error, pending = store:read()
+expect(value and not read_error and revision == 5 and not pending, "released intent retains old credentials")
+expect(store:begin_renewal(scope, revision), "next safe renewal can claim grant")
+expect(store:save(credentials, scope, 6, 26), "verified renewal replaces intent")
+value, revision, read_error, pending = reopened:read()
+expect(value and not read_error and revision == 7 and not pending, "successful credential save clears durable intent")
+sync_failed = true
+ok, value = store:begin_renewal(scope, revision)
+expect(not ok and value == "save_failed", "visible intent is insufficient when file/directory sync fails")
+sync_failed = false
 os.remove(path)
 os.remove(path .. ".old")
 print("PASS: " .. checks .. " native credential persistence/readback/session checks")

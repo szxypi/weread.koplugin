@@ -75,13 +75,13 @@ return function(plugin, count, flush_tasks, home, pump_until)
     refresh(true)
     assert(plugin.shelf_active_source == "native" and count("/api/agent/gateway", "/shelf/sync") == gateway,
         "native-only source required a gateway key")
-    control{ match = "/shelf/sync", times = 1, status = 401, delay = 0 }
+    control{ match = "/shelf/sync", times = 1, status = 403, delay = 0 }
     refresh(false)
     assert(count("/api/agent/gateway", "/shelf/sync") == gateway and #plugin.library_db:getShelf() == 26,
         "native-only failure silently switched source or erased cache")
     settings:set("api_key", api_key) settings:flush()
     choose(1, "auto")
-    control{ match = "/shelf/sync", times = 1, status = 401, delay = 0 }
+    control{ match = "/shelf/sync", times = 1, status = 503, delay = 0 }
     refresh(true)
     assert(plugin.shelf_active_source == "gateway" and count("/api/agent/gateway", "/shelf/sync") == gateway + 1,
         "automatic source did not fall back once")
