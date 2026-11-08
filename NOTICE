@@ -43,6 +43,11 @@ Native authorization protocol prototype:
   and readtime_protocol.lua (AGPL-3.0-only, MiuRead contributors) for read-only
   config/feature/position preflight. It does not implement the write/signature
   algorithm or upload reading time.
+- scripts/verify_eink_renewal.py and scripts/verify_eink_shelf_write.py
+  reference MiuRead's shelf_client.lua and eink_client.lua (AGPL-3.0-only,
+  MiuRead contributors) for renewal and single-book shelf-write prototypes.
+  Their real renewal/write/readback contracts remain unverified; they have
+  not been integrated into the plugin's Lua API.
 
 Local offline reading-time collection:
 - weread/lib/offline_time_stats.lua adapts native statistics extraction from

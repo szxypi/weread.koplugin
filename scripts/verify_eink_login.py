@@ -141,7 +141,7 @@ class NativeProbe:
         self.report["shelf_book_count"] = len(shelf["books"])
         # Reusable by other read-only probes in the same process. The CLI
         # deliberately ignores this private return value and never persists it.
-        return dict(credentials, deviceId=body["deviceId"]), shelf
+        return dict(credentials, refreshToken=data["refreshToken"], deviceId=body["deviceId"]), shelf
 
 
 def main():

@@ -56,6 +56,12 @@ jobs:
       - name: Native authorization prototype checks
         run: python3 scripts/test_eink_login.py
 
+      - name: Native renewal prototype checks
+        run: python3 scripts/test_eink_renewal.py
+
+      - name: Native shelf-write prototype checks
+        run: python3 scripts/test_eink_shelf_write.py
+
       - name: Offline-time read-only preflight checks
         run: python3 scripts/test_eink_readtime.py
 

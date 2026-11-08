@@ -1,0 +1,15 @@
+{
+  "checked_at": "2026-11-08T06:40:02.467658+00:00",
+  "stages": [],
+  "probe": "native_shelf_write",
+  "data_writes_attempted": 0,
+  "readback_attempts": 0,
+  "result": "PENDING_TARGET_AND_OWNER",
+  "network_requests": 0,
+  "pending": [
+    "selected_test_book",
+    "owner_scan",
+    "specific_write_authorization",
+    "write_and_readback"
+  ]
+}

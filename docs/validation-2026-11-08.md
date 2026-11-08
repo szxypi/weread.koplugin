@@ -18,7 +18,7 @@
 | Lua 单元／组件回归 | PASS：93 组，包括书架通道、授权界面／保存回读／后台管道、错误去敏、阅读同步、更新与失败恢复 |
 | Luacheck | PASS：211 文件，0 警告、0 错误 |
 | 命名空间、Python 编译、差异格式 | PASS |
-| Python 合成 HTTP 测试 | PASS：9 组；另有授权原型 5 组、补传只读前置 12 组 |
+| Python 合成 HTTP 测试 | PASS：9 组；另有授权原型 5 组、续期原型 7 组、书架写入原型 9 组、补传只读前置 12 组，共 42 组 |
 | 真实插件初始化 | PASS：官方 KOReader v2026.07.1、真实控件／字体／SQLite |
 | 首页／书架／书城 | PASS：候选 ZIP 安装后，空页面、最近阅读、分页、列表／封面切换、搜索／推荐、关闭和账号清理 |
 | 三种显示配置 | PASS：600×800/167 DPI、800×600/167 DPI、1072×1448/300 DPI，原生 BB8 灰度模拟 |
@@ -112,6 +112,20 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 ![书架读取方式（合成环境）](validation-assets/2026-11-08/native-shelf-source.png)
 
 ![墨水屏接口返回的封面书架（合成环境）](validation-assets/2026-11-08/native-shelf-cover.png)
+
+## 续期及云端写入验证准备
+
+- 新增 Python 续期原型：同设备签名、一次续期、同账号与完整字段检查、新凭据书架回读。
+  7 组离线检查通过；实际续期尚未执行，默认命令不联网，结果为
+  [PENDING_OWNER_SCAN](validation-assets/2026-11-08/eink-renewal-preflight.json)。
+- 新增单书写入原型：加入／移出书架、标记／取消读完；默认不联网，交互模式默认只读预览，
+  实际写入须明确目标与操作。预检、一次发送、回执丢失后只读回查、状态／成员变化和未确认拒绝
+  共 9 组离线检查通过。尚未执行真实写入，结果为
+  [PENDING_TARGET_AND_OWNER](validation-assets/2026-11-08/eink-shelf-write-preflight.json)。
+- 两个工具只报告阶段、字段名、数量与布尔值；没有凭据、账号、书名、书籍 ID 或请求体。
+  新接口尚未迁移至 Lua，不将这些离线测试记作自动续期或云端书架写入已完成。
+- 重新检查本机环境：没有已挂载的 KOReader 目录，也未识别到 Kindle／Amazon USB 设备。
+  原 Linux ARM64／Xvfb 灰度模拟环境仍可用；实体 KO2 的版本、连接与实机验收继续待补充。
 
 本地阅读位置采集与跳转精度后续验证：
 
