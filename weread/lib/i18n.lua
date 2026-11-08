@@ -1,6 +1,8 @@
 local I18n = {}
 
 local zh = {
+    ["Could not save the original chapter data. Check storage and try again."] = "无法保存章节原文，请检查存储空间后重试。",
+    ["Could not verify the downloaded chapter data. Please download again."] = "无法校验已下载的章节数据，请重新下载。",
     ["Renew E-Ink authorization"] = "续期墨水屏授权",
     ["Retry saving renewed authorization"] = "重试保存续期授权",
     ["E-Ink authorization renewed and saved."] = "墨水屏授权已续期并保存。",

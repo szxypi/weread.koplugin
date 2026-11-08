@@ -47,6 +47,10 @@ local full_book_save_count = 0
 local saved_cover_data
 package.preload["weread.lib.content"] = function()
     return {
+        register_annotation_document = function(book, path, chapters)
+            book.annotation_documents = book.annotation_documents or {}
+            book.annotation_documents[path] = { chapters = chapters }
+        end,
         save_chapter_epub = function(_settings, _book, chapter)
             return "/cache/book/chapter-" .. tostring(chapter.chapterUid) .. ".epub"
         end,
@@ -84,6 +88,7 @@ local live_books = {
         book_id = "book",
         progress = 88,
         cached_chapters = { existing = "/cache/book/existing.epub" },
+        annotation_documents = { ["/cache/book/concurrent.epub"] = { chapters = { { chapterUid = 99 } } } },
     },
 }
 local opened
@@ -113,7 +118,9 @@ local downloader = Downloader:new{
 }
 local chapter = { chapterUid = 22, title = "Target" }
 local download = {
-    book = { book_id = "book", title = "Book" },
+    book = { book_id = "book", title = "Book", annotation_documents = {
+        ["/cache/book/stale.epub"] = { chapters = { { chapterUid = 1 } } },
+    } },
     chapters = { chapter },
     selected = { chapter },
     bodies = { ["22"] = "<p>body</p>" },
@@ -147,6 +154,13 @@ eq(stored_books.book.progress, 88,
     "download cache merge preserved newer reading progress")
 eq(stored_books.book.cached_chapters.existing, "/cache/book/existing.epub",
     "download cache merge preserved unrelated chapter mappings")
+
+eq(stored_books.book.annotation_documents["/cache/book/concurrent.epub"].chapters[1].chapterUid,
+    99, "background packaging preserved concurrent document mappings")
+eq(stored_books.book.annotation_documents["/cache/book/stale.epub"], nil,
+    "background snapshot did not replace current document mappings")
+eq(stored_books.book.annotation_documents["/cache/book/chapter-22.epub"].chapters[1].chapterUid,
+    22, "parent registered only the completed document")
 
 local chapter_33 = { chapterUid = 33, title = "Other" }
 live_books.book.cached_file = "/cache/book/full.epub"

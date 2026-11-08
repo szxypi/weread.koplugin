@@ -26,13 +26,13 @@ function M.run(settings, client, book, chapter, context)
             state.workspace = workspace
         end
 
-        local xhtml
+        local xhtml, position_source
         for attempt = 1, 3 do
             context.emit { stage = "source", attempt = attempt }
-            local fetched, value = pcall(Content.fetch_single_chapter_source,
+            local fetched, value, source = pcall(Content.fetch_single_chapter_source,
                 client, settings, book, chapter, state)
             FileIdentity.check(source_identity, book)
-            if fetched then xhtml = value; break end
+            if fetched then xhtml, position_source = value, source; break end
             if attempt == 3 then error(value, 0) end
             context.sleep(0.8 * attempt)
         end
@@ -73,7 +73,7 @@ function M.run(settings, client, book, chapter, context)
 
         context.emit { stage = "epub" }
         local path = Content.save_chapter_epub(settings, book, chapter,
-            finalized, assets, state.css, source_identity)
+            finalized, assets, state.css, source_identity, position_source)
         local descriptor = book.annotation_documents
             and book.annotation_documents[path] or nil
         return {

@@ -35,6 +35,7 @@ package.preload["lfs"] = function()
             probe:close()
             return attribute == "mode" and mode or (mode and { mode = mode } or nil)
         end,
+        mkdir = function(path) return os.execute("mkdir -p " .. quoted(path)) end,
         dir = function(path)
             local listing = io.popen("ls -a " .. quoted(path))
             return function()
@@ -184,6 +185,74 @@ Content.save_book_epub(settings, book, chapters,
     { __workspace_text_dir = workspace.rendered_text_dir, __source_workspace = workspace },
     "full", {}, "body{color:black}", nil, source_identity)
 expect(packaged_identity().book_version == 0, "mixed-version checkpoints were relabeled as a known version")
+
+-- Raw-source receipts are tied to completed rendered checkpoints, not UID-wide
+-- mutable files. A staged but unfinished replacement cannot replace old raw.
+local Source = require("weread.lib.position_source")
+local raw = '<html><body><p>first &amp; original</p><img src="https://example.invalid/long.jpg"/></body></html>'
+local source = assert(Source.capture(book, chapters[1], raw, "web_xhtml"))
+local receipt = assert(Content.store_position_source(workspace, book, chapters[1], source))
+local reference = { workspace = workspace, receipt = receipt }
+local resolved = assert(Source.resolve(reference, book.book_id, 11))
+expect(resolved.path and not resolved.data, "staged source retained whole-chapter bytes")
+expect(not Source.resolve(reference, "wrong-book", 11), "receipt crossed books")
+expect(not Source.resolve(reference, book.book_id, 22), "receipt crossed chapters")
+Content.save_full_download_chapter(workspace, chapters[1], 1, "<p>first</p>", 7, receipt)
+expect(Content.full_download_chapter_exists(workspace, chapters[1], 1, 7), "valid source-bound checkpoint rejected")
+local next_source = assert(Source.capture(book, chapters[1], raw .. " ", "web_xhtml"))
+local next_receipt = assert(Content.store_position_source(workspace, book, chapters[1], next_source))
+expect(next_receipt ~= receipt and Content.full_download_chapter_exists(workspace, chapters[1], 1, 7),
+    "unfinished raw generation invalidated completed checkpoint")
+local function write(path, data)
+    local file = assert(io.open(path, "wb"))
+    assert(file:write(data)); assert(file:close())
+end
+write(resolved.path, raw .. "corrupt")
+expect(not Source.resolve(reference, book.book_id, 11), "corrupt raw passed receipt verification")
+expect(not Content.full_download_chapter_exists(workspace, chapters[1], 1), "corrupt raw reused on resume")
+assert(Content.store_position_source(workspace, book, chapters[1], source))
+local checkpoint_path = Content.full_download_checkpoint_path(workspace, chapters[1], 1)
+local file = assert(io.open(checkpoint_path, "rb"))
+local checkpoint = file:read("*a"); file:close()
+for _, damaged in ipairs({ checkpoint .. "position_receipt=" .. receipt .. "\n",
+    checkpoint:gsub(receipt, "bad-receipt"), checkpoint:gsub("position_receipt=", "position_receipt ") }) do
+    write(checkpoint_path, damaged)
+    expect(not Content.full_download_chapter_exists(workspace, chapters[1], 1), "malformed receipt was treated as a legacy checkpoint")
+end
+write(checkpoint_path, checkpoint)
+Content.save_book_epub(settings, book, chapters,
+    { __workspace_text_dir = workspace.rendered_text_dir, __source_workspace = workspace },
+    "full", {}, "body{color:black}", nil, source_identity)
+local function last_entry(name)
+    for index = #archive_calls, 1, -1 do
+        if archive_calls[index].name == name then return archive_calls[index] end
+    end
+end
+local meta = assert(Source.decode_metadata(assert(last_entry(Source.meta_path(11))).data))
+expect(meta.capture_id == receipt and meta.render_path == "OEBPS/text/chapter-001.xhtml", "EPUB used unfinished raw generation")
+expect(last_entry(Source.raw_path(source.raw_sha256)).path == resolved.path, "EPUB did not stream original source")
+expect(last_entry(Source.path_meta_path(meta.render_path)).data == last_entry(Source.meta_path(11)).data, "member alias disagrees with UID metadata")
+local first_id = packaged_identity().file_id
+Content.save_full_download_chapter(workspace, chapters[1], 1, "<p>first</p>", 7, next_receipt)
+Content.save_book_epub(settings, book, chapters,
+    { __workspace_text_dir = workspace.rendered_text_dir, __source_workspace = workspace },
+    "full", {}, "body{color:black}", nil, source_identity)
+expect(packaged_identity().file_id ~= first_id, "same rendered chapter with new raw reused file identity")
+-- A legacy checkpoint must not pick up raw left behind by another generation.
+Content.save_full_download_chapter(workspace, chapters[1], 1, "<p>first</p>", 7)
+archive_calls = {}
+Content.save_book_epub(settings, book, chapters,
+    { __workspace_text_dir = workspace.rendered_text_dir, __source_workspace = workspace },
+    "full", {}, "body{color:black}", nil, source_identity)
+expect(not last_entry(Source.meta_path(11)), "legacy checkpoint guessed source from leftover raw")
+-- Direct single-chapter packaging also binds original bytes independently of
+-- rendered content and exposes both archive aliases.
+Content.save_chapter_epub(settings, book, chapters[1], "<p>same rendered</p>", {}, nil, source_identity, source)
+local chapter_id = packaged_identity().file_id
+expect(assert(Source.decode_metadata(last_entry(Source.meta_path(11)).data)).capture_id == receipt,
+    "single-chapter source lost")
+Content.save_chapter_epub(settings, book, chapters[1], "<p>same rendered</p>", {}, nil, source_identity, next_source)
+expect(packaged_identity().file_id ~= chapter_id, "single-chapter raw change reused identity")
 
 Content.cleanup_download_workspace(workspace)
 expect(not io.open(workspace.text_dir .. "/chapter-001.xhtml", "rb"),

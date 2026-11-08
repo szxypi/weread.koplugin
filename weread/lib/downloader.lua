@@ -124,8 +124,11 @@ function Downloader:_preserveWorkspace(dl, reason)
 end
 
 function Downloader:_restoreFullDownloadCheckpoint(dl, initial)
-    local completed = Content.full_download_completed_chapters(
-        dl.workspace, dl.chapters, initial and dl.source_identity and dl.source_identity.book_version or nil)
+    local completed = self:_runInterruptible(dl, function()
+        return Content.full_download_completed_chapters(
+            dl.workspace, dl.chapters, initial and dl.source_identity and dl.source_identity.book_version or nil)
+    end)
+    if dl.cancelled then return 0 end
     local selected = {}
     local completed_count = 0
     for chapter_index, chapter in ipairs(dl.chapters) do
@@ -453,8 +456,9 @@ function Downloader:_startPrefetchWorker(dl)
     return false
 end
 
--- Only network-heavy work runs in the child; checkpoints, settings and UI stay
--- in the parent. Reuse KOReader's pipe transport and cancellation/reaping.
+-- Network work, immutable raw-source staging and EPUB building run in the child.
+-- Rendered completion checkpoints, settings and UI stay in the parent. Reuse
+-- KOReader's pipe transport and cancellation/reaping.
 function Downloader:_runInterruptible(dl, task)
     if dl.cancelled then return nil end
     if not dl.trapper then return task() end
@@ -584,6 +588,7 @@ function Downloader:start(book, chapters, suffix, options)
         cancelled = false,
         selected = {},
         bodies = {},
+        position_sources = {},
         assets = {},
         assets_by_uid = {},
         state = {},
@@ -659,8 +664,6 @@ function Downloader:start(book, chapters, suffix, options)
             apply_reader_book(book, updated)
             dl.source_identity = FileIdentity.capture(book)
             self:_setStage(dl, _("Preparing download..."))
-            local cache = self.settings.get
-                and self.settings:get("cache", {}) or {}
             if dl.resumable and Content.open_full_download_workspace then
                 dl.workspace = Content.open_full_download_workspace(
                     self.settings, book)
@@ -669,7 +672,7 @@ function Downloader:start(book, chapters, suffix, options)
                 dl.state.used_asset_names = Content.full_download_workspace_used_asset_names(
                     dl.workspace)
                 self:_restoreFullDownloadCheckpoint(dl, true)
-            elseif cache.download_book_images and Content.create_download_workspace then
+            elseif Content.create_download_workspace then
                 dl.workspace = Content.create_download_workspace(
                     self.settings, book)
                 dl.state.workspace = dl.workspace
@@ -985,7 +988,7 @@ function Downloader:_finishChapter(dl)
     if dl.resumable then
         Content.save_full_download_css(dl.workspace, dl.state.css)
         Content.save_full_download_chapter(dl.workspace, chapter, dl.index, xhtml,
-            FileIdentity.check(dl.source_identity, dl.book))
+            FileIdentity.check(dl.source_identity, dl.book), dl.current.position_receipt)
         dl.completed[dl.index] = true
         dl.completed_count = dl.completed_count + 1
     else
@@ -1085,6 +1088,7 @@ function Downloader:_step(dl)
         -- a truncated EPUB.
         if dl.resumable and not dl.workspace_verified then
             local completed_count = self:_restoreFullDownloadCheckpoint(dl)
+            if dl.cancelled then self:_step(dl); return end
             if completed_count < dl.total then
                 for chapter_index = 1, dl.total do
                     if not dl.completed[chapter_index] then
@@ -1109,56 +1113,66 @@ function Downloader:_step(dl)
         end
         self:_setStage(dl, _("Building EPUB..."), dl.total)
         local save_started = time.now()
-        local ok, path, chapter_paths = pcall(function()
-            if dl.single_chapter then
-                local chapter = dl.selected[1]
-                local uid = tostring(chapter.chapterUid or 1)
-                return Content.save_chapter_epub(
-                    self.settings, dl.book, chapter, dl.bodies[uid],
-                    (dl.assets_by_uid and dl.assets_by_uid[uid]) or dl.assets,
-                    dl.state.css, dl.source_identity
-                )
-            end
-            if dl.separate_chapters then
-                local paths = {}
-                for chapter_index, chapter in ipairs(dl.selected) do
-                    local uid = tostring(chapter.chapterUid or chapter_index)
-                    paths[uid] = Content.save_chapter_epub(
+        local ok, package = pcall(function()
+            return self:_runInterruptible(dl, function()
+                local function source_for(uid)
+                    local receipt = dl.position_sources and dl.position_sources[uid]
+                    return receipt and { workspace = dl.workspace, receipt = receipt } or nil
+                end
+                local path, chapter_paths
+                if dl.single_chapter then
+                    local chapter = dl.selected[1]
+                    local uid = tostring(chapter.chapterUid or 1)
+                    path = Content.save_chapter_epub(
                         self.settings, dl.book, chapter, dl.bodies[uid],
-                        (dl.assets_by_uid and dl.assets_by_uid[uid]) or {},
-                        dl.state.css, dl.source_identity
+                        (dl.assets_by_uid and dl.assets_by_uid[uid]) or dl.assets,
+                        dl.state.css, dl.source_identity, source_for(uid)
+                    )
+                elseif dl.separate_chapters then
+                    local paths = {}
+                    for chapter_index, chapter in ipairs(dl.selected) do
+                        local uid = tostring(chapter.chapterUid or chapter_index)
+                        paths[uid] = Content.save_chapter_epub(
+                            self.settings, dl.book, chapter, dl.bodies[uid],
+                            (dl.assets_by_uid and dl.assets_by_uid[uid]) or {},
+                            dl.state.css, dl.source_identity, source_for(uid)
+                        )
+                    end
+                    path, chapter_paths = paths[tostring(dl.selected[1].chapterUid or 1)], paths
+                else
+                    local cover_data
+                    local cover_url = WeRead.normalize_cover_url(dl.book.cover)
+                    if cover_url and cover_url ~= "" then
+                        pcall(function()
+                            cover_data = self.client:get_binary(cover_url)
+                        end)
+                    end
+                    if dl.cancelled then return end
+                    if dl.resumable then
+                        for chapter_index, chapter in ipairs(dl.chapters) do
+                            if not Content.full_download_rendered_chapter_exists(
+                                dl.workspace, chapter, chapter_index) then
+                                error("missing rendered chapter " .. tostring(chapter_index))
+                            end
+                        end
+                    end
+                    path = Content.save_book_epub(
+                        self.settings, dl.book,
+                        dl.resumable and dl.chapters or dl.selected,
+                        dl.resumable and { __workspace_text_dir = dl.workspace.rendered_text_dir,
+                            __source_workspace = dl.workspace } or dl.bodies,
+                        dl.suffix,
+                        dl.resumable and Content.full_download_workspace_assets(dl.workspace) or dl.assets,
+                        dl.state.css, cover_data, dl.source_identity,
+                        { workspace = dl.workspace, receipts = dl.position_sources or {} }
                     )
                 end
-                return paths[tostring(dl.selected[1].chapterUid or 1)], paths
-            end
-            local cover_data
-            local cover_url = WeRead.normalize_cover_url(dl.book.cover)
-            if cover_url and cover_url ~= "" then
-                pcall(function()
-                    cover_data = self:_runInterruptible(dl, function()
-                        return self.client:get_binary(cover_url)
-                    end)
-                end)
-            end
-            if dl.cancelled then return end
-            if dl.resumable then
-                for chapter_index, chapter in ipairs(dl.chapters) do
-                    if not Content.full_download_rendered_chapter_exists(
-                        dl.workspace, chapter, chapter_index) then
-                        error("missing rendered chapter " .. tostring(chapter_index))
-                    end
-                end
-            end
-            return Content.save_book_epub(
-                self.settings, dl.book,
-                dl.resumable and dl.chapters or dl.selected,
-                dl.resumable and { __workspace_text_dir = dl.workspace.rendered_text_dir,
-                    __source_workspace = dl.workspace } or dl.bodies,
-                dl.suffix,
-                dl.resumable and Content.full_download_workspace_assets(dl.workspace) or dl.assets,
-                dl.state.css, cover_data, dl.source_identity
-            )
+                return { path = path, chapter_paths = chapter_paths, cache_dir = dl.book.cache_dir }
+            end)
         end)
+        local path = ok and package and package.path or package
+        local chapter_paths = ok and package and package.chapter_paths
+        if ok and package then dl.book.cache_dir = package.cache_dir or dl.book.cache_dir end
         if dl.cancelled then self:_step(dl); return end
         if ok then
             self:_cleanupWorkspace(dl)
@@ -1179,9 +1193,19 @@ function Downloader:_step(dl)
                 for key, value in pairs(dl.book) do record[key] = value end
             end
             local function apply_cache_result(target)
-                target.annotation_documents = dl.book.annotation_documents or target.annotation_documents
                 target.cached_chapters = target.cached_chapters or {}
                 if not ok then return end
+                if Content.register_annotation_document then
+                    if dl.single_chapter then
+                        Content.register_annotation_document(target, path, { dl.selected[1] })
+                    elseif dl.separate_chapters then
+                        for index, chapter in ipairs(dl.selected) do
+                            Content.register_annotation_document(target, chapter_paths[tostring(chapter.chapterUid or index)], { chapter })
+                        end
+                    else
+                        Content.register_annotation_document(target, path, dl.resumable and dl.chapters or dl.selected)
+                    end
+                end
                 if dl.single_chapter then
                     local chapter = dl.selected[1]
                     target.cached_chapters[tostring(chapter.chapterUid or 1)] = path
@@ -1323,10 +1347,11 @@ function Downloader:_step(dl)
     local started = time.now()
     local ok, result = pcall(function()
         return self:_runInterruptible(dl, function()
-            local xhtml = Content.fetch_single_chapter_source(
+            local xhtml, source = Content.fetch_single_chapter_source(
                 self.client, self.settings, dl.book, chapter, dl.state)
+            local receipt = source and Content.store_position_source(dl.workspace, dl.book, chapter, source)
             FileIdentity.check(dl.source_identity, dl.book)
-            return { xhtml = xhtml, state = dl.state, book = reader_book(dl.book),
+            return { xhtml = xhtml, position_receipt = receipt, state = dl.state, book = reader_book(dl.book),
                 source_changed = dl.source_identity and dl.source_identity.changed }
         end)
     end)
@@ -1345,6 +1370,10 @@ function Downloader:_step(dl)
         dl.chapter_source_retries[tostring(chapter.chapterUid or dl.index)] = nil
     end
     local uid = tostring(chapter.chapterUid or dl.index)
+    if not dl.resumable then
+        dl.position_sources = dl.position_sources or {}
+        dl.position_sources[uid] = result.position_receipt
+    end
     local scan_ok, scan = pcall(Footnotes.scan_chapter, xhtml, chapter)
     dl.footnote_scans = dl.footnote_scans or {}
     if scan_ok then
@@ -1353,7 +1382,7 @@ function Downloader:_step(dl)
         logger.warn("footnote scan failed; chapter will keep original footnote markup:",
             "chapter_uid=", uid, "error=", log_error(scan))
     end
-    dl.current = { chapter = chapter, xhtml = xhtml }
+    dl.current = { chapter = chapter, xhtml = xhtml, position_receipt = result.position_receipt }
     self:_finishChapter(dl)
 end
 
