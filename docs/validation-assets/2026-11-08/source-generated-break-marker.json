@@ -1,0 +1,19 @@
+{
+  "synthetic_source": "<html><body>）；</body></html>",
+  "synthetic_nodes": [
+    {
+      "co": 12,
+      "text": "）​；"
+    }
+  ],
+  "model_segments": [
+    [
+      12,
+      "）；"
+    ]
+  ],
+  "evaluations": 9,
+  "source_kind": "synthetic_minimal_reproducer",
+  "private_book_text_included": false,
+  "original_source_coordinates_reassigned": false
+}

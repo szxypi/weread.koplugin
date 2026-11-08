@@ -340,14 +340,25 @@ python3 scripts/test_source_archive_runtime.py \
 ### 真实账号的只读前置核对
 
 `scripts/verify_web_source_progress.py` 默认只运行离线检查，不联网，也不读取设备设置或日常浏览器凭据。
-显式交互模式重新扫码登录，账号与章节原文只留在同一进程内存中；退出后清理 Cookie 和临时二维码。
+交互模式默认仅在内存中保留登录和原文，退出后清理进程 Cookie 和临时二维码。
 它不复用包含写入测试分支的 `verify_progress_sync.py`。
+默认不持久化凭证。显式 `--save-session` 在账号核验后立即保存到本机 macOS 钥匙串，并回读校验；
+后续 `--saved-session` 每次重新核对账号，不读取日常浏览器凭据。目标未完成时保留该项目条目，
+最终验收收尾或主动撤销授权时用 `--clear-saved-session` 删除。原文始终只在内存中，不写入钥匙串或文件。
 
 ```sh
 python3 scripts/verify_web_source_progress.py
 # 需要本机 qrcode 依赖，并由账号本人扫码；报告路径必须尚不存在。
 python3 scripts/verify_web_source_progress.py --interactive --book-id 3300237584 \
   --output /absolute/path/to/new-read-only-report.json
+# 明确允许保留本轮开发凭证时，扫码成功后保存；只读选择最多八本已有书籍中的有效位置。
+python3 scripts/verify_web_source_progress.py --interactive --save-session --select-shelf-book \
+  --output /absolute/path/to/new-saved-login-report.json
+# 后续验证复用钥匙串；可选安装 Playwright／Chrome 核对当前官方解析器。
+python3 scripts/verify_web_source_progress.py --saved-session --select-shelf-book --official-parser \
+  --output /absolute/path/to/new-official-parser-report.json
+# 整体目标验收收尾时执行；开发验证期间不自动删除。
+python3 scripts/verify_web_source_progress.py --clear-saved-session
 ```
 
 交互流程读取指定书籍的云端位置、同章网页状态、目录及原始正文分片，再读取目录和云端位置。
@@ -355,12 +366,28 @@ python3 scripts/verify_web_source_progress.py --interactive --book-id 3300237584
 进度／时长／书架／批注写入及续期端点不在允许范围内，跳转也不跟随。
 账号、书籍和章节必须匹配，超限响应拒绝，读取期间位置或目录改变不会记作稳定比对。
 零点、空白、表情标量内部及重复文本的坐标不能通过向后猜测得到正文位置。
+书架选择通过已实测的 Web `/web/shelf/sync`，不需要官方接口密钥。
+零章节／零位置的占位数据不猜作第一章；只跳过明确未读或没有位置的候选，错误书籍响应立即停止。
 
 报告只包含受控阶段、状态、数量及比较结果，不包含账号／书籍标识、位置值、正文、会话参数或登录链接。
 即使两次位置一致且本地模型能反查，也仍保留 `PARTIAL`，不宣称坐标含义或服务端版本语义已证明。
-18 组离线测试覆盖完整合成读取链、请求范围、账号／章节错配、源读取期间变化、版本字段冲突、异常去敏和退出清理。
-真实扫码后的源位置／版本对照仍待执行；本工具没有接入 Lua 或开启精确云端上传。
+23 组只读流程、11 组安全保存边界及 5 组浏览器隔离检查通过；本工具没有接入 Lua 或开启精确云端上传。
 匿名登录页面与会话 UID 已以两个固定 GET 实测为 HTTP 200；未登录账号，不将出票成功当作位置验证通过。
+
+后续真实扫码、钥匙串保存／跨进程复用及账号回读通过，Web 书架回读 139 本。
+[实际账号去敏结果](validation-assets/2026-11-08/web-source-owner-readonly.json) 记录一个已读样本：
+云端前后位置与网页位置一致，目录稳定，原文可唯一反查；当前官方解析器的 11,430 个节点通过核对，目标节点存在。
+Lua 的完整文本段和规范化文本与 Python 相同，另核对 3 个引文、9 个内部标量边界及当前云端目标的双向转换。
+私有原文进入全新匿名浏览器前已关闭网络、阻断 HTTP 和 WebSocket；不在浏览器中安装账号 Cookie。
+可选 `--lua-command` 必须放最后，原文仅经本机进程的标准输入／输出内存管道核对，不回显内容。
+
+实际核对发现网页在部分标点间插入 U+200B 断行标记，合成最小例子是原文 `）；` 对应节点 `）\u200b；`。
+验证器仅允许额外的浏览器标记，不跳过原文单元、不移动坐标，也不接受只有生成标记的节点。
+修复后另完成公开的 30 组来源／1,000 个节点、40 个引文与 120 个内部标量边界复验。
+实际样本含 32 个生成标记节点；没有将标记加入 Lua 原文模型。
+
+以上仍为单本只读观察：目录只观察到 `book.version`，尚未证明与网页版本的对应含义。
+原文云端目标适配、精确写后回读、多设备与实体 KO2 均未完成，保留 `PARTIAL`。
 
 ### 后续步骤
 
@@ -369,6 +396,6 @@ python3 scripts/verify_web_source_progress.py --interactive --book-id 3300237584
    不能从文件 metadata 推断当前服务端版本。
 3. 跨段／重复上下文、章节资源归属、双向转换、字号／滚动和取消核心已验证；ReaderUI 实际当前位置、
    后台准备及账号／阅读会话生命周期已接入本地采集。本地原文目标的精确跳转和未翻页保留已接入；继续验证云端目标适配，并补齐复杂内容及真机覆盖。
-4. 完成真实只读位置对照后，再验证明确授权的一次进度写入与独立回读；多设备和实体 KO2 另行验收。
+4. 单本真实只读位置对照已完成；继续核对版本含义和适配，再验证明确授权的一次进度写入与独立回读；多设备和实体 KO2 另行验收。
 
 以上仍是原始目标中未完成的精确进度工作，不将本原型的局部验证记作插件功能已完成。

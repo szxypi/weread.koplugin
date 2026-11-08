@@ -98,6 +98,23 @@ class SourceCoordinateTests(unittest.TestCase):
                 probe.request(url, body)
         opener.open.assert_not_called()
 
+    def test_official_generated_break_markers_do_not_change_source_coordinates(self):
+        raw='<html><body>）；</body></html>'
+        co=raw.index('）');statistics={}
+        rows=[dict(co=co,text='）\u200b；')]
+        self.assertEqual(check_parser_rows(raw,rows,statistics=statistics,model=FilteredSource(raw)),1)
+        self.assertEqual(statistics['generated_break_marker_nodes'],1)
+        self.assertEqual(''.join(FilteredSource(raw).characters),'）；')
+        for bad in (dict(co=co+1,text='）\u200b；'),dict(co=co,text='\u200b'),dict(co=co,text='）\u200b。')):
+            with self.assertRaises(CoordinateError):check_parser_rows(raw,[bad],model=FilteredSource(raw))
+
+    def test_original_break_markers_are_not_skipped_or_reassigned(self):
+        raw='<html><body>）\u200b；</body></html>'
+        co=raw.index('）')
+        self.assertEqual(check_parser_rows(raw,[dict(co=co,text='）\u200b\u200b；')],model=FilteredSource(raw)),1)
+        with self.assertRaises(CoordinateError):
+            check_parser_rows(raw,[dict(co=co+1,text='；')],model=FilteredSource(raw))
+
     def test_official_split_surrogate_glyphs_are_recorded_and_not_generalized(self):
         raw, offsets = boundaries('<p>😀。</p>')
         co = offsets[raw.index('😀')]

@@ -74,7 +74,9 @@ class WebSourceProgressTests(unittest.TestCase):
         self.assertFalse(data['precision_wire_sync_enabled'])
 
     def test_explicit_book_and_interactive_flag_are_paired_before_network(self):
-        for args in (['--interactive'], ['--book-id', BOOK], ['--interactive', '--book-id', 'bad-cookie-value']):
+        for args in (['--interactive'], ['--book-id', BOOK], ['--interactive', '--book-id', 'bad-cookie-value'],
+                     ['--save-session'], ['--saved-session'], ['--clear-saved-session', '--book-id', BOOK],
+                     ['--official-parser'], ['--lua-command', 'local-probe']):
             with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit), patch('verify_web_source_progress.WebSourceProbe') as constructor:
                 main(args)
             constructor.assert_not_called()
@@ -222,6 +224,41 @@ class WebSourceProgressTests(unittest.TestCase):
     def test_observed_versions_are_bounded_and_not_semantic_proof(self):
         self.assertEqual(versions(dict(bookVersion=7, book=dict(version='8'))), {'record.bookVersion': 7, 'book.version': 8})
         self.assertEqual(versions(dict(version=True, bookVersion='private-token', contentVersion=2**64)), {})
+
+    def test_zero_chapter_placeholder_is_not_a_guessed_first_chapter(self):
+        data=dict(bookId=BOOK,chapterUid=0,chapterOffset=0,progress=0)
+        with self.assertRaisesRegex(PreflightError,'^position_has_no_chapter$'):position(data,BOOK)
+        for patch_value in (dict(chapterOffset=1),dict(progress=1),dict(chapterUid=False)):
+            value=dict(data,**patch_value)
+            with self.assertRaises(PreflightError):position(value,BOOK)
+
+    def test_shelf_selection_skips_unread_and_zero_placeholders(self):
+        shelf=dict(books=[dict(bookId='900000'),dict(bookInfo=dict(bookId=BOOK)),dict(bookId='900002')])
+        rows=[shelf,dict(bookId='900000',book=dict(chapterUid=0,chapterOffset=0,progress=0)),dict(book=remote())]
+        probe,opener=ready(rows)
+        self.assertEqual(probe.select_shelf_book(),BOOK)
+        self.assertEqual(len(opener.calls),3)
+        self.assertEqual(probe.report['selection_attempts'],2)
+
+    def test_shelf_selection_is_bounded_and_deduplicated(self):
+        books=[dict(bookId=str(900000+i)) for i in range(12)]
+        rows=[dict(books=[*books,*books]),*(dict(book=dict(recordReadingTime=0)) for _i in range(8))]
+        probe,opener=ready(rows)
+        with self.assertRaisesRegex(PreflightError,'^no_position_in_bounded_shelf_sample$'):probe.select_shelf_book()
+        self.assertEqual(len(opener.calls),9)
+        self.assertEqual(probe.report['selection_attempts'],8)
+
+    def test_shelf_selection_stops_on_wrong_book_instead_of_trying_another(self):
+        probe,opener=ready([dict(books=[dict(bookId=BOOK),dict(bookId='900002')]),dict(book=remote(book_id='unused'))])
+        opener.rows[1]={'bookId':'900003','book':remote()}
+        with self.assertRaisesRegex(PreflightError,'^position_book_mismatch$'):probe.select_shelf_book()
+        self.assertEqual(len(opener.calls),2)
+
+    def test_shelf_scope_requires_login_and_cannot_be_used_for_writes(self):
+        probe=WebSourceProbe(Opener([]))
+        with self.assertRaises(PreflightError):probe.select_shelf_book()
+        for url,body in ((BASE+'/web/shelf/sync',None),(BASE+'/web/shelf/sync',{}),(BASE+'/web/shelf/add',{})):
+            with self.assertRaises(PreflightError):probe.request('shelf',url,body)
 
     def test_report_is_exclusive_and_has_restricted_permissions(self):
         with tempfile.TemporaryDirectory() as root:

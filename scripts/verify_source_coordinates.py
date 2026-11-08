@@ -44,6 +44,7 @@ FIXTURES = (
     '<html><head><style>p{color:red}</style></head><body><!--注释--><p>前文\r\n后文</p><script>hidden</script></body></html>',
     '\ufeff<html><body><p>带字节序标记的原始正文</p></body></html>',
     '<html><body><p>前文\r\n后文\n尾声</p></body></html>',
+    '<html><body><p>合成标点）；后续正文用于核对官方自动断行标记。</p></body></html>',
     '<html><body>' + ''.join('<' + tag + '>Tag' + str(index) + '正文</' + tag + '>'
                             for index, tag in enumerate(sorted(BODY_TAGS - {'body'}))) + '</body></html>',
 )
@@ -389,6 +390,25 @@ PARSE_SOURCES = """sources => {
 }"""
 
 
+def generated_marker_prefix(expected, actual):
+    """Match original UTF-16 units, allowing only extra browser break markers.
+
+    parse() inserts U+200B between some punctuation (observed with `）；`).
+    Never consume/skip source units, move a coordinate, or accept marker-only
+    output. Markers already in the original source still have their own width.
+    """
+    cursor, inserted = 0, 0
+    for at in range(0, len(actual), 2):
+        unit = actual[at:at + 2]
+        if expected[cursor:cursor + 2] == unit:
+            cursor += 2
+        elif unit == b"\x0b\x20":
+            inserted += 1
+        else:
+            return False
+    return cursor > 0 and inserted > 0
+
+
 def check_parser_rows(raw, rows, statistics=None, model=None):
     raw, _offsets = boundaries(raw)
     streams = [(0, raw.encode("utf-16-le"))] if model is None else [
@@ -411,6 +431,8 @@ def check_parser_rows(raw, rows, statistics=None, model=None):
             kind = None
             if expected.startswith(actual):
                 matched = True
+            elif generated_marker_prefix(expected, actual) or generated_marker_prefix(encoded[position:end], actual):
+                kind, matched = "generated_break_marker_nodes", True
             elif text == "\n" and tail.startswith("\r"):
                 kind, matched = "normalized_newline_nodes", True
             elif tail.encode("utf-16-le", "surrogatepass").startswith(actual):
@@ -429,7 +451,9 @@ def check_parser_rows(raw, rows, statistics=None, model=None):
     return len(rows)
 
 
-def check_lua(command, sources, rows):
+def check_lua(command, sources, rows, targets=None):
+    if targets is not None and (not isinstance(targets, (list, tuple)) or len(targets) != len(sources)):
+        raise CoordinateError("lua: invalid current target")
     payload, expected = [], []
     for raw in sources:
         model = FilteredSource(raw)
@@ -448,7 +472,13 @@ def check_lua(command, sources, rows):
                 co=model.ends[visible[first + len(quote) - 1]] if offset == len(quote)
                 else model.starts[visible[first + offset]])
                 for offset in sorted({0, len(quote) // 2, len(quote)})])
-        payload.append(dict(html=raw, queries=queries))
+        item = dict(html=raw, queries=queries)
+        if targets is not None:
+            target = targets[len(payload)]
+            if type(target) is not int or target < 0:
+                raise CoordinateError("lua: invalid current target")
+            item["target_co"] = target
+        payload.append(item)
         expected.append((model, flat, positions, scalar_points))
     try:
         result = subprocess.run(command, input=json.dumps(dict(sources=payload)), text=True,
@@ -462,19 +492,36 @@ def check_lua(command, sources, rows):
         raise CoordinateError("lua: probe unavailable or malformed") from None
     if not isinstance(maps, list) or len(maps) != len(expected):
         raise CoordinateError("lua: map count mismatch")
-    points = scalar_count = nodes = 0
-    for raw, actual, reference, parsed_rows in zip(sources, maps, expected, rows, strict=True):
+    points = scalar_count = nodes = target_count = 0
+    for index, (raw, actual, reference, parsed_rows) in enumerate(zip(sources, maps, expected, rows, strict=True)):
         model, flat, positions, scalar_points = reference
         if (not isinstance(actual, dict) or actual.get('segments') != [list(segment) for segment in model.segments]
                 or actual.get('flat') != flat or actual.get('positions') != positions
                 or actual.get('scalar_positions') != scalar_points):
             raise CoordinateError("lua: model or local-position mismatch")
+        if targets is not None:
+            anchor = actual.get("target_anchor")
+            if not isinstance(anchor, dict) or not isinstance(anchor.get("text"), str):
+                raise CoordinateError("lua: current target mismatch")
+            quote, offset = anchor["text"], anchor.get("point_offset")
+            first = flat.find(quote)
+            if (not quote or first < 0 or flat.find(quote, first + 1) >= 0 or type(offset) is not int
+                    or not 0 <= offset <= len(quote) or anchor.get("co") != targets[index]):
+                raise CoordinateError("lua: current target mismatch")
+            visible = [at for at, char in enumerate(model.characters) if not char.isspace()]
+            co = model.ends[visible[first + len(quote) - 1]] if offset == len(quote) else model.starts[visible[first + offset]]
+            if co != targets[index]:
+                raise CoordinateError("lua: current target mismatch")
+            target_count += 1
         # Equal streams are also checked against the independently executed
         # official parser; this is not only a Lua/Python implementation match.
         nodes += check_parser_rows(raw, parsed_rows, model=model)
         points += len(positions)
         scalar_count += sum(map(len, scalar_points))
-    return dict(lua_verified=True, lua_cases=len(maps), lua_positions=points, lua_scalar_positions=scalar_count, lua_official_text_nodes=nodes)
+    result = dict(lua_verified=True, lua_cases=len(maps), lua_positions=points, lua_scalar_positions=scalar_count, lua_official_text_nodes=nodes)
+    if targets is not None:
+        result["lua_current_targets_verified"] = target_count
+    return result
 
 
 def verify_public(book_id, channel="chrome", lua_command=None):

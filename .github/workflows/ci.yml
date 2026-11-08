@@ -71,6 +71,12 @@ jobs:
       - name: Web source-position read-only preflight checks
         run: python3 scripts/test_web_source_progress.py
 
+      - name: Saved Web session boundary checks
+        run: python3 scripts/test_secure_weread_session.py
+
+      - name: Private source parser isolation checks
+        run: python3 scripts/test_source_parser_preflight.py
+
       - name: Release package smoke test
         run: bash scripts/package_release.sh /tmp/weread.koplugin-release-test.zip
 

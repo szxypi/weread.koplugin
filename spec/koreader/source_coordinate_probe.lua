@@ -24,6 +24,13 @@ for index, source in ipairs(payload.sources) do
             scalar_positions[query][i] = { co = point.co, point_offset = offset }
         end
     end
-    maps[index] = { segments = json.array(map.segments), flat = map.flat, positions = positions, scalar_positions = scalar_positions }
+    local target
+    if source.target_co ~= nil then
+        target = assert(map:anchor(source.target_co))
+        local roundtrip = assert(map:locate_point(target.text, target.point_offset))
+        assert(roundtrip.co == source.target_co, "current target did not roundtrip")
+    end
+    maps[index] = { segments = json.array(map.segments), flat = map.flat, positions = positions,
+        scalar_positions = scalar_positions, target_anchor = target }
 end
 io.stdout:write(json.encode({ maps = maps }))
