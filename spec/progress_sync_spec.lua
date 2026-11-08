@@ -51,6 +51,7 @@ local function fixture(remote, options)
         },
     }
     local values = {
+        account = { user_vid = "fixture-account-a" },
         sync = {
             pull_on_open = true,
             upload_on_close = true,
@@ -146,6 +147,7 @@ local function fixture(remote, options)
         jumps = jumps,
         notifications = notifications,
         queue = queue,
+        client = client,
         step = step,
         drain = drain,
     }
@@ -329,7 +331,7 @@ test("busy read report is retried with the immutable snapshot", function()
         "retry success clears pending snapshot")
 end)
 
-test("suspend captures movement even without a page event", function()
+test("suspend parks movement locally without starting network work", function()
     local f = fixture({
         bookId = "book",
         progress = 25,
@@ -342,8 +344,9 @@ test("suspend captures movement even without a page event", function()
     f.drain()
     f.document.page = 40
     f.sync:on_suspend()
-    eq(#f.uploads, 1, "suspend uploads captured movement")
-    eq(f.uploads[1].percent, 40, "suspend uses current page")
+    eq(#f.uploads, 0, "suspend does not start network work")
+    eq(f.values.books.book.pending_upload_position.percent, 40, "suspend saves current page")
+    eq(f.values.books.book.pending_upload_account, f.sync:_account_key(), "suspend binds pending location to account")
 end)
 
 test("single chapter cloud choice waits for target chapter then jumps", function()
@@ -626,6 +629,246 @@ test("a fresh automatic pull replaces an older retry chain", function()
     eq(#f.queue, 1, "stale chain does not schedule another retry")
     f.step()
     eq(#f.queue, 1, "replacement chain remains active")
+end)
+
+test("closed session discards queued pulls before network work", function()
+    local callbacks, requests = {}, 0
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.client.get_progress = function() requests = requests + 1 return {} end
+    f.client.get_web_progress = f.client.get_progress
+    f.sync:on_reader_ready()
+    f.drain()
+    f.sync:on_close_document()
+    callbacks[1]()
+    eq(requests, 0, "closed pull never sends a request")
+    eq(f.sync.pulling, false, "close releases pull ownership")
+end)
+
+test("old pull cannot clear a replacement session's pull", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync:on_reader_ready()
+    f.drain()
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(#callbacks, 2, "reopen starts a fresh pull")
+    callbacks[1]()
+    eq(f.sync.pulling, true, "stale completion preserves new pull ownership")
+    if callbacks[2] then callbacks[2]() end
+    eq(f.sync.pulling, false, "current pull completes")
+end)
+
+test("account switch cancels queued uploads and busy retries", function()
+    for _, busy in ipairs({ false, true }) do
+        local callbacks, attempts = {}, 0
+        local f = fixture({}, { run_online = function(_kind, callback)
+            callbacks[#callbacks + 1] = callback
+            return true
+        end })
+        f.sync.upload_position = function()
+            attempts = attempts + 1
+            return not busy, { error_kind = "busy" }
+        end
+        local position = assert(f.sync:capture_local())
+        f.sync:_upload_snapshot(position, "manual_sync", true)
+        if busy then callbacks[1]() end
+        f.values.account.user_vid = "fixture-account-b"
+        if busy then f.drain() else callbacks[1]() end
+        eq(attempts, busy and 1 or 0, "stale account never dispatches another upload")
+        eq(f.sync.uploading, false, "stale account releases upload ownership")
+        eq(#f.notifications, 0, "stale account shows no completion notification")
+        eq(f.values.books.book.last_uploaded_position, nil, "stale account receives no acknowledgement")
+    end
+end)
+
+test("old remote-jump refresh cannot persist another book's location", function()
+    local f = fixture({ bookId = "book", progress = 50, chapterUid = 33, chapterOffset = 100 })
+    f.sync:on_reader_ready()
+    f.drain()
+    f.choices[1].use_remote()
+    local before = f.values.books.book.last_local_position
+    f.sync.detect_book = function() return "other" end
+    f.document.file = "/cache/other.epub"
+    f.drain()
+    eq(f.values.books.book.last_local_position, before, "late jump refresh leaves old book untouched")
+end)
+
+test("upload acknowledgement preserves newer movement and pending snapshot", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync.verified = true
+    local first = assert(f.sync:capture_local())
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page = 75
+    local latest = assert(f.sync:capture_local())
+    f.sync.local_position = latest
+    f.sync.dirty = true
+    f.sync:_upload_snapshot(latest, "document_close", false)
+    callbacks[1]()
+    eq((f.values.books.book.pending_upload_position or {}).percent, 75, "acknowledgement retains newer pending location")
+    eq((f.values.books.book.last_local_position or {}).percent, 75, "acknowledgement does not rewind local state")
+    eq(f.sync.dirty, true, "movement after dispatch remains dirty")
+end)
+
+test("close upload survives document teardown without changing the next session", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync.verified, f.sync.dirty = true, true
+    f.sync:on_close_document()
+    f.sync.detect_book = function() return "other" end
+    f.document.file = "/cache/other.epub"
+    f.sync:on_reader_ready()
+    f.sync.state, f.sync.dirty = "waiting", true
+    callbacks[1]()
+    eq(#f.uploads, 1, "same-account close upload completes")
+    eq(f.uploads[1].book_id, "book", "close keeps original book identity")
+    eq(f.sync.state, "waiting", "old acknowledgement preserves next session state")
+    eq(f.sync.dirty, true, "old acknowledgement preserves next session movement")
+end)
+
+test("queued pull compares the live page and local choice captures current movement", function()
+    local callbacks = {}
+    local f = fixture({ bookId = "book", progress = 50, chapterUid = 33, chapterOffset = 100 }, {
+        run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback return true end,
+    })
+    f.sync:on_reader_ready()
+    f.drain()
+    f.document.page = 50
+    callbacks[1]()
+    eq(#f.choices, 0, "page changed while queued already matches cloud")
+    f.document.page = 25
+    f.sync:sync_now()
+    callbacks[2]()
+    f.document.page = 75
+    f.choices[1].keep_local()
+    callbacks[3]()
+    eq(f.uploads[1].percent, 75, "keep local uses latest local page")
+    f.choices[1].keep_local()
+    eq(#callbacks, 3, "conflict decision only executes once")
+end)
+
+test("account transition revokes decisions and pending cross-chapter jumps", function()
+    local f = fixture({ bookId = "book", progress = 50, chapterUid = 33, chapterOffset = 100 })
+    f.sync:on_reader_ready()
+    f.drain()
+    local choice = f.choices[1]
+    f.sync:on_account_changed()
+    choice.keep_local()
+    choice.use_remote()
+    eq(#f.uploads, 0, "old decision cannot upload after reauthentication")
+    eq(#f.jumps, 0, "old decision cannot navigate after reauthentication")
+    eq(f.sync.verified, false, "new account starts with an unverified reader")
+    f.sync.pending_jump = { book_id = "book", account_generation = 0, account = "old-account", chapter_uid = 22 }
+    eq(f.sync:_apply_pending_jump("book"), false, "old account's chapter jump is discarded")
+    eq(f.sync.pending_jump, nil, "old chapter intent removed")
+end)
+
+test("account changes during the first source prevent the second source request", function()
+    local f = fixture({})
+    local web_calls = 0
+    f.client.get_progress = function()
+        f.values.account.user_vid = "fixture-account-b"
+        return {}
+    end
+    f.client.get_web_progress = function() web_calls = web_calls + 1 return {} end
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(web_calls, 0, "second source never uses replacement account credentials")
+    eq(f.values.books.book.last_remote_position, nil, "mixed-account source result not persisted")
+end)
+
+test("selecting cloud cancels queued local writes", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback return true
+    end })
+    local local_position, _, context = f.sync:capture_local()
+    f.sync:_upload_snapshot(local_position, "manual_sync", true)
+    assert(f.sync:_apply_remote({ percent = 50, chapter_uid = 33, chapter_offset = 100 }, context))
+    callbacks[1]()
+    eq(#f.uploads, 0, "cloud selection cancels queued local upload")
+    eq(f.values.books.book.pending_upload_position, nil, "superseded local intent removed")
+    eq(f.sync.uploading, false, "superseded upload ownership released")
+end)
+
+test("suspend invalidates queued pulls and short resume retries unverified session", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback return true
+    end })
+    local requests = 0
+    f.client.get_progress = function() requests = requests + 1 return {} end
+    f.sync:on_reader_ready()
+    f.drain()
+    f.sync:on_suspend()
+    callbacks[1]()
+    eq(requests, 0, "suspend cancels queued reads")
+    f.sync:on_resume()
+    eq(#callbacks, 2, "short resume retries a cancelled unverified pull")
+end)
+
+test("wake does not replay a queued pre-suspend upload ahead of cloud recheck", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback return true
+    end })
+    f.sync.verified, f.sync.dirty = true, true
+    local position = assert(f.sync:capture_local())
+    f.sync:_upload_snapshot(position, "manual_sync", false)
+    f.sync:on_suspend()
+    f.sync:on_resume()
+    callbacks[1]()
+    eq(#f.uploads, 0, "pre-suspend upload remains cancelled after wake")
+    eq(f.sync.verified, false, "time reporting waits for cloud comparison")
+    eq(f.sync.pulling, true, "wake starts a fresh cloud comparison")
+    eq(f.values.books.book.pending_upload_position.percent, position.percent, "wake retains unsent local intent")
+end)
+
+test("reopening the same book cancels its previous session's queued close upload", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback return true
+    end })
+    f.sync.verified, f.sync.dirty = true, true
+    f.sync:on_close_document()
+    f.sync:on_reader_ready()
+    callbacks[1]()
+    eq(#f.uploads, 0, "reopened book supersedes old close upload")
+    eq(f.sync.uploading, false, "old close upload no longer blocks current session")
+end)
+
+test("a matching cloud read discards superseded pending intent", function()
+    local f = fixture({ bookId = "book", progress = 25, chapterUid = 22, chapterOffset = 150 })
+    f.values.books.book.pending_upload_position = { book_id = "book", percent = 10 }
+    f.values.books.book.pending_upload_account = f.sync:_account_key()
+    f.sync:on_reader_ready()
+    f.drain()
+    eq(f.values.books.book.pending_upload_position, nil, "aligned current location replaces old unsent intent")
+    eq(f.sync.verified, true, "matching cloud location still verifies reporting")
+end)
+
+test("late jump refresh preserves a subsequent page turn", function()
+    local f = fixture({ bookId = "book", progress = 50, chapterUid = 33, chapterOffset = 100 })
+    f.sync:on_reader_ready()
+    f.drain()
+    f.choices[1].use_remote()
+    f.document.page = 75
+    f.sync:on_page_update()
+    f.drain()
+    eq(f.sync.dirty, true, "jump refresh does not acknowledge a later page turn")
+    eq(f.sync.local_position.percent, 75, "jump refresh keeps the actual current page")
 end)
 
 print(string.format(

@@ -72,6 +72,71 @@ reader.rolling:onGotoPage(2)
 fastforward_ui_events()
 assert(reader:getCurrentPage() == 2, "real page turn")
 Screen:shot(home .. "/../evidence/mock-page-2.png")
+-- Session races use the real ReaderUI document, native scheduling, Client and
+-- on-disk reading state. Only link availability is fixed; traffic still goes
+-- through the fail-closed local mock, never to a production account.
+local plugin = reader.weread
+local sync = plugin.progress_sync
+local online, connected = plugin.isNetworkOnline, plugin.isNetworkConnected
+plugin.isNetworkOnline, plugin.isNetworkConnected = function() return true end, function() return true end
+local function request_count(route_path, api)
+    local chunks = {}
+    local _, status = http.request{
+        url = settings.mock_endpoint .. "/__state", proxy = settings.mock_endpoint,
+        sink = require("ltn12").sink.table(chunks),
+    }
+    assert(status == 200, "mock state unavailable")
+    local state = client:json_decode(table.concat(chunks))
+    local count = 0
+    for _, request in ipairs(state.requests) do
+        if request.path == route_path and (not api or request.api == api) then count = count + 1 end
+    end
+    return count
+end
+local writes_before = request_count("/web/book/read")
+local pulls_before = request_count("/web/book/getProgress") + request_count("/api/agent/gateway", "/book/getprogress")
+local position = assert(sync:capture_local())
+assert(sync:_upload_snapshot(position, "manual_sync", false), "queued progress upload did not start")
+assert(sync:sync_now(), "queued progress pull did not start")
+local account = plugin.settings:get("account")
+plugin.settings:set("account", { name = "Other mock", user_vid = "900099", login_method = "mock" })
+plugin.settings:flush()
+plugin:onWeReadAccountChanged()
+fastforward_ui_events()
+assert(request_count("/web/book/read") == writes_before, "old upload reached replacement account")
+assert(request_count("/web/book/getProgress") + request_count("/api/agent/gateway", "/book/getprogress") == pulls_before,
+    "old pull reached replacement account")
+assert(not sync.verified and not sync.uploading and not sync.pulling, "account transition retained a verified or busy session")
+plugin.settings:set("account", account)
+plugin.settings:flush()
+plugin:onWeReadAccountChanged()
+position = assert(sync:capture_local())
+assert(sync:_upload_snapshot(position, "manual_sync", false), "current-account upload did not start")
+fastforward_ui_events()
+assert(request_count("/web/book/read") > writes_before, "valid upload never reached real Client/HTTP")
+local saved = plugin.settings:get("books")[position.book_id]
+assert(saved.last_uploaded_position and not saved.pending_upload_position, "successful upload not persisted")
+assert(saved.last_uploaded_position.chapter_uid == position.chapter_uid, "acknowledgement changed chapter identity")
+local remote = plugin.client:get_progress(position.book_id)
+assert(remote.book.progress == position.percent, "mock cloud readback differs from uploaded position")
+local sync_config = plugin.settings:get("sync")
+local old_pull, old_upload = sync_config.pull_on_open, sync_config.upload_on_close
+sync_config.pull_on_open, sync_config.upload_on_close = true, true
+plugin.settings:set("sync", sync_config)
+writes_before = request_count("/web/book/read")
+pulls_before = request_count("/web/book/getProgress")
+assert(sync:_upload_snapshot(position, "manual_sync", false), "pre-suspend upload did not queue")
+plugin:onSuspend()
+plugin:onResume()
+fastforward_ui_events()
+assert(request_count("/web/book/read") == writes_before, "wake replayed pre-suspend local upload")
+assert(request_count("/web/book/getProgress") > pulls_before and sync.verified,
+    "wake did not compare cloud progress before reopening reporting gate")
+sync_config.pull_on_open, sync_config.upload_on_close = old_pull, old_upload
+plugin.settings:set("sync", sync_config)
+plugin.settings:flush()
+plugin.isNetworkOnline, plugin.isNetworkConnected = online, connected
+print("PASS: real ReaderUI account/suspend cancels queued HTTP; valid upload persists/readbacks; wake compares cloud first")
 -- Exercise the real event loop, subprocesses, resume workspace, and packaging.
 local completed, full_path, download_error
 local function deadline()

@@ -19,6 +19,7 @@ local reading_fields = {
     pclts = true,
     pending_upload_position = true,
     pending_upload_reason = true,
+    pending_upload_account = true,
     progress = true,
     psvts = true,
     read_context_updated_at = true,

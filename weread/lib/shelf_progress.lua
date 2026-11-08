@@ -18,7 +18,8 @@ end
 function M.display(saved, snapshot, account, id)
     -- Legacy local records without an account binding cannot override this account's cloud data.
     local pending = type(saved) == "table" and saved.pending_upload_position
-    if account and saved and saved.recent_read_account == account and type(pending) == "table"
+    local owner = type(saved) == "table" and (saved.pending_upload_account or saved.recent_read_account)
+    if account and owner == account and type(pending) == "table"
         and (pending.book_id == nil or tostring(pending.book_id) == tostring(id)) then
         local value = percent(pending.percent)
         if value then return value, true end

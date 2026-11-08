@@ -41,6 +41,7 @@ local ok, index = BookStore.save(settings, "book/42", {
     author = "Fixture author",
     progress = 37,
     chapter_uid = 9,
+    pending_upload_account = "synthetic-account-key",
     mp_articles = { { title = "Fixture article" } },
     chapters = { { chapterUid = 9 } },
 })
@@ -72,6 +73,11 @@ expect(loaded.title == "Fixture book" and loaded.author == "Fixture author",
     "metadata did not round-trip")
 expect(loaded.progress == 37 and loaded.chapter_uid == 9,
     "reading state did not round-trip")
+expect(loaded.pending_upload_account == "synthetic-account-key", "pending upload account did not round-trip")
+local state_file = assert(io.open(index.cache_dir .. "/reading_state.json", "rb"))
+local state = require("json").decode(state_file:read("*a"))
+state_file:close()
+expect(state.pending_upload_account == "synthetic-account-key", "pending owner escaped the reading-state file")
 expect(loaded.mp_articles[1].title == "Fixture article",
     "article data did not round-trip")
 expect(loaded.chapters == nil,

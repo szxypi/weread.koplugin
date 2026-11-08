@@ -1,4 +1,5 @@
 local PositionMapper = require("weread.lib.position_mapper")
+local Crypto = require("weread.lib.crypto")
 
 local logger = require("weread.lib.logger").scoped("ProgressSync")
 
@@ -76,6 +77,7 @@ function ProgressSync:new(options)
         state = "idle",
         generation = 0,
         pull_retry_token = 0,
+        account_generation = 0,
         dirty = false,
         verified = false,
     }
@@ -84,6 +86,50 @@ end
 
 function ProgressSync:_config()
     return self.settings:get("sync", {})
+end
+
+function ProgressSync:_account_key()
+    local account = self.settings:get("account", {})
+    local vid = type(account) == "table" and account.user_vid
+    if vid == nil or tostring(vid) == "" then return nil end
+    return string.sub(Crypto.sha256_hex("weread-library:" .. tostring(vid)), 1, 20)
+end
+
+function ProgressSync:_scope()
+    return {
+        generation = self.generation, account_generation = self.account_generation,
+        account = self:_account_key(), book_id = tostring(self.detect_book() or ""),
+        path = document_path(self.get_document()),
+    }
+end
+
+function ProgressSync:_account_current(scope)
+    return scope.account_generation == self.account_generation and scope.account == self:_account_key()
+end
+
+function ProgressSync:_session_current(scope)
+    return self:_account_current(scope) and scope.generation == self.generation
+        and scope.book_id == tostring(self.detect_book() or "")
+        and scope.path == document_path(self.get_document())
+end
+
+function ProgressSync:_invalidate_pull()
+    self.pull_retry_token = self.pull_retry_token + 1
+    self.pull_job, self.pulling = nil, false
+end
+
+-- Authentication changes do not change the open EPUB. Invalidate its verified
+-- session explicitly, so old dialogs, tasks and chapter downloads cannot act
+-- with the newly installed credentials.
+function ProgressSync:on_account_changed()
+    self.account_generation = self.account_generation + 1
+    self.generation = self.generation + 1
+    self:_invalidate_pull()
+    self.upload_job, self.uploading = nil, false
+    self.pending_jump, self.document_context = nil, nil
+    self._suspend_pending_upload = nil
+    self.current_book_id, self.local_position, self.remote_position = nil, nil, nil
+    self.verified, self.dirty, self.state = false, false, "unverified"
 end
 
 function ProgressSync:_persist(book_id, patch)
@@ -244,7 +290,7 @@ function ProgressSync:_clear_verified(reason)
     end
 end
 
-function ProgressSync:_fetch_remote(book_id, chapters)
+function ProgressSync:_fetch_remote(book_id, chapters, is_current)
     local gateway
     local web
     local gateway_error
@@ -258,6 +304,7 @@ function ProgressSync:_fetch_remote(book_id, chapters)
             gateway_error = tostring(result)
         end
     end
+    if is_current and not is_current() then return nil, "session_changed" end
     if self.settings:is_cookie_configured() then
         local ok, result = pcall(
             self.client.get_web_progress, self.client, book_id)
@@ -279,6 +326,19 @@ function ProgressSync:_fetch_remote(book_id, chapters)
     return selected
 end
 
+function ProgressSync:_discard_pending_upload(book_id)
+    if self.upload_job and self.upload_job.book_id == book_id then
+        self.upload_job, self.uploading = nil, false
+    end
+    local saved = self.get_book(book_id) or {}
+    local owner = saved.pending_upload_account or saved.recent_read_account
+    if saved.pending_upload_position and owner and owner == self:_account_key() then
+        self:_persist(book_id, {
+            pending_upload_position = false, pending_upload_reason = false, pending_upload_account = false,
+        })
+    end
+end
+
 function ProgressSync:_apply_remote(remote, context, options)
     options = options or {}
     local target, reason = PositionMapper.remote_to_local(
@@ -293,10 +353,15 @@ function ProgressSync:_apply_remote(remote, context, options)
     )
     if not target then return false, reason end
 
+    -- A cloud-position choice supersedes unsent local intent for this book.
+    -- A task already waiting for the reporter must not undo that choice later.
+    self:_discard_pending_upload(context.book_id)
+
     if target.requires_chapter_open then
         self:_clear_verified("switching_chapter")
         self.dirty = false
         self.pending_jump = {
+            account = self:_account_key(), account_generation = self.account_generation,
             book_id = context.book_id,
             chapter_uid = target.chapter
                 and (target.chapter.chapterUid or target.chapter.chapterId),
@@ -327,11 +392,12 @@ function ProgressSync:_apply_remote(remote, context, options)
     if options.manual then
         self.notify("remote_applied", { position = remote })
     end
+    local scope = self:_scope()
     self.scheduler:scheduleIn(0.15, function()
+        if not self:_session_current(scope) then return end
         local position = self:capture_local()
         if position then
             self.local_position = position
-            self.dirty = false
             self:_persist(context.book_id, {
                 last_local_position = position,
             })
@@ -343,21 +409,40 @@ end
 function ProgressSync:_upload_snapshot(position, reason, show_result)
     if type(position) ~= "table" then return false end
     local book_id = tostring(position.book_id or self.current_book_id or "")
-    if book_id == "" or self.uploading then return false end
+    if book_id == "" then return false end
+    position = copy(position)
+    local scope = self:_scope()
+    scope.book_id = book_id
+    if not scope.account then return false end
     self:_persist(book_id, {
+        last_local_position = position,
         pending_upload_position = position,
         pending_upload_reason = reason or "unspecified",
+        pending_upload_account = scope.account,
     })
+    -- Capture the latest location even while an older immutable snapshot is
+    -- waiting on the time reporter. Its eventual acknowledgement may only
+    -- remove that older snapshot, never this new one.
+    if self.uploading then return false end
     if not self.is_online() then
         self.state = "offline"
         if show_result then self.notify("offline", {}) end
         return false
     end
     self.uploading = true
-    self.state = "uploading"
+    if self:_session_current(scope) then self.state = "uploading" end
+    local job = { scope = scope, book_id = book_id }
+    self.upload_job = job
+    local function current()
+        if self.upload_job ~= job then return false end
+        if self:_account_current(scope) then return true end
+        self.upload_job, self.uploading = nil, false
+        return false
+    end
     local attempts = 0
     local attempt
     attempt = function()
+        if not current() then return end
         attempts = attempts + 1
         local ok, accepted, outcome = pcall(
             self.upload_position,
@@ -365,50 +450,62 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
             copy(position),
             0
         )
+        if not current() then return end
         if ok and not accepted and type(outcome) == "table"
             and outcome.error_kind == "busy"
             and attempts < BUSY_RETRY_LIMIT then
             self.scheduler:scheduleIn(BUSY_RETRY_SECONDS, attempt)
             return
         end
-        self.uploading = false
+        self.upload_job, self.uploading = nil, false
         if ok and accepted then
-            self.state = "verified"
-            self.dirty = false
-            self.last_uploaded_position = copy(position)
-            self:_persist(book_id, {
-                last_local_position = position,
+            local book = self.get_book(book_id) or {}
+            local clear_pending = book.pending_upload_account == scope.account
+                and PositionMapper.same_position(book.pending_upload_position, position)
+            local patch = {
                 last_uploaded_position = position,
                 last_upload_at = self.now(),
-                pending_upload_position = false,
-                pending_upload_reason = false,
                 last_sync_error = false,
-            })
+            }
+            if clear_pending then
+                patch.pending_upload_position, patch.pending_upload_reason, patch.pending_upload_account = false, false, false
+            end
+            self:_persist(book_id, patch)
+            local active = self:_session_current(scope)
+            if active then
+                local live = self:capture_local() or self.local_position
+                self.dirty = not PositionMapper.same_position(live, position) or not clear_pending
+                self.last_uploaded_position = copy(position)
+                if not self.pulling and self.state ~= "awaiting_choice" then
+                    self.state = self.verified and "verified" or "unverified"
+                end
+            end
             log("info", "upload accepted:",
                 "book=", book_id,
                 "percent=", tostring(position.percent),
                 "reason=", tostring(reason))
-            if show_result then
+            if show_result and active then
                 self.notify("upload_success", { position = position })
             end
             return
         end
         local error_message = ok and type(outcome) == "table"
             and outcome.error or outcome
-        self.state = "error"
+        local active = self:_session_current(scope)
+        if active then self.state = "error" end
         self:_persist(book_id, {
             last_sync_error = tostring(error_message or "upload_failed"),
         })
         log("warn", "upload failed:", tostring(error_message))
-        if show_result then
+        if show_result and active then
             self.notify("upload_failed", {
                 error = tostring(error_message or "upload_failed"),
             })
         end
     end
     local started = self.run_online("progress_upload", attempt)
-    if not started then
-        self.uploading = false
+    if not started and self.upload_job == job then
+        self.upload_job, self.uploading = nil, false
         self.state = "offline"
     end
     return started == true
@@ -441,6 +538,7 @@ function ProgressSync:_resolve(local_position, remote, context, options)
     )
 
     if comparison == "same" and not remote.conflict then
+        self:_discard_pending_upload(context.book_id)
         self.dirty = false
         self:_mark_verified(
             context.book_id,
@@ -457,10 +555,11 @@ function ProgressSync:_resolve(local_position, remote, context, options)
     local ask = self:_config().ask_on_conflict ~= false
     if remote.conflict or ask then
         self.state = "awaiting_choice"
-        local choice_generation = self.generation
+        local scope, decided = self:_scope(), false
         local function choice_is_current()
-            return choice_generation == self.generation
-                and tostring(self.detect_book() or "") == context.book_id
+            if decided or not self:_session_current(scope) then return false end
+            decided = true
+            return true
         end
         self.on_choice({
             book_title = context.book.title or context.book_id,
@@ -478,7 +577,12 @@ function ProgressSync:_resolve(local_position, remote, context, options)
             end,
             keep_local = function()
                 if not choice_is_current() then return end
-                self:_keep_local(local_position, remote, {
+                local latest, reason = self:capture_local()
+                if not latest then
+                    self.notify("local_unavailable", { error = reason })
+                    return
+                end
+                self:_keep_local(latest, remote, {
                     manual = options.manual,
                     upload_now = true,
                     reason = "explicit_local_choice",
@@ -511,9 +615,9 @@ function ProgressSync:_schedule_pull_retry(options, retry_token)
             "book=", tostring(self.current_book_id))
         return false
     end
-    local generation = self.generation
+    local scope = self:_scope()
     self.scheduler:scheduleIn(PULL_RETRY_DELAY_SECONDS, function()
-        if generation ~= self.generation then return end
+        if not self:_session_current(scope) then return end
         if retry_token ~= self.pull_retry_token then return end
         if self.verified or self.pulling then return end
         if self.state == "awaiting_choice" then return end
@@ -566,14 +670,24 @@ function ProgressSync:_pull(options)
         return false
     end
 
-    local generation = self.generation
+    local scope = self:_scope()
+    local job = { scope = scope }
+    self.pull_job = job
+    local function current()
+        if self.pull_job ~= job then return false end
+        if self:_session_current(scope) then return true end
+        self.pull_job, self.pulling = nil, false
+        return false
+    end
     self.pulling = true
     self.state = "pulling"
     local started = self.run_online("progress_pull", function()
+        if not current() then return end
         if not local_position then
             local book_id = tostring(self.detect_book() or "")
             local refresh_ok, refreshed, refresh_error = pcall(
                 self.refresh_catalog, book_id)
+            if not current() then return end
             if not refresh_ok then
                 refresh_error = refreshed
                 refreshed = nil
@@ -581,7 +695,7 @@ function ProgressSync:_pull(options)
             self.document_context = nil
             local_position, reason, context = self:capture_local()
             if not local_position then
-                self.pulling = false
+                self.pull_job, self.pulling = nil, false
                 self.state = "error"
                 self.notify("local_unavailable", {
                     error = refresh_error or reason,
@@ -594,13 +708,11 @@ function ProgressSync:_pull(options)
         end
         local remote, pull_error = self:_fetch_remote(
             context.book_id,
-            context.chapters
+            context.chapters,
+            current
         )
-        self.pulling = false
-        if generation ~= self.generation
-            or tostring(self.detect_book() or "") ~= context.book_id then
-            return
-        end
+        if not current() then return end
+        self.pull_job, self.pulling = nil, false
         if not remote then
             self.state = "error"
             self:_persist(context.book_id, {
@@ -612,6 +724,14 @@ function ProgressSync:_pull(options)
             end
             return
         end
+        -- The user may have turned pages while the online task was queued.
+        -- Compare the cloud result with the live page, not the opening page.
+        local_position, reason, context = self:capture_local()
+        if not local_position then
+            self.state = "unsafe"
+            if options.manual then self.notify("local_unavailable", { error = reason }) end
+            return
+        end
         self:_persist(context.book_id, {
             last_remote_position = remote,
             last_local_position = local_position,
@@ -620,8 +740,8 @@ function ProgressSync:_pull(options)
         })
         self:_resolve(local_position, remote, context, options)
     end, { silent_offline = true })
-    if not started then
-        self.pulling = false
+    if not started and self.pull_job == job then
+        self.pull_job, self.pulling = nil, false
         self.state = "offline"
         if options.manual then
             self.notify("offline", {})
@@ -634,6 +754,7 @@ end
 
 function ProgressSync:_apply_pending_jump(book_id)
     local pending = self.pending_jump
+    if pending and not self:_account_current(pending) then self.pending_jump = nil return false end
     if not pending or tostring(pending.book_id) ~= tostring(book_id) then
         return false
     end
@@ -660,7 +781,9 @@ function ProgressSync:_apply_pending_jump(book_id)
     if pending.notify then
         self.notify("remote_applied", { position = pending.remote })
     end
+    local scope = self:_scope()
     self.scheduler:scheduleIn(0.15, function()
+        if not self:_session_current(scope) then return end
         local position = self:capture_local()
         if position then
             self.local_position = position
@@ -681,6 +804,12 @@ end
 
 function ProgressSync:on_reader_ready()
     self.generation = self.generation + 1
+    self:_invalidate_pull()
+    if self.upload_job and self.upload_job.book_id == tostring(self.detect_book() or "") then
+        -- A reopened copy/chapter of this book owns its next cloud comparison.
+        -- Closing another book may still finish its independent final upload.
+        self.upload_job, self.uploading = nil, false
+    end
     local generation = self.generation
     self.current_book_id = nil
     self.local_position = nil
@@ -741,6 +870,7 @@ function ProgressSync:on_close_document()
         end
     end
     self.generation = self.generation + 1
+    self:_invalidate_pull()
     self.current_book_id = nil
     self.verified = false
     self.local_position = nil
@@ -749,6 +879,10 @@ function ProgressSync:on_close_document()
 end
 
 function ProgressSync:on_suspend()
+    self.generation = self.generation + 1
+    self:_invalidate_pull()
+    self._suspend_pending_upload = self.uploading == true
+    self.upload_job, self.uploading = nil, false
     self.suspended_at = self.now()
     local position = self:capture_local() or self.local_position
     if position and self.local_position
@@ -757,17 +891,26 @@ function ProgressSync:on_suspend()
     end
     if position and self.verified and self.dirty
         and self:_config().upload_on_close == true then
-        self:_upload_snapshot(position, "suspend", false)
+        local account = self:_account_key()
+        if account then
+            self:_persist(position.book_id, {
+                last_local_position = position, pending_upload_position = position,
+                pending_upload_reason = "suspend", pending_upload_account = account,
+            })
+            self._suspend_pending_upload = true
+        end
     end
 end
 
 function ProgressSync:on_resume()
     local slept = self.suspended_at and self.now() - self.suspended_at or 0
     self.suspended_at = nil
-    if slept >= RESUME_RECHECK_SECONDS
-        and self:_config().pull_on_open == true then
+    local pending = self._suspend_pending_upload
+    self._suspend_pending_upload = nil
+    local automatic = self:_config().pull_on_open == true
+    if pending or (automatic and (slept >= RESUME_RECHECK_SECONDS or not self.verified)) then
         self:_clear_verified("resume_recheck")
-        self:_pull({ manual = false })
+        if automatic then self:_pull({ manual = false }) end
     end
 end
 

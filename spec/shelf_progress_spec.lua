@@ -21,6 +21,10 @@ local value, pending = Data.display(saved, snapshot, "account-a", "a")
 expect(value == 83 and pending and saved.progress == 83 and snapshot.percent == 37, "local pending display was overwritten")
 expect(Data.display(saved, snapshot, "account-b", "a") == 37, "another account's local progress displayed")
 expect(Data.display(saved, snapshot, "account-a", "b") == 37, "another book's local position displayed")
+saved.pending_upload_account, saved.recent_read_account = "account-a", "account-b"
+expect(Data.display(saved, snapshot, "account-a", "a") == 83, "explicit pending owner lost to recent-reading account")
+expect(Data.display(saved, snapshot, "account-b", "a") == 37, "recent reading transferred another account's pending location")
+saved.pending_upload_account, saved.recent_read_account = nil, "account-a"
 expect(Data.display({}, nil, "account-a", "a") == nil, "missing progress invented")
 local calls = {}
 local ctx = { checkCancelled = function() end, emit = function() end }

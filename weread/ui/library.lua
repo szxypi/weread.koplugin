@@ -134,6 +134,8 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    if self.read_report then self.read_report:stop("account_changed") end
+    if self.progress_sync and self.progress_sync.on_account_changed then self.progress_sync:on_account_changed() end
     self:closeWeReadUI()
     self.discovery_state = nil
     self.discovery_categories = nil

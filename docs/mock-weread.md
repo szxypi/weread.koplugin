@@ -59,8 +59,10 @@ python3 scripts/mock_weread.py --smoke --port 0 \
 1. 用现有打包脚本生成候选 ZIP，解包到独立 `profile/plugins`，写入合成账号。
 2. 启动本地 HTTP 服务；在全局 HTTP 代理不可用时验证直连、书架、目录、正文、划线和想法。
 3. 真实 Content 生成单章 EPUB，真实 ReaderUI 加载插件并渲染第 1/2 页截图。
-4. 真实 Downloader 在 KOReader 事件循环里下载全书，校验 ZIP、六章正文和图片。
-5. 成功退出 0，失败退出非 0；保存 `evidence/smoke.log`、截图、请求日志、候选 ZIP
+4. 使用真实 UI 队列验证账号切换取消旧进度请求、正常上传的磁盘保存与 HTTP 回读，
+   以及休眠回调取消旧上传、唤醒重新比较云端位置。只固定联网状态，服务仍是本地合成数据。
+5. 真实 Downloader 在 KOReader 事件循环里下载全书，校验 ZIP、六章正文和图片。
+6. 成功退出 0，失败退出非 0；保存 `evidence/smoke.log`、截图、请求日志、候选 ZIP
    摘要和 `build.json`。服务随后关闭，不留下后台任务。
 
 这是一组固定冒烟，**不等于 C01–C20 全量验收**，也不包含 ComputerUse 点击。
