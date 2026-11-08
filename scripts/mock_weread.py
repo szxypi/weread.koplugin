@@ -200,6 +200,31 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
+            if path in {"/store/search", "/book/recommend", "/book/detailinfo"} and method == "GET":
+                required = {"maxIdx", "count"}
+                if path == "/store/search":required |= {"keyword", "scope"}
+                if path == "/book/detailinfo":required |= {"bookId", "listtypes", "synckey"}
+                optional = {"sessionId"} if path == "/book/detailinfo" else set()
+                if not required <= set(query) <= required | optional or any(len(v) != 1 for v in query.values()):
+                    raise ValueError("invalid native discovery query")
+                start_text = query["maxIdx"][0]
+                if not start_text.isascii() or not start_text.isdigit() or int(start_text) > 2147483647 or query["count"] != ["20"]:
+                    raise ValueError("invalid native discovery cursor/count")
+                start = int(start_text)
+                if path == "/store/search" and query["scope"] != ["10"]:raise ValueError("invalid native search scope")
+                if path == "/book/detailinfo":
+                    session = "mock-native-similar-" + book_id
+                    if (query["listtypes"] != ["2"] or query["synckey"] != ["0"] or not any(b["bookId"] == book_id for b in BOOKS)
+                            or (start > 0 and query.get("sessionId") != [session]) or query.get("sessionId") not in (None, [session])):
+                        raise ValueError("invalid native similar session/seed")
+                    candidates = [b for b in BOOKS if b["bookId"] != book_id]
+                    batch = candidates[start:start + 20]
+                    return 200, dict(booksimilar=dict(sessionId=session,hasMore=start+len(batch)<len(candidates),
+                        books=[dict(idx=start+i+1,book=dict(bookInfo=b)) for i,b in enumerate(batch)]))
+                keyword = query.get("keyword", [""])[0]
+                candidates = [b for b in BOOKS if keyword in b["title"] or keyword in b["author"]]
+                batch = candidates[start:start+20]
+                return 200, dict(books=[dict(bookInfo=b,searchIdx=start+i+1) for i,b in enumerate(batch)],hasMore=start+len(batch)<len(candidates))
             if path == "/wxticket" and method == "GET":
                 return 200, dict(signature="mock-native-ticket", timeStamp=1700000000, expires_in=180)
             if path == "/login" and method == "POST":

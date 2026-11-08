@@ -521,4 +521,19 @@ for _,response in ipairs({{code=302,body="private-metadata"},{code=403,body="pri
     expect(not ok and not tostring(err):find("private-",1,true),"metadata failure leaked body or exceeded bounds")
 end
 expect(not table.concat(logs,"\n"):find("private-",1,true),"metadata response entered diagnostics")
+responses[#responses+1]={code=200,body="discovery",headers={["set-cookie"]="ignored=value"}}
+client:get_gateway_discovery("similar",{book_id="900001",cursor=20,session_id="synthetic-session"},"captured-discovery-key")
+local discovery_request=requests[#requests]
+expect(encoded_display.api_name=="/book/similar" and encoded_display.bookId=="900001" and encoded_display.maxIdx==20
+    and encoded_display.count==20 and encoded_display.sessionId=="synthetic-session","gateway discovery payload")
+expect(discovery_request.headers.Authorization=="Bearer captured-discovery-key" and discovery_request.headers.Cookie==nil
+    and #merged_cookies==cookie_count,"gateway discovery isolates credentials and ignores Set-Cookie")
+for _,response in ipairs({{code=302,body="private-discovery"},{code=401,body="private-discovery"},
+    {code=429,body="private-discovery"},{code=200,body=string.rep("x",4*1024*1024+1)},
+    {code=200,body="broken"},{raise="private-discovery-transport"}}) do
+    responses[#responses+1]=response
+    ok,err=pcall(client.get_gateway_discovery,client,"recommend",{},"captured-discovery-key")
+    expect(not ok and not tostring(err):find("private-",1,true),"gateway discovery must redact and bound failures")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"gateway discovery logged response or credentials")
 print(("client_spec: %d checks"):format(checks))

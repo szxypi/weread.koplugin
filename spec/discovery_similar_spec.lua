@@ -28,6 +28,7 @@ local plugin = setmetatable({
     showInfo = function(_self, text) message = text end,
     showBookstore = function() rendered = rendered + 1 end,
 }, { __index = Discovery })
+require("spec.helpers.discovery_fixture").attach(plugin, function() return logged_in end)
 local function response(session, cursor, more)
     return { booksimilar = { sessionId = session, hasMore = more, books = {
         { idx = cursor, book = { bookInfo = { bookId = "result-" .. cursor, title = "Book" } } },

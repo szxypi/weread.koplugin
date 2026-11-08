@@ -65,7 +65,9 @@ end
 local Library = require("weread.ui.library")
 local books = {}
 local opened, similar_book
+local discovery_cancels = 0
 local host = {
+    cancelDiscoveryRequest = function() discovery_cancels = discovery_cancels + 1 end,
     settings = {
         get = function(_self, key, default)
             if key == "books" then return books end
@@ -99,6 +101,7 @@ local old_epoch = host.discovery_epoch or 0
 detail_callbacks.on_close()
 expect(host._book_detail_view == nil and host.discovery_epoch == old_epoch + 1,
     "detail close did not invalidate pending discovery requests")
+expect(discovery_cancels == 1, "closing details did not cancel running similar-book requests")
 host:showBookMenu(book)
 
 host:showChapterList(book)

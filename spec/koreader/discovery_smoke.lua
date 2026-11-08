@@ -47,6 +47,15 @@ local function flush_tasks()
         UIManager:setInputTimeout(0)
         UIManager:handleInput()
     end
+    local socket=require("socket")
+    local deadline=socket.gettime()+15
+    while plugin.discovery_loading do
+        assert(socket.gettime()<deadline,"bookstore worker deadline")
+        UIManager:shiftScheduledTasksBy(-1e9)
+        UIManager:setInputTimeout(0)
+        UIManager:handleInput()
+        socket.sleep(0.01)
+    end
 end
 local function press(view, label)
     for _, button in ipairs(view._action_buttons) do

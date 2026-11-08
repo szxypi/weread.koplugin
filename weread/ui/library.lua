@@ -101,6 +101,7 @@ end
 
 function M:closeWeReadUI()
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
+    if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end
@@ -1035,6 +1036,7 @@ function M:showBookMenu(book)
         on_close = function()
             if self._book_detail_view == view then
                 self:cancelBookMetadata()
+                if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
                 self._book_detail_view = nil
                 self.discovery_epoch = (self.discovery_epoch or 0) + 1
             end

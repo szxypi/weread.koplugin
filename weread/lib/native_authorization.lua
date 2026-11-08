@@ -148,6 +148,37 @@ function Auth:read_shelf(credentials)
     return shelf
 end
 
+-- Read-only bookstore queries verified by verify_native_discovery.py.
+function Auth:read_discovery(credentials, kind, options)
+    options = options or {}
+    if type(credentials) ~= "table" or not vid(credentials.vid) or not text(credentials.accessToken, 8192) then
+        fail("discovery", "invalid_credentials")
+    end
+    if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("discovery", "account_mismatch") end
+    local cursor = tonumber(options.cursor) or 0
+    if cursor < 0 or cursor > 2147483647 or cursor % 1 ~= 0 then fail("discovery", "invalid_cursor") end
+    local path, params
+    if kind == "search" then
+        if not text(options.keyword, 512) then fail("discovery", "invalid_keyword") end
+        path, params = "/store/search", { keyword = options.keyword, scope = 10 }
+    elseif kind == "similar" then
+        local id = tostring(options.book_id or "")
+        if #id > 20 or not id:match("^[1-9]%d*$") then fail("discovery", "invalid_book") end
+        path, params = "/book/detailinfo", { bookId = id, listtypes = 2, synckey = 0 }
+        if options.session_id ~= nil and options.session_id ~= "" then
+            if not text(options.session_id, 512) then fail("discovery", "invalid_session") end
+            params.sessionId = options.session_id
+        end
+    elseif kind == "recommend" then path, params = "/book/recommend", {}
+    else fail("discovery", "invalid_kind") end
+    params.maxIdx, params.count = cursor, 20
+    local keys, query = {}, {}
+    for key in pairs(params) do keys[#keys + 1] = key end
+    table.sort(keys)
+    for _, key in ipairs(keys) do query[#query + 1] = key .. "=" .. Protocol.urlencode(params[key]) end
+    return self:_request("discovery_" .. kind, BASE .. path .. "?" .. table.concat(query, "&"), nil, credentials)
+end
+
 function Auth:verify()
     self:_current("verify")
     local credentials = self.pending_credentials

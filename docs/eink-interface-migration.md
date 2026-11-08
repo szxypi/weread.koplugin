@@ -26,7 +26,8 @@
   重启后不会保留书城结果，但书架仍可离线使用。
 - 通用 `launch()` 入口进入首页；外部集成的 `openBookshelf()` 仍直接打开书架。
 
-书城只使用主仓库已有接口文档中的 gateway `/book/recommend` 和 `/store/search`。
+第一阶段书城使用已有 gateway `/book/recommend` 和 `/store/search`；
+后续已接入[墨水屏授权的原生搜索／推荐／相似书籍](native-bookstore-prototype.md)，并保留 Skill 通道。
 后续已增加相似书籍、排行榜和分类浏览，见下文。尚未接入双通道 E-Ink 授权、
 离线时长补传或批注写入。
 此版本是第一阶段开发版，并非微信读书墨水屏 App 的完整功能复刻。
@@ -89,7 +90,8 @@ KOREADER_WIDGET_DIR=/path/to/koreader luajit spec/koreader/shelf_picker_geometry
 ## 相似书籍推荐
 
 - 入口：书籍详情 → 更多操作 → 相似书籍，需配置 API Key。
-- 仍通过主仓库已记录的官方 gateway `/book/similar`，不使用未验证的 Web 接口。
+- 初期使用官方 gateway `/book/similar`；2026-11-09 经真实 Python 验证后，增加原生
+  `/book/detailinfo` 读取和同会话分页，详见[最新说明](native-bookstore-prototype.md)。
 - 保留来源书籍、推荐会话和游标；上一批、下一批和刷新传递同一会话。
   更换来源书籍重新建立会话，清空旧的游标历史。
 - 服务端会话变化或缺失时保留当前列表并提示重新打开；首批没有会话可展示，

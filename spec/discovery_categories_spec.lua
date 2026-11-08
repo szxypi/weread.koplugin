@@ -62,6 +62,7 @@ local plugin = setmetatable({
     end,
     showBookstore = function() end,
 }, { __index = Discovery })
+require("spec.helpers.discovery_fixture").attach(plugin)
 plugin:showDiscoveryCategories()
 expect(plugin.discovery_loading and fetched == 0, "category request bypassed scheduling")
 pending()

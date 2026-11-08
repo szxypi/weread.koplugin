@@ -50,6 +50,12 @@ miuread/reading_stats_dialog.lua. Copyright (C) 2026 MiuRead contributors.
 AGPL-3.0-only; source repository as above.
 
 Native authorization protocol prototype:
+- scripts/verify_native_discovery.py and the read-only bookstore adapter in
+  weread/lib/native_authorization.lua reference MiuRead's eink_client.lua
+  (AGPL-3.0-only, MiuRead contributors). Search, recommendations and similar
+  books were verified against real Python responses on 2026-11-09 before
+  Lua integration. Native Lua HTTPS independently verified pagination;
+  the real personalized recommendation result was empty.
 - weread/lib/native_authorization.lua adapts MiuRead's shelf_client.lua
   (AGPL-3.0-only, MiuRead contributors), after real owner-scan, login and
   read-only shelf validation by the Python prototype on 2026-11-08.

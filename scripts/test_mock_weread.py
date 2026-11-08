@@ -122,6 +122,21 @@ class MockTests(unittest.TestCase):
         self.assertEqual(renewed["accessToken"], "mock-native-access")
         self.assertNotIn("refreshToken", renewed)
 
+    def test_native_discovery_contract_and_continuation(self):
+        base='https://i.weread.qq.com'
+        _,first=self.server.route('GET',base+'/store/search?keyword=测试作者&scope=10&count=20&maxIdx=0',{})
+        self.assertEqual(len(first['books']),20)
+        self.assertNotIn('results',first)
+        _,second=self.server.route('GET',base+'/store/search?keyword=测试作者&scope=10&count=20&maxIdx=20',{})
+        self.assertEqual(len(second['books']),6)
+        _,similar=self.server.route('GET',base+f'/book/detailinfo?bookId={BOOK_ID}&listtypes=2&synckey=0&count=20&maxIdx=0',{})
+        session=similar['booksimilar']['sessionId']
+        self.assertEqual(len(similar['booksimilar']['books']),20)
+        _,last=self.server.route('GET',base+f'/book/detailinfo?bookId={BOOK_ID}&listtypes=2&synckey=0&count=20&maxIdx=20&sessionId={session}',{})
+        self.assertEqual(len(last['booksimilar']['books']),5)
+        for query in ('count=21&maxIdx=0','count=20&maxIdx=-1','count=20&maxIdx=0&extra=1'):
+            with self.assertRaises(ValueError):self.server.route('GET',base+'/book/recommend?'+query,{})
+
     def test_annotations_and_progress_write_read(self):
         _, result = self.gateway("/book/underlines", bookId=BOOK_ID, chapterUid=2)
         mark = result["underlines"][0]

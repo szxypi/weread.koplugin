@@ -62,6 +62,7 @@ local plugin = setmetatable({
     showInfo = function(_self, message) error_text = message end,
     showBookstore = function() rendered = rendered + 1 end,
 }, { __index = Discovery })
+require("spec.helpers.discovery_fixture").attach(plugin)
 plugin:loadDiscoveryBatch("recommend", nil, 0)
 expect(#requests == 0 and plugin.discovery_loading, "request bypassed online task")
 queued()

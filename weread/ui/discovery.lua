@@ -264,81 +264,12 @@ function M:showBookstore()
     })
 end
 
+function M:cancelDiscoveryRequest()
+    return require("weread.ui.discovery_request").cancel(self)
+end
+
 function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context)
-    if self.discovery_loading or (kind ~= "category" and not self:requireLogin(false, true)) then return end
-    cursor = cursor or 0
-    context = context or {}
-    if kind == "similar" and (not context.book_id or context.book_id == "") then return end
-    local book_id, book_title, session_id = context.book_id, context.book_title, context.session_id
-    if kind == "similar" and cursor > 0 and (not session_id or session_id == "") then
-        self:showInfo(_("Similar recommendations changed. Open similar books again."))
-        return
-    end
-    local account = self.library_db:accountKey()
-    local epoch, source_state = self.discovery_epoch or 0, self.discovery_state
-    self.discovery_loading = true
-    local started = self:runOnlineTask(_("Bookstore"), function()
-        if account ~= self.library_db:accountKey() or (self.discovery_epoch or 0) ~= epoch then
-            self.discovery_loading = nil
-            return
-        end
-        local ok, result = pcall(function()
-            local endpoint = kind == "search" and "/store/search"
-                or kind == "similar" and "/book/similar" or "/book/recommend"
-            local data
-            if kind == "category" then
-                data = self.client:get_category_books(context.category_id, cursor, context.rank)
-            else
-                data = self.client:gateway(endpoint, {
-                    keyword = keyword, count = Data.PAGE_SIZE, maxIdx = cursor,
-                    scope = kind == "search" and 10 or nil,
-                    bookId = kind == "similar" and book_id or nil,
-                    sessionId = kind == "similar" and session_id ~= "" and session_id or nil,
-                })
-            end
-            local page = Data.page(kind, data, cursor)
-            if kind == "similar" then
-                if session_id and session_id ~= "" and page.session_id ~= session_id then
-                    error(_("Similar recommendations changed. Open similar books again."))
-                end
-                -- An absent session can display a first batch but cannot safely paginate.
-                if page.session_id == "" then page.has_more = false end
-            end
-            return page
-        end)
-        self.discovery_loading = nil
-        if account ~= self.library_db:accountKey() or (self.discovery_epoch or 0) ~= epoch then return end
-        if not ok then
-            self:showInfo(PluginUtil.T(_("Bookstore request failed:\n%1"), PluginUtil.display_error(result)))
-            return
-        end
-        local history = {}
-        if source_state and source_state.kind == kind and source_state.keyword == keyword
-            and (kind ~= "similar" or (source_state.book_id == book_id and source_state.session_id == session_id))
-            and (kind ~= "category" or (source_state.category_id == context.category_id
-                and source_state.rank == context.rank)) then
-            for i, value in ipairs(source_state.history) do history[i] = value end
-            if previous then table.remove(history)
-            elseif not refresh and cursor ~= 0 then history[#history + 1] = source_state.cursor
-            elseif not refresh then history = {} end
-        end
-        -- Cursor history is bounded and contains no book/user payloads.
-        if #history > 100 then table.remove(history, 1) end
-        result.kind, result.keyword, result.cursor = kind, keyword, cursor
-        result.book_id, result.book_title = book_id, book_title
-        if kind == "category" then
-            result.category_id, result.category_title, result.rank = context.category_id, context.category_title, context.rank
-        end
-        result.history, result.account, result.loaded_at = history, account, os.time()
-        self.discovery_state = result
-        if self._book_detail_view then
-            local detail = self._book_detail_view
-            self._book_detail_view = nil
-            UIManager:close(detail)
-        end
-        self:showBookstore()
-    end)
-    if started == false then self.discovery_loading = nil end
+    return require("weread.ui.discovery_request").load(self, kind, keyword, cursor, previous, refresh, context)
 end
 
 return M

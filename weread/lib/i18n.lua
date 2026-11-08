@@ -1,6 +1,10 @@
 local I18n = {}
 
 local zh = {
+    ["The bookstore needs E-Ink authorization or an official API key."] = "书城需要墨水屏授权或官方接口密钥。",
+    ["Bookstore access changed. Refresh or reopen the list."] = "书城授权已变化，请刷新或重新打开列表。",
+    ["Bookstore request failed. Cached books are still available."] = "书城请求失败，已缓存的书籍仍可查看。",
+    ["Loading books..."] = "正在读取书籍…",
     ["Check reading position"] = "检查阅读位置",
     ["Checking the current reading position..."] = "正在检查当前页的阅读位置…",
     ["Current chapter"] = "当前章节",

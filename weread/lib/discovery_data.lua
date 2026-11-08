@@ -34,14 +34,15 @@ function M.page(kind, data, cursor)
     if kind == "similar" then container = data.booksimilar end
     if type(container) ~= "table" then error("Missing bookstore container") end
     local rows = container.books
-    if kind == "search" then
-        if type(data.results) ~= "table" then error("Missing search results") end
+    if kind == "search" and type(data.results) == "table" then
         rows = {}
         for _, group in ipairs(data.results) do
             if type(group) == "table" and type(group.books) == "table" then
                 for _, row in ipairs(group.books) do rows[#rows + 1] = row end
             end
         end
+    elseif kind == "search" and type(data.books) ~= "table" then
+        error("Missing search results")
     end
     if type(rows) ~= "table" then error("Missing bookstore books") end
     cursor = number(cursor) or 0
