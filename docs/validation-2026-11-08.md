@@ -57,6 +57,23 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 
 ## 实际截图
 
+EPUB 来源绑定与离线账本后续验证：
+
+- 86 组 Lua 回归、Luacheck 193 文件零警告、命名空间、Python 编译及差异格式通过；
+  8 组 HTTP、5 组授权原型与 10 组补传只读测试通过。
+- 新文件来源组件 28 项检查，离线时长组件 100 项真实 SQLite 检查；
+  覆盖未知版本、混合断点、同路径替换、书籍不匹配、旧账本结构迁移及秒数保留。
+  断点内容组件另验证版本 7 的章节不能作为版本 8 的已完成章节，并验证混合来源包装为未知版本。
+- 官方 KOReader v2026.07.1 实际 CREngine 文档读取内嵌来源。测试打开版本 7，
+  把书库版本改为 99，并在暂停期间用版本 8 替换同一路径；继续阅读保存的 12 秒仍绑定原文件版本 7。
+  关闭原 ReaderUI 后重新打开相同路径，实际引擎读回版本 8 和新的来源摘要。
+- `.validation/file-identity-final-600/` 与 `.validation/file-identity-final-ko2/` 均通过上述流程，
+  以及真实 Client／Downloader 的六章整本下载、图片、脚注、ZIP 完整性与内嵌来源校验。
+  `.validation/file-identity-discovery-ko2/` 通过首页／书架／书城／我的完整绘制和交互回归。
+  三次运行使用内容相同的候选插件包；KO2 配置为 1264×1680、300 DPI，仍属于模拟显示。
+- 来源元数据不含 Cookie、API Key 或阅读会话凭据；来源摘要不是整个 ZIP 的哈希或服务端证明。
+  未扫码或上传时长，实际版本语义、在线／离线覆盖去重和写后回读继续待验收。
+
 离线补传只读前置验证：
 
 - 实际匿名 config 请求返回 401，feature 返回 200 且未提供 guest_token。报告为 `PARTIAL`，

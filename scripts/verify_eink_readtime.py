@@ -75,7 +75,9 @@ def ledger_preview(path, vid, book_id, now, limit_seconds=600):
     try:
         connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=0.2)
         connection.execute("PRAGMA query_only=ON")
-        rows = connection.execute("""SELECT s.id,w.book_id,s.start_time,s.duration,w.time_zone,w.book_version
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(windows)")}
+        provenance = "w.file_id,w.version_source" if {"file_id", "version_source"} <= columns else "'','legacy_unverified'"
+        rows = connection.execute("""SELECT s.id,w.book_id,s.start_time,s.duration,w.time_zone,w.book_version,""" + provenance + """
             FROM segments s JOIN windows w ON w.id=s.window_id
             WHERE s.state='pending' AND w.book_id=? ORDER BY s.id LIMIT 101""", (book_id,)).fetchall()
         unknown = connection.execute("SELECT COALESCE(SUM(duration),0) FROM segments WHERE state IN ('unknown','in_flight')").fetchone()[0]
@@ -84,21 +86,27 @@ def ledger_preview(path, vid, book_id, now, limit_seconds=600):
     finally:
         if connection is not None:
             connection.close()
-    selected, total, version = [], 0, None
+    selected, total, group = [], 0, None
     for row in rows:
-        _, _, start, duration, zone, row_version = row
+        _, _, start, duration, zone, row_version, file_id, origin = row
         if (not isinstance(start, int) or not 1 <= start <= 4102444800
                 or not isinstance(duration, int) or not 1 <= duration <= 60
                 or not isinstance(zone, str) or not re.fullmatch(r"[+-](?:0\d|1[0-4]):[0-5]\d", zone)
-                or not isinstance(row_version, int) or not 0 <= row_version <= 2147483647):
+                or not isinstance(row_version, int) or not 0 <= row_version <= 2147483647
+                or origin not in {"legacy_unverified", "unavailable", "epub_unknown", "epub_snapshot"}
+                or not isinstance(file_id, str) or (file_id and not re.fullmatch(r"[0-9a-f]{64}", file_id))
+                or (origin == "epub_snapshot" and (row_version == 0 or not file_id))
+                or (origin == "epub_unknown" and (row_version != 0 or not file_id))
+                or (origin == "unavailable" and (row_version != 0 or file_id))):
             raise ProbeError("ledger_preview: invalid captured metadata")
         if start + duration > now:
             raise ProbeError("ledger_preview: captured time is still ahead of device clock")
-        if version is not None and row_version != version:
+        row_group = (row_version, file_id, origin)
+        if group is not None and row_group != group:
             break
         if len(selected) >= 100 or total + duration > limit_seconds:
             break
-        version = row_version
+        group = row_group
         selected.append(row)
         total += duration
     end = 0
@@ -106,7 +114,9 @@ def ledger_preview(path, vid, book_id, now, limit_seconds=600):
         if row[2] < end:
             raise ProbeError("ledger_preview: overlapping captured intervals")
         end = row[2] + row[3]
-    return dict(rows=len(selected), seconds=total, nonzero_book_version=bool(version),
+    bound = sum(row[3] for row in selected if row[7] == "epub_snapshot" and row[6] and row[5] > 0)
+    return dict(rows=len(selected), seconds=total, nonzero_book_version=bool(group and group[0]),
+                file_bound_seconds=bound, unverified_source_seconds=total-bound,
                 has_more=len(rows) > len(selected), uncertain_seconds=unknown)
 
 

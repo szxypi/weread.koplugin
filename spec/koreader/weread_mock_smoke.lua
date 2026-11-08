@@ -138,9 +138,10 @@ plugin.settings:set("sync", sync_config)
 plugin.settings:flush()
 plugin.isNetworkOnline, plugin.isNetworkConnected = online, connected
 print("PASS: real ReaderUI account/suspend cancels queued HTTP; valid upload persists/readbacks; wake compares cloud first")
+local verify_reopened_file
 if test_offline_time then
     local fixture_dir = debug.getinfo(1, "S").source:match("^@(.*/)")
-    dofile(fixture_dir .. "offline_time_smoke.lua")(reader, request_count, fastforward_ui_events)
+    verify_reopened_file = dofile(fixture_dir .. "offline_time_smoke.lua")(reader, request_count, fastforward_ui_events)
 end
 -- Exercise the real event loop, subprocesses, resume workspace, and packaging.
 local completed, full_path, download_error
@@ -165,6 +166,7 @@ local file = assert(io.open(full_path, "rb"))
 assert(file:read(2) == "PK", "full download must produce an EPUB ZIP")
 file:close()
 reader:onClose()
+if verify_reopened_file then verify_reopened_file() end
 UIManager:quit()
 print("PASS: mock HTTP -> real Client/Content/Downloader -> EPUB with image/footnote -> ReaderUI -> page 2")
 print("EPUB: " .. path)

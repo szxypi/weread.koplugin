@@ -2,6 +2,7 @@
 -- deliberately separate: collecting never sends requests or changes progress.
 local Stats = require("weread.lib.offline_time_stats")
 local Store = require("weread.lib.offline_time_store")
+local FileIdentity = require("weread.lib.book_file_identity")
 local loaded_time, Time = pcall(require, "ui/time")
 local Collector = {}
 Collector.__index = Collector
@@ -109,7 +110,8 @@ function Collector:update(reason, online_hint)
     end
     if active then
         local same = eligible and account == active.account and context.book_id == active.book_id
-            and context.path == active.path and context.stats == active.stats and context.stats.id_curr_book == active.stats_book
+            and context.path == active.path and context.document == active.document
+            and context.stats == active.stats and context.stats.id_curr_book == active.stats_book
         local clock_changed = not sample or sample.wall < active.clock.wall
             or sample.monotonic < active.clock.monotonic or sample.zone ~= active.clock.zone
             or math.abs((sample.wall - active.clock.wall) - (sample.monotonic - active.clock.monotonic)) >= 5
@@ -135,13 +137,20 @@ function Collector:update(reason, online_hint)
             if not recovered then self.state, self.error = "error", err self:_schedule() return false end
             self.recovered[account] = true
         end
-        local book = self.settings:get("books", {})[context.book_id] or {}
+        local identity = FileIdentity.read_document(context.document, context.book_id)
+        if identity.version_source == "book_mismatch" then
+            self.state, self.error = "book_mismatch", nil
+            self:_schedule()
+            return false
+        end
         local id, err = self.store:begin(account, { book_id = context.book_id, stats_book = context.stats.id_curr_book,
-            start_time = sample.wall, time_zone = sample.zone, book_version = book.bookVersion or book.version })
+            start_time = sample.wall, time_zone = sample.zone, book_version = identity.book_version,
+            file_id = identity.file_id, version_source = identity.version_source })
         if id == false then err = "clock_changed" end
         if not id then self.state, self.error = "error", err self:_schedule() return false end
         self.active = { account = account, book_id = context.book_id, path = context.path, id = id,
             stats = context.stats, stats_book = context.stats.id_curr_book, last_seen = sample.wall,
+            document = context.document,
             clock = sample, sources = setmetatable({}, { __mode = "k" }) }
         self.error = nil
     end
@@ -189,7 +198,8 @@ function Collector:stop(reason)
     local ok, online = pcall(self.is_online)
     local endpoint = active.last_seen
     if sample and ok and online == false and self.library_db:accountKey() == active.account
-        and context and context.path == active.path and sample.wall >= active.clock.wall
+        and context and context.path == active.path and context.document == active.document
+        and context.book_id == active.book_id and sample.wall >= active.clock.wall
         and sample.monotonic >= active.clock.monotonic and sample.zone == active.clock.zone
         and math.abs((sample.wall - active.clock.wall) - (sample.monotonic - active.clock.monotonic)) < 5 then
         endpoint = math.max(endpoint, math.min(sample.wall, active.stats._reading_paused_ts or sample.wall))

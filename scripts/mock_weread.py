@@ -38,7 +38,7 @@ QUOTE = "窗外的风穿过树梢，带来远处山谷的回声。"
 BOOKS = [dict(bookId=str(900001 + i), title=("山谷来信 · 离线测试" if i == 0 else f"合成读物 {i:02d}：用于长标题与分页验证"),
               author="测试作者", cover="https://weread.qq.com/mock/cover.png",
               category="文学", intro="自写合成内容，用于 KOReader 集成测试。", wordCount=12000,
-              totalChapter=6, type=0, updateTime=1700000000 + i, readUpdateTime=1700000000 + i) for i in range(26)]
+              totalChapter=6, type=0, bookVersion=7, updateTime=1700000000 + i, readUpdateTime=1700000000 + i) for i in range(26)]
 CHAPTERS = [dict(chapterUid=i, chapterIdx=i, title=f"第{i}章 {title}", level=1,
                  wordCount=1800) for i, title in enumerate(TITLES, 1)]
 CATEGORIES = dict(data=[
@@ -447,6 +447,12 @@ def main():
                 assert len(full_books) == 1, "expected one completed full EPUB"
                 with zipfile.ZipFile(full_books[0]) as epub:
                     assert epub.testzip() is None, "corrupt EPUB"
+                    source = epub.read("OEBPS/weread-source.txt").decode()
+                    payload, source_id = source.rsplit("source_id=", 1)
+                    identity = dict(line.split("=", 1) for line in payload.splitlines())
+                    assert identity["book_id"] == "900001" and identity["book_version"] == "7", "download source changed"
+                    assert identity["chapter_count"] == "6", "source does not describe full download"
+                    assert hashlib.sha256(payload.encode()).hexdigest() == source_id.strip(), "invalid source checksum"
                     pages = [epub.read(name).decode() for name in epub.namelist() if name.startswith("OEBPS/text/") and name.endswith(".xhtml")]
                     for uid in range(1, 7):
                         assert any(f"这是第{uid}章的第1段" in page for page in pages), f"missing chapter {uid}"

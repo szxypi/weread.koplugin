@@ -55,7 +55,8 @@ function WeReadPlugin:init()
         get_context = function()
             local document = self.ui and self.ui.document
             return document and { book_id = self:detectWeReadBook(), path = document.file,
-                stats = self.ui.statistics, visible = UIManager:getTopmostVisibleWidget() == self.ui } or nil
+                document = document, stats = self.ui.statistics,
+                visible = UIManager:getTopmostVisibleWidget() == self.ui } or nil
         end,
         is_online = function() return self:isNetworkConnected() end,
     }

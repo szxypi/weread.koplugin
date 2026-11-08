@@ -129,6 +129,7 @@ function M:showOfflineTimeStatus()
         recording = "Recording offline reading", online = "Online; offline recording is idle",
         disabled = "Disabled", paused = "Paused", no_book = "Open a WeRead book to record time",
         reader_hidden = "Return to the reading page to record time",
+        book_mismatch = "This file does not match the reading book; time is not recorded",
         unsupported_book = "Offline time recording is unavailable for public-account articles",
         account_unavailable = "Log in to associate offline reading time",
         statistics_unavailable = "Enable KOReader Reading statistics to record time",

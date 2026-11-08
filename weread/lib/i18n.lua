@@ -1,6 +1,7 @@
 local I18n = {}
 
 local zh = {
+    ["This file does not match the reading book; time is not recorded"] = "当前文件与书籍不匹配，暂不记录时长",
     ["Return to the reading page to record time"] = "返回阅读页面后继续记录",
     ["Disabled"] = "已关闭",
     ["Paused"] = "已暂停",

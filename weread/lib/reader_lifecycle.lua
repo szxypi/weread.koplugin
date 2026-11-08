@@ -1,5 +1,6 @@
 -- KOReader event lifecycle and reader-state orchestration.
 local Content = require("weread.lib.content")
+local FileIdentity = require("weread.lib.book_file_identity")
 local logger = require("weread.lib.logger").scoped("Prefetch")
 local UIManager = require("ui/uimanager")
 local PluginUtil = require("weread.lib.plugin_util")
@@ -114,6 +115,7 @@ function M:onReaderReady()
     -- Cache it so the per-tap handler (_onThoughtTap) does not have to re-scan
     -- the whole book table on every screen tap.
     self._current_weread_book_id = weread_book_id
+    if weread_book_id then FileIdentity.read_document(self.ui.document, weread_book_id) end
     if weread_book_id and self.recordRecentReading then self:recordRecentReading(weread_book_id) end
     if weread_book_id then
         -- Always register the tap interception: even when annotations are hidden
@@ -181,6 +183,7 @@ end
 
 function M:onCloseDocument()
     if self.offline_time then self.offline_time:stop("no_book") end
+    FileIdentity.forget(self.ui and self.ui.document)
     -- Capture the immutable local position while the document is still alive.
     -- The network upload is scheduled; stopping ReadReport below also frees any
     -- in-flight report slot before that scheduled upload begins.

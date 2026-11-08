@@ -70,6 +70,9 @@ function Store:_access(account, change)
             CREATE INDEX IF NOT EXISTS segments_window ON segments(window_id);
             CREATE TABLE IF NOT EXISTS totals (name TEXT PRIMARY KEY, seconds INTEGER NOT NULL) WITHOUT ROWID;
         ]])
+        -- Old rows keep their original values and explicitly unverified origin.
+        pcall(db.exec, db, "ALTER TABLE windows ADD COLUMN file_id TEXT NOT NULL DEFAULT ''")
+        pcall(db.exec, db, "ALTER TABLE windows ADD COLUMN version_source TEXT NOT NULL DEFAULT 'legacy_unverified'")
         db:exec("BEGIN IMMEDIATE")
         transaction = true
         local value = change(db)
@@ -104,12 +107,19 @@ function Store:begin(account, window)
         or type(window.time_zone) ~= "string" or not window.time_zone:match("^[+-]%d%d:%d%d$") then
         return nil, "invalid_window"
     end
+    local version = integer(window.book_version, 0, 2147483647) or 0
+    local file_id, origin = window.file_id or "", window.version_source or "legacy_unverified"
+    local valid_id = type(file_id) == "string" and #file_id == 64 and file_id:match("^[0-9a-f]+$")
+    if not ({ legacy_unverified = true, unavailable = true, epub_unknown = true, epub_snapshot = true })[origin]
+        or (file_id ~= "" and not valid_id) or (origin == "epub_snapshot" and (version == 0 or not valid_id))
+        or (origin == "epub_unknown" and (version ~= 0 or not valid_id))
+        or (origin == "unavailable" and (version ~= 0 or file_id ~= "")) then return nil, "invalid_window" end
     return self:_access(account, function(db)
         local floor = query(db, "SELECT seconds FROM totals WHERE name='capture_floor'")[1]
         if floor and tonumber(window.start_time) < tonumber(floor[1]) then return false end
-        query(db, [[INSERT INTO windows(book_id,stats_book,start_time,last_seen,time_zone,book_version)
-            VALUES(?,?,?,?,?,?)]], window.book_id, window.stats_book, window.start_time, window.start_time,
-            window.time_zone, integer(window.book_version, 0, 2147483647) or 0)
+        query(db, [[INSERT INTO windows(book_id,stats_book,start_time,last_seen,time_zone,book_version,file_id,version_source)
+            VALUES(?,?,?,?,?,?,?,?)]], window.book_id, window.stats_book, window.start_time, window.start_time,
+            window.time_zone, version, file_id, origin)
         return tonumber(query(db, "SELECT last_insert_rowid()")[1][1])
     end)
 end
@@ -176,10 +186,11 @@ function Store:pending(account, limit)
     limit = integer(limit, 1, 100) or 100
     return self:_access(account, function(db)
         local result = {}
-        for _, row in ipairs(query(db, [[SELECT s.id,w.book_id,s.start_time,s.duration,w.time_zone,w.book_version
+        for _, row in ipairs(query(db, [[SELECT s.id,w.book_id,s.start_time,s.duration,w.time_zone,w.book_version,w.file_id,w.version_source
             FROM segments s JOIN windows w ON w.id=s.window_id WHERE s.state='pending' ORDER BY s.id LIMIT ?]], limit)) do
             result[#result + 1] = { id = tonumber(row[1]), book_id = row[2], start_time = tonumber(row[3]),
-                duration = tonumber(row[4]), time_zone = row[5], book_version = tonumber(row[6]) }
+                duration = tonumber(row[4]), time_zone = row[5], book_version = tonumber(row[6]),
+                file_id = row[7], version_source = row[8] }
         end
         return result
     end)
@@ -193,10 +204,11 @@ function Store:claim(account, rows, attempt)
             local id = integer(item.id, 1, 9007199254740991)
             if not id or seen[id] then return false end
             seen[id] = true
-            local row = query(db, [[SELECT s.state,s.duration,s.start_time,w.book_id,w.time_zone,w.book_version
+            local row = query(db, [[SELECT s.state,s.duration,s.start_time,w.book_id,w.time_zone,w.book_version,w.file_id,w.version_source
                 FROM segments s JOIN windows w ON w.id=s.window_id WHERE s.id=?]], item.id)[1]
             if not row or row[1] ~= "pending" or tonumber(row[2]) ~= item.duration or tonumber(row[3]) ~= item.start_time
-                or row[4] ~= item.book_id or row[5] ~= item.time_zone or tonumber(row[6]) ~= item.book_version then return false end
+                or row[4] ~= item.book_id or row[5] ~= item.time_zone or tonumber(row[6]) ~= item.book_version
+                or row[7] ~= item.file_id or row[8] ~= item.version_source then return false end
         end
         for _, item in ipairs(rows) do query(db, "UPDATE segments SET state='in_flight',attempt=? WHERE id=?", attempt, item.id) end
         return true

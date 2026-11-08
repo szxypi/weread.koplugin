@@ -44,4 +44,8 @@ Local offline reading-time collection:
   design in offline_time_store.lua and offline_time.lua reference MiuRead's
   readtime_outbox.lua/readtime_controller.lua; rewritten for this repository's
   account databases and offline-only collection on 2026-11-08.
+- The file-bound version rule in book_file_identity.lua references MiuRead's
+  readtime_metadata.lua (MiuRead contributors, AGPL-3.0-only). EPUB provenance
+  encoding, open-document pinning and checkpoint integration are implemented
+  for this repository's download and reader lifecycle.
 Source: https://github.com/miumiupy98-art/miuread-koreader

@@ -13,13 +13,6 @@ local archive_calls = {}
 package.preload["logger"] = function()
     return { info = function() end, warn = function() end, err = function() end }
 end
-package.preload["weread.lib.crypto"] = function()
-    return {
-        sha256_hex = function(data)
-            return ("%08x%08x"):format(#data, #data * 31)
-        end,
-    }
-end
 package.preload["weread.lib.reader_state"] = function() return {} end
 package.preload["weread.lib.protocol"] = function()
     return { reader_url = function(book_id) return "https://reader/" .. tostring(book_id) end }
@@ -110,6 +103,14 @@ expect(restored:find("second", 1, true) ~= nil,
 expect(Content.load_full_download_css(workspace) == "body{color:black}",
     "checkpointed stylesheet could not be restored")
 
+local FileIdentity = require("weread.lib.book_file_identity")
+book.bookVersion = 7
+local source_identity = FileIdentity.capture(book)
+Content.save_full_download_chapter(workspace, chapters[1], 1, "<p>first</p>", 7)
+Content.save_full_download_chapter(workspace, chapters[2], 2, "<p>second</p>", 7)
+expect(Content.full_download_chapter_exists(workspace, chapters[1], 1, 7), "same-version checkpoint not reusable")
+expect(not Content.full_download_chapter_exists(workspace, chapters[1], 1, 8), "old-version chapter reused for a newer download")
+
 Content.save_full_download_rendered_chapter(workspace, chapters[1], 1, "<p>rendered</p>")
 local rendered = assert(Content.load_full_download_chapter(workspace, chapters[1], 1))
 expect(rendered:find("first", 1, true) ~= nil and not rendered:find("rendered", 1, true),
@@ -135,7 +136,7 @@ truncated:write("<!-- weread-chapter-uid: 11 -->")
 truncated:close()
 expect(not Content.full_download_chapter_exists(workspace, chapters[1], 1),
     "truncated checkpoint with a valid marker was accepted")
-Content.save_full_download_chapter(workspace, chapters[1], 1, "<p>first</p>")
+Content.save_full_download_chapter(workspace, chapters[1], 1, "<p>first</p>", 7)
 
 local original_open = io.open
 -- luacheck: push ignore 122
@@ -161,7 +162,8 @@ expect(Content.full_download_chapter_exists(workspace, chapters[1], 1),
     "previous complete checkpoint was invalidated after close failure")
 
 local output = Content.save_book_epub(settings, book, chapters,
-    { __workspace_text_dir = workspace.rendered_text_dir }, "full", {}, "body{color:black}")
+    { __workspace_text_dir = workspace.rendered_text_dir, __source_workspace = workspace },
+    "full", {}, "body{color:black}", nil, source_identity)
 expect(io.open(output, "rb") ~= nil, "streamed EPUB was not committed")
 local streamed_text = false
 for _, call in ipairs(archive_calls) do
@@ -170,6 +172,18 @@ for _, call in ipairs(archive_calls) do
     end
 end
 expect(streamed_text, "EPUB writer did not stream the checkpoint text directory")
+local function packaged_identity()
+    for index = #archive_calls, 1, -1 do
+        if archive_calls[index].name == FileIdentity.PATH then return assert(FileIdentity.decode(archive_calls[index].data)) end
+    end
+    error("EPUB source metadata missing")
+end
+expect(packaged_identity().book_version == 7, "streamed full book lost checkpoint-bound source version")
+Content.save_full_download_chapter(workspace, chapters[2], 2, "<p>new second</p>", 8)
+Content.save_book_epub(settings, book, chapters,
+    { __workspace_text_dir = workspace.rendered_text_dir, __source_workspace = workspace },
+    "full", {}, "body{color:black}", nil, source_identity)
+expect(packaged_identity().book_version == 0, "mixed-version checkpoints were relabeled as a known version")
 
 Content.cleanup_download_workspace(workspace)
 expect(not io.open(workspace.text_dir .. "/chapter-001.xhtml", "rb"),

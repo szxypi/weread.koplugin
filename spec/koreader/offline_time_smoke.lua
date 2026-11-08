@@ -4,6 +4,15 @@ return function(reader, request_count, flush_tasks)
     local plugin, stats = reader.weread, assert(reader.statistics, "native statistics plugin missing")
     assert(stats:isEnabledAndNotFrozen() and stats.id_curr_book, "native statistics not initialized")
     local collector = plugin.offline_time
+    local FileIdentity = require("weread.lib.book_file_identity")
+    local file_book_id = assert(plugin:detectWeReadBook())
+    local original_identity = FileIdentity.read_document(reader.document, file_book_id)
+    assert(original_identity.book_version == 7 and original_identity.version_source == "epub_snapshot",
+        "downloaded EPUB did not retain source version through the native engine")
+    local records = plugin.settings:get("books")
+    records[file_book_id].bookVersion = 99
+    plugin.settings:set("books", records)
+    plugin.settings:flush()
     local original_online = plugin.isNetworkConnected
     plugin.isNetworkConnected = function() return false end
     plugin.settings:set("offline_time", { enabled = true })
@@ -21,6 +30,16 @@ return function(reader, request_count, flush_tasks)
     reader:handleEvent(require("ui/event"):new("ReadingPaused"))
     assert(not collector.active and not collector.task, "native pause retained collector")
     local paused = collector:status().pending
+    local Content = require("weread.lib.content")
+    local replacement_book = plugin.settings:get("books")[file_book_id]
+    replacement_book.bookVersion = 8
+    local catalog = assert(Content.load_catalog_cache(plugin.client, plugin.settings, replacement_book))
+    local original_text = assert(reader.document:getDocumentFileContent("OEBPS/text/chapter.xhtml"))
+    local replaced_path = Content.save_chapter_epub(plugin.settings, replacement_book, catalog[1], original_text, {}, nil,
+        FileIdentity.capture(replacement_book))
+    assert(replaced_path == reader.document.file, "fixture did not replace the active pathname")
+    assert(FileIdentity.read_document(reader.document, file_book_id).file_id == original_identity.file_id,
+        "background replacement rebound the open reader to a new file")
     require("socket").sleep(2)
     assert(collector:status().pending == paused, "paused time became reading")
     reader:handleEvent(require("ui/event"):new("ReadingResumed"))
@@ -54,6 +73,10 @@ return function(reader, request_count, flush_tasks)
     local Store = require("weread.lib.offline_time_store")
     local persisted = Store:new(plugin.settings.data_dir)
     assert(persisted:recover(key) and persisted:summary(key).pending == total, "ledger reopening changed captured time")
+    for _, row in ipairs(assert(persisted:pending(key))) do
+        assert(row.book_version == 7 and row.file_id == original_identity.file_id and row.version_source == "epub_snapshot",
+            "offline ledger used a library/replacement version instead of the still-open EPUB")
+    end
     local account = plugin.settings:get("account")
     plugin.settings:set("account", { user_vid = "900098", name = "Other mock" })
     plugin:onWeReadAccountChanged()
@@ -65,4 +88,14 @@ return function(reader, request_count, flush_tasks)
     plugin.isNetworkConnected = original_online
     reader:handleEvent(require("ui/event"):new("ReadingResumed"))
     print("PASS: native statistics dwell/pause/resume/DB flush -> offline account ledger; no network writes; seconds=" .. total)
+    local original_path = reader.document.file
+    return function()
+        local document = assert(require("document/documentregistry"):openDocument(original_path))
+        assert(document:loadDocument(false), "replacement EPUB did not load")
+        local identity = FileIdentity.read_document(document, file_book_id)
+        assert(identity.book_version == 8 and identity.file_id ~= original_identity.file_id,
+            "reopened EPUB did not use its replacement source version")
+        document:close()
+        print("PASS: EPUB source 7 survives library 99 and active-path replacement 8; reopen binds version 8")
+    end
 end

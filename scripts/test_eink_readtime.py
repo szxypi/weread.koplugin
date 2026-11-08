@@ -101,12 +101,31 @@ class ReadtimeProbeTests(unittest.TestCase):
             path = self.fixture_ledger(root)
             before = hashlib.sha256(path.read_bytes()).digest()
             report = ledger_preview(path, "123", "book", 200)
-            self.assertEqual(report, dict(rows=2, seconds=50, nonzero_book_version=True, has_more=True, uncertain_seconds=5))
+            self.assertEqual(report, dict(rows=2, seconds=50, nonzero_book_version=True, file_bound_seconds=0,
+                                          unverified_source_seconds=50, has_more=True, uncertain_seconds=5))
             self.assertEqual(hashlib.sha256(path.read_bytes()).digest(), before)
             with self.assertRaises(ProbeError):
                 ledger_preview(path, "other-account", "book", 200)
             with sqlite3.connect(path) as db:
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM segments WHERE state='pending'").fetchone()[0], 3)
+
+    def test_distinct_file_fingerprints_are_not_combined_or_leaked(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = self.fixture_ledger(root)
+            with sqlite3.connect(path) as db:
+                db.execute("ALTER TABLE windows ADD COLUMN file_id TEXT DEFAULT ''")
+                db.execute("ALTER TABLE windows ADD COLUMN version_source TEXT DEFAULT 'epub_snapshot'")
+                db.execute("UPDATE windows SET file_id=?", ("a" * 64,))
+            report = ledger_preview(path, "123", "book", 200)
+            self.assertEqual(report["file_bound_seconds"], 50)
+            self.assertEqual(report["unverified_source_seconds"], 0)
+            self.assertNotIn("a" * 64, json.dumps(report))
+            with sqlite3.connect(path) as db:
+                db.execute("INSERT INTO windows VALUES(3,'book','+08:00',7,?,'epub_snapshot')", ("b" * 64,))
+                db.execute("UPDATE segments SET window_id=3 WHERE id=2")
+            report = ledger_preview(path, "123", "book", 200)
+            self.assertEqual(report["seconds"], 30)
+            self.assertTrue(report["has_more"])
 
     def test_overlapping_future_or_corrupt_rows_are_not_proposed(self):
         for statement, now in (("UPDATE segments SET start_time=120 WHERE id=2", 200), ("SELECT 1", 110),

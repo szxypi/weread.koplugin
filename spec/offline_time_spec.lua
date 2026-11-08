@@ -7,13 +7,15 @@ package.preload["datastorage"] = function() return { getSettingsDir = function()
 local Store = require("weread.lib.offline_time_store")
 local Stats = require("weread.lib.offline_time_stats")
 local Collector = require("weread.lib.offline_time")
+local FileIdentity = require("weread.lib.book_file_identity")
+local Crypto = require("weread.lib.crypto")
 local checks = 0
 local function eq(got, expected, label)
     checks = checks + 1
     assert(got == expected, label .. ": got " .. tostring(got) .. ", expected " .. tostring(expected))
 end
 local function expect(value, label) checks = checks + 1 assert(value, label) end
-local a, b, c, d, e = string.rep("a", 20), string.rep("b", 20), string.rep("c", 20), string.rep("d", 20), string.rep("e", 20)
+local a, b, c, d, e, f = string.rep("a", 20), string.rep("b", 20), string.rep("c", 20), string.rep("d", 20), string.rep("e", 20), string.rep("f", 20)
 local store = Store:new(root)
 eq(store:path("../account"), nil, "unsafe account path rejected")
 expect(store:recover(a), "fresh ledger opens")
@@ -96,10 +98,14 @@ eq(Stats.persisted(stats, 1000, 1040, 2)[1].duration, 50, "native statistics boo
 
 local wall, mono, zone, online, account, enabled = 2000, 0, "+08:00", false, c, true
 local context = { book_id = "900001", path = "/fixture/chapter.epub", stats = stats }
+local file_book = { book_id = "900001", bookVersion = 7 }
+local file_metadata = FileIdentity.encode(file_book, { {} }, FileIdentity.capture(file_book), Crypto.sha256_hex("old text"))
+context.document = { getDocumentFileContent = function() return file_metadata end }
 local scheduled, cancelled = {}, {}
 local options = {
     settings = { data_dir = root, get = function(_self, key, default)
         if key == "offline_time" then return { enabled = enabled } end
+        if key == "books" then return { ["900001"] = { bookVersion = 99, version = 100 } } end
         return default
     end },
     library_db = { accountKey = function() return account end },
@@ -121,6 +127,10 @@ local task_count = #scheduled
 initial_tick()
 eq(#scheduled, task_count, "stale timer cannot schedule another loop")
 eq(service:status().pending, 7, "offline seconds persisted")
+local file_row = store:pending(c)[1]
+eq(file_row.book_version, 7, "open EPUB version wins over updated library metadata")
+eq(file_row.version_source, "epub_snapshot", "file provenance retained in ledger")
+eq(#file_row.file_id, 64, "file source fingerprint retained in ledger")
 service:update("timer")
 eq(service:status().pending, 7, "repeated timer does not duplicate seconds")
 wall, mono, online = 2009, 9, true
@@ -208,6 +218,45 @@ context.visible = true
 restored:suspend()
 enabled = false
 
+context.book_id, enabled, wall, mono = "wrong-book", true, 3050, 240
+eq(restored:start(), false, "mismatched book identity prevents collection")
+eq(restored:status().state, "book_mismatch", "wrong file identity has explicit status")
+eq(restored.active, nil, "wrong-book file cannot create an attributed window")
+context.book_id = "900001"
+file_book.bookVersion = 8
+local replacement = FileIdentity.encode(file_book, { {} }, FileIdentity.capture(file_book), Crypto.sha256_hex("new text"))
+context.document = { getDocumentFileContent = function() return replacement end }
+expect(restored:start(), "replacement document at same path opens a fresh window")
+wall, mono = 3056, 246
+restored:update("timer")
+local replaced_rows = store:pending(d)
+eq(replaced_rows[#replaced_rows].book_version, 8, "new open document uses its own version")
+expect(replaced_rows[#replaced_rows].file_id ~= file_row.file_id, "replacement source fingerprint stays distinct")
+restored:stop("paused")
+context.document = {}
+wall, mono = 3060, 250
+restored:start()
+wall, mono = 3066, 256
+restored:update("timer")
+local legacy_rows = store:pending(d)
+eq(legacy_rows[#legacy_rows].book_version, 0, "legacy EPUB never borrows a current library version")
+eq(legacy_rows[#legacy_rows].version_source, "unavailable", "legacy EPUB version remains unverified")
+restored:stop("paused")
+enabled = false
+
+db = helper.connect(store:path(f))
+db:exec([[CREATE TABLE windows(id INTEGER PRIMARY KEY,book_id TEXT,stats_book INTEGER,start_time INTEGER,
+    last_seen INTEGER,time_zone TEXT,book_version INTEGER,closed INTEGER);
+    CREATE TABLE segments(id INTEGER PRIMARY KEY,window_id INTEGER,start_time INTEGER,duration INTEGER,state TEXT,attempt TEXT);
+    INSERT INTO windows VALUES(1,'old-book',1,1000,1010,'+08:00',99,1);
+    INSERT INTO segments VALUES(1,1,1000,10,'pending','');]])
+db:close()
+local migrated = store:pending(f)[1]
+eq(migrated.book_version, 99, "migration preserves old data without rewriting its version")
+eq(migrated.version_source, "legacy_unverified", "migration does not promote old metadata to file-bound provenance")
+eq(migrated.file_id, "", "migration never fabricates a file fingerprint")
+eq(store:summary(f).pending, 10, "schema migration preserves recorded seconds")
+
 id = assert(store:begin(e, window(4000)))
 db = helper.connect(store:path(e))
 db:exec("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<50000) INSERT INTO segments(window_id,start_time,duration) SELECT " .. id .. ",4000,1 FROM n")
@@ -216,7 +265,7 @@ result, err = store:collect(e, id, { { page = 1, start_time = 4000, duration = 5
 eq(result, nil, "full ledger never overwrites earlier time")
 eq(err, "ledger_full", "full ledger is distinguishable from storage failure")
 eq(store:summary(e).pending, 50000, "ledger-full failure rolls back the new suffix")
-for _, key in ipairs({ a, b, c, d, e }) do
+for _, key in ipairs({ a, b, c, d, e, f }) do
     for _, suffix in ipairs({ "", "-wal", "-shm" }) do os.remove(store:path(key) .. suffix) end
 end
 os.remove(root .. "/statistics.sqlite3")

@@ -1,4 +1,5 @@
 local Crypto = require("weread.lib.crypto")
+local FileIdentity = require("weread.lib.book_file_identity")
 local ReaderState = require("weread.lib.reader_state")
 local WeRead = require("weread.lib.protocol")
 local logger = require("weread.lib.logger")
@@ -284,6 +285,7 @@ function Content.open_full_download_workspace(settings, book)
         text_dir = text_dir,
         checkpoint_dir = checkpoint_dir,
         rendered_text_dir = rendered_text_dir,
+        book_id = tostring(book_id),
         resumable = true,
     }
 end
@@ -331,10 +333,10 @@ local function read_full_download_checkpoint(path)
     local length = tonumber(data:match("\nlength=(%d+)\n"))
     local digest = data:match("\nsha256=([0-9a-f]+)\n")
     if not uid or not length or not digest then return nil end
-    return uid, length, digest
+    return uid, length, digest, tonumber(data:match("\nsource_version=(%d+)\n")), data:match("\nsource_book=([^\n]*)\n")
 end
 
-function Content.full_download_chapter_exists(workspace, chapter, chapter_index)
+function Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version)
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local file = path and io.open(path, "rb")
     if not file then return false end
@@ -343,11 +345,13 @@ function Content.full_download_chapter_exists(workspace, chapter, chapter_index)
     if not closed or xhtml:find(workspace_chapter_marker(chapter), 1, true) == nil then
         return false
     end
-    local uid, length, digest = read_full_download_checkpoint(
+    local uid, length, digest, source_version, source_book = read_full_download_checkpoint(
         Content.full_download_checkpoint_path(workspace, chapter, chapter_index))
     return uid == basename_safe(chapter and chapter.chapterUid or "unknown")
         and length == #xhtml
         and digest == Crypto.sha256_hex(xhtml)
+        and (not source_book or source_book == workspace.book_id)
+        and (not expected_version or expected_version == 0 or source_version == expected_version)
 end
 
 function Content.load_full_download_chapter(workspace, chapter, chapter_index)
@@ -395,7 +399,7 @@ local function full_download_chapter_xhtml(chapter, chapter_index, xhtml)
 </html>]]
 end
 
-function Content.save_full_download_chapter(workspace, chapter, chapter_index, xhtml)
+function Content.save_full_download_chapter(workspace, chapter, chapter_index, xhtml, source_version)
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local checkpoint_path = Content.full_download_checkpoint_path(workspace, chapter, chapter_index)
     if not path or not checkpoint_path then return nil, "missing full-book workspace" end
@@ -406,6 +410,8 @@ function Content.save_full_download_chapter(workspace, chapter, chapter_index, x
         "uid=" .. basename_safe(chapter and chapter.chapterUid or "unknown"),
         "length=" .. tostring(#chapter_xhtml),
         "sha256=" .. Crypto.sha256_hex(chapter_xhtml),
+        "source_version=" .. tostring(FileIdentity.version(source_version)),
+        "source_book=" .. tostring(workspace.book_id or ""),
         "",
     }, "\n")
     ok, err = atomic_write(checkpoint_path, checkpoint)
@@ -447,10 +453,10 @@ function Content.load_full_download_css(workspace)
     return css
 end
 
-function Content.full_download_completed_chapters(workspace, chapters)
+function Content.full_download_completed_chapters(workspace, chapters, expected_version)
     local completed = {}
     for chapter_index, chapter in ipairs(chapters or {}) do
-        if Content.full_download_chapter_exists(workspace, chapter, chapter_index) then
+        if Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version) then
             completed[chapter_index] = true
         end
     end
@@ -932,7 +938,7 @@ local function build_ncx_points(chapters, filename_for)
     return render(tree), play_order
 end
 
-function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
+function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
@@ -971,6 +977,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
 <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 <item id="style" href="style.css" media-type="text/css"/>
 <item id="chapter" href="text/chapter.xhtml" media-type="application/xhtml+xml"/>
+<item id="weread-source" href="weread-source.txt" media-type="text/plain"/>
 ]] .. table.concat(manifest_assets, "\n") .. [[
 </manifest>
 <spine>
@@ -993,6 +1000,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
         { name = "OEBPS/content.opf", data = opf },
         { name = "OEBPS/nav.xhtml", data = nav },
         { name = "OEBPS/style.css", data = css },
+        { name = FileIdentity.PATH, data = FileIdentity.encode(book, { chapter }, source_identity, Crypto.sha256_hex(xhtml)) },
         { name = "OEBPS/text/chapter.xhtml", data = chapter_xhtml },
     }
     append_asset_entries(entries, assets)
@@ -1001,7 +1009,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
     return path
 end
 
-function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix, assets, css, cover_data)
+function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix, assets, css, cover_data, source_identity)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
@@ -1018,6 +1026,7 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
         [[<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>]],
         [[<item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>]],
         [[<item id="style" href="style.css" media-type="text/css"/>]],
+        [[<item id="weread-source" href="weread-source.txt" media-type="text/plain"/>]],
     }
     local spine_items = {}
     -- Resumable full-book jobs checkpoint ready-to-package XHTML files.  The
@@ -1055,11 +1064,25 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
     end
     append_asset_entries(entries, assets)
 
+    local source_hashes, checkpoint_version = {}, nil
     for chapter_index, chapter in ipairs(chapters or {}) do
         local uid = tostring(chapter.chapterUid or chapter_index)
         local filename = string.format("text/chapter-%03d.xhtml", chapter_index)
         local id = item_id("chapter_", uid)
         local title = chapter.title or ("Chapter " .. uid)
+        if workspace_text_dir then
+            local workspace = chapter_bodies.__source_workspace
+            local checkpoint = { read_full_download_checkpoint(workspace
+                and Content.full_download_checkpoint_path(workspace, chapter, chapter_index)) }
+            local digest, version = checkpoint[3], checkpoint[4]
+            if checkpoint[5] ~= tostring(book_id) then version = 0 end
+            source_hashes[#source_hashes + 1] = uid .. ":" .. tostring(digest or "unknown")
+            version = FileIdentity.version(version)
+            if checkpoint_version == nil then checkpoint_version = version
+            elseif checkpoint_version ~= version then checkpoint_version = 0 end
+        else
+            source_hashes[#source_hashes + 1] = uid .. ":" .. Crypto.sha256_hex(chapter_bodies[uid] or "")
+        end
         if not workspace_text_dir then
             local chapter_xhtml = [[<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -1126,6 +1149,8 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
 </body>
 </html>]]
     css = css or [[body { line-height: 1.7; margin: 5%; } img { max-width: 100%; }]]
+    table.insert(entries, { name = FileIdentity.PATH, data = FileIdentity.encode(book, chapters, source_identity,
+        Crypto.sha256_hex(table.concat(source_hashes, "\n")), checkpoint_version) })
     table.insert(entries, { name = "OEBPS/content.opf", data = opf })
     table.insert(entries, { name = "OEBPS/nav.xhtml", data = nav })
     table.insert(entries, { name = "OEBPS/toc.ncx", data = ncx })
@@ -1740,6 +1765,7 @@ end
 
 function Content.fetch_chapter_epub(client, settings, book, chapter)
     local book_id = book.book_id or book.bookId
+    local source_identity = FileIdentity.capture(book)
     local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
     Content.cache_annotation_source(settings, book, chapter, xhtml)
     local css = Content.fetch_chapter_css(client, settings, book, chapter)
@@ -1757,7 +1783,7 @@ function Content.fetch_chapter_epub(client, settings, book, chapter)
             table.insert(assets, a)
         end
     end
-    local path = Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
+    local path = Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity)
     book.cached_chapters = book.cached_chapters or {}
     book.cached_chapters[tostring(chapter.chapterUid)] = path
     book.cached_file = path
@@ -1842,6 +1868,7 @@ end
 
 function Content.fetch_chapters_epub(client, settings, book, chapters, options)
     options = options or {}
+    local source_identity = FileIdentity.capture(book)
     local selected = {}
     local bodies = {}
     local assets = {}
@@ -1853,6 +1880,7 @@ function Content.fetch_chapters_epub(client, settings, book, chapters, options)
             options.progress(chapter_index, #chapters, chapter, "text")
         end
         local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+        FileIdentity.check(source_identity, book)
     Content.cache_annotation_source(settings, book, chapter, xhtml)
         if not css then
             css = Content.fetch_chapter_css(client, settings, book, chapter)
@@ -1880,7 +1908,7 @@ function Content.fetch_chapters_epub(client, settings, book, chapters, options)
     if #selected == 0 then
         error("No readable chapter found")
     end
-    local path = Content.save_book_epub(settings, book, selected, bodies, options.suffix or "book", assets, css)
+    local path = Content.save_book_epub(settings, book, selected, bodies, options.suffix or "book", assets, css, nil, source_identity)
     book.cached_chapters = book.cached_chapters or {}
     for chapter_index, chapter in ipairs(selected) do
         book.cached_chapters[tostring(chapter.chapterUid or chapter_index)] = path

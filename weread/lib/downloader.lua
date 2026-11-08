@@ -18,6 +18,7 @@ local time = require("ui/time")
 local T = require("ffi/util").template
 
 local Content = require("weread.lib.content")
+local FileIdentity = require("weread.lib.book_file_identity")
 local DownloadDialog = require("weread.ui.download_dialog")
 local Footnotes = require("weread.lib.footnotes")
 local I18n = require("weread.lib.i18n")
@@ -49,7 +50,7 @@ end
 local READER_BOOK_FIELDS = {
     "book_id", "title", "author", "psvts", "pclts", "token", "reader_url",
     "chapter_uid", "chapter_idx", "chapter_offset", "progress", "summary",
-    "_content_format", "cache_dir",
+    "_content_format", "cache_dir", "bookVersion",
 }
 
 local function reader_book(book)
@@ -122,9 +123,9 @@ function Downloader:_preserveWorkspace(dl, reason)
     self:_finishJob(dl)
 end
 
-function Downloader:_restoreFullDownloadCheckpoint(dl)
+function Downloader:_restoreFullDownloadCheckpoint(dl, initial)
     local completed = Content.full_download_completed_chapters(
-        dl.workspace, dl.chapters)
+        dl.workspace, dl.chapters, initial and dl.source_identity and dl.source_identity.book_version or nil)
     local selected = {}
     local completed_count = 0
     for chapter_index, chapter in ipairs(dl.chapters) do
@@ -656,6 +657,7 @@ function Downloader:start(book, chapters, suffix, options)
             end)
             if dl.cancelled then return end
             apply_reader_book(book, updated)
+            dl.source_identity = FileIdentity.capture(book)
             self:_setStage(dl, _("Preparing download..."))
             local cache = self.settings.get
                 and self.settings:get("cache", {}) or {}
@@ -666,7 +668,7 @@ function Downloader:start(book, chapters, suffix, options)
                 dl.state.css = Content.load_full_download_css(dl.workspace)
                 dl.state.used_asset_names = Content.full_download_workspace_used_asset_names(
                     dl.workspace)
-                self:_restoreFullDownloadCheckpoint(dl)
+                self:_restoreFullDownloadCheckpoint(dl, true)
             elseif cache.download_book_images and Content.create_download_workspace then
                 dl.workspace = Content.create_download_workspace(
                     self.settings, book)
@@ -982,7 +984,8 @@ function Downloader:_finishChapter(dl)
     local uid = tostring(chapter.chapterUid or dl.index)
     if dl.resumable then
         Content.save_full_download_css(dl.workspace, dl.state.css)
-        Content.save_full_download_chapter(dl.workspace, chapter, dl.index, xhtml)
+        Content.save_full_download_chapter(dl.workspace, chapter, dl.index, xhtml,
+            FileIdentity.check(dl.source_identity, dl.book))
         dl.completed[dl.index] = true
         dl.completed_count = dl.completed_count + 1
     else
@@ -1113,7 +1116,7 @@ function Downloader:_step(dl)
                 return Content.save_chapter_epub(
                     self.settings, dl.book, chapter, dl.bodies[uid],
                     (dl.assets_by_uid and dl.assets_by_uid[uid]) or dl.assets,
-                    dl.state.css
+                    dl.state.css, dl.source_identity
                 )
             end
             if dl.separate_chapters then
@@ -1123,7 +1126,7 @@ function Downloader:_step(dl)
                     paths[uid] = Content.save_chapter_epub(
                         self.settings, dl.book, chapter, dl.bodies[uid],
                         (dl.assets_by_uid and dl.assets_by_uid[uid]) or {},
-                        dl.state.css
+                        dl.state.css, dl.source_identity
                     )
                 end
                 return paths[tostring(dl.selected[1].chapterUid or 1)], paths
@@ -1149,10 +1152,11 @@ function Downloader:_step(dl)
             return Content.save_book_epub(
                 self.settings, dl.book,
                 dl.resumable and dl.chapters or dl.selected,
-                dl.resumable and { __workspace_text_dir = dl.workspace.rendered_text_dir } or dl.bodies,
+                dl.resumable and { __workspace_text_dir = dl.workspace.rendered_text_dir,
+                    __source_workspace = dl.workspace } or dl.bodies,
                 dl.suffix,
                 dl.resumable and Content.full_download_workspace_assets(dl.workspace) or dl.assets,
-                dl.state.css, cover_data
+                dl.state.css, cover_data, dl.source_identity
             )
         end)
         if dl.cancelled then self:_step(dl); return end
@@ -1321,7 +1325,9 @@ function Downloader:_step(dl)
         return self:_runInterruptible(dl, function()
             local xhtml = Content.fetch_single_chapter_source(
                 self.client, self.settings, dl.book, chapter, dl.state)
-            return { xhtml = xhtml, state = dl.state, book = reader_book(dl.book) }
+            FileIdentity.check(dl.source_identity, dl.book)
+            return { xhtml = xhtml, state = dl.state, book = reader_book(dl.book),
+                source_changed = dl.source_identity and dl.source_identity.changed }
         end)
     end)
     if dl.cancelled then self:_step(dl); return end
@@ -1333,6 +1339,8 @@ function Downloader:_step(dl)
     local xhtml = result.xhtml
     dl.state = result.state
     apply_reader_book(dl.book, result.book)
+    if dl.source_identity and result.source_changed then dl.source_identity.changed = true end
+    FileIdentity.check(dl.source_identity, dl.book)
     if dl.chapter_source_retries then
         dl.chapter_source_retries[tostring(chapter.chapterUid or dl.index)] = nil
     end
