@@ -319,7 +319,7 @@ function Controller:chooseSource()
         end }}
     end
     buttons[#buttons + 1] = {{ text = _("Cancel"), callback = function() self.scheduler:close(dialog) end }}
-    dialog = ButtonDialog:new{ modal = true, title = _("Automatic uses E-Ink authorization when available and falls back to the standard bookshelf. E-Ink bookshelf uses only E-Ink access."),
+    dialog = ButtonDialog:new{ modal = true, title = _("Automatic prefers E-Ink authorization. Standard bookshelf uses an official key when available, then the Web login. E-Ink bookshelf uses only E-Ink access."),
         buttons = buttons }
     self.scheduler:show(dialog)
 end

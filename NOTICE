@@ -6,6 +6,14 @@ License version 3. See LICENSE for the complete license text.
 
 Third-party material:
 
+- integrations/ssl/cacert.pem
+  Mozilla CA certificate store, converted by curl on 2026-11-05.
+  Licensed under the Mozilla Public License, Version 2.0.
+  See integrations/ssl/LICENSE. Source: https://curl.se/docs/caextract.html
+  The unmodified bundle and its upstream SHA-256 are included for devices
+  without an operating-system CA store. TLS peer and SAN hostname checks
+  apply only to this plugin's HTTPS requests.
+
 - fonts/NotoEmoji-Regular.ttf
   Copyright 2013 Google LLC
   Licensed under the SIL Open Font License, Version 1.1.

@@ -58,40 +58,51 @@ expect(requests[2].url ==
     "https://weread.qq.com/api/auth/getLoginInfo?uid=uid%20value&otp=1234",
     "non-empty OTP was serialized incorrectly")
 
-local function run_login(fingerprint)
+local function run_login(fingerprint, options)
+    options = options or {}
     local protocol_requests, saved = {}, nil
     local responses = {
         { "html", { ["set-cookie"] = "wr_preflight=test-preflight; Path=/" } },
         { { uid = "test-uid" } },
-        { { succeed = true, webLoginVid = "test-user", accessToken = "test-access", refreshToken = "test-refresh" } },
-        { { name = "Test user" } },
-        { { apikey = "test-api-key" } },
+        { { succeed = true, webLoginVid = "900000", accessToken = "test-access", refreshToken = "test-refresh" } },
+        { { vid = options.wrong_owner and 900001 or 900000, name = "Test user" } },
+        { options.no_key and {} or { apikey = options.bad_key and "test\napi-key" or "test-api-key" },
+            options.cookie_change and {["set-cookie"]="wr_vid=900001; Path=/"} or {}, options.key_error and 503 or 200 },
     }
     local protocol_client = {
         request = function(_self, opts)
             protocol_requests[#protocol_requests + 1] = opts
             local response = table.remove(responses, 1)
-            return response[1], 200, response[2] or {}
+            return response[1], response[3] or 200, response[2] or {}
         end,
         decode_http_json = function(_self, body) return body end,
     }
     protocol_client.request_follow = protocol_client.request
     local settings = {
         get_device_fingerprint = function() return fingerprint end,
-        update_auth = function(_self, credentials, options)
-            expect(options.replace_cookies, "login should replace account cookies")
+        update_auth = function(_self, credentials, auth_options)
+            expect(auth_options.replace_cookies, "login should replace account cookies")
             saved = credentials
         end,
     }
     local protocol_login = QRLogin:new({}, protocol_client, settings)
     local uid = protocol_login:_begin_protocol()
     local result = protocol_login:_poll_protocol(uid)
-    protocol_login:_complete_protocol(result, protocol_login.generation)
+    local ok = pcall(protocol_login._complete_protocol, protocol_login, result, protocol_login.generation)
+    if options.wrong_owner then
+        expect(not ok and saved == nil and #protocol_requests == 4, "unverified owner committed credentials or fetched a key")
+        return
+    end
+    if options.cookie_change then
+        expect(not ok and saved==nil and #protocol_requests==5,"changed cookie owner was committed")
+        return
+    end
+    expect(ok, "verified Web login failed")
     local expected_urls = {
         "https://weread.qq.com/r/weread-skills",
         "https://weread.qq.com/api/auth/getLoginUid",
         "https://weread.qq.com/api/auth/getLoginInfo?uid=test-uid&otp=",
-        "https://weread.qq.com/api/userInfo?userVid=test-user",
+        "https://weread.qq.com/api/userInfo?userVid=900000",
         "https://weread.qq.com/api/skills/apikeyGet?only_show=1",
     }
     expect(#protocol_requests == #expected_urls, "fingerprint must not introduce a new login chain")
@@ -108,12 +119,27 @@ local function run_login(fingerprint)
         "fingerprint must not discard server cookies")
     expect(saved.cookies.wr_fp == fingerprint and saved.cookies.wr_skey == "test-access",
         "completed login must persist both the fingerprint and new credentials")
-    expect(saved.api_key == "test-api-key" and protocol_login.login_cookies == nil,
+    expect(saved.api_key == ((options.no_key or options.key_error or options.bad_key) and "" or "test-api-key") and protocol_login.login_cookies == nil,
         "login completion state changed")
     return protocol_requests[2].headers.Cookie
 end
 
 expect(run_login("1234567890") ~= run_login("2345678901"),
     "separate device fingerprints must reach the server independently")
+run_login("1234567890", { no_key = true })
+run_login("1234567890", { key_error = true })
+run_login("1234567890", { wrong_owner = true })
+run_login("1234567890", { cookie_change = true })
+run_login("1234567890", { bad_key = true })
+
+local committed = false
+local cancelled = QRLogin:new({}, {}, { update_auth = function() committed = true end })
+cancelled._authenticated_get = function(self)
+    self:cancel()
+    return {vid=900000}, {}
+end
+expect(not pcall(cancelled._complete_protocol, cancelled,
+    {succeed=true,webLoginVid='900000',accessToken='synthetic-access'},cancelled.generation)
+    and not committed, "cancelled owner verification saved login")
 
 print("qr_login_spec: " .. checks .. " checks passed")

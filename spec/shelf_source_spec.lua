@@ -8,11 +8,12 @@ local function fixture(mode)
         unknown_secret = "private-response" }}, archive = {{ archiveId = 5, name = "Group", bookIds = { 123 } }} }
     local current, revision, present, native_fail, web_fail, on_request = true, 1, true, false, false, nil
     local config, requests, web_calls = { source = mode or "auto" }, {}, 0
+    local cookies, api_key, cookie_calls, cookie_fail, cookie_callback = {}, "test-key", 0, false, nil
     local credentials = { vid = "123", accessToken = "test-native-access", refreshToken = "test-native-refresh",
         deviceId = string.rep("1", 32) }
     local scope = { vid = "123", epoch = 1 }
     local settings = { data_dir = "/unused", get = function(_self, key)
-        if key == "shelf" then return config elseif key == "api_key" then return "test-key" end
+        if key == "shelf" then return config elseif key == "api_key" then return api_key elseif key == "cookies" then return cookies end
     end, get_auth_scope = function() return scope end,
         auth_scope_matches = function(_self, candidate) return current and candidate == scope end }
     local store = { read = function() return present and credentials or nil, revision end }
@@ -29,10 +30,17 @@ local function fixture(mode)
             if web_fail then error("gateway fixture failure", 0) end
             return { books = {{ bookId = "web", title = "Gateway book" }}, archive = {} }, 200, {}
         end,
+        get_web_shelf = function(_self, snapshot)
+            cookie_calls = cookie_calls + 1
+            expect(snapshot.wr_vid == "123" and snapshot.wr_skey == "synthetic-web-access", "Web jar was not account-bound")
+            if cookie_callback then cookie_callback() end
+            if cookie_fail then error("private-web-response-with-cookie", 0) end
+            return data
+        end,
     }
     return { client = client, settings = settings, store = store, requests = requests, data = data,
         fetch = function(options) options = options or {} options.store = store return Source.fetch(client, options) end,
-        counts = function() return #requests, web_calls end,
+        counts = function() return #requests, web_calls, cookie_calls end,
         change = function(options)
             if options.mode then config.source = options.mode end
             if options.current ~= nil then current = options.current end
@@ -41,6 +49,10 @@ local function fixture(mode)
             if options.native_fail ~= nil then native_fail = options.native_fail end
             if options.web_fail ~= nil then web_fail = options.web_fail end
             if options.on_request then on_request = options.on_request end
+            if options.cookies then cookies = options.cookies end
+            if options.api_key ~= nil then api_key = options.api_key end
+            if options.cookie_fail ~= nil then cookie_fail = options.cookie_fail end
+            if options.cookie_callback then cookie_callback = options.cookie_callback end
         end }
 end
 local f = fixture()
@@ -128,4 +140,40 @@ native, web = f.counts()
 expect(native == 0 and web == 1 and result._native_fallback, "failed renewal can fall back without a second native attempt")
 f = fixture("native"); result = f.fetch({ skip_native = true })
 expect(result._shelf_source == "native", "native-only policy cannot be bypassed by fallback options")
+
+local jar = {wr_vid="123",wr_skey="synthetic-web-access"}
+f=fixture();f.change{present=false,api_key="",cookies=jar}
+expect(Source.ready(f.settings,f.store),"verified Web account without key cannot read shelf")
+result=f.fetch()
+local cookie_calls
+native,web,cookie_calls=f.counts()
+expect(native==0 and web==0 and cookie_calls==1 and result._shelf_source=='web',"keyless automatic route contacted another source")
+expect(result.books[1]._web_shelf_version==700 and result.books[1]._native_version==nil
+    and result.books[1].bookVersion==nil and result.books[1].version==nil,"Web shelf version promoted to a download version")
+expect(type(result._web_revision)=='string' and #result._web_revision==64,"Web result lacks revision for parent guard")
+f=fixture('gateway');f.change{api_key='',cookies=jar}
+result=f.fetch();native,web,cookie_calls=f.counts()
+expect(native==0 and web==0 and cookie_calls==1 and result._shelf_source=='web',"standard policy cannot use verified Web login without key")
+f=fixture();f.change{present=false,web_fail=true,cookies=jar}
+result=f.fetch();native,web,cookie_calls=f.counts()
+expect(native==0 and web==1 and cookie_calls==1 and result._gateway_fallback and result._shelf_source=='web',"gateway failure did not fall back exactly once")
+f=fixture();f.change{native_fail=true,api_key='',cookies=jar}
+result=f.fetch();native,web,cookie_calls=f.counts()
+expect(native==1 and web==0 and cookie_calls==1 and result._native_fallback,"native failure cannot fall back to keyless Web")
+f=fixture('native');f.change{native_fail=true,api_key='',cookies=jar}
+ok,err=pcall(f.fetch);native,web,cookie_calls=f.counts()
+expect(not ok and err=='shelf_source/native_unavailable' and native==1 and web==0 and cookie_calls==0,"native-only leaked into Web fallback")
+for _,change in ipairs({{current=false},{cookies={}},{cookies={wr_vid='123',wr_skey='different-web-access'}},{mode='native'}}) do
+    f=fixture('gateway');f.change{api_key='',cookies=jar}
+    f.change{cookie_callback=function() f.change(change) end}
+    ok,err=pcall(f.fetch)
+    expect(not ok and err=='shelf_source/session_changed',"stale Web response was allowed to update shelf")
+end
+f=fixture('gateway');f.change{api_key='',cookies=jar,cookie_fail=true}
+ok,err=pcall(f.fetch)
+expect(not ok and err=='shelf_source/web_unavailable',"Web failure exposed its response or cookie")
+f=fixture('gateway');f.change{api_key='',cookies={wr_vid='456',wr_skey='synthetic-web-access'}}
+expect(not Source.ready(f.settings,f.store),"mismatching Web owner is considered logged in")
+f=fixture('gateway');f.change{api_key='',cookies={wr_vid='123',wr_gid='guest-only-id'}}
+expect(not Source.ready(f.settings,f.store),"guest identity was accepted as authenticated Web access")
 print("PASS: " .. checks .. " shelf source routing/normalization/account checks")

@@ -234,6 +234,7 @@ function QRLogin:_authenticated_get(url, cookies, web_login_vid, access_token, s
 end
 
 function QRLogin:_complete_protocol(login_result, generation)
+    if generation ~= self.generation then error("QR login was cancelled") end
     if type(login_result) ~= "table" or login_result.succeed ~= true then
         error("QR login has not succeeded")
     end
@@ -241,7 +242,9 @@ function QRLogin:_complete_protocol(login_result, generation)
     local web_login_vid = tostring(login_result.webLoginVid or "")
     local access_token = tostring(login_result.accessToken or "")
     local refresh_token = tostring(login_result.refreshToken or "")
-    if web_login_vid == "" or access_token == "" then
+    if not web_login_vid:match("^[1-9]%d*$") or #web_login_vid > 32
+        or type(login_result.accessToken) ~= "string" or #access_token < 8 or #access_token > 4096
+        or access_token:find('[%z%c%s;"\\]') then
         error("QR login response is missing account credentials")
     end
 
@@ -265,30 +268,31 @@ function QRLogin:_complete_protocol(login_result, generation)
         access_token,
         "userInfo"
     )
+    if type(user_info) ~= "table" or tostring(user_info.vid or user_info.userVid or "") ~= web_login_vid then
+        error(_("The login account could not be verified. Please scan again."))
+    end
+    if generation ~= self.generation then error("QR login was cancelled") end
 
-    local api_result
     local api_key = ""
-    for attempt = 1, 3 do
-        api_result, cookies = self:_authenticated_get(
+    local key_ok, api_result, updated_cookies = pcall(self._authenticated_get, self,
             API_KEY_URL,
             cookies,
             web_login_vid,
             access_token,
             "apikeyGet"
         )
-        api_key = type(api_result.apikey) == "string" and api_result.apikey or ""
-        if api_key ~= "" then
-            break
-        end
-        if attempt < 3 then
-            sleep_seconds(0.5)
-        end
-    end
-    if api_key == "" then
-        error(_("No official API key was returned. This account has not enabled WeRead Skill.\n\nOpen WeRead app → Me → Settings → WeRead Skill → Get API Key, then scan again."))
+    if key_ok and type(api_result) == "table" then
+        cookies = type(updated_cookies) == "table" and updated_cookies or cookies
+        local key = api_result.apikey
+        api_key = type(key) == "string" and #key <= 4096 and not key:find("[%z%c%s]") and key or ""
+    else
+        logger.warn("optional official key unavailable; retaining verified Web login")
     end
     if generation ~= self.generation then
         error("QR login was cancelled")
+    end
+    if tostring(cookies.wr_vid or "") ~= web_login_vid then
+        error(_("The login account could not be verified. Please scan again."))
     end
 
     local account = {
@@ -568,7 +572,7 @@ function QRLogin:_complete(login_result, generation)
             _("WeRead login successful.\n\nAccount: %1\nCookie: %2\nOfficial API key: %3"),
             account_name,
             _("configured"),
-            _("configured")
+            self.settings:is_api_configured() and _("configured") or _("not configured; Web bookshelf is available")
         ))
     end)
 end

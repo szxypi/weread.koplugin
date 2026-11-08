@@ -74,6 +74,13 @@ jobs:
       - name: Saved Web session boundary checks
         run: python3 scripts/test_secure_weread_session.py
 
+      - name: Web shelf prototype checks
+        run: python3 scripts/test_web_shelf_contract.py
+
+      - name: Bundled TLS trust store integrity
+        working-directory: integrations/ssl
+        run: sha256sum --check cacert.pem.sha256
+
       - name: Private source parser isolation checks
         run: python3 scripts/test_source_parser_preflight.py
 

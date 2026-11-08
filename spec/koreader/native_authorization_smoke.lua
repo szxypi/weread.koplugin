@@ -85,5 +85,6 @@ return function(plugin, request_count, flush_tasks, home)
     assert(loaded and plugin.shelf_active_source == "gateway", "cleared native grant blocked ordinary automatic shelf refresh")
     assert(request_count("/login", "native_qr") == native_logins + 1, "authorization repeated native login")
     assert(request_count("/web/book/read") == writes_before, "native authorization wrote Web reading state")
+    dofile(fixtures .. "web_shelf_smoke.lua")(plugin, request_count, flush_tasks, home, pump_until)
     print("PASS: native authorization QR dismiss -> responsive fork/25 KiB pipe and immediate cancel -> verified grant -> primary-file/new Settings reopen -> clear; no Web writes")
 end

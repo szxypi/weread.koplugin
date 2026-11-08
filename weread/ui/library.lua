@@ -184,6 +184,11 @@ function M:requireShelfLogin()
             self.native_authorization:showMenu()
             return false
         end
+        if reason == "login_required" then
+            self:showTransientInfo(_("Please scan the QR code to log in first."), 2)
+            UIManager:scheduleIn(0.2, function() self.qr_login:start() end)
+            return false
+        end
     end
     return self:requireLogin(false, true)
 end
@@ -250,6 +255,8 @@ function M:refreshBookshelf(old_view, view_options)
             local selected = require("weread.lib.shelf_source").selection(self.settings)
             if not selected.credentials or selected.revision ~= result._native_revision then return end
         end
+        if ok and type(result) == "table" and result._web_revision ~= nil
+            and require("weread.lib.shelf_source").web_revision(self.settings) ~= result._web_revision then return end
         if not ok then
             logger.err("load bookshelf failed:", log_error(result))
             if result == "shelf_source/native_unavailable" or result == "shelf_source/native_required" then
@@ -274,6 +281,8 @@ function M:refreshBookshelf(old_view, view_options)
         self.shelf_active_source = type(result) == "table" and result._shelf_source or "gateway"
         if type(result) == "table" and result._native_fallback then
             self:showTransientInfo(_("E-Ink bookshelf is unavailable. Using the standard bookshelf for this refresh."), 3)
+        elseif type(result) == "table" and result._gateway_fallback then
+            self:showTransientInfo(_("The standard connection is unavailable. Using the Web bookshelf for this refresh."), 3)
         end
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
@@ -875,6 +884,10 @@ end
 
 function M:refreshBookRecord(book, old_view, options)
     options = options or {}
+    if options.automatic and not self.settings:is_api_configured() and self.settings:is_cookie_configured() then
+        self:showBookMenu(book)
+        return
+    end
     if not self:requireLogin(false, true) then
         if options.automatic then self:showBookMenu(book) end
         return

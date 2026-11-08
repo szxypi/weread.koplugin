@@ -181,6 +181,17 @@ class MockServer(ThreadingHTTPServer):
             return control["status"], dict(errcode=-1, errmsg="Injected mock failure")
 
         book_id = str(data.get("bookId") or query.get("bookId", [BOOK_ID])[0])
+        if path == "/api/userInfo" and method == "GET" and query.get("userVid") == ["900000"]:
+            return 200, dict(vid=900000, name="Synthetic Web reader")
+        if path == "/api/skills/apikeyGet" and method == "GET" and query == {"only_show": ["1"]}:
+            return 200, {}
+        if path == "/web/shelf/sync" and method == "GET":
+            books = [{key: value for key, value in dict(book, version=800).items() if key != "bookVersion"}
+                     for book in ([] if control["empty_shelf"] else BOOKS)]
+            return 200, dict(books=books, archive=[
+                dict(archiveId=1, name="旅途", bookIds=[b["bookId"] for b in BOOKS[:15]]),
+                dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
+                dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
             if path == "/wxticket" and method == "GET":
                 return 200, dict(signature="mock-native-ticket", timeStamp=1700000000, expires_in=180)

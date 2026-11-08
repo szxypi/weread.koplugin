@@ -428,4 +428,37 @@ expect(not ok and not tostring(err):find("private-", 1, true), "sensitive JSON e
 client.json_decode = function() return { errcode = 123, accessToken = "private-token" } end
 client:decode_http_json("private-error-body", { sensitive = true, api_name = "qr_login", code = 200 })
 expect(not table.concat(logs, "\n"):find("private-", 1, true), "sensitive JSON error diagnostics leaked credentials")
+local array_mt = {}
+local function array(items) return setmetatable(items or {},array_mt) end
+local web_data={books=array{{bookId="900001",title="Synthetic"}},archive=array{{bookIds=array()}}}
+client.json_decode=function(_self,value)
+    if value=="[]" then return array() end
+    if value=="broken" then error("private-shelf-body") end
+    return web_data
+end
+local cookie_count=#merged_cookies
+responses[#responses+1]={code=200,body="shelf",headers={["set-cookie"]="ignored=value"}}
+expect(client:get_web_shelf({wr_skey="XXX-cookie-value"})==web_data,"Web shelf payload")
+local web_request=requests[#requests]
+expect(web_request.url=="https://weread.qq.com/web/shelf/sync" and web_request.method=="GET"
+    and web_request.headers.Cookie=="wr_skey=XXX-cookie-value" and #merged_cookies==cookie_count,
+    "Web shelf changed account cookies or request contract")
+expect(type(web_request.create)=="function","HTTPS did not install request-local TLS verification")
+for _,web_code in ipairs({302,401,403,503}) do
+    responses[#responses+1]={code=web_code,body="private-shelf-response"}
+    ok,err=pcall(client.get_web_shelf,client,{})
+    expect(not ok and err=="shelf_source/web_unavailable","Web shelf HTTP failure exposed private data")
+end
+responses[#responses+1]={code=200,body=string.rep("x",4*1024*1024+1)}
+expect(not pcall(client.get_web_shelf,client,{}),"oversized shelf was accepted")
+responses[#responses+1]={code=200,body="broken"}
+ok,err=pcall(client.get_web_shelf,client,{})
+expect(not ok and err=="sensitive_json_invalid","Web shelf parser leaked private input")
+for _,data in ipairs({{books=array(),errcode=1},{books=array(),succ=false},{books={}},
+    {books=array(),archive={}},{books=array(),archive=array{{bookIds={}}}}}) do
+    web_data=data
+    responses[#responses+1]={code=200,body="shelf"}
+    expect(not pcall(client.get_web_shelf,client,{}),"rejected API or empty object was accepted as a shelf")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"Web shelf failure logged private payload")
 print(("client_spec: %d checks"):format(checks))

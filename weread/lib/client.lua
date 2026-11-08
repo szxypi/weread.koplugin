@@ -298,7 +298,12 @@ function Client:request(opts)
         is_handle_cookie = false
     end
 
-    local results = { pcall(http.request, req_opts) }
+    local results = { pcall(function()
+        if tostring(req_opts.url):match("^https://") then
+            req_opts.create = function() return require("weread.lib.tls").create(req_opts.url)() end
+        end
+        return http.request(req_opts)
+    end) }
     socketutil:reset_timeout()
     if not results[1] then
         if sensitive then
@@ -661,6 +666,50 @@ function Client:get_gateway_shelf()
         "mp=", table_summary(type(result) == "table" and result.mp or nil)
     )
     return result, code, headers
+end
+
+-- Fixed, read-only Web endpoint verified by the owner-login Python prototype.
+-- A child refresh must not persist Set-Cookie or inherit a later login jar.
+function Client:get_web_shelf(cookies)
+    local chunks, bytes, exceeded = {}, 0, false
+    local function sink(chunk)
+        if not chunk then return 1 end
+        bytes = bytes + #chunk
+        if bytes > 4 * 1024 * 1024 then exceeded = true; return nil, "shelf_limit" end
+        chunks[#chunks + 1] = chunk
+        return 1
+    end
+    local _, code, headers = self:request{
+        url = "https://weread.qq.com/web/shelf/sync", method = "GET", sink = sink,
+        skip_cookie = true, persist_response_cookies = false, sensitive = true, diagnostic_api = "web_shelf",
+        timeout = { 10, 20 }, headers = { ["Cookie"] = Cookie.to_header(cookies or {}),
+            ["Referer"] = "https://weread.qq.com/web/shelf", ["Accept"] = "application/json" },
+    }
+    if exceeded or code ~= 200 then error("shelf_source/web_unavailable", 0) end
+    local data = self:decode_http_json(table.concat(chunks), { method = "GET", code = code, headers = headers,
+        sensitive = true, api_name = "web_shelf" })
+    if type(data) ~= "table" or (data.errcode ~= nil and tonumber(data.errcode) ~= 0)
+        or (data.errCode ~= nil and tonumber(data.errCode) ~= 0)
+        or (data.succ ~= nil and data.succ ~= true and tonumber(data.succ) ~= 1) then
+        error("shelf_source/web_unavailable", 0)
+    end
+    local array_mt = getmetatable(self:json_decode("[]"))
+    if array_mt then
+        local function check_empty_array(value)
+            if type(value) == "table" and next(value) == nil and getmetatable(value) ~= array_mt then
+                error("shelf_source/invalid_snapshot", 0)
+            end
+        end
+        for _, value in ipairs({data.books, data.archive}) do
+            check_empty_array(value)
+        end
+        for _, archive in ipairs(type(data.archive) == "table" and data.archive or {}) do
+            if type(archive) == "table" then
+                check_empty_array(archive.bookIds)
+            end
+        end
+    end
+    return data
 end
 
 function Client:get_book_info(book_id)

@@ -1,0 +1,31 @@
+{
+  "result": "TLS_TRANSPORT_VERIFIED",
+  "cases": [
+    {
+      "case": "trusted",
+      "passed": true,
+      "http_requests": 1
+    },
+    {
+      "case": "untrusted",
+      "passed": true,
+      "http_requests": 0
+    },
+    {
+      "case": "wrong_hostname",
+      "passed": true,
+      "http_requests": 0
+    },
+    {
+      "case": "expired",
+      "passed": true,
+      "http_requests": 0
+    },
+    {
+      "case": "missing_san",
+      "passed": true,
+      "http_requests": 0
+    }
+  ],
+  "real_credentials_used": false
+}

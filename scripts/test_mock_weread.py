@@ -83,6 +83,16 @@ class MockTests(unittest.TestCase):
         self.assertEqual(empty["results"][0]["books"], [])
         self.assertFalse(empty["hasMore"])
 
+    def test_keyless_web_shelf_contract(self):
+        status, account = self.request('/api/userInfo?userVid=900000')
+        self.assertEqual((status,account['vid']),(200,900000))
+        self.assertEqual(self.request('/api/skills/apikeyGet?only_show=1'),(200,{}))
+        status,shelf=self.request('/web/shelf/sync')
+        self.assertEqual((status,len(shelf['books']),len(shelf['archive'])),(200,26,3))
+        self.assertEqual(shelf['books'][0]['version'],800)
+        self.assertNotIn('bookVersion',shelf['books'][0])
+        self.assertEqual(self.request('/web/shelf/sync',{})[0],501)
+
     def test_native_authorization_fixture_validates_signature(self):
         status, ticket = self.server.route("GET", "https://i.weread.qq.com/wxticket?nonceStr=weread", {})
         self.assertEqual(status, 200)

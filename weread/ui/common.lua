@@ -194,6 +194,13 @@ function M:requireLogin(require_cookie, require_api_key)
     if not missing_cookie and not missing_api_key then
         return true
     end
+    local scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local verified_web = self.settings:is_cookie_configured()
+        and (not self.settings.get_auth_scope or (scope and self.settings:auth_scope_matches(scope)))
+    if missing_api_key and not missing_cookie and verified_web then
+        self:showInfo(_("This feature requires WeRead Skill authorization. Your current login still supports the bookshelf and reading. Enable WeRead Skill in the WeRead app settings, then sign in again to load its key."))
+        return false
+    end
     self:showTransientInfo(_("Please scan the QR code to log in first."), 2)
     UIManager:scheduleIn(0.2, function()
         self.qr_login:start()
