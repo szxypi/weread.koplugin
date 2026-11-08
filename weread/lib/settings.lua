@@ -267,6 +267,13 @@ function Settings:get(key, default)
     return books
 end
 
+-- Hydrate one indexed book without loading unrelated per-book collections.
+function Settings:get_book(book_id)
+    local indexes=self.store:readSetting("books", {})
+    local index=type(indexes)=="table" and indexes[tostring(book_id)]
+    return index and BookStore.load(self,tostring(book_id),index) or nil
+end
+
 function Settings:set(key, value)
     if key == "account" then
         local old = self:get("account", {})

@@ -279,10 +279,14 @@ package.preload["ui/trapper"] = function() return trapper end
 downloader.run_online_task = function(_label, callback) callback(); return true end
 local cleanup_calls, completion_calls = 0, 0
 Content.cleanup_download_workspace = function() cleanup_calls = cleanup_calls + 1 end
-local function cancel_job(dl, expected_cleanup)
+local function cancel_job(dl, expected_cleanup, use_api)
     local before_killed = killed
     expect(child_pending and dialog.visible, "network request did not yield to the UI")
-    dialog.options.buttons[1][1].callback()
+    expect(not downloader:cancelJob({}) and not downloader:cancelJob({prefetch=true}),
+        "foreign cancellation affected foreground job")
+    if use_api then expect(downloader:cancelJob(dl), "owned cancel API rejected foreground job")
+    else dialog.options.buttons[1][1].callback() end
+    expect(not downloader:cancelJob(dl), "completed cancellation was reusable")
     expect(killed == before_killed + 1 and child_pending == nil,
         "cancel did not interrupt the in-flight child")
     expect(dl.cancelled and dl.completion_notified and downloader._active_job == nil,
@@ -293,7 +297,7 @@ local function cancel_job(dl, expected_cleanup)
 end
 
 expect(start_selected(), "interruptible preparation did not start")
-cancel_job(downloader._active_job, 0)
+cancel_job(downloader._active_job, 0, true)
 
 for _, stage in ipairs({ "source", "images", "cover" }) do
     local dl = {

@@ -52,19 +52,15 @@ function M.project(id,before,reader,raw,after)
         raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw,basis='filtered_xhtml_utf16',upload_verified=false}
 end
 
-function M.fetch(client,id,selected)
-    id=Access.book_id(id)
-    selected=selected or M.capture(client.settings)
-    if not id or not selected or not selected.web then fail('web_required') end
-    local referer=Protocol.reader_url(id)
+local function transport(client,id,selected)
     local function current() if not M.matches(client.settings,selected) then fail('session_changed') end end
-    local function request(url,body,maximum,json)
+    local function request(url,body,maximum,json,referer)
         current()
         local chunks,bytes,exceeded={},0,false
         local ok,_,code,headers=pcall(client.request,client,{url=url,method=body and 'POST' or 'GET',
             body=body and client:json_encode(body),skip_cookie=true,persist_response_cookies=false,sensitive=true,
             diagnostic_api='cloud_source',timeout={8,15},headers={Cookie=Cookie.to_header(selected.web.cookies),
-                Origin='https://weread.qq.com',Referer=referer,['Content-Type']='application/json;charset=UTF-8'},
+                Origin='https://weread.qq.com',Referer=referer or Protocol.reader_url(id),['Content-Type']='application/json;charset=UTF-8'},
             sink=function(chunk)
                 if not chunk then return 1 end
                 bytes=bytes+#chunk;if bytes>maximum then exceeded=true;return nil,'source_cloud_limit' end
@@ -76,11 +72,19 @@ function M.fetch(client,id,selected)
         if json then return client:decode_http_json(raw,{sensitive=true,api_name='cloud_source',code=code,headers=headers}) end
         return raw
     end
+    return request,current
+end
+
+function M.fetch(client,id,selected)
+    id=Access.book_id(id)
+    selected=selected or M.capture(client.settings)
+    if not id or not selected or not selected.web then fail('web_required') end
+    local request,current=transport(client,id,selected)
     local url='https://weread.qq.com/web/book/getProgress?bookId='..Protocol.urlencode(id)
     local before=request(url,nil,65536,true)
     local first=position(before,id)
-    referer=Protocol.reader_url(id,first.chapter_uid)
-    local html=request(Protocol.reader_url(id,first.chapter_uid),nil,4*1024*1024)
+    local referer=Protocol.reader_url(id,first.chapter_uid)
+    local html=request(referer,nil,4*1024*1024,false,referer)
     local encoded=html:match([[window%.__INITIAL_STATE__%s*=%s*(%{.-%})%s*;%s*%(function]])
     local decoded,initial=pcall(client.json_decode,client,encoded or '')
     local reader=decoded and type(initial)=='table' and initial.reader
@@ -90,14 +94,101 @@ function M.fetch(client,id,selected)
     local params=Protocol.make_content_params(id,first.chapter_uid,reader.psvts,{sc=1})
     local parts={}
     for _,name in ipairs({'e_0','e_1','e_3'}) do
-        parts[#parts+1]=request('https://weread.qq.com/web/book/chapter/'..name,params,4*1024*1024)
+        parts[#parts+1]=request('https://weread.qq.com/web/book/chapter/'..name,params,4*1024*1024,false,referer)
     end
     local valid,raw=pcall(require('weread.lib.content').decode_content_shards,unpack(parts))
     if not valid then fail('source_invalid') end
-    local after=request(url,nil,65536,true)
+    local after=request(url,nil,65536,true,referer)
     local target=M.project(id,before,reader,raw,after)
     current()
     return target
+end
+
+function M.remote(value)
+    if type(value)~='table' or not Access.book_id(value.book_id) or not Access.book_id(value.chapter_uid)
+        or not number(value.chapter_offset,Source.MAX_BYTES*8) or value.chapter_offset%1~=0
+        or not number(value.percent,100) or type(value.raw_sha256)~='string' or #value.raw_sha256~=64
+        or not value.raw_sha256:match('^[0-9a-f]+$') or not number(value.raw_bytes,Source.MAX_BYTES) or value.raw_bytes<1
+        or value.raw_bytes%1~=0 or value.basis~='filtered_xhtml_utf16' or value.upload_verified~=false then return nil end
+    local out={}
+    for _,key in ipairs({'book_id','chapter_uid','chapter_offset','percent','raw_sha256','raw_bytes','basis','upload_verified'}) do out[key]=value[key] end
+    out.book_id,out.chapter_uid=Access.book_id(value.book_id),Access.book_id(value.chapter_uid)
+    return out
+end
+
+local function valid_path(value)
+    return type(value)=='string' and value~='' and #value<=4096 and not value:find('[%z%c]')
+end
+
+function M.bind_file(file,remote,request_id,read_archive)
+    remote=M.remote(remote)
+    if not valid_path(file) or not remote then return {error='target_invalid'} end
+    local Identity=require('weread.lib.book_file_identity')
+    local Archive=require('weread.lib.source_archive')
+    local ok,members=pcall(read_archive or Archive.read,file,{[Identity.PATH]=Identity.MAX_BYTES})
+    if not ok or type(members)~='table' then return {error='source_changed'} end
+    local identity=members and Identity.decode(members[Identity.PATH])
+    if not identity or identity.book_id~=remote.book_id then return {error='source_changed'} end
+    local bound=M.bind({file=file,identity=identity,book_id=remote.book_id,request_id=request_id},remote,read_archive)
+    if bound.position then bound.file,bound.identity=file,identity end
+    return bound
+end
+
+local function book(settings,id)
+    if settings.get_book then return settings:get_book(id) end
+    return settings:get('books',{})[id]
+end
+local function chapter(rows,uid)
+    if type(rows)~='table' or #rows>100000 then return nil end
+    local found
+    for _,row in ipairs(rows) do
+        if type(row)=='table' and Access.book_id(row.chapterUid)==uid then
+            if found then return nil end
+            local title=row.title
+            if type(title)~='string' or #title>1024 or title:find('[%z%c]') then title='' end
+            found={chapterUid=uid,title=title}
+            for _,key in ipairs({'chapterIdx','wordCount','level'}) do if number(row[key],1e10) then found[key]=row[key] end end
+        end
+    end
+    return found
+end
+function M.download_chapter(client,remote,selected)
+    remote=M.remote(remote)
+    if not remote or not selected or not selected.web then fail('target_invalid') end
+    if not M.matches(client.settings,selected) then fail('session_changed') end
+    local saved=book(client.settings,remote.book_id) or {book_id=remote.book_id}
+    local Content=require('weread.lib.content')
+    local rows=Content.load_catalog_cache(client,client.settings,saved)
+    local target=chapter(rows,remote.chapter_uid)
+    if not target then
+        local request,current=transport(client,remote.book_id,selected)
+        local response=request('https://weread.qq.com/web/book/chapterInfos',{bookIds={remote.book_id}},4*1024*1024,true,
+            Protocol.reader_url(remote.book_id,remote.chapter_uid))
+        target=chapter(Content.normalize_chapters(response,remote.book_id),remote.chapter_uid)
+        current()
+    end
+    if not M.matches(client.settings,selected) then fail('session_changed') end
+    return target
+end
+
+-- Inspect only the requested chapter and explicit full/legacy cache candidates.
+function M.resolve(client,input,remote,selected,read_archive)
+    remote=M.remote(remote)
+    if type(input)~='table' or not valid_path(input.file) or not remote or remote.book_id~=input.book_id then return {error='target_invalid'} end
+    local bound=M.bind(input,remote,read_archive)
+    if bound.position then return bound end
+    local saved=book(client.settings,input.book_id) or {}
+    local visited={[input.file]=true}
+    for _,candidate in ipairs({saved.cached_chapters and saved.cached_chapters[remote.chapter_uid] or false,
+        saved.cached_full_book or false,saved.cached_file or false}) do
+        if valid_path(candidate) and not visited[candidate] then
+            visited[candidate]=true
+            local result=M.bind_file(candidate,remote,input.request_id,read_archive)
+            if result.position then result.remote=remote;return result end
+        end
+    end
+    local target=M.download_chapter(client,remote,selected)
+    return {error=bound.error or 'source_changed',remote=remote,chapter=target,request_id=input.request_id}
 end
 
 -- Worker-only archive binding. Re-open independently and verify the original

@@ -167,30 +167,106 @@ assert(not previous_plugin.cloud_source_request and not previous_plugin.cloud_so
 control{match='',times=0,delay=0};open(full)
 assert(document:getCurrentPage()==1 and not plugin.cloud_source_request,'reopened reader inherited an old cloud target')
 
--- A single chapter lacking the cloud chapter must never use a percentage.
+-- A chapter file can hand off to a validated full-book cache.
+-- Enable ordinary startup pulling here: a precise handoff must supersede it.
+local config=plugin.settings:get('sync');config.pull_on_open=true
+plugin.settings:set('sync',config);plugin.settings:flush()
 local first=assert(Source.read_document(document,'900001',1))
 local rendered=assert(document:getDocumentFileContent(first.render_path))
 local single_book={book_id='900001',bookId='900001',bookVersion=7,title='Cloud single fixture',chapters=chapters}
 local single=Content.save_chapter_epub(plugin.settings,single_book,chapters[1],rendered,{},nil,
     Identity.capture(single_book),assert(Source.capture(single_book,chapters[1],first.raw,'web_xhtml')))
+local function adopt_target(previous)
+    pump(function()
+        local next_reader=require('apps/reader/readerui').instance
+        if next_reader and next_reader~=previous then
+            reader=next_reader;plugin=assert(reader.weread);document=reader.document
+            plugin.isNetworkOnline=function() return true end
+            plugin.isNetworkConnected=function() return true end
+        end
+        local held_target=reader~=previous and plugin.source_position:current()
+        return held_target and held_target.retained_source_target and held_target.chapter_uid=='6'
+            and not plugin.cloud_source_request and not plugin.cloud_source_incoming
+    end)
+    assert(not plugin.progress_sync.verified and not plugin.busy_message,'cross-file target granted report permission or leaked busy state')
+    local startup_deadline=socket.gettime()+0.7
+    local reads_after_target=count('/web/book/getProgress')
+    while socket.gettime()<startup_deadline do UIManager:handleInput();socket.sleep(0.01) end
+    assert(count('/web/book/getProgress')==reads_after_target and not plugin.progress_sync.verified,
+        'ordinary startup pull overwrote precise handoff or granted report permission')
+    local native_target=assert(assert(Dom.open(document,'900001',6)):locate(remote.chapterOffset))
+    assert(document:isXPointerInCurrentPage(native_target.xpointer),'cross-file source target is not visible in the native viewport')
+end
 reader:onClose();open(single)
-assert(plugin:showCloudSourcePosition());pump(function() return not plugin.cloud_source_request end)
-assert(document:getCurrentPage()==1 and not plugin.source_navigation.job,'missing cloud chapter guessed a local percentage')
-close_info();reader:onClose()
+local previous_reader=reader
+assert(plugin:showCloudSourcePosition());adopt_target(previous_reader)
+assert(document.file==full,'matching full-book cache was not selected')
+close_info()
 
--- The same chapter with different original bytes is also rejected.
+-- Clear only synthetic cache references to exercise confirmation and download.
+local function clear_candidates()
+    local saved=plugin.settings:get('books')
+    saved['900001'].cached_file=nil;saved['900001'].cached_full_book=nil;saved['900001'].cached_chapters=nil
+    plugin.settings:set('books',saved);plugin.settings:flush()
+end
+clear_candidates();reader:onClose();open(single)
+assert(plugin:showCloudSourcePosition())
+pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
+local confirmation=plugin.cloud_source_request.confirm
+UIManager:forceRePaint();Device.screen:shot(evidence..'/cloud-source-download-confirm.png')
+confirmation:onClose()
+assert(not plugin.cloud_source_request and document.file==single and not plugin.downloader._active_job,'declining target download changed book')
+
+-- Cancel the real downloader child; its completion must not schedule a switch.
+control{match='/web/book/chapter/e_0',times=0,delay=0.4}
+assert(plugin:showCloudSourcePosition())
+pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
+plugin.cloud_source_request.confirm.ok_callback()
+pump(function() return plugin.downloader._active_job and plugin.downloader._active_job.progress_dialog
+    and plugin.downloader._active_job.progress_dialog.dismiss_callback end)
+local owned=plugin.downloader._active_job
+plugin:cancelCloudSourcePosition()
+assert(owned.cancelled and not plugin.cloud_source_request and not plugin.downloader._active_job,'cancel left owned downloader/child active')
+local cancel_deadline=socket.gettime()+0.6
+while socket.gettime()<cancel_deadline do UIManager:handleInput();socket.sleep(0.01) end
+assert(document.file==single and not plugin.cloud_source_incoming,'cancelled download reopened a book')
+control{match='',times=0,delay=0}
+
+assert(plugin:showCloudSourcePosition())
+pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
+previous_reader=reader
+local reads_before_download=count('/web/book/getProgress')
+plugin.cloud_source_request.confirm.ok_callback()
+adopt_target(previous_reader)
+assert(document.file~=single and not plugin.downloader._active_job,'downloaded chapter was not opened after cleanup')
+assert(count('/web/book/getProgress')==reads_before_download+2,'download was not reverified with one fresh stable cloud snapshot')
+local downloaded=document.file
+local verified=assert(plugin.source_position:current())
+assert(verified.chapter_offset==remote.chapterOffset,'downloaded chapter lost exact cloud source offset')
+close_info();UIManager:forceRePaint();Device.screen:shot(evidence..'/cloud-source-downloaded-target.png')
+
+-- The chapter cache is preferred over legacy/full paths on the next request.
+reader:onClose();open(single)
+previous_reader=reader
+assert(plugin:showCloudSourcePosition());adopt_target(previous_reader)
+assert(document.file==downloaded,'matching chapter cache was not reused')
+close_info()
+-- Different original bytes cannot use cloud offsets, even in the same chapter.
+clear_candidates();reader:onClose()
 local changed_book={book_id='900001',bookId='900001',bookVersion=7,title='Cloud changed fixture',chapters=chapters}
 local changed=Content.save_chapter_epub(settings,changed_book,chapters[6],'<html><body><p>Different source fixture.</p></body></html>',{},nil,
     Identity.capture(changed_book),assert(Source.capture(changed_book,chapters[6],source.raw..'\n','web_xhtml')))
 open(changed)
-assert(plugin:showCloudSourcePosition());pump(function() return not plugin.cloud_source_request end)
-assert(document:getCurrentPage()==1 and not plugin.source_navigation.job,'changed source accepted cloud offset')
-close_info();reader:onClose()
-assert(count('/web/book/read')==writes,'failure path wrote progress')
+assert(plugin:showCloudSourcePosition())
+pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
+assert(document.file==changed and document:getCurrentPage()==1 and not plugin.source_navigation.job,'different source guessed a position')
+plugin.cloud_source_request.confirm:onClose();reader:onClose()
+assert(count('/web/book/read')==writes,'cross-file continuation wrote progress or reading time')
 local report={result='PASS',synthetic_only=true,source_target_visible=true,cross_chapter_full_book=true,
     background_http=true,independent_archive=true,retained_original_offset=true,upload_verified=false,
     offline_no_request=true,rate_no_retry=true,dismiss_cancelled=true,suspend_cancelled=true,account_cancelled=true,
     navigator_cancelled=true,reader_reopen_cancelled=true,old_queued_upload_cancelled=true,report_gate_not_granted=true,
-    missing_chapter_rejected=true,changed_source_rejected=true,reading_writes=0}
+    cached_full_handoff=true,cached_chapter_handoff=true,startup_pull_superseded=true,download_declined=true,
+    owned_download_cancelled=true,download_reverified=true,downloaded_source_target_visible=true,changed_source_no_guess=true,reading_writes=0}
 local file=assert(io.open(evidence..'/cloud-source.json','w'));file:write(client:json_encode(report));file:close()
-print('PASS: cloud GET/Reader/3 read shards/GET -> same-source EPUB -> native cross-chapter target/retention; offline/429/cancel/suspend/account/missing chapter/changed source; no reading writes')
+print('PASS: cloud GET/Reader/3 read shards/GET -> same-source EPUB -> native cross-chapter target/retention; offline/429/cancel/suspend/account/cached full/cached chapter/confirmed download/cancel; no reading writes')

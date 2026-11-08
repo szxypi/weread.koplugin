@@ -105,4 +105,62 @@ for _,change in ipairs({{raw_sha256=string.rep('a',64)},{raw_bytes=#raw+1},{book
 end
 local swapped=copy(input);swapped.identity.file_id=string.rep('b',64)
 expect(not Cloud.bind(swapped,target,archive).position,'same-path replacement retained cloud target')
+local normalized=copy(target);normalized.book_id=tonumber(id);normalized.chapter_uid=tonumber(uid);normalized.raw='private'
+local bounded=Cloud.remote(normalized)
+expect(bounded.book_id==id and bounded.chapter_uid==uid and bounded.raw==nil,'remote packet did not normalize IDs/drop extra fields')
+for _,change in ipairs({{raw_bytes=0},{raw_sha256=string.rep('Z',64)},{chapter_offset=1.5},{upload_verified=true},{percent=101}}) do
+    local bad=copy(target);for key,value in pairs(change) do bad[key]=value end
+    expect(not Cloud.remote(bad),'malformed transferable target accepted')
+end
+local standalone=Cloud.bind_file(input.file,target,41,archive)
+expect(standalone.position and standalone.identity.file_id==identity.file_id and standalone.file==input.file
+    and standalone.request_id==41,'independent cache binding lost archive identity')
+expect(not Cloud.bind_file('/bad',target,41,function() error('bad archive') end).position,'corrupt archive escaped cache rejection')
+local Content=require('weread.lib.content')
+local saved,rows,network_rows={},{{chapterUid=uid,title='Target',wordCount=2500,private='omitted'}},nil
+Content.load_catalog_cache=function() return rows end
+Content.normalize_chapters=function(response,book_id) return response[book_id] or {} end
+client,state=fixture()
+client.settings.get_book=function(_self,book_id) assert(book_id==id);return saved end
+local selected=Cloud.capture(client.settings)
+local downloaded=Cloud.download_chapter(client,target,selected)
+expect(downloaded.title=='Target' and downloaded.private==nil and #state.requests==0,'cached target chapter required network or leaked fields')
+rows={{chapterUid=uid},{chapterUid=uid}}
+client.request=function(_self,options)
+    state.requests[#state.requests+1]=options;options.sink('catalog');return 1,state.code,{}
+end
+client.decode_http_json=function() return network_rows end
+network_rows={[id]={{chapterUid=uid,title='Verified live chapter'}}}
+downloaded=Cloud.download_chapter(client,target,selected)
+expect(downloaded.title=='Verified live chapter' and #state.requests==1,'duplicate cached UID did not require fresh catalog')
+local catalog_request=state.requests[1]
+expect(catalog_request.url=='https://weread.qq.com/web/book/chapterInfos' and catalog_request.method=='POST'
+    and catalog_request.sensitive and catalog_request.persist_response_cookies==false,'catalog escaped captured read-only transport')
+rows=nil;network_rows={other={{chapterUid=uid}}}
+expect(Cloud.download_chapter(client,target,selected)==nil,'foreign catalog became download target')
+state.code=429
+expect(not pcall(Cloud.download_chapter,client,target,selected),'catalog rate rejection became target')
+state.code=200;state.valid=false;local requests=#state.requests
+expect(not pcall(Cloud.download_chapter,client,target,selected) and #state.requests==requests,'stale authorization fetched catalog')
+state.valid=true;rows={{chapterUid=uid,title='Target'}}
+local attempts={}
+local function candidates(file,wanted)
+    attempts[#attempts+1]=file
+    if file=='/bad' then error('corrupt zip') end
+    if file==input.file then return {} end
+    local out={};for key in pairs(wanted) do out[key]=members[key] end;return out
+end
+saved={cached_chapters={[uid]='/bad'},cached_full_book='/full',cached_file='/legacy'}
+local resolved=Cloud.resolve(client,input,target,selected,candidates)
+expect(resolved.file=='/full' and resolved.remote.chapter_uid==uid,'corrupt target cache prevented full-book fallback')
+local saw_legacy=false;for _,file in ipairs(attempts) do if file=='/legacy' then saw_legacy=true end end
+expect(not saw_legacy,'cache lookup scanned past first matching candidate')
+saved={cached_chapters={[uid]='/single'},cached_full_book='/full'}
+resolved=Cloud.resolve(client,input,target,selected,candidates)
+expect(resolved.file=='/single','requested chapter cache did not take priority')
+saved={cached_chapters={[uid]=input.file},cached_full_book='/bad',cached_file='/bad'};attempts={}
+resolved=Cloud.resolve(client,input,target,selected,candidates)
+local bad_count=0;for _,file in ipairs(attempts) do if file=='/bad' then bad_count=bad_count+1 end end
+expect(not resolved.position and resolved.chapter.chapterUid==uid and resolved.request_id==input.request_id
+    and bad_count==1,'missing matching cache did not yield bounded download target/deduplicate paths')
 print(('source_cloud_spec: %d checks'):format(checks))

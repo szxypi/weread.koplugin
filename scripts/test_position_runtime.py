@@ -52,7 +52,7 @@ def main():
             server.shutdown()
             thread.join()
         if result.returncode == 0:
-            assert '[WeRead] forceRePaint failed:' not in log.read_text(), 'native repaint failed; inspect the isolated runtime log'
+            assert b'[WeRead] forceRePaint failed:' not in log.read_bytes(), 'native repaint failed; inspect the isolated runtime log'
         print(("PASS" if result.returncode == 0 else "FAIL") + f": {log}")
         raise SystemExit(result.returncode)
     finally:

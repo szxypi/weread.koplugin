@@ -290,6 +290,17 @@ function Downloader:isPromotedPrefetch(book, chapter)
         and self._active_job.promoted == true
 end
 
+-- Cancel only the supplied foreground job, including its suspended child.
+function Downloader:cancelJob(dl,reason)
+    if not dl or self._active_job~=dl or dl.prefetch or dl.cancelled then return false end
+    local dialog=dl.progress_dialog
+    local dismiss=dialog and dialog.dismiss_callback
+    dl.cancelled,dl.cancel_reason=true,reason or "cancelled"
+    if dialog then dialog:close();dl.progress_dialog=nil end
+    if dismiss then dismiss() end
+    return true
+end
+
 function Downloader:_ensureProgressDialog(dl)
     if dl.progress_dialog then return dl.progress_dialog end
     local progress_dialog = DownloadDialog:new{
@@ -300,13 +311,9 @@ function Downloader:_ensureProgressDialog(dl)
             {
                 text = _("Cancel download"),
                 callback = function()
+                    if not dl.prefetch then self:cancelJob(dl,"cancelled");return end
                     local dismiss = dl.progress_dialog and dl.progress_dialog.dismiss_callback
-                    if dl.prefetch then
-                        self:cancelPrefetch("cancelled")
-                    else
-                        dl.cancelled = true
-                        dl.cancel_reason = dl.cancel_reason or "cancelled"
-                    end
+                    self:cancelPrefetch("cancelled")
                     if dl.progress_dialog then
                         dl.progress_dialog:close()
                         dl.progress_dialog = nil

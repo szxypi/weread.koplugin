@@ -543,9 +543,9 @@ def main():
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader/weread_mock_smoke.lua")],
                                         cwd=args.koreader, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=90)
             if result.returncode == 0:
-                assert "[WeRead] forceRePaint failed:" not in log.read_text(), "native repaint failed; inspect the isolated smoke log"
+                assert b"[WeRead] forceRePaint failed:" not in log.read_bytes(), "native repaint failed; inspect the isolated smoke log"
                 for secret in ("mock-native-access", "mock-native-refresh", "mock-native-code", "mock-native-ticket", "mock-native-qr"):
-                    assert secret not in log.read_text(), "native fixture credentials entered runtime diagnostics"
+                    assert secret.encode() not in log.read_bytes(), "native fixture credentials entered runtime diagnostics"
                     assert secret not in (args.run_dir / "evidence/requests.jsonl").read_text(), "native fixture credentials entered request log"
                 full_books = list((args.run_dir / "profile/weread-mock/cache").rglob("* - full.epub"))
                 assert len(full_books) == 1, "expected one completed full EPUB"

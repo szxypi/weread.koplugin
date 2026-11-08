@@ -132,6 +132,9 @@ expect(flush_count == 2,
 local books = settings:get("books")
 expect(books["42"].loaded and books["42"].book_id == "42",
     "book indexes were not hydrated through BookStore")
+expect(settings:get_book("42").book_id=="42" and settings:get_book("42").loaded,
+    "one indexed book was not hydrated")
+expect(settings:get_book("missing")==nil,"unknown book read an unindexed cache")
 settings:set("books", {
     ["7"] = { title = "Seven" },
 })

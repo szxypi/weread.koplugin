@@ -62,7 +62,7 @@ def main():
     if result.returncode:
         print((root / "evidence/runtime.log").read_text())
     else:
-        assert "[WeRead] forceRePaint failed:" not in (root / "evidence/runtime.log").read_text(), "native repaint failed; inspect the isolated runtime log"
+        assert b"[WeRead] forceRePaint failed:" not in (root / "evidence/runtime.log").read_bytes(), "native repaint failed; inspect the isolated runtime log"
         print(f"PASS: packaged plugin; {args.width}x{args.height}; screenshots: {root / 'evidence'}")
     raise SystemExit(result.returncode)
 
