@@ -93,6 +93,8 @@ local function fixture(remote, options)
         client = client,
         scheduler = scheduler,
         get_document = function() return document end,
+        get_footer = options.get_footer,
+        get_view_mode = options.get_view_mode,
         detect_book = function() return "book" end,
         get_book = function() return book end,
         get_chapters = options.get_chapters or function() return chapters end,
@@ -857,6 +859,23 @@ test("a matching cloud read discards superseded pending intent", function()
     f.drain()
     eq(f.values.books.book.pending_upload_position, nil, "aligned current location replaces old unsent intent")
     eq(f.sync.verified, true, "matching cloud location still verifies reporting")
+end)
+
+test("capture uses the live document before footer refresh", function()
+    local mode = "page"
+    local f = fixture({}, {
+        get_footer = function() return { percent_finished = 0.99 } end,
+        get_view_mode = function() return mode end,
+    })
+    f.document.page = 31
+    local position = assert(f.sync:capture_local())
+    eq(position.percent, 31, "stale footer cannot overwrite current page")
+    f.document.getCurrentPos = function() return 23345 end
+    f.document.info = { doc_height = 100000 }
+    mode = "scroll"
+    position = assert(f.sync:capture_local())
+    eq(position.percent, 23, "scroll capture uses engine position instead of page percentage")
+    eq(position.fraction, 0.23345, "scroll capture preserves fractional precision")
 end)
 
 test("late jump refresh preserves a subsequent page turn", function()

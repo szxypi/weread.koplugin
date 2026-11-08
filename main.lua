@@ -1,4 +1,3 @@
-local Event = require("ui/event")
 local logger = require("weread.lib.logger")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -19,6 +18,7 @@ local ProgressSyncDialog = require("weread.ui.progress_sync_dialog")
 local QRLogin = require("weread.lib.qr_login")
 local ReadReport = require("weread.lib.read_report")
 local ReadtimeCoverage = require("weread.lib.readtime_coverage")
+local ReaderPosition = require("weread.lib.reader_position")
 local Settings = require("weread.lib.settings")
 local Updater = require("weread.lib.updater")
 local UpdaterUI = require("weread.ui.updater")
@@ -142,6 +142,9 @@ function WeReadPlugin:init()
         get_footer = function()
             return self.ui and self.ui.view and self.ui.view.footer
         end,
+        get_view_mode = function()
+            return self.ui and self.ui.view and self.ui.view.view_mode
+        end,
         detect_book = function()
             return self:detectWeReadBook()
         end,
@@ -190,19 +193,7 @@ function WeReadPlugin:init()
                 book_id, position, elapsed_seconds)
         end,
         goto_fraction = function(fraction)
-            local percent = math.floor(
-                math.max(0, math.min(1, tonumber(fraction) or 0))
-                    * 100 + 0.5)
-            return pcall(function()
-                if self.ui and self.ui.rolling
-                    and self.ui.rolling.onGotoPercent then
-                    self.ui.rolling:onGotoPercent(percent)
-                elseif self.ui then
-                    self.ui:handleEvent(Event:new("GotoPercent", percent))
-                else
-                    error("reader unavailable")
-                end
-            end)
+            return ReaderPosition.goto_fraction(self.ui, fraction)
         end,
         open_chapter = function(book, chapter)
             return self:openProgressTargetChapter(book, chapter)

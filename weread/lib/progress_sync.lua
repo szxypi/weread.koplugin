@@ -1,5 +1,6 @@
 local PositionMapper = require("weread.lib.position_mapper")
 local Crypto = require("weread.lib.crypto")
+local ReaderPosition = require("weread.lib.reader_position")
 
 local logger = require("weread.lib.logger").scoped("ProgressSync")
 
@@ -59,6 +60,7 @@ function ProgressSync:new(options)
         scheduler = options.scheduler,
         get_document = options.get_document,
         get_footer = options.get_footer,
+        get_view_mode = options.get_view_mode,
         detect_book = options.detect_book,
         get_book = options.get_book,
         get_chapters = options.get_chapters,
@@ -153,38 +155,8 @@ end
 function ProgressSync:_local_fraction()
     local document = self.get_document()
     if not document then return nil end
-
     local footer = self.get_footer and self.get_footer()
-    local footer_value = footer and tonumber(footer.percent_finished)
-    if footer_value then
-        if footer_value > 1 then footer_value = footer_value / 100 end
-        return math.max(0, math.min(1, footer_value))
-    end
-
-    local page
-    if type(document.getCurrentPage) == "function" then
-        local ok, value = pcall(document.getCurrentPage, document)
-        if ok then page = tonumber(value) end
-    end
-    if not page and type(document.getPageNumber) == "function" then
-        local ok, value = pcall(document.getPageNumber, document)
-        if ok then page = tonumber(value) end
-    end
-    local total
-    if type(document.getPageCount) == "function" then
-        local ok, value = pcall(document.getPageCount, document)
-        if ok then total = tonumber(value) end
-    end
-    if page and total and total > 0 then
-        return math.max(0, math.min(1, page / total))
-    end
-    local current_pos = tonumber(document.current_pos)
-    local doc_height = tonumber(document.info and document.info.doc_height)
-        or tonumber(document.doc_height)
-    if current_pos and doc_height and doc_height > 0 then
-        return math.max(0, math.min(1, current_pos / doc_height))
-    end
-    return nil
+    return ReaderPosition.fraction(document, footer, self.get_view_mode and self.get_view_mode())
 end
 
 function ProgressSync:capture_local()

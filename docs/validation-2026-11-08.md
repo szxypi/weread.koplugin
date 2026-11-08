@@ -57,6 +57,26 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 
 ## 实际截图
 
+本地阅读位置采集与跳转精度后续验证：
+
+- 88 组 Lua 回归、Luacheck 199 文件零警告、命名空间、Python 编译及差异格式通过；
+  8 组 HTTP、5 组授权原型与 12 组补传只读测试通过。位置组件 28 项检查，进度组件 157 项检查。
+- 使用真实 PluginLoader、ReaderUI 和 CREngine 打开 602 页合成 EPUB；先执行旧的整数百分比跳转以复现误差，
+  同一目标在旧路径落到第 120 页，保留小数后落到目标第 122 页。
+  人为把页脚缓存保留在 99% 后，采集结果仍对应实际的第 122 页。
+- 原生事件切换到滚动模式，目标为 50.3125%；两种显示配置的实际位置距目标均不足 1 像素。
+  页脚缓存保留为 1% 后，采集仍使用实际滚动位置。没有修改云端位置字段、字数比例模型或发起线上写入。
+- `.validation/reader-position-verified-600/` 与 `.validation/reader-position-final-ko2/` 通过上述流程；
+  [只含合成数据的实际位置结果](validation-assets/2026-11-08/reader-position-local.json) 保存原始数值。
+  `.validation/reader-position-core-ko2/` 再验证账号／休眠取消、真实本地 HTTP、12 秒离线计时、覆盖日志、文件替换和六章整本下载。
+- `.validation/reader-position-events-ko2/` 复验最终候选包，并验证真实原生事件回退保留小数目标，
+  无处理器的原生控件不会被当作跳转成功。
+- 复验命令：`xvfb-run -a python3 scripts/test_position_runtime.py --koreader /path/to/runtime --run-dir /path/to/new-run`。
+  加上 `--width 1264 --height 1680 --dpi 300` 使用 KO2 尺寸配置；仍需实体设备及真实账号验收。
+  完整原文坐标映射保持待实现状态，不将这次本地精度修正记作精确云端定位完成。
+
+![保留小数后的实际目标页](validation-assets/2026-11-08/position-page.png)
+
 在线上报覆盖记录与去重预览后续验证：
 
 - 87 组 Lua 回归、Luacheck 196 文件零警告、命名空间、Python 编译及差异格式通过；

@@ -1,6 +1,7 @@
 local I18n = {}
 
 local zh = {
+    ["Could not navigate to the reading position."] = "无法跳转到阅读位置。",
     ["Could not save reading-time coverage; report was not sent."] = "无法保存时长上报记录，本次时长尚未发送。",
     ["This file does not match the reading book; time is not recorded"] = "当前文件与书籍不匹配，暂不记录时长",
     ["Return to the reading page to record time"] = "返回阅读页面后继续记录",
