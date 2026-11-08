@@ -57,6 +57,26 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 
 ## 实际截图
 
+在线上报覆盖记录与去重预览后续验证：
+
+- 87 组 Lua 回归、Luacheck 196 文件零警告、命名空间、Python 编译及差异格式通过；
+  8 组 HTTP、5 组授权原型与 12 组补传只读测试通过。新增覆盖组件含 208 项检查，
+  使用实际 SQLite 事务与逐秒独立对照，验证切分结果的秒数和具体范围。
+- 默认在插件初始化时建立日志的历史边界；仅未覆盖且边界后的时段可作为去重预览中的可用时间。
+  已记录范围优先识别为可能重叠；旧记录、丢失日志或边界之前的其它时段仍是未知。
+  测试覆盖账号隔离、Web Cookie 与 gateway 账号不一致、无账号发送、范围并集、失败回滚及容量上限。
+- 实际 ReadReport 使用原有请求字段，在带时长的 HTTP 前持久提交范围；SQL 写入失败时没有时长请求发出，
+  零秒进度同步仍成功。此处未修改在线协议、签名、上报时长或阅读位置字段。
+- `.validation/readtime-coverage-native-600/` 与 `.validation/readtime-coverage-final-ko2/`：
+  真实 fork 子进程、官方 KOReader SQLite 和本地 HTTP 验证提交顺序。
+  请求到达本地服务后，模拟回执丢失并退出子进程；重新打开日志，原有 12 秒离线记录仍在，
+  Lua 和 Python 均预览为 12 秒可能已覆盖、0 秒未重叠、0 秒历史不明。
+  [仅含数量的验证结果](validation-assets/2026-11-08/readtime-coverage-local.json) 来自实际运行账本。
+- `.validation/readtime-coverage-audited-ko2/` 是加入无效身份降为未知、重复／交叉片段拒绝后的候选包复验，
+  同样通过完整阅读、子进程覆盖日志、离线计时、文件替换和整本下载流程。
+- `.validation/readtime-coverage-discovery-ko2/` 的四项导航、SQLite、后台加载、菜单、分页与灰度绘制回归通过。
+  本轮未访问真实微信读书账号，未执行云端补传；服务器对覆盖时段的实际归属及正式补传发送协调仍待验证。
+
 EPUB 来源绑定与离线账本后续验证：
 
 - 86 组 Lua 回归、Luacheck 193 文件零警告、命名空间、Python 编译及差异格式通过；

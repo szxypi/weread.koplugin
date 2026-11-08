@@ -18,6 +18,7 @@ local ProgressSync = require("weread.lib.progress_sync")
 local ProgressSyncDialog = require("weread.ui.progress_sync_dialog")
 local QRLogin = require("weread.lib.qr_login")
 local ReadReport = require("weread.lib.read_report")
+local ReadtimeCoverage = require("weread.lib.readtime_coverage")
 local Settings = require("weread.lib.settings")
 local Updater = require("weread.lib.updater")
 local UpdaterUI = require("weread.ui.updater")
@@ -50,6 +51,8 @@ function WeReadPlugin:init()
     self.settings = Settings:new()
     self.external_annotations_db = ExternalAnnotationsDB:new(self.settings)
     self.library_db = LibraryDB:new(self.settings)
+    self.readtime_coverage = ReadtimeCoverage:new(self.settings.data_dir)
+    self.readtime_coverage:initialize()
     self.offline_time = OfflineTime:new{
         settings = self.settings, library_db = self.library_db, scheduler = UIManager,
         get_context = function()
@@ -106,6 +109,7 @@ function WeReadPlugin:init()
     end
     self.qr_login = QRLogin:new(self, self.client, self.settings)
     self.read_report = ReadReport:new{
+        coverage = self.readtime_coverage,
         settings = self.settings,
         client = self.client,
         library_db = self.library_db,

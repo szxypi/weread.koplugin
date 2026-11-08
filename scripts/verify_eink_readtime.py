@@ -62,6 +62,55 @@ def validate_position(data, book_id):
     raise ProbeError("time_position: missing or invalid position fields")
 
 
+def coverage_preview(path, key, rows):
+    """Read a sibling coverage journal; this is a snapshot, never a dispatch lock."""
+    total = sum(row[3] for row in rows)
+    report = dict(coverage_checked=False, eligible_seconds=0, online_covered_seconds=0,
+                  coverage_unverified_seconds=total)
+    if not path.exists():
+        return report
+    connection = None
+    try:
+        connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=0.2)
+        connection.execute("PRAGMA query_only=ON")
+        record = connection.execute("SELECT value FROM coverage_meta WHERE name='tracked_since'").fetchone()
+        if not record or not isinstance(record[0], int) or not 1 <= record[0] <= 4102444800:
+            raise ValueError("invalid tracking boundary")
+        since = record[0]
+        first = min((row[2] for row in rows), default=since)
+        last = max((row[2] + row[3] for row in rows), default=since)
+        ranges = connection.execute("""SELECT start_time,end_time FROM coverage
+            WHERE (scope=? OR scope='') AND start_time<? AND end_time>? ORDER BY start_time LIMIT 50001""",
+                                    (key, last, first)).fetchall()
+        if len(ranges) > 50000 or any(not isinstance(start, int) or not isinstance(end, int)
+                                     or not 1 <= start < end <= 4102444800 for start, end in ranges):
+            raise ValueError("invalid coverage intervals")
+    except (OSError, sqlite3.Error, ValueError):
+        raise ProbeError("coverage_preview: unavailable or incompatible journal") from None
+    finally:
+        if connection is not None:
+            connection.close()
+    report.update(coverage_checked=True, coverage_unverified_seconds=0)
+    for row in rows:
+        start, end = row[2], row[2] + row[3]
+        at = start
+        for first, last in ranges:
+            if first >= end or last <= at:
+                continue
+            gap = max(0, min(first, end) - at)
+            unknown = max(0, min(at + gap, since) - at)
+            report["coverage_unverified_seconds"] += unknown
+            report["eligible_seconds"] += gap - unknown
+            at += gap
+            covered = min(last, end) - at
+            report["online_covered_seconds"] += covered
+            at += covered
+        unknown = max(0, min(end, since) - at)
+        report["coverage_unverified_seconds"] += unknown
+        report["eligible_seconds"] += end - at - unknown
+    return report
+
+
 def ledger_preview(path, vid, book_id, now, limit_seconds=600):
     """Inspect rows without claiming, deleting, acknowledging or replaying them."""
     key = hashlib.sha256(("weread-library:" + str(vid)).encode()).hexdigest()[:20]
@@ -117,7 +166,8 @@ def ledger_preview(path, vid, book_id, now, limit_seconds=600):
     bound = sum(row[3] for row in selected if row[7] == "epub_snapshot" and row[6] and row[5] > 0)
     return dict(rows=len(selected), seconds=total, nonzero_book_version=bool(group and group[0]),
                 file_bound_seconds=bound, unverified_source_seconds=total-bound,
-                has_more=len(rows) > len(selected), uncertain_seconds=unknown)
+                has_more=len(rows) > len(selected), uncertain_seconds=unknown,
+                **coverage_preview(path.with_name("reading-time-coverage.db"), key, selected))
 
 
 class ReadtimeProbe(NativeProbe):

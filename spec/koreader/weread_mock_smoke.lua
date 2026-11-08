@@ -142,6 +142,7 @@ local verify_reopened_file
 if test_offline_time then
     local fixture_dir = debug.getinfo(1, "S").source:match("^@(.*/)")
     verify_reopened_file = dofile(fixture_dir .. "offline_time_smoke.lua")(reader, request_count, fastforward_ui_events)
+    dofile(fixture_dir .. "readtime_coverage_smoke.lua")(reader, request_count)
 end
 -- Exercise the real event loop, subprocesses, resume workspace, and packaging.
 local completed, full_path, download_error

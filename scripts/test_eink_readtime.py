@@ -102,7 +102,9 @@ class ReadtimeProbeTests(unittest.TestCase):
             before = hashlib.sha256(path.read_bytes()).digest()
             report = ledger_preview(path, "123", "book", 200)
             self.assertEqual(report, dict(rows=2, seconds=50, nonzero_book_version=True, file_bound_seconds=0,
-                                          unverified_source_seconds=50, has_more=True, uncertain_seconds=5))
+                                          unverified_source_seconds=50, has_more=True, uncertain_seconds=5,
+                                          coverage_checked=False, eligible_seconds=0, online_covered_seconds=0,
+                                          coverage_unverified_seconds=50))
             self.assertEqual(hashlib.sha256(path.read_bytes()).digest(), before)
             with self.assertRaises(ProbeError):
                 ledger_preview(path, "other-account", "book", 200)
@@ -137,6 +139,43 @@ class ReadtimeProbeTests(unittest.TestCase):
                     db.execute(statement)
                 with self.assertRaises(ProbeError):
                     ledger_preview(path, "123", "book", now)
+
+    def fixture_coverage(self, root):
+        key = hashlib.sha256(b"weread-library:123").hexdigest()[:20]
+        path = Path(root) / "reading-time-coverage.db"
+        with sqlite3.connect(path) as db:
+            db.executescript("""CREATE TABLE coverage(scope TEXT,start_time INTEGER,end_time INTEGER);
+                CREATE TABLE coverage_meta(name TEXT,value INTEGER);
+                INSERT INTO coverage_meta VALUES('tracked_since',110);""")
+            db.executemany("INSERT INTO coverage VALUES(?,?,?)",
+                           [(key, 120, 125), (key, 122, 140), ("other-account", 110, 150), ("", 145, 150)])
+        return path
+
+    def test_online_coverage_is_union_account_bound_and_read_only(self):
+        with tempfile.TemporaryDirectory() as root:
+            ledger = self.fixture_ledger(root)
+            journal = self.fixture_coverage(root)
+            before = [hashlib.sha256(path.read_bytes()).digest() for path in (ledger, journal)]
+            report = ledger_preview(ledger, "123", "book", 200)
+            self.assertTrue(report["coverage_checked"])
+            self.assertEqual(report["coverage_unverified_seconds"], 10)
+            self.assertEqual(report["online_covered_seconds"], 25)
+            self.assertEqual(report["eligible_seconds"], 15)
+            self.assertEqual(report["seconds"], 50)
+            self.assertEqual(before, [hashlib.sha256(path.read_bytes()).digest() for path in (ledger, journal)])
+            with sqlite3.connect(journal) as db:
+                db.execute("UPDATE coverage SET end_time=1000 WHERE scope='other-account'")
+            self.assertEqual(ledger_preview(ledger, "123", "book", 200)["eligible_seconds"], 15)
+
+    def test_corrupt_existing_coverage_is_not_treated_as_empty(self):
+        for statement in ("UPDATE coverage SET end_time=start_time", "DELETE FROM coverage_meta"):
+            with self.subTest(statement=statement), tempfile.TemporaryDirectory() as root:
+                ledger = self.fixture_ledger(root)
+                journal = self.fixture_coverage(root)
+                with sqlite3.connect(journal) as db:
+                    db.execute(statement)
+                with self.assertRaises(ProbeError):
+                    ledger_preview(ledger, "123", "book", 200)
 
     def test_cli_requires_authorization_for_ledger_and_has_no_upload_switch(self):
         script = str(Path(__file__).with_name("verify_eink_readtime.py"))

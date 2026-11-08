@@ -1,5 +1,6 @@
 local Content = require("weread.lib.content")
 local WeRead = require("weread.lib.protocol")
+local _ = require("weread.lib.i18n").tr
 
 local logger = require("weread.lib.logger").scoped("ReadReport")
 
@@ -175,6 +176,7 @@ function ReadReport:new(options)
         settings = options.settings,
         client = options.client,
         library_db = options.library_db,
+        coverage = options.coverage,
         scheduler = options.scheduler,
         get_document = options.get_document,
         detect_book = options.detect_book,
@@ -1118,6 +1120,17 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds)
         book,
         position
     )
+    if self.coverage and (tonumber(payload.rt) or 0) > 0 then
+        -- Web requests authenticate with Cookie, which may differ from the
+        -- gateway/UI account. Missing VID conservatively covers every account.
+        local cookies = self.settings:get("cookies", {})
+        local vid = type(cookies) == "table" and cookies.wr_vid or nil
+        vid = tostring(vid or "")
+        local account = #vid <= 32 and vid:match("^[1-9]%d*$") and require("weread.lib.crypto").sha256_hex(
+            "weread-library:" .. vid):sub(1, 20) or nil
+        local saved = self.coverage:reserve(account, payload.ct, payload.rt)
+        if not saved then error(_("Could not save reading-time coverage; report was not sent."), 0) end
+    end
     return self.client:report_read(payload, book.reader_url or WeRead.reader_url(book_id))
 end
 
