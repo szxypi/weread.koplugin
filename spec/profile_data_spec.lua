@@ -39,6 +39,9 @@ expect(count == 1 and lower, "missing month treated as confirmed zero")
 local empty = Data.build(nil, nil, now)
 expect(not empty.has_data and empty.goal_minutes == 30 and not empty.days[1].known, "missing data rendered as known inactivity")
 expect(#Data.build(nil, 30, time(2024, 2, 10)).days == 29, "heatmap lost leap day")
+local server_month=Data.month({baseTime=jan,readTimes={[tostring(jan)]=60},totalReadTime=120,readDays=2},jan)
+expect(Data.build({months={[tostring(jan)]=server_month}},30,now).month_read_days==2,
+    "server day aggregate replaced by sparse bucket count")
 local requests = {}
 local client = { get_read_stats = function(_self, mode, base)
     requests[#requests + 1] = base

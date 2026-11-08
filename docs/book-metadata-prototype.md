@@ -99,4 +99,5 @@ python3 scripts/verify_native_metadata.py --saved-session --native-http --lua-co
 原生资料读取在 HTTP 401 时复用已有续期流程最多恢复一次，成功后重新读取资料；再次 401 不再续期。
 授权与普通凭据仍须匹配本次请求，取消／关书／休眠停止自有任务，回执不明保留待确认标记。
 未确认的续期不由后续资料请求重放；既有手动／本地保存重试入口继续可用。
-见[续期说明](eink-renewal-prototype.md#插件行为)。真实过期／限流与实体 KO2 待验收。
+见[续期说明](eink-renewal-prototype.md#插件行为)。资料接口的真实失效／限流与实体 KO2 待验收；
+另已在统计接口观察真实 HTTP 401，并完成一次续期及恢复组合，范围见[统计说明](native-statistics-prototype.md)。

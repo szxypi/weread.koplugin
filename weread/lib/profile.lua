@@ -1,4 +1,4 @@
--- Account reading dashboard, using documented monthly /readdata/detail data.
+-- Account dashboard, using validated native/Skill monthly statistics.
 -- Daily activity is measured in Beijing time, including across DST/year boundaries.
 local Stats = require("weread.lib.read_stats")
 local M = { TTL = 15 * 60, MAX_STREAK_MONTHS = 24, DEFAULT_GOAL = 30 }
@@ -35,7 +35,7 @@ function M.month(raw, base)
         daily[tostring(stamp)] = seconds
         if previous == nil then total = total + seconds end
     end
-    return { base = base, daily = daily, total = number(raw.totalReadTime) or total }
+    return { base = base, daily = daily, total = number(raw.totalReadTime) or total, read_days = number(raw.readDays) }
 end
 
 function M.streak(months, now)
@@ -58,19 +58,24 @@ function M.streak(months, now)
     return count, true
 end
 
-function M.fetch(client, context, now)
+function M.fetch(client, context, now, selected, options)
     now = now or os.time()
-    local months, base = {}, Stats.period_start("monthly", now)
+    local months, base, source = {}, Stats.period_start("monthly", now)
     for index = 1, M.MAX_STREAK_MONTHS do
         context.checkCancelled()
         context.emit { stage = "profile_stats", current = index }
-        months[tostring(base)] = M.month(client:get_read_stats("monthly", base), base)
+        local request = {}
+        for key, value in pairs(options or {}) do request[key] = value end
+        request.source_kind = source
+        local raw = client:get_read_stats("monthly", base, selected, request)
+        source = source or raw._stats_source
+        months[tostring(base)] = M.month(raw, base)
         local _, lower_bound, missing = M.streak(months, now)
         if not lower_bound or not missing then break end
         base = missing
     end
     context.checkCancelled()
-    return { months = months, fetched_at = now }
+    return { months = months, fetched_at = now, source_kind = source }
 end
 
 function M.build(snapshot, goal, now)
@@ -91,6 +96,7 @@ function M.build(snapshot, goal, now)
             future = stamp > today, today = stamp == today, known = month ~= nil and stamp <= today }
     end
     local count, lower_bound = M.streak(months or {}, now)
+    if month and number(month.read_days) then read_days = month.read_days end
     return { profile = true, has_data = month ~= nil, mode = "monthly", period_label = Stats.cst_fmt("%Y-%m", base),
         goal_minutes = M.goal(goal) or M.DEFAULT_GOAL, today_seconds = month and month.daily[tostring(today)] or 0,
         month_seconds = month and month.total or 0, month_read_days = read_days,

@@ -19,11 +19,15 @@ local account, online, configured, persist_ok, info, offline = "a", false, true,
 local states, writes, rendered, cancelled = {}, 0, 0, nil
 local worker = {
     available = function() return true end,
-    start = function(_self, options) local request = { options = options } tasks[#tasks + 1] = request return true, request end,
-    cancel = function(_self, request) cancelled = request end,
+    start = function(self, task, callback) local request = { task = task, callback = callback } self.active = request tasks[#tasks + 1] = request return true end,
+    cancel = function(self) cancelled = self.active end,
 }
 local host = setmetatable({
-    settings = { get = function() return { name = "Reader" } end, is_api_configured = function() return configured end },
+    settings = { get = function(_self, key, default)
+        if key == "account" then return { name = "Reader" } end
+        if key == "api_key" then return configured and "synthetic-statistics-key" or "" end
+        return default
+    end },
     library_db = {
         accountKey = function() return account end,
         getProfileState = function(_self, name) return (states[account] or {})[name] end,
@@ -58,32 +62,33 @@ host:refreshProfile(false)
 expect(#tasks == 1 and host.profile_request, "manual refresh did not queue worker")
 host:refreshProfile(false)
 expect(#tasks == 1, "duplicate profile refresh launched")
-local result = tasks[1].options.task{ checkCancelled = function() end, emit = function() end }
-tasks[1].options.on_done { ok = true, value = result }
+local outcome = tasks[1].task()
+local result = outcome.value
+tasks[1].callback(outcome)
 expect(writes == 1 and shown.data.has_data and not host.profile_request, "completed stats did not persist/render")
 host:refreshProfile(false)
 local request = tasks[#tasks]
 host:cancelProfileRefresh()
 expect(cancelled == request and not host.profile_request, "profile close did not cancel native worker handle")
-request.options.on_done { ok = true, value = result }
+request.callback { ok = true, value = result }
 expect(writes == 1, "cancelled request overwrote cache")
 host:refreshProfile(false)
 request = tasks[#tasks]
 account = "b"
-request.options.on_done { ok = true, value = result }
+request.callback { ok = true, value = result }
 expect(writes == 1 and not host.profile_request, "old account result persisted or locked loading")
 account = "a"
 host:refreshProfile(false)
 request = tasks[#tasks]
 host.discovery_epoch = 1
-request.options.on_done { ok = true, value = result }
+request.callback { ok = true, value = result }
 expect(writes == 1, "closed-page epoch accepted result")
 host:refreshProfile(false)
-tasks[#tasks].options.on_done { ok = false, error = "synthetic failure" }
+tasks[#tasks].callback { ok = false, error = "synthetic failure" }
 expect(info and states.a.statistics == result and not host.profile_request, "failure lost cached data")
 host:refreshProfile(false)
 persist_ok = false
-tasks[#tasks].options.on_done { ok = true, value = result }
+tasks[#tasks].callback { ok = true, value = result }
 expect(writes == 1 and info, "failed cache persistence reported success")
 persist_ok = true
 host:showReadingGoal()
@@ -110,7 +115,7 @@ host:refreshProfile(false)
 request = tasks[#tasks]
 host:showReadingGoal()
 local behind_dialog = shown
-request.options.on_done { ok = true, value = result }
+request.callback { ok = true, value = result }
 expect(shown == behind_dialog and host._profile_goal_dialog, "background completion covered the goal dialog")
 dialog.buttons[1][1].callback()
 expect(shown ~= behind_dialog and host._profile_goal_dialog == nil, "closing goal dialog did not display latest snapshot")

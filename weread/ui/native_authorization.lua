@@ -91,7 +91,7 @@ function Controller:_error(message)
 end
 
 function Controller:_cancel_reads()
-    for _, method in ipairs({ "cancelShelfRefresh", "cancelBookMetadata", "cancelDiscoveryRequest" }) do
+    for _, method in ipairs({ "cancelShelfRefresh", "cancelBookMetadata", "cancelDiscoveryRequest", "cancelProfileRefresh", "cancelReadStatsRequest" }) do
         if self.host[method] then self.host[method](self.host) end
     end
 end

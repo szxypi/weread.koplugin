@@ -191,6 +191,19 @@ function Auth:read_book_metadata(credentials, book_id)
     return self:_request("metadata", BASE .. "/book/info?bookId=" .. Protocol.urlencode(book_id), nil, credentials)
 end
 
+-- Four statistics modes and historical month verified by the Python prototype.
+function Auth:read_statistics(credentials, mode, base_time)
+    local Data = require("weread.lib.statistics_data")
+    if type(credentials) ~= "table" or not vid(credentials.vid) or not text(credentials.accessToken, 8192) then
+        fail("statistics", "invalid_credentials")
+    end
+    if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("statistics", "account_mismatch") end
+    base_time = base_time or 0
+    if not Data.mode(mode) or not Data.base(base_time) then fail("statistics", "invalid_period") end
+    return self:_request("statistics", BASE .. "/readdata/detail?baseTime=" .. Protocol.urlencode(base_time)
+        .. "&mode=" .. Protocol.urlencode(mode), nil, credentials)
+end
+
 function Auth:verify()
     self:_current("verify")
     local credentials = self.pending_credentials

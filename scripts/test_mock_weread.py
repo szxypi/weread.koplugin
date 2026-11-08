@@ -209,6 +209,19 @@ class MockTests(unittest.TestCase):
         self.assertEqual(len(historical["readTimes"]), 29)  # February 2024, leap year
         self.assertEqual(self.gateway("/readdata/detail", mode="invalid")[0], 400)
 
+    def test_native_statistics_exact_get_contract(self):
+        from verify_native_statistics import project
+        base='https://i.weread.qq.com/readdata/detail?'
+        for mode in ('weekly','monthly','annually','overall'):
+            status,raw=self.server.route('GET',base+f'mode={mode}&baseTime=0',{})
+            self.assertEqual(status,200)
+            self.assertEqual(project(raw,mode)['totalReadTime'],raw['totalReadTime'])
+        _,raw=self.server.route('GET',base+'mode=monthly&baseTime=1706716800',{})
+        self.assertEqual(len(project(raw,'monthly',1706716800)['readTimes']),29)
+        for query in ('mode=other&baseTime=0','mode=monthly&baseTime=-1','mode=monthly&baseTime=0&extra=1',
+                      'mode=monthly&baseTime=0&baseTime=0'):
+            with self.assertRaises(ValueError):self.server.route('GET',base+query,{})
+
     def test_fault_once_delay_and_recovery(self):
         self.request("/__control", dict(match="/book/info", times=1, status=503, delay=0.02))
         start = time.monotonic()

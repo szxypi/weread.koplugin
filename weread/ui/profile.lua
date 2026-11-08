@@ -1,4 +1,7 @@
 local Data = require("weread.lib.profile")
+local Source = require("weread.lib.statistics_source")
+local Recovery = require("weread.lib.native_read_recovery")
+local Request = require("weread.ui.statistics_request")
 local PluginUtil = require("weread.lib.plugin_util")
 local UIManager = require("ui/uimanager")
 local _ = PluginUtil.tr
@@ -7,8 +10,9 @@ local M = {}
 function M:cancelProfileRefresh()
     local request = self.profile_request
     self.profile_request = nil
-    if request and request.worker_request and self.profile_worker then
-        self.profile_worker:cancel(request.worker_request, "profile_closed")
+    if request then
+        if self.profile_worker then self.profile_worker:cancel() end
+        Recovery.cancel(self, request)
     end
 end
 
@@ -23,7 +27,7 @@ function M:showProfile()
     data.account_name = not self.library_db:accountKey() and _("Not logged in")
         or type(account.name) == "string" and account.name ~= "" and account.name or _("Unknown account")
     data.navigation = self:discoveryNavigation("profile")
-    data.cached = data.has_data and (not data.fetched_at or os.time() - data.fetched_at >= Data.TTL
+    data.cached = data.has_data and (not self:isNetworkOnline() or not data.fetched_at or os.time() - data.fetched_at >= Data.TTL
         or os.time() < data.fetched_at)
     if self._profile_view then
         local old = self._profile_view
@@ -49,47 +53,81 @@ end
 
 function M:refreshProfile(automatic)
     if self.profile_request then return end
-    if automatic then
-        if not self.library_db:accountKey() or not self.settings:is_api_configured() or not self:isNetworkOnline() then return end
-    elseif not self:requireLogin(false, true) then return
-    elseif not self:isNetworkOnline() then self:showOffline(_("Reading statistics")) return end
+    local access, reason = Source.capture(self.settings)
+    if not access then
+        if not automatic then
+            Request.access_needed(self, reason)
+        end
+        return
+    end
+    if not self:isNetworkOnline() then
+        if not automatic then self:showOffline(_("Reading statistics")) end
+        return
+    end
     local account, epoch = self.library_db:accountKey(), self.discovery_epoch or 0
     if not account then return end
     if not self.profile_worker then
-        self.profile_worker = require("weread.lib.background_worker"):new{
-            temp_dir = self.settings.data_dir .. "/workers", timeout = 30,
-        }
-    end
-    if not self.profile_worker:available() then
-        if not automatic then self:showInfo(_("This device cannot refresh My WeRead. Open Reading statistics instead.")) end
-        return
+        local ok, worker = pcall(function()
+            return require("weread.lib.memory_worker"):new{scheduler = UIManager,codec = self.client}
+        end)
+        if not ok then
+            if not automatic then self:showInfo(_("Could not refresh reading statistics. Your cached data is kept.")) end
+            return
+        end
+        self.profile_worker = worker
     end
     local marker = {}
     self.profile_request = marker
-    local started, request = self.profile_worker:start{
-        kind = "profile", queue = true, replace_active = true,
-        task = function(context) return Data.fetch(self.client, context) end,
-        on_done = function(result)
-            if self.profile_request ~= marker then return end
-            self.profile_request = nil
-            if self.library_db:accountKey() ~= account or (self.discovery_epoch or 0) ~= epoch then return end
-            if not result.ok then
-                if not automatic then self:showInfo(_("Could not refresh reading statistics. Your cached data is kept.")) end
-                return
-            end
-            if not self.library_db:putProfileState("statistics", result.value) then
-                if not automatic then self:showInfo(_("Could not refresh reading statistics. Your cached data is kept.")) end
-                return
-            end
-            if self._profile_view and not self._profile_goal_dialog then self:showProfile() end
-        end,
-    }
-    if started and self.profile_request == marker then marker.worker_request = request
-    elseif not started and self.profile_request == marker then self.profile_request = nil end
+    local function current_view()
+        return self.profile_request == marker and self.library_db:accountKey() == account and (self.discovery_epoch or 0) == epoch
+    end
+    local function current()
+        return current_view() and (marker.renewing and Recovery.current(self.settings, access, Source.capture)
+            or Source.matches(self.settings, access))
+    end
+    local launch
+    local function complete(result)
+        if not current() then
+            if self.profile_request == marker then self:cancelProfileRefresh() end
+            return
+        end
+        if type(result) == "table" and result.native_expired then
+            local recovering = Recovery.start(self, marker, access, {capture = Source.capture,is_current = current_view,
+                stale = function() if self.profile_request == marker then self:cancelProfileRefresh() end end,
+                complete = function(success, renewed)
+                    access = renewed
+                    if success or renewed.api_key then launch(not success) else complete(nil) end
+                end})
+            if recovering then return end
+        end
+        self.profile_request = nil
+        if type(result) ~= "table" or not result.ok then
+            if not automatic then self:showInfo(_("Could not refresh reading statistics. Your cached data is kept.")) end
+            return
+        end
+        if not self.library_db:putProfileState("statistics", result.value) then
+            if not automatic then self:showInfo(_("Could not refresh reading statistics. Your cached data is kept.")) end
+            return
+        end
+        if self._profile_view and not self._profile_goal_dialog then self:showProfile() end
+    end
+    local now = os.time()
+    launch = function(skip_native)
+        local ok, started = pcall(self.profile_worker.start, self.profile_worker, function()
+            local valid, result = pcall(Data.fetch, self.client, {checkCancelled = function()
+                if not Source.matches(self.settings, access) then error("statistics/session_changed", 0) end
+            end,emit = function() end}, now, access, {
+                recover_auth = self.native_renewal ~= nil and not marker.recovery_attempted,skip_native = skip_native,
+            })
+            return valid and {ok = true,value = result} or {ok = false,native_expired = result == "statistics/native_expired"}
+        end, complete)
+        if not ok or not started then complete(nil) end
+    end
+    launch(false)
 end
 
 function M:showReadingGoal()
-    if not self.library_db:accountKey() then self:requireLogin(false, true) return end
+    if not self.library_db:accountKey() then Request.access_needed(self, "login_required") return end
     local InputDialog = require("ui/widget/inputdialog")
     local account = self.library_db:accountKey()
     local previous = self.library_db:getProfileState("goal") or {}

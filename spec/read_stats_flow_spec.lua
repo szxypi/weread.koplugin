@@ -15,16 +15,21 @@ package.preload["weread.ui.read_stats_view"] = function()
     end }
 end
 local Report = require("weread.ui.read_report")
+local Calendar = require("weread.lib.read_stats")
 local account, calls, busy, offline, fail, message = "a", 0, 0, false, false
 local host = setmetatable({
+    settings = { get = function(_self, key, default) return key == "api_key" and "synthetic-statistics-key" or default end },
+    isNetworkOnline = function() return not offline end,
+    showOffline = function() message = "offline" end,
+    statistics_worker = { start = function(_self, task, callback) callback(task()); return true end, cancel = function() end },
     library_db = { accountKey = function() return account end },
-    client = { get_read_stats = function()
+    client = { get_read_stats = function(_self, mode, base)
         calls = calls + 1
         if fail then error("offline") end
-        return { readTimes = {}, totalReadTime = 0 }
+        return { baseTime = mode == "overall" and 0 or Calendar.period_start(mode, base and base > 0 and base or os.time()), readTimes = {}, totalReadTime = 0, readDays = 0 }
     end },
-    showBusy = function() busy = 1 end,
-    closeBusy = function() busy = 0 end,
+    showBusy = function(self) busy = 1 self.busy_message = {} end,
+    closeBusy = function(self) busy = 0 self.busy_message = nil end,
     runOnlineTask = function(_self, _title, fn) if offline then return false end queued[#queued + 1] = fn return true end,
     showInfo = function(_self, text) message = text end,
 }, { __index = Report })

@@ -647,6 +647,7 @@ function ReadStatsView:init()
     local mode_title = _(MODE_TITLE[d.mode] or "Reading statistics")
     local title = (d.period_label and d.period_label ~= "")
         and T("%1 · %2", mode_title, d.period_label) or mode_title
+    if not d.profile and d.cached then title = title .. " · " .. _("Cached") end
     self.title_bar = TitleBar:new{
         width = self.screen_w,
         title = d.profile and _("My WeRead") or title,

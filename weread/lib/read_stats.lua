@@ -1,7 +1,7 @@
 -- weread/lib/read_stats.lua — WeRead reading statistics data layer.
 --
 -- Pure logic, no UI dependencies:
---   * calls the /readdata/detail gateway API (via the shared Client)
+--   * reads owner-bound native or Skill statistics (via the shared Client)
 --   * normalizes the response into a stable structure (raw seconds / date labels only)
 --   * computes period navigation (previous / next natural week/month/year)
 --
@@ -233,13 +233,13 @@ end
 --   period_label
 --   allow_prev / allow_next : whether previous/next period navigation is possible
 --   prev_base_time / next_base_time : navigation targets (nil for "overall")
-function M.fetch(client, mode, base_time)
+function M.prepare(raw, mode, base_time, now)
     mode = mode or "monthly"
-    local raw = client:get_read_stats(mode, base_time)
     assert(type(raw) == "table" and type(raw.readTimes) == "table", "Missing reading statistics")
     local code = raw.errcode or raw.errCode
     assert(not code or tonumber(code) == 0, "Reading statistics rejected")
     local data = M.normalize(raw, mode)
+    data.source_kind = raw._stats_source
 
     if mode == "overall" then
         -- A single unbounded period: no navigation.
@@ -254,7 +254,7 @@ function M.fetch(client, mode, base_time)
     local canonical = tonumber(raw and raw.baseTime)
     if not canonical then
         local seed = (base_time and tonumber(base_time) and tonumber(base_time) > 0)
-            and tonumber(base_time) or os.time()
+            and tonumber(base_time) or now or os.time()
         canonical = period_start(mode, seed)
     end
 
@@ -266,8 +266,13 @@ function M.fetch(client, mode, base_time)
     data.allow_prev = true
     -- next_base is the actual start of the following period; if it is already in
     -- the past, that period has begun and navigating forward is allowed.
-    data.allow_next = next_base <= os.time()
+    data.allow_next = next_base <= (now or os.time())
     return data
+end
+
+function M.fetch(client, mode, base_time, selected, options)
+    mode = mode or "monthly"
+    return M.prepare(client:get_read_stats(mode, base_time, selected, options), mode, base_time)
 end
 
 return M

@@ -49,7 +49,7 @@ local function flush_tasks()
     end
     local socket=require("socket")
     local deadline=socket.gettime()+15
-    while plugin.discovery_loading do
+    while plugin.discovery_loading or plugin.statistics_request do
         assert(socket.gettime()<deadline,"bookstore worker deadline")
         UIManager:shiftScheduledTasksBy(-1e9)
         UIManager:setInputTimeout(0)
@@ -242,9 +242,10 @@ plugin.settings:set("account", { user_vid = "90009999" })
 assert(plugin.library_db:getProfileState("statistics") == nil and plugin.library_db:getProfileState("goal") == nil,
     "profile cache/goal crossed accounts")
 plugin.settings:set("account", original_account)
+plugin.settings:flush()
 plugin.isNetworkOnline = function() return false end
 plugin:showProfile()
-assert(plugin._profile_view.data.has_data and plugin._profile_view.data.goal_minutes == 45 and not plugin.profile_request,
+assert(plugin._profile_view.data.has_data and plugin._profile_view.data.cached and plugin._profile_view.data.goal_minutes == 45 and not plugin.profile_request,
     "offline profile failed to reopen cached data")
 paint_profile("profile-offline")
 plugin._profile_view:onClose()

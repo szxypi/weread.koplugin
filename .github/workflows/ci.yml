@@ -78,6 +78,10 @@ jobs:
         run: |
           python3 scripts/test_secure_native_session.py
           python3 scripts/test_native_session.py
+          python3 scripts/test_saved_native_renewal.py
+
+      - name: Native statistics prototype checks
+        run: python3 scripts/test_native_statistics.py
 
       - name: Native bookstore prototype checks
         run: python3 scripts/test_native_discovery.py

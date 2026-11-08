@@ -1,6 +1,8 @@
 local I18n = {}
 
 local zh = {
+    ["Reading statistics need E-Ink authorization or an official API key."] = "阅读统计需要墨水屏授权或官方接口密钥。",
+    ["Statistics loaded but could not be saved for offline use. Check storage."] = "统计已读取，但未能保存离线数据，请检查存储空间。",
     ["The bookstore needs E-Ink authorization or an official API key."] = "书城需要墨水屏授权或官方接口密钥。",
     ["Bookstore access changed. Refresh or reopen the list."] = "书城授权已变化，请刷新或重新打开列表。",
     ["Bookstore request failed. Cached books are still available."] = "书城请求失败，已缓存的书籍仍可查看。",
@@ -128,7 +130,6 @@ local zh = {
     ["Shading: <15 / 15–44 / ≥45 min · ? no data · Beijing time"] = "灰度：不足15／15–44／45分钟以上 · ? 无数据 · 北京时间",
     ["Reading goal"] = "阅读目标",
     ["Detailed statistics"] = "详细统计",
-    ["This device cannot refresh My WeRead. Open Reading statistics instead."] = "当前设备暂时无法刷新“我的”，可查看“详细统计”。",
     ["Could not refresh reading statistics. Your cached data is kept."] = "刷新阅读统计失败，已保留缓存。",
     ["Minutes per day: 1–1440"] = "每天 1–1440 分钟",
     ["Enter a whole number from 1 to 1440."] = "请输入 1–1440 之间的整数。",

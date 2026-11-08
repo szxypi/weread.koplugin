@@ -50,6 +50,12 @@ miuread/reading_stats_dialog.lua. Copyright (C) 2026 MiuRead contributors.
 AGPL-3.0-only; source repository as above.
 
 Native authorization protocol prototype:
+- scripts/verify_native_statistics.py and the read-only statistics adapter
+  in weread/lib/native_authorization.lua reference MiuRead's eink_client.lua
+  reading_stats() (AGPL-3.0-only, MiuRead contributors). Four periods and one
+  historical month were verified on real Python responses before Lua
+  integration on 2026-11-09, then compared with native Lua HTTPS. The
+  projection preserves independent server totals and excludes identifiers.
 - scripts/verify_native_metadata.py and the read-only metadata adapter in
   weread/lib/native_authorization.lua reference MiuRead's eink_client.lua
   book() (AGPL-3.0-only, MiuRead contributors). Two real metadata responses
@@ -69,7 +75,7 @@ Native authorization protocol prototype:
   The plugin's separate UI, session-bound credential store and memory-pipe
   worker provide authorization, verified local persistence and cancellation;
   renewal includes manual entry and one attempt after a native HTTP 401 in
-  shelf, bookstore or metadata reads,
+  shelf, bookstore, metadata or statistics reads,
   with a checked on-disk pending marker to prevent uncertain-request replay.
 - scripts/verify_eink_login.py adapts the request flow from MiuRead's
   miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references

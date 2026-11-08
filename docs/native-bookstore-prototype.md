@@ -39,7 +39,7 @@
 - 分类书单同样在后台读取；分类层级选择器的公开目录请求仍沿用原有调度。
   原生 HTTP 401 可复用既有持久化续期流程最多恢复一次，保留原生分页的游标／推荐会话；
   续期后的再次 401 不循环，已有原生分页不会回退其他来源。取消／休眠保留不明回执的待确认标记，
-  后续读取不会重放续期。规则见[续期说明](eink-renewal-prototype.md#插件行为)；真实过期／限频待验收。
+  后续读取不会重放续期。规则见[续期说明](eink-renewal-prototype.md#插件行为)；书城真实失效／限频待验收。
 
 ## 本机开发授权
 
@@ -69,4 +69,6 @@ python3 scripts/verify_native_discovery.py --saved-session --native-http --lua-c
 Web 条目沿用 `verify_web_source_progress.py --clear-saved-session`。
 读取失败、取消或单次测试结束均不删除已授权保存的条目。
 
-实体 Kindle Oasis 2、真实授权过期／限频、非空个性化推荐、其他接口、精确同步写后回读仍待验收。
+后续已在统计接口观察真实 Lua HTTP 401，并完成一次 Python 续期、书架／钥匙串回读及 Lua 统计恢复，
+见[原生统计说明](native-statistics-prototype.md)；不作为书城所有真实失效／限频的验收。
+实体 Kindle Oasis 2、其他业务码／限频、非空个性化推荐、其他接口、精确同步写后回读仍待验收。

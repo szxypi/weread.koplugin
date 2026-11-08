@@ -189,6 +189,8 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.cancelProfileRefresh then self:cancelProfileRefresh() end
+    if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end
@@ -348,6 +350,8 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelProfileRefresh then self:cancelProfileRefresh() end
+    if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end

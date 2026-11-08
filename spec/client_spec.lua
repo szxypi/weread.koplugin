@@ -536,4 +536,17 @@ for _,response in ipairs({{code=302,body="private-discovery"},{code=401,body="pr
     expect(not ok and not tostring(err):find("private-",1,true),"gateway discovery must redact and bound failures")
 end
 expect(not table.concat(logs,"\n"):find("private-",1,true),"gateway discovery logged response or credentials")
+responses[#responses+1]={code=200,body="statistics",headers={["set-cookie"]="ignored=value"}}
+client:get_gateway_read_stats("monthly",1706716800,"captured-statistics-key")
+local statistics_request=requests[#requests]
+expect(encoded_display.api_name=="/readdata/detail" and encoded_display.mode=="monthly" and encoded_display.baseTime==1706716800
+    and statistics_request.headers.Authorization=="Bearer captured-statistics-key" and statistics_request.headers.Cookie==nil
+    and #merged_cookies==cookie_count,"isolated captured statistics gateway payload")
+for _,response in ipairs({{code=429,body="private-statistics"},{code=302,body="private-statistics"},
+    {code=200,body=string.rep("x",4*1024*1024+1)},{code=200,body="broken"},{raise="private-statistics-transport"}}) do
+    responses[#responses+1]=response
+    ok,err=pcall(client.get_gateway_read_stats,client,"monthly",0,"captured-statistics-key")
+    expect(not ok and not tostring(err):find("private-",1,true),"statistics gateway leaked/accepted oversized or failed response")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"statistics gateway logged private response")
 print(("client_spec: %d checks"):format(checks))

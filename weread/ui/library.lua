@@ -103,6 +103,7 @@ function M:closeWeReadUI()
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end
     self._home_pending_redraw = nil

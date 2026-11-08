@@ -3,7 +3,7 @@
 `scripts/verify_eink_login.py` 根据 MiuRead 的 `shelf_client.lua` 和 weread-omni 的
 `src/auth/qrlogin.ts` 准备原型。已在 2026-11-08 完成本人扫码、登录及带凭据的只读验证。
 随后迁移 `weread/lib/native_authorization.lua` 协议核心，并新增插件内“墨水屏授权”入口及保存／清除流程。
-主登录入口仍使用原有 Web 流程；墨水屏授权绑定当前 Web 账号。书架已支持通道选择；手动续期及书架／书城／资料 HTTP 401 后的一次续期已接入。搜索、推荐和相似书籍已增加原生授权读取，见[书城说明](native-bookstore-prototype.md)；[书籍资料](book-metadata-prototype.md#墨水屏资料接口)也已接入，其他接口继续待实现。
+主登录入口仍使用原有 Web 流程；墨水屏授权绑定当前 Web 账号。书架已支持通道选择；手动续期及书架／书城／资料／统计 HTTP 401 后的一次续期已接入。搜索、推荐和相似书籍已增加原生授权读取，见[书城说明](native-bookstore-prototype.md)；[书籍资料](book-metadata-prototype.md#墨水屏资料接口)与[“我的”／统计](native-statistics-prototype.md)也已接入，其他接口继续待实现。
 
 本次真实检查：登录、书架、config、feature 和当前位置均返回 HTTP 200，书架返回 139 条图书记录。
 字段结构、类型和数量见 [已授权只读报告](validation-assets/2026-11-08/eink-authenticated-readonly.json)。

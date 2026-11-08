@@ -200,6 +200,13 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
+            if path == "/readdata/detail" and method == "GET":
+                if set(query) != {"mode", "baseTime"} or any(len(v) != 1 for v in query.values()):
+                    raise ValueError("invalid native statistics query")
+                base = query["baseTime"][0]
+                if not base.isascii() or not base.isdigit() or int(base) > 4102444800:
+                    raise ValueError("invalid native statistics period")
+                return 200, reading_statistics(query["mode"][0],int(base))
             if path == "/book/info" and method == "GET":
                 if set(query) != {"bookId"} or len(query["bookId"]) != 1 or not any(b["bookId"] == book_id for b in BOOKS):
                     raise ValueError("invalid native metadata query")

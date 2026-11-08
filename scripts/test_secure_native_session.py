@@ -2,10 +2,12 @@
 from contextlib import redirect_stdout
 import io
 import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import patch
 
-from secure_native_session import NativeSessionStore
+from secure_native_session import NativeSessionStore,RenewalReceipt,project_lock
 from secure_weread_session import StoreError
 from verify_native_session import main
 
@@ -50,6 +52,50 @@ class NativeStorageTests(unittest.TestCase):
             self.assertEqual(main([]),0)
         web.assert_not_called();native.assert_not_called();probe.assert_not_called()
         self.assertEqual(json.loads(out.getvalue())['result'],'OFFLINE_ONLY')
+
+    def test_pending_receipt_survives_new_instance_and_never_replays(self):
+        backend=Backend();store=NativeSessionStore(backend)
+        store.save(credentials(),'900000',verified=True)
+        receipt,previous=store.begin_renewal('900000',credentials())
+        self.assertEqual(previous,credentials())
+        self.assertNotIn(previous['accessToken'],repr(receipt))
+        reopened=NativeSessionStore(backend)
+        for method in (reopened.load,reopened.begin_renewal):
+            with self.assertRaisesRegex(StoreError,'native_renewal_unconfirmed'):method('900000')
+        renewed=dict(credentials(),accessToken='synthetic-new-access')
+        store.finish_renewal(receipt,renewed,verified=True)
+        self.assertEqual(reopened.load('900000'),renewed)
+        with self.assertRaisesRegex(StoreError,'native_renewal_replaced'):store.finish_renewal(receipt,renewed,verified=True)
+
+    def test_replacement_owner_and_unverified_finish_cannot_overwrite(self):
+        backend=Backend();store=NativeSessionStore(backend)
+        store.save(credentials(),'900000',verified=True)
+        receipt,_=store.begin_renewal('900000')
+        with self.assertRaises(StoreError):store.finish_renewal(receipt,credentials())
+        with self.assertRaises(StoreError):store.finish_renewal(receipt,dict(credentials(),vid='900001'),verified=True)
+        replacement=dict(credentials(),accessToken='synthetic-replacement')
+        store.save(replacement,'900000',verified=True)
+        with self.assertRaisesRegex(StoreError,'native_renewal_replaced'):store.finish_renewal(receipt,credentials(),verified=True)
+        self.assertEqual(store.load('900000'),replacement)
+        with self.assertRaisesRegex(StoreError,'native_renewal_replaced'):store.begin_renewal('900000',credentials())
+        with self.assertRaisesRegex(StoreError,'native_renewal_replaced'):
+            store.finish_renewal(RenewalReceipt('900000',backend.data),credentials(),verified=True)
+
+    def test_only_proved_pre_dispatch_failure_can_release_pending(self):
+        backend=Backend();store=NativeSessionStore(backend)
+        store.save(credentials(),'900000',verified=True)
+        receipt,_=store.begin_renewal('900000')
+        with self.assertRaises(StoreError):store.release_renewal(receipt)
+        store.release_renewal(receipt,not_dispatched=True)
+        self.assertEqual(store.load('900000'),credentials())
+
+    def test_lock_is_exclusive_and_contains_no_data(self):
+        with tempfile.TemporaryDirectory() as root:
+            path=Path(root)/'empty.lock'
+            with project_lock(path):
+                with self.assertRaisesRegex(StoreError,'native_session_busy'):
+                    with project_lock(path):pass
+            self.assertEqual(path.read_bytes(),b'')
 
 
 if __name__=='__main__':unittest.main()

@@ -860,12 +860,26 @@ end
 -- mode: "weekly" | "monthly" | "annually" | "overall"
 -- base_time: optional Unix timestamp; server normalizes it to the period start
 --            (Monday / 1st of month / Jan 1st). Pass 0/nil for the current period.
-function Client:get_read_stats(mode, base_time)
-    local params = { mode = mode or "monthly" }
-    if base_time and tonumber(base_time) and tonumber(base_time) > 0 then
-        params.baseTime = tonumber(base_time)
-    end
-    return self:gateway("/readdata/detail", params)
+function Client:get_read_stats(mode, base_time, selected, options)
+    return require("weread.lib.statistics_source").fetch(self, mode or "monthly", base_time, selected, options)
+end
+
+function Client:get_gateway_read_stats(mode, base_time, api_key)
+    local Data = require("weread.lib.statistics_data")
+    assert(Data.mode(mode) and Data.base(base_time or 0) and type(api_key) == "string" and api_key ~= "", "statistics/access_required")
+    local chunks, bytes, exceeded = {}, 0, false
+    local _, code, headers = self:request{url = "https://i.weread.qq.com/api/agent/gateway", method = "POST",
+        body = self:json_encode{api_name = "/readdata/detail",skill_version = WeRead.SKILL_VERSION,mode = mode,baseTime = base_time or 0},
+        headers = {Authorization = "Bearer " .. api_key,["Content-Type"] = "application/json"},
+        skip_cookie = true,persist_response_cookies = false,sensitive = true,diagnostic_api = "statistics",timeout = {8,15},
+        sink = function(chunk)
+            if not chunk then return 1 end
+            bytes = bytes + #chunk
+            if bytes > 4 * 1024 * 1024 then exceeded = true;return nil,"statistics_limit" end
+            chunks[#chunks + 1] = chunk;return 1
+        end}
+    if exceeded or code ~= 200 then error("statistics/gateway_unavailable",0) end
+    return self:decode_http_json(table.concat(chunks),{sensitive = true,api_name = "statistics",code = code,headers = headers})
 end
 
 function Client:get_mp_articles(book_id, max_idx, count, wr_ticket)
