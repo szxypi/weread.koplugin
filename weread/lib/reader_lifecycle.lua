@@ -161,6 +161,7 @@ function M:onReaderReady()
         self:maybePrefetchNextChapter(weread_book_id)
     end)
     local _started, _title, reason = self.read_report:on_reader_ready()
+    if self.offline_time then self.offline_time:resume() end
     local rr = self.settings:get("read_report")
     if rr.enabled and rr.mode == "auto" and reason == "document_not_weread" then
         self:showTransientInfo(_("Current book is not from WeRead, reading time not reported"), 1)
@@ -179,6 +180,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.offline_time then self.offline_time:stop("no_book") end
     -- Capture the immutable local position while the document is still alive.
     -- The network upload is scheduled; stopping ReadReport below also frees any
     -- in-flight report slot before that scheduled upload begins.
@@ -328,6 +330,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.offline_time then self.offline_time:suspend() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self._cancelUnifiedAnnotationSync then self:_cancelUnifiedAnnotationSync() end
     self._annotation_pending_prefetch = nil
@@ -338,9 +341,26 @@ end
 function M:onResume()
     self.progress_sync:on_resume()
     self.read_report:on_resume()
+    if self.offline_time then self.offline_time:resume() end
     if self.startHomeStatusTimer and self.shelf_view and self.shelf_view.home_layout then
         self:startHomeStatusTimer(self.shelf_view)
     end
+end
+
+function M:onReadingPaused()
+    if self.offline_time then self.offline_time:pause() end
+end
+
+function M:onReadingResumed()
+    if self.offline_time then self.offline_time:resume() end
+end
+
+function M:onNetworkConnected()
+    if self.offline_time then self.offline_time:update("network_connected", true) end
+end
+
+function M:onNetworkDisconnected()
+    if self.offline_time then self.offline_time:update("network_disconnected", false) end
 end
 
 function M:detectWeReadBook()

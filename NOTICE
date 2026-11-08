@@ -32,3 +32,12 @@ Native authorization protocol prototype:
 - scripts/verify_eink_login.py adapts the request flow from MiuRead's
   miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references
   https://github.com/teng-lin/weread-omni/blob/main/src/auth/qrlogin.ts.
+
+Local offline reading-time collection:
+- weread/lib/offline_time_stats.lua adapts native statistics extraction from
+  miuread/readtime_stats.lua (MiuRead contributors, AGPL-3.0-only).
+- The transactional watermarks, conservative restart and uncertain-attempt
+  design in offline_time_store.lua and offline_time.lua reference MiuRead's
+  readtime_outbox.lua/readtime_controller.lua; rewritten for this repository's
+  account databases and offline-only collection on 2026-11-08.
+Source: https://github.com/miumiupy98-art/miuread-koreader

@@ -12,6 +12,7 @@ local Integrations = require("integrations.init")
 local LibraryDB = require("weread.lib.library_db")
 local Mixin = require("weread.lib.mixin")
 local Migrations = require("weread.lib.migrations")
+local OfflineTime = require("weread.lib.offline_time")
 local PluginUtil = require("weread.lib.plugin_util")
 local ProgressSync = require("weread.lib.progress_sync")
 local ProgressSyncDialog = require("weread.ui.progress_sync_dialog")
@@ -49,6 +50,15 @@ function WeReadPlugin:init()
     self.settings = Settings:new()
     self.external_annotations_db = ExternalAnnotationsDB:new(self.settings)
     self.library_db = LibraryDB:new(self.settings)
+    self.offline_time = OfflineTime:new{
+        settings = self.settings, library_db = self.library_db, scheduler = UIManager,
+        get_context = function()
+            local document = self.ui and self.ui.document
+            return document and { book_id = self:detectWeReadBook(), path = document.file,
+                stats = self.ui.statistics, visible = UIManager:getTopmostVisibleWidget() == self.ui } or nil
+        end,
+        is_online = function() return self:isNetworkConnected() end,
+    }
     local updater = Updater:new{
         settings = self.settings,
         current_version = self.version,

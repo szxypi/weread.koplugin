@@ -95,7 +95,50 @@ function M:getReadReportMenuItems()
                 self:onShowWeReadReportStatus()
             end),
         },
+        {
+            text = _("Record offline reading time locally"),
+            keep_menu_open = true, check_callback_updates_menu = true,
+            checked_func = function() return self.settings:get("offline_time", {}).enabled == true end,
+            callback = self:safeCallback(_("Record offline reading time locally"), function(menu)
+                local enabled = self.settings:get("offline_time", {}).enabled == true
+                if self.offline_time then self.offline_time:stop("disabled") end
+                local ok = pcall(function()
+                    self.settings:set("offline_time", { enabled = not enabled })
+                    if self.settings:flush() == false then error("write_failed") end
+                end)
+                if not ok then
+                    self.settings:set("offline_time", { enabled = enabled })
+                    self:showInfo(_("Could not save offline time settings."))
+                end
+                if self.offline_time then self.offline_time:start() end
+                if menu then menu:updateItems() end
+            end),
+        },
+        {
+            text = _("Offline reading time"),
+            callback = self:safeCallback(_("Offline reading time"), function() self:showOfflineTimeStatus() end),
+        },
     }
+end
+
+function M:showOfflineTimeStatus()
+    if not self.offline_time then return end
+    self.offline_time:update("status")
+    local status = self.offline_time:status()
+    local labels = {
+        recording = "Recording offline reading", online = "Online; offline recording is idle",
+        disabled = "Disabled", paused = "Paused", no_book = "Open a WeRead book to record time",
+        reader_hidden = "Return to the reading page to record time",
+        unsupported_book = "Offline time recording is unavailable for public-account articles",
+        account_unavailable = "Log in to associate offline reading time",
+        statistics_unavailable = "Enable KOReader Reading statistics to record time",
+        clock_unavailable = "Device clock is unavailable", clock_changed = "Device clock changed; recording is waiting",
+        storage_error = "Could not save offline reading time", storage_unavailable = "Could not save offline reading time",
+        ledger_full = "Offline reading time storage is full", network_unavailable = "Waiting for a known network state",
+    }
+    self:showInfo(T(_("Locally saved, not uploaded: %1 s"), status.pending + status.in_flight + status.unknown)
+        .. "\n" .. _(labels[status.error or status.state] or "Could not save offline reading time")
+        .. "\n\n" .. _("Offline time stays on this device until cloud transfer is available."))
 end
 
 -- Preset reporting intervals. A longer interval means fewer network wake-ups,

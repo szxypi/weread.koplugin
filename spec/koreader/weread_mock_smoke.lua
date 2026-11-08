@@ -12,11 +12,12 @@ local Device = require("device")
 require("document/canvascontext"):init(Device)
 -- Isolate the candidate using the native PluginLoader (no unit-test runtime).
 local PluginLoader = require("pluginloader")
+local test_offline_time = os.getenv("WEREAD_TEST_OFFLINE_TIME") == "1"
 PluginLoader.enabled_plugins, PluginLoader.disabled_plugins, PluginLoader.loaded_plugins = {}, {}, {}
 for _, entry in ipairs(PluginLoader:_discover()) do
-    if entry.name == "weread" then PluginLoader:_load{ entry } end
+    if entry.name == "weread" or (test_offline_time and entry.name == "statistics") then PluginLoader:_load{ entry } end
 end
-assert(#PluginLoader.enabled_plugins == 1, "candidate discovery failed")
+assert(#PluginLoader.enabled_plugins == (test_offline_time and 2 or 1), "candidate discovery failed")
 local function fastforward_ui_events()
     local manager = require("ui/uimanager")
     manager:shiftScheduledTasksBy(-1e9)
@@ -137,6 +138,10 @@ plugin.settings:set("sync", sync_config)
 plugin.settings:flush()
 plugin.isNetworkOnline, plugin.isNetworkConnected = online, connected
 print("PASS: real ReaderUI account/suspend cancels queued HTTP; valid upload persists/readbacks; wake compares cloud first")
+if test_offline_time then
+    local fixture_dir = debug.getinfo(1, "S").source:match("^@(.*/)")
+    dofile(fixture_dir .. "offline_time_smoke.lua")(reader, request_count, fastforward_ui_events)
+end
 -- Exercise the real event loop, subprocesses, resume workspace, and packaging.
 local completed, full_path, download_error
 local function deadline()

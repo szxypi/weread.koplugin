@@ -134,6 +134,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    if self.offline_time then self.offline_time:stop("account_unavailable") end
     if self.read_report then self.read_report:stop("account_changed") end
     if self.progress_sync and self.progress_sync.on_account_changed then self.progress_sync:on_account_changed() end
     self:closeWeReadUI()
@@ -147,6 +148,7 @@ function M:onWeReadAccountChanged()
     self.shelf_group_key = nil
     self.shelf_search_keyword = nil
     self.shelf_view_pages = nil
+    if self.offline_time then self.offline_time:resume() end
 end
 
 function M:applyShelfSnapshot(all_books, archives)

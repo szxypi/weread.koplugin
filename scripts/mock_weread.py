@@ -362,7 +362,7 @@ class Handler(BaseHTTPRequestHandler):
             self.server.control = candidate
 
 
-def prepare(run_dir, runtime, port):
+def prepare(run_dir, runtime, port, width=600, height=800, dpi=167):
     """Fresh directory only: never read or overwrite the user's KOReader profile."""
     if not (runtime / "luajit").is_file() or not (runtime / "reader.lua").is_file():
         raise ValueError("--koreader must point to the built runtime containing luajit and reader.lua")
@@ -382,7 +382,7 @@ def prepare(run_dir, runtime, port):
     (run_dir / "evidence/build.json").write_text(json.dumps(dict(
         fixture_version=1, plugin_sha=subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
         workspace_status=subprocess.check_output(["git", "status", "--short"], cwd=REPO, text=True),
-        runtime=str(runtime), ko_home=str(profile),
+        runtime=str(runtime), ko_home=str(profile), screen=dict(width=width, height=height, dpi=dpi),
     ), ensure_ascii=False, indent=2) + "\n")
     (profile / "settings.reader.lua").write_text('return { language = "zh_CN", color_rendering = false, auto_save_settings_interval_minutes = 0 }\n')
     (profile / "settings/weread-environment.lua").write_text(
@@ -393,7 +393,7 @@ def prepare(run_dir, runtime, port):
     launcher = run_dir / "launch.command"
     launcher.write_text("#!/bin/sh\nset -eu\n" + "\n".join(f"export {key}={shlex.quote(str(value))}" for key, value in {
         "KO_HOME": profile,
-        "EMULATE_READER": 1, "EMULATE_READER_W": 600, "EMULATE_READER_H": 800, "EMULATE_READER_DPI": 167,
+        "EMULATE_READER": 1, "EMULATE_READER_W": width, "EMULATE_READER_H": height, "EMULATE_READER_DPI": dpi,
     }.items()) + f"\ncd {shlex.quote(str(runtime))}\nexec ./luajit {shlex.quote(str(bootstrap))} {shlex.quote(str(run_dir / 'books'))} > {shlex.quote(str(run_dir / 'evidence/runtime.log'))} 2>&1\n")
     launcher.chmod(0o755)
     app = run_dir / "WeReadMock.app/Contents"
@@ -412,7 +412,12 @@ def main():
     parser.add_argument("--koreader", type=Path, help="built KOReader runtime directory (not source root)")
     parser.add_argument("--log", type=Path, help="JSONL request log, without headers or private data")
     parser.add_argument("--smoke", action="store_true", help="run real KOReader offscreen smoke, save evidence, then exit")
+    parser.add_argument("--width", type=int, default=600)
+    parser.add_argument("--height", type=int, default=800)
+    parser.add_argument("--dpi", type=int, default=167)
     args = parser.parse_args()
+    if min(args.width, args.height, args.dpi) < 1:
+        parser.error("screen dimensions and DPI must be positive")
     if bool(args.run_dir) != bool(args.koreader):
         parser.error("--run-dir and --koreader must be provided together")
     if args.smoke and not args.run_dir:
@@ -422,7 +427,7 @@ def main():
     server = MockServer(args.port, args.log, args.bind)
     if args.run_dir:
         args.run_dir = args.run_dir.resolve()
-        launcher = prepare(args.run_dir, args.koreader.resolve(), server.server_port)
+        launcher = prepare(args.run_dir, args.koreader.resolve(), server.server_port, args.width, args.height, args.dpi)
         server.log_path = args.run_dir / "evidence/requests.jsonl"
         print(f"Launch: {launcher}", flush=True)
     print(f"Mock server: http://{args.bind}:{server.server_port} (Ctrl-C to stop)", flush=True)
@@ -430,7 +435,8 @@ def main():
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
         env = os.environ | dict(KO_HOME=str(args.run_dir / "profile"),
-                                EMULATE_READER="1", EMULATE_READER_W="600", EMULATE_READER_H="800", EMULATE_READER_DPI="167")
+                                EMULATE_READER="1", EMULATE_READER_W=str(args.width),
+                                EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
         log = args.run_dir / "evidence/smoke.log"
         try:
             with log.open("w") as out:

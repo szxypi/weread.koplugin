@@ -52,6 +52,7 @@ local defaults = {
         interval_seconds = 30,
         report_on_open = true,
     },
+    offline_time = { enabled = false },
     thought_popup = {
         -- Thought popup height as a fraction of the screen height.
         height_ratio = 0.70,

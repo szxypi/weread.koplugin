@@ -77,6 +77,21 @@ python3 scripts/test_mock_weread.py
 
 该命令已接入普通 CI；真实 KOReader 冒烟仍在本地显式执行。
 
+## 原生离线时长记录验证
+
+使用相同运行环境，并显式加载发行包自带的 statistics 插件：
+
+```bash
+WEREAD_TEST_OFFLINE_TIME=1 python3 scripts/mock_weread.py --smoke --port 0 \
+    --run-dir /tmp/weread-offline-time-01 --koreader /absolute/path/to/koreader \
+    --width 1264 --height 1680 --dpi 300
+```
+
+除原有冒烟外，这项测试实际等待两个 6 秒页面停留和中间 2 秒暂停，使用原生暂停／恢复事件、
+原生统计刷库和账号账本回读。不会修改原生时间元组来加速计时，也不请求生产服务。
+保存离线状态截图，并断言本机计时没有增加 HTTP 时长上报请求。上述像素配置模拟 KO2，
+不代表真机休眠、按键、Wi-Fi、耗电或墨水屏残影验收。
+
 ## 划线想法专项回归
 
 先用下节命令创建新的隔离目录并保持 mock 服务运行。另一终端在 KOReader 运行目录执行，

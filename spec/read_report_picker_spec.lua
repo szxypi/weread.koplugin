@@ -33,17 +33,18 @@ local function expect(condition, message)
 end
 
 local config = { mode = "auto", book_id = "", book_title = "" }
+local offline, fail_flush = { enabled = false }, false
 local picker_options
 local stopped, started, notice, rescheduled
 local host = setmetatable({
     settings = {
         get = function(_self, key)
-            if key == "read_report" then return config end
+            if key == "read_report" then return config elseif key == "offline_time" then return offline end
         end,
         set = function(_self, key, value)
-            if key == "read_report" then config = value end
+            if key == "read_report" then config = value elseif key == "offline_time" then offline = value end
         end,
-        flush = function() end,
+        flush = function() return not fail_flush end,
     },
     requireLogin = function() return true end,
     refreshBookshelf = function(_self, _view, options) picker_options = options end,
@@ -154,4 +155,19 @@ expect(status_text == "Report book: Auto: Auto Book\nStatus: Running\nReported: 
         .. os.date("%H:%M:%S", report_status.last_time) .. "\nLast error: offline",
     "status gesture preserves the live automatic target, report time, and last error")
 
+local local_stops, local_starts = 0, 0
+host.offline_time = {
+    stop = function() local_stops = local_stops + 1 end,
+    start = function() local_starts = local_starts + 1 end,
+    update = function() end,
+    status = function() return { pending = 12, in_flight = 0, unknown = 0, state = "statistics_unavailable" } end,
+}
+report_items[6].callback(touchmenu)
+expect(offline.enabled and local_stops == 1 and local_starts == 1, "offline toggle starts local recorder")
+fail_flush = true
+report_items[6].callback(touchmenu)
+expect(offline.enabled and status_text == "Could not save offline time settings.", "failed offline preference save rolls back")
+host:showOfflineTimeStatus()
+expect(status_text:find("12 s", 1, true) and status_text:find("Enable KOReader Reading statistics", 1, true)
+    and status_text:find("until cloud transfer is available", 1, true), "offline status explains saved time, native prerequisite and transfer availability")
 print(("read_report_picker_spec: %d checks"):format(checks))
