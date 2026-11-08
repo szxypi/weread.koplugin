@@ -124,5 +124,10 @@ host.shelf_view = shelf_view
 host:openFile(nil)
 expect(#closed == 0 and host.shelf_view == shelf_view,
     "invalid open request unexpectedly closed the bookshelf")
+local picker = { id = "discovery-menu" }
+host._discovery_menu = picker
+host:closeWeReadUI()
+expect(closed[1] == picker and closed[2] == shelf_view and host._discovery_menu == nil,
+    "closing WeRead retained the category picker over the reader")
 
 print(("library_ui_cleanup_spec: %d checks"):format(checks))

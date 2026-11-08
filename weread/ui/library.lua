@@ -104,6 +104,7 @@ function M:closeWeReadUI()
     -- in UIManager's window stack after a document is opened.
     local seen = {}
     for _, field in ipairs({
+        "_discovery_menu",
         "_chapter_list_view",
         "_book_detail_view",
         "shelf_view",
@@ -120,6 +121,7 @@ end
 function M:onWeReadAccountChanged()
     self:closeWeReadUI()
     self.discovery_state = nil
+    self.discovery_categories = nil
     self.shelf_regular = nil
     self.shelf_mp = nil
     self.shelf_books = nil

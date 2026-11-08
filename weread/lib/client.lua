@@ -645,6 +645,29 @@ function Client:get_book_info(book_id)
     return self:gateway("/book/info", { bookId = book_id })
 end
 
+-- Public bookstore contracts verified by scripts/verify_bookstore.py.
+function Client:get_store_categories()
+    local url = "https://weread.qq.com/web/categories?rank=1&synckey=0"
+    local text, code, headers = self:get_text(url, {
+        skip_cookie = true, accept = "application/json", referer = "https://weread.qq.com/web/category/all",
+    })
+    return self:decode_http_json(text, { method = "GET", url = url, code = code, headers = headers })
+end
+
+function Client:get_category_books(category_id, cursor, rank)
+    category_id = tostring(category_id or "")
+    assert(category_id:match("^[%w_%-]+$"), "Invalid bookstore category")
+    cursor = tonumber(cursor) or 0
+    assert(cursor >= 0 and cursor < math.huge and cursor % 1 == 0, "Invalid bookstore cursor")
+    local url = "https://weread.qq.com/web/bookListInCategory/" .. WeRead.urlencode(category_id)
+        .. "?rank=" .. (rank and "1" or "0") .. "&maxIndex=" .. tostring(cursor)
+    local text, code, headers = self:get_text(url, {
+        skip_cookie = true, accept = "application/json",
+        referer = "https://weread.qq.com/web/category/" .. category_id,
+    })
+    return self:decode_http_json(text, { method = "GET", url = url, code = code, headers = headers })
+end
+
 function Client:get_book_reviews(book_id, review_list_type, count)
     return self:gateway("/review/list", {
         bookId = book_id,

@@ -127,9 +127,9 @@ plugin.loadDiscoveryBatch = function(_self, ...) query = { ... } end
 Discovery.showBookstore(plugin)
 expect(shown.title == "Similar to: Seed A" and shown.empty_text == "No similar books found.",
     "similar title/empty state not rendered")
-shown.actions[3].callback()
-expect(query[3] == 40 and query[6].session_id == "session-a", "next UI callback lost session")
 shown.actions[4].callback()
+expect(query[3] == 40 and query[6].session_id == "session-a", "next UI callback lost session")
+shown.actions[5].callback()
 expect(query[3] == 0 and query[4] and query[6].book_id == "seed-a", "previous UI callback lost seed")
 shown.on_refresh()
 expect(query[3] == 20 and query[5] and query[6].session_id == "session-a", "refresh UI callback lost session")

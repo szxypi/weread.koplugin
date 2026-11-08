@@ -9,7 +9,8 @@ local navigation = {
     { text = "Home", active = true }, { text = "Bookshelf" }, { text = "Bookstore" },
 }
 local actions = {
-    { text = "For you" }, { text = "Search" }, { text = "Next batch" }, { text = "Previous batch" },
+    { text = "For you" }, { text = "Search" }, { text = "Browse" },
+    { text = "Next batch" }, { text = "Previous batch" },
 }
 for _, dimensions in ipairs({ { 320, 480 }, { 600, 800 }, { 800, 600 }, { 1072, 1448 }, { 1440, 1920 } }) do
     local width, height = dimensions[1], dimensions[2]
@@ -29,7 +30,7 @@ for _, dimensions in ipairs({ { 320, 480 }, { 600, 800 }, { 800, 600 }, { 1072, 
         assert(view[1][1]:getSize().h == height, "home/store chrome exceeds viewport")
         assert(view[1][1]:getSize().w <= width, "home/store chrome exceeds screen width")
         assert(view.scroll[1]:getSize().h <= view.scroll.dimen.h, "cover grid exceeds reserved viewport")
-        assert(#view._navigation_buttons == 3 and #view._action_buttons == 4)
+        assert(#view._navigation_buttons == 3 and #view._action_buttons == 5)
         assert(view.page_size == layout.page_size, "cover fetch and display page sizes differ")
         view:onClose()
         assert(closed, "back button omitted controller cleanup")

@@ -127,6 +127,80 @@ function M:showSimilarBooks(book)
     })
 end
 
+function M:showDiscoveryCategoryPicker(data)
+    local menu
+    local function dismiss()
+        if self._discovery_menu == menu then self._discovery_menu = nil end
+        if menu then UIManager:close(menu) end
+    end
+    local function rows(entries)
+        local items = {}
+        for _i, entry in ipairs(entries) do
+            local function browse()
+                dismiss()
+                self:loadDiscoveryBatch("category", nil, 0, false, false, {
+                    category_id = entry.id, category_title = entry.title, rank = entry.rank,
+                })
+            end
+            local item = { text = entry.title, callback = browse }
+            if #entry.children > 0 then
+                item.sub_item_table = rows(entry.children)
+                table.insert(item.sub_item_table, 1, {
+                    text = PluginUtil.T(_("All in %1"), entry.title), callback = browse,
+                })
+            end
+            items[#items + 1] = item
+        end
+        if #items == 0 then items[1] = { text = _("No available categories."), select_enabled = false } end
+        return items
+    end
+    if self._discovery_menu then UIManager:close(self._discovery_menu) end
+    local title = _("Rankings and categories")
+    if os.time() - data.loaded_at > Data.CACHE_TTL then title = title .. " · " .. _("Cached") end
+    menu = self:showList(title, {
+        { text = _("Book rankings"), sub_item_table = rows(data.ranks) },
+        { text = _("Browse categories"), sub_item_table = rows(data.categories) },
+        { text = _("Refresh rankings and categories"), callback = function()
+            dismiss()
+            self:showDiscoveryCategories(true)
+        end },
+    })
+    self._discovery_menu = menu
+    menu.close_callback = function()
+        if self._discovery_menu == menu then
+            self._discovery_menu = nil
+            self.discovery_epoch = (self.discovery_epoch or 0) + 1
+        end
+    end
+end
+
+function M:showDiscoveryCategories(refresh)
+    if self.discovery_loading then return end
+    if self.discovery_categories and not refresh then
+        self:showDiscoveryCategoryPicker(self.discovery_categories)
+        return
+    end
+    local account, epoch = self.library_db:accountKey(), self.discovery_epoch or 0
+    self.discovery_loading = true
+    local started = self:runOnlineTask(_("Rankings and categories"), function()
+        if account ~= self.library_db:accountKey() or epoch ~= (self.discovery_epoch or 0) then
+            self.discovery_loading = nil
+            return
+        end
+        local ok, result = pcall(function() return Data.categories(self.client:get_store_categories()) end)
+        self.discovery_loading = nil
+        if account ~= self.library_db:accountKey() or epoch ~= (self.discovery_epoch or 0) then return end
+        if not ok then
+            self:showInfo(PluginUtil.T(_("Bookstore request failed:\n%1"), PluginUtil.display_error(result)))
+            return
+        end
+        result.loaded_at = os.time()
+        self.discovery_categories = result
+        self:showDiscoveryCategoryPicker(result)
+    end)
+    if started == false then self.discovery_loading = nil end
+end
+
 function M:showBookstore()
     local state = self.discovery_state
     if state and state.account ~= self.library_db:accountKey() then
@@ -136,6 +210,7 @@ function M:showBookstore()
     local actions = {
         { text = _("For you"), callback = function() self:loadDiscoveryBatch("recommend", nil, 0) end },
         { text = _("Search WeRead"), callback = function() self:showDiscoverySearch() end },
+        { text = _("Browse books"), callback = function() self:showDiscoveryCategories() end },
     }
     if state and state.has_more then
         actions[#actions + 1] = { text = _("Next batch"), callback = function()
@@ -151,11 +226,13 @@ function M:showBookstore()
     if state then
         title = state.kind == "search" and PluginUtil.T(_("Search: %1"), state.keyword) or _("For you")
         if state.kind == "similar" then title = PluginUtil.T(_("Similar to: %1"), state.book_title) end
+        if state.kind == "category" then title = state.category_title end
         if os.time() - state.loaded_at > Data.CACHE_TTL then title = title .. " · " .. _("Cached") end
     end
     self:showDiscoveryPage("store", state and state.books or {}, {
         title = title, actions = actions,
-        empty_text = state and (state.kind == "similar" and _("No similar books found.") or _("No search results."))
+        empty_text = state and (state.kind == "similar" and _("No similar books found.")
+            or state.kind == "search" and _("No search results.") or _("No books found."))
             or _("Choose For you or search to discover books."),
         on_refresh = function()
             self:loadDiscoveryBatch(state and state.kind or "recommend", state and state.keyword,
@@ -165,7 +242,7 @@ function M:showBookstore()
 end
 
 function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context)
-    if self.discovery_loading or not self:requireLogin(false, true) then return end
+    if self.discovery_loading or (kind ~= "category" and not self:requireLogin(false, true)) then return end
     cursor = cursor or 0
     context = context or {}
     if kind == "similar" and (not context.book_id or context.book_id == "") then return end
@@ -185,12 +262,17 @@ function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context)
         local ok, result = pcall(function()
             local endpoint = kind == "search" and "/store/search"
                 or kind == "similar" and "/book/similar" or "/book/recommend"
-            local data = self.client:gateway(endpoint, {
-                keyword = keyword, count = Data.PAGE_SIZE, maxIdx = cursor,
-                scope = kind == "search" and 10 or nil,
-                bookId = kind == "similar" and book_id or nil,
-                sessionId = kind == "similar" and session_id ~= "" and session_id or nil,
-            })
+            local data
+            if kind == "category" then
+                data = self.client:get_category_books(context.category_id, cursor, context.rank)
+            else
+                data = self.client:gateway(endpoint, {
+                    keyword = keyword, count = Data.PAGE_SIZE, maxIdx = cursor,
+                    scope = kind == "search" and 10 or nil,
+                    bookId = kind == "similar" and book_id or nil,
+                    sessionId = kind == "similar" and session_id ~= "" and session_id or nil,
+                })
+            end
             local page = Data.page(kind, data, cursor)
             if kind == "similar" then
                 if session_id and session_id ~= "" and page.session_id ~= session_id then
@@ -209,7 +291,9 @@ function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context)
         end
         local history = {}
         if source_state and source_state.kind == kind and source_state.keyword == keyword
-            and (kind ~= "similar" or (source_state.book_id == book_id and source_state.session_id == session_id)) then
+            and (kind ~= "similar" or (source_state.book_id == book_id and source_state.session_id == session_id))
+            and (kind ~= "category" or (source_state.category_id == context.category_id
+                and source_state.rank == context.rank)) then
             for i, value in ipairs(source_state.history) do history[i] = value end
             if previous then table.remove(history)
             elseif not refresh and cursor ~= 0 then history[#history + 1] = source_state.cursor
@@ -219,6 +303,9 @@ function M:loadDiscoveryBatch(kind, keyword, cursor, previous, refresh, context)
         if #history > 100 then table.remove(history, 1) end
         result.kind, result.keyword, result.cursor = kind, keyword, cursor
         result.book_id, result.book_title = book_id, book_title
+        if kind == "category" then
+            result.category_id, result.category_title, result.rank = context.category_id, context.category_title, context.rank
+        end
         result.history, result.account, result.loaded_at = history, account, os.time()
         self.discovery_state = result
         if self._book_detail_view then

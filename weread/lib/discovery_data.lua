@@ -63,6 +63,45 @@ function M.page(kind, data, cursor)
         has_more = (more == true or tonumber(more) == 1) and last > cursor }
 end
 
+-- Preserve the server hierarchy, excluding audio/comic categories and invalid IDs.
+-- Adapted from MiuRead's bookstore_data.lua; see this file's attribution.
+function M.categories(data)
+    if type(data) ~= "table" or type(data.data) ~= "table" then error("Missing bookstore categories") end
+    local ranks, categories, seen, visited = {}, {}, {}, {}
+    local function parse(row, depth)
+        if type(row) ~= "table" or depth > 8 or visited[row] then return end
+        visited[row] = true
+        local id = text(row.CategoryId or row.categoryId)
+        if not id:match("^[%w_%-]+$") or text(row.title) == ""
+            or (row.type ~= nil and tonumber(row.type) ~= 0) then return end
+        local entry = { id = id, title = text(row.title), rank = not id:match("^%d+$"), children = {} }
+        for _, child in ipairs(type(row.sublist) == "table" and row.sublist or {}) do
+            local result = parse(child, depth + 1)
+            if result then entry.children[#entry.children + 1] = result end
+        end
+        return entry
+    end
+    local function visit(rows, depth)
+        if depth > 8 or visited[rows] then return end
+        visited[rows] = true
+        for _, row in ipairs(rows) do
+            if type(row) == "table" then
+                if type(row.categories) == "table" then visit(row.categories, depth + 1)
+                else
+                    local entry = parse(row, 0)
+                    if entry and not seen[entry.id] then
+                        seen[entry.id] = true
+                        local list = entry.rank and ranks or categories
+                        list[#list + 1] = entry
+                    end
+                end
+            end
+        end
+    end
+    visit(data.data, 0)
+    return { ranks = ranks, categories = categories }
+end
+
 -- Sort a copy: the cloud shelf's ordering and group membership must not change.
 function M.recent(books, saved, account)
     local result = {}

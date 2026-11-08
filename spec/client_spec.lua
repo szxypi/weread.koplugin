@@ -380,4 +380,27 @@ end)
 expect(not ok and io.open(download_path .. ".part", "rb") == nil,
     "oversized file download did not remove its partial output")
 
+local public_client = Client:new(settings)
+public_client.json_decode = function(_self, text) return { payload = text } end
+responses[#responses + 1] = { body = "categories", code = 200 }
+expect(public_client:get_store_categories().payload == "categories", "categories JSON not decoded")
+local public_request = requests[#requests]
+expect(public_request.url == "https://weread.qq.com/web/categories?rank=1&synckey=0"
+    and public_request.headers.Cookie == nil and public_request.headers.Authorization == nil,
+    "public category request attached authentication or changed endpoint")
+responses[#responses + 1] = { body = "rank-books", code = 200 }
+expect(public_client:get_category_books("rising", 20, true).payload == "rank-books",
+    "rank books JSON not decoded")
+public_request = requests[#requests]
+expect(public_request.url == "https://weread.qq.com/web/bookListInCategory/rising?rank=1&maxIndex=20"
+    and public_request.headers.Cookie == nil, "rank cursor or authentication incorrect")
+responses[#responses + 1] = { body = "category-books", code = 200 }
+public_client:get_category_books("100000", 0, false)
+expect(requests[#requests].url:find("rank=0&maxIndex=0", 1, true), "category request used ranking flag")
+local before_invalid = #requests
+expect(not pcall(public_client.get_category_books, public_client, "../../bad", 0), "invalid category path accepted")
+expect(not pcall(public_client.get_category_books, public_client, "rising", -1), "negative cursor accepted")
+expect(not pcall(public_client.get_category_books, public_client, "rising", math.huge), "infinite cursor accepted")
+expect(not pcall(public_client.get_category_books, public_client, "rising", 0.5), "fractional cursor accepted")
+expect(#requests == before_invalid, "invalid category inputs sent HTTP")
 print(("client_spec: %d checks"):format(checks))

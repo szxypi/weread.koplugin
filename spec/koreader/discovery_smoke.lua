@@ -69,12 +69,12 @@ assert(plugin.discovery_state.kind == "similar" and #plugin.discovery_state.book
     and plugin.discovery_state.book_id == response.books[1].bookId and plugin._book_detail_view == nil)
 local session = plugin.discovery_state.session_id
 paint("store-similar")
-plugin.shelf_view._action_buttons[3].callback()
+press(plugin.shelf_view, "Next batch")
 flush_tasks()
 assert(#plugin.discovery_state.books == 5 and not plugin.discovery_state.has_more
     and plugin.discovery_state.cursor == 20 and plugin.discovery_state.session_id == session)
 paint("store-similar-last")
-plugin.shelf_view._action_buttons[3].callback() -- last batch only offers Previous
+press(plugin.shelf_view, "Previous batch")
 flush_tasks()
 assert(#plugin.discovery_state.books == 20 and plugin.discovery_state.cursor == 0
     and #plugin.discovery_state.history == 0 and plugin.discovery_state.session_id == session)
@@ -84,6 +84,38 @@ press(plugin._book_detail_view, "Similar books")
 plugin._book_detail_view:onClose()
 flush_tasks()
 assert(plugin.discovery_state.book_id == response.books[1].bookId and not plugin.discovery_loading)
+-- Public category browsing must also work without a configured login.
+plugin.requireLogin = function() error("public bookstore requested login") end
+press(plugin.shelf_view, "Browse books")
+flush_tasks()
+local picker = assert(plugin._discovery_menu)
+UIManager:forceRePaint()
+Screen:shot(evidence .. "/store-categories.png")
+picker:onMenuSelect(picker.item_table[1]) -- rankings
+picker:onMenuSelect(picker.item_table[1]) -- rising
+flush_tasks()
+assert(plugin.discovery_state.kind == "category" and plugin.discovery_state.rank
+    and plugin.discovery_state.category_id == "rising" and #plugin.discovery_state.books == 20)
+paint("store-rankings")
+press(plugin.shelf_view, "Next batch")
+flush_tasks()
+assert(plugin.discovery_state.cursor == 20 and #plugin.discovery_state.books == 6
+    and not plugin.discovery_state.has_more and plugin.discovery_state.history[1] == 0)
+press(plugin.shelf_view, "Previous batch")
+flush_tasks()
+assert(plugin.discovery_state.cursor == 0 and #plugin.discovery_state.history == 0)
+press(plugin.shelf_view, "Browse books")
+flush_tasks()
+picker = assert(plugin._discovery_menu)
+picker:onMenuSelect(picker.item_table[2]) -- categories
+picker:onMenuSelect(picker.item_table[1]) -- literature
+UIManager:forceRePaint()
+Screen:shot(evidence .. "/store-subcategories.png")
+picker:onMenuSelect(picker.item_table[2]) -- fiction, after All in literature
+flush_tasks()
+assert(plugin.discovery_state.category_id == "100001" and not plugin.discovery_state.rank
+    and #plugin.discovery_state.books == 15 and #plugin.discovery_state.history == 0)
+paint("store-subcategory-books")
 plugin:closeWeReadUI()
 plugin.discovery_state = nil
 -- Screens now render offline; any unexpected request fails the test.
@@ -91,6 +123,7 @@ plugin.isNetworkOnline = function() return false end
 plugin.isNetworkConnected = function() return false end
 plugin.client.gateway = function() error("unexpected network request") end
 plugin.client.get_binary = function() error("unexpected image request") end
+plugin.client.get_text = function() error("unexpected public request") end
 plugin:showHome()
 paint("home-empty")
 local books = response.books
@@ -120,5 +153,5 @@ plugin.shelf_view:onClose()
 assert(plugin.shelf_view == nil, "closing store retained a stale view")
 plugin:onWeReadAccountChanged()
 assert(plugin.discovery_state == nil, "account change retained discovery data")
-print("PASS: real HTTP recommendations/search/similar/shelf/covers, scheduled similar buttons and sessions, plugin init, SQLite, rendering, pagination, close and account cleanup")
+print("PASS: real HTTP recommendations/search/similar/categories/rankings/shelf/covers, native buttons and menus, scheduled requests, SQLite, rendering, pagination, close and account cleanup")
 UIManager:quit()

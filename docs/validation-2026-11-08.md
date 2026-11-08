@@ -57,6 +57,22 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 
 ## 实际截图
 
+排行榜／分类后续验证：
+
+- `scripts/verify_bookstore.py` 在无登录条件下实际请求官方公开 Web 端点，分类树与
+  飙升榜／图书分类前两批均返回 200。仅保留结构统计的原型报告见
+  [bookstore-public-probe.json](validation-assets/2026-11-08/bookstore-public-probe.json)。
+- `.validation/categories-600/`、`categories-landscape/`、`categories-large/`：
+  78 组 Lua 回归、Luacheck 173 文件、7 组 Python 测试通过；三种真实灰度配置均通过。
+- 用原生 Menu 选择榜单、父分类与子分类，用原生书城按钮换批，再走真实事件循环与
+  Client 请求本地 HTTP；公开浏览时若触发登录检查，测试直接失败。
+- 菜单截图与书单使用合成书籍。真实接口原型、合成 HTTP 和真实界面是不同验证层，
+  仍需真实账号下载与 KO2 硬件验收。
+
+![排行榜书单](validation-assets/2026-11-08/rankings.png)
+
+![分类与子分类](validation-assets/2026-11-08/subcategories.png)
+
 后续相似推荐验证使用 `.validation/similar-600-v3/`、`similar-landscape/` 和
 `similar-large/`：真实详情页按钮 → 事件循环 → Client → 本地合成 HTTP，
 再通过书城原生按钮执行下一批、上一批。关闭详情后的排队任务没有发出请求或重开页面。

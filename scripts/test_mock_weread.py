@@ -9,6 +9,7 @@ from urllib.request import ProxyHandler, Request, build_opener
 
 from fetch_weread_epub import decode_content_shards, decode_style_shard, weread_e
 from mock_weread import BOOK_ID, CHAPTERS, MockServer, annotation, chapter_html, shards
+from verify_bookstore import categories as verify_categories, page as verify_page
 
 
 class MockTests(unittest.TestCase):
@@ -110,6 +111,29 @@ class MockTests(unittest.TestCase):
         self.assertEqual(self.gateway("/book/similar", bookId=BOOK_ID, maxIdx=cursor)[0], 400)
         self.assertEqual(self.gateway("/book/similar", bookId="900002", maxIdx=cursor, sessionId=session)[0], 400)
         self.assertEqual(self.gateway("/book/similar", bookId="unknown")[0], 400)
+
+    def test_public_categories_and_rank_pages(self):
+        status, data = self.request("/web/categories?rank=1&synckey=0")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["data"][1]["categories"][0]["sublist"][0]["CategoryId"], "100001")
+        self.assertEqual(verify_categories(data), [("rising", True), ("100000", False), ("100001", False)])
+        with self.assertRaises(ValueError):
+            verify_categories({"data": [{"CategoryId": "../invalid", "title": "Invalid"}]})
+        for cid, rank in (("rising", 1), ("100000", 0)):
+            _, first = self.request(f"/web/bookListInCategory/{cid}?rank={rank}&maxIndex=0")
+            self.assertEqual(len(first["books"]), 20)
+            self.assertTrue(first["hasMore"])
+            self.assertEqual(verify_page(first)[1], 20)
+            cursor = first["books"][-1]["searchIdx"]
+            _, last = self.request(f"/web/bookListInCategory/{cid}?rank={rank}&maxIndex={cursor}")
+            self.assertEqual(len(last["books"]), 6)
+            self.assertFalse(last["hasMore"])
+            self.assertEqual(verify_page(last)[1], 26)
+        _, sub = self.request("/web/bookListInCategory/100001?rank=0&maxIndex=0")
+        self.assertEqual(len(sub["books"]), 15)
+        self.assertFalse(sub["hasMore"])
+        self.assertEqual(self.request("/web/bookListInCategory/unknown?rank=0")[0], 400)
+        self.assertEqual(self.request("/web/bookListInCategory/rising?rank=0")[0], 400)
 
     def test_fault_once_delay_and_recovery(self):
         self.request("/__control", dict(match="/book/info", times=1, status=503, delay=0.02))

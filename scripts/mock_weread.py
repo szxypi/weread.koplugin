@@ -39,6 +39,11 @@ BOOKS = [dict(bookId=str(900001 + i), title=("山谷来信 · 离线测试" if i
               totalChapter=6, type=0, updateTime=1700000000 + i, readUpdateTime=1700000000 + i) for i in range(26)]
 CHAPTERS = [dict(chapterUid=i, chapterIdx=i, title=f"第{i}章 {title}", level=1,
                  wordCount=1800) for i, title in enumerate(TITLES, 1)]
+CATEGORIES = dict(data=[
+    dict(title="榜单", categories=[dict(CategoryId="rising", title="合成飙升榜", type=0)]),
+    dict(title="分类", categories=[dict(CategoryId="100000", title="合成文学", type=0, sublist=[
+        dict(CategoryId="100001", title="合成小说", type=0)])]),
+])
 
 
 def chapter_html(uid):
@@ -179,6 +184,19 @@ class MockServer(ThreadingHTTPServer):
                 return 200, dict(reviews=[] if control["empty_annotations"] else [
                     dict(range=item["range"], metadata=None, pageReviews=[dict(review=review(uid))])
                     for item in data.get("reviews", []) if item["range"] == mark["range"]])
+        if path == "/web/categories" and method == "GET":
+            return 200, CATEGORIES
+        if path.startswith("/web/bookListInCategory/") and method == "GET":
+            cid = path.rsplit("/", 1)[1]
+            if cid not in {"rising", "100000", "100001"}:
+                raise ValueError("unknown category")
+            if query.get("rank", [""])[0] != ("1" if cid == "rising" else "0"):
+                raise ValueError("incorrect ranking flag")
+            start = max(0, int(query.get("maxIndex", ["0"])[0]))
+            candidates = BOOKS[:15] if cid == "100001" else BOOKS
+            batch = candidates[start:start + 20]
+            return 200, dict(books=[dict(bookInfo=b, searchIdx=start + i + 1) for i, b in enumerate(batch)],
+                             hasMore=int(start + len(batch) < len(candidates)))
         if path.startswith("/web/reader/") and method == "GET":
             encoded = path.rsplit("/", 1)[1].split("k")
             book = next(b for b in BOOKS if weread_e(b["bookId"]) == encoded[0])
