@@ -744,10 +744,17 @@ end
 -- Public bookstore contracts verified by scripts/verify_bookstore.py.
 function Client:get_store_categories()
     local url = "https://weread.qq.com/web/categories?rank=1&synckey=0"
-    local text, code, headers = self:get_text(url, {
-        skip_cookie = true, accept = "application/json", referer = "https://weread.qq.com/web/category/all",
-    })
-    return self:decode_http_json(text, { method = "GET", url = url, code = code, headers = headers })
+    local chunks, bytes, exceeded = {}, 0, false
+    local _, code, headers = self:request{url=url,method="GET",skip_cookie=true,persist_response_cookies=false,
+        sensitive=true,diagnostic_api="public_categories",timeout={8,15},
+        headers={Accept="application/json",Referer="https://weread.qq.com/web/category/all"},sink=function(chunk)
+            if not chunk then return 1 end
+            bytes=bytes+#chunk
+            if bytes>4*1024*1024 then exceeded=true;return nil,"category_limit" end
+            chunks[#chunks+1]=chunk;return 1
+        end}
+    if exceeded or code~=200 then error("category_catalog/unavailable",0) end
+    return self:decode_http_json(table.concat(chunks),{sensitive=true,api_name="public_categories",code=code,headers=headers})
 end
 
 function Client:get_category_books(category_id, cursor, rank)

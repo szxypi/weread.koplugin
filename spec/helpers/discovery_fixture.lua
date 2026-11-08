@@ -5,6 +5,11 @@ function M.attach(host, enabled)
         start = function(_self, task, callback) callback(task()); return true end,
         cancel = function() end,
     }
+    host.category_catalog_worker=host.discovery_worker
+    host.category_catalog_store={read=function(self) return self.value end,write=function(self,value) self.value=value;return true end}
+    host.showBusy=host.showBusy or function(self) self.busy_message={} end
+    host.closeBusy=host.closeBusy or function(self) self.busy_message=nil end
+    host.showTransientInfo=host.showTransientInfo or function(self,value) if self.showInfo then self:showInfo(value) end end
     host.settings = host.settings or { get = function(_self, key, default)
         if key == "api_key" and (not enabled or enabled()) then return "synthetic-key" end
         return default

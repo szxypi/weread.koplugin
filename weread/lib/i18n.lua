@@ -1,6 +1,12 @@
 local I18n = {}
 
 local zh = {
+    ["Offline. Showing saved rankings and categories."] = "当前离线，显示已保存的排行榜和分类。",
+    ["No saved categories. Connect to Wi-Fi to load them."] = "尚未保存分类，请连接 Wi-Fi 后加载。",
+    ["Could not refresh rankings and categories. Saved categories are still available."] = "无法刷新排行榜和分类，仍可浏览已保存的分类。",
+    ["Could not load rankings and categories. Please try again later."] = "无法加载排行榜和分类，请稍后重试。",
+    ["Could not save categories for offline use. The current list is still available."] = "无法保存分类供离线使用，当前列表仍可浏览。",
+    ["Loading rankings and categories…\nTap or press a key to cancel."] = "正在加载排行榜和分类…\n轻触或按任意键取消。",
     ["Reading language"] = "阅读语言",
     ["Reading language: %1"] = "阅读语言：%1",
     ["Translation text size"] = "译文字号",
@@ -220,7 +226,6 @@ local zh = {
     ["Cached"] = "缓存",
     ["No recent reading. Refresh or open your bookshelf."] = "暂无最近阅读，请刷新或打开书架。",
     ["Choose For you or search to discover books."] = "点击“为你推荐”或搜索，发现新书。",
-    ["Bookstore request failed:\n%1"] = "书城加载失败：\n%1",
 
     ["Get thoughts (%1 chapters)"] = "获取想法（%1章）",
     ["Continue matching · %1/%2 chapters, %3 underlines"] = "继续匹配 · %1/%2 章，%3 条划线",

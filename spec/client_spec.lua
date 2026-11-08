@@ -390,6 +390,12 @@ local public_request = requests[#requests]
 expect(public_request.url == "https://weread.qq.com/web/categories?rank=1&synckey=0"
     and public_request.headers.Cookie == nil and public_request.headers.Authorization == nil,
     "public category request attached authentication or changed endpoint")
+expect(public_request.redirect==false and timeout_calls[#timeout_calls][2]==15,'public categories changed redirect/timeout bounds')
+responses[#responses+1]={body=string.rep('x',4*1024*1024+1),code=200}
+expect(not pcall(public_client.get_store_categories,public_client),'oversized categories were decoded')
+responses[#responses+1]={body='private response sentinel',code=429}
+local category_ok,category_error=pcall(public_client.get_store_categories,public_client)
+expect(not category_ok and category_error=='category_catalog/unavailable','category error exposed response body')
 responses[#responses + 1] = { body = "rank-books", code = 200 }
 expect(public_client:get_category_books("rising", 20, true).payload == "rank-books",
     "rank books JSON not decoded")

@@ -118,12 +118,15 @@ failure = true
 local cached = plugin.discovery_categories
 plugin:showDiscoveryCategories(true)
 pending()
-expect(plugin.discovery_categories == cached and info and not plugin.discovery_loading,
+expect(plugin.discovery_categories.ranks[1].id == cached.ranks[1].id and info and not plugin.discovery_loading,
     "failed category refresh discarded cached hierarchy")
 plugin.runOnlineTask = function() return false end
 plugin:showDiscoveryCategories(true)
 expect(not plugin.discovery_loading, "offline category load left lock active")
-cached.loaded_at = os.time() - Data.CACHE_TTL - 1
+plugin.discovery_categories.loaded_at = os.time() - Data.CACHE_TTL - 1
 plugin:showDiscoveryCategories()
 expect(shown.title:find("Cached", 1, true) and fetched == 2, "offline cached categories lost or not marked stale")
+plugin.discovery_categories.loaded_at=os.time()+3600
+plugin:showDiscoveryCategories()
+expect(shown.title:find('Cached',1,true),'clock rollback lost public hierarchy or presented it as fresh')
 print("discovery_categories_spec: " .. checks .. " checks")

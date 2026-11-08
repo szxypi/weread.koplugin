@@ -151,6 +151,10 @@ end
 
 function M:showDiscoveryCategoryPicker(data)
     local menu
+    local account,epoch=self.library_db:accountKey(),self.discovery_epoch or 0
+    local function current()
+        return self._discovery_menu==menu and account==self.library_db:accountKey() and epoch==(self.discovery_epoch or 0)
+    end
     local function dismiss()
         if self._discovery_menu == menu then self._discovery_menu = nil end
         if menu then UIManager:close(menu) end
@@ -159,6 +163,7 @@ function M:showDiscoveryCategoryPicker(data)
         local items = {}
         for _i, entry in ipairs(entries) do
             local function browse()
+                if not current() then return end
                 dismiss()
                 self:loadDiscoveryBatch("category", nil, 0, false, false, {
                     category_id = entry.id, category_title = entry.title, rank = entry.rank,
@@ -176,13 +181,16 @@ function M:showDiscoveryCategoryPicker(data)
         if #items == 0 then items[1] = { text = _("No available categories."), select_enabled = false } end
         return items
     end
-    if self._discovery_menu then UIManager:close(self._discovery_menu) end
+    local old_menu=self._discovery_menu;self._discovery_menu=nil
+    if old_menu then UIManager:close(old_menu) end
     local title = _("Rankings and categories")
-    if os.time() - data.loaded_at > Data.CACHE_TTL then title = title .. " · " .. _("Cached") end
+    local age=os.time()-data.loaded_at
+    if age<0 or age>Data.CACHE_TTL then title = title .. " · " .. _("Cached") end
     menu = self:showList(title, {
         { text = _("Book rankings"), sub_item_table = rows(data.ranks) },
         { text = _("Browse categories"), sub_item_table = rows(data.categories) },
         { text = _("Refresh rankings and categories"), callback = function()
+            if not current() then return end
             dismiss()
             self:showDiscoveryCategories(true)
         end },
@@ -197,30 +205,7 @@ function M:showDiscoveryCategoryPicker(data)
 end
 
 function M:showDiscoveryCategories(refresh)
-    if self.discovery_loading then return end
-    if self.discovery_categories and not refresh then
-        self:showDiscoveryCategoryPicker(self.discovery_categories)
-        return
-    end
-    local account, epoch = self.library_db:accountKey(), self.discovery_epoch or 0
-    self.discovery_loading = true
-    local started = self:runOnlineTask(_("Rankings and categories"), function()
-        if account ~= self.library_db:accountKey() or epoch ~= (self.discovery_epoch or 0) then
-            self.discovery_loading = nil
-            return
-        end
-        local ok, result = pcall(function() return Data.categories(self.client:get_store_categories()) end)
-        self.discovery_loading = nil
-        if account ~= self.library_db:accountKey() or epoch ~= (self.discovery_epoch or 0) then return end
-        if not ok then
-            self:showInfo(PluginUtil.T(_("Bookstore request failed:\n%1"), PluginUtil.display_error(result)))
-            return
-        end
-        result.loaded_at = os.time()
-        self.discovery_categories = result
-        self:showDiscoveryCategoryPicker(result)
-    end)
-    if started == false then self.discovery_loading = nil end
+    return require("weread.ui.category_catalog").open(self,refresh)
 end
 
 function M:showBookstore()
@@ -265,6 +250,7 @@ function M:showBookstore()
 end
 
 function M:cancelDiscoveryRequest()
+    require("weread.ui.category_catalog").cancel(self)
     return require("weread.ui.discovery_request").cancel(self)
 end
 

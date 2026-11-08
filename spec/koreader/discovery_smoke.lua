@@ -126,6 +126,7 @@ flush_tasks()
 assert(plugin.discovery_state.category_id == "100001" and not plugin.discovery_state.rank
     and #plugin.discovery_state.books == 15 and #plugin.discovery_state.history == 0)
 paint("store-subcategory-books")
+dofile(debug.getinfo(1,"S").source:match("^@(.*/)").."category_catalog_smoke.lua")(plugin,evidence)
 plugin:closeWeReadUI()
 plugin.discovery_state = nil
 -- Real subprocess, actual account-scoped SQLite and local-over-cloud display.
