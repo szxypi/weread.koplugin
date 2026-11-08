@@ -23,6 +23,11 @@ Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
 Source: https://github.com/miumiupy98-art/miuread-koreader
 The home/shelf/store navigation is adapted to the original WeRead services.
 
+The monthly grayscale reading-calendar organization in
+weread/ui/read_stats_view.lua is adapted from MiuRead's
+miuread/reading_stats_dialog.lua. Copyright (C) 2026 MiuRead contributors.
+AGPL-3.0-only; source repository as above.
+
 Native authorization protocol prototype:
 - scripts/verify_eink_login.py adapts the request flow from MiuRead's
   miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references

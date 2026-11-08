@@ -38,6 +38,12 @@ jobs:
       - name: Lua unit and component specs
         run: bash scripts/run_lua_specs.sh
 
+      - name: Reading calendar time zones
+        run: |
+          for zone in UTC Asia/Shanghai America/New_York Pacific/Apia; do
+            TZ="$zone" luajit spec/profile_data_spec.lua
+          done
+
       - name: Python syntax check
         run: |
           if [ -d scripts ]; then

@@ -1260,6 +1260,10 @@ end
 
 local M = {}
 
+function M.navigation(entries, parent)
+    return LibraryView.actionBar(parent, entries, true)
+end
+
 -- Measure before fetching covers, so the worker and the visible grid agree.
 function M.getLayout(cover_mode, count, mode, extra_height)
     local width, height = Screen:getWidth(), Screen:getHeight()

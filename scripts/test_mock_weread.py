@@ -135,6 +135,17 @@ class MockTests(unittest.TestCase):
         self.assertEqual(self.request("/web/bookListInCategory/unknown?rank=0")[0], 400)
         self.assertEqual(self.request("/web/bookListInCategory/rising?rank=0")[0], 400)
 
+    def test_reading_statistics_natural_periods(self):
+        for mode in ("weekly", "monthly", "annually", "overall"):
+            status, data = self.gateway("/readdata/detail", mode=mode)
+            self.assertEqual(status, 200)
+            self.assertEqual(sum(data["readTimes"].values()), data["totalReadTime"])
+            self.assertEqual(sum(data["dailyReadTimes"].values()), data["totalReadTime"])
+            self.assertTrue(all((int(stamp) + 28800) % 86400 == 0 for stamp in data["readTimes"]))
+        _, historical = self.gateway("/readdata/detail", mode="monthly", baseTime=1706716800)
+        self.assertEqual(len(historical["readTimes"]), 29)  # February 2024, leap year
+        self.assertEqual(self.gateway("/readdata/detail", mode="invalid")[0], 400)
+
     def test_fault_once_delay_and_recovery(self):
         self.request("/__control", dict(match="/book/info", times=1, status=503, delay=0.02))
         start = time.monotonic()

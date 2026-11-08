@@ -44,6 +44,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local Screen = Device.screen
 local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
+local Stats = require("weread.lib.read_stats")
 local T = require("ffi/util").template
 
 local function _(text)
@@ -72,6 +73,7 @@ local TABS = {
 
 local function format_duration(seconds)
     seconds = tonumber(seconds) or 0
+    if seconds <= 0 then return _("0 min") end
     if seconds < 60 then
         return _("< 1 min")
     end
@@ -438,6 +440,11 @@ function ReadStatsView:buildContent()
         end
         table.insert(page, card)
     end
+    if self.data.profile then
+        add(self:buildProfileCard())
+        add(self:buildCalendarCard())
+        return page
+    end
     add(self:buildOverviewCard())
     add(self:buildChartCard())
     add(self:buildRankCard())
@@ -446,6 +453,109 @@ function ReadStatsView:buildContent()
         add(self:buildEmptyCard())
     end
     return page
+end
+
+function ReadStatsView:buildProfileCard()
+    local d = self.data
+    local content = VerticalGroup:new{ align = "left", self:widthPin(), self:cardTitle(d.account_name) }
+    if d.has_data then
+        table.insert(content, self:kvLine(_("Reading today"), format_duration(d.today_seconds)))
+        table.insert(content, self:kvLine(_("Reading this month"), format_duration(d.month_seconds)))
+        local streak = T(_("%1 consecutive days"), d.streak)
+        if d.streak_lower_bound then streak = T(_("At least %1 consecutive days"), d.streak) end
+        table.insert(content, TextBoxWidget:new{ text = streak, face = self.fonts.body, width = self.content_width })
+        table.insert(content, self:kvLine(_("Days read this month"), tostring(d.month_read_days)))
+        table.insert(content, VerticalSpan:new{ width = Size.padding.default })
+        table.insert(content, self:proportionBar(_("Daily goal (this plugin)"),
+            T(_("%1 / %2 min"), math.floor(d.today_seconds / 60), d.goal_minutes),
+            d.today_seconds / (d.goal_minutes * 60)))
+    else
+        table.insert(content, TextBoxWidget:new{
+            text = _("Refresh to load your WeRead reading statistics."), face = self.fonts.body, width = self.content_width,
+        })
+        table.insert(content, self:kvLine(_("Daily goal (this plugin)"), T(_("%1 min"), d.goal_minutes)))
+    end
+    if d.fetched_at then
+        local label = T(_("Cloud statistics · %1 (Beijing time)"), Stats.cst_fmt("%m-%d %H:%M", d.fetched_at))
+        if d.cached then label = label .. " · " .. _("Cached") end
+        table.insert(content, VerticalSpan:new{ width = Size.padding.small })
+        table.insert(content, TextBoxWidget:new{ text = label, face = self.fonts.small, width = self.content_width })
+    end
+    return self:makeCard(content)
+end
+
+-- Monthly grayscale activity grid, adapted from MiuRead's calendar organization.
+-- AGPL-3.0-only; see NOTICE. Data is already aligned to Beijing calendar days.
+function ReadStatsView:buildCalendarCard()
+    local d = self.data
+    local content = VerticalGroup:new{ align = "left", self:widthPin(),
+        self:cardTitle(T(_("Reading calendar · %1"), d.period_label)) }
+    local cell_width = math.floor(self.content_width / 7)
+    local cell_height = Screen:scaleBySize(32)
+    local weekdays = { "Mon short", "Tue short", "Wed short", "Thu short", "Fri short", "Sat short", "Sun short" }
+    local header = HorizontalGroup:new{}
+    for _i, key in ipairs(weekdays) do
+        table.insert(header, CenterContainer:new{
+            dimen = Geom:new{ w = cell_width, h = cell_height },
+            TextWidget:new{ text = _(key), face = self.fonts.small },
+        })
+    end
+    table.insert(content, header)
+    local count = math.ceil((d.first_weekday - 1 + #d.days) / 7) * 7
+    self._calendar_cells = {}
+    local row
+    for index = 1, count do
+        if (index - 1) % 7 == 0 then row = HorizontalGroup:new{} table.insert(content, row) end
+        local day = d.days[index - d.first_weekday + 1]
+        local seconds = day and day.known and day.seconds or 0
+        local dark = seconds >= 15 * 60
+        local background = seconds >= 45 * 60 and Blitbuffer.COLOR_BLACK
+            or seconds >= 15 * 60 and Blitbuffer.COLOR_DARK_GRAY
+            or seconds > 0 and Blitbuffer.COLOR_LIGHT_GRAY or Blitbuffer.COLOR_WHITE
+        local label = day and tostring(day.day) or ""
+        if day and not day.known and not day.future then label = label .. "?" end
+        local cell = FrameContainer:new{
+            margin = 0, padding = 0, radius = 0,
+            bordersize = day and day.today and Size.border.thick or Size.border.thin,
+            background = background,
+            CenterContainer:new{
+                dimen = Geom:new{ w = math.max(1, cell_width - 2 * Size.border.thick),
+                    h = math.max(1, cell_height - 2 * Size.border.thick) },
+                TextWidget:new{ text = label, face = self.fonts.small,
+                    fgcolor = dark and Blitbuffer.COLOR_WHITE or (day and day.future and Blitbuffer.COLOR_GRAY or Blitbuffer.COLOR_BLACK) },
+            },
+        }
+        -- Fixed boxes prevent thick today borders from changing row geometry.
+        table.insert(row, CenterContainer:new{ dimen = Geom:new{ w = cell_width, h = cell_height }, cell })
+        self._calendar_cells[#self._calendar_cells + 1] = cell
+    end
+    table.insert(content, VerticalSpan:new{ width = Size.padding.small })
+    table.insert(content, TextBoxWidget:new{
+        text = _("Shading: <15 / 15–44 / ≥45 min · ? no data · Beijing time"),
+        face = self.fonts.small, width = self.content_width,
+    })
+    return self:makeCard(content)
+end
+
+function ReadStatsView:buildProfileActions()
+    self._profile_buttons = {}
+    local actions = {
+        { text = _("Reading goal"), callback = self.on_goal },
+        { text = _("Detailed statistics"), callback = self.on_statistics },
+        { text = _("Refresh"), callback = self.on_refresh },
+    }
+    local group, width = HorizontalGroup:new{}, math.floor(self.screen_w / #actions)
+    for index, action in ipairs(actions) do
+        local button = Button:new{
+            text = action.text, width = index == #actions and self.screen_w - width * (index - 1) or width,
+            height = Screen:scaleBySize(54), radius = 0, margin = 0, bordersize = 0,
+            text_font_size = 18, avoid_text_truncation = false, show_parent = self,
+            callback = function() if action.callback then UIManager:nextTick(action.callback) end end,
+        }
+        table.insert(group, button)
+        self._profile_buttons[#self._profile_buttons + 1] = button
+    end
+    return group
 end
 
 function ReadStatsView:buildTabBar()
@@ -539,7 +649,7 @@ function ReadStatsView:init()
         and T("%1 · %2", mode_title, d.period_label) or mode_title
     self.title_bar = TitleBar:new{
         width = self.screen_w,
-        title = title,
+        title = d.profile and _("My WeRead") or title,
         title_multilines = true,
         align = "center",
         with_bottom_line = true,
@@ -547,11 +657,13 @@ function ReadStatsView:init()
         show_parent = self,
     }
 
-    local tab_bar = self:buildTabBar()
-    local nav_row = self:buildNavRow()
+    local tab_bar = d.profile and self:buildProfileActions() or self:buildTabBar()
+    local nav_row
+    if d.profile then nav_row = require("weread.ui.library_view").navigation(d.navigation, self)
+    else nav_row = self:buildNavRow() end
 
-    local rows = { self._tab_buttons }
-    if nav_row then rows[#rows + 1] = self._nav_buttons end
+    local rows = { d.profile and self._profile_buttons or self._tab_buttons }
+    if nav_row then rows[#rows + 1] = d.profile and self._navigation_buttons or self._nav_buttons end
     FocusNav.apply(self, rows)
     FocusNav.initialFocus(self, 1, 1)
 
@@ -595,6 +707,7 @@ function ReadStatsView:onShow()
 end
 
 function ReadStatsView:onCloseWidget()
+    if self.on_close then self.on_close() end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
@@ -637,6 +750,10 @@ function M.show(data, callbacks)
         on_prev = callbacks.on_prev,
         on_next = callbacks.on_next,
         on_switch = callbacks.on_switch,
+        on_close = callbacks.on_close,
+        on_refresh = callbacks.on_refresh,
+        on_goal = callbacks.on_goal,
+        on_statistics = callbacks.on_statistics,
     }
     UIManager:show(view)
     return view

@@ -247,18 +247,39 @@ end
 -- old_view, when provided, is closed once the new data is ready (tab switch or
 -- period navigation).
 function M:loadReadStats(mode, base_time, old_view)
+    old_view = old_view or self._read_stats_view
+    self._stats_generation = (self._stats_generation or 0) + 1
+    local generation, epoch = self._stats_generation, self.discovery_epoch or 0
+    local account = self.library_db and self.library_db:accountKey()
+    local function current()
+        return generation == self._stats_generation and epoch == (self.discovery_epoch or 0)
+            and (not self.library_db or self.library_db:accountKey() == account)
+    end
     self:showBusy(_("Loading reading statistics..."))
-    self:runOnlineTask(_("Reading statistics"), function()
+    self._stats_busy_generation = generation
+    local function done()
+        if self._stats_busy_generation == generation then
+            self._stats_busy_generation = nil
+            self:closeBusy()
+        end
+    end
+    local started = self:runOnlineTask(_("Reading statistics"), function()
+        if not current() then
+            done()
+            return
+        end
         local ok, data = pcall(function()
             return ReadStats.fetch(self.client, mode, base_time)
         end)
-        self:closeBusy()
+        done()
+        if not current() then return end
         if not ok then
             logger.err("load reading statistics failed:", log_error(data))
             self:showInfo(T(_("%1 failed:\n%2"), _("Reading statistics"), display_error(data)))
             return
         end
         if old_view then
+            self._read_stats_view = nil
             UIManager:close(old_view)
         end
         local view
@@ -272,8 +293,21 @@ function M:loadReadStats(mode, base_time, old_view)
             on_switch = function(new_mode)
                 self:loadReadStats(new_mode, nil, view)
             end,
+            on_close = function()
+                if self._read_stats_view == view then
+                    self._read_stats_view = nil
+                    self._stats_generation = (self._stats_generation or 0) + 1
+                    if self._stats_busy_generation then
+                        self._stats_busy_generation = nil
+                        self:closeBusy()
+                    end
+                    if self._profile_view and self.showProfile then self:showProfile() end
+                end
+            end,
         })
+        self._read_stats_view = view
     end)
+    if started == false then done() end
 end
 
 return M

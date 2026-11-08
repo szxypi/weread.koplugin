@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import argparse
 import base64
+import calendar
 from collections import deque
 import hashlib
+from datetime import datetime, timedelta, timezone
 import ipaddress
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
@@ -44,6 +46,41 @@ CATEGORIES = dict(data=[
     dict(title="分类", categories=[dict(CategoryId="100000", title="合成文学", type=0, sublist=[
         dict(CategoryId="100001", title="合成小说", type=0)])]),
 ])
+
+
+def reading_statistics(mode, base_time=0):
+    """Synthetic natural periods, using the API's fixed Beijing timezone."""
+    zone = timezone(timedelta(hours=8))
+    now = datetime.now(zone)
+    seed = datetime.fromtimestamp(base_time, zone) if base_time else now
+    day = seed.replace(hour=0, minute=0, second=0, microsecond=0)
+    if mode == "monthly":
+        start = day.replace(day=1)
+        count = calendar.monthrange(start.year, start.month)[1]
+    elif mode == "weekly":
+        start, count = day - timedelta(days=day.weekday()), 7
+    elif mode == "annually":
+        start = day.replace(month=1, day=1)
+        count = 366 if calendar.isleap(start.year) else 365
+    elif mode == "overall":
+        start = day.replace(year=now.year - 2, month=1, day=1)
+        count = (day - start).days + 1
+    else:
+        raise ValueError("invalid statistics mode")
+    daily, buckets = {}, {}
+    for index in range(count):
+        date = start + timedelta(days=index)
+        if date.date() > now.date():
+            break
+        seconds = 0 if date.day % 7 == 0 else 300 + (date.day % 4) * 900
+        daily[str(int(date.timestamp()))] = seconds
+        bucket = date.replace(day=1) if mode == "annually" else date.replace(month=1, day=1) if mode == "overall" else date
+        key = str(int(bucket.timestamp()))
+        buckets[key] = buckets.get(key, 0) + seconds
+    total = sum(daily.values())
+    return dict(baseTime=0 if mode == "overall" else int(start.timestamp()), readTimes=buckets, dailyReadTimes=daily,
+                totalReadTime=total, readDays=sum(value > 0 for value in daily.values()),
+                dayAverageReadTime=total // max(1, len(daily)), readLongest=[dict(book=BOOKS[0], readTime=total)])
 
 
 def chapter_html(uid):
@@ -137,6 +174,8 @@ class MockServer(ThreadingHTTPServer):
 
         book_id = str(data.get("bookId") or query.get("bookId", [BOOK_ID])[0])
         if path == "/api/agent/gateway" and method == "POST":
+            if api == "/readdata/detail":
+                return 200, reading_statistics(data.get("mode", "monthly"), int(data.get("baseTime", 0)))
             if api in {"/book/info", "/book/getprogress", "/review/list", "/book/underlines", "/book/readreviews", "/book/similar"}:
                 if "bookId" not in data or not any(b["bookId"] == book_id for b in BOOKS):
                     raise ValueError("missing or unknown bookId")

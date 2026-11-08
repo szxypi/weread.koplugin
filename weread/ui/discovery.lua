@@ -19,6 +19,8 @@ function M:discoveryNavigation(active)
             callback = switch(function() self:showBookshelf() end) },
         { text = _("Bookstore"), active = active == "store",
             callback = switch(function() self:showBookstore() end) },
+        { text = _("My WeRead"), active = active == "profile",
+            callback = switch(function() self:showProfile() end) },
     }
 end
 
@@ -90,6 +92,7 @@ function M:recordRecentReading(book_id)
 end
 
 function M:showHome(refresh_progress)
+    if self._profile_view then self:closeWeReadUI() end
     local cached = self.library_db and self.library_db:getShelf() or {}
     local archives = self.library_db and self.library_db:getShelfArchives() or {}
     self:applyShelfSnapshot(cached or {}, archives)
@@ -212,6 +215,7 @@ function M:showDiscoveryCategories(refresh)
 end
 
 function M:showBookstore()
+    if self._profile_view then self:closeWeReadUI() end
     local state = self.discovery_state
     if state and state.account ~= self.library_db:accountKey() then
         self.discovery_state = nil

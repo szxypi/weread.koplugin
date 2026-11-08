@@ -69,6 +69,7 @@ local function list_items_per_page()
 end
 
 function M:showBookshelf()
+    if self._profile_view then self:closeWeReadUI() end
     local cached = self.library_db and self.library_db:getShelf() or nil
     local archives = self.library_db and self.library_db:getShelfArchives() or nil
     if cached and (#cached > 0 or archives ~= nil) then
@@ -99,13 +100,21 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self._stats_busy_generation then
+        self._stats_busy_generation = nil
+        self:closeBusy()
+    end
     if self.cancelShelfProgress then self:cancelShelfProgress() end
+    if self.cancelProfileRefresh then self:cancelProfileRefresh() end
     self.discovery_epoch = (self.discovery_epoch or 0) + 1
     -- Close from the topmost view down so no full-screen WeRead widget remains
     -- in UIManager's window stack after a document is opened.
     local seen = {}
     for _, field in ipairs({
         "_discovery_menu",
+        "_profile_goal_dialog",
+        "_read_stats_view",
+        "_profile_view",
         "_chapter_list_view",
         "_book_detail_view",
         "shelf_view",

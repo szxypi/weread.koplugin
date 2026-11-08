@@ -20,23 +20,26 @@ M.MODES = { "weekly", "monthly", "annually", "overall" }
 local DAY_SECONDS = 86400
 local CST_OFFSET = 8 * 3600 -- Beijing time, east of UTC
 
--- Device offset east of UTC, in seconds (e.g. a CST device returns 28800).
-local function utc_offset()
-    local now = os.time()
-    return os.difftime(now, os.time(os.date("!*t", now)))
-end
-
 -- Broken-down Beijing-time components for a timestamp (isdst = false).
 local function cst_date(ts)
     return os.date("!*t", ts + CST_OFFSET)
 end
 
--- Inverse of cst_date: real Unix timestamp for a Beijing-time components table.
--- os.time() treats the table as device-local, so we undo the device offset and
--- then shift by the fixed CST offset.
+-- Gregorian civil date -> UTC days, independent of the device's current or
+-- historical DST offset. Normalize month/day overflow for period navigation.
 local function cst_time(t)
-    return os.time(t) + utc_offset() - CST_OFFSET
+    local year = t.year + math.floor((t.month - 1) / 12)
+    local month = (t.month - 1) % 12 + 1
+    year = year - (month <= 2 and 1 or 0)
+    local era = math.floor(year / 400)
+    local yoe = year - era * 400
+    local shifted_month = month + (month > 2 and -3 or 9)
+    local doy = math.floor((153 * shifted_month + 2) / 5)
+    local days = era * 146097 + yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy - 719468
+    return (days + t.day - 1) * DAY_SECONDS + (t.hour or 0) * 3600
+        + (t.min or 0) * 60 + (t.sec or 0) - CST_OFFSET
 end
+M.cst_time = cst_time
 
 -- strftime against Beijing wall-clock time.
 local function cst_fmt(fmt, ts)
@@ -233,6 +236,9 @@ end
 function M.fetch(client, mode, base_time)
     mode = mode or "monthly"
     local raw = client:get_read_stats(mode, base_time)
+    assert(type(raw) == "table" and type(raw.readTimes) == "table", "Missing reading statistics")
+    local code = raw.errcode or raw.errCode
+    assert(not code or tonumber(code) == 0, "Reading statistics rejected")
     local data = M.normalize(raw, mode)
 
     if mode == "overall" then

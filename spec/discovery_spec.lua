@@ -118,7 +118,7 @@ plugin.fetchVisibleShelfCovers = function(_self, _view, _books, options) fetched
 plugin.openBookForReading = function(_self, book) opened = book end
 plugin.closeWeReadUI = function(self) self.shelf_view = nil self.discovery_epoch = self.discovery_epoch + 1 end
 plugin:showDiscoveryPage("home", { { bookId = "a" } }, { title = "Home" })
-expect(shown.data.portal and #shown.data.navigation == 3, "home navigation missing")
+expect(shown.data.portal and #shown.data.navigation == 4, "home navigation missing")
 shown.callbacks.on_select({ bookId = "a", _cached = true })
 expect(opened and opened.cached_chapters, "offline continue did not use saved chapter cache")
 fetched.on_redraw(1)

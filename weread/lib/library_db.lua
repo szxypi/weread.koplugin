@@ -118,6 +118,12 @@ function LibraryDB:open()
                 payload TEXT NOT NULL
             ) WITHOUT ROWID
         ]])
+        db:exec([[
+            CREATE TABLE IF NOT EXISTS profile_state (
+                name TEXT PRIMARY KEY,
+                payload TEXT NOT NULL
+            ) WITHOUT ROWID
+        ]])
     end)
     if not schema_ok then
         logger.warn("library_db schema init failed:", schema_err)
@@ -218,6 +224,38 @@ function LibraryDB:getShelf()
     close_statement(stmt)
     pcall(function() db:close() end)
     return ok and books or nil
+end
+
+function LibraryDB:getProfileState(name)
+    local db = self:open()
+    if not db then return nil end
+    local stmt, result
+    local ok = pcall(function()
+        stmt = db:prepare("SELECT payload FROM profile_state WHERE name=?")
+        local row = stmt:reset():bind(name):step()
+        result = row and decode(row[1])
+    end)
+    close_statement(stmt)
+    pcall(function() db:close() end)
+    return ok and result or nil
+end
+
+function LibraryDB:putProfileState(name, value)
+    local payload = encode(value)
+    if not payload then return false end
+    local db = self:open()
+    if not db then return false end
+    local stmt
+    local ok = pcall(function()
+        stmt = db:prepare([[
+            INSERT INTO profile_state (name, payload) VALUES (?, ?)
+            ON CONFLICT(name) DO UPDATE SET payload=excluded.payload
+        ]])
+        stmt:reset():bind(name, payload):step()
+    end)
+    close_statement(stmt)
+    pcall(function() db:close() end)
+    return ok
 end
 
 function LibraryDB:getShelfProgress(ids)

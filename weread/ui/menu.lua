@@ -137,6 +137,10 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _("My WeRead"),
+            callback = self:safeCallback(_("My WeRead"), function() self:showProfile() end),
+        },
+        {
             text = _("Search"),
             keep_menu_open = true,
             callback = self:safeCallback(_("Search"), function()

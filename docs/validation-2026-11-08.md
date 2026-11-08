@@ -57,6 +57,25 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 
 ## 实际截图
 
+“我的”与阅读目标后续验证：
+
+- 82 组 Lua 回归、Luacheck 181 文件零警告、命名空间与 Python 编译通过。
+  8 组 HTTP 服务测试和 5 组 E-Ink 原型离线测试通过。
+- 日期／连续阅读测试分别在 `UTC`、`Asia/Shanghai`、`America/New_York`、`Pacific/Apia`
+  下执行并纳入 CI。旧算法在 Apia 的历史日期复现 86400 秒偏差；新算法正确定位自然月首日。
+- `.validation/profile-600/`、`profile-landscape/`、`profile-final-ko2/` 和
+  `profile-final-small/`：600×800、800×600、1264×1680/300 DPI、320×480 真实灰度界面通过。
+- 使用真实后台进程与 HTTP 读取统计，原生输入框把每日目标从 30 改为 45 分钟并回读 SQLite；
+  “详细统计”切换周／月并返回“我的”；离线重开保留目标和统计，另一个账号看不到原缓存。
+- 并发工作文件回归将两套 worker 的随机种子、时间与请求序号设为相同，验证各自结果独立回收。
+  `.validation/profile-final-verified-ko2/` 为加入此修正后的候选包完整运行验证。
+- 首次离线无数据、四项底部导航、月历、目标及统计窗口清理均覆盖。统计服务数据为合成数据，
+  不代表生产账号返回、阅读时长上报和真机交互已验收。
+
+![我的：阅读统计与月历](validation-assets/2026-11-08/profile.png)
+
+![首次离线：未知日期标记](validation-assets/2026-11-08/profile-empty.png)
+
 当前可见书籍进度验证：
 
 - 79 组 Lua 回归、Luacheck 176 文件零警告、命名空间、Python 编译通过。

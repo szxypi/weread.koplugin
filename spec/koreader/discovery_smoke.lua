@@ -182,6 +182,68 @@ local original_account = plugin.settings:get("account")
 plugin.settings:set("account", { user_vid = "90009999" })
 assert(next(plugin.library_db:getShelfProgress({ seed_id })) == nil, "snapshot leaked across accounts")
 plugin.settings:set("account", original_account)
+-- My page uses real gateway stats, background workers, native goal input and SQLite.
+local function paint_profile(name)
+    UIManager:forceRePaint()
+    Screen:shot(evidence .. "/" .. name .. ".png")
+    assert(plugin._profile_view[1]:getSize().h == Screen:getHeight(), "profile height exceeds screen")
+    assert(plugin._profile_view[1]:getSize().w <= Screen:getWidth(), "profile width exceeds screen")
+end
+plugin.isNetworkOnline = function() return false end
+plugin:showProfile()
+assert(not plugin._profile_view.data.has_data and not plugin.profile_request, "empty offline profile invented data")
+paint_profile("profile-empty")
+plugin:closeWeReadUI()
+plugin.isNetworkOnline = function() return true end
+plugin:showProfile()
+for _i = 1, 200 do
+    flush_tasks()
+    if not plugin.profile_request then break end
+    require("ffi/util").usleep(50000)
+end
+assert(plugin._profile_view.data.has_data and not plugin.profile_request, "profile stats worker failed")
+assert(#plugin._profile_view._navigation_buttons == 4 and #plugin._profile_view._calendar_cells >= 28,
+    "profile navigation/calendar missing")
+paint_profile("profile")
+plugin._profile_view._profile_buttons[1].callback()
+flush_tasks()
+local goal_dialog = assert(plugin._profile_goal_dialog)
+goal_dialog:setInputText("45")
+goal_dialog.buttons[1][2].callback()
+assert(plugin.library_db:getProfileState("goal").minutes == 45
+    and plugin._profile_view.data.goal_minutes == 45 and plugin._profile_goal_dialog == nil,
+    "native goal input did not persist")
+paint_profile("profile-goal")
+plugin._profile_view._profile_buttons[2].callback()
+flush_tasks()
+assert(plugin._read_stats_view and plugin._read_stats_view.data.mode == "monthly", "detailed statistics did not open")
+plugin._read_stats_view._tab_buttons[1].callback()
+flush_tasks()
+assert(plugin._read_stats_view.data.mode == "weekly", "statistics tab did not switch")
+plugin._read_stats_view:onClose()
+assert(plugin._read_stats_view == nil and plugin._profile_view, "statistics close lost the My page")
+plugin._profile_view._profile_buttons[1].callback()
+flush_tasks()
+assert(plugin._profile_goal_dialog, "goal dialog did not reopen")
+plugin:onWeReadAccountChanged()
+assert(plugin._profile_goal_dialog == nil and plugin._profile_view == nil, "account cleanup retained profile input/window")
+plugin.settings:set("account", { user_vid = "90009999" })
+assert(plugin.library_db:getProfileState("statistics") == nil and plugin.library_db:getProfileState("goal") == nil,
+    "profile cache/goal crossed accounts")
+plugin.settings:set("account", original_account)
+plugin.isNetworkOnline = function() return false end
+plugin:showProfile()
+assert(plugin._profile_view.data.has_data and plugin._profile_view.data.goal_minutes == 45 and not plugin.profile_request,
+    "offline profile failed to reopen cached data")
+paint_profile("profile-offline")
+plugin._profile_view:onClose()
+assert(plugin._profile_view == nil, "closing profile retained native window")
+plugin.isNetworkOnline = function() return true end
+plugin:loadReadStats("monthly")
+assert(plugin.busy_message and plugin._stats_busy_generation, "statistics request did not show its loading indicator")
+plugin:closeWeReadUI()
+flush_tasks()
+assert(plugin.busy_message == nil and plugin._read_stats_view == nil, "cancelled statistics retained a spinner or reopened")
 plugin.fetchVisibleShelfCovers = fetch_covers
 plugin.library_db:cacheShelf({}, {})
 shelf_settings = plugin.settings:get("shelf")
@@ -225,5 +287,5 @@ plugin.shelf_view:onClose()
 assert(plugin.shelf_view == nil, "closing store retained a stale view")
 plugin:onWeReadAccountChanged()
 assert(plugin.discovery_state == nil, "account change retained discovery data")
-print("PASS: real HTTP discovery/shelf/progress/covers; native menus, subprocess progress cache, local position protection, account SQLite isolation, rendering and cleanup")
+print("PASS: HTTP discovery/shelf/progress/statistics; native menus, My calendar/goal/details/offline cache, subprocesses, account SQLite isolation and cleanup")
 UIManager:quit()
