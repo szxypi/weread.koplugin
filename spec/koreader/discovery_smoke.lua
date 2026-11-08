@@ -264,6 +264,98 @@ plugin.library_db:cacheShelf(books, response.archive)
 plugin:showHome()
 assert(plugin.shelf_view.books[1]._shelf_progress == 83, "home lost account-bound pending progress")
 paint("home-recent")
+assert(plugin.shelf_view.settings_button and plugin._home_status_task, "home controls/status timer missing")
+plugin:onSuspend()
+assert(plugin._home_status_task == nil, "suspend retained the status timer")
+plugin:onResume()
+assert(plugin._home_status_task, "resume did not restore home status")
+local function item(menu, key)
+    local label = require("weread.lib.plugin_util").tr(key)
+    for _, entry in ipairs(menu.item_table) do
+        if type(entry.text) == "string" and entry.text:find(label, 1, true) then return entry end
+    end
+    error("missing home setting: " .. key)
+end
+plugin.shelf_view.settings_button.callback()
+flush_tasks()
+local quick = assert(plugin._home_controls_menu)
+UIManager:forceRePaint()
+Screen:shot(evidence .. "/home-quick-settings.png")
+local behind = plugin.shelf_view
+behind.on_page_changed(behind.page)
+assert(plugin.shelf_view == behind and plugin._home_pending_redraw, "redraw covered home settings")
+quick:onCloseAllMenus()
+assert(plugin._home_controls_menu == nil and plugin._home_pending_redraw == nil and plugin.shelf_view ~= behind,
+    "settings close did not apply deferred redraw")
+plugin.shelf_view.settings_button.callback()
+flush_tasks()
+quick = plugin._home_controls_menu
+quick:onMenuSelect(item(quick, "Home layout"))
+local editor = assert(plugin._home_controls_menu)
+editor:onMenuSelect(item(editor, "Home book display"))
+editor:onMenuSelect(item(editor, "List view"))
+assert(plugin.settings:get("home").view_mode == "list" and not plugin.shelf_view.cover_mode, "home list setting did not apply")
+plugin._home_controls_menu:onCloseAllMenus()
+paint("home-list-layout")
+for _i = 1, 3 do
+    plugin:showHomeLayoutSettings()
+    editor = plugin._home_controls_menu
+    editor:onMenuSelect(item(editor, "Home section order"))
+    editor:onMenuSelect(item(editor, "Recently read"))
+    editor:onMenuSelect(item(editor, "Move up"))
+end
+assert(plugin.settings:get("home").sections[1] == "recent", "recent module did not move to the top")
+plugin._home_controls_menu:onCloseAllMenus()
+paint("home-reordered-layout")
+assert(plugin.shelf_view._home_status_frame.dimen.y >= plugin.shelf_view.scroll.dimen.y + plugin.shelf_view.scroll.dimen.h,
+    "module order did not change rendered placement")
+plugin:showHomeLayoutSettings()
+editor = plugin._home_controls_menu
+editor:onMenuSelect(item(editor, "Clock and device status"))
+editor = plugin._home_controls_menu
+editor:onMenuSelect(item(editor, "Reading overview"))
+editor = plugin._home_controls_menu
+editor:onMenuSelect(item(editor, "Home shortcuts"))
+assert(not plugin.shelf_view._home_status_label and not plugin._home_status_task, "hidden home widgets retained status polling")
+editor = plugin._home_controls_menu
+editor:onMenuSelect(item(editor, "Recent reading count"))
+editor:onMenuSelect(item(editor, "6"))
+assert(#plugin.shelf_view.books == 6, "configured recent reading count ignored")
+plugin._home_controls_menu:onCloseAllMenus()
+paint("home-minimal-layout")
+plugin:showHomeLayoutSettings()
+editor = plugin._home_controls_menu
+editor:onMenuSelect(item(editor, "Restore default home layout"))
+plugin._home_controls_menu:onCloseAllMenus()
+assert(plugin.shelf_view.cover_mode and plugin._home_status_task and #plugin.shelf_view.books == 12,
+    "restoring home defaults failed")
+plugin:showHomeLayoutSettings()
+editor = plugin._home_controls_menu
+editor:onMenuSelect(item(editor, "Recent reading count"))
+editor:onMenuSelect(item(editor, "24"))
+plugin._home_controls_menu:onCloseAllMenus()
+if Device:hasKeys() then
+    local event = require("ui/event")
+    assert(plugin.shelf_view.page_count > 1, "24-book home fixture must paginate")
+    plugin.shelf_view:handleEvent(event:new("NextPage"))
+    assert(plugin.shelf_view.page == 2, "native next-page event did not advance home")
+    plugin.shelf_view:handleEvent(event:new("PrevPage"))
+    assert(plugin.shelf_view.page == 1, "native previous-page event did not return home")
+end
+plugin:showHomeLayoutSettings()
+editor = plugin._home_controls_menu
+editor:onMenuSelect(item(editor, "Restore default home layout"))
+plugin._home_controls_menu:onCloseAllMenus()
+if Device:hasFrontlight() then
+    plugin:showHomeQuickSettings()
+    quick = plugin._home_controls_menu
+    quick:onMenuSelect(item(quick, "Frontlight"))
+    local light_dialog = UIManager._window_stack[#UIManager._window_stack].widget
+    assert(light_dialog.name == "FrontLightWidget", "frontlight entry did not use KOReader's control")
+    UIManager:forceRePaint()
+    Screen:shot(evidence .. "/home-native-frontlight.png")
+    light_dialog:onClose()
+end
 plugin.shelf_view.on_page_changed(2)
 paint("home-page-two")
 plugin:closeWeReadUI()

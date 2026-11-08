@@ -103,7 +103,7 @@ function M.categories(data)
 end
 
 -- Sort a copy: the cloud shelf's ordering and group membership must not change.
-function M.recent(books, saved, account)
+function M.recent(books, saved, account, limit)
     local result = {}
     for _, book in ipairs(books or {}) do
         local local_book = (saved or {})[book.bookId or book.book_id] or {}
@@ -122,7 +122,9 @@ function M.recent(books, saved, account)
         if at == bt then return tostring(a.bookId or a.book_id) < tostring(b.bookId or b.book_id) end
         return at > bt
     end)
-    while #result > 12 do table.remove(result) end
+    limit = tonumber(limit) or 12
+    if limit ~= 6 and limit ~= 12 and limit ~= 24 then limit = 12 end
+    while #result > limit do table.remove(result) end
     return result
 end
 

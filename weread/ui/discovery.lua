@@ -27,7 +27,9 @@ end
 function M:showDiscoveryPage(tab, books, options)
     local LibraryView = require("weread.ui.library_view")
     options = options or {}
-    local layout = LibraryView.getLayout(true, #books, "books", 108)
+    local home = options.home
+    local cover_mode = not home or home.view_mode ~= "list"
+    local layout = LibraryView.getLayout(cover_mode, #books, "books", 108, { home = home })
     local page = math.max(1, math.min(options.page or 1, math.max(1, math.ceil(#books / layout.page_size))))
     local cover_paths, visible = {}, {}
     local cache = self:getShelfCoverCache()
@@ -40,22 +42,32 @@ function M:showDiscoveryPage(tab, books, options)
     end
     local snapshots = tab == "home" and self.prepareShelfProgress and self:prepareShelfProgress(visible)
     self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
+    if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.shelf_view then UIManager:close(self.shelf_view) end
     local function redraw(next_page)
         options.page = next_page
+        if home and self.homeControlsOpen and self:homeControlsOpen() then
+            self._home_pending_redraw = function() self:showDiscoveryPage(tab, books, options) end
+            return
+        end
         self:showDiscoveryPage(tab, books, options)
     end
     local view
     view = LibraryView.show({
         mode = "books", portal = true, title = options.title,
         empty_text = options.empty_text, actions = options.actions,
+        home_layout = home,
+        status_text = home and self:homeStatusText(),
+        summary_text = home and self:homeReadingSummary(),
         navigation = self:discoveryNavigation(tab), books = books,
-        cover_mode = true, paged = true, page = page,
+        cover_mode = cover_mode, paged = true, page = page,
         page_size = layout.page_size, cover_columns = layout.columns,
         cover_rows = layout.rows, cover_paths = cover_paths,
     }, {
         on_search = function() self:showDiscoverySearch() end,
         on_refresh = options.on_refresh,
+        on_settings = home and function() self:showHomeQuickSettings() end or nil,
+        on_summary = home and function() self:closeWeReadUI() self:showProfile() end or nil,
         on_select = function(book)
             if tab == "home" and book._cached then
                 local stored = self.settings:get("books", {})[book.bookId or book.book_id] or book
@@ -71,6 +83,7 @@ function M:showDiscoveryPage(tab, books, options)
         end,
     })
     self.shelf_view = view
+    if home and self.startHomeStatusTimer then self:startHomeStatusTimer(view, false) end
     if snapshots then
         local force = options.refresh_progress
         options.refresh_progress = nil
@@ -78,7 +91,7 @@ function M:showDiscoveryPage(tab, books, options)
             force = force, on_redraw = function() redraw(self.shelf_view and self.shelf_view.page or page) end,
         })
     elseif self.cancelShelfProgress then self:cancelShelfProgress() end
-    self:fetchVisibleShelfCovers(view, books, { on_redraw = redraw })
+    if cover_mode then self:fetchVisibleShelfCovers(view, books, { on_redraw = redraw }) end
 end
 
 function M:recordRecentReading(book_id)
@@ -96,18 +109,14 @@ function M:showHome(refresh_progress)
     local cached = self.library_db and self.library_db:getShelf() or {}
     local archives = self.library_db and self.library_db:getShelfArchives() or {}
     self:applyShelfSnapshot(cached or {}, archives)
+    local preferences = self:homePreferences()
     self:showDiscoveryPage("home", Data.recent(self.shelf_regular, self.settings:get("books", {}),
-        self.library_db and self.library_db:accountKey()), {
+        self.library_db and self.library_db:accountKey(), preferences.recent_limit), {
         title = _("WeRead home"),
+        home = preferences,
         refresh_progress = refresh_progress,
         empty_text = _("No recent reading. Refresh or open your bookshelf."),
-        actions = {
-            { text = _("Recently read"), enabled = false },
-            { text = _("All books"), callback = function()
-                self:closeWeReadUI()
-                self:showBookshelf()
-            end },
-        },
+        actions = self:homeShortcuts(preferences),
         on_refresh = function()
             self:refreshBookshelf(self.shelf_view, { on_loaded = function() self:showHome(true) end })
         end,

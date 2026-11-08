@@ -100,6 +100,9 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
+    if self.closeHomeControls then self:closeHomeControls(false) end
+    self._home_pending_redraw = nil
     if self._stats_busy_generation then
         self._stats_busy_generation = nil
         self:closeBusy()
@@ -112,6 +115,8 @@ function M:closeWeReadUI()
     local seen = {}
     for _, field in ipairs({
         "_discovery_menu",
+        "_home_controls_menu",
+        "_home_prefetch_confirmation",
         "_profile_goal_dialog",
         "_read_stats_view",
         "_profile_view",
@@ -395,6 +400,7 @@ end
 
 
 function M:showShelfView(mode, keyword, old_view, options)
+    if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     local LibraryView = require("weread.ui.library_view")
     options = options or {}
     mode = mode or "books"

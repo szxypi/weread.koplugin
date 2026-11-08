@@ -27,6 +27,7 @@ local Screen = Device.screen
 local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
 local CoverLayout = require("weread.lib.cover_layout")
+local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
 local HEADER_SIZE = 72
 local icons_dir = debug.getinfo(1, "S").source:match("^@(.*/)") .. "../../icons/"
@@ -733,16 +734,18 @@ end
 function LibraryView:portalHeader()
     local HeaderLayout = require("weread.lib.home_header_layout")
     local size = Screen:scaleBySize(72)
-    local items = HeaderLayout.arrange(self.screen_w, {
+    local entries = {
         { key = "back", width = size, callback = function() self:onClose() end },
-        { key = "title", width = math.max(1, self.screen_w - 3 * size) },
+        { key = "title", width = math.max(1, self.screen_w - (self.on_settings and 4 or 3) * size) },
         { key = "search", width = size, callback = self.on_search },
         { key = "refresh", width = size, callback = self.on_refresh },
-    }, 0)
+    }
+    if self.on_settings then table.insert(entries, #entries, { key = "settings", width = size, callback = self.on_settings }) end
+    local items = HeaderLayout.arrange(self.screen_w, entries, 0)
     local widgets, buttons, x = {}, {}, 0
     for _, item in ipairs(items) do
         if item.x > x then widgets[#widgets + 1] = HorizontalSpan:new{ width = item.x - x } end
-        local icons = { back = "chevron.left", search = "appbar.search", refresh = "appbar.search" }
+        local icons = { back = "chevron.left", search = "appbar.search", refresh = "appbar.search", settings = "appbar.settings" }
         local button = Button:new{
             text = item.key == "title" and self.title or nil, icon = icons[item.key],
             width = item.width, height = size, text_font_size = 24, text_font_bold = true,
@@ -758,6 +761,7 @@ function LibraryView:portalHeader()
             }
             button.label_container[1] = button.label_widget
             self.refresh_button = button
+        elseif item.key == "settings" then self.settings_button = button
         end
         widgets[#widgets + 1], buttons[#buttons + 1] = button, button
         x = item.x + item.width
@@ -767,6 +771,32 @@ function LibraryView:portalHeader()
         align = "left", HorizontalGroup:new(widgets),
         LineWidget:new{ dimen = Geom:new{ w = self.screen_w, h = Size.border.thin } },
     }
+end
+
+function LibraryView:homeTextRow(text, height, font_size, bold)
+    local label = TextWidget:new{
+        text = text, face = Font:getFace("cfont", font_size), bold = bold,
+        max_width = math.max(1, self.screen_w - 2 * Size.padding.default),
+    }
+    local frame = FrameContainer:new{
+        padding = 0, margin = 0, bordersize = 0, background = Blitbuffer.COLOR_WHITE,
+        CenterContainer:new{
+            dimen = Geom:new{ w = self.screen_w, h = Screen:scaleBySize(height) }, label,
+        },
+    }
+    return frame, label
+end
+
+function LibraryView:updateHomeStatus(text)
+    if not self._home_status_label or self._home_status_label.text == text then return end
+    self._home_status_label:setText(text)
+    UIManager:setDirty(self, "ui", self._home_status_frame.dimen)
+end
+
+function LibraryView:updateHomeSummary(text)
+    if not self._summary_button or self._summary_button.text == text then return end
+    self._summary_button:setText(text, self._summary_button.width)
+    UIManager:setDirty(self, "ui", self._summary_button.dimen)
 end
 
 function LibraryView:headerBar()
@@ -1153,11 +1183,29 @@ function LibraryView:init()
     local header = self:headerBar()
     local actions = self:actionBar(self.actions)
     local navigation = self:actionBar(self.navigation, true)
+    local status, summary, recent_heading
+    if self.home_layout then
+        if self.home_layout.show_status then
+            status, self._home_status_label = self:homeTextRow(self.status_text or "", HomeLayout.HEIGHTS.status, 13, false)
+            self._home_status_frame = status
+        end
+        if self.home_layout.show_summary then
+            summary = Button:new{
+                text = self.summary_text or "", width = self.screen_w, height = Screen:scaleBySize(HomeLayout.HEIGHTS.summary),
+                text_font_size = 16, avoid_text_truncation = false, radius = 0, margin = 0, padding = 0, bordersize = 0,
+                show_parent = self, callback = after_tap(self.on_summary or function() end),
+            }
+            self._summary_button = summary
+        end
+        recent_heading = self:homeTextRow(_("Recently read"), HomeLayout.HEIGHTS.recent_label, 16, true)
+    end
     self:preparePagination()
     local page_bar = self:pageBar()
     local scroll_h = math.max(1, self.screen_h - header:getSize().h
         - (page_bar and page_bar:getSize().h or 0)
         - (actions and actions:getSize().h or 0)
+        - (status and status:getSize().h or 0) - (summary and summary:getSize().h or 0)
+        - (recent_heading and recent_heading:getSize().h or 0)
         - (navigation and navigation:getSize().h or 0))
     if self.cover_mode then
         local rows = math.max(1, math.floor(tonumber(self.cover_rows) or 2))
@@ -1185,25 +1233,44 @@ function LibraryView:init()
         end
     end
     local rows = { self._header_buttons }
-    if self._action_buttons then rows[#rows + 1] = self._action_buttons end
-    for _i, item_row in ipairs(self._focus_item_rows) do
-        rows[#rows + 1] = item_row
+    local first_item_row
+    local function book_rows()
+        first_item_row = #self._focus_item_rows > 0 and #rows + 1 or nil
+        for _i, item_row in ipairs(self._focus_item_rows) do rows[#rows + 1] = item_row end
+        if self._page_buttons then rows[#rows + 1] = self._page_buttons end
+    end
+    if self.home_layout then
+        for _, key in ipairs(self.home_layout.sections) do
+            if key == "shortcuts" and self._action_buttons then rows[#rows + 1] = self._action_buttons
+            elseif key == "summary" and summary then rows[#rows + 1] = { summary }
+            elseif key == "recent" then book_rows() end
+        end
+    else
+        if self._action_buttons then rows[#rows + 1] = self._action_buttons end
+        book_rows()
     end
     local outside_scroll = {}
     for _i, button in ipairs(self._header_buttons) do outside_scroll[button] = true end
     if self._page_buttons then
-        rows[#rows + 1] = self._page_buttons
         for _i, button in ipairs(self._page_buttons) do outside_scroll[button] = true end
     end
+    if summary then outside_scroll[summary] = true end
     if self._navigation_buttons then rows[#rows + 1] = self._navigation_buttons end
     for _, button in ipairs(self._action_buttons or {}) do outside_scroll[button] = true end
     for _, button in ipairs(self._navigation_buttons or {}) do outside_scroll[button] = true end
     FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
-    FocusNav.initialFocus(self, 1, #self._focus_item_rows > 0 and (self._action_buttons and 3 or 2) or 1)
+    FocusNav.initialFocus(self, 1, first_item_row or 1)
     local body = { align = "left", header }
-    if actions then body[#body + 1] = actions end
-    body[#body + 1] = scroll
-    body[#body + 1] = page_bar or VerticalSpan:new{ width = 0 }
+    if self.home_layout then
+        local recent = VerticalGroup:new{ align = "left", recent_heading, scroll,
+            page_bar or VerticalSpan:new{ width = 0 } }
+        local sections = { status = status, summary = summary, shortcuts = actions, recent = recent }
+        for _, key in ipairs(self.home_layout.sections) do if sections[key] then body[#body + 1] = sections[key] end end
+    else
+        if actions then body[#body + 1] = actions end
+        body[#body + 1] = scroll
+        body[#body + 1] = page_bar or VerticalSpan:new{ width = 0 }
+    end
     if navigation then body[#body + 1] = navigation end
     self[1] = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
@@ -1265,9 +1332,14 @@ function M.navigation(entries, parent)
 end
 
 -- Measure before fetching covers, so the worker and the visible grid agree.
-function M.getLayout(cover_mode, count, mode, extra_height)
+function M.getLayout(cover_mode, count, mode, extra_height, options)
+    options = options or {}
     local width, height = Screen:getWidth(), Screen:getHeight()
     local header_height = Screen:scaleBySize(HEADER_SIZE + (extra_height or 0)) + Size.border.thin
+    if options.home then
+        header_height = Screen:scaleBySize(HEADER_SIZE) + Size.border.thin
+            + HomeLayout.reserved(options.home, function(value) return Screen:scaleBySize(value) end)
+    end
     local page_bar_height = Screen:scaleBySize(54)
     local function layout(reserved)
         if cover_mode then
@@ -1275,6 +1347,10 @@ function M.getLayout(cover_mode, count, mode, extra_height)
                 width = width, height = height,
                 size_scale = Screen:scaleBySize(1000) / 1000,
                 reserved_height = reserved,
+                min_cell_width = options.home and options.home.density == "compact"
+                    and math.ceil(140 * math.sqrt(Screen:scaleBySize(1000) / 1000)) or nil,
+                min_cell_height = options.home and options.home.density == "compact"
+                    and math.ceil(180 * math.sqrt(Screen:scaleBySize(1000) / 1000)) or nil,
             }
         end
         local row = ShelfRow:new{ width = width, text = "", font_size = mode == "public_account" and 22 or 20 }
@@ -1292,6 +1368,9 @@ function M.show(data, callbacks)
     local view = LibraryView:new{
         mode = data.mode,
         portal = data.portal,
+        home_layout = data.home_layout,
+        status_text = data.status_text,
+        summary_text = data.summary_text,
         empty_text = data.empty_text,
         actions = data.actions,
         navigation = data.navigation,
@@ -1322,6 +1401,8 @@ function M.show(data, callbacks)
         on_display_change = callbacks.on_display_change,
         on_search = callbacks.on_search,
         on_refresh = callbacks.on_refresh,
+        on_settings = callbacks.on_settings,
+        on_summary = callbacks.on_summary,
         on_sort = callbacks.on_sort,
         on_filter = callbacks.on_filter,
         on_select = callbacks.on_select,

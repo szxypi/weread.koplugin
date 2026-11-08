@@ -189,6 +189,7 @@ package.preload["weread.ui.reader_navigation"] = function()
     }
 end
 
+package.preload["weread.ui.home_settings"] = function() return {} end
 local Plugin = dofile("main.lua")
 local plugin = setmetatable({
     ui = {

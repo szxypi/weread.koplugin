@@ -227,6 +227,24 @@ function M:getMainMenuItems()
     return items
 end
 
+function M:setChapterPrefetchEnabled(enabled, touchmenu_instance)
+    enabled = enabled == true
+    local cache = self.settings:get("cache")
+    cache.auto_prefetch_next_chapter = enabled
+    self.settings:set("cache", cache)
+    self.settings:flush()
+    if not enabled then
+        self:cancelAnnotationPrefetch()
+        self.downloader:cancelPrefetch("setting_disabled")
+    elseif self._current_weread_book_id then
+        local book_id = self._current_weread_book_id
+        UIManager:scheduleIn(0.1, function()
+            if self._current_weread_book_id == book_id then self:maybePrefetchNextChapter(book_id) end
+        end)
+    end
+    if touchmenu_instance then touchmenu_instance:updateItems() end
+end
+
 function M:getSettingsMenuItems()
     return {
         {
@@ -300,6 +318,10 @@ function M:getSettingsMenuItems()
                     },
                 }
             end,
+        },
+        {
+            text = _("Home layout"),
+            callback = self:safeCallback(_("Home layout"), function() self:showHomeLayoutSettings() end),
         },
         {
             text = _("Cache management"),
@@ -440,24 +462,7 @@ function M:getSettingsMenuItems()
                                         function(touchmenu_instance)
                                             local cache = self.settings:get("cache")
                                             local function apply(enabled)
-                                                cache.auto_prefetch_next_chapter = enabled
-                                                self.settings:set("cache", cache)
-                                                self.settings:flush()
-                                                if not enabled then
-                                                    self:cancelAnnotationPrefetch()
-                                                    self.downloader:cancelPrefetch(
-                                                        "setting_disabled")
-                                                elseif self._current_weread_book_id then
-                                                    local book_id = self._current_weread_book_id
-                                                    UIManager:scheduleIn(0.1, function()
-                                                        if self._current_weread_book_id == book_id then
-                                                            self:maybePrefetchNextChapter(book_id)
-                                                        end
-                                                    end)
-                                                end
-                                                if touchmenu_instance then
-                                                    touchmenu_instance:updateItems()
-                                                end
+                                                self:setChapterPrefetchEnabled(enabled, touchmenu_instance)
                                             end
 
                                             if cache.auto_prefetch_next_chapter == true then

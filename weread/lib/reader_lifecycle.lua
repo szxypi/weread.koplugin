@@ -328,6 +328,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self._cancelUnifiedAnnotationSync then self:_cancelUnifiedAnnotationSync() end
     self._annotation_pending_prefetch = nil
     self.progress_sync:on_suspend()
@@ -337,6 +338,9 @@ end
 function M:onResume()
     self.progress_sync:on_resume()
     self.read_report:on_resume()
+    if self.startHomeStatusTimer and self.shelf_view and self.shelf_view.home_layout then
+        self:startHomeStatusTimer(self.shelf_view)
+    end
 end
 
 function M:detectWeReadBook()

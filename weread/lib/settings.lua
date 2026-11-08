@@ -96,6 +96,12 @@ local defaults = {
         paginated = true,
         view_mode = "cover",
     },
+    home = {
+        view_mode = "cover", density = "comfortable", recent_limit = 12,
+        show_status = true, show_summary = true, show_shortcuts = true,
+        sections = { "status", "summary", "shortcuts", "recent" },
+        shortcuts = { "shelf", "store", "search", "settings" },
+    },
     download_dir = "",
 }
 
@@ -286,7 +292,7 @@ function Settings:has_legacy_book_records()
 end
 
 function Settings:flush()
-    self.store:flush()
+    return self.store:flush()
 end
 
 function Settings:get_device_fingerprint()
