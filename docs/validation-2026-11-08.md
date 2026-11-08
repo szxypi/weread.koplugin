@@ -15,8 +15,8 @@
 
 | 项目 | 结果与覆盖范围 |
 | --- | --- |
-| Lua 单元／组件回归 | PASS：89 组，包括授权协议、错误去敏、阅读同步、更新与失败恢复 |
-| Luacheck | PASS：201 文件，0 警告、0 错误 |
+| Lua 单元／组件回归 | PASS：92 组，包括授权界面／保存回读／后台管道、错误去敏、阅读同步、更新与失败恢复 |
+| Luacheck | PASS：208 文件，0 警告、0 错误 |
 | 命名空间、Python 编译、差异格式 | PASS |
 | Python 合成 HTTP 测试 | PASS：9 组；另有授权原型 5 组、补传只读前置 12 组 |
 | 真实插件初始化 | PASS：官方 KOReader v2026.07.1、真实控件／字体／SQLite |
@@ -73,7 +73,21 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
   同时通过原有阅读、账号／休眠取消、离线计时、覆盖日志、文件替换和整本下载回归。
 - `.validation/native-authorization-final-600/` 和 `.validation/native-authorization-final-ko2/` 为加入
   发送前失败可恢复及原有 Web 登录去敏后的最终候选包复验，两种显示配置均通过。
-- 插件墨水屏授权入口、凭据持久化、续期和通道选择仍待接入，未将核心测试记作完整登录界面验收。
+- 后续新增“墨水屏授权”菜单，扫码／重新授权／清除均已接入。主登录继续使用 Web；
+  墨水屏扫码限定同一账号，绑定当前登录代次，普通 Cookie 续期不使授权失效。
+- 请求在后台进程运行，结果仅通过最多 64 KiB 内存管道返回，不创建含凭据的工作文件。
+  立即取消也终止尚未建立进程组的子进程；关闭二维码、账号切换、休眠和关书停止授权。
+- 独立有界文件保存凭据，写后读取主文件核对；损坏主文件不退回旧备份，较早修订不能覆盖新授权。
+  保存失败可仅重试保存，书架失败仅重试读取，可能已发送的登录不重用授权码。
+- 新增组件覆盖文件读取／写入失败、取消、失效／账号不匹配、迟到结果、同账号同秒重登及 Cookie 续期。
+  `.validation/native-ui-verified-600/` 与 `.validation/native-ui-verified-ko2/` 使用最终候选包验证真实菜单、
+  QRMessage、后台调度、25 KiB 管道、立即取消、LuaSettings 保存、新实例回读及清除，原阅读／下载／
+  12 秒离线采集／覆盖日志回归同样通过。首次运行发现的子进程回调参数适配已修复并重新验证。
+- 本轮界面和持久化只用合成账号；本人扫码得到的真实凭据未保存。续期、通道选择及实体 KO2 完整扫码仍待验收。
+
+![墨水屏授权菜单（合成账号）](validation-assets/2026-11-08/native-auth-menu.png)
+
+![授权保存提示（KO2 尺寸合成环境）](validation-assets/2026-11-08/native-auth-saved.png)
 
 本地阅读位置采集与跳转精度后续验证：
 
@@ -240,7 +254,7 @@ EPUB 来源绑定与离线账本后续验证：
   像素尺寸依据 [KOReader 的 KindleOasis2 实机日志](https://github.com/koreader/koreader/issues/9253)，
   实体按键、休眠与残影仍需设备验证。
 - E-Ink 出票与二维码生成在实际服务返回 200，报告状态为 `PARTIAL`。
-  本人扫码及其后的登录／书架回读尚未执行，详见 [授权原型说明](eink-authorization-prototype.md)。
+  后续本人扫码及其后的登录／书架回读已通过，详见 [授权原型说明](eink-authorization-prototype.md)。
 
 ![书架进度：本机待上传优先](validation-assets/2026-11-08/shelf-progress.png)
 

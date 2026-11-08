@@ -107,6 +107,8 @@ local function request_count(route_path, api)
     return count
 end
 local writes_before = request_count("/web/book/read")
+local fixture_dir = debug.getinfo(1, "S").source:match("^@(.*/)")
+dofile(fixture_dir .. "native_authorization_smoke.lua")(plugin, request_count, fastforward_ui_events, home)
 local pulls_before = request_count("/web/book/getProgress") + request_count("/api/agent/gateway", "/book/getprogress")
 local position = assert(sync:capture_local())
 assert(sync:_upload_snapshot(position, "manual_sync", false), "queued progress upload did not start")
@@ -152,7 +154,6 @@ plugin.isNetworkOnline, plugin.isNetworkConnected = online, connected
 print("PASS: real ReaderUI account/suspend cancels queued HTTP; valid upload persists/readbacks; wake compares cloud first")
 local verify_reopened_file
 if test_offline_time then
-    local fixture_dir = debug.getinfo(1, "S").source:match("^@(.*/)")
     verify_reopened_file = dofile(fixture_dir .. "offline_time_smoke.lua")(reader, request_count, fastforward_ui_events)
     dofile(fixture_dir .. "readtime_coverage_smoke.lua")(reader, request_count)
 end

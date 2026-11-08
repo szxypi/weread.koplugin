@@ -11,6 +11,7 @@ local Integrations = require("integrations.init")
 local LibraryDB = require("weread.lib.library_db")
 local Mixin = require("weread.lib.mixin")
 local Migrations = require("weread.lib.migrations")
+local NativeAuthorization = require("weread.ui.native_authorization")
 local OfflineTime = require("weread.lib.offline_time")
 local PluginUtil = require("weread.lib.plugin_util")
 local ProgressSync = require("weread.lib.progress_sync")
@@ -108,6 +109,7 @@ function WeReadPlugin:init()
         self.downloader:recover()
     end
     self.qr_login = QRLogin:new(self, self.client, self.settings)
+    self.native_authorization = NativeAuthorization:new(self, self.client, self.settings)
     self.read_report = ReadReport:new{
         coverage = self.readtime_coverage,
         settings = self.settings,

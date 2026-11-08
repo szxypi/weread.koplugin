@@ -182,6 +182,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.native_authorization then self.native_authorization:cancel() end
     if self.offline_time then self.offline_time:stop("no_book") end
     FileIdentity.forget(self.ui and self.ui.document)
     -- Capture the immutable local position while the document is still alive.
@@ -333,6 +334,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.native_authorization then self.native_authorization:cancel() end
     if self.offline_time then self.offline_time:suspend() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self._cancelUnifiedAnnotationSync then self:_cancelUnifiedAnnotationSync() end

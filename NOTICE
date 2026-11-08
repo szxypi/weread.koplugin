@@ -33,6 +33,9 @@ Native authorization protocol prototype:
   (AGPL-3.0-only, MiuRead contributors), after real owner-scan, login and
   read-only shelf validation by the Python prototype on 2026-11-08.
   It implements the protocol core without credential persistence or renewal.
+  The plugin's separate UI, session-bound credential store and memory-pipe
+  worker provide authorization, verified local persistence and cancellation;
+  automatic renewal remains unimplemented.
 - scripts/verify_eink_login.py adapts the request flow from MiuRead's
   miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references
   https://github.com/teng-lin/weread-omni/blob/main/src/auth/qrlogin.ts.

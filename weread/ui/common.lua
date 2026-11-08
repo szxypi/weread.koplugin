@@ -238,10 +238,11 @@ end
 
 function M:confirmClearAccount()
     UIManager:show(ConfirmBox:new{
-        text = _("Clear WeRead cookie and API key? Cached books will remain."),
+        text = _("Clear WeRead login and E-Ink authorization? Cached books will remain."),
         ok_text = _("Clear"),
         ok_callback = self:safeCallback(_("Clear"), function()
             self.qr_login:cancel()
+            if self.native_authorization then self.native_authorization:clearForLogout() end
             self.read_report:stop("account_cleared")
             self.settings:reset_account()
             if self.onWeReadAccountChanged then

@@ -211,4 +211,37 @@ expect(not ok and values.device_fingerprint == "invalid; cookie=value",
     "failed entropy reads must not save a partial or shared fallback fingerprint")
 setfenv(Settings.get_device_fingerprint, original_environment)
 
+local scope_path = os.tmpname()
+local original_path = settings.settings_file
+settings.settings_file = scope_path
+local function persist_scope()
+    local file = assert(io.open(scope_path, "w"))
+    file:write(string.format("return { account={user_vid=%q}, cookies={wr_vid=%q}, auth_epoch=%d }",
+        tostring(values.account.user_vid or ""), tostring(values.cookies.wr_vid or ""), values.auth_epoch))
+    file:close()
+end
+settings:update_auth({ account = { user_vid = "123", login_time = 10 }, cookies = { wr_vid = "123" } })
+persist_scope()
+local scope = settings:get_auth_scope()
+expect(scope and settings:auth_scope_matches(scope), "matching primary-file Web session was rejected")
+settings:merge_set_cookie("wr_skey=mocknew; Path=/")
+expect(settings:get_auth_scope().epoch == scope.epoch, "Cookie renewal must preserve native authorization owner")
+settings:update_auth({ account = { user_vid = "123", login_time = 10 } })
+expect(not settings:auth_scope_matches(scope) and settings:get_auth_scope().epoch > scope.epoch,
+    "same account re-login in the same second must invalidate old native grants")
+persist_scope()
+scope = settings:get_auth_scope()
+values.cookies.wr_vid = "456"
+expect(settings:get_auth_scope() == nil, "inconsistent cookie VID cannot authorize native access")
+values.cookies.wr_vid = "123"
+local file = assert(io.open(scope_path, "w"))
+file:write("return {account={user_vid='456'}, cookies={wr_vid='456'}, auth_epoch=999}") file:close()
+expect(not settings:auth_scope_matches(scope), "stale Settings instance cannot authorize another on-disk login")
+settings:update_auth({ account = { user_vid = "123", login_time = 10 } })
+expect(values.auth_epoch == 1000, "new Web login advances beyond disk session generation")
+settings:reset_account()
+expect(settings:get_auth_scope() == nil, "logout invalidates native account scope")
+os.remove(scope_path)
+settings.settings_file = original_path
+
 print(("settings_spec: %d checks"):format(checks))

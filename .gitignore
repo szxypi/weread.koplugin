@@ -3,6 +3,8 @@ config.lua
 cache/
 *.epub
 settings/weread.lua
+native-authorization.lua
+native-authorization.lua.old
 __pycache__/
 *.py[cod]
 .DS_Store

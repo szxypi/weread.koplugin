@@ -118,6 +118,9 @@ end
 package.preload["weread.lib.qr_login"] = function()
     return { new = function() return { kind = "qr_login" } end }
 end
+package.preload["weread.ui.native_authorization"] = function()
+    return { new = function() return { kind = "native_authorization" } end }
+end
 package.preload["weread.lib.read_report"] = function()
     return {
         new = function(_self, options)
@@ -212,6 +215,7 @@ expect(plugin.client.settings == fake_settings, "client did not receive settings
 expect(plugin.downloader.settings == fake_settings,
     "downloader did not receive settings")
 expect(plugin.qr_login.kind == "qr_login", "QR login service was not initialized")
+expect(plugin.native_authorization.kind == "native_authorization", "native authorization was not initialized")
 expect(migrations_ran, "migrations did not run during initialization")
 expect(dispatcher_registered, "dispatcher actions were not registered")
 expect(menu_registered, "plugin was not registered in KOReader's main menu")

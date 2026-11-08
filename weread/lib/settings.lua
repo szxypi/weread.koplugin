@@ -10,6 +10,7 @@ Settings.AUTH_SCHEMA_VERSION = 1
 
 local defaults = {
     auth_schema_version = Settings.AUTH_SCHEMA_VERSION,
+    auth_epoch = 0,
     device_fingerprint = "",
     api_key = "",
     cookies = {},
@@ -123,7 +124,8 @@ local function ensure_dir(path)
     end
 end
 
-local function clear_auth_store(store)
+local function clear_auth_store(store, keep_epoch)
+    if not keep_epoch then store:saveSetting("auth_epoch", (tonumber(store:readSetting("auth_epoch", 0)) or 0) + 1) end
     store:saveSetting("api_key", "")
     store:saveSetting("cookies", {})
     store:saveSetting("wr_ticket", "")
@@ -265,6 +267,13 @@ function Settings:get(key, default)
 end
 
 function Settings:set(key, value)
+    if key == "account" then
+        local old = self:get("account", {})
+        if tostring(old.user_vid or "") ~= tostring(type(value) == "table" and value.user_vid or "")
+            or old.login_time ~= (type(value) == "table" and value.login_time or nil) then
+            self:_advance_auth_epoch()
+        end
+    end
     if key == "books" and type(value) == "table" then
         local indexes = {}
         for book_id, book in pairs(value) do
@@ -277,6 +286,38 @@ function Settings:set(key, value)
         value = indexes
     end
     self.store:saveSetting(key, value)
+end
+
+-- Native grants belong to one Web login session, including a fresh login to
+-- the same VID. Cookie renewal does not advance this epoch.
+function Settings:_advance_auth_epoch()
+    local ok, disk = pcall(dofile, self.settings_file)
+    local disk_epoch = ok and type(disk) == "table" and tonumber(disk.auth_epoch) or 0
+    self.store:saveSetting("auth_epoch", math.max(tonumber(self:get("auth_epoch", 0)) or 0, disk_epoch or 0) + 1)
+end
+
+function Settings:get_auth_scope(from_disk)
+    local account, cookies, epoch
+    if from_disk then
+        -- Do not resurrect an older account from LuaSettings' .old fallback.
+        local ok, data = pcall(dofile, self.settings_file)
+        if not ok or type(data) ~= "table" then return nil end
+        account, cookies, epoch = data.account, data.cookies, data.auth_epoch or 0
+    else
+        account, cookies, epoch = self:get("account", {}), self:get("cookies", {}), self:get("auth_epoch", 0)
+    end
+    local owner = type(account) == "table" and tostring(account.user_vid or "") or ""
+    if #owner > 32 or not owner:match("^[1-9]%d*$") or type(epoch) ~= "number"
+        or epoch < 0 or epoch % 1 ~= 0 or epoch > 9007199254740990 then return nil end
+    if type(cookies) == "table" and cookies.wr_vid ~= nil and tostring(cookies.wr_vid) ~= owner then return nil end
+    return { vid = owner, epoch = epoch }
+end
+
+function Settings:auth_scope_matches(scope)
+    local current, disk = self:get_auth_scope(), self:get_auth_scope(true)
+    return type(scope) == "table" and current ~= nil and disk ~= nil
+        and current.vid == scope.vid and disk.vid == scope.vid
+        and current.epoch == scope.epoch and disk.epoch == scope.epoch
 end
 
 function Settings:delete(key)
@@ -343,7 +384,8 @@ function Settings:update_auth(credentials, options)
         end
     end
     if type(credentials.account) == "table" then
-        self:set("account", deepcopy(credentials.account))
+        self:_advance_auth_epoch()
+        self.store:saveSetting("account", deepcopy(credentials.account))
         changed = true
     end
 
@@ -392,7 +434,8 @@ function Settings:set_download_dir(path)
 end
 
 function Settings:reset_account()
-    clear_auth_store(self.store)
+    self:_advance_auth_epoch()
+    clear_auth_store(self.store, true)
     self:flush()
 end
 

@@ -117,6 +117,14 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _("E-Ink authorization"),
+            keep_menu_open = true,
+            callback = self:safeCallback(_("E-Ink authorization"), function(touchmenu_instance)
+                self._login_menu_instance = touchmenu_instance
+                self.native_authorization:showMenu()
+            end),
+        },
+        {
             text = _("WeRead home"),
             callback = self:safeCallback(_("WeRead home"), function() self:showHome() end),
         },
