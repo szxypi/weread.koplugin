@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
@@ -847,7 +848,7 @@ function M:refreshShelfCacheIndicators()
     end
 end
 
-function M:showBookRecord(book)
+function M:showBookRecord(book, options)
     local books = self.settings:get("books", {})
     local book_id = book.book_id or book.bookId
     if WeRead.is_mp_book(book_id) then
@@ -879,7 +880,7 @@ function M:showBookRecord(book)
     if type(saved.chapters) ~= "table" and self.library_db then
         saved.chapters = self.library_db:getChapters(book_id)
     end
-    if not has_book_details(cached) then
+    if not has_book_details(cached) and not (options and options.verified_metadata) then
         self:refreshBookRecord(saved, nil, { automatic = true })
     else
         self:showBookMenu(saved)
@@ -1881,64 +1882,24 @@ function M:searchWithUI(keyword)
     end)
 end
 
+function M:showImportedBooks()
+    return require("weread.ui.reader_link").list(self,0)
+end
+
 function M:showPasteReaderURL()
-    local dialog
-    dialog = InputDialog:new{
-        title = _("Paste WeRead reader URL"),
-        input = "https://weread.qq.com/web/reader/",
-        input_type = "text",
-        buttons = {
-            {
-                {
-                    text = _("Cancel"),
-                    id = "close",
-                    callback = self:safeCallback(_("Cancel"), function()
-                        UIManager:close(dialog)
-                    end),
-                },
-                {
-                    text = _("Parse"),
-                    is_enter_default = true,
-                    callback = self:safeCallback(_("Parse"), function()
-                        local url = dialog:getInputText()
-                        UIManager:close(dialog)
-                        self:parseReaderURLWithUI(url)
-                    end),
-                },
-            },
-        },
-    }
-    self:showInputDialog(dialog)
+    return require("weread.ui.reader_link").input(self)
 end
 
 function M:parseReaderURLWithUI(url)
-    if not self:requireLogin(true, false) then
-        return
-    end
-    self:runNetworkAction(_("Parse reader URL"), function()
-        local html = self.client:get_text(url, { referer = url })
-        local book_id = html:match([["bookId"%s*:%s*"([^"]+)"]]) or html:match([["bookId"%s*:%s*(%d+)]])
-        local title = html:match([["title"%s*:%s*"([^"]+)"]]) or _("Unknown title")
-        local psvts = html:match([["psvts"%s*:%s*"([^"]+)"]])
-        local pclts = html:match([["pclts"%s*:%s*"([^"]+)"]])
-        local token = html:match([["token"%s*:%s*"([^"]+)"]])
-        if not book_id then
-            return _("Reader HTML loaded, but bookId was not found.")
-        end
-        local books = self.settings:get("books", {})
-        local record = books[book_id] or {}
-        record.book_id = book_id
-        record.title = title
-        record.reader_url = url
-        record.psvts = psvts
-        record.pclts = pclts
-        record.token = token
-        record.updated_at = os.time()
-        books[book_id] = record
-        self.settings:set("books", books)
-        self.settings:flush()
-        return T(_("Reader URL parsed.\nBook: %1\nbookId: %2"), title, book_id)
-    end)
+    return require("weread.ui.reader_link").start(self,url)
+end
+
+function M:closeReaderLinkUI()
+    return require("weread.ui.reader_link").close(self)
+end
+
+function M:cancelReaderLinkImport()
+    return require("weread.ui.reader_link").cancel(self)
 end
 
 

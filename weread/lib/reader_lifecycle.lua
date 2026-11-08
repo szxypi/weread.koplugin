@@ -192,6 +192,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.cancelProfileRefresh then self:cancelProfileRefresh() end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
@@ -354,6 +355,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.cancelProfileRefresh then self:cancelProfileRefresh() end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end

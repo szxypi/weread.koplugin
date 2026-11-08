@@ -139,6 +139,12 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _("Imported books"),
+            callback = self:safeCallback(_("Imported books"), function()
+                self:showImportedBooks()
+            end),
+        },
+        {
             text = _("WeRead favorites"),
             callback = self:safeCallback(_("WeRead favorites"), function()
                 self:showWereadCollection()

@@ -171,4 +171,10 @@ single_download_options.on_complete(true, "/cache/3.epub")
 expect(single_download_refreshed,
     "single chapter completion did not notify the chapter list")
 
+db_detail,auto_refresh,shown_book=nil,nil,nil
+books['43']={book_id='43',progress=84,cached_chapters={['1']='/kept.epub'},pending_upload_position={percent=84}}
+host:showBookRecord({bookId='43',title='Imported metadata',detail_updated_at=123},{verified_metadata=true})
+expect(shown_book and not auto_refresh and shown_book.progress==84 and shown_book.cached_chapters['1']=='/kept.epub'
+    and shown_book.pending_upload_position.percent==84,'verified import refreshed twice or replaced current local state')
+
 print(("library_cache_flow_spec: %d checks"):format(checks))

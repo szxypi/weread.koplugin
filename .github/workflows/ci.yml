@@ -95,7 +95,9 @@ jobs:
         run: python3 scripts/test_shelf_progress.py
 
       - name: Book metadata prototype checks
-        run: python3 scripts/test_book_metadata.py
+        run: |
+          python3 scripts/test_book_metadata.py
+          python3 scripts/test_reader_link.py
 
       - name: Native metadata prototype checks
         run: python3 scripts/test_native_metadata.py

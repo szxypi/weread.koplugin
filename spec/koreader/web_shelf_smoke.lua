@@ -68,6 +68,7 @@ return function(plugin, count, flush_tasks, home, pump_until)
     UIManager:close(UIManager:getTopmostVisibleWidget())
     local fixtures=debug.getinfo(1,"S").source:match("^@(.*/)")
     dofile(fixtures.."book_metadata_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
+    dofile(fixtures.."reader_link_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
     control{match="/web/shelf/sync",times=1,status=403,delay=0}
     refresh(false)
     assert(#plugin.library_db:getShelf()==26,"Web failure erased the shelf cache")
