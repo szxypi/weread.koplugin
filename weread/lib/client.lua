@@ -751,6 +751,40 @@ function Client:get_progress(book_id)
     return self:gateway("/book/getprogress", { bookId = book_id })
 end
 
+-- Bounded, display-only reads using captured access. No cookie persistence or
+-- reader synchronization state; errors and raw positions stay out of logs.
+function Client:get_shelf_display_progress(book_id, access)
+    assert(require("weread.lib.shelf_progress").book_id(book_id), "display_progress/invalid_book")
+    local chunks, bytes, exceeded = {}, 0, false
+    local options = { method = "GET", skip_cookie = true, persist_response_cookies = false,
+        sensitive = true, diagnostic_api = "shelf_progress", timeout = { 5, 10 },
+        headers = { ["Accept"] = "application/json" },
+        sink = function(chunk)
+            if not chunk then return 1 end
+            bytes = bytes + #chunk
+            if bytes > 65536 then exceeded = true; return nil, "progress_limit" end
+            chunks[#chunks + 1] = chunk
+            return 1
+        end }
+    if type(access) == "table" and access.kind == "web" and type(access.cookies) == "table" then
+        options.url = "https://weread.qq.com/web/book/getProgress?bookId=" .. WeRead.urlencode(book_id)
+        options.headers.Cookie = Cookie.to_header(access.cookies)
+        options.headers.Referer = WeRead.reader_url(book_id)
+        options.headers.Origin = "https://weread.qq.com"
+    elseif type(access) == "table" and access.kind == "gateway" and type(access.api_key) == "string" and access.api_key ~= "" then
+        options.url = "https://i.weread.qq.com/api/agent/gateway"
+        options.method = "POST"
+        options.body = self:json_encode({ api_name = "/book/getprogress", skill_version = WeRead.SKILL_VERSION, bookId = book_id })
+        options.headers["Content-Type"] = "application/json"
+        options.headers.Authorization = "Bearer " .. access.api_key
+    else
+        error("display_progress/access_required", 0)
+    end
+    local _, code, headers = self:request(options)
+    if exceeded or code ~= 200 then error("display_progress/unavailable", 0) end
+    return self:decode_http_json(table.concat(chunks), { sensitive = true, api_name = "shelf_progress", code = code, headers = headers })
+end
+
 function Client:get_web_progress(book_id)
     local url = "https://weread.qq.com/web/book/getProgress?bookId="
         .. WeRead.urlencode(book_id)

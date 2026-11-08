@@ -28,7 +28,18 @@ saved.pending_upload_account, saved.recent_read_account = nil, "account-a"
 expect(Data.display({}, nil, "account-a", "a") == nil, "missing progress invented")
 local calls = {}
 local ctx = { checkCancelled = function() end, emit = function() end }
-local client = { get_progress = function(_self, id)
+local configured,cookies,scope_valid,api_key=true,{},true,"synthetic-api-key"
+local scope={vid="900000",epoch=1}
+local settings={
+    get=function(_self,key,default)
+        if key=="api_key" then return configured and api_key or "" end
+        if key=="cookies" then return cookies end
+        return default
+    end,
+    get_auth_scope=function() return scope end,
+    auth_scope_matches=function() return scope_valid end,
+}
+local client = { settings=settings, get_shelf_display_progress = function(_self, id)
     calls[#calls + 1] = id
     if id == "bad" then error("private response must not be persisted") end
     return { bookId = id, book = { progress = 37 } }
@@ -44,7 +55,7 @@ local ok = pcall(Data.fetch, client, { "a", "b" }, {
 })
 expect(not ok and #calls == 1, "cancelled batch kept fetching")
 
-local tasks, cancellations, writes, redrawn, account, online, configured = {}, {}, {}, 0, "account-a", true, true
+local tasks, cancellations, writes, redrawn, account, online = {}, {}, {}, 0, "account-a", true
 local worker = {
     available = function() return true end,
     start = function(_self, options)
@@ -55,13 +66,16 @@ local worker = {
     cancel = function(_self, request) cancellations[#cancellations + 1] = request end,
 }
 local Progress = require("weread.ui.shelf_progress")
-local cache = { a = { book_id = "a", percent = 37, fetched_at = os.time() } }
+local cache = { ["900001"] = { book_id = "900001", percent = 37, fetched_at = os.time() } }
+saved.pending_upload_position.book_id="900001"
+local original_get=settings.get
+settings.get=function(self,key,default)
+    if key=="books" then return {["900001"]=saved} end
+    return original_get(self,key,default)
+end
+settings.set=function() error("display refresh wrote reader settings") end
 local host = setmetatable({
-    settings = {
-        get = function() return { a = saved } end,
-        set = function() error("display refresh wrote reader settings") end,
-        is_api_configured = function() return configured end,
-    },
+    settings = settings,
     library_db = {
         accountKey = function() return account end,
         getShelfProgress = function() return cache end,
@@ -71,7 +85,7 @@ local host = setmetatable({
     isNetworkOnline = function() return online end,
     shelf_view = {},
 }, { __index = Progress })
-local books = { { bookId = "a" }, { bookId = "b" } }
+local books = { { bookId = "900001" }, { bookId = "900002" } }
 host:prepareShelfProgress(books)
 expect(books[1]._shelf_progress == 83 and books[1]._shelf_progress_local and books[2]._shelf_progress == nil,
     "cached/local progress not prepared for display")
@@ -80,13 +94,13 @@ expect(#tasks == 1, "visible batch not queued")
 host:refreshVisibleShelfProgress({}, books, cache, { on_redraw = function() redrawn = redrawn + 10 end })
 expect(#tasks == 1, "cover redraw restarted an identical progress request")
 local result = tasks[1].options.task(ctx)
-expect(#result.snapshots == 1 and result.snapshots[1].book_id == "b", "fresh cache not respected")
+expect(#result.snapshots == 1 and result.snapshots[1].book_id == "900002", "fresh cache not respected")
 tasks[1].options.on_done { ok = true, value = result }
 expect(#writes == 1 and redrawn == 10, "completion did not redraw latest view")
 host:refreshVisibleShelfProgress({}, books, cache, { force = true })
 local stale_task = tasks[#tasks]
 expect(#stale_task.options.task(ctx).snapshots == 2, "manual force did not bypass fresh cache")
-host:refreshVisibleShelfProgress({}, { { bookId = "c" } }, {}, {})
+host:refreshVisibleShelfProgress({}, { { bookId = "900003" } }, {}, {})
 expect(cancellations[#cancellations] == stale_task, "page change did not cancel old request")
 stale_task.options.on_done { ok = true, value = result }
 expect(#writes == 1, "stale page wrote display data")
@@ -116,7 +130,68 @@ count = #tasks
 host:refreshVisibleShelfProgress({}, books, {}, {})
 expect(#tasks == count and host.shelf_progress_retry_at, "failed service immediately retried")
 host.shelf_progress_retry_at = nil
-cache.a.fetched_at = os.time() - Data.TTL - 1
+cache["900001"].fetched_at = os.time() - Data.TTL - 1
 host:refreshVisibleShelfProgress({}, { books[1] }, cache, {})
 expect(#tasks == count + 1, "expired snapshot not refreshed")
+host:cancelShelfProgress()
+configured=false
+cookies={wr_vid="900000",wr_skey="synthetic-web-access"}
+client.get_shelf_display_progress=function(_self,id,access)
+    expect(access.kind=="web" and access.cookies.wr_skey=="synthetic-web-access","keyless read used wrong captured access")
+    return {book={bookId=id,progress=42.7}}
+end
+host:refreshVisibleShelfProgress({},books,{}, {force=true})
+current=tasks[#tasks]
+result=current.options.task(ctx)
+expect(#result.snapshots==2 and result.snapshots[1].percent==42 and result.snapshots[1].source=="web","Web display projection")
+local written=#writes
+cookies={wr_vid="900000",wr_skey="replacement-web-access"}
+current.options.on_done{ok=true,value=result}
+expect(#writes==written,"Cookie replacement accepted old progress")
+host:refreshVisibleShelfProgress({},books,{}, {force=true})
+current=tasks[#tasks]
+scope.epoch=2
+current.options.on_done{ok=true,value=result}
+expect(#writes==written,"new login epoch accepted old progress")
+scope_valid=false
+expect(not Data.selection(settings),"unverified account scope accepted")
+scope_valid=true
+cookies={wr_vid="900099",wr_skey="synthetic-web-access"}
+expect(not Data.selection(settings),"wrong cookie account accepted")
+cookies={wr_vid="900000",wr_skey="synthetic-web-access"}
+configured=true
+local routes={}
+client.get_shelf_display_progress=function(_self,id,access)
+    routes[#routes+1]=access.kind
+    if access.kind=="gateway" then error("private-service-response") end
+    if id=="900001" then return {recordReadingTime=12} end
+    return {book={bookId=id,progress=42}}
+end
+batch=Data.fetch(client,{"900001","900002","900003"},ctx)
+expect(not batch.failed and #batch.snapshots==3 and batch.snapshots[1].unavailable and batch.snapshots[1].percent==nil
+    and table.concat(routes,",")=="gateway,web,web,web",
+    "gateway retry flooded source or duration-only response stopped the batch")
+routes={}
+client.get_shelf_display_progress=function(_self,id,access)
+    routes[#routes+1]=access.kind
+    return {errcode=-1,book={bookId=id,progress=99}}
+end
+batch=Data.fetch(client,{"900001","900002"},ctx)
+expect(batch.failed and #batch.snapshots==0 and #routes==2,"rejected response became a progress or flooded the batch")
+configured=false
+client.get_shelf_display_progress=function(_self,id)
+    cookies={}
+    return {book={bookId=id,progress=42}}
+end
+batch=Data.fetch(client,{"900001","900002"},ctx)
+expect(batch.stale and #batch.snapshots==0,"child retained progress after access change")
+for _,id in ipairs({false,"MP_WXS_test","900001&other=value",-1,0,"0","","900001\n"}) do
+    expect(not Data.book_id(id),"ineligible book entered Web read")
+end
+host:cancelShelfProgress()
+cookies={wr_vid="900000",wr_skey="synthetic-web-access"}
+local count_before=#tasks
+host:refreshVisibleShelfProgress({}, {books[1]}, {["900001"]={unavailable=true,fetched_at=os.time()}}, {})
+expect(#tasks==count_before,"fresh unavailable position was repeatedly fetched")
+expect(Data.display({}, {unavailable=true}, "account-a", "900001")==nil,"duration-only cache invented 0 percent")
 print("shelf_progress_spec: " .. checks .. " checks")

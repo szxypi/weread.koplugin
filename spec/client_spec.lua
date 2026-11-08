@@ -66,6 +66,7 @@ package.preload["weread.lib.protocol"] = function()
     return {
         USER_AGENT = "WeRead client spec",
         SKILL_VERSION = "test-skill",
+        reader_url = function(id) return "https://weread.qq.com/web/reader/"..tostring(id) end,
         urlencode = function(value)
             return tostring(value):gsub("([^%w%-_%.~])", function(ch)
                 return string.format("%%%02X", ch:byte())
@@ -461,4 +462,34 @@ for _,data in ipairs({{books=array(),errcode=1},{books=array(),succ=false},{book
     expect(not pcall(client.get_web_shelf,client,{}),"rejected API or empty object was accepted as a shelf")
 end
 expect(not table.concat(logs,"\n"):find("private-",1,true),"Web shelf failure logged private payload")
+local display_data={book={bookId="900001",progress=37.8}}
+client.json_decode=function() return display_data end
+responses[#responses+1]={code=200,body="progress",headers={["set-cookie"]="ignored=value"}}
+expect(client:get_shelf_display_progress("900001",{kind="web",cookies={wr_skey="XXX-display-snapshot"}})==display_data,
+    "Web display progress response")
+local display_request=requests[#requests]
+expect(display_request.method=="GET" and display_request.url=="https://weread.qq.com/web/book/getProgress?bookId=900001"
+    and display_request.headers.Cookie=="wr_skey=XXX-display-snapshot" and display_request.headers.Authorization==nil,
+    "display read did not use captured Web cookies exclusively")
+expect(#merged_cookies==cookie_count,"display read changed live credentials")
+local encoded_display
+client.json_encode=function(_self,data) encoded_display=data return "{}" end
+responses[#responses+1]={code=200,body="progress"}
+client:get_shelf_display_progress("900001",{kind="gateway",api_key="captured-display-key"})
+display_request=requests[#requests]
+expect(display_request.method=="POST" and display_request.headers.Authorization=="Bearer captured-display-key"
+    and display_request.headers.Cookie==nil and encoded_display.api_name=="/book/getprogress"
+    and encoded_display.bookId=="900001" and encoded_display.skill_version=="test-skill","captured gateway contract")
+for _,bad_id in ipairs({"900001&other=value","MP_WXS_test",0,false}) do
+    local before=#requests
+    expect(not pcall(client.get_shelf_display_progress,client,bad_id,{kind="web",cookies={}}) and #requests==before,
+        "invalid display identity sent HTTP")
+end
+for _,response in ipairs({{code=302,body="private-progress"},{code=401,body="private-progress"},
+    {code=429,body="private-progress"},{code=200,body=string.rep("x",65537)},{raise="private-transport-response"}}) do
+    responses[#responses+1]=response
+    ok,err=pcall(client.get_shelf_display_progress,client,"900001",{kind="web",cookies={}})
+    expect(not ok and not tostring(err):find("private-",1,true),"display failure leaked response or exceeded bounds")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"display request logged raw position or private diagnostics")
 print(("client_spec: %d checks"):format(checks))

@@ -58,6 +58,12 @@ function M.web_revision(settings)
     return revision
 end
 
+function M.web_access(settings)
+    local scope = settings.get_auth_scope and settings:get_auth_scope()
+    local cookies, revision = web_snapshot(settings, scope)
+    if cookies then return { cookies = cookies, revision = revision } end
+end
+
 function M.selection(settings, store)
     local mode = M.mode(settings)
     local scope = settings.get_auth_scope and settings:get_auth_scope() or nil

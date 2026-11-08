@@ -26,17 +26,22 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     options = options or {}
     local account = self.library_db and self.library_db:accountKey()
     local ids = {}
-    for _, book in ipairs(books) do ids[#ids + 1] = tostring(book.bookId or book.book_id) end
-    local key = tostring(account) .. ":" .. tostring(self.discovery_epoch or 0) .. ":" .. table.concat(ids, ",")
+    for _, book in ipairs(books) do
+        local id = Data.book_id(book.bookId or book.book_id)
+        if id then ids[#ids + 1] = id end
+    end
+    local access = Data.selection(self.settings)
+    local key = tostring(account) .. ":" .. tostring(self.discovery_epoch or 0) .. ":"
+        .. (access and access.revision or "") .. ":" .. table.concat(ids, ",")
     local current = self.shelf_progress_context
     if current and current.key == key and current.request then
         current.redraw = options.on_redraw
         return
     end
     self:cancelShelfProgress()
-    if not account or #ids == 0 or not self:isNetworkOnline()
-        or not self.settings:is_api_configured() then return end
-    if self.shelf_progress_retry_at and os.time() < self.shelf_progress_retry_at then return end
+    if not account or #ids == 0 or not self:isNetworkOnline() or not access then return end
+    if self.shelf_progress_retry_at and self.shelf_progress_retry_revision == access.revision
+        and os.time() < self.shelf_progress_retry_at then return end
     local needed = {}
     for _, id in ipairs(ids) do
         local cached = snapshots[id]
@@ -56,16 +61,22 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     self.shelf_progress_context = context
     local started, request = self.shelf_progress_worker:start{
         kind = "shelf_progress", queue = true, replace_active = true,
-        task = function(worker_context) return Data.fetch(self.client, needed, worker_context) end,
+        task = function(worker_context) return Data.fetch(self.client, needed, worker_context, access) end,
         on_done = function(result)
             if self.shelf_progress_context ~= context or self.library_db:accountKey() ~= account
                 or (self.discovery_epoch or 0) ~= epoch then return end
             context.request = nil
+            if not Data.matches(self.settings, access) then return end
             if not result.ok or type(result.value) ~= "table" then
                 self.shelf_progress_retry_at = os.time() + 30
+                self.shelf_progress_retry_revision = access.revision
                 return
             end
-            if result.value.failed then self.shelf_progress_retry_at = os.time() + 30 end
+            if result.value.stale then return end
+            if result.value.failed then
+                self.shelf_progress_retry_at = os.time() + 30
+                self.shelf_progress_retry_revision = access.revision
+            end
             local values = result.value.snapshots
             if type(values) == "table" and #values > 0 and self.library_db:putShelfProgress(values) then
                 if context.redraw and self.shelf_view then context.redraw() end
