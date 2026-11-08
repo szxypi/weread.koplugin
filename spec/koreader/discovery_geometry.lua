@@ -18,7 +18,9 @@ for _, dimensions in ipairs({ { 320, 480 }, { 600, 800 }, { 800, 600 }, { 1072, 
     Screen.scaleBySize = function(_self, value) return math.floor(value * math.min(width, height) / 600) end
     for _, count in ipairs({ 0, 1, 30 }) do
         local books = {}
-        for index = 1, count do books[index] = { bookId = tostring(index), title = "Book " .. index } end
+        for index = 1, count do
+            books[index] = { bookId = tostring(index), title = "Book " .. index, _shelf_progress = index % 2 == 0 and 100 or 1 }
+        end
         local layout = LibraryView.getLayout(true, count, "books", 108)
         local closed = false
         callbacks.on_close = function() closed = true end
@@ -31,6 +33,12 @@ for _, dimensions in ipairs({ { 320, 480 }, { 600, 800 }, { 800, 600 }, { 1072, 
         assert(view[1][1]:getSize().w <= width, "home/store chrome exceeds screen width")
         assert(view.scroll[1]:getSize().h <= view.scroll.dimen.h, "cover grid exceeds reserved viewport")
         assert(#view._navigation_buttons == 3 and #view._action_buttons == 5)
+        for _, cell in ipairs(view._item_rows) do
+            assert(cell._progress_badge, "progress badge missing")
+            local badge = cell._progress_badge
+            assert(badge.overlap_offset[1] >= 0 and badge.overlap_offset[2] >= 0)
+            assert(badge:getSize().w <= cell.width and badge:getSize().h <= cell.height, "progress badge exceeds cell")
+        end
         assert(view.page_size == layout.page_size, "cover fetch and display page sizes differ")
         view:onClose()
         assert(closed, "back button omitted controller cleanup")

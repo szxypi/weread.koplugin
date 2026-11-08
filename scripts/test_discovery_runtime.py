@@ -11,7 +11,7 @@ from pathlib import Path
 import subprocess
 import threading
 
-from mock_weread import MockServer
+from mock_weread import BOOK_ID, MockServer
 import zipfile
 
 REPO = Path(__file__).resolve().parent.parent
@@ -46,6 +46,7 @@ def main():
                        EMULATE_READER_W=str(args.width),
                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
     server = MockServer(0, root / "evidence/requests.jsonl")
+    server.progress[BOOK_ID] = dict(chapterUid=2, chapterIdx=2, chapterOffset=120, progress=37, summary="合成进度")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment["WEREAD_MOCK_PORT"] = str(server.server_port)

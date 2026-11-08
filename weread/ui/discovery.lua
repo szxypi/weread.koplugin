@@ -27,14 +27,16 @@ function M:showDiscoveryPage(tab, books, options)
     options = options or {}
     local layout = LibraryView.getLayout(true, #books, "books", 108)
     local page = math.max(1, math.min(options.page or 1, math.max(1, math.ceil(#books / layout.page_size))))
-    local cover_paths = {}
+    local cover_paths, visible = {}, {}
     local cache = self:getShelfCoverCache()
     local saved, downloaded = self.settings:get("books", {}), {}
     for index = (page - 1) * layout.page_size + 1, math.min(#books, page * layout.page_size) do
         local book = books[index]
         cover_paths[book] = cache:pathFor(book)
         book._cached = self:isBookDownloaded(book, saved, downloaded)
+        visible[#visible + 1] = book
     end
+    local snapshots = tab == "home" and self.prepareShelfProgress and self:prepareShelfProgress(visible)
     self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
     if self.shelf_view then UIManager:close(self.shelf_view) end
     local function redraw(next_page)
@@ -67,6 +69,13 @@ function M:showDiscoveryPage(tab, books, options)
         end,
     })
     self.shelf_view = view
+    if snapshots then
+        local force = options.refresh_progress
+        options.refresh_progress = nil
+        self:refreshVisibleShelfProgress(view, visible, snapshots, {
+            force = force, on_redraw = function() redraw(self.shelf_view and self.shelf_view.page or page) end,
+        })
+    elseif self.cancelShelfProgress then self:cancelShelfProgress() end
     self:fetchVisibleShelfCovers(view, books, { on_redraw = redraw })
 end
 
@@ -80,13 +89,14 @@ function M:recordRecentReading(book_id)
     self.settings:flush()
 end
 
-function M:showHome()
+function M:showHome(refresh_progress)
     local cached = self.library_db and self.library_db:getShelf() or {}
     local archives = self.library_db and self.library_db:getShelfArchives() or {}
     self:applyShelfSnapshot(cached or {}, archives)
     self:showDiscoveryPage("home", Data.recent(self.shelf_regular, self.settings:get("books", {}),
         self.library_db and self.library_db:accountKey()), {
         title = _("WeRead home"),
+        refresh_progress = refresh_progress,
         empty_text = _("No recent reading. Refresh or open your bookshelf."),
         actions = {
             { text = _("Recently read"), enabled = false },
@@ -96,7 +106,7 @@ function M:showHome()
             end },
         },
         on_refresh = function()
-            self:refreshBookshelf(self.shelf_view, { on_loaded = function() self:showHome() end })
+            self:refreshBookshelf(self.shelf_view, { on_loaded = function() self:showHome(true) end })
         end,
     })
 end

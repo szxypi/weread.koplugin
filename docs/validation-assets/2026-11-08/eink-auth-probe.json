@@ -1,0 +1,30 @@
+{
+  "checked_at": "2026-11-08T01:21:57.569711+00:00",
+  "stages": [
+    {
+      "stage": "qr_ticket",
+      "status": 200,
+      "keys": [
+        "expires_in",
+        "signature",
+        "timeStamp"
+      ]
+    },
+    {
+      "stage": "qr_connect",
+      "status": 200,
+      "keys": [
+        "appname",
+        "errcode",
+        "qrcode",
+        "uuid"
+      ]
+    }
+  ],
+  "result": "PARTIAL",
+  "pending": [
+    "owner_scan",
+    "login",
+    "shelf_verify"
+  ]
+}

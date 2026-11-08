@@ -57,6 +57,27 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 
 ## 实际截图
 
+当前可见书籍进度验证：
+
+- 79 组 Lua 回归、Luacheck 176 文件零警告、命名空间、Python 编译通过。
+  7 组原有 HTTP 测试与 5 组 E-Ink 授权原型离线测试通过；后者已纳入 CI。
+- `.validation/progress-scroll-600/`、`progress-scroll-landscape/`、
+  `progress-scroll-large/`：真实 HTTP → 后台子进程 → SQLite → 原生控件显示通过。
+  覆盖封面、分页、列表、非分页长列表滚动、首页、离线缓存和账号隔离。
+- 云端快照为 37%，账号绑定的本机待上传进度为 83%：快照保存为 37%，
+  界面显示 83%；原有本机阅读章节和待上传位置保持不变。
+- 长列表使用原生 ScrollableContainer 翻页滚动后读取新可见行，重绘保持滚动位置。
+  布局几何检查覆盖 5 种尺寸、空／单本／30 本，新增百分比标识边界检查。
+- `.validation/progress-ko2/` 的 1264×1680/300 DPI 灰度模拟配置同样通过。
+  像素尺寸依据 [KOReader 的 KindleOasis2 实机日志](https://github.com/koreader/koreader/issues/9253)，
+  实体按键、休眠与残影仍需设备验证。
+- E-Ink 出票与二维码生成在实际服务返回 200，报告状态为 `PARTIAL`。
+  本人扫码及其后的登录／书架回读尚未执行，详见 [授权原型说明](eink-authorization-prototype.md)。
+
+![书架进度：本机待上传优先](validation-assets/2026-11-08/shelf-progress.png)
+
+![离线列表进度](validation-assets/2026-11-08/shelf-progress-list.png)
+
 排行榜／分类后续验证：
 
 - `scripts/verify_bookstore.py` 在无登录条件下实际请求官方公开 Web 端点，分类树与

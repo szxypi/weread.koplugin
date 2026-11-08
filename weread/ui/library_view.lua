@@ -586,6 +586,22 @@ function CoverCell:init()
         self._private_badge = badge
         self._private_badge_size = badge_size
     end
+    if type(self.book._shelf_progress) == "number" then
+        local badge = FrameContainer:new{
+            padding = math.max(1, Screen:scaleBySize(2)), margin = 0,
+            bordersize = Size.border.thin, radius = 0,
+            background = Blitbuffer.COLOR_WHITE,
+            TextWidget:new{ text = tostring(self.book._shelf_progress) .. "%", face = Font:getFace("cfont", 14) },
+        }
+        local size = badge:getSize()
+        local inset = math.max(border, Screen:scaleBySize(4))
+        badge.overlap_offset = {
+            math.max(0, metrics.card_width - size.w - inset),
+            math.max(0, metrics.card_height - size.h - inset),
+        }
+        cover_layers[#cover_layers + 1] = badge
+        self._progress_badge = badge
+    end
     local cover = OverlapGroup:new(cover_layers)
     local title = self.book.title or self.book.bookId or self.book.book_id or _("Untitled")
     local status_size = math.max(1, math.min(metrics.title_height, Screen:scaleBySize(10)))
@@ -806,6 +822,26 @@ function LibraryView:getScrollOffset()
     return self.scroll and self.scroll:getScrolledOffset()
 end
 
+function LibraryView:getVisibleBooks()
+    local source = self.mode == "public_account" and (self.accounts or {}) or (self.books or {})
+    local result = {}
+    if self.paged then
+        for index = (self.page - 1) * self.page_size + 1, math.min(#source, self.page * self.page_size) do
+            result[#result + 1] = source[index]
+        end
+        return result
+    end
+    local offset = self:getScrollOffset()
+    local top, height, y = offset and offset.y or 0, self.scroll.dimen.h, 0
+    for index, row in ipairs(self._item_rows) do
+        local bottom = y + row:getSize().h
+        if bottom > top and y < top + height then result[#result + 1] = source[index] end
+        if y >= top + height then break end
+        y = bottom + 1 -- list divider
+    end
+    return result
+end
+
 function LibraryView:showSourceMenu(menu_mode)
     local Menu = require("ui/widget/menu")
     menu_mode = menu_mode or self.mode
@@ -944,10 +980,12 @@ end
 function LibraryView:itemStatus(book)
     if self.mode == "public_account" then return book.author or "" end
     local status = ""
-    if book.readUpdateTime and book.readUpdateTime > 0 then
-        status = os.date("%Y-%m-%d", book.readUpdateTime)
-    elseif is_finished(book) then
+    if is_finished(book) then
         status = _("Done")
+    elseif type(book._shelf_progress) == "number" then
+        status = tostring(book._shelf_progress) .. "%"
+    elseif book.readUpdateTime and book.readUpdateTime > 0 then
+        status = os.date("%Y-%m-%d", book.readUpdateTime)
     end
     if book._cached then
         status = status ~= "" and ("✓  " .. status) or "✓"
@@ -1134,6 +1172,18 @@ function LibraryView:init()
     }
     self.scroll = scroll
     if self.scroll_offset and not self.paged then scroll:setScrolledOffset(self.scroll_offset) end
+    if not self.paged and self.on_visible_changed then
+        local scroll_by = scroll._scrollBy
+        scroll._scrollBy = function(container, ...)
+            scroll_by(container, ...)
+            if self._visible_task then UIManager:unschedule(self._visible_task) end
+            self._visible_task = function()
+                self._visible_task = nil
+                self.on_visible_changed()
+            end
+            UIManager:scheduleIn(0.3, self._visible_task)
+        end
+    end
     local rows = { self._header_buttons }
     if self._action_buttons then rows[#rows + 1] = self._action_buttons end
     for _i, item_row in ipairs(self._focus_item_rows) do
@@ -1198,6 +1248,7 @@ function LibraryView:onShow()
 end
 
 function LibraryView:onCloseWidget()
+    if self._visible_task then UIManager:unschedule(self._visible_task) self._visible_task = nil end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
@@ -1271,6 +1322,7 @@ function M.show(data, callbacks)
         on_filter = callbacks.on_filter,
         on_select = callbacks.on_select,
         on_page_changed = callbacks.on_page_changed,
+        on_visible_changed = callbacks.on_visible_changed,
     }
     UIManager:show(view)
     return view

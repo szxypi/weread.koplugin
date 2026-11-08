@@ -112,6 +112,12 @@ function LibraryDB:open()
         -- development build. Duplicate-column errors are intentionally ignored.
         pcall(function() db:exec("ALTER TABLE books ADD COLUMN detail_payload TEXT") end)
         db:exec("CREATE INDEX IF NOT EXISTS chapters_position ON chapters(book_id, position)")
+        db:exec([[
+            CREATE TABLE IF NOT EXISTS shelf_progress (
+                book_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL
+            ) WITHOUT ROWID
+        ]])
     end)
     if not schema_ok then
         logger.warn("library_db schema init failed:", schema_err)
@@ -212,6 +218,49 @@ function LibraryDB:getShelf()
     close_statement(stmt)
     pcall(function() db:close() end)
     return ok and books or nil
+end
+
+function LibraryDB:getShelfProgress(ids)
+    local result = {}
+    if type(ids) ~= "table" or #ids == 0 then return result end
+    local db = self:open()
+    if not db then return result end
+    local stmt
+    local ok = pcall(function()
+        stmt = db:prepare("SELECT payload FROM shelf_progress WHERE book_id=?")
+        for _, id in ipairs(ids) do
+            local row = stmt:reset():bind(tostring(id)):step()
+            if row then result[tostring(id)] = decode(row[1]) end
+        end
+    end)
+    close_statement(stmt)
+    pcall(function() db:close() end)
+    return ok and result or {}
+end
+
+function LibraryDB:putShelfProgress(snapshots)
+    if type(snapshots) ~= "table" or #snapshots == 0 then return false end
+    local db = self:open()
+    if not db then return false end
+    local stmt, transaction_open
+    local ok = pcall(function()
+        db:exec("BEGIN")
+        transaction_open = true
+        stmt = db:prepare([[
+            INSERT INTO shelf_progress (book_id, payload) VALUES (?, ?)
+            ON CONFLICT(book_id) DO UPDATE SET payload=excluded.payload
+        ]])
+        for _, snapshot in ipairs(snapshots) do
+            local payload = assert(encode(snapshot))
+            stmt:reset():bind(tostring(assert(snapshot.book_id)), payload):step()
+        end
+        db:exec("COMMIT")
+        transaction_open = false
+    end)
+    close_statement(stmt)
+    if not ok and transaction_open then pcall(function() db:exec("ROLLBACK") end) end
+    pcall(function() db:close() end)
+    return ok
 end
 
 function LibraryDB:putBook(book)

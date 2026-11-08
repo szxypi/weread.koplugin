@@ -99,6 +99,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelShelfProgress then self:cancelShelfProgress() end
     self.discovery_epoch = (self.discovery_epoch or 0) + 1
     -- Close from the topmost view down so no full-screen WeRead widget remains
     -- in UIManager's window stack after a document is opened.
@@ -122,6 +123,7 @@ function M:onWeReadAccountChanged()
     self:closeWeReadUI()
     self.discovery_state = nil
     self.discovery_categories = nil
+    self.shelf_progress_retry_at = nil
     self.shelf_regular = nil
     self.shelf_mp = nil
     self.shelf_books = nil
@@ -200,6 +202,7 @@ function M:refreshBookshelf(old_view, view_options)
         local next_options = {}
         for key, value in pairs(view_options or {}) do next_options[key] = value end
         next_options.prepared_shelf = nil
+        next_options.refresh_progress = true
         if old_group_key ~= self.shelf_group_key then
             next_options.page, next_options.scroll_offset = 1, nil
         end
@@ -425,6 +428,11 @@ function M:showShelfView(mode, keyword, old_view, options)
     local layout = LibraryView.getLayout(cover_mode, #source, mode, navigation and 54 or 0)
     local cover_layout = cover_mode and layout or nil
     local page_size = layout.page_size
+    local progress_books, progress_snapshots
+    if mode == "books" and self.prepareShelfProgress then
+        progress_books = paged and shelf_page_items(source, page, page_size) or source
+        progress_snapshots = self:prepareShelfProgress(progress_books)
+    end
     local cover_paths, cover_loading
     if cover_mode then
         cover_paths = {}
@@ -442,7 +450,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         end
     end
     if old_view then UIManager:close(old_view) end
-    local view
+    local view, update_progress
     view = LibraryView.show({
         mode = mode,
         navigation = navigation,
@@ -468,6 +476,9 @@ function M:showShelfView(mode, keyword, old_view, options)
         cover_paths = cover_paths,
         cover_loading = cover_loading,
     }, {
+        on_visible_changed = function()
+            if self.shelf_view == view and update_progress then update_progress() end
+        end,
         on_close = function()
             if self.shelf_view == view then
                 self.shelf_view = nil
@@ -546,6 +557,24 @@ function M:showShelfView(mode, keyword, old_view, options)
     })
     if paged then self.shelf_view_pages[mode] = view.page end
     self.shelf_view = view
+    if progress_books then
+        local force = options.refresh_progress
+        options.refresh_progress = nil
+        update_progress = function(refresh)
+            self:refreshVisibleShelfProgress(view, paged and progress_books or view:getVisibleBooks(), progress_snapshots, {
+                force = refresh,
+                on_redraw = function()
+                    local next_options = {}
+                    for key, value in pairs(options) do next_options[key] = value end
+                    next_options.prepared_shelf = { books = books, accounts = accounts }
+                    next_options.page = self.shelf_view and self.shelf_view.page or page
+                    next_options.scroll_offset = self.shelf_view and self.shelf_view:getScrollOffset()
+                    self:showShelfView(mode, keyword, self.shelf_view, next_options)
+                end,
+            })
+        end
+        update_progress(force)
+    elseif self.cancelShelfProgress then self:cancelShelfProgress() end
     if cover_mode and not skip_cover_fetch_once then
         local fetch_options = {}
         for key, value in pairs(options) do fetch_options[key] = value end

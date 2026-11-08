@@ -22,3 +22,8 @@ MiuRead UI migration:
 Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
 Source: https://github.com/miumiupy98-art/miuread-koreader
 The home/shelf/store navigation is adapted to the original WeRead services.
+
+Native authorization protocol prototype:
+- scripts/verify_eink_login.py adapts the request flow from MiuRead's
+  miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references
+  https://github.com/teng-lin/weread-omni/blob/main/src/auth/qrlogin.ts.

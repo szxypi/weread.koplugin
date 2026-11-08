@@ -21,6 +21,7 @@ local plugin = Plugin:new{ ui = { menu = {
     registerToMainMenu = function() registered = true end,
 } } }
 assert(registered, "plugin init did not register its menu")
+local require_login = plugin.requireLogin
 -- Exercise the real HTTP transport against the local synthetic server.
 local Data = require("weread.lib.discovery_data")
 local first = Data.page("recommend", plugin.client:gateway("/book/recommend", { count = 20, maxIdx = 0 }), 0)
@@ -118,6 +119,75 @@ assert(plugin.discovery_state.category_id == "100001" and not plugin.discovery_s
 paint("store-subcategory-books")
 plugin:closeWeReadUI()
 plugin.discovery_state = nil
+-- Real subprocess, actual account-scoped SQLite and local-over-cloud display.
+plugin.requireLogin = require_login
+local fetch_covers = plugin.fetchVisibleShelfCovers
+plugin.fetchVisibleShelfCovers = function() end
+plugin.library_db:cacheShelf(response.books, response.archive)
+local shelf_settings = plugin.settings:get("shelf")
+shelf_settings.sort_order = "default"
+plugin.settings:set("shelf", shelf_settings)
+local seed_id = response.books[1].bookId
+local saved = plugin.settings:get("books", {})
+saved[seed_id] = { book_id = seed_id, title = response.books[1].title,
+    recent_read_account = plugin.library_db:accountKey(), recent_read_at = os.time(), progress = 83, chapter_uid = 99,
+    pending_upload_position = { book_id = seed_id, percent = 83, chapter_uid = 99 },
+}
+plugin.settings:set("books", saved)
+plugin.settings:flush()
+local function wait_progress()
+    for _i = 1, 200 do
+        flush_tasks()
+        if plugin.shelf_progress_worker and not plugin.shelf_progress_worker:busy() then return end
+        require("ffi/util").usleep(50000)
+    end
+    error("shelf progress worker timed out")
+end
+plugin:showBookshelf()
+wait_progress()
+local snapshot = plugin.library_db:getShelfProgress({ seed_id })[seed_id]
+assert(snapshot and snapshot.percent == 37, "real HTTP progress did not persist")
+assert(plugin.shelf_view.books[1]._shelf_progress == 83 and plugin.shelf_view.books[1]._shelf_progress_local,
+    "cloud display overwrote pending local progress")
+local preserved = plugin.settings:get("books", {})[seed_id]
+assert(preserved.progress == 83 and preserved.chapter_uid == 99 and preserved.pending_upload_position.percent == 83,
+    "display refresh changed the reader's sync position")
+paint("shelf-progress")
+plugin.shelf_view.on_page_changed(2)
+wait_progress()
+local next_id = plugin.shelf_view.books[plugin.shelf_view.page_size + 1].bookId
+assert(plugin.library_db:getShelfProgress({ next_id })[next_id].percent == 0, "next shelf page did not fetch progress")
+plugin.shelf_view.on_page_changed(1)
+plugin.isNetworkOnline = function() return false end
+plugin.shelf_view.on_display_change("view_mode", "list")
+assert(plugin.shelf_view:itemStatus(plugin.shelf_view.books[1]):find("83%%"), "offline list lost pending progress")
+paint("shelf-progress-list")
+plugin.isNetworkOnline = function() return true end
+plugin.shelf_view.on_display_change("paginated", false)
+wait_progress()
+paint("shelf-progress-scroll-start")
+assert(plugin.shelf_view.scroll:onScrollPageDown(), "native long-list scroll did not move")
+wait_progress()
+local scrolled = plugin.shelf_view:getScrollOffset().y
+local visible_books = plugin.shelf_view:getVisibleBooks()
+assert(scrolled > 0 and visible_books[1].bookId ~= seed_id, "long-list view returned invisible first row")
+local visible_ids = {}
+for _, book in ipairs(visible_books) do visible_ids[#visible_ids + 1] = book.bookId end
+local scrolled_snapshots = plugin.library_db:getShelfProgress(visible_ids)
+for _, id in ipairs(visible_ids) do assert(scrolled_snapshots[id], "scroll did not fetch visible progress") end
+assert(plugin.shelf_view:getScrollOffset().y == scrolled, "progress redraw reset scroll offset")
+paint("shelf-progress-scroll")
+plugin:closeWeReadUI()
+local original_account = plugin.settings:get("account")
+plugin.settings:set("account", { user_vid = "90009999" })
+assert(next(plugin.library_db:getShelfProgress({ seed_id })) == nil, "snapshot leaked across accounts")
+plugin.settings:set("account", original_account)
+plugin.fetchVisibleShelfCovers = fetch_covers
+plugin.library_db:cacheShelf({}, {})
+shelf_settings = plugin.settings:get("shelf")
+shelf_settings.view_mode = "cover"
+shelf_settings.paginated = true
+plugin.settings:set("shelf", shelf_settings)
 -- Screens now render offline; any unexpected request fails the test.
 plugin.isNetworkOnline = function() return false end
 plugin.isNetworkConnected = function() return false end
@@ -125,10 +195,12 @@ plugin.client.gateway = function() error("unexpected network request") end
 plugin.client.get_binary = function() error("unexpected image request") end
 plugin.client.get_text = function() error("unexpected public request") end
 plugin:showHome()
+assert(#plugin.shelf_view.books == 0, "empty-home fixture contains cached books")
 paint("home-empty")
 local books = response.books
 plugin.library_db:cacheShelf(books, response.archive)
 plugin:showHome()
+assert(plugin.shelf_view.books[1]._shelf_progress == 83, "home lost account-bound pending progress")
 paint("home-recent")
 plugin.shelf_view.on_page_changed(2)
 paint("home-page-two")
@@ -153,5 +225,5 @@ plugin.shelf_view:onClose()
 assert(plugin.shelf_view == nil, "closing store retained a stale view")
 plugin:onWeReadAccountChanged()
 assert(plugin.discovery_state == nil, "account change retained discovery data")
-print("PASS: real HTTP recommendations/search/similar/categories/rankings/shelf/covers, native buttons and menus, scheduled requests, SQLite, rendering, pagination, close and account cleanup")
+print("PASS: real HTTP discovery/shelf/progress/covers; native menus, subprocess progress cache, local position protection, account SQLite isolation, rendering and cleanup")
 UIManager:quit()

@@ -47,6 +47,9 @@ jobs:
       - name: Offline mock service checks
         run: python3 scripts/test_mock_weread.py
 
+      - name: Native authorization prototype checks
+        run: python3 scripts/test_eink_login.py
+
       - name: Release package smoke test
         run: bash scripts/package_release.sh /tmp/weread.koplugin-release-test.zip
 
