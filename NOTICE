@@ -32,6 +32,10 @@ Native authorization protocol prototype:
 - scripts/verify_eink_login.py adapts the request flow from MiuRead's
   miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references
   https://github.com/teng-lin/weread-omni/blob/main/src/auth/qrlogin.ts.
+- scripts/verify_eink_readtime.py references MiuRead's miuread/eink_readtime.lua
+  and readtime_protocol.lua (AGPL-3.0-only, MiuRead contributors) for read-only
+  config/feature/position preflight. It does not implement the write/signature
+  algorithm or upload reading time.
 
 Local offline reading-time collection:
 - weread/lib/offline_time_stats.lua adapts native statistics extraction from

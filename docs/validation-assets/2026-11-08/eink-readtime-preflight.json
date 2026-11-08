@@ -1,0 +1,33 @@
+{
+  "checked_at": "2026-11-08T03:41:57.659622+00:00",
+  "stages": [
+    {
+      "stage": "time_config",
+      "status": 401,
+      "reason": "time_config: HTTP 401"
+    },
+    {
+      "stage": "time_feature",
+      "status": 200,
+      "keys": [
+        "feature",
+        "synckey"
+      ]
+    }
+  ],
+  "probe": "native_offline_time_read_only",
+  "authenticated": false,
+  "time_uploads_attempted": 0,
+  "config_token_present": false,
+  "feature_contract_present": true,
+  "signature_token_source": "client_default",
+  "pending": [
+    "owner_scan_and_native_authorization",
+    "authenticated_config_and_position",
+    "time_only_payload_and_write_readback",
+    "web_offline_overlap_coordination",
+    "file_bound_book_version_validation"
+  ],
+  "read_only_preflight_complete": false,
+  "result": "PARTIAL"
+}

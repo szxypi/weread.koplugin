@@ -57,6 +57,16 @@ xvfb-run -a python3 scripts/test_updater_simulator.py \
 
 ## 实际截图
 
+离线补传只读前置验证：
+
+- 实际匿名 config 请求返回 401，feature 返回 200 且未提供 guest_token。报告为 `PARTIAL`，
+  不把匿名读取成功当作补传接口已验证，见 [元数据报告](validation-assets/2026-11-08/eink-readtime-preflight.json)。
+- 新增 9 组 Python 测试通过，包含真实 SQLite 的只读文件一致性、账号／版本分组、
+  重叠／未来片段拒绝，以及禁止数据 POST 的传输保护。原有 8 组 HTTP 和 5 组授权原型测试同样通过。
+- 本轮新增工作只涉及 Python 工具、CI 和文档，未更改插件运行代码。
+  未扫码或发起数据写入；云端补传仍未接入 Lua。在线上报覆盖去重和文件版本来源为明确的后续前置条件。
+  完整使用说明及剩余验证见 [补传原型说明](eink-readtime-prototype.md)。
+
 本机离线时长记录后续验证：
 
 - 85 组 Lua 回归、Luacheck 191 文件零警告、命名空间、Python 编译及差异格式通过；

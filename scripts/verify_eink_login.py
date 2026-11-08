@@ -139,6 +139,9 @@ class NativeProbe:
         if not isinstance(shelf.get("books"), list):
             raise ProbeError("shelf_verify: missing shelf books")
         self.report["shelf_book_count"] = len(shelf["books"])
+        # Reusable by other read-only probes in the same process. The CLI
+        # deliberately ignores this private return value and never persists it.
+        return dict(credentials, deviceId=body["deviceId"]), shelf
 
 
 def main():

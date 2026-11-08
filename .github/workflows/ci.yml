@@ -56,6 +56,9 @@ jobs:
       - name: Native authorization prototype checks
         run: python3 scripts/test_eink_login.py
 
+      - name: Offline-time read-only preflight checks
+        run: python3 scripts/test_eink_readtime.py
+
       - name: Release package smoke test
         run: bash scripts/package_release.sh /tmp/weread.koplugin-release-test.zip
 
