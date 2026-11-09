@@ -34,7 +34,7 @@ end
 local host,book,article=fixture()
 expect(Actions.list(host,book,{article,article}) and #host._mp_cache_picker.item_table==1,'cache picker did not deduplicate identity')
 host._mp_cache_picker.item_table[1].callback()
-expect(#host._mp_actions_menu.item_table==4,'native cache actions missing')
+expect(#host._mp_actions_menu.item_table==5,'native cache actions missing')
 host._mp_actions_menu.item_table[1].callback();expect(state.opened=='/cache/article.html','read cache action failed')
 host._mp_actions_menu.item_table[4].callback();expect(state.exported,'export delegation missing')
 host,book,article=fixture();Actions.refresh(host,book,article)

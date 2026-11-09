@@ -1,6 +1,18 @@
 local I18n = {}
 
 local zh = {
+    ["Currently reading"] = "正在阅读",
+    ["Clean up"] = "清理",
+    ["Clean article cache"] = "清理文章缓存",
+    ["Clean unused images"] = "清理未引用图片",
+    ["Remove old version"] = "删除旧版缓存",
+    ["Checking article cache…\nTap or press a key to cancel."] = "正在检查文章缓存…\n点击或按键可取消。",
+    ["Cleaning article cache…\nTap or press a key to stop."] = "正在清理文章缓存…\n点击或按键可停止。",
+    ["Cleanup stopped. Removed %1 files, %2. Retained versions and reading records are kept."] = "清理已停止，已移除 %1 个文件，释放 %2。保留的版本和阅读记录未删除。",
+    ["Cleanup complete. Removed %1 files, %2. Reading records are kept."] = "清理完成，已移除 %1 个文件，释放 %2。阅读记录仍保留。",
+    ["Could not clean this article cache. It changed, contains unknown files, or another task is using it. Reopen the list and try again."] = "未能清理文章缓存：缓存已变化、含有无法识别的文件，或正被其他任务使用。请重新打开列表后再试。",
+    ["Remove this old article version and its unused images (%1)?\n\nThe current and open versions are kept. Reading records are not deleted, but this version will no longer open. Export any notes you need before removing it."] = "删除此旧版正文及未再引用的图片（%1）？\n\n当前版本和正在阅读的版本会保留。不会删除阅读记录，但删除后无法再打开此旧版；如需保留笔记，请先导出。",
+    ["Remove unused article images (%1)?\n\nImages referenced by saved versions and images of the open article are kept. Text and reading records are kept."] = "清理未引用的文章图片（%1）？\n\n已保存版本引用的图片、当前文章正在使用的图片会保留。正文和阅读记录不会删除。",
     ["Article cache and versions"] = "文章缓存与版本",
     ["Refresh article"] = "刷新此文章",
     ["Saved versions"] = "已保存版本",

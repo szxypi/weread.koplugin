@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
@@ -1353,6 +1354,10 @@ end
 
 function M:cancelMPArticleActions()
     return require('weread.ui.mp_article_actions').cancel(self)
+end
+
+function M:cancelMPArticleCleanup()
+    return require('weread.ui.mp_cache_cleanup').cancel(self)
 end
 
 function M:loadChapters(book, callback, force_refresh)

@@ -105,6 +105,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelMPArticleActions then self:cancelMPArticleActions() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
@@ -199,6 +200,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelMPArticleActions then self:cancelMPArticleActions() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
@@ -370,6 +372,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelMPArticleActions then self:cancelMPArticleActions() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end

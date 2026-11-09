@@ -13,6 +13,7 @@ local function unchanged(a,b)
     return not a and not b or same(a,b) and a.size==b.size and a.modification==b.modification
 end
 function M.create(root,key,options)
+    if require('weread.lib.mp_cache_cleanup').locked(root,key) then return nil end
     local path=Identity.prepare(root,key);if not path then return nil end
     local lfs=require('libs/libkoreader-lfs')
     local snapshot=Versions.capture(root,key);if not snapshot then return nil end
@@ -41,6 +42,7 @@ function M.create(root,key,options)
             local created,output=pcall(Output.create,directory,'body','html')
             job.output=created and output or nil
             if not job.output then job:cleanup();return nil end
+            if require('weread.lib.mp_cache_cleanup').locked(root,key) then job:cleanup();return nil end
             return job
         end
     end
