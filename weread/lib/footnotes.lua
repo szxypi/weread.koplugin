@@ -232,7 +232,7 @@ local source_blocks
 
 local function collect_refs(links)
     local refs = {}
-    for _, link in ipairs(links) do
+    for _i, link in ipairs(links) do
         local attrs, inner = link.attrs, link.inner
         local href = get_attr(attrs, "href")
         if href and looks_like_ref(attrs, href, inner) then
@@ -281,8 +281,8 @@ local function collect_definitions(html, blocks, anchors, links)
     local definitions = {}
     html = tostring(html or "")
     for anchor, points in pairs(anchors) do
-        for _, point in ipairs(points) do
-            for _, block in ipairs(blocks) do
+        for _i, point in ipairs(points) do
+            for _j, block in ipairs(blocks) do
                 if block.first <= point.first and point.first < block.last then
                     remember_definition(definitions, anchor, html:sub(block.open_last + 1, block.close_first - 1))
                 elseif point.tag == "a" and point.last and point.last < block.first and block.tag == "p"
@@ -292,7 +292,7 @@ local function collect_definitions(html, blocks, anchors, links)
             end
         end
     end
-    for _, link in ipairs(links) do
+    for _i, link in ipairs(links) do
         local attrs, inner = link.attrs, link.inner
         remember_definition(definitions,
             get_attr(attrs, "id") or get_attr(attrs, "name"), inner)
@@ -308,14 +308,14 @@ end
 
 local function collect_definition_backlinks(blocks, links)
     local backlinks = {}
-    for _, block in ipairs(blocks) do
+    for _i, block in ipairs(blocks) do
         local attrs = block.attrs
         local class = get_attr(attrs, "class") or ""
         local lower = class:lower()
         if has_token(class, "note") or lower:find("fncontent", 1, true)
             or has_token(get_attr(attrs, "epub:type"), "footnote")
             or has_token(get_attr(attrs, "role"), "doc-footnote") then
-            for _, link in ipairs(links) do
+            for _j, link in ipairs(links) do
                 local link_attrs, link_inner = link.attrs, link.inner
                 local href = get_attr(link_attrs, "href")
                 if link.first > block.first and link.last < block.last
@@ -470,13 +470,13 @@ local function build_section(notes)
     local out = { '\n<div class="wr-footnotes">\n<hr/>\n' }
     for _i, note in ipairs(notes) do
         local backlinks, aliases, keys = {}, {}, {}
-        for _, ref in ipairs(note.refs or { note }) do
+        for _j, ref in ipairs(note.refs or { note }) do
             backlinks[#backlinks + 1] = string.format('<a href="#%s" class="wr-fn-num">%s</a>',
                 ref.ref_id, xml_escape(ref.display))
         end
         for anchor in pairs(note.aliases or {}) do keys[#keys + 1] = anchor end
         table.sort(keys)
-        for _, anchor in ipairs(keys) do aliases[#aliases + 1] = '<span id="' .. xml_escape(anchor) .. '"></span>' end
+        for _j, anchor in ipairs(keys) do aliases[#aliases + 1] = '<span id="' .. xml_escape(anchor) .. '"></span>' end
         out[#out + 1] = string.format(
             '<aside epub:type="footnote" id="%s" class="wr-book-footnote">%s<p>%s %s</p></aside>\n',
             note.target_id, table.concat(aliases), table.concat(backlinks, " "), xml_escape(note.text))
@@ -500,7 +500,7 @@ end
 local VOID_TAGS = { area=true, base=true, br=true, col=true, embed=true, hr=true, img=true,
     input=true, link=true, meta=true, param=true, source=true, track=true, wbr=true }
 local NOTE_BLOCK_TAGS = {}
-for _, tag in ipairs(BLOCK_TAGS) do NOTE_BLOCK_TAGS[tag] = true end
+for _i, tag in ipairs(BLOCK_TAGS) do NOTE_BLOCK_TAGS[tag] = true end
 
 -- Ranges must be balanced, even with quoted '>' or nested same-name tags.
 -- A malformed fragment never authorizes deleting an enclosing body block.
@@ -567,7 +567,7 @@ end
 
 local function rewrite_nodes(html, nodes, transform)
     local rewritten, from = {}, 1
-    for _, node in ipairs(nodes) do
+    for _i, node in ipairs(nodes) do
         if node.first >= from then
             rewritten[#rewritten + 1] = html:sub(from, node.first - 1)
             rewritten[#rewritten + 1] = transform(node)
@@ -580,8 +580,8 @@ end
 
 local function local_note_range(html, blocks, anchors, anchor, content, scan)
     local best
-    for _, point in ipairs(anchors[anchor] or {}) do
-        for _, block in ipairs(blocks) do
+    for _i, point in ipairs(anchors[anchor] or {}) do
+        for _j, block in ipairs(blocks) do
             local contains = block.first <= point.first and point.first < block.last
             local adjacent = point.tag == "a" and point.last and block.tag == "p" and point.last < block.first
                 and html:sub(point.last + 1, block.first - 1):match("^%s*$")
@@ -590,7 +590,7 @@ local function local_note_range(html, blocks, anchors, anchor, content, scan)
                 -- Plain-text conversion must not discard embedded media or
                 -- citations. Those targets retain their original native link.
                 local rich
-                for _, name in ipairs({ "img", "svg", "math", "table", "object", "audio", "video" }) do
+                for _k, name in ipairs({ "img", "svg", "math", "table", "object", "audio", "video" }) do
                     if inner:lower():find("<%s*" .. name .. "[%s/>]") then rich = true; break end
                 end
                 for attrs, label in inner:gmatch("<[aA]([^>]*)>(.-)</[aA]%s*>") do
@@ -608,7 +608,7 @@ local function local_note_range(html, blocks, anchors, anchor, content, scan)
                     if not best or block.last - first < best.last - best.first then
                         best = { first = first, last = block.last, aliases = {} }
                         for key, points in pairs(anchors) do
-                            for _, candidate in ipairs(points) do
+                            for _k, candidate in ipairs(points) do
                                 if candidate.first >= first and candidate.first <= block.last then best.aliases[key] = true end
                             end
                         end
@@ -618,7 +618,7 @@ local function local_note_range(html, blocks, anchors, anchor, content, scan)
         end
     end
     if best then
-        for _, point in ipairs(anchors[anchor] or {}) do
+        for _i, point in ipairs(anchors[anchor] or {}) do
             if point.first < best.first or point.first > best.last then return nil end
         end
     end
@@ -627,14 +627,14 @@ end
 
 local function strip_consumed_note_blocks(html, notes)
     local ranges, seen = {}, {}
-    for _, note in ipairs(notes) do
+    for _i, note in ipairs(notes) do
         if note.range and not seen[note.range.first] then
             seen[note.range.first] = true
             ranges[#ranges + 1] = note.range
         end
     end
     table.sort(ranges, function(a, b) return a.first > b.first end)
-    for _, range in ipairs(ranges) do html = html:sub(1, range.first - 1) .. html:sub(range.last + 1) end
+    for _i, range in ipairs(ranges) do html = html:sub(1, range.first - 1) .. html:sub(range.last + 1) end
     return html, #ranges
 end
 
@@ -715,7 +715,7 @@ function Footnotes.transform_chapter(html, scan, index)
         local display = ref_display(inner)
         local note = by_definition[content] or (range_key and by_range[range_key])
         if not note and range then
-            for _, existing in ipairs(notes) do
+            for _i, existing in ipairs(notes) do
                 if existing.range and existing.text == content.text
                     and range.first <= existing.range.last and existing.range.first <= range.last then
                     note = existing
@@ -745,7 +745,7 @@ function Footnotes.transform_chapter(html, scan, index)
 
     -- Link rewriting changes byte offsets; resolve each consumed target again.
     blocks, anchors = source_blocks(html)
-    for _, note in ipairs(notes) do
+    for _i, note in ipairs(notes) do
         if note.source_anchor then
             note.range = local_note_range(html, blocks, anchors, note.source_anchor,
                 { text = note.text }, scan)

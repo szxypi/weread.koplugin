@@ -24,7 +24,7 @@ assert(require("weread.lib.mock_environment").save{
 })
 local Loader = require("pluginloader")
 Loader.enabled_plugins, Loader.disabled_plugins, Loader.loaded_plugins = {}, {}, {}
-for _, entry in ipairs(Loader:_discover()) do if entry.name == "weread" then Loader:_load{ entry } end end
+for _i, entry in ipairs(Loader:_discover()) do if entry.name == "weread" then Loader:_load{ entry } end end
 assert(#Loader.enabled_plugins == 1)
 package.path = repo .. "/?.lua;" .. package.path
 local Screen = Device.screen
@@ -116,7 +116,7 @@ local function page_height()
     return reader.document._document:getPageHeight(1)
 end
 local function menu_select(menu, text)
-    for _, item in ipairs(menu.item_table) do
+    for _i, item in ipairs(menu.item_table) do
         if item.text == tr(text) then menu:onMenuSelect(item); return end
     end
     error("missing menu item: " .. text)
@@ -130,7 +130,7 @@ local steps = {
         menu_select(menu, "WeRead [MOCK]")
         menu_select(menu, "Settings")
         menu_select(menu, "Download settings")
-        for _, item in ipairs(menu.item_table) do
+        for _i, item in ipairs(menu.item_table) do
             assert(item.text ~= "隐藏脚注文本" and item.text ~= "Hide footnote text",
                 "obsolete footnote menu item is still visible")
         end
@@ -209,7 +209,7 @@ local steps = {
         local last_linear = document:getLastLinearPage()
         assert(last_linear < document:getPageCount(), "chapter-end notes were not separated from normal pages")
         reader.rolling:onGotoPage(1)
-        for _ = 1, document:getPageCount() do
+        for _i = 1, document:getPageCount() do
             local page = reader:getCurrentPage()
             assert(document:getPageFlow(page) == 0, "normal page turning entered hidden notes")
             if document:getNextPage(page) == 0 then break end

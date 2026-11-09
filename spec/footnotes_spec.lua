@@ -270,7 +270,7 @@ local scripts_html = '<p id="kana-note">これは日本語の脚注です。</p>
     .. '<p id="extb-note">𠀀𠀁 rare CJK extension footnote.</p>'
     .. '<p id="mixed-note">①これは注釈本体。</p>'
 local scripts_scan = Footnotes.scan_chapter(scripts_html, chapter)
-for _, anchor in ipairs({ "kana-note", "hangul-note", "cyrillic-note",
+for _i, anchor in ipairs({ "kana-note", "hangul-note", "cyrillic-note",
     "extb-note", "mixed-note" }) do
     expect(scripts_scan.definitions[anchor] ~= nil,
         "non-ASCII script footnote was mistaken for a pure symbol: " .. anchor)
@@ -287,7 +287,7 @@ local glyph_html = '<p id="glyph-arrow">↩</p><p id="glyph-arrow-vs">↩️</p>
     .. '<p id="glyph-enclosed">①</p><p id="glyph-cjk-punct">。</p>'
     .. '<p id="glyph-latin1">«»</p><p id="glyph-dash">……</p>'
 local glyph_scan = Footnotes.scan_chapter(glyph_html, chapter)
-for _, anchor in ipairs({ "glyph-arrow", "glyph-arrow-vs", "glyph-left",
+for _i, anchor in ipairs({ "glyph-arrow", "glyph-arrow-vs", "glyph-left",
     "glyph-hook", "glyph-enclosed", "glyph-cjk-punct", "glyph-latin1",
     "glyph-dash" }) do
     expect(glyph_scan.definitions[anchor] == nil,
@@ -308,7 +308,7 @@ local repeated_body, repeated_stats = convert(repeated)
 expect(repeated_stats.converted == 2 and repeated_stats.removed_note_blocks == 1,
     "repeated references did not share one consumed definition")
 expect(count_occurrences(repeated_body, "重复引用的唯一脚注") == 1, "same note text was generated per reference")
-for _, id in ipairs({ "same", "ref-a", "ref-b", "wrfnref-101-1", "wrfnref-101-2" }) do
+for _i, id in ipairs({ "same", "ref-a", "ref-b", "wrfnref-101-1", "wrfnref-101-2" }) do
     expect(count_occurrences(repeated_body, 'id="' .. id .. '"') == 1, "old target or unique reference was lost: " .. id)
 end
 expect(repeated_body:find('href="#wrfnref-101-1"', 1, true) and repeated_body:find('href="#wrfnref-101-2"', 1, true),
@@ -316,7 +316,7 @@ expect(repeated_body:find('href="#wrfnref-101-1"', 1, true) and repeated_body:fi
 expect(repeated_body:find('href="#same">查看注释', 1, true), "ordinary note link was rewritten")
 expect(Footnotes.validate(repeated_body), "shared note targets do not validate")
 
-for _, tag in ipairs({ "aside", "li", "p", "div", "section", "blockquote", "dd", "td", "AsIdE" }) do
+for _i, tag in ipairs({ "aside", "li", "p", "div", "section", "blockquote", "dd", "td", "AsIdE" }) do
     local html = '<p>保留正文<a epub:type="noteref" title="a > b" href="#target">[1]</a></p>'
         .. '<' .. tag .. ' id="target" title="a > b"><span>单份脚注文本</span></' .. tag .. '>'
         .. '<p>保留后文</p><aside id="unused">未引用注释</aside>'
@@ -346,7 +346,7 @@ local nested_body, nested_stats = convert(nested)
 expect(nested_body == nested and nested_stats.fallback == 1 and not Footnotes.has_converted(nested_stats),
     "overlapping different definitions must preserve original markup without partial edits")
 
-for _, rich in ipairs({ '<img src="note.png" alt="图片"/>', '<svg><text>图</text></svg>', '<math><mi>x</mi></math>',
+for _i, rich in ipairs({ '<img src="note.png" alt="图片"/>', '<svg><text>图</text></svg>', '<math><mi>x</mi></math>',
     '<table><tr><td>表格</td></tr></table>', '<a href="https://example.invalid/citation">引文</a>' }) do
     local html = '<p><a epub:type="noteref" href="#rich">[1]</a></p><aside id="rich">注释正文' .. rich .. '</aside>'
     local body, stats = convert(html)
