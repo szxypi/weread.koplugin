@@ -45,7 +45,18 @@ class MockTests(unittest.TestCase):
 
     def setUp(self):
         self.request("/__control", dict(delay=0, match="", status=503, times=0,
-                                        empty_shelf=False, empty_annotations=False, web_renewal_mode="plain"))
+                                        empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1))
+
+    def test_mp_article_versions_keep_identity(self):
+        code, first = self.request('/web/mp/content?reviewId=background-fixture')
+        self.assertEqual(code, 200)
+        self.assertIn('合成版本 1', first.decode('utf-8'))
+        self.assertEqual(self.request('/__control', dict(mp_article_version=2))[0], 200)
+        code, second = self.request('/web/mp/content?reviewId=background-fixture')
+        self.assertEqual(code, 200)
+        self.assertIn('合成版本 2', second.decode('utf-8'))
+        self.assertNotEqual(first, second)
+        self.assertEqual(self.request('/__control', dict(mp_article_version=True))[0], 400)
 
     def test_mp_verification_failure_after_successful_web_renewal(self):
         code,result=self.request('/web/login/renewal',dict(rq='%2Fweb%2Fbook%2Fread',ql=False))

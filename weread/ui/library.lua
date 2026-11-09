@@ -104,6 +104,7 @@ function M:closeWeReadUI()
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
+    if self.cancelMPArticleActions then self:cancelMPArticleActions() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
@@ -1309,6 +1310,12 @@ function M:showMPArticleList(book, articles)
     end
     if #articles==100 then items[#items+1]={text=_("First 100 articles loaded."),select_enabled=false} end
     table.insert(items, {
+        text = _("Article cache and versions"),
+        callback = self:safeCallback(_("Article cache and versions"), function()
+            if current() then self:showMPArticleActions(book,articles) end
+        end),
+    })
+    table.insert(items, {
         text = _("Export cached article"),
         callback = self:safeCallback(_("Export cached article"), function()
             if not current() then return end
@@ -1338,6 +1345,14 @@ end
 
 function M:cancelMPArticleDownload()
     return require('weread.ui.mp_download').cancel(self)
+end
+
+function M:showMPArticleActions(book,articles)
+    return require('weread.ui.mp_article_actions').list(self,book,articles)
+end
+
+function M:cancelMPArticleActions()
+    return require('weread.ui.mp_article_actions').cancel(self)
 end
 
 function M:loadChapters(book, callback, force_refresh)

@@ -157,7 +157,7 @@ class MockServer(ThreadingHTTPServer):
         self.request_totals = Counter()
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0,
-                            empty_shelf=False, empty_annotations=False, web_renewal_mode="plain")
+                            empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1)
         self.web_renewal_posts = 0
 
     def record(self, event):
@@ -232,7 +232,8 @@ class MockServer(ThreadingHTTPServer):
             return 200, dict(errCode=-2041, errMsg="Synthetic MP verification unavailable")
         if path == "/web/mp/content" and method == "GET":
             if query == {"reviewId": ["background-fixture"]}:
-                return 200, '<html><body><div id="js_content"><p>合成后台文章正文</p><img src="https://mmbiz.qpic.cn/synthetic-mp-bitmap.png"/><img src="https://mmbiz.qpic.cn/synthetic-mp-bitmap.png"/></div><script>ignored()</script></body></html>'
+                version = control["mp_article_version"]
+                return 200, f'<html><body><div id="js_content"><p>合成后台文章正文</p><p>合成版本 {version}</p><img src="https://mmbiz.qpic.cn/synthetic-mp-bitmap.png"/><img src="https://mmbiz.qpic.cn/synthetic-mp-bitmap.png"/></div><script>ignored()</script></body></html>'
             samples={"cache-fixture-a/b":"甲", "cache-fixture-a_b":"乙", "cache-fixture-c":"丙", "cache-fixture-d":"丁"}
             if set(query)!={"reviewId"} or len(query["reviewId"])!=1 or query["reviewId"][0] not in samples:
                 raise ValueError("unknown synthetic MP article")
@@ -514,6 +515,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("match must be a string")
             if candidate["web_renewal_mode"] not in {"plain", "rotate", "reject", "empty", "foreign", "verify-fail"}:
                 raise ValueError("invalid Web renewal mode")
+            if type(candidate["mp_article_version"]) is not int or not 1 <= candidate["mp_article_version"] <= 100:
+                raise ValueError("invalid MP article version")
             for key in ("empty_shelf", "empty_annotations"):
                 if type(candidate[key]) is not bool:
                     raise ValueError(key + " must be boolean")

@@ -48,7 +48,8 @@ return function(plugin,count,flush,home,pump,control)
     pump(function() return not plugin.mp_catalog_job end)
     assert(responsive and count('/web/mp/articles')==gets+1 and not plugin.busy_message,'catalog not responsive or repeated GET')
     local menu=assert(plugin._mp_article_list_view)
-    assert(menu.item_table[1].text=='合成目录文章甲' and #menu.item_table==4,'catalog fields/rows not shown')
+    assert(menu.item_table[1].text=='合成目录文章甲' and #menu.item_table==5
+        and menu.item_table[3].text==require('weread.lib.i18n').tr('Article cache and versions'),'catalog fields/rows or cache toolbar not shown')
     local record=Settings:new():get('books',{})[book.book_id]
     assert(#record.mp_articles==2 and not record.mp_articles[1].private and record.progress==.6 and record.pending_upload_position.offset==19,'catalog not persisted or overwrote newer reading state')
     menu:onMenuSelect(menu.item_table[1]);assert(opened==path and contents(path)==previous,'refreshed list lost existing identity cache')
@@ -79,7 +80,7 @@ return function(plugin,count,flush,home,pump,control)
     -- More than one kernel pipe buffer reaches the parent intact and paginates.
     local large=setup('900089');plugin:fetchMPArticles(large);pump(function() return not plugin.mp_catalog_job end)
     menu=assert(plugin._mp_article_list_view)
-    assert(#menu.item_table==103 and #settings:get('books',{})[large.book_id].mp_articles==100,'large catalog pipe truncated rows')
+    assert(#menu.item_table==104 and #settings:get('books',{})[large.book_id].mp_articles==100,'large catalog pipe truncated rows')
     assert(menu.item_table[101].text==require('weread.lib.i18n').tr('First 100 articles loaded.') and menu.item_table[101].select_enabled==false,'first-page bound not visible')
     assert(menu.page_num>1);menu:onGotoPage(menu.page_num);UIManager:forceRePaint();Screen:shot(home..'/../evidence/mp-catalog-first-batch.png')
     -- Every ownership change cancels or discards the old result without a save.

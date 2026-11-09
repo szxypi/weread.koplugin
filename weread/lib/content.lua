@@ -2362,6 +2362,11 @@ function Content.mp_article_cached_path(settings, book, article)
     local Identity=require('weread.lib.mp_cache_identity')
     local root=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
     local key=Identity.key(book,article)
+    if key then
+        local current,reason=require('weread.lib.mp_cache_versions').resolve(root,key)
+        if current then return current,'identity' end
+        if reason=='invalid' then return nil,'identity_mismatch' end
+    end
     local path=key and Identity.path(root,key)
     if path then
         local lfs=require('libs/libkoreader-lfs')

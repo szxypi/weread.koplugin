@@ -1,6 +1,16 @@
 local I18n = {}
 
 local zh = {
+    ["Article cache and versions"] = "文章缓存与版本",
+    ["Refresh article"] = "刷新此文章",
+    ["Saved versions"] = "已保存版本",
+    ["Read cached article"] = "阅读缓存文章",
+    ["Current cache"] = "当前缓存",
+    ["Previous cache"] = "此前缓存",
+    ["Version %1 · %2"] = "版本 %1 · %2",
+    ["No cached articles."] = "没有已缓存的文章。",
+    ["The saved article changed or is unavailable. Reopen its article list and try again."] = "文章缓存已变化或暂不可用，请重新打开文章列表后再试。",
+    ["Download a new version of this article?\n\n%1\n\nThe previous version, its reading position and notes are kept in Saved versions. No position or notes are copied into the new version."] = "重新下载这篇文章？\n\n%1\n\n旧版正文、阅读位置和笔记仍保留，可从「已保存版本」打开。不会向新版复制旧版的定位或笔记。",
     ["This article has no stable identifier. Refresh the article list before downloading."] = "这篇文章缺少可识别的编号，请刷新文章列表后再下载。",
     ["Could not save this article cache. The previous cache is kept."] = "文章缓存未能保存，原有缓存仍保留。",
     ["Legacy cache needs refresh"] = "旧缓存需重下",

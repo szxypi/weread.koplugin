@@ -39,14 +39,14 @@ end
 local function failed(host)
     host:showInfo(_('Could not download this article. Check login, network and storage, then try again. The previous cache is kept.'))
 end
-function M.start(host,book,article)
+function M.start(host,book,article,options)
     if not host:requireLogin(true,false) then return false end
     if not host:isNetworkConnected() then host:showOffline(_('Download article and read'));return false end
     host:closeWeReadUI()
     local owner=scope(host)
     local captured,input=pcall(Model.capture,host.settings,book,article)
     if not captured or not input then failed(host);return false end
-    local created,stage=pcall(host.create_mp_stage or Stage.create,input.root,input.key)
+    local created,stage=pcall(host.create_mp_stage or Stage.create,input.root,input.key,options)
     if not created or not stage then failed(host);return false end
     local job={owner=owner,input=input,stage=stage,started=os.time()};host.mp_download_job=job
     host:showBusy(_('Downloading article…\nTap or press a key to cancel.'),function() if host.mp_download_job==job then M.cancel(host) end end)
@@ -88,7 +88,7 @@ function M.start(host,book,article)
                 end
                 local fresh=Model.refresh_access(host.settings,input)
                 if not fresh or not context_current(host,owner) then M.cancel(host);return end
-                local prepared,replacement=pcall(host.create_mp_stage or Stage.create,fresh.root,fresh.key)
+                local prepared,replacement=pcall(host.create_mp_stage or Stage.create,fresh.root,fresh.key,options)
                 if not prepared or not replacement then stop();return end
                 if not stage:same_target(replacement) then replacement:cleanup();M.cancel(host);return end
                 input=fresh;job.input=fresh;job.stage=replacement;job.started=os.time();job.web_request=nil;run()

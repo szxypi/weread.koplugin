@@ -7,7 +7,8 @@ local state
 package.preload['weread.lib.content']=function() return {mp_article_cached_path=function(_settings,book,article)
     if state.uncached then return nil end
     return (book.cache_dir or '/cache')..'/'..article.title..'.html'
-end} end
+end,book_resolved_dir=function(_settings,_id,book) return book.cache_dir end,
+    mp_article_legacy_path=function(_settings,book,article) return book.cache_dir..'/'..article.title..'.html' end} end
 package.preload['libs/libkoreader-lfs']=function() return {
     symlinkattributes=function() return state.source_invalid and {mode='link'} or {mode='file',dev=1,ino=2,size=30,modification=4} end,
     attributes=function(_path,key) if key=='size' then return 200 end end} end
@@ -19,6 +20,9 @@ Model.write=function(input,output)
     return {ok=true,bytes=200,images=2,missing=1,copied=false}
 end
 local Export=require('weread.ui.mp_export')
+require('weread.lib.mp_cache_versions').contains=function(_root,key,path)
+    return state.historical_key==key and path=='/cache/article-0123456789abcdef.html'
+end
 local checks=0
 local function expect(value,label) checks=checks+1;assert(value,label) end
 local function fixture()
@@ -121,4 +125,10 @@ host,book,article,deliver=fixture();Export.start(host,book,article);deliver();lo
 stale_result:onCloseWidget();stale_result.ok_callback();expect(not state.opened,'native-closed result opened export')
 host,book,article,deliver=fixture();Export.start(host,book,article);deliver();state.account='two';host._mp_export_result.ok_callback()
 expect(not state.opened and #state.notices==0,'expired result acted on another account')
+host,book,article,deliver=fixture();book.cache_dir='/cache';book.mp_articles={article};state.books={MP_WXS_1=book}
+host.ui.document.file='/cache/article-0123456789abcdef.html'
+state.historical_key=require('weread.lib.mp_cache_identity').key(book,article)
+expect(Export.current(host) and host._mp_export_picker,'saved historical version not recognized')
+host._mp_export_picker.ok_callback();deliver()
+expect(state.input.path=='/cache/article-0123456789abcdef.html','current export switched historical article to latest cache')
 print('PASS: cached MP export UI ('..checks..' checks)')

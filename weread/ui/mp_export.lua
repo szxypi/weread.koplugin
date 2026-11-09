@@ -38,9 +38,23 @@ function M.cancel(host)
     if job.output then job.output:abort();job.output=nil end
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
-local function input(host,book,article)
+local function input(host,book,article,selected_path)
     if type(book)~='table' or type(article)~='table' or not Protocol.is_mp_book(book.book_id or book.bookId) then return nil end
     local ok,path,reason=pcall(Content.mp_article_cached_path,host.settings,book,article)
+    if selected_path and path~=selected_path then
+        local root=Content.book_resolved_dir(host.settings,book.book_id or book.bookId,book)
+        if require('weread.lib.mp_cache_versions').contains(root,CacheIdentity.key(book,article),selected_path) then
+            ok,path,reason=true,selected_path,'identity'
+        else
+            local legacy=Content.mp_article_legacy_path(host.settings,book,article)
+            if selected_path~=legacy and selected_path~=(legacy:gsub('%.html$','.epub')) then return nil end
+            local allowed=CacheIdentity.legacy_allowed(book,article,book.mp_articles,function(row)
+                return Content.mp_article_legacy_path(host.settings,book,row)
+            end)
+            if not allowed then return nil end
+            ok,path,reason=true,selected_path,'legacy'
+        end
+    end
     if ok and reason=='ambiguous_legacy' then return nil,reason end
     if not ok or type(path)~='string' or #path>4096 or path:find('[%z%c]')
         or not path:match('%.html$') and not path:match('%.epub$') or Model.is_export_path(host.settings,path) then return nil end
@@ -156,16 +170,17 @@ function M.current(host)
     local id=host:detectWeReadBook()
     local path=host.ui and host.ui.document and host.ui.document.file
     local book=id and host.settings:get('books',{})[id]
-    local selected,ambiguous
+    local selected,prepared,ambiguous
     if Protocol.is_mp_book(id) and type(book)=='table' and type(path)=='string' then
         for index,article in ipairs(book.mp_articles or {}) do
             if index>1000 then break end
-            local cached,reason=Content.mp_article_cached_path(host.settings,book,article)
-            if cached==path then
+            local candidate=input(host,book,article,path)
+            local _,reason=Content.mp_article_cached_path(host.settings,book,article)
+            if candidate then
                 if selected and (not CacheIdentity.key(book,selected) or CacheIdentity.key(book,selected)~=CacheIdentity.key(book,article)) then
                     failed(host);return false
                 end
-                selected=article
+                selected=article;prepared=candidate
             elseif reason=='ambiguous_legacy' and Content.mp_article_legacy_path(host.settings,book,article)==path then
                 ambiguous=true
             end
@@ -173,6 +188,6 @@ function M.current(host)
     end
     if not selected then host:showInfo(ambiguous and _('This old article cache is ambiguous. Download the article again from the article list.')
         or _('This article could not be identified in the saved article list.'));return false end
-    return M.show(host,book,selected)
+    return M.show(host,book,selected,prepared)
 end
 return M
