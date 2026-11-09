@@ -31,6 +31,7 @@ function M.cancel(host)
     local job=host.mp_download_job;host.mp_download_job=nil
     if not job then return end
     local worker=host.mp_download_worker
+    if job.stage and worker and worker.job then job.pid=worker.job.pid end
     if worker then worker:cancel() end
     if job.stage then dispose(job,worker) end
     if job.web_request then require('weread.ui.web_renewal').cancel(host,job.web_request) end

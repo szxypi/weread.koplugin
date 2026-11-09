@@ -29,35 +29,16 @@ local function names_equal(a,b)
     for i=1,#a do if a[i]~=b[i] then return false end end
     return true
 end
+local function quarantined(parent)
+    for _i,name in ipairs(children(parent,1024)) do if name:match('^%.mp%-quarantine%-') then return true end end
+    return false
+end
 function M.open_lock(root,key,create)
     local base=Identity.path(root,key);if not base then return nil,'unavailable' end
     local parent=base:match('^(.*)/[^/]+$');local path=parent..'/.mp-cleanup'
     local owner=fs().symlinkattributes(parent)
     if not owner or owner.mode~='directory' or fs().symlinkattributes(root..'/mp-articles','mode')~='directory' then return nil,create and 'unavailable' or 'absent' end
-    local previous=fs().symlinkattributes(path)
-    if not previous and not create then return nil,'absent' end
-    if previous and (previous.mode~='file' or previous.size~=0) then return nil,'unavailable' end
-    local ffi=require('ffi');require('ffi/posix_h')
-    if ffi.os~='Linux' and ffi.os~='OSX' then return nil,'unsupported' end
-    pcall(ffi.cdef,'int flock(int fd, int operation);')
-    local supported=pcall(function() return ffi.C.flock end);if not supported then return nil,'unsupported' end
-    local flags=require('bit').bor(ffi.C.O_RDWR,ffi.C.O_CLOEXEC,create and ffi.C.O_CREAT or 0,ffi.os=='OSX' and 0x100 or 0x20000)
-    local fd=tonumber(ffi.C.open(path,flags,ffi.cast('int',384)))
-    if fd<0 then return nil,'unavailable' end
-    local info=fs().symlinkattributes(path)
-    local descriptor=fs().attributes((ffi.os=='OSX' and '/dev/fd/' or '/proc/self/fd/')..fd)
-    if not same(info,descriptor) or info.mode~='file' or info.size~=0 or not same(owner,fs().symlinkattributes(parent)) then
-        ffi.C.close(fd);return nil,'unavailable'
-    end
-    if ffi.C.flock(fd,6)~=0 then -- LOCK_EX | LOCK_NB; the kernel releases it on exit.
-        local errno=ffi.errno();ffi.C.close(fd)
-        return nil,({[38]=true,[78]=true,[95]=true,[102]=true,[45]=true})[errno] and 'unsupported' or 'busy'
-    end
-    local lock={path=path,info=info,fd=fd}
-    function lock:release()
-        if self.fd then ffi.C.flock(self.fd,8);ffi.C.close(self.fd);self.fd=nil end
-    end
-    return lock
+    return require('weread.lib.file_lease').open(path,{create=create,empty=true})
 end
 function M.locked(root,key)
     local lock,reason=M.open_lock(root,key,false)
@@ -67,7 +48,7 @@ end
 function M.scan(root,key,opened,lock)
     local snapshot=Versions.capture(root,key);if not snapshot then fail('unavailable') end
     local parent=snapshot.parent;local names=children(parent,Versions.MAX_ENTRIES)
-    local plan={root=root,key=key,snapshot=snapshot,opened=opened,versions={},generations={},names=names,files=0}
+    local plan={root=root,key=key,snapshot=snapshot,opened=opened,versions={},generations={},names=names,files=0,quarantined=quarantined(parent)}
     local open_parent=type(opened)=='string' and opened:sub(1,#parent+1)==parent..'/'
     for _i,name in ipairs(names) do
         local path=parent..'/'..name
@@ -104,7 +85,7 @@ function M.scan(root,key,opened,lock)
                 plan.files=plan.files+1;if plan.files>M.MAX_FILES then fail('capacity') end
                 files[#files+1]={name=filename,info=image};bytes=bytes+image.size
             end
-            plan.generations[#plan.generations+1]={name=name,info=info,images=images,files=files,bytes=bytes,protected=open_parent or false}
+            plan.generations[#plan.generations+1]={name=name,info=info,images=images,files=files,bytes=bytes,protected=open_parent or plan.quarantined or false}
         elseif name:match('%.html$') then fail('unavailable') end
     end
     if not Versions.matches(snapshot) or not names_equal(names,children(parent,Versions.MAX_ENTRIES)) then fail('changed') end
@@ -148,7 +129,7 @@ function M.check(value,root,key,opened)
     local snapshot=Versions.capture(root,key)
     if not snapshot or value.snapshot.selector.raw~=snapshot.selector.raw or not regular(value.snapshot.info,snapshot.info)
         or not same(value.snapshot.parent_info,snapshot.parent_info) then fail('changed') end
-    local plan={root=root,key=key,snapshot=snapshot,opened=opened,versions={},generations={}}
+    local plan={root=root,key=key,snapshot=snapshot,opened=opened,versions={},generations={},quarantined=quarantined(snapshot.parent)}
     local seen,total={},0
     for _i,item in ipairs(array(value.versions,Versions.MAX_VERSIONS)) do
         if type(item)~='table' or type(item.name)~='string' or not body_name(item.name) or seen[item.name] then fail('invalid') end
@@ -177,7 +158,7 @@ function M.check(value,root,key,opened)
             files[#files+1]={name=file.name,info=info};bytes=bytes+info.size
         end
         plan.generations[#plan.generations+1]={name=item.name,info=stat(item.info,'directory'),images=stat(item.images,'directory'),
-            files=files,bytes=bytes,protected=type(opened)=='string' and opened:sub(1,#snapshot.parent+1)==snapshot.parent..'/' or false}
+            files=files,bytes=bytes,protected=plan.quarantined or type(opened)=='string' and opened:sub(1,#snapshot.parent+1)==snapshot.parent..'/' or false}
     end
     return plan
 end
@@ -202,7 +183,8 @@ function M.begin(plan,selected,lock,prepared)
     local before={};for _i,item in ipairs(plan.generations) do before[item.name]=item end
     for _i,item in ipairs(fresh.generations) do
         local old=before[item.name]
-        if not old or not same(old.info,item.info) or not same(old.images,item.images) or #old.files~=#item.files then fail('changed') end
+        if not old or not same(old.info,item.info) or not same(old.images,item.images) or old.protected~=item.protected
+            or #old.files~=#item.files then fail('changed') end
         for i,file in ipairs(item.files) do if file.name~=old.files[i].name or not regular(file.info,old.files[i].info) then fail('changed') end end
     end
     return {plan=fresh,target=M.targets(fresh,selected),lock=lock,removed_files=0,removed_bytes=0,body_done=false,generation=1,index=1}

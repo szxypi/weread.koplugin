@@ -66,15 +66,36 @@ return function(plugin, count, flush_tasks, home, pump_until)
     assert(not plugin:requireLogin(false,true),"key-only feature did not explain missing Skill authorization")
     assert(UIManager:getTopmostVisibleWidget().text:find("Skill",1,true),"missing-key explanation absent")
     UIManager:close(UIManager:getTopmostVisibleWidget())
+    -- JSON object iteration order is unspecified; compare every key and value.
+    -- Decode the saved string so later mutations cannot alter the snapshot.
+    local function difference(a,b,trace)
+        trace=trace or '$'
+        if type(a)~=type(b) then return trace end
+        if type(a)~='table' then return a~=b and trace or nil end
+        for key,value in pairs(a) do
+            local changed=difference(value,b[key],trace..'/'..tostring(key))
+            if changed then return changed end
+        end
+        for key in pairs(b) do if a[key]==nil then return trace..'/'..tostring(key) end end
+    end
+    assert(not difference({a=1,b={2,3}},{b={2,3},a=1}))
+    assert(difference({a=1},{a=2}) and difference({a=1},{}) and difference({},{a=1})
+        and difference({2,3},{3,2}) and difference({a=1},{a='1'}),'snapshot comparator missed a mutation')
+    local function assert_snapshot(saved,current,label)
+        local changed=difference(client:json_decode(saved),current)
+        assert(not changed,label..': '..tostring(changed))
+        return saved~=client:json_encode(current)
+    end
     local fixtures=debug.getinfo(1,"S").source:match("^@(.*/)")
     dofile(fixtures.."book_metadata_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
     dofile(fixtures.."reader_link_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
     dofile(fixtures.."notes_export_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
-    dofile(fixtures.."mp_cache_identity_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
-    dofile(fixtures.."mp_download_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
+    dofile(fixtures.."mp_cache_identity_smoke.lua")(plugin,count,flush_tasks,home,pump_until,assert_snapshot)
+    dofile(fixtures.."mp_download_smoke.lua")(plugin,count,flush_tasks,home,pump_until,assert_snapshot)
     dofile(fixtures.."mp_versions_smoke.lua")(plugin,count,flush_tasks,home,pump_until,control)
     dofile(fixtures.."mp_cleanup_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
-    dofile(fixtures.."mp_export_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
+    dofile(fixtures.."mp_recovery_smoke.lua")(plugin,count,flush_tasks,home,pump_until)
+    dofile(fixtures.."mp_export_smoke.lua")(plugin,count,flush_tasks,home,pump_until,assert_snapshot)
     dofile(fixtures.."reader_context_smoke.lua")(plugin,count,flush_tasks,home)
     dofile(fixtures.."mp_catalog_smoke.lua")(plugin,count,flush_tasks,home,pump_until,control)
     local renewals=count("/web/login/renewal")
@@ -88,7 +109,8 @@ return function(plugin, count, flush_tasks, home, pump_until)
         "MP verification response incorrectly requested another login")
     assert(count("/web/mp/articles")==mp_reads+1 and count("/web/login/renewal")==renewals
         and count("/api/auth/getLoginUid")==auth_uid_reads,"MP failure renewed credentials, repeated its read or started a new QR")
-    assert(client:json_encode(settings:get("cookies"))==cookie_before and not plugin.busy_message,"header-less renewal erased cookies or retained loading")
+    assert_snapshot(cookie_before,settings:get("cookies"),"header-less renewal changed cookies")
+    assert(not plugin.busy_message,"header-less renewal retained loading")
     UIManager:forceRePaint();Screen:shot(home.."/../evidence/mp-verification-unavailable.png")
     UIManager:close(mp_info)
     print("PASS: MP verification failure from one background GET keeps cookies and accurate native guidance; no renewal or QR replay")

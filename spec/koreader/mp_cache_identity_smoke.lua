@@ -1,5 +1,5 @@
 -- Distinct real HTTP bodies, native SQLite/settings, filesystem and CRE.
-return function(plugin,count,flush,home,pump)
+return function(plugin,count,flush,home,pump,assert_snapshot)
     local Content=require('weread.lib.content')
     local Identity=require('weread.lib.mp_cache_identity')
     local Output=require('weread.lib.notes_export_file')
@@ -104,9 +104,9 @@ return function(plugin,count,flush,home,pump)
     os.remove(unsafe.cache_dir..'/mp-articles')
     plugin.openFile=old_open;plugin:closeWeReadUI()
     settings:set('cache',old_cache);settings:flush()
-    assert(client:json_encode(settings:get('books',{})[book.book_id])==saved,'cache operations changed local progress/intent or record')
+    local order_only=assert_snapshot(saved,settings:get('books',{})[book.book_id],'cache operations changed local progress/intent or record')
     assert(count('/web/book/read')==reading_writes and count('/web/mp/content')==reads+4,'cache workflow submitted reading data or unexpected reads')
-    local report={result='PASS',synthetic_only=true,http_reads=4,reading_data_writes=0,distinct_same_title_bodies=true,
+    local report={result='PASS',synthetic_only=true,record_json_order_only_changed=order_only,http_reads=4,reading_data_writes=0,distinct_same_title_bodies=true,
         sanitized_id_collision_separated=true,title_rename_keeps_path=true,identity_header_checked=true,
         image_directories_isolated=true,native_html_render=true,native_menu_opens_selected_identity=true,
         export_choices_remain_distinct=true,legacy_ambiguity_visible=true,legacy_ambiguity_not_read=true,

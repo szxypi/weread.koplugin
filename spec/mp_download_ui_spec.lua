@@ -32,7 +32,9 @@ local function fixture()
         mp_download_worker={runner={done=function() return not state.running end},
             start=function(self,task,callback)
                 if state.start_failed then return false end
-                self.job={pid=#state.jobs+1};state.jobs[#state.jobs+1]={task=task,callback=callback};return true
+                self.job={pid=#state.jobs+1};state.jobs[#state.jobs+1]={task=task,callback=callback}
+                if state.throw_after_job then error('private start failure') end
+                return true
             end,cancel=function() state.cancelled=true end}}
     local function deliver(index,result) local j=state.jobs[index or #state.jobs];j.callback(result or j.task()) end
     return host,deliver
@@ -74,4 +76,8 @@ host,deliver=fixture();Download.start(host,{},{});deliver(1,{ok=false,kind='logi
 Download.cancel(host);pending.callback(true);expect(state.renewal_cancelled and #state.jobs==1 and not state.opened,'cancelled renewal restarted download')
 host,deliver=fixture();Download.start(host,{},{});deliver(1,{ok=false,kind='login'});state.target_changed=true;state.renewal.callback(true)
 expect(not host.mp_download_job and not state.opened and state.commits==0 and #state.jobs==1 and state.cleanups==2,'renewal rebased onto a concurrently replaced cache')
+host,deliver=fixture();state.running=true;state.throw_after_job=true
+expect(not Download.start(host,{},{}) and not host.mp_download_job and state.cleanups==0 and state.cancelled,'unconfirmed launch cleaned stage before child reap')
+state.running=false;state.pending();deliver()
+expect(state.cleanups==1 and not state.opened,'unconfirmed launch did not clean after reap or accepted stale result')
 print('PASS: MP download UI ownership and cancellation ('..checks..' checks)')

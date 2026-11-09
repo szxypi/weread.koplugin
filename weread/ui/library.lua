@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
     if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
@@ -1317,6 +1318,12 @@ function M:showMPArticleList(book, articles)
         end),
     })
     table.insert(items, {
+        text = _("Repair interrupted downloads"),
+        callback = self:safeCallback(_("Repair interrupted downloads"), function()
+            if current() then require('weread.ui.mp_download_recovery').list(self,book,articles) end
+        end),
+    })
+    table.insert(items, {
         text = _("Export cached article"),
         callback = self:safeCallback(_("Export cached article"), function()
             if not current() then return end
@@ -1358,6 +1365,10 @@ end
 
 function M:cancelMPArticleCleanup()
     return require('weread.ui.mp_cache_cleanup').cancel(self)
+end
+
+function M:cancelMPDownloadRecovery()
+    return require('weread.ui.mp_download_recovery').cancel(self)
 end
 
 function M:loadChapters(book, callback, force_refresh)

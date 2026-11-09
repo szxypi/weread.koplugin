@@ -118,5 +118,8 @@ fixture();for index=2,20 do put(parent..'/'..generation('3')..'/images/'..string
 plan=Cleanup.scan(root,key,false);job,lock=begin(plan)
 ok,reason=Cleanup.step(job);expect(ok and reason=='more' and job.removed_files==16,'deletion not cooperatively bounded')
 lock:release();expect(not Cleanup.step(job) and files[parent..'/'..active],'stopped batch continued after lock release')
+fixture();put(parent..'/.mp-quarantine-pending-'..string.rep('f',16),nil,'directory')
+plan=Cleanup.check(Cleanup.scan(root,key,false),root,key,false)
+expect(plan.quarantined and #Cleanup.targets(plan).generations==0,'quarantined content lost image protection')
 rawset(io,'open',open);rawset(os,'remove',remove)
 print('PASS: MP cleanup reachability, snapshots, retention and deletion boundaries ('..checks..' checks)')

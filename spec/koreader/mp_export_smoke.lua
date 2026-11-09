@@ -1,5 +1,5 @@
 -- Actual native menus, fork, SQLite settings, ZIP, CRE and exclusive files.
-return function(plugin,count,flush,home,pump)
+return function(plugin,count,flush,home,pump,assert_snapshot)
     local UIManager=require('ui/uimanager')
     local Screen=require('device').screen
     local ffi=require('ffi')
@@ -166,10 +166,10 @@ return function(plugin,count,flush,home,pump)
     settings.cache_dir=settings.data_dir;plugin.ui.document={file=path}
     assert(plugin:detectWeReadBook()==nil,'export under custom cache root gained a cloud identity')
     plugin.ui.document=original_doc;settings.cache_dir=original_cache
-    assert(client:json_encode(settings:get('books',{})[book.book_id])==saved_before,'export changed saved progress/intent/cache')
+    local order_only=assert_snapshot(saved_before,settings:get('books',{})[book.book_id],'export changed saved progress/intent/cache')
     client.request=request;Model.write=real_write
     assert(count('/web/book/read')==writes_before,'export sent reading data')
-    local report={result='PASS',synthetic_only=true,native_list_picker=true,native_reader_entry=true,
+    local report={result='PASS',synthetic_only=true,record_json_order_only_changed=order_only,native_list_picker=true,native_reader_entry=true,
         native_confirm_and_result=true,background_process=true,ui_heartbeat=true,custom_cache_root=true,
         packaged_bitmap_decoded=true,native_document_bitmap_placed=true,
         replaced_article_list_callback_ignored=true,

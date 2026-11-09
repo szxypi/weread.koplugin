@@ -1,5 +1,5 @@
 -- Real fork, HTTP, exclusive staging, cancellation and generation-scoped images.
-return function(plugin,count,flush,home,pump)
+return function(plugin,count,flush,home,pump,assert_snapshot)
     local UIManager=require('ui/uimanager')
     local Screen=require('device').screen
     local lfs=require('libs/libkoreader-lfs')
@@ -130,11 +130,11 @@ return function(plugin,count,flush,home,pump)
     assert(not opened and not plugin.busy_message and Identity.valid(book.cache_dir,Identity.key(book,article))
         and lfs.attributes(metadata.stage.directory,'mode')=='directory','metadata error lost completed cache or blocked UI')
     close_info()
-    assert(client:json_encode(settings:get('books',{})[book.book_id])==before,'background completion replaced progress/pending intent')
+    local order_only=assert_snapshot(before,settings:get('books',{})[book.book_id],'background completion replaced progress/pending intent')
     Model.write=old_write;client.request=old_request;plugin.openFile=old_open;plugin:closeWeReadUI()
     settings:set('cache',original_cache);settings:flush()
     assert(count('/web/book/read')==writes and count('/web/login/renewal')==renewals,'background article wrote reading data or renewed credentials')
-    local report={result='PASS',synthetic_only=true,ui_heartbeat=true,http_in_child=true,anonymous_cdn=true,
+    local report={result='PASS',synthetic_only=true,record_json_order_only_changed=order_only,ui_heartbeat=true,http_in_child=true,anonymous_cdn=true,
         images_streamed_and_deduplicated=true,cre_rendered_body=true,generation_images_in_epub=true,
         cancel_preserves_old_body_and_images=true,close_suspend_session_epoch_auth_config_guard=true,
         failed_publish_preserves_old_generation=true,concurrent_file_replacement_preserved=true,

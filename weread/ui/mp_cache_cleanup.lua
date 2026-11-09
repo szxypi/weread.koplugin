@@ -127,6 +127,7 @@ local function preview(host,job,plan)
     local menu
     local rows={{text=_('Clean unused images'),mandatory=size(unused.bytes),select_enabled=#unused.generations>0,keep_menu_open=true,
         callback=function() if host._mp_cleanup_menu==menu then confirm(host,job,nil) end end}}
+    if plan.quarantined then rows[#rows+1]={text=_('Quarantined downloads are kept. Their images are protected.'),select_enabled=false} end
     for index,item in ipairs(plan.versions) do
         rows[#rows+1]={text=T(_('Version %1 · %2'),index,os.date('%Y-%m-%d %H:%M',item.info.modification)),
             post_text=size(item.info.size),mandatory=item.current and _('Current cache') or item.opened and _('Currently reading') or _('Remove old version'),

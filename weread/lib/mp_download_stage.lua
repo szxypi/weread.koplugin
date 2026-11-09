@@ -12,9 +12,7 @@ end
 local function unchanged(a,b)
     return not a and not b or same(a,b) and a.size==b.size and a.modification==b.modification
 end
-function M.create(root,key,options)
-    if require('weread.lib.mp_cache_cleanup').locked(root,key) then return nil end
-    local path=Identity.prepare(root,key);if not path then return nil end
+local function create_locked(root,key,options,path,unleased,holder)
     local lfs=require('libs/libkoreader-lfs')
     local snapshot=Versions.capture(root,key);if not snapshot then return nil end
     -- Once a selector exists, subsequent downloads must preserve its version too.
@@ -37,15 +35,31 @@ function M.create(root,key,options)
                 previous=previous,directory=directory,identity=lfs.symlinkattributes(directory),lfs=lfs,
                 version_snapshot=snapshot,preserve=preserve,version_name='article-'..nonce..'.html',
                 generation='.weread-mp-'..key..'-assets-'..nonce},M)
+            holder.job=job
             if not lfs.mkdir(directory..'/images') then job:cleanup();return nil end
             job.images_identity=lfs.symlinkattributes(directory..'/images')
             local created,output=pcall(Output.create,directory,'body','html')
             job.output=created and output or nil
             if not job.output then job:cleanup();return nil end
-            if require('weread.lib.mp_cache_cleanup').locked(root,key) then job:cleanup();return nil end
+            if not unleased then
+                job.lease=require('weread.lib.mp_download_recovery').create(job,nonce)
+                if not job.lease then job:cleanup();return nil end
+            end
             return job
         end
     end
+end
+function M.create(root,key,options)
+    local cleanup=require('weread.lib.mp_cache_cleanup')
+    if cleanup.locked(root,key) then return nil end
+    local path=Identity.prepare(root,key);if not path then return nil end
+    local gate,reason=cleanup.acquire(root,key)
+    if not gate and reason~='unsupported' then return nil end
+    local holder={}
+    local ok,job=pcall(create_locked,root,key,options,path,not gate,holder)
+    if not ok and holder.job then pcall(holder.job.cleanup,holder.job) end
+    if gate then gate:release() end
+    return ok and job or nil
 end
 function M:owns()
     return same(self.parent_identity,self.lfs.symlinkattributes(self.parent))
@@ -65,12 +79,18 @@ end
 function M:close()
     if self.output then self.output:close() end
 end
+function M:release_lease(remove)
+    if self.lease then
+        if remove then self.lease:remove() end
+        self.lease:release();self.lease=nil
+    end
+end
 -- Call only after the child has stopped. Never follow a replaced directory or
 -- remove a replacement body file. Unknown files are left for manual inspection.
 function M:cleanup()
     self:close()
-    if self.committed or self.published and Versions.points_to(self.root,self.key,self.version_name) then return end
-    if not self:owns() then return end
+    if self.committed or self.published and Versions.points_to(self.root,self.key,self.version_name) then self:release_lease(true);return end
+    if not self:owns() then self:release_lease(false);return end
     if self.published and unchanged(self.published,self.lfs.symlinkattributes(self.parent..'/'..self.version_name)) then
         os.remove(self.parent..'/'..self.version_name)
     end
@@ -86,7 +106,8 @@ function M:cleanup()
         self.lfs.rmdir(self.directory..'/images')
     end
     if self.output then self.output:abort();self.output=nil end
-    self.lfs.rmdir(self.directory)
+    local removed=self.lfs.rmdir(self.directory)
+    self:release_lease(removed or not self.lfs.symlinkattributes(self.directory))
 end
 local function integer(value,max)
     return type(value)=='number' and value>=0 and value<=max and value%1==0
@@ -127,6 +148,7 @@ function M:commit(result)
         if not Versions.publish(self.version_snapshot,self.version_name) then return nil end
     end
     self.committed=true
+    self:release_lease(true)
     -- Retain prior generations: an already-open CRE document may still use them.
     return target
 end
