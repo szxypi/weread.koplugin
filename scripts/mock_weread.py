@@ -10,7 +10,7 @@ from __future__ import annotations
 import argparse
 import base64
 import calendar
-from collections import deque
+from collections import Counter, deque
 import hashlib
 from datetime import datetime, timedelta, timezone
 import ipaddress
@@ -154,12 +154,18 @@ class MockServer(ThreadingHTTPServer):
         self.lock = threading.Lock()
         self.log_path = log_path
         self.events = deque(maxlen=500)
+        self.request_totals = Counter()
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0,
-                            empty_shelf=False, empty_annotations=False)
+                            empty_shelf=False, empty_annotations=False, web_renewal_mode="plain")
+        self.web_renewal_posts = 0
 
     def record(self, event):
         with self.lock:
+            key = (event["path"], event.get("api") if isinstance(event.get("api"), str) else "")
+            if key not in self.request_totals and len(self.request_totals) >= 256:
+                raise ValueError("mock request counter capacity exceeded")
+            self.request_totals[key] += 1
             self.events.append(event)
             if self.log_path:
                 with self.log_path.open("a") as out:
@@ -197,6 +203,13 @@ class MockServer(ThreadingHTTPServer):
         if path == "/web/login/renewal" and method == "POST":
             if data != {"rq": "%2Fweb%2Fbook%2Fread", "ql": False}:
                 raise ValueError("invalid Web renewal request")
+            self.web_renewal_posts += 1
+            if control["web_renewal_mode"] == "reject": return 200, dict(succ=0)
+            if control["web_renewal_mode"] == "empty": return 200, ""
+            if control["web_renewal_mode"] == "foreign": return 200, dict(succ=1), {"Set-Cookie": "wr_vid=900099; Path=/"}
+            if control["web_renewal_mode"] in {"rotate", "verify-fail"}:
+                return 200, dict(succ=1), {"Set-Cookie": ["wr_skey=XXXrenewed-native; Path=/; Secure", "wr_rt=XXXrefresh-native; Path=/; Secure"],
+                                          "x-wr-ticket": "synthetic-renewed-ticket", "x-wrpa-0": "synthetic-renewed-protection"}
             return 200, dict(succ=1)
         if path == "/web/mp/articles" and method == "GET":
             if not book_id.startswith("MP_WXS_"):
@@ -225,6 +238,8 @@ class MockServer(ThreadingHTTPServer):
                 raise ValueError("unknown synthetic MP article")
             return 200, '<html><head></head><body><div id="js_content"><p>合成公众号正文'+samples[query["reviewId"][0]]+'</p></div><script>ignored()</script></body></html>'
         if path == "/api/userInfo" and method == "GET" and query.get("userVid") == ["900000"]:
+            if control["web_renewal_mode"] == "verify-fail" and self.web_renewal_posts:
+                return 503, dict(errcode=-1)
             return 200, dict(vid=900000, name="Synthetic Web reader")
         if path == "/api/skills/apikeyGet" and method == "GET" and query == {"only_show": ["1"]}:
             return 200, {}
@@ -425,6 +440,7 @@ class Handler(BaseHTTPRequestHandler):
     def handle_request(self):
         target = self.path
         data = {}
+        extra_headers = {}
         try:
             size = int(self.headers.get("Content-Length", 0))
             if not 0 <= size <= 1024 * 1024:
@@ -438,7 +454,9 @@ class Handler(BaseHTTPRequestHandler):
                 status, result = 200, dict(service="weread-mock", fixture_version=1)
             elif path.path == "/__state" and self.command == "GET":
                 with self.server.lock:
-                    status, result = 200, dict(control=self.server.control.copy(), requests=list(self.server.events), progress=self.server.progress.copy())
+                    totals = [dict(path=path, api=api, count=count) for (path, api), count in self.server.request_totals.items()]
+                    status, result = 200, dict(control=self.server.control.copy(), requests=list(self.server.events),
+                                              totals=totals, progress=self.server.progress.copy())
             elif path.path == "/__control" and self.command == "POST":
                 self.set_control(data)
                 status, result = 200, dict(ok=True)
@@ -447,7 +465,9 @@ class Handler(BaseHTTPRequestHandler):
                     target = parse_qs(path.query)["url"][0]
                 else:
                     target = "https://weread.qq.com" + self.path
-                status, result = self.server.route(self.command, target, data)
+                routed = self.server.route(self.command, target, data)
+                status, result = routed[:2]
+                if len(routed) == 3: extra_headers = routed[2]
         except (ValueError, KeyError, TypeError, StopIteration) as exc:
             status, result = 400, dict(errcode=-1, errmsg="Invalid mock request: " + str(exc))
         except LookupError as exc:
@@ -471,6 +491,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
+        for name, value in extra_headers.items():
+            for item in value if isinstance(value, list) else [value]: self.send_header(name, item)
         self.end_headers()
         try:
             self.wfile.write(body)
@@ -490,6 +512,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("status must be 400..599")
             if not isinstance(candidate["match"], str):
                 raise ValueError("match must be a string")
+            if candidate["web_renewal_mode"] not in {"plain", "rotate", "reject", "empty", "foreign", "verify-fail"}:
+                raise ValueError("invalid Web renewal mode")
             for key in ("empty_shelf", "empty_annotations"):
                 if type(candidate[key]) is not bool:
                     raise ValueError(key + " must be boolean")
@@ -577,7 +601,7 @@ def main():
         try:
             with log.open("w") as out:
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader/weread_mock_smoke.lua")],
-                                        cwd=args.koreader, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=90)
+                                        cwd=args.koreader, env=env, stdout=out, stderr=subprocess.STDOUT, timeout=150)
             if result.returncode == 0:
                 assert b"[WeRead] forceRePaint failed:" not in log.read_bytes(), "native repaint failed; inspect the isolated smoke log"
                 for secret in ("mock-native-access", "mock-native-refresh", "mock-native-code", "mock-native-ticket", "mock-native-qr"):

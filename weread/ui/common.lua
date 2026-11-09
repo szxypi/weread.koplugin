@@ -224,14 +224,11 @@ function M:refreshLoginMenu()
 end
 
 function M:renewCookieWithUI()
-    if not self:requireLogin(true, false) then
-        return
-    end
-    self:runNetworkAction(_("Renew cookie"), function()
-        self.client:renew_cookie()
-        logger.info("cookie renewed")
-        return _("WeRead cookie renewed.")
-    end)
+    return require('weread.ui.web_renewal').manual(self)
+end
+
+function M:cancelWebRenewal()
+    return require('weread.ui.web_renewal').cancel(self)
 end
 
 function M:showAccountStatus()
@@ -263,6 +260,7 @@ function M:confirmClearAccount()
             if self.native_authorization then self.native_authorization:clearForLogout() end
             self.read_report:stop("account_cleared")
             self.settings:reset_account()
+            require('weread.ui.web_renewal').clear_for_logout(self)
             if self.onWeReadAccountChanged then
                 self:onWeReadAccountChanged()
             end

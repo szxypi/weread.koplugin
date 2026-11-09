@@ -48,6 +48,13 @@ function M.matches(settings,input)
     return Access.matches(settings,input.access) and input.ticket==settings:get('wr_ticket','')
         and input.wrpa==settings:get('wr_wrpa','') and input.images==(settings:get('cache',{}).download_mp_images==true)
 end
+function M.refresh_access(settings,input)
+    local access=Access.capture(settings)
+    local ticket,wrpa=header(settings:get('wr_ticket','')),header(settings:get('wr_wrpa',''))
+    if not access or not access.web or not ticket or not wrpa then return nil end
+    local fresh={};for key,value in pairs(input) do fresh[key]=value end
+    fresh.access=access;fresh.ticket=ticket;fresh.wrpa=wrpa;return fresh
+end
 function M.image_url(value)
     if type(value)~='string' or #value>4096 or value:find('[%z%c%s]') then return nil end
     if value:sub(1,2)=='//' then value='https:'..value end
@@ -70,9 +77,23 @@ local function body(client,input)
                     if chunk then bytes=bytes+#chunk;if bytes>Stage.MAX_HTML then overflow=true;return nil,'response_limit' end;chunks[#chunks+1]=chunk end
                     return 1
                 end})
-            if overflow then fail() end
+            if overflow or code==429 then fail() end
+            local text=table.concat(chunks)
+            local login=ok and code==401
+            if ok and code==200 and text:match('^%s*{') then
+                local decoded,value=pcall(client.json_decode,client,text)
+                if decoded and type(value)=='table' then
+                    if value.errCode~=nil and value.errcode~=nil and value.errCode~=value.errcode then fail() end
+                    login=value.errCode==-2012 or value.errcode==-2012
+                    if value.errCode==-2041 or value.errcode==-2041 then error('mp_download/verification',0) end
+                end
+            end
+            if login then
+                if variant==1 and (input.ticket~='' or input.wrpa~='') then break end
+                error('mp_download/login',0)
+            end
             if ok and code==200 then
-                local extracted=Content.extract_mp_body(table.concat(chunks))
+                local extracted=Content.extract_mp_body(text)
                 if extracted and extracted~='' then return extracted end
             end
         end

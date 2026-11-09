@@ -33,7 +33,7 @@ local function fixture()
         if opts.diagnostic_api=='mp_read' then
             expect(opts.headers.Cookie=='wr_skey=XXX','captured cookie absent')
             if state.primary_missing and #state.requests==1 then opts.sink('');return nil,200 end
-            opts.sink('<div id="js_content">'..state.body..'</div>');return nil,state.body_status or 200
+            opts.sink(state.raw_body or '<div id="js_content">'..state.body..'</div>');return nil,state.body_status or 200
         end
         expect(not opts.headers.Cookie and not opts.headers.Authorization and not opts.headers['x-wr-ticket'] and not opts.headers['x-wrpa-0'],'CDN received authentication')
         expect(opts.url=='https://mmbiz.qpic.cn/x?a=1&b=2','CDN URL not exact/decoded')
@@ -68,6 +68,19 @@ for _,limit in ipairs({'MAX_HTML','MAX_IMAGE','MAX_TOTAL','MAX_IMAGES'}) do
     local maximum=Stage[limit];Stage[limit]=limit=='MAX_IMAGES' and 0 or 2
     settings,book,article,stage,client=fixture();input=assert(Model.capture(settings,book,article))
     expect(not pcall(Model.write,client,input,stage,{}),'capacity limit ignored: '..limit);Stage[limit]=maximum
+end
+for _,case in ipairs({{value={errCode=-2012},error='mp_download/login'},
+    {value={errCode=-2041},error='mp_download/verification'},
+    {value={errCode=0,errcode=-2012},error='mp_download/unavailable'}}) do
+    settings,book,article,stage,client=fixture();state.raw_body='{"error":"synthetic"}'
+    client.json_decode=function() return case.value end;input=assert(Model.capture(settings,book,article))
+    local ok,reason=pcall(Model.write,client,input,stage,{})
+    expect(not ok and reason==case.error and #state.requests==1,'body login/verification/conflicting code classification wrong')
+end
+for _,case in ipairs({{code=401,error='mp_download/login'},{code=429,error='mp_download/unavailable'}}) do
+    settings,book,article,stage,client=fixture();state.body_status=case.code;input=assert(Model.capture(settings,book,article))
+    local ok,reason=pcall(Model.write,client,input,stage,{})
+    expect(not ok and reason==case.error and #state.requests==1,'HTTP login/throttle repeated before recovery')
 end
 settings,book,article=fixture();state.no_web=true;expect(not Model.capture(settings,book,article),'gateway alone accepted for Web article')
 rawset(os,'rename',rename)

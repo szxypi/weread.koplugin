@@ -99,3 +99,7 @@ python3 scripts/verify_mp_catalog.py --saved-session --check-content --lua-comma
 取消／账号与会话保护、失败恢复保存列表、有效空目录及满 100 篇提示已接入；
 成功、空目录、分页控件与存储回读仍只由合成数据验证，不改变真实 `-2041` 的未通过结论。
 见[后台目录说明](mp-article-catalog.md)。
+
+原生入口另已接入[Web 续期与读取恢复](web-authorization-renewal.md)：目录／正文的登录失效最多完成一次确认后的读取恢复，
+`-2041` 不自动续期，真实成功目录仍未验证。固定续期协议在 Python 与插件 HTTPS 各独立验证一次，
+均完成同账号核对、139 本书架及钥匙串保存回读；自然过期和真实限频不据此标为通过。

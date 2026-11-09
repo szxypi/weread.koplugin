@@ -47,6 +47,10 @@ end
 function M:images_owned()
     return self:owns() and same(self.images_identity,self.lfs.symlinkattributes(self.directory..'/images'))
 end
+function M:same_target(other)
+    return type(other)=='table' and self.path==other.path and same(self.parent_identity,other.parent_identity)
+        and unchanged(self.previous,other.previous)
+end
 function M:close()
     if self.output then self.output:close() end
 end

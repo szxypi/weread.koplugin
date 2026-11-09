@@ -101,8 +101,9 @@ local function request_count(route_path, api)
     assert(status == 200, "mock state unavailable")
     local state = client:json_decode(table.concat(chunks))
     local count = 0
-    for _, request in ipairs(state.requests) do
-        if request.path == route_path and (not api or request.api == api) then count = count + 1 end
+    assert(type(state.totals)=="table", "mock lifetime counters unavailable")
+    for _, request in ipairs(state.totals) do
+        if request.path == route_path and (not api or request.api == api) then count = count + request.count end
     end
     return count
 end
@@ -111,6 +112,10 @@ local fixture_dir = debug.getinfo(1, "S").source:match("^@(.*/)")
 local source_probe = dofile(fixture_dir .. "position_source_smoke.lua")
 source_probe.reader(reader, fastforward_ui_events, home .. "/../evidence")
 dofile(fixture_dir .. "native_authorization_smoke.lua")(plugin, request_count, fastforward_ui_events, home)
+do dofile(fixture_dir .. "web_renewal_smoke.lua")(plugin, request_count, fastforward_ui_events, home, function(predicate)
+    local socket=require("socket");local deadline=socket.gettime()+35
+    while not predicate() do assert(socket.gettime()<deadline,"Web renewal scene deadline");fastforward_ui_events();socket.sleep(.01) end
+end) end
 local pulls_before = request_count("/web/book/getProgress") + request_count("/api/agent/gateway", "/book/getprogress")
 local position = assert(sync:capture_local())
 assert(sync:_upload_snapshot(position, "manual_sync", false), "queued progress upload did not start")

@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelWebRenewal then self:cancelWebRenewal() end
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
@@ -1267,6 +1268,7 @@ function M:cacheMPArticles(book_id, articles)
 end
 
 function M:showMPArticleList(book, articles)
+    if self.cancelWebRenewal then self:cancelWebRenewal() end
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     local previous=self._mp_article_list_view;self._mp_article_list_view=nil
     if previous then UIManager:close(previous) end

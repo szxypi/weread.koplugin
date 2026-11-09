@@ -45,7 +45,7 @@ class MockTests(unittest.TestCase):
 
     def setUp(self):
         self.request("/__control", dict(delay=0, match="", status=503, times=0,
-                                        empty_shelf=False, empty_annotations=False))
+                                        empty_shelf=False, empty_annotations=False, web_renewal_mode="plain"))
 
     def test_mp_verification_failure_after_successful_web_renewal(self):
         code,result=self.request('/web/login/renewal',dict(rq='%2Fweb%2Fbook%2Fread',ql=False))
@@ -54,6 +54,17 @@ class MockTests(unittest.TestCase):
         self.assertEqual(code,200)
         self.assertEqual(result['errCode'],-2041)
         self.assertEqual(self.request('/web/login/renewal',{})[0],400)
+
+    def test_lifetime_counts_survive_bounded_event_log(self):
+        server=MockServer(0)
+        try:
+            for _ in range(510):server.record({'path':'/synthetic/counter','api':None,'method':'GET','status':200})
+            self.assertEqual(len(server.events),500)
+            self.assertEqual(server.request_totals[('/synthetic/counter','')],510)
+            for index in range(255):server.record({'path':f'/synthetic/counter-{index}','api':'fixed','method':'GET','status':200})
+            with self.assertRaises(ValueError):server.record({'path':'/capacity-exceeded','api':None})
+            self.assertEqual(len(server.request_totals),256)
+        finally:server.server_close()
 
     def test_mp_catalog_synthetic_shapes_are_explicit(self):
         base='/web/mp/articles?maxIdx=0&count=100&bookId='

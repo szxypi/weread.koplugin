@@ -12,7 +12,7 @@ return function(plugin,count,flush,home,pump,control)
     local read,request,open=Model.read,client.request,plugin.openFile
     local opened
     local renewal=count('/web/login/renewal');local writes=count('/web/book/read')
-    local cookies=client:json_encode(settings:get('cookies'))
+    local cookies=require('weread.lib.cookie').to_header(settings:get('cookies'))
     local old={reviewId='cache-fixture-a/b',title='之前保存的文章',createTime=1700000000}
     local function setup(id)
         local book={book_id='MP_WXS_'..id,title='合成公众号目录',cache_dir=settings.data_dir..'/catalog-'..id,
@@ -65,7 +65,7 @@ return function(plugin,count,flush,home,pump,control)
         local saved=settings:get('books',{})[sample.book_id]
         assert(#saved.mp_articles==1 and saved.mp_articles_time==123 and contents(saved_path)==saved_body,'invalid response erased saved rows/files: '..id)
         assert(plugin._mp_article_list_view and plugin._mp_article_list_view.item_table[1].text==old.title,'failed refresh did not restore saved list')
-        assert(count('/web/mp/articles')==gets+1,'failed catalog repeated GET')
+        assert(count('/web/mp/articles')==gets+(id=='900092' and 2 or 1),'failed catalog exceeded its one login recovery read')
         close_info();plugin:closeWeReadUI()
     end
     local empty,empty_path=setup('900095');local empty_body=contents(empty_path)
@@ -119,13 +119,13 @@ return function(plugin,count,flush,home,pump,control)
     close_info();plugin:closeWeReadUI()
     assert(UIManager:getTopmostVisibleWidget()==plugin.ui,'catalog fixture did not return to reader')
     Model.read=read;client.request=request;plugin.openFile=open
-    assert(count('/web/login/renewal')==renewal and count('/web/book/read')==writes and client:json_encode(settings:get('cookies'))==cookies,'catalog changed credentials/cloud reading data')
+    assert(count('/web/login/renewal')==renewal+1 and count('/web/book/read')==writes and require('weread.lib.cookie').to_header(settings:get('cookies'))==cookies,'catalog changed credentials/cloud reading data')
     local report={result='PASS',synthetic_only=true,first_page_only=true,ui_heartbeat=true,http_in_child=true,
         cached_body_opened_after_title_change=true,fresh_progress_intent_preserved=true,new_settings_instance_catalog_readback=true,
         offline_keeps_menu=true,malformed_missing_object_dates_and_oversize_preserve_cache=true,failed_refresh_restores_list=true,
         valid_empty_page_label_and_persistence=true,valid_empty_catalog_reopens_offline=true,empty_page_does_not_delete_files=true,large_pipe_100_rows_and_native_pagination=true,
         first_batch_label_visible=true,cancel_close_suspend_session_epoch_cookie_header_cache_move_guards=true,
-        http_429_no_retry=true,storage_error_fallback=true,native_key_dismiss_closes_window=true,returns_to_visible_reader=true,credential_renewals=0,account_data_writes=0}
+        http_429_no_retry=true,storage_error_fallback=true,native_key_dismiss_closes_window=true,returns_to_visible_reader=true,credential_renewals=1,login_recovery_bounded_once=true,account_data_writes=0}
     local file=assert(io.open(home..'/../evidence/mp-catalog-background.json','wb'));file:write(client:json_encode(report));file:close()
-    print('PASS: MP catalog -> responsive one-GET worker, large native list/first-batch label, empty/malformed/429/storage cases, persisted cache/state and cancellation/ownership; no renewal/writes')
+    print('PASS: MP catalog -> responsive one-GET worker, large native list/first-batch label, empty/malformed/429/storage cases, persisted cache/state and cancellation/ownership; one confirmed login recovery, no account-data writes')
 end
