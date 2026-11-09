@@ -43,6 +43,32 @@ end
 initial.reader.psvts=nil;rejected('invalid_session',project);fixture()
 initial.reader.pclts=nil;initial.reader.token=nil
 expect(project().pclts==nil and project().token==nil,'missing optional session fields were invented');fixture()
+local loaded_json=package.loaded.json
+local null=function() end
+for _i,codec in ipairs({{util={null=null}},{null=null}}) do
+    package.loaded.json=codec
+    for _j,key in ipairs({'token','pclts'}) do
+        fixture();initial.reader[key]=null
+        local accepted,output=pcall(project)
+        expect(accepted and output[key]==nil,'JSON null optional session was rejected or retained: '..key)
+    end
+    for _j,key in ipairs({'currentChapter','progress'}) do
+        fixture();initial.reader[key]=null
+        local accepted,output=pcall(project)
+        local record=accepted and output[key=='currentChapter' and 'current_chapter' or 'progress']
+        expect(type(record)=='table' and next(record)==nil,'JSON null optional record was not empty: '..key)
+    end
+    fixture();initial.reader.currentChapter.bookId=null;initial.reader.currentChapter.chapterUid=null
+    initial.reader.progress.book.bookId=null;initial.reader.progress.book.chapterOffset=null
+    local output=project()
+    expect(output.current_chapter.bookId==nil and output.current_chapter.chapterUid==nil
+        and output.progress.bookId==nil and output.progress.chapterOffset==nil,'JSON null leaked into position fields')
+    fixture();initial.reader.psvts=null;rejected('invalid_session',project)
+    fixture();initial.reader.bookInfo.bookId=null;rejected('invalid_identity',project)
+    fixture();initial.reader.progress.book=null;rejected('invalid_response',project)
+    fixture();initial.reader.token=function() end;rejected('invalid_session',project)
+end
+package.loaded.json=loaded_json;fixture()
 rejected('invalid_response',function() Context.project(book,'<script>{"bookId":"900001","psvts":"fake"}</script>',function() error('private parser input') end) end)
 rejected('invalid_response',function() Context.project(book,string.rep('x',Context.MAX_HTML_BYTES+1),function() return initial end) end)
 local requests={}

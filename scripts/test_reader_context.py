@@ -57,6 +57,23 @@ class ReaderContextTest(unittest.TestCase):
         self.reader.pop('pclts');self.reader.pop('token')
         value=project(dict(self.book,token='old',pclts='old'),self.html())
         self.assertNotIn('pclts',value);self.assertNotIn('token',value)
+    def test_null_optional_sessions_and_records_match_missing_fields(self):
+        for field in ('token','pclts','currentChapter','progress'):
+            self.setUp();self.reader[field]=None
+            value=project(self.book,self.html())
+            if field in ('token','pclts'): self.assertNotIn(field,value)
+            else: self.assertEqual(value['current_chapter' if field=='currentChapter' else 'progress'],{})
+    def test_null_position_values_are_absent_in_projection(self):
+        self.reader['currentChapter'].update(bookId=None,chapterUid=None)
+        self.reader['progress']['book'].update(bookId=None,chapterOffset=None)
+        value=project(self.book,self.html())
+        self.assertEqual(value['current_chapter'],{})
+        self.assertEqual(value['progress'],dict(progress=10))
+    def test_required_identity_session_and_explicit_book_wrapper_remain_strict(self):
+        for target,key in (('bookInfo','bookId'),(None,'psvts'),('progress','book')):
+            self.setUp()
+            row=self.reader if target is None else self.reader[target];row[key]=None
+            with self.subTest(target=target),self.assertRaises(ContextError): project(self.book,self.html())
     def test_bounded_html(self):
         with self.assertRaises(ContextError): project(self.book,'x'*(4*1024*1024+1))
 

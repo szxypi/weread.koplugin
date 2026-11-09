@@ -3,6 +3,17 @@
 local Protocol=require('weread.lib.protocol')
 local M={MAX_HTML_BYTES=4*1024*1024}
 local function fail(reason) error('reader_context/'..reason,0) end
+local function nullable(value)
+    local codec=package.loaded.json
+    if type(codec)=='table' and ((codec.null~=nil and value==codec.null)
+        or type(codec.util)=='table' and codec.util.null~=nil and value==codec.util.null) then return nil end
+    return value
+end
+local function position_record(value)
+    local out={}
+    for key,item in pairs(value) do out[key]=nullable(item) end
+    return out
+end
 function M.identifier(value,chapter)
     local kind=type(value)
     if kind~='string' and kind~='number' then fail('invalid_identity') end
@@ -37,6 +48,7 @@ function M.url(book,chapter)
     return root
 end
 local function session(value,required,counter)
+    value=nullable(value)
     if value==nil then if required then fail('invalid_session') end;return end
     if counter and type(value)=='number' and value>=0 and value<=9007199254740991 and value%1==0 then return value end
     if type(value)~='string' or #value>4096 or value:find('[%z%c%s]') or required and value=='' then fail('invalid_session') end
@@ -51,13 +63,14 @@ function M.project(book,html,decode)
     local info=type(reader)=='table' and reader.bookInfo
     if type(info)~='table' then fail('invalid_response') end
     if M.identifier(info.bookId)~=id then fail('book_mismatch') end
-    local chapter=reader.currentChapter
-    local progress=reader.progress
+    local chapter=nullable(reader.currentChapter)
+    local progress=nullable(reader.progress)
     if chapter==nil then chapter={} end
     if progress==nil then progress={} end
     if type(chapter)~='table' or type(progress)~='table' then fail('invalid_response') end
     if progress.book~=nil then progress=progress.book end
     if type(progress)~='table' then fail('invalid_response') end
+    chapter,progress=position_record(chapter),position_record(progress)
     for _,row in ipairs({chapter,progress}) do
         if row.bookId~=nil and M.identifier(row.bookId)~=id then fail('book_mismatch') end
     end

@@ -95,6 +95,8 @@ def project(book, html):
         for row in (chapter, progress):
             if row.get('bookId') is not None and identifier(row['bookId']) != key:
                 raise ContextError('reader_context/book_mismatch')
+        chapter = {key: value for key, value in chapter.items() if value is not None}
+        progress = {key: value for key, value in progress.items() if value is not None}
         result = dict(book_id=key, psvts=session_text(reader.get('psvts'), required=True),
                       current_chapter=chapter, progress=progress)
         for field in ('pclts', 'token'):

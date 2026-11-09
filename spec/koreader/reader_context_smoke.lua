@@ -17,7 +17,7 @@ return function(plugin,count,flush,home)
         assert(code==200)
     end
     local request=client.request
-    local captured,wrong={},false
+    local captured,wrong,nulls={},false,nil
     function client:request(options)
         captured[#captured+1]={url=options.url,referer=options.headers and options.headers.Referer,sensitive=options.sensitive}
         if wrong and options.url==root then
@@ -26,7 +26,21 @@ return function(plugin,count,flush,home)
             changed.url=other
             return request(self,changed)
         end
-        return request(self,options)
+        local body,code,headers,status=request(self,options)
+        if nulls and code==200 and options.url:sub(1,#root)==root then
+            body=body:gsub('(window%.__INITIAL_STATE__%s*=%s*)(%{.-%})(%s*;%s*%(function)',function(prefix,encoded,suffix)
+                local value=client:json_decode(encoded)
+                local null=require('json').util.null
+                if nulls=='sessions' then
+                    value.reader.token,value.reader.pclts=null,null
+                    value.reader.currentChapter.bookId=null
+                    local progress=value.reader.progress.book or value.reader.progress;progress.bookId=null
+                elseif nulls=='required' then value.reader.psvts=null
+                else value.reader[nulls]=null end
+                return prefix..client:json_encode(value)..suffix
+            end,1)
+        end
+        return body,code,headers,status
     end
     local cache=assert(plugin.ui.document.file)
     local function digest()
@@ -47,6 +61,21 @@ return function(plugin,count,flush,home)
     assert(captured[#captured].url==Protocol.reader_url('900001',3) and book.chapter_uid==3,'explicit chapter refresh selected wrong page')
     book.reader_url='https://example.invalid/stale';Content.fetch_catalog(client,book)
     assert(captured[#captured].referer==root and captured[#captured].sensitive,'catalog retained foreign referer')
+
+    nulls='sessions';book.reader_url=root
+    state=Content.ensure_reader_state(client,book)
+    assert(state.psvts=='mock-session' and state.token==nil and state.pclts==nil
+        and state.current_chapter.bookId==nil and state.progress.bookId==nil,'JSON null optional sessions/owners were not normalized')
+    for _i,key in ipairs({'currentChapter','progress'}) do
+        nulls=key;state=Content.ensure_reader_state(client,book)
+        local record=key=='currentChapter' and state.current_chapter or state.progress
+        assert(type(record)=='table' and next(record)==nil and state.psvts=='mock-session','JSON null optional position record was rejected')
+    end
+    nulls='required'
+    local accepted,message=pcall(Content.ensure_reader_state,client,book)
+    assert(not accepted and message==tr('The reading page could not be verified for this book. Refresh the book details and try again.')
+        and book.psvts==nil and book.token==nil and book.pclts==nil,'JSON null required session was accepted or stale fields retained')
+    nulls=nil
 
     wrong=true;book.reader_url=root
     local offset,progress=book.chapter_offset,book.progress
@@ -82,6 +111,7 @@ return function(plugin,count,flush,home)
         sharing_fields_removed=true,catalog_referer_canonical=true,real_wrong_book_http_rejected=true,
         no_chapter_fetch_after_mismatch=true,cached_epub_unchanged=true,pending_upload_preserved=true,
         old_session_cleared=true,http_failure_clean=true,catalog_failure_preserves_cache=true,conflicting_alias_no_http=true,fixed_native_guidance=true,reading_writes=0}
+    report.null_optional_sessions_clean=true;report.null_optional_positions_clean=true;report.null_required_session_rejected=true
     local file=assert(io.open(home..'/../evidence/reader-context.json','w'));file:write(client:json_encode(report));file:close()
     print('PASS: download same-book Reader context -> canonical root/chapter/catalog -> actual HTTP wrong-book rejection -> original EPUB/pending state preserved; clean session/403/ID conflict and native guidance; no reading writes')
 end
