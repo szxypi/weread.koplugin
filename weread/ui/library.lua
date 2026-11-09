@@ -1700,19 +1700,16 @@ function M:openBookForReading(book, quiet)
 
     local candidates = {}
     local target_index
+    local account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
+    if account==nil and self.progress_sync and self.progress_sync._account_key then account=self.progress_sync:_account_key() end
+    local Reading=require('weread.ui.book_reading')
     if type(chapters) == "table" then
+        target_index=Reading.resume_index(chapters,book,nil,account)
         for index, chapter in ipairs(chapters) do
             local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
             local path = book.cached_chapters and book.cached_chapters[uid]
             if file_exists(path) then
                 candidates[#candidates + 1] = { index = index, path = path }
-            end
-            if book.chapter_uid ~= nil
-                and uid == tostring(book.chapter_uid) then
-                target_index = index
-            elseif target_index == nil and book.chapter_idx ~= nil
-                and tonumber(chapter.chapterIdx or chapter.chapterIndex) == tonumber(book.chapter_idx) then
-                target_index = index
             end
         end
         if not target_index and tonumber(book.progress) then
@@ -1738,11 +1735,12 @@ function M:openBookForReading(book, quiet)
 
     local fallback_paths = {}
     for uid, path in pairs(book.cached_chapters or {}) do
-        if file_exists(path) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), path = path } end
+        if file_exists(path) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), chapterUid=tostring(uid), path = path } end
     end
     table.sort(fallback_paths, function(left, right) return left.uid < right.uid end)
-    if fallback_paths[1] then
-        self:openFile(fallback_paths[1].path)
+    local fallback=fallback_paths[Reading.resume_index(fallback_paths,book,nil,account) or 1]
+    if fallback then
+        self:openFile(fallback.path)
         return true
     end
     if not quiet then self:showInfo(_("No cached file.")) end

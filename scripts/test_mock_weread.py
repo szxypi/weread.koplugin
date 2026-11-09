@@ -9,7 +9,7 @@ from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
 from fetch_weread_epub import decode_content_shards, decode_style_shard, weread_e
-from mock_weread import BOOK_ID, CHAPTERS, MockServer, annotation, chapter_html, shards
+from mock_weread import BOOK_ID, CHAPTERS, MockServer, annotation, chapter_html, chapter_txt, shards
 from verify_bookstore import categories as verify_categories, page as verify_page
 
 
@@ -57,6 +57,21 @@ class MockTests(unittest.TestCase):
             self.assertEqual(web, gateway)
             self.assertEqual(web[0], 200)
         self.assertEqual(self.request('/__control', dict(progress_response='unknown'))[0], 400)
+
+    def test_txt_marker_and_two_shards_preserve_original_plaintext(self):
+        self.server.content_format='txt'
+        try:
+            params=dict(b=weread_e(BOOK_ID),c=weread_e(2))
+            code,marker=self.request('/web/book/chapter/e_0',params)
+            self.assertEqual((code,marker),(200,dict(bookId=BOOK_ID,chapterUid=2)))
+            parts=[self.request('/web/book/chapter/'+name,params)[1].decode() for name in ('t_0','t_1')]
+            self.assertEqual(decode_content_shards(*parts,''),chapter_txt(2))
+            self.assertIn('<tag>',chapter_txt(2));self.assertIn('&amp;',chapter_txt(2))
+            self.assertEqual(self.request('/web/book/chapter/e_1',params)[0],501)
+            other=dict(params,b=weread_e('900002'))
+            self.assertEqual(self.request('/web/book/chapter/e_0',other)[1]['bookId'],'900002')
+        finally:
+            self.server.content_format='epub'
 
     def test_active_requests_track_delayed_transport_and_route_failure(self):
         entered,release=threading.Event(),threading.Event()

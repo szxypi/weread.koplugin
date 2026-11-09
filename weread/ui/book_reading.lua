@@ -30,19 +30,39 @@ function M.catalog(value)
     return chapters
 end
 
-function M.choose(chapters, local_book, remote)
-    for _, hint in ipairs({ local_book.pending_upload_position or {}, local_book.last_local_position or {},
-        local_book, remote or {} }) do
-        for _, chapter in ipairs(chapters) do
-            if hint.chapter_uid ~= nil and tostring(hint.chapter_uid) == tostring(chapter.chapterUid) then return chapter end
+local function local_hint(value, book_id, owner, account)
+    if type(value)~='table' then return {} end
+    for _i,key in ipairs({'book_id','bookId'}) do
+        if value[key]~=nil and book_id~=nil and tostring(value[key])~=tostring(book_id) then return {} end
+    end
+    if owner~=nil and account~=nil and tostring(owner)~=tostring(account) then return {} end
+    return value
+end
+
+-- Shared by cached and uncached Read. File-backed book storage already has an
+-- account scope; explicit nested owner/book conflicts must still be ignored.
+function M.resume_index(chapters, local_book, remote, account)
+    local_book=type(local_book)=='table' and local_book or {}
+    local id=local_book.book_id or local_book.bookId
+    local pending=local_hint(local_book.pending_upload_position,id,
+        local_book.pending_upload_account or local_book.recent_read_account,account)
+    local recent=local_hint(local_book.last_local_position,id,local_book.recent_read_account,account)
+    for _i, hint in ipairs({pending,recent,local_book,type(remote)=='table' and remote or {}}) do
+        for index, chapter in ipairs(chapters) do
+            if hint.chapter_uid ~= nil and tostring(hint.chapter_uid) == tostring(chapter.chapterUid or chapter.chapterId) then return index end
         end
         if hint.chapter_idx ~= nil then
-            for _, chapter in ipairs(chapters) do
-                if tonumber(hint.chapter_idx) == chapter.chapterIdx then return chapter end
+            local wanted=integer(hint.chapter_idx,1000000)
+            for index, chapter in ipairs(chapters) do
+                local actual=integer(chapter.chapterIdx or chapter.chapterIndex,1000000)
+                if wanted~=nil and actual~=nil and wanted==actual then return index end
             end
         end
     end
-    return chapters[1]
+end
+
+function M.choose(chapters, local_book, remote, account)
+    return chapters[M.resume_index(chapters,local_book,remote,account) or 1]
 end
 
 local function close_busy(host, context)
@@ -112,7 +132,7 @@ function M.start(host, book, view)
         if not chapters then fail(); return end
         if result.auth and not WorkerSettings.merge(host.settings, context.fingerprint, result.auth) then fail(); return end
         local latest = host.settings:get_book(id) or book
-        local target = M.choose(chapters, latest, result.remote)
+        local target = M.choose(chapters, latest, result.remote, context.account)
         latest.chapters = chapters
         local saved = pcall(function()
             if host.library_db and not host.library_db:putChapters(id, chapters) then error("catalog_save_failed", 0) end

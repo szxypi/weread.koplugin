@@ -67,6 +67,7 @@ local host = {
     settings = {
         get = function(_self, key, default)
             if key == "books" then return books end
+            if key == 'account' then return {user_vid='raw-owner-id'} end
             return default
         end,
         set = function(_self, key, value)
@@ -156,6 +157,39 @@ host:openBookForReading(partial)
 expect(opened_path == "/cache/4.epub",
     "exact cached progress chapter was not selected")
 
+partial.pending_upload_account='account-a'
+partial.pending_upload_position={book_id='42',chapter_uid=2,percent=25}
+host:openBookForReading(partial)
+expect(opened_path=='/cache/2.epub','cached Read ignored pending local chapter and opened newer remote metadata')
+partial.pending_upload_account='other-account'
+host:openBookForReading(partial)
+expect(opened_path=='/cache/4.epub','cached Read used a different account pending chapter')
+partial.pending_upload_account='account-a'
+partial.pending_upload_position.book_id='other-book'
+host:openBookForReading(partial)
+expect(opened_path=='/cache/4.epub','cached Read used a different book pending chapter')
+partial.pending_upload_position=nil
+partial.recent_read_account='account-a'
+partial.last_local_position={book_id='42',chapter_uid=2,percent=25}
+host:openBookForReading(partial)
+expect(opened_path=='/cache/2.epub','cached Read ignored the last native reading chapter')
+partial.recent_read_account='other-account'
+host:openBookForReading(partial)
+expect(opened_path=='/cache/4.epub','cached Read used a different account last local chapter')
+partial.last_local_position=nil
+local original_catalog=partial.chapters
+partial.chapters={}
+partial.chapter_uid=2
+partial.pending_upload_position={book_id='42',chapter_uid=4}
+partial.pending_upload_account='account-a'
+host:openBookForReading(partial)
+expect(opened_path=='/cache/4.epub','missing catalog ignored a directly cached local chapter UID')
+partial.pending_upload_account='other-account'
+host:openBookForReading(partial)
+expect(opened_path=='/cache/2.epub','missing catalog used a foreign pending chapter')
+partial.chapters=original_catalog
+partial.pending_upload_position=nil
+
 partial.full_path = "/cache/full.epub"
 existing_paths[partial.full_path] = true
 host:openBookForReading(partial)
@@ -187,9 +221,9 @@ expect(host:fetchMPArticles(mp_book) and catalog_book==mp_book,'MP catalog did n
 host:cancelMPArticleCatalog();expect(catalog_cancelled,'MP catalog cancellation not delegated')
 
 local preparation
-package.preload["weread.ui.book_reading"] = function() return {
-    start = function(_self, selected, view) preparation = { book = selected, view = view }; return true end,
-} end
+require('weread.ui.book_reading').start=function(_self, selected, view)
+    preparation = { book = selected, view = view }; return true
+end
 host.settings.get_book = function(_self, id) return books[id] end
 books["42"] = partial
 opened_path = nil

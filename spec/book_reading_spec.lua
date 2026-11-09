@@ -34,6 +34,22 @@ expect(Reading.choose(projected, { chapter_uid = 1, pending_upload_position = { 
     "pending local progress lost")
 expect(Reading.choose(projected, { chapter_idx = 2 }) == projected[2], "chapter index ignored")
 expect(Reading.choose(projected, { progress = 99 }) == projected[1], "percentage guessed a chapter")
+for _i,position in ipairs({{chapter_uid=2},{chapter_idx=2},{chapter_uid=999,chapter_idx=2}}) do
+    expect(Reading.choose(projected,{book_id='900001',chapter_uid=1,pending_upload_account='owner',
+        pending_upload_position=position},nil,'owner')==projected[2],'same-account pending chapter did not win')
+end
+for _i,change in ipairs({{pending_upload_account='other'},
+    {pending_upload_position={book_id='900002',chapter_uid=2}},
+    {pending_upload_position={bookId='900002',chapter_uid=2}},
+    {pending_upload_position={chapter_idx=0/0}}, {pending_upload_position='invalid'}}) do
+    local candidate={book_id='900001',chapter_uid=1,pending_upload_account='owner',pending_upload_position={chapter_uid=2}}
+    for key,value in pairs(change) do candidate[key]=value end
+    expect(Reading.choose(projected,candidate,nil,'owner')==projected[1],'foreign or malformed pending chapter was used')
+end
+expect(Reading.resume_index(projected,{chapter_uid=1,last_local_position={chapter_uid=2}})==2,
+    'last local chapter lost to refreshed book metadata')
+expect(Reading.resume_index(projected,{chapter_uid=1,recent_read_account='other',last_local_position={chapter_uid=2}},nil,'owner')==1,
+    'foreign last local chapter was used')
 
 local function fixture()
     tasks, saved_catalogs = {}, 0

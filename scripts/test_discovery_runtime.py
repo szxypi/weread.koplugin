@@ -6,6 +6,7 @@ No production account or WeRead requests are used.
 """
 import argparse
 import hashlib
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -28,6 +29,8 @@ def main():
     parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
     parser.add_argument("--progress-response", action="store_true", help="Reject foreign/malformed sync responses in the reading flow")
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
+    parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
+    parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     args = parser.parse_args()
     if args.offline_progress and not args.reading_flow:
         parser.error("--offline-progress requires --reading-flow")
@@ -35,6 +38,10 @@ def main():
         parser.error("--progress-response requires --reading-flow")
     if args.footnotes and args.reading_flow:
         parser.error("--footnotes and --reading-flow use separate fixtures")
+    if args.cached_resume and (args.footnotes or args.reading_flow):
+        parser.error('--cached-resume uses a separate fixture')
+    if args.content_format!='epub' and not args.cached_resume:
+        parser.error('--content-format txt requires --cached-resume')
     runtime, root = args.koreader.resolve(), args.run_dir.resolve()
     if not (runtime / "luajit").is_file() or not (runtime / "reader.lua").is_file():
         parser.error("--koreader must contain a built runtime")
@@ -56,6 +63,8 @@ def main():
                        EMULATE_READER_W=str(args.width),
                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
     server = MockServer(0, root / "evidence/requests.jsonl")
+    server.content_format=args.content_format
+    environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
     server.progress[BOOK_ID] = dict(chapterUid=2, chapterIdx=2, chapterOffset=120, progress=37, summary="合成进度")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -67,6 +76,8 @@ def main():
     try:
         with (root / "evidence/runtime.log").open("w") as log:
             fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"
+            if args.cached_resume:
+                fixture='cached_resume_smoke.lua'
             fixture_args = []
             if args.footnotes:
                 fixture = "book_footnotes_render.lua"
@@ -74,12 +85,17 @@ def main():
             result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
                                     cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                     timeout=120)
-            if args.reading_flow and result.returncode == 0:
+            if (args.reading_flow or args.cached_resume) and result.returncode == 0:
+                if args.cached_resume:
+                    assert server.request_totals[('/web/book/read','')]==0,'cached reading wrote progress/time'
                 before = server.request_totals.copy()
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture)],
                                         cwd=runtime, env=dict(environment, WEREAD_READING_REOPEN="1"),
                                         stdout=log, stderr=subprocess.STDOUT, timeout=120)
                 assert server.request_totals == before, "offline reopen contacted the mock service"
+                if args.cached_resume and result.returncode==0:
+                    (root/'evidence/cached-resume-offline.json').write_text(json.dumps(dict(
+                        result='PASS',fresh_process=True,offline_http_requests=0,progress_or_time_posts=0),indent=2)+'\n')
                 if args.offline_progress and result.returncode == 0:
                     writes_before = server.request_totals[("/web/book/read", "")]
                     result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture)],
@@ -96,7 +112,6 @@ def main():
                 for key in ("duplicate_ids", "broken_targets", "broken_backlinks", "broken_local_links",
                             "unreferenced_generated_notes", "missing_generated_backlinks"):
                     assert inspected[key] == 0, key
-                import json
                 (root / "evidence/footnotes-package.json").write_text(json.dumps(inspected, indent=2) + "\n")
     finally:
         server.shutdown()

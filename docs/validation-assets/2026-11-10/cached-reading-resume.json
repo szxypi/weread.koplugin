@@ -1,0 +1,207 @@
+{
+  "result": "PARTIAL",
+  "runtime": "KOReader v2026.07.1 Linux ARM64",
+  "production_parent_commit": "da73a3f354f15ae63408b73bb6f2b6d2a957aa40",
+  "production_manifest_sha256": "e460017b256cfcda0b7dbd8bba349085d98a17c68ee705f7af3cfadd87e26d90",
+  "fixture_sha256": "0e0d807977502de4693f6e0306bc30d14e20e335818c7c15bc13261683e3a247",
+  "baseline_cached_pending_priority_failure_reproduced": true,
+  "synthetic_only": true,
+  "production_account_used": false,
+  "real_account_writes": 0,
+  "profiles": [
+    {
+      "content_format": "epub",
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "reading": {
+        "full_chapters": 6,
+        "pending_priority": true,
+        "last_local_priority": true,
+        "foreign_owner_ignored": true,
+        "native_position_restored": true,
+        "missing_catalog_uid": true,
+        "full_download": true,
+        "full_source_records": true,
+        "full_native_navigation": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "web_xhtml",
+        "chapter_files": 2
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      },
+      "epub": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "epub",
+        "raw_chapters_matched": 6,
+        "metadata_seals_verified": 6,
+        "rendered_members_verified": 6,
+        "cover_pages": 1,
+        "spine_order_verified": true,
+        "zip_crc_ok": true
+      },
+      "native_repaint_errors": 0,
+      "production_files": 184,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "cdb024eb2212ba94deba8aefaa8de094fd7b207e55a73cac2e1293a9e23d6265"
+    },
+    {
+      "content_format": "txt",
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "reading": {
+        "chapter_files": 2,
+        "full_chapters": 6,
+        "pending_priority": true,
+        "last_local_priority": true,
+        "foreign_owner_ignored": true,
+        "native_position_restored": true,
+        "missing_catalog_uid": true,
+        "full_download": true,
+        "full_source_records": true,
+        "full_native_navigation": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "web_txt"
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      },
+      "epub": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "txt",
+        "raw_chapters_matched": 6,
+        "metadata_seals_verified": 6,
+        "rendered_members_verified": 6,
+        "cover_pages": 1,
+        "spine_order_verified": true,
+        "zip_crc_ok": true
+      },
+      "native_repaint_errors": 0,
+      "production_files": 184,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "22b546ff15a3db7d3695850888c83c7ba2e5b440f0276fb6934af107ee1e17ba"
+    },
+    {
+      "content_format": "epub",
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "reading": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "web_xhtml",
+        "chapter_files": 2,
+        "full_chapters": 6,
+        "pending_priority": true,
+        "last_local_priority": true,
+        "foreign_owner_ignored": true,
+        "native_position_restored": true,
+        "missing_catalog_uid": true,
+        "full_download": true,
+        "full_source_records": true,
+        "full_native_navigation": true
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      },
+      "epub": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "epub",
+        "raw_chapters_matched": 6,
+        "metadata_seals_verified": 6,
+        "rendered_members_verified": 6,
+        "cover_pages": 1,
+        "spine_order_verified": true,
+        "zip_crc_ok": true
+      },
+      "native_repaint_errors": 0,
+      "production_files": 184,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "321bfc21c6cd86024368b5d81b5f8c4c2aba32d7c682cdb62f0465ed56e5dfd5"
+    },
+    {
+      "content_format": "txt",
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "reading": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "web_txt",
+        "chapter_files": 2,
+        "full_chapters": 6,
+        "pending_priority": true,
+        "last_local_priority": true,
+        "foreign_owner_ignored": true,
+        "native_position_restored": true,
+        "missing_catalog_uid": true,
+        "full_download": true,
+        "full_source_records": true,
+        "full_native_navigation": true
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      },
+      "epub": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "content_format": "txt",
+        "raw_chapters_matched": 6,
+        "metadata_seals_verified": 6,
+        "rendered_members_verified": 6,
+        "cover_pages": 1,
+        "spine_order_verified": true,
+        "zip_crc_ok": true
+      },
+      "native_repaint_errors": 0,
+      "production_files": 184,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "17d98b997b6ce33a20f797bf24359728d3608b32144137cda93f116b562c981b"
+    }
+  ],
+  "raw_chapters_matched": 24,
+  "automated": {
+    "lua_spec_groups": 156,
+    "python_tests": 433,
+    "luacheck_files": 412,
+    "luacheck_warnings": 0,
+    "luacheck_errors": 0,
+    "lua_syntax_files": 414,
+    "time_zones": 4
+  },
+  "pending": [
+    "real_full_book_resources",
+    "single_to_full_exact_resume_handoff",
+    "authorized_cloud_write_readback",
+    "multi_device",
+    "physical_ko2",
+    "concentrated_eink_performance"
+  ]
+}

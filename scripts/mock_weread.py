@@ -108,6 +108,12 @@ def chapter_html(uid):
               '</body></html>')
 
 
+def chapter_txt(uid):
+    return '\ufeff' + CHAPTERS[uid-1]['title'] + '\r\n\r\n' + '\r\n\r\n'.join(
+        f'这是第{uid}章的第{i}段。' + QUOTE + '我们沿着小路慢慢前行，记下沿途的灯光、溪水和陌生人的问候。'
+        + '字面标签<tag>与实体&amp;和😀保持原样。\t  ' for i in range(1,25)) + '\r\n'
+
+
 def annotation(uid):
     source = chapter_html(uid)
     start = source.index(QUOTE)
@@ -161,6 +167,7 @@ class MockServer(ThreadingHTTPServer):
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
                             progress_response="plain")
         self.web_renewal_posts = 0
+        self.content_format = 'epub'
 
     def record(self, event):
         with self.lock:
@@ -391,6 +398,8 @@ class MockServer(ThreadingHTTPServer):
             chapter = next((c for c in CHAPTERS if len(encoded) > 1 and weread_e(c["chapterUid"]) == encoded[1]), CHAPTERS[0])
             state = dict(reader=dict(bookInfo=book_metadata(book), psvts="mock-session", pclts="mock-clock",
                                      currentChapter=chapter, progress=self.get_progress(book["bookId"])))
+            if self.content_format == 'txt':
+                state['reader']['bookInfo']['format'] = 'txt'
             return 200, "<script>window.__INITIAL_STATE__=" + json.dumps(state, ensure_ascii=False) + ";(function(){})();</script>"
         if path == "/web/book/chapterInfos" and method == "POST":
             if not isinstance(data.get("bookIds"), list) or not data["bookIds"] or any(
@@ -399,10 +408,18 @@ class MockServer(ThreadingHTTPServer):
                 raise ValueError("missing or unknown bookIds")
             return 200, dict(data=[dict(bookId=str(b), updated=CHAPTERS) for b in data["bookIds"]])
         if path.startswith("/web/book/chapter/") and method == "POST":
-            if not any(weread_e(b["bookId"]) == data.get("b") for b in BOOKS):
+            content_book = next((b['bookId'] for b in BOOKS if weread_e(b['bookId']) == data.get('b')), None)
+            if content_book is None:
                 raise ValueError("unknown encoded book")
             uid = next(c["chapterUid"] for c in CHAPTERS if weread_e(c["chapterUid"]) == data["c"])
             part = path.rsplit("/", 1)[1]
+            if self.content_format == 'txt':
+                if part == 'e_0':
+                    return 200, dict(bookId=content_book, chapterUid=uid)
+                if part in ('t_0','t_1'):
+                    return 200, shards(chapter_txt(uid),2)[('t_0','t_1').index(part)]
+                if part != 'e_2':
+                    raise LookupError('TXT route is not implemented')
             if part == "e_2":
                 return 200, shards("p { line-height: 1.5; } img { max-width: 100%; }", 1)[0]
             if part in {"e_0", "e_1", "e_3"}:
