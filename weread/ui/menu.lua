@@ -194,6 +194,12 @@ function M:getMainMenuItems()
             end),
         }}
         if book_id ~= nil then
+            if WeRead.is_mp_book(book_id) then
+                reader_items[#reader_items + 1] = {
+                    text = _("Export article to EPUB"),
+                    callback = self:safeCallback(_("Export article to EPUB"), function() self:showCurrentMPArticleExport() end),
+                }
+            end
             if not WeRead.is_mp_book(book_id) then
                 reader_items[#reader_items + 1] = {
                     text = _("Reading language"),

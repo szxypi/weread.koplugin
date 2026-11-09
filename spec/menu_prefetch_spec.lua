@@ -345,6 +345,8 @@ expect(cache.show_annotations == false and annotation_menu_updates == 1
 
 host.detectWeReadBook = function() return "mp-book" end
 local mp_reader_items = host:getMainMenuItems()
+expect(menu_has(mp_reader_items,"Export article to EPUB") and not menu_has(weread_reader_items,"Export article to EPUB")
+        and not menu_has(local_reader_items,"Export article to EPUB"),"MP export reader menu scope incorrect")
 expect(not menu_has(mp_reader_items, "Sync progress now")
         and menu_has(mp_reader_items, "Book details")
         and menu_has(mp_reader_items, "Underlines and thoughts management"),

@@ -51,7 +51,9 @@ jobs:
           fi
 
       - name: Offline mock service checks
-        run: python3 scripts/test_mock_weread.py
+        run: |
+          python3 scripts/test_mock_weread.py
+          python3 scripts/test_mp_export.py
 
       - name: Native authorization prototype checks
         run: python3 scripts/test_eink_login.py

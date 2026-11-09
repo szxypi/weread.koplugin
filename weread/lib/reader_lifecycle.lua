@@ -105,6 +105,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     self._reader_session_gen = (self._reader_session_gen or 0) + 1
     local perf = PluginUtil.reader_open_perf
@@ -194,6 +195,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.closeReadingLanguageDocument then self:closeReadingLanguageDocument() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
@@ -360,6 +362,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
@@ -418,6 +421,7 @@ function M:detectWeReadBook()
         return nil
     end
     if require("weread.lib.notes_export").is_export_path(self.settings,file) then return nil end
+    if require("weread.lib.mp_export").is_export_path(self.settings,file) then return nil end
     local books = self.settings:get("books", {})
     for book_id, book in pairs(books) do
         if type(book) == "table" then

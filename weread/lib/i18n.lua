@@ -1,6 +1,19 @@
 local I18n = {}
 
 local zh = {
+    ["Export article to EPUB"] = "导出文章为 EPUB",
+    ["Export cached article"] = "导出缓存文章",
+    ["Ambiguous cache"] = "缓存归属不明",
+    ["Export EPUB"] = "导出 EPUB",
+    ["Open exported article"] = "打开导出文章",
+    ["Image unavailable"] = "图片暂不可用",
+    ["No cached articles to export."] = "没有可导出的缓存文章。",
+    ["This article could not be identified in the saved article list."] = "未能在已保存的文章列表中识别当前文章。",
+    ["Could not export this article. Check its cache and available storage."] = "文章导出失败，请检查文章缓存和可用存储空间。",
+    ["Exporting article…\nTap or press a key to cancel."] = "正在导出文章…\n点击或按键可取消。",
+    ["Exported the saved EPUB to:\n%1"] = "已将缓存 EPUB 导出至：\n%1",
+    ["Article exported to:\n%1\n\nIncluded images: %2\nImages unavailable: %3"] = "文章已导出至：\n%1\n\n包含图片：%2\n未包含图片：%3",
+    ["Export this cached article as an EPUB?\n\n%1\n\nAvailable saved images are included. Other images get a placeholder.\n\nSave to:\n%2"] = "将这篇缓存文章导出为 EPUB？\n\n%1\n\n包含可用的缓存图片，其余图片会保留提示。\n\n保存至：\n%2",
     ["The bookshelf was read, but its status could not be saved. The saved snapshot is unchanged."] = "已读取书架，但未能保存状态。本机仍保留上次的快照。",
     ["Pinned"] = "置顶",
     ["Private"] = "私密",

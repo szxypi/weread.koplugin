@@ -101,6 +101,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
@@ -125,6 +126,7 @@ function M:closeWeReadUI()
     local seen = {}
     for _, field in ipairs({
         "_discovery_menu",
+        "_mp_article_list_view",
         "_home_controls_menu",
         "_home_prefetch_confirmation",
         "_profile_goal_dialog",
@@ -1304,6 +1306,18 @@ function M:cacheMPArticles(book_id, articles)
 end
 
 function M:showMPArticleList(book, articles)
+    local previous=self._mp_article_list_view;self._mp_article_list_view=nil
+    if previous then UIManager:close(previous) end
+    local owner_account=self.library_db and self.library_db:accountKey()
+    local owner_epoch=self.discovery_epoch or 0
+    local owner_document=self.ui and self.ui.document
+    local owner_session=self._reader_session_gen
+    local menu
+    local function current()
+        return self._mp_article_list_view==menu and owner_account==(self.library_db and self.library_db:accountKey())
+            and owner_epoch==(self.discovery_epoch or 0) and owner_document==(self.ui and self.ui.document)
+            and owner_session==self._reader_session_gen
+    end
     local items = {}
     for _i, article in ipairs(articles) do
         local cached_path = Content.mp_article_cached_path(self.settings, book, article)
@@ -1317,6 +1331,7 @@ function M:showMPArticleList(book, articles)
             post_text = date_str,
             mandatory = is_cached and _("Cached") or "",
             callback = self:safeCallback(article.title or _("Article"), function()
+                if not current() then return end
                 if is_cached then
                     self:openFile(cached_path)
                 else
@@ -1326,12 +1341,27 @@ function M:showMPArticleList(book, articles)
         })
     end
     table.insert(items, {
+        text = _("Export cached article"),
+        callback = self:safeCallback(_("Export cached article"), function()
+            if not current() then return end
+            self:showMPArticleExportList(book, articles)
+        end),
+    })
+    table.insert(items, {
         text = _("Refresh article list"),
         callback = self:safeCallback(_("Refresh article list"), function()
+            if not current() then return end
             self:fetchMPArticles(book)
         end),
     })
-    self:showList(book.title or _("Public Account"), items, _("No articles."))
+    menu=self:showList(book.title or _("Public Account"), items, _("No articles."));self._mp_article_list_view=menu
+    if menu then
+        local on_close=menu.onCloseWidget
+        menu.onCloseWidget=function(instance,...)
+            if self._mp_article_list_view==instance then self._mp_article_list_view=nil end
+            if on_close then return on_close(instance,...) end
+        end
+    end
 end
 
 function M:downloadMPArticleAndRead(book, article)
@@ -1953,6 +1983,22 @@ end
 
 function M:showLocalNotesExport()
     return require("weread.ui.notes_export").show(self)
+end
+
+function M:showMPArticleExport(book,article)
+    return require('weread.ui.mp_export').show(self,book,article)
+end
+
+function M:showMPArticleExportList(book,articles)
+    return require('weread.ui.mp_export').list(self,book,articles)
+end
+
+function M:showCurrentMPArticleExport()
+    return require('weread.ui.mp_export').current(self)
+end
+
+function M:cancelMPArticleExport()
+    return require('weread.ui.mp_export').cancel(self)
 end
 
 function M:showShelfState(book_id)
