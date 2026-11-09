@@ -176,4 +176,8 @@ f=fixture('gateway');f.change{api_key='',cookies={wr_vid='456',wr_skey='syntheti
 expect(not Source.ready(f.settings,f.store),"mismatching Web owner is considered logged in")
 f=fixture('gateway');f.change{api_key='',cookies={wr_vid='123',wr_gid='guest-only-id'}}
 expect(not Source.ready(f.settings,f.store),"guest identity was accepted as authenticated Web access")
+local binary=Source.normalize({books={{bookId='1',title='Binary',secret=false,finishReading=false,isTop=false,finished=1}}}).books[1]
+expect(binary.secret==0 and binary.finishReading==0 and binary.isTop==false and binary.finished==1,'explicit false flags dropped or independent finished metadata merged')
+binary=Source.normalize({books={{bookId='1',title='Invalid',secret=2,finishReading='1',isTop='true',finished=1}}}).books[1]
+expect(binary.secret==nil and binary.finishReading==nil and binary.isTop==nil and binary.finished==1,'invalid API flags became explicit states')
 print("PASS: " .. checks .. " shelf source routing/normalization/account checks")

@@ -3,6 +3,7 @@
 local Auth = require("weread.lib.native_authorization")
 local Cookie = require("weread.lib.cookie")
 local Crypto = require("weread.lib.crypto")
+local Flags = require("weread.lib.shelf_flags")
 local M = {}
 local WEB_COOKIES = { "wr_vid", "wr_skey", "wr_rt", "wr_fp", "wr_ql", "wr_pf" }
 
@@ -106,7 +107,13 @@ function M.normalize(data, kind)
         for _j, key in ipairs({ "cover", "coverUrl", "format" }) do
             if text(source[key], 8192) then book[key] = source[key] end
         end
-        for _j, key in ipairs({ "finishReading", "finished", "secret" }) do
+        for _j, key in ipairs({ "finishReading", "secret", "isTop" }) do
+            local state=Flags.flag(source,key)
+            if state.value~=nil then
+                if key=='isTop' then book[key]=state.value else book[key]=state.value and 1 or 0 end
+            end
+        end
+        for _j, key in ipairs({ "finished" }) do
             if source[key] == 0 or source[key] == 1 then book[key] = source[key] end
         end
         books[#books + 1] = book

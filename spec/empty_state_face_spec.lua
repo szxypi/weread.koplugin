@@ -307,6 +307,7 @@ expect(large_view.page_count == 100 and #large_view._item_rows == 10,
 books[1]._cached = true
 books[1].finishReading = "1"
 books[1].secret = "1"
+books[1].isTop=true
 local cover_paths = { [books[1]] = "/covers/one.jpg" }
 local cover_view = LibraryView.show({
     mode = "books", books = books, accounts = {},
@@ -336,6 +337,9 @@ expect(cover_view._item_rows[1]._has_private_badge == true
         and cover_view._item_rows[1]._private_badge_size == 24
         and cover_view._item_rows[2]._has_private_badge == false,
     "cover bookshelf private badge did not follow the private-reading state")
+expect(cover_view._item_rows[1]._pinned_badge~=nil and cover_view._item_rows[2]._pinned_badge==nil,'cover pinned badge did not follow explicit state')
+local status=cover_view:itemStatus(books[1])
+expect(status:find('Pinned',1,true) and status:find('Private',1,true) and status:find('Done',1,true),'list status omitted pin/private/completion labels')
 
 -- Plain Widget wrappers must release their owned content on CloseWidget,
 -- without consuming the event before sibling cards can be closed.

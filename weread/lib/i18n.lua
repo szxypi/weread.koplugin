@@ -1,6 +1,22 @@
 local I18n = {}
 
 local zh = {
+    ["The bookshelf was read, but its status could not be saved. The saved snapshot is unchanged."] = "已读取书架，但未能保存状态。本机仍保留上次的快照。",
+    ["Pinned"] = "置顶",
+    ["Private"] = "私密",
+    ["Private reading"] = "私密阅读",
+    ["Finished reading"] = "读完",
+    ["Shelf status"] = "书架状态",
+    ["Refresh shelf status"] = "刷新书架状态",
+    ["Saved shelf snapshot"] = "缓存时间",
+    ["Time unavailable"] = "时间未知",
+    ["Not provided"] = "未提供",
+    ["Yes"] = "是",
+    ["No"] = "否",
+    ["No saved shelf snapshot for this book."] = "本机尚未保存该书的书架状态。",
+    ["The bookshelf is already refreshing. Please wait."] = "书架正在刷新，请稍候。",
+    ["About shelf status"] = "状态说明",
+    ["These statuses come from the last saved bookshelf. Refresh to see changes from other devices. “Not provided” means the service did not return that status. Reading progress and the finished mark are separate."] = "这里显示最近一次保存的书架状态，刷新后可看到其他设备上的变化。“未提供”表示服务未返回该项信息。阅读进度与读完标记分别显示。",
     ["Offline. Showing saved rankings and categories."] = "当前离线，显示已保存的排行榜和分类。",
     ["No saved categories. Connect to Wi-Fi to load them."] = "尚未保存分类，请连接 Wi-Fi 后加载。",
     ["Could not refresh rankings and categories. Saved categories are still available."] = "无法刷新排行榜和分类，仍可浏览已保存的分类。",

@@ -57,12 +57,13 @@ def state(rows, identity, operation):
     row = rows.get(identity)
     if row is None:
         raise ProbeError("status: selected book is not on shelf")
-    flags = [row[key] for key in ("finishReading", "finished") if key in row]
-    if not flags or any(type(flag) not in (int, bool) or flag not in (0, 1) for flag in flags):
+    # The official shelf contract assigns reading completion to finishReading.
+    # Real native/Web snapshots often carry a different `finished` value; it
+    # must not override or be substituted for the owner's reading flag.
+    flag = row.get('finishReading')
+    if type(flag) not in (int, bool) or flag not in (0, 1):
         raise ProbeError("status: unknown reading status")
-    if len(set(flags)) != 1:
-        raise ProbeError("status: conflicting reading flags")
-    return bool(flags[0])
+    return bool(flag)
 
 
 @dataclass(frozen=True)

@@ -39,6 +39,10 @@ BOOKS = [dict(bookId=str(900001 + i), title=("山谷来信 · 离线测试" if i
               author="测试作者", cover="https://weread.qq.com/mock/cover.png",
               category="文学", intro="自写合成内容，用于 KOReader 集成测试。", wordCount=12000,
               totalChapter=6, type=0, bookVersion=7, updateTime=1700000000 + i, readUpdateTime=1700000000 + i) for i in range(26)]
+BOOKS[0].update(isTop=True,secret=1,finishReading=0,finished=1)
+BOOKS[1].update(isTop=False,secret=0,finishReading=True,finished=0)
+BOOKS[2].update(secret=2,finishReading=0,finished=1)
+BOOKS[3].update(secret=False,finishReading=False,finished=1)
 
 
 def book_metadata(book):

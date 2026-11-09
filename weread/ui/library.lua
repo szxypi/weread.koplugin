@@ -4,6 +4,7 @@ local BookReviewsView = require("weread.ui.book_reviews_view")
 local ConfirmBox = require("ui/widget/confirmbox")
 local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
+local ShelfFlags = require("weread.lib.shelf_flags")
 local InputDialog = require("ui/widget/inputdialog")
 local logger = require("weread.lib.logger")
 local ProgressbarDialog = require("ui/widget/progressbardialog")
@@ -100,6 +101,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end
@@ -284,7 +286,7 @@ function M:refreshBookshelf(old_view, view_options)
             and result.books
             or {}
         local archives = type(result) == "table" and type(result.archive) == "table" and result.archive or {}
-        if self.library_db then self.library_db:cacheShelf(all_books, archives) end
+        local snapshot_saved=self.library_db and self.library_db:cacheShelf(all_books, archives)==true
         self.shelf_active_source = type(result) == "table" and result._shelf_source or "gateway"
         if type(result) == "table" and result._native_fallback then
             self:showTransientInfo(_("E-Ink bookshelf is unavailable. Using the standard bookshelf for this refresh."), 3)
@@ -294,7 +296,7 @@ function M:refreshBookshelf(old_view, view_options)
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
         if view_options and view_options.on_loaded then
-            view_options.on_loaded()
+            view_options.on_loaded(snapshot_saved)
             return
         end
         local next_options = {}
@@ -760,7 +762,7 @@ end
 
 sortBooks = function(books, sort_order)
     if sort_order == "default" or not sort_order then
-        return books
+        return ShelfFlags.pinned_first(books)
     end
     local sorted = {}
     for i, book in ipairs(books) do
@@ -783,7 +785,7 @@ sortBooks = function(books, sort_order)
             return (a.title or "") > (b.title or "")
         end)
     end
-    return sorted
+    return ShelfFlags.pinned_first(sorted)
 end
 
 function M:showShelfPage()
@@ -807,13 +809,18 @@ function M:showShelfPage()
                 local book_id = book.book_id or book.bookId
                 local is_cached = self:isBookDownloaded(book, saved_books, downloaded_cache)
                 local right_text
-                if book.readUpdateTime and book.readUpdateTime > 0 then
-                    right_text = os.date("%Y-%m-%d", book.readUpdateTime)
-                elseif book.finishReading == 1 then
+                if ShelfFlags.display(book,'finished')==true then
                     right_text = _("Done")
+                elseif book.readUpdateTime and book.readUpdateTime > 0 then
+                    right_text = os.date("%Y-%m-%d", book.readUpdateTime)
                 else
                     right_text = ""
                 end
+                local labels={}
+                if ShelfFlags.display(book,'pinned')==true then labels[#labels+1]=_('Pinned') end
+                if ShelfFlags.display(book,'private')==true then labels[#labels+1]=_('Private') end
+                if right_text~='' then labels[#labels+1]=right_text end
+                right_text=table.concat(labels,' · ')
                 local function rightStatus(cached)
                     if cached then
                         return right_text ~= "" and "✓  " .. right_text or "✓"
@@ -981,12 +988,23 @@ function M:showBookMenu(book)
         end),
     }
     local actions = {}
+    local shelf_state_action
+    if self.showShelfState then
+        local owner_account=self.library_db and self.library_db:accountKey()
+        local owner_session=self._reader_session_gen
+        shelf_state_action={text=_('Shelf status'),callback=self:safeCallback(_('Shelf status'),function()
+            if self._book_detail_view==view and self.library_db:accountKey()==owner_account and self._reader_session_gen==owner_session then
+                self:showShelfState(tostring(book_id))
+            end
+        end)}
+    end
     if self.showSimilarBooks then
         actions[#actions + 1] = {
             text = _("Similar books"),
             callback = self:safeCallback(_("Similar books"), function() self:showSimilarBooks(book) end),
         }
     end
+    if shelf_state_action then actions[#actions+1]=shelf_state_action end
     if has_cache then
         actions[#actions + 1] = {
             text = _("Clear book cache"),
@@ -1040,6 +1058,7 @@ function M:showBookMenu(book)
         end),
         on_close = function()
             if self._book_detail_view == view then
+                if self.cancelShelfState then self:cancelShelfState() end
                 self:cancelBookMetadata()
                 if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
                 self._book_detail_view = nil
@@ -1934,6 +1953,14 @@ end
 
 function M:showLocalNotesExport()
     return require("weread.ui.notes_export").show(self)
+end
+
+function M:showShelfState(book_id)
+    return require('weread.ui.shelf_state').show(self,book_id)
+end
+
+function M:cancelShelfState()
+    return require('weread.ui.shelf_state').cancel(self)
 end
 
 function M:cancelLocalNotesExport()

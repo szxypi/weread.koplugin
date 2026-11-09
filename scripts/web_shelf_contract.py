@@ -5,6 +5,7 @@ Web shelf `version` is observational and must not become EPUB bookVersion.
 """
 import math
 import re
+from shelf_flags_contract import flag
 
 
 class ShelfError(ValueError):
@@ -54,7 +55,10 @@ def normalize(data):
         for key in ('cover', 'coverUrl', 'format'):
             if text(source.get(key), 8192):
                 book[key] = source[key]
-        for key in ('finishReading', 'finished', 'secret'):
+        for key in ('finishReading','secret','isTop'):
+            state=flag(source,key)
+            if 'value' in state: book[key]=state['value'] if key=='isTop' else int(state['value'])
+        for key in ('finished',):
             if type(source.get(key)) in (int, float) and source[key] in (0, 1):
                 book[key] = source[key]
         books.append(book)

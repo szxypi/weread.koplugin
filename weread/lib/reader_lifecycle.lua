@@ -194,6 +194,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.cancelShelfState then self:cancelShelfState() end
     if self.closeReadingLanguageDocument then self:closeReadingLanguageDocument() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end
@@ -359,6 +360,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end

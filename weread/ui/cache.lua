@@ -5,6 +5,7 @@ local Content = require("weread.lib.content")
 local logger = require("weread.lib.logger")
 local PathChooser = require("ui/widget/pathchooser")
 local Scan = require("weread.lib.scan")
+local ShelfFlags = require("weread.lib.shelf_flags")
 local UIManager = require("ui/uimanager")
 local WeRead = require("weread.lib.protocol")
 
@@ -277,8 +278,9 @@ end
 
 function M:bookMatchesFilters(book, saved_books, downloaded_cache)
     local filters = self.shelf_filters or {}
-    if filters.reading == "finished" and book.finishReading ~= 1 then return false end
-    if filters.reading == "unfinished" and book.finishReading == 1 then return false end
+    local finished=ShelfFlags.display(book,'finished')
+    if filters.reading == "finished" and finished~=true then return false end
+    if filters.reading == "unfinished" and finished~=false then return false end
     if filters.download then
         local is_downloaded = self:isBookDownloaded(book, saved_books, downloaded_cache)
         if filters.download == "downloaded" and not is_downloaded then return false end

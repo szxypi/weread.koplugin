@@ -103,6 +103,7 @@ return function(plugin, count, flush_tasks, home, pump_until)
     assert(not applied and plugin.library_db:getShelf()[1].bookVersion == 7, "cancelled native read replaced gateway cache")
     control{ match = "", times = 0, delay = 0 }
     choose(1, "auto")
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'shelf_flags_smoke.lua')(plugin,count,flush_tasks,home,pump_until)
     assert(count("/web/book/read") == web_writes, "native shelf routing wrote reading state")
     print("PASS: native shelf automatic/standard/native-only -> real async HTTP -> groups/SQLite; no gateway key required; failure fallback/cache and dismiss verified")
 end

@@ -79,11 +79,22 @@ class ShelfWriteTests(unittest.TestCase):
             probe.apply(credentials(), plan, confirmed=True)
         self.assertTrue(all(req.get_method() == "GET" for req in opener.requests))
         for response in (shelf(), dict(books=[dict(bookId="private-book")]),
-                         dict(books=[dict(bookId="private-book", finishReading=0, finished=1)])):
+                         dict(books=[dict(bookId="private-book",finished=1)]),
+                         dict(books=[dict(bookId="private-book",finishReading=2)])):
             probe, opener = self.probe([response])
             with self.assertRaises(ProbeError):
                 probe.prepare(credentials(), "finish", "private-book")
             self.assertEqual(probe.report["data_writes_attempted"], 0)
+
+    def test_independent_finished_metadata_does_not_override_reading_status(self):
+        before=dict(books=[dict(bookId='private-book',finishReading=0,finished=1)])
+        after=dict(books=[dict(bookId='private-book',finishReading=1,finished=0)])
+        probe,opener=self.probe([before,before,dict(succ=1),after])
+        plan=probe.prepare(credentials(),'finish','private-book')
+        self.assertFalse(plan.before)
+        probe.apply(credentials(),plan,confirmed=True)
+        self.assertTrue(probe.report['write_verified'])
+        self.assertEqual(sum(request.get_method()=='POST' for request in opener.requests),1)
 
     def test_noop_does_not_post(self):
         probe, opener = self.probe([shelf(), shelf()])

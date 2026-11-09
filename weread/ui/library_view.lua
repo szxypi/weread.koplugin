@@ -26,6 +26,7 @@ local Widget = require("ui/widget/widget")
 local Screen = Device.screen
 local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
+local ShelfFlags = require("weread.lib.shelf_flags")
 local CoverLayout = require("weread.lib.cover_layout")
 local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
@@ -255,12 +256,11 @@ function PrivateReadingBadge:paintTo(bb, x, y)
 end
 
 local function is_private_book(book)
-    local secret = book and book.secret
-    return secret == true or tonumber(secret) == 1
+    return ShelfFlags.display(book,'private')==true
 end
 
 local function is_finished(book)
-    return tonumber(book and book.finishReading) == 1
+    return ShelfFlags.display(book,'finished')==true
 end
 
 local DownloadStatus = Widget:extend{
@@ -567,6 +567,15 @@ function CoverCell:init()
             badge_inset,
         }
         cover_layers[#cover_layers + 1] = badge
+        self._finished_badge=badge
+    end
+    if ShelfFlags.display(self.book,'pinned')==true then
+        local padding=math.max(1,Screen:scaleBySize(2))
+        local badge=FrameContainer:new{padding=padding,margin=0,bordersize=Size.border.thin,radius=0,
+            background=Blitbuffer.COLOR_WHITE,TextWidget:new{text=_('Pinned'),face=Font:getFace('cfont',12),
+                max_width=math.max(1,math.floor(metrics.card_width*.4)-padding*2)}}
+        local inset=math.max(border,Screen:scaleBySize(4))
+        badge.overlap_offset={inset,inset};cover_layers[#cover_layers+1]=badge;self._pinned_badge=badge
     end
     self._private_reading = is_private_book(self.book)
     self._has_private_badge = self._private_reading
@@ -1017,6 +1026,11 @@ function LibraryView:itemStatus(book)
     elseif book.readUpdateTime and book.readUpdateTime > 0 then
         status = os.date("%Y-%m-%d", book.readUpdateTime)
     end
+    local parts={}
+    if ShelfFlags.display(book,'pinned')==true then parts[#parts+1]=_('Pinned') end
+    if is_private_book(book) then parts[#parts+1]=_('Private') end
+    if status~='' then parts[#parts+1]=status end
+    status=table.concat(parts,' · ')
     if book._cached then
         status = status ~= "" and ("✓  " .. status) or "✓"
     end

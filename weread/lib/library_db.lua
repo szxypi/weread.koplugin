@@ -344,6 +344,26 @@ function LibraryDB:getBook(book_id)
     return ok and result or nil
 end
 
+-- A shelf state must come from the last account shelf snapshot, never an old
+-- detail payload. Opening a book/refreshing its metadata cannot change it.
+function LibraryDB:getShelfEntry(book_id)
+    if type(book_id)~='string' or book_id=='' or #book_id>256 or book_id:find('[%z%c]') then return nil end
+    local db=self:open()
+    if not db then return nil end
+    local stmt,result
+    local ok=pcall(function()
+        stmt=db:prepare([[SELECT CASE WHEN length(CAST(payload AS BLOB))<=262144 THEN payload ELSE NULL END,
+            shelf_updated_at FROM books WHERE book_id=? AND on_shelf=1]])
+        local row=stmt:bind(book_id):step()
+        local book=row and decode(row[1])
+        if type(book)~='table' or tostring(book.book_id or book.bookId or '')~=book_id
+            or book.bookId~=nil and tostring(book.bookId)~=book_id then return end
+        result={book=book,cached_at=tonumber(row[2]) or 0}
+    end)
+    close_statement(stmt);pcall(function() db:close() end)
+    return ok and result or nil
+end
+
 function LibraryDB:putChapters(book_id, chapters)
     if not book_id or type(chapters) ~= "table" then return false end
     local db = self:open()

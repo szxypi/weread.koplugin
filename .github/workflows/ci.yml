@@ -91,7 +91,9 @@ jobs:
           python3 scripts/test_category_catalog.py
 
       - name: Web shelf prototype checks
-        run: python3 scripts/test_web_shelf_contract.py
+        run: |
+          python3 scripts/test_web_shelf_contract.py
+          python3 scripts/test_shelf_flags.py
 
       - name: Display progress prototype checks
         run: python3 scripts/test_shelf_progress.py
