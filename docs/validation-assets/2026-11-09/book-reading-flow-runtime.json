@@ -1,0 +1,141 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "production_account_reads": 0,
+  "production_account_data_writes": 0,
+  "keychain_reads": 0,
+  "base_commit": "985919f5306496666038e9449ef2726163032f22",
+  "candidate_changes": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "profiles": [
+    {
+      "profile": "book-reading-final-600",
+      "result": "PASS",
+      "package_sha256": "69fd9e648278fba87db9af5aa2a734eb8bf7ebe81ad6c2822178d4b6eb35f114",
+      "source_manifest_sha256": "341e3de399569eb37a67ad5fa5a08c9f3b467852ea4960db5238af0db890a5f2",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "primary_workflow": true,
+      "uncached_read_enabled": true,
+      "async_catalog": true,
+      "cancellable_download": true,
+      "close_and_suspend_guard": true,
+      "native_reader": true,
+      "page_turn": true,
+      "sync_action_and_mock_readback": true,
+      "fresh_process_offline_restore": true,
+      "offline_new_http_requests": 0
+    },
+    {
+      "profile": "book-reading-final-ko2",
+      "result": "PASS",
+      "package_sha256": "afc3c02a8e35234cad0ee7d13ae4fa41a057477cb8fb54480957c86f7687f88b",
+      "source_manifest_sha256": "341e3de399569eb37a67ad5fa5a08c9f3b467852ea4960db5238af0db890a5f2",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "primary_workflow": true,
+      "uncached_read_enabled": true,
+      "async_catalog": true,
+      "cancellable_download": true,
+      "close_and_suspend_guard": true,
+      "native_reader": true,
+      "page_turn": true,
+      "sync_action_and_mock_readback": true,
+      "fresh_process_offline_restore": true,
+      "offline_new_http_requests": 0
+    },
+    {
+      "profile": "book-reading-core-final-600",
+      "result": "PASS",
+      "package_sha256": "59935ce9345bfded0ee32609a9de3576160a18541db2ffed837d46374bfb981c",
+      "source_manifest_sha256": "341e3de399569eb37a67ad5fa5a08c9f3b467852ea4960db5238af0db890a5f2",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      }
+    },
+    {
+      "profile": "book-reading-core-final-ko2",
+      "result": "PASS",
+      "package_sha256": "1f289e1eb3dccede1a1cec457cce01a044ef8f9c99916c452058960cf2292ab3",
+      "source_manifest_sha256": "341e3de399569eb37a67ad5fa5a08c9f3b467852ea4960db5238af0db890a5f2",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      }
+    },
+    {
+      "profile": "book-reading-discovery-final-600",
+      "result": "PASS",
+      "package_sha256": "25f985b64b7bdb7eecd76eb9190d1d38c73100c1953611e4b2502a4394dc0e63",
+      "source_manifest_sha256": "341e3de399569eb37a67ad5fa5a08c9f3b467852ea4960db5238af0db890a5f2",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      }
+    },
+    {
+      "profile": "book-reading-discovery-final-ko2",
+      "result": "PASS",
+      "package_sha256": "75504902e5aaf19943e3cd5ea03424339c3722b3d325b56c18d1cfd9afa2b340",
+      "source_manifest_sha256": "341e3de399569eb37a67ad5fa5a08c9f3b467852ea4960db5238af0db890a5f2",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      }
+    }
+  ],
+  "checks": {
+    "lua_spec_groups": 155,
+    "reading_preparation_checks": 43,
+    "python_suites": 34,
+    "python_tests": 351,
+    "luacheck_files": 407,
+    "lua_syntax_files": 409,
+    "namespace": true,
+    "timezones": 4,
+    "tls": true,
+    "python_compile": true,
+    "release_notes_extract": true
+  },
+  "limitations": [
+    "synthetic HTTP sync uses the existing percentage/word mapping; precise real-account writes and multi-device coordination remain pending",
+    "physical Kindle Oasis 2, additional real-account book types and failure conditions remain pending",
+    "FileManager compatibility beyond the existing adapter is deferred; this test uses it only as the native plugin host",
+    "no release or whole-goal completion; concentrated performance work remains deferred"
+  ]
+}

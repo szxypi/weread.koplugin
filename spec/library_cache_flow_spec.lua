@@ -186,4 +186,20 @@ local mp_book={book_id='MP_WXS_900001',title='Synthetic account'}
 expect(host:fetchMPArticles(mp_book) and catalog_book==mp_book,'MP catalog did not delegate to native coordinator')
 host:cancelMPArticleCatalog();expect(catalog_cancelled,'MP catalog cancellation not delegated')
 
+local preparation
+package.preload["weread.ui.book_reading"] = function() return {
+    start = function(_self, selected, view) preparation = { book = selected, view = view }; return true end,
+} end
+host.settings.get_book = function(_self, id) return books[id] end
+books["42"] = partial
+opened_path = nil
+expect(host:startBookReading(partial) and opened_path == partial.full_path and not preparation,
+    "cached Read did not keep the offline/native path")
+local view = {}; host._book_detail_view = view
+expect(not host:startBookReading(partial, {}) and not preparation, "stale detail triggered a read")
+local uncached = { book_id = "99", title = "Uncached" }
+books["99"] = uncached
+db_chapters = nil
+expect(host:startBookReading({ book_id = "99", title = "Stale" }, view)
+    and preparation.book == uncached and preparation.view == view, "uncached Read did not prepare the latest record")
 print(("library_cache_flow_spec: %d checks"):format(checks))

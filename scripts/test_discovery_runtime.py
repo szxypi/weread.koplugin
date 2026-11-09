@@ -24,6 +24,7 @@ def main():
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
     parser.add_argument("--dpi", type=int, default=167)
+    parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
     args = parser.parse_args()
     runtime, root = args.koreader.resolve(), args.run_dir.resolve()
     if not (runtime / "luajit").is_file() or not (runtime / "reader.lua").is_file():
@@ -52,9 +53,16 @@ def main():
     environment["WEREAD_MOCK_PORT"] = str(server.server_port)
     try:
         with (root / "evidence/runtime.log").open("w") as log:
-            result = subprocess.run(["./luajit", str(REPO / "spec/koreader/discovery_smoke.lua")],
+            fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"
+            result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture)],
                                     cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                     timeout=120)
+            if args.reading_flow and result.returncode == 0:
+                before = server.request_totals.copy()
+                result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture)],
+                                        cwd=runtime, env=dict(environment, WEREAD_READING_REOPEN="1"),
+                                        stdout=log, stderr=subprocess.STDOUT, timeout=120)
+                assert server.request_totals == before, "offline reopen contacted the mock service"
     finally:
         server.shutdown()
         server.server_close()

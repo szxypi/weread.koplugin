@@ -290,6 +290,21 @@ function Downloader:isPromotedPrefetch(book, chapter)
         and self._active_job.promoted == true
 end
 
+-- Revoke a caller's queued or active foreground request without touching others.
+function Downloader:cancelRequest(on_complete, reason)
+    local pending = self._pending_start
+    if pending and pending.options.on_complete == on_complete then
+        self._pending_start = nil
+    end
+    local scheduled = self._scheduled_start
+    if scheduled and scheduled.pending.options.on_complete == on_complete then
+        self._scheduled_start = nil
+    end
+    local active = self._active_job
+    if active and active.on_complete == on_complete then return self:cancelJob(active, reason) end
+    return pending ~= self._pending_start or scheduled ~= self._scheduled_start
+end
+
 -- Cancel only the supplied foreground job, including its suspended child.
 function Downloader:cancelJob(dl,reason)
     if not dl or self._active_job~=dl or dl.prefetch or dl.cancelled then return false end

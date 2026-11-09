@@ -126,6 +126,7 @@ function M:closeWeReadUI()
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelBookReading then self:cancelBookReading() end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end
@@ -1090,9 +1091,8 @@ function M:showBookMenu(book)
         },
         {
             text = _("▤ Read"),
-            enabled = has_cache,
             callback = self:safeCallback(_("Read"), function()
-                self:openBookForReading(book)
+                self:startBookReading(book, view)
             end),
         },
     }
@@ -1115,6 +1115,7 @@ function M:showBookMenu(book)
             if self._book_detail_view == view then
                 if self.cancelShelfState then self:cancelShelfState() end
                 self:cancelBookMetadata()
+                self:cancelBookReading()
                 if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
                 self._book_detail_view = nil
                 self.discovery_epoch = (self.discovery_epoch or 0) + 1
@@ -1680,7 +1681,7 @@ end
 -- Read offline from the best available cache. A complete EPUB wins. Otherwise
 -- choose the cached chapter nearest to the last known chapter/progress, with a
 -- slight preference for the preceding chapter when distances are equal.
-function M:openBookForReading(book)
+function M:openBookForReading(book, quiet)
     local full_path = self:getFullBookCachePath(book)
     if file_exists(full_path) then
         self:openFile(full_path)
@@ -1744,8 +1745,20 @@ function M:openBookForReading(book)
         self:openFile(fallback_paths[1].path)
         return true
     end
-    self:showInfo(_("No cached file."))
+    if not quiet then self:showInfo(_("No cached file.")) end
     return false
+end
+
+function M:startBookReading(book, view)
+    if view and self._book_detail_view ~= view then return false end
+    local id = book.book_id or book.bookId
+    local latest = self.settings:get_book(id) or book
+    if self:openBookForReading(latest, true) then return true end
+    return require("weread.ui.book_reading").start(self, latest, view)
+end
+
+function M:cancelBookReading()
+    return require("weread.ui.book_reading").cancel(self)
 end
 
 -- Open a chapter, preferring its cached file and falling back to a download.

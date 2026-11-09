@@ -362,4 +362,15 @@ local worker_ok, worker_err = pcall(downloader._runInterruptible, downloader, dl
 expect(not worker_ok and tostring(worker_err):find("could not start download worker", 1, true)
     and not dl.cancelled, "worker launch failure was mistaken for user cancellation")
 
+local owned, other = function() end, function() end
+downloader._active_job = { on_complete = other }
+downloader._pending_start = { options = { on_complete = owned } }
+expect(downloader:cancelRequest(owned) and not downloader._pending_start
+    and not downloader._active_job.cancelled, "queued reading cancellation touched another job")
+downloader._scheduled_start = { pending = { options = { on_complete = owned } } }
+expect(downloader:cancelRequest(owned) and not downloader._scheduled_start, "scheduled reading survived cancellation")
+local owned_job = { on_complete = owned }
+downloader._active_job = owned_job
+expect(downloader:cancelRequest(owned) and owned_job.cancelled, "active reading survived cancellation")
+expect(not downloader:cancelRequest(other), "unknown request cancelled another job")
 print(("downloader_lifecycle_spec: %d checks"):format(checks))

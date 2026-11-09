@@ -220,6 +220,7 @@ function M:onCloseDocument()
     if self.cancelProfileRefresh then self:cancelProfileRefresh() end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelBookReading then self:cancelBookReading() end
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end
     local source_position = self.source_position and self.source_position:current()
@@ -252,10 +253,12 @@ function M:onCloseDocument()
 end
 
 function M:onShowingReader()
+    if self.cancelBookReading then self:cancelBookReading() end
     require('weread.ui.mp_file_open').cancel(self)
 end
 
 function M:onCloseWidget()
+    if self.cancelBookReading then self:cancelBookReading() end
     require('weread.ui.mp_file_open').detach(self)
 end
 
@@ -403,6 +406,7 @@ function M:onSuspend()
     if self.cancelProfileRefresh then self:cancelProfileRefresh() end
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelBookReading then self:cancelBookReading() end
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end
     local source_position = self.source_position and self.source_position:current()
