@@ -55,6 +55,15 @@ class MockTests(unittest.TestCase):
         self.assertEqual(result['errCode'],-2041)
         self.assertEqual(self.request('/web/login/renewal',{})[0],400)
 
+    def test_mp_content_samples_remain_distinct(self):
+        from urllib.parse import quote
+        bodies=[]
+        for identity in ('cache-fixture-a/b','cache-fixture-a_b'):
+            code,body=self.request('/web/mp/content?reviewId='+quote(identity,safe=''))
+            self.assertEqual(code,200);bodies.append(body)
+        self.assertNotEqual(*bodies)
+        self.assertEqual(self.request('/web/mp/content?reviewId=unknown')[0],400)
+
     def test_contract_and_real_reference_decoder(self):
         status, shelf = self.gateway("/shelf/sync")
         self.assertEqual(status, 200)

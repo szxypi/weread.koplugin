@@ -9,7 +9,6 @@ end
 package.preload["weread.lib.logger"] = function()
     return { info = function() end, warn = function() end, err = function() end }
 end
-package.preload["weread.lib.crypto"] = function() return {} end
 package.preload["weread.lib.reader_state"] = function() return {} end
 package.preload["weread.lib.protocol"] = function()
     return {
@@ -22,6 +21,12 @@ end
 package.preload["weread.lib.thoughts"] = function() return {} end
 
 local Content = require("weread.lib.content")
+local CacheIdentity=require('weread.lib.mp_cache_identity')
+CacheIdentity.prepare=function(root,key)
+    local path=assert(CacheIdentity.path(root,key))
+    assert(os.execute('mkdir -p '..string.format('%q',path:match('^(.*)/[^/]+$'))))
+    return path
+end
 
 local root = os.tmpname()
 os.remove(root)
@@ -47,6 +52,7 @@ local progress = {}
 local settings = { cache_dir = root }
 local book = { book_id = "mp-book", cache_dir = root }
 local article = { reviewId = "review/1", title = "Disk images" }
+local article_dir=Content.mp_article_path(settings,book,article):match('^(.*)/[^/]+$')
 local body = [[
 <p><img src="//mmbiz.qpic.cn/image?id=1&amp;format=png"></p>
 <p><img src='https://mmbiz.qpic.cn/image?id=1&format=png'></p>
@@ -89,11 +95,11 @@ expect(rewritten:match("https://mmbiz%.qlogo%.cn/avatar/fail"),
 expect(rewritten:match("https://example%.test/untouched%.png"),
     "non-MP image source was unexpectedly rewritten")
 
-local image = assert(io.open(root .. "/" .. relative, "rb"))
+local image = assert(io.open(article_dir .. "/" .. relative, "rb"))
 expect(image:read(8) == "\137PNG\r\n\026\n",
     "streamed MP image bytes were corrupted")
 image:close()
-expect(io.open(root .. "/.weread-mp-review_1-assets/img-0001.download", "rb")
+expect(io.open(article_dir .. "/.weread-mp-review_1-assets/img-0001.download", "rb")
         == nil,
     "successful MP image download left an incoming file")
 expect(after_kb - before_kb < 1024,

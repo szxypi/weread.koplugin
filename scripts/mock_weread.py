@@ -200,6 +200,11 @@ class MockServer(ThreadingHTTPServer):
             if not book_id.startswith("MP_WXS_"):
                 raise ValueError("invalid MP account")
             return 200, dict(errCode=-2041, errMsg="Synthetic MP verification unavailable")
+        if path == "/web/mp/content" and method == "GET":
+            samples={"cache-fixture-a/b":"甲", "cache-fixture-a_b":"乙", "cache-fixture-c":"丙", "cache-fixture-d":"丁"}
+            if set(query)!={"reviewId"} or len(query["reviewId"])!=1 or query["reviewId"][0] not in samples:
+                raise ValueError("unknown synthetic MP article")
+            return 200, '<html><head></head><body><div id="js_content"><p>合成公众号正文'+samples[query["reviewId"][0]]+'</p></div><script>ignored()</script></body></html>'
         if path == "/api/userInfo" and method == "GET" and query.get("userVid") == ["900000"]:
             return 200, dict(vid=900000, name="Synthetic Web reader")
         if path == "/api/skills/apikeyGet" and method == "GET" and query == {"only_show": ["1"]}:

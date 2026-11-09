@@ -1,6 +1,11 @@
 local I18n = {}
 
 local zh = {
+    ["This article has no stable identifier. Refresh the article list before downloading."] = "这篇文章缺少可识别的编号，请刷新文章列表后再下载。",
+    ["Could not save this article cache. The previous cache is kept."] = "文章缓存未能保存，原有缓存仍保留。",
+    ["Legacy cache needs refresh"] = "旧缓存需重下",
+    ["Legacy cache"] = "旧缓存",
+    ["This old article cache is ambiguous. Download the article again from the article list."] = "无法确定这份旧缓存属于哪篇文章，请从文章列表重新下载。",
     ["Export article to EPUB"] = "导出文章为 EPUB",
     ["Export cached article"] = "导出缓存文章",
     ["Ambiguous cache"] = "缓存归属不明",

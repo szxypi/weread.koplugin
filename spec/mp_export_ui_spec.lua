@@ -108,7 +108,7 @@ host,book,article,deliver=fixture();Export.start(host,book,article);deliver();st
 expect(not state.opened and #state.notices==1,'replaced exported file opened')
 host,book,article=fixture();book.cache_dir='/cache';book.mp_articles={article};state.books={MP_WXS_1=book}
 expect(Export.current(host) and host._mp_export_picker,'current saved article not found')
-book.mp_articles={article,article};Export.cancel(host)
+book.mp_articles={article,{title=article.title,reviewId='different'}};Export.cancel(host)
 expect(not Export.current(host) and not host._mp_export_picker,'ambiguous same-path article accepted')
 Export.list(host,book,book.mp_articles)
 local ambiguous=host._mp_export_menu

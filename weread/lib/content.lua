@@ -235,15 +235,6 @@ local function unique_asset_name(used, name, ext)
     return candidate
 end
 
-local function write_file(path, data)
-    local file, err = io.open(path, "wb")
-    if not file then
-        error(err)
-    end
-    file:write(data)
-    file:close()
-end
-
 local function make_path(path)
     local ok, util = pcall(require, "util")
     if ok and util and util.makePath then
@@ -2223,8 +2214,27 @@ end
 function Content.mp_article_path(settings, book, article)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
+    local Identity=require('weread.lib.mp_cache_identity')
+    local key=Identity.key(book,article)
+    local path=key and Identity.path(dir,key)
+    if not path then error(require('weread.lib.plugin_util').tr('This article has no stable identifier. Refresh the article list before downloading.'),0) end
+    return path
+end
+
+function Content.mp_article_legacy_path(settings,book,article)
+    local dir=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
     local title = filename_safe(article.title or "article")
     return dir .. "/" .. title .. ".html"
+end
+
+local function prepare_mp_article_cache(settings,book,article)
+    local Identity=require('weread.lib.mp_cache_identity')
+    local root=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
+    local key=Identity.key(book,article)
+    if not key or not Identity.prepare(root,key) then
+        error(require('weread.lib.plugin_util').tr('Could not save this article cache. The previous cache is kept.'),0)
+    end
+    return root,key
 end
 
 -- MP articles are kept as standalone HTML files, so embedding every image as a
@@ -2255,6 +2265,7 @@ end
 
 function Content.download_mp_images_to_files(
         client, settings, book, article, body_html, progress)
+    prepare_mp_article_cache(settings,book,article)
     body_html = tostring(body_html or "")
     local html_path = Content.mp_article_path(settings, book, article)
     local article_dir = html_path:match("^(.*)/[^/]+$")
@@ -2348,19 +2359,34 @@ function Content.download_mp_images_to_files(
 end
 
 function Content.mp_article_cached_path(settings, book, article)
-    local html_path = Content.mp_article_path(settings, book, article)
-    local f = io.open(html_path, "r")
-    if f then
-        f:close()
-        return html_path
+    local Identity=require('weread.lib.mp_cache_identity')
+    local root=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
+    local key=Identity.key(book,article)
+    local path=key and Identity.path(root,key)
+    if path then
+        local lfs=require('libs/libkoreader-lfs')
+        if lfs.symlinkattributes(path) then
+            if Identity.valid(root,key) then return path,'identity' end
+            return nil,'identity_mismatch'
+        end
     end
-    local epub_path = html_path:gsub("%.html$", ".epub")
-    f = io.open(epub_path, "r")
-    if f then
-        f:close()
-        return epub_path
+    local html_path=Content.mp_article_legacy_path(settings,book,article)
+    local legacy_path
+    for _i,legacy in ipairs({html_path,(html_path:gsub('%.html$','.epub'))}) do
+        if require('libs/libkoreader-lfs').symlinkattributes(legacy,'mode')=='file' then
+            local file=io.open(legacy,'rb')
+            if file then file:close();legacy_path=legacy;break end
+        end
     end
-    return nil
+    if not legacy_path then return nil end
+    local catalog=book.mp_articles
+    if type(catalog)~='table' and type(settings.get)=='function' then
+        local record=settings:get('books',{})[book.book_id or book.bookId]
+        catalog=type(record)=='table' and record.mp_articles or nil
+    end
+    local allowed,reason=Identity.legacy_allowed(book,article,catalog,function(row) return filename_safe(row.title or 'article') end)
+    if not allowed then return nil,reason end
+    return legacy_path,'legacy'
 end
 
 function Content.save_mp_article_html(settings, book, article, body_html)
@@ -2369,7 +2395,7 @@ function Content.save_mp_article_html(settings, book, article, body_html)
     -- Pin the real directory on the record so later lookups, moves and cleanup
     -- can find these files after the download directory changes.
     book.cache_dir = dir
-    os.execute("mkdir -p " .. string.format("%q", dir))
+    local _,key=prepare_mp_article_cache(settings,book,article)
     local title = article.title or "Article"
     local path = Content.mp_article_path(settings, book, article)
     body_html = strip_mp_reader_font_styles(body_html)
@@ -2378,6 +2404,7 @@ function Content.save_mp_article_html(settings, book, article, body_html)
     local html = [[<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+]] .. require('weread.lib.mp_cache_identity').marker(key) .. [[
 <meta charset="utf-8"/>
 <title>]] .. xml_escape(title) .. [[</title>
 <style>
@@ -2426,12 +2453,14 @@ p {
 </body>
 </html>]]
 
-    write_file(path, html)
+    local saved=require('weread.lib.mp_cache_identity').write(dir,key,html)
+    if not saved then error(require('weread.lib.plugin_util').tr('Could not save this article cache. The previous cache is kept.'),0) end
     return path
 end
 
 function Content.fetch_mp_article_html(client, settings, book, article, opts)
     opts = opts or {}
+    Content.mp_article_path(settings,book,article) -- Validate the local binding before any request.
     local book_id = article.bookId
     if not book_id or book_id == "" then
         book_id = book.book_id or book.bookId

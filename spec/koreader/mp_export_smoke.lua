@@ -16,7 +16,8 @@ return function(plugin,count,flush,home,pump)
     local original_cache=settings.cache_dir
     local book={book_id='MP_WXS_900099',title='合成公众号',cache_dir=settings.data_dir..'/moved-mp-export-cache'}
     local article={reviewId='export-fixture',title='合成文章：离线导出',createTime=1700000000}
-    local asset_dir=book.cache_dir..'/.weread-mp-export-fixture-assets'
+    local article_dir=Content.mp_article_path(settings,book,article):match('^(.*)/[^/]+$')
+    local asset_dir=article_dir..'/.weread-mp-export-fixture-assets'
     assert(require('util').makePath(asset_dir) or lfs.attributes(asset_dir,'mode')=='directory')
     local png=require('mime').unb64('iVBORw0KGgoAAAANSUhEUgAAAEAAAAAgCAIAAAAt/+nTAAAAXElEQVR4nO3PsQ0AQAzCwOy/9P8EKVIZJFNTnOctm2Vp/ziQATTIABpkAA06B7RAz2FpIANokAE0yAAatP5roC0gA2iQATTIABp0DmiBnsPSQAbQIANokAE0aPt/y1n0pl3lRNkAAAAASUVORK5CYII=')
     local function write(path,bytes)
@@ -116,15 +117,15 @@ return function(plugin,count,flush,home,pump)
     plugin.ui.document=original_doc
     Export.list(plugin,book,{article,article})
     local ambiguous=assert(plugin._mp_export_menu)
-    assert(ambiguous.item_table[1].select_enabled==false,'ambiguous cached title was exportable')
-    ambiguous.item_table[1].callback();assert(not plugin._mp_export_picker,'ambiguous row opened export')
+    assert(#ambiguous.item_table==1 and ambiguous.item_table[1].select_enabled~=false,'duplicate same-identity article not coalesced')
     Export.cancel(plugin)
     Export.show(plugin,book,article);local dismissed=assert(plugin._mp_export_picker)
     UIManager:close(dismissed);dismissed.ok_callback()
     assert(not plugin.mp_export_job and not plugin._mp_export_picker,'native-closed picker began export')
     -- Saved EPUB caches are copied byte-for-byte, with no reflow or metadata rewrite.
     local legacy={reviewId='legacy',title='合成旧格式'}
-    local legacy_path=Content.mp_article_path(settings,book,legacy):gsub('%.html$','.epub')
+    book.mp_articles={article,legacy}
+    local legacy_path=Content.mp_article_legacy_path(settings,book,legacy):gsub('%.html$','.epub')
     write(legacy_path,export_bytes)
     assert(Export.start(plugin,book,legacy));local copied=plugin.mp_export_job.output.path
     pump(function() return not plugin.mp_export_job end);assert(plugin._mp_export_result and read(copied)==export_bytes,'legacy EPUB bytes changed');close_result()
@@ -174,7 +175,7 @@ return function(plugin,count,flush,home,pump)
         replaced_article_list_callback_ignored=true,
         cre_opened_export=true,unicode_text_preserved=true,cached_images_packed=true,duplicate_images_shared=true,
         embedded_bitmap_packed=true,missing_images_marked=true,passive_markup=true,legacy_epub_bytes_unchanged=true,
-        ambiguous_cache_not_exported=true,native_closed_picker_ignored=true,
+        duplicate_same_identity_coalesced=true,native_closed_picker_ignored=true,
         source_and_images_unchanged=true,existing_export_preserved=true,cancel_and_stale_cleanup=true,
         account_session_suspend_close_guards=true,changed_source_rejected=true,failed_accept_clean=true,
         oversized_image_rejected=true,image_symlink_not_followed=true,export_cloud_identity_excluded=true,

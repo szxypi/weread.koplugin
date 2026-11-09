@@ -1320,7 +1320,7 @@ function M:showMPArticleList(book, articles)
     end
     local items = {}
     for _i, article in ipairs(articles) do
-        local cached_path = Content.mp_article_cached_path(self.settings, book, article)
+        local cached_path,cache_reason = Content.mp_article_cached_path(self.settings, book, article)
         local is_cached = cached_path ~= nil
         local date_str = ""
         if article.createTime and article.createTime > 0 then
@@ -1329,7 +1329,8 @@ function M:showMPArticleList(book, articles)
         table.insert(items, {
             text = article.title or _("Article"),
             post_text = date_str,
-            mandatory = is_cached and _("Cached") or "",
+            mandatory = is_cached and (cache_reason=='legacy' and _("Legacy cache") or _("Cached"))
+                or cache_reason=='ambiguous_legacy' and _("Legacy cache needs refresh") or "",
             callback = self:safeCallback(article.title or _("Article"), function()
                 if not current() then return end
                 if is_cached then

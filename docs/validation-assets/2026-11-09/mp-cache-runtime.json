@@ -1,0 +1,243 @@
+{
+  "schema": 1,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "fixture": "synthetic only",
+  "runs": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "cache": {
+        "export_choices_remain_distinct": true,
+        "legacy_ambiguity_visible": true,
+        "legacy_ambiguity_not_read": true,
+        "selected_identity_redownloaded": true,
+        "legacy_file_preserved": true,
+        "legacy_unique_readonly": true,
+        "no_legacy_promotion": true,
+        "legacy_label_visible": true,
+        "atomic_save_failure_preserved_body": true,
+        "wrong_identity_rejected": true,
+        "cache_symlink_not_followed": true,
+        "local_progress_pending_unchanged": true,
+        "managed_parent_symlink_rejected": true,
+        "synthetic_only": true,
+        "result": "PASS",
+        "http_reads": 4,
+        "reading_data_writes": 0,
+        "distinct_same_title_bodies": true,
+        "sanitized_id_collision_separated": true,
+        "title_rename_keeps_path": true,
+        "identity_header_checked": true,
+        "image_directories_isolated": true,
+        "native_html_render": true,
+        "native_menu_opens_selected_identity": true
+      },
+      "export_regression": {
+        "native_list_picker": true,
+        "native_reader_entry": true,
+        "native_confirm_and_result": true,
+        "custom_cache_root": true,
+        "packaged_bitmap_decoded": true,
+        "native_document_bitmap_placed": true,
+        "replaced_article_list_callback_ignored": true,
+        "cre_opened_export": true,
+        "unicode_text_preserved": true,
+        "cached_images_packed": true,
+        "duplicate_images_shared": true,
+        "embedded_bitmap_packed": true,
+        "missing_images_marked": true,
+        "passive_markup": true,
+        "legacy_epub_bytes_unchanged": true,
+        "duplicate_same_identity_coalesced": true,
+        "native_closed_picker_ignored": true,
+        "source_and_images_unchanged": true,
+        "cancel_and_stale_cleanup": true,
+        "account_session_suspend_close_guards": true,
+        "changed_source_rejected": true,
+        "failed_accept_clean": true,
+        "oversized_image_rejected": true,
+        "image_symlink_not_followed": true,
+        "export_cloud_identity_excluded": true,
+        "local_progress_and_pending_intent_unchanged": true,
+        "result": "PASS",
+        "background_process": true,
+        "ui_heartbeat": true,
+        "existing_export_preserved": true,
+        "synthetic_only": true,
+        "network_calls": 0,
+        "reading_data_writes": 0
+      }
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "cache": {
+        "managed_parent_symlink_rejected": true,
+        "local_progress_pending_unchanged": true,
+        "cache_symlink_not_followed": true,
+        "wrong_identity_rejected": true,
+        "atomic_save_failure_preserved_body": true,
+        "legacy_label_visible": true,
+        "no_legacy_promotion": true,
+        "selected_identity_redownloaded": true,
+        "result": "PASS",
+        "legacy_unique_readonly": true,
+        "synthetic_only": true,
+        "http_reads": 4,
+        "reading_data_writes": 0,
+        "distinct_same_title_bodies": true,
+        "sanitized_id_collision_separated": true,
+        "title_rename_keeps_path": true,
+        "identity_header_checked": true,
+        "image_directories_isolated": true,
+        "native_html_render": true,
+        "native_menu_opens_selected_identity": true,
+        "export_choices_remain_distinct": true,
+        "legacy_ambiguity_visible": true,
+        "legacy_ambiguity_not_read": true,
+        "legacy_file_preserved": true
+      },
+      "export_regression": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "background_process": true,
+        "ui_heartbeat": true,
+        "native_list_picker": true,
+        "native_reader_entry": true,
+        "existing_export_preserved": true,
+        "custom_cache_root": true,
+        "packaged_bitmap_decoded": true,
+        "native_document_bitmap_placed": true,
+        "replaced_article_list_callback_ignored": true,
+        "cre_opened_export": true,
+        "unicode_text_preserved": true,
+        "cached_images_packed": true,
+        "duplicate_images_shared": true,
+        "embedded_bitmap_packed": true,
+        "missing_images_marked": true,
+        "passive_markup": true,
+        "legacy_epub_bytes_unchanged": true,
+        "duplicate_same_identity_coalesced": true,
+        "native_closed_picker_ignored": true,
+        "source_and_images_unchanged": true,
+        "cancel_and_stale_cleanup": true,
+        "account_session_suspend_close_guards": true,
+        "changed_source_rejected": true,
+        "failed_accept_clean": true,
+        "oversized_image_rejected": true,
+        "image_symlink_not_followed": true,
+        "export_cloud_identity_excluded": true,
+        "local_progress_and_pending_intent_unchanged": true,
+        "reading_data_writes": 0,
+        "native_confirm_and_result": true,
+        "network_calls": 0
+      }
+    }
+  ],
+  "package_regression": [
+    {
+      "result": "PASS",
+      "synthetic_only": true,
+      "exported_files": 2,
+      "legacy_copy_identical": true,
+      "checks": [
+        {
+          "crc_verified": true,
+          "mimetype_first_stored_no_extra": true,
+          "xml_well_formed": true,
+          "container_manifest_spine_resolve": true,
+          "unicode_metadata_and_text": true,
+          "duplicate_images_share_member": true,
+          "images_inside_archive": true,
+          "missing_image_placeholders": true,
+          "png_crc_and_pixels_verified": true,
+          "passive_article_markup": true,
+          "members": 7
+        },
+        {
+          "crc_verified": true,
+          "mimetype_first_stored_no_extra": true,
+          "xml_well_formed": true,
+          "container_manifest_spine_resolve": true,
+          "unicode_metadata_and_text": true,
+          "duplicate_images_share_member": true,
+          "images_inside_archive": true,
+          "missing_image_placeholders": true,
+          "png_crc_and_pixels_verified": true,
+          "passive_article_markup": true,
+          "members": 7
+        }
+      ]
+    },
+    {
+      "result": "PASS",
+      "synthetic_only": true,
+      "exported_files": 2,
+      "legacy_copy_identical": true,
+      "checks": [
+        {
+          "crc_verified": true,
+          "mimetype_first_stored_no_extra": true,
+          "xml_well_formed": true,
+          "container_manifest_spine_resolve": true,
+          "unicode_metadata_and_text": true,
+          "duplicate_images_share_member": true,
+          "images_inside_archive": true,
+          "missing_image_placeholders": true,
+          "png_crc_and_pixels_verified": true,
+          "passive_article_markup": true,
+          "members": 7
+        },
+        {
+          "crc_verified": true,
+          "mimetype_first_stored_no_extra": true,
+          "xml_well_formed": true,
+          "container_manifest_spine_resolve": true,
+          "unicode_metadata_and_text": true,
+          "duplicate_images_share_member": true,
+          "images_inside_archive": true,
+          "missing_image_placeholders": true,
+          "png_crc_and_pixels_verified": true,
+          "passive_article_markup": true,
+          "members": 7
+        }
+      ]
+    }
+  ],
+  "candidate_verification": [
+    {
+      "case": "mp-cache600-final",
+      "result": "PASS",
+      "installed_files": 157,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "mp-cacheko2-final",
+      "result": "PASS",
+      "installed_files": 157,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "mp-cache-discoveryko2-final",
+      "result": "PASS",
+      "installed_files": 157,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "case": "mp-cache-translationko2-final",
+      "result": "PASS",
+      "installed_files": 157,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0
+    }
+  ]
+}

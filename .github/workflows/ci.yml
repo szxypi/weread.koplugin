@@ -54,6 +54,7 @@ jobs:
         run: |
           python3 scripts/test_mock_weread.py
           python3 scripts/test_mp_export.py
+          python3 scripts/test_mp_link.py
 
       - name: Native authorization prototype checks
         run: python3 scripts/test_eink_login.py

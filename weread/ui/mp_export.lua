@@ -3,6 +3,7 @@ local Model=require('weread.lib.mp_export')
 local Content=require('weread.lib.content')
 local Output=require('weread.lib.notes_export_file')
 local Protocol=require('weread.lib.protocol')
+local CacheIdentity=require('weread.lib.mp_cache_identity')
 local UIManager=require('ui/uimanager')
 local Util=require('weread.lib.plugin_util')
 local _,T=Util.tr,Util.T
@@ -39,12 +40,13 @@ function M.cancel(host)
 end
 local function input(host,book,article)
     if type(book)~='table' or type(article)~='table' or not Protocol.is_mp_book(book.book_id or book.bookId) then return nil end
-    local ok,path=pcall(Content.mp_article_cached_path,host.settings,book,article)
+    local ok,path,reason=pcall(Content.mp_article_cached_path,host.settings,book,article)
+    if ok and reason=='ambiguous_legacy' then return nil,reason end
     if not ok or type(path)~='string' or #path>4096 or path:find('[%z%c]')
         or not path:match('%.html$') and not path:match('%.epub$') or Model.is_export_path(host.settings,path) then return nil end
     local identity=require('libs/libkoreader-lfs').symlinkattributes(path)
     if not identity or identity.mode~='file' then return nil end
-    return {path=path,identity=identity,
+    return {path=path,identity=identity,cache_kind=reason,
         book={book_id=book.book_id or book.bookId,title=book.title,author=book.author},
         article={title=article.title,reviewId=article.reviewId,originalId=article.originalId,bookId=article.bookId}}
 end
@@ -123,18 +125,25 @@ end
 function M.list(host,book,articles)
     host:closeWeReadUI()
     local owner=scope(host)
-    local rows,menu,candidates,counts={},nil,{},{}
+    local rows,menu,candidates,counts,seen={},nil,{},{},{}
     for index,article in ipairs(articles or {}) do
         if index>1000 then break end
-        local ok,source=pcall(input,host,book,article)
+        local ok,source,reason=pcall(input,host,book,article)
         if ok and source then
-            candidates[#candidates+1]=source;counts[source.path]=(counts[source.path] or 0)+1
+            local key=CacheIdentity.key(book,article)
+            local identity=key and source.path..'\0'..key
+            if not identity or not seen[identity] then
+                candidates[#candidates+1]=source;counts[source.path]=(counts[source.path] or 0)+1
+                if identity then seen[identity]=true end
+            end
+        elseif ok and reason=='ambiguous_legacy' then
+            rows[#rows+1]={text=article.title or _('Article'),mandatory=_('Legacy cache needs refresh'),select_enabled=false}
         end
     end
     for _i,source in ipairs(candidates) do
         local ambiguous=counts[source.path]>1
         rows[#rows+1]={text=source.article.title or _('Article'),
-            mandatory=ambiguous and _('Ambiguous cache') or '',select_enabled=not ambiguous,callback=function()
+            mandatory=ambiguous and _('Ambiguous cache') or source.cache_kind=='legacy' and _('Legacy cache') or '',select_enabled=not ambiguous,callback=function()
                 if ambiguous then return end
                 if host._mp_export_menu~=menu or not current(host,owner) then return end
                 M.show(host,nil,nil,source)
@@ -147,16 +156,23 @@ function M.current(host)
     local id=host:detectWeReadBook()
     local path=host.ui and host.ui.document and host.ui.document.file
     local book=id and host.settings:get('books',{})[id]
-    local selected
+    local selected,ambiguous
     if Protocol.is_mp_book(id) and type(book)=='table' and type(path)=='string' then
         for index,article in ipairs(book.mp_articles or {}) do
             if index>1000 then break end
-            if Content.mp_article_cached_path(host.settings,book,article)==path then
-                if selected then failed(host);return false end;selected=article
+            local cached,reason=Content.mp_article_cached_path(host.settings,book,article)
+            if cached==path then
+                if selected and (not CacheIdentity.key(book,selected) or CacheIdentity.key(book,selected)~=CacheIdentity.key(book,article)) then
+                    failed(host);return false
+                end
+                selected=article
+            elseif reason=='ambiguous_legacy' and Content.mp_article_legacy_path(host.settings,book,article)==path then
+                ambiguous=true
             end
         end
     end
-    if not selected then host:showInfo(_('This article could not be identified in the saved article list.'));return false end
+    if not selected then host:showInfo(ambiguous and _('This old article cache is ambiguous. Download the article again from the article list.')
+        or _('This article could not be identified in the saved article list.'));return false end
     return M.show(host,book,selected)
 end
 return M
