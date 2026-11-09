@@ -1,5 +1,6 @@
 local Content = require("weread.lib.content")
 local WeRead = require("weread.lib.protocol")
+local RemoteProgress = require("weread.lib.remote_progress")
 local _ = require("weread.lib.i18n").tr
 
 local logger = require("weread.lib.logger").scoped("ReadReport")
@@ -937,17 +938,19 @@ function ReadReport:_merge_remote_progress(book_id, book)
     local ok, result = pcall(function()
         return self.client:get_progress(book_id)
     end)
-    if not ok or type(result) ~= "table" then
-        return
+    if not ok or type(result) ~= "table" then return false end
+    local remote, reason, provided = RemoteProgress.project(result, book_id, "gateway")
+    if not remote then
+        log("warn", "Ignored unverified remote progress:", reason)
+        return false
     end
-    local remote = type(result.book) == "table" and result.book or result
-    book.progress = tonumber(remote.progress) or tonumber(book.progress) or 0
-    book.chapter_uid = remote.chapterUid or remote.chapterId or remote.chapter_uid or book.chapter_uid
-    book.chapter_idx = tonumber(remote.chapterIdx or remote.chapterIndex or remote.chapter_idx)
-        or tonumber(book.chapter_idx)
-    book.chapter_offset = tonumber(remote.chapterOffset or remote.chapterPos or remote.offset)
-        or tonumber(book.chapter_offset) or 0
-    book.summary = remote.summary or book.summary or ""
+    -- Keep fresh same-book Reader fields when an optional Gateway field is
+    -- absent; a validated, explicit zero/empty value still replaces it.
+    book.progress = remote.raw_percent
+    for _i, key in ipairs({ "chapter_uid", "chapter_idx", "chapter_offset", "summary" }) do
+        if provided[key] then book[key] = remote[key] end
+    end
+    return true
 end
 
 -- Build (and refresh when stale) the reader context on the given book

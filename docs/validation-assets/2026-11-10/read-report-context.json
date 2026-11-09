@@ -1,0 +1,212 @@
+{
+  "result": "PASS",
+  "base_commit": "414d0eb4330fb083656729dfcb0157f0de3db511",
+  "candidate_changes": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "source_manifest_format": "SHA256 of sorted UTF8(path + NUL + SHA256(file) + LF)",
+  "profiles": [
+    {
+      "profile": "report-context-600",
+      "result": "PASS",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "production_files": 184,
+      "package_sha256": "3ed868836a1408ffc83970587d6dbef49225b6f69e1ef723826336759e0b94e4",
+      "source_manifest_sha256": "e103eb99cfd2f7761d560d9832d1c237b82c7f81cc2353614af68c15697e5f20",
+      "source_and_installed_identical": true,
+      "zip_crc": true,
+      "repaint_errors": 0,
+      "invalid_response_checks": {
+        "read_report_context_checked": true,
+        "native_location_preserved": true,
+        "cloud_posts_during_rejection": 0,
+        "local_checkpoint_preserved": true,
+        "synthetic_only": true,
+        "reporting_blocked": true,
+        "cases": 6,
+        "result": "PASS"
+      },
+      "offline_progress": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "unverified_checkpoint": true,
+        "manual_only_checkpoint": true,
+        "flush_and_suspend": true,
+        "fresh_process": true,
+        "native_position_restored": true,
+        "local_home_progress": true,
+        "reconnect_compared_before_write": true,
+        "explicit_choice_required": true,
+        "duplicate_link_event_safe": true,
+        "mock_readback": true,
+        "remote_choice_clears_pending": true,
+        "remote_choice_no_upload": true,
+        "flush_preserves_remote_choice": true,
+        "offline_new_requests": 0,
+        "session_entry_and_progress_posts": 2,
+        "chosen_updates": 1
+      }
+    },
+    {
+      "profile": "report-context-flow-ko2",
+      "result": "PASS",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "production_files": 184,
+      "package_sha256": "d1c99e75148928bf890c7eaf20b92258b187c1284984f6242ecb1645914f14e8",
+      "source_manifest_sha256": "e103eb99cfd2f7761d560d9832d1c237b82c7f81cc2353614af68c15697e5f20",
+      "source_and_installed_identical": true,
+      "zip_crc": true,
+      "repaint_errors": 0,
+      "invalid_response_checks": {
+        "native_location_preserved": true,
+        "result": "PASS",
+        "cases": 6,
+        "synthetic_only": true,
+        "read_report_context_checked": true,
+        "reporting_blocked": true,
+        "cloud_posts_during_rejection": 0,
+        "local_checkpoint_preserved": true
+      },
+      "offline_progress": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "unverified_checkpoint": true,
+        "manual_only_checkpoint": true,
+        "flush_and_suspend": true,
+        "fresh_process": true,
+        "native_position_restored": true,
+        "local_home_progress": true,
+        "reconnect_compared_before_write": true,
+        "explicit_choice_required": true,
+        "duplicate_link_event_safe": true,
+        "mock_readback": true,
+        "remote_choice_clears_pending": true,
+        "remote_choice_no_upload": true,
+        "flush_preserves_remote_choice": true,
+        "offline_new_requests": 0,
+        "chosen_updates": 1,
+        "session_entry_and_progress_posts": 2
+      }
+    },
+    {
+      "profile": "report-context-core-600",
+      "result": "PASS",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "production_files": 184,
+      "package_sha256": "a5c1acf5f55448b3e270774883fbeb53e6ffee9bf8a670a4c64fbaba13edcb39",
+      "source_manifest_sha256": "e103eb99cfd2f7761d560d9832d1c237b82c7f81cc2353614af68c15697e5f20",
+      "source_and_installed_identical": true,
+      "zip_crc": true,
+      "repaint_errors": 0
+    },
+    {
+      "profile": "report-context-core-ko2",
+      "result": "PASS",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "production_files": 184,
+      "package_sha256": "1072bb7297d97c3bd7debf9d381441f94425b75475c236eaf24221cb103dec14",
+      "source_manifest_sha256": "e103eb99cfd2f7761d560d9832d1c237b82c7f81cc2353614af68c15697e5f20",
+      "source_and_installed_identical": true,
+      "zip_crc": true,
+      "repaint_errors": 0
+    }
+  ],
+  "real_web_projection": {
+    "result": "READER_PROGRESS_CONTRACT_VERIFIED",
+    "checked_at": "2026-11-09T16:16:16.562886+00:00",
+    "account_data_writes_attempted": 0,
+    "private_responses_saved": false,
+    "credentials_written_to_files": false,
+    "cookie_rotation_saved": false,
+    "lua_projection_matches": true,
+    "same_owner_verified": true,
+    "shelf_books": 139,
+    "samples": 8,
+    "positions": 8,
+    "stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      }
+    ]
+  },
+  "checks": {
+    "lua_spec_groups": 156,
+    "luacheck_files": 411,
+    "lua_syntax_files": 413,
+    "python_suites": 38,
+    "python_tests": 406,
+    "result": "PASS",
+    "namespace": true,
+    "timezones": 4,
+    "python_compile": true,
+    "tls": true,
+    "release_notes_extract": true,
+    "read_report_progress_checks": 74,
+    "read_report_added_checks": 52,
+    "remote_progress_checks": 132,
+    "position_roundtrip_tests": 20
+  },
+  "real_write_status": "NOT_EXECUTED_PENDING_OWNER_REPLY",
+  "limitations": [
+    "Gateway context merge verified with synthetic HTTP, not a live Gateway account write",
+    "The position write tool has only a read-only live preview and offline state-machine tests; no real coordinate or time write was sent",
+    "Existing coordinate mapping and upload protocol unchanged; no precise wire or multi-device completion claim",
+    "Physical KO2 input, suspend, network and power-loss validation remain pending; no release or concentrated performance phase"
+  ]
+}

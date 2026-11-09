@@ -278,6 +278,12 @@ if os.getenv("WEREAD_TEST_PROGRESS_RESPONSE") == "1" then
     local cases={"foreign","aliases","range","offset","ambiguous","rejected"}
     for _i,mode in ipairs(cases) do
         request("/__control",{progress_response=mode})
+        local context_book=current.settings:get_book(id)
+        local context_keys={"chapter_uid","chapter_idx","chapter_offset","progress","summary","psvts","pclts","token"}
+        local original={}
+        for _j,key in ipairs(context_keys) do original[key]=context_book[key] end
+        assert(not current.read_report:_merge_remote_progress(id,context_book),"report context accepted invalid Gateway data")
+        for _j,key in ipairs(context_keys) do assert(context_book[key]==original[key],"report context changed after rejection") end
         assert(current:onWeReadSyncProgress())
         pump(function() return not current.progress_sync.pulling end)
         assert(current.progress_sync.state=="error" and not current.progress_sync.verified,"invalid cloud progress was accepted")
@@ -297,9 +303,12 @@ if os.getenv("WEREAD_TEST_PROGRESS_RESPONSE") == "1" then
         clean_popups(reader)
     end
     request("/__control",{progress_response="plain"})
+    local valid_context=current.settings:get_book(id)
+    assert(current.read_report:_merge_remote_progress(id,valid_context),"valid Gateway report context was rejected")
     local output=assert(io.open(evidence.."/reading-progress-response-result.json","wb"))
     assert(output:write(json.encode{result="PASS",synthetic_only=true,cases=#cases,cloud_posts_during_rejection=0,
-        local_checkpoint_preserved=true,native_location_preserved=true,reporting_blocked=true}));output:close()
+        local_checkpoint_preserved=true,native_location_preserved=true,reporting_blocked=true,
+        read_report_context_checked=true}));output:close()
 end
 assert(current:onWeReadSyncProgress(), "reader sync action failed")
 pump(function() return not current.progress_sync.pulling end)

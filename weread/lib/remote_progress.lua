@@ -77,11 +77,13 @@ local function project(data,book_id,source)
     end
     return {book_id=book_id,percent=percent,raw_percent=percent,chapter_uid=uid,chapter_idx=index or 0,
         chapter_offset=offset or 0,has_chapter_offset=offset~=nil,updated_at=updated or 0,
-        summary=summary,source=source or 'unknown',position_basis='raw_percent'}
+        summary=summary,source=source or 'unknown',position_basis='raw_percent'},
+        {progress=true,chapter_uid=uid~=nil,chapter_idx=index~=nil,chapter_offset=offset~=nil,
+            summary=node.summary~=nil or node.chapterTitle~=nil}
 end
 function M.project(data,book_id,source)
-    local ok,result=pcall(project,data,book_id,source)
-    if ok then return result end
+    local ok,result,provided=pcall(project,data,book_id,source)
+    if ok then return result,nil,provided end
     return nil,reasons[result] and result or 'progress_invalid'
 end
 return M

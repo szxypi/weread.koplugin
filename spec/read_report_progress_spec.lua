@@ -122,6 +122,51 @@ test("unverified position blocks reading-time reporting", function()
     eq(report:status().state, "waiting_for_progress", "waiting state")
 end)
 
+test("remote context merge rejects foreign or malformed reader progress", function()
+    for _i, response in ipairs({
+        { bookId = "other", progress = 90, chapterUid = 22, chapterOffset = 900, summary = "foreign" },
+        { book = { bookId = "book", book_id = "other", progress = 90, chapterUid = 22 } },
+        { bookId = "other", data = { book = { progress = 90, chapterUid = 22 } } },
+        { book = { progress = 140, chapterUid = 22 } },
+        { book = { progress = 25, chapterOffset = "bad" } },
+        { errCode = -1, book = { progress = 25, chapterUid = 22 } },
+        { data = { { progress = 25 }, { progress = 26 } } },
+    }) do
+        local report = fixture()
+        report.client.get_progress = function() return response end
+        local book = { book_id = "book", chapter_uid = 11, chapter_idx = 1, chapter_offset = 20,
+            progress = 10, summary = "reader summary", psvts = "reader session" }
+        report:_merge_remote_progress("book", book)
+        eq(book.chapter_uid, 11, "unverified response cannot select a chapter")
+        eq(book.chapter_idx, 1, "reader chapter index retained")
+        eq(book.chapter_offset, 20, "reader offset retained")
+        eq(book.progress, 10, "reader percentage retained")
+        eq(book.summary, "reader summary", "reader summary retained")
+        eq(book.psvts, "reader session", "reader session retained")
+    end
+end)
+
+test("valid partial context merges preserve missing fields and accept explicit zero", function()
+    local report = fixture()
+    local book = { chapter_uid = 11, chapter_idx = 1, chapter_offset = 20, progress = 10, summary = "reader summary" }
+    report.client.get_progress = function() return { book = { progress = 25 } } end
+    report:_merge_remote_progress("book", book)
+    eq(book.progress, 25, "validated percentage applied")
+    eq(book.chapter_uid, 11, "missing chapter retained")
+    eq(book.chapter_idx, 1, "missing chapter index retained")
+    eq(book.chapter_offset, 20, "missing offset retained")
+    eq(book.summary, "reader summary", "missing summary retained")
+    report.client.get_progress = function()
+        return { book = { bookId = "book", progress = 0, chapterUid = 0, chapterIdx = 0, chapterOffset = 0, summary = "" } }
+    end
+    report:_merge_remote_progress("book", book)
+    eq(book.progress, 0, "explicit zero percent applied")
+    eq(book.chapter_uid, 0, "explicit chapter zero applied")
+    eq(book.chapter_idx, 0, "explicit index zero applied")
+    eq(book.chapter_offset, 0, "explicit offset zero applied")
+    eq(book.summary, "", "explicit empty summary applied")
+end)
+
 test("verified live position passes the reporting gate", function()
     local live = { chapter_uid = 22, chapter_offset = 150, percent = 25 }
     local report = fixture(function()
