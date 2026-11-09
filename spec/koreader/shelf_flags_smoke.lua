@@ -57,7 +57,7 @@ return function(plugin,count,flush,home,pump)
     assert(not plugin.shelf_refreshing and count('/shelf/sync')==before,'closed menu started HTTP')
     menu=state_menu('900003');state(menu,'Pinned','Not provided');state(menu,'Private reading','Not provided');state(menu,'Finished reading','No')
     menu=state_menu('999999');state(menu,'Finished reading','Not provided')
-    assert(row(menu,'No saved shelf snapshot for this book.'),'missing book declared cloud membership')
+    state(menu,'In cloud bookshelf','No');assert(row(menu,'The last saved bookshelf does not contain this book.'),'saved absence not displayed')
     plugin:closeWeReadUI()
     local account_key=plugin.library_db.accountKey
     plugin.library_db.accountKey=function() return 'synthetic-other-shelf-state' end

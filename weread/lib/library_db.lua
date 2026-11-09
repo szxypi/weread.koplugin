@@ -4,6 +4,7 @@
 
 local logger = require("weread.lib.logger")
 local Crypto = require("weread.lib.crypto")
+local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 
 local ok_json, json = pcall(require, "json")
 if not ok_json then
@@ -134,6 +135,8 @@ function LibraryDB:open()
 end
 
 function LibraryDB:cacheShelf(books, archives)
+    local snapshot = ShelfSnapshot.metadata(books, os.time())
+    if not snapshot then return false end
     local db = self:open()
     if not db or type(books) ~= "table" then return false end
     local transaction_open = false
@@ -153,16 +156,13 @@ function LibraryDB:cacheShelf(books, archives)
                 shelf_position=excluded.shelf_position,
                 shelf_updated_at=excluded.shelf_updated_at
         ]])
-        local now = os.time()
+        local now = snapshot.cached_at
         for position, book in ipairs(books) do
-            local book_id = book.book_id or book.bookId
+            local book_id = ShelfSnapshot.id(book)
             local payload, encode_err = encode(book)
-            if book_id and payload then
-                local kind = tostring(book_id):match("^MP_WXS_") and "mp" or "book"
-                stmt:reset():bind(tostring(book_id), kind, payload, position, now):step()
-            elseif encode_err then
-                error(encode_err)
-            end
+            if type(payload) ~= "string" then error(encode_err or "invalid shelf payload") end
+            local kind = book_id:match("^MP_WXS_") and "mp" or "book"
+            stmt:reset():bind(book_id, kind, payload, position, now):step()
         end
         close_statement(stmt)
         stmt = nil
@@ -178,6 +178,15 @@ function LibraryDB:cacheShelf(books, archives)
             close_statement(stmt)
             stmt = nil
         end
+        local payload, encode_err = encode(snapshot)
+        if not payload then error(encode_err) end
+        stmt = db:prepare([[
+            INSERT INTO shelf_state (name, payload) VALUES ('membership_snapshot', ?)
+            ON CONFLICT(name) DO UPDATE SET payload=excluded.payload
+        ]])
+        stmt:bind(payload):step()
+        close_statement(stmt)
+        stmt = nil
         db:exec("COMMIT")
         transaction_open = false
     end)
@@ -359,6 +368,33 @@ function LibraryDB:getShelfEntry(book_id)
         if type(book)~='table' or tostring(book.book_id or book.bookId or '')~=book_id
             or book.bookId~=nil and tostring(book.bookId)~=book_id then return end
         result={book=book,cached_at=tonumber(row[2]) or 0}
+    end)
+    close_statement(stmt);pcall(function() db:close() end)
+    return ok and result or nil
+end
+
+-- Membership and flags share one SQLite read snapshot. An absent row only
+-- means "not on shelf" when a complete validated list was committed with it.
+function LibraryDB:getShelfStatus(book_id)
+    if not ShelfSnapshot.id({bookId=book_id}) or type(book_id)~='string' then return nil end
+    local db=self:open()
+    if not db then return nil end
+    local stmt,result
+    local ok=pcall(function()
+        stmt=db:prepare([[SELECT
+            (SELECT CASE WHEN length(CAST(payload AS BLOB))<=4096 THEN payload ELSE '' END
+                FROM shelf_state WHERE name='membership_snapshot'),
+            (SELECT COUNT(*) FROM books WHERE on_shelf=1),
+            b.on_shelf,b.shelf_updated_at,
+            CASE WHEN length(CAST(b.payload AS BLOB))<=262144 THEN b.payload ELSE NULL END
+            FROM (SELECT 1) AS singleton LEFT JOIN books AS b ON b.book_id=?]])
+        local row=stmt:bind(book_id):step()
+        if not row then return end
+        local present,stamp=ShelfSnapshot.state(decode(row[1]),tonumber(row[2]),
+            tonumber(row[3]),tonumber(row[4]),row[1]==nil)
+        local book=tonumber(row[3])==1 and decode(row[5]) or nil
+        if ShelfSnapshot.id(book)~=book_id then book=nil end
+        result={present=present,cached_at=stamp or (book and tonumber(row[4])),book=book}
     end)
     close_statement(stmt);pcall(function() db:close() end)
     return ok and result or nil

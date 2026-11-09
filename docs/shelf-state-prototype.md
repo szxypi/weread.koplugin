@@ -1,6 +1,6 @@
 # 书架状态查看、刷新与标记
 
-书籍详情新增「书架状态」，显示当前账号最近保存的置顶、私密阅读、读完标记和缓存时间。
+书籍详情新增「书架状态」，显示当前账号最近保存的云端在架、置顶、私密阅读、读完标记和缓存时间。
 可从这里刷新整个书架并回到该书状态；读取继续使用现有通道策略、后台进程、取消和续期保护。
 此阶段是状态读取与展示，云端加入／移除、置顶／私密／读完修改仍未接入 Lua。
 
@@ -26,9 +26,11 @@ Web 会话曾更新，经同账号核对后写回钥匙串。两个开发条目�
 
 - 新 Web／墨水屏投影保留二进制整数及布尔值，显式 false 不丢失；缺失或异常字段保持未知。
   旧本地快照的精确 `"0"`／`"1"` 字符串保留显示兼容，任意字符串不作真假转换。
-- 状态窗口按书 ID 查询账号 SQLite 的原始书架快照，仅接受 `on_shelf=1` 的同书记录。
-  不使用可能更旧的详情载荷、本机进度、待上传意图或下载来源版本覆盖状态。
-  本机没有条目时显示尚无快照；这不等同于断言该书当前不在云端书架。
+- 状态窗口用同一条 SQLite 查询取得当前账号的在架证据与逐书字段。
+  完整书单成功保存后，存在的书显示「是」，缺失的书显示「否」及最近快照时间；
+  没有完整快照、读取失败或快照标记不一致时显示「未知」。逐书标记仍只读取 `on_shelf=1` 的同书载荷。
+  详情载荷、本机进度、待上传意图和下载版本不会覆盖这些状态。
+  在架结果描述最近保存的书架；刷新后才取得新的服务端状态。
 - 刷新关闭原来的微信读书页面，成功保存后回到该书的新快照。
   取消、休眠、关页、账号／文档／阅读代次变化及旧菜单不能重新打开它；完成回调只接收一次。
   保存失败明确提示快照未更新，不将旧值作为本次刷新结果显示。
@@ -63,3 +65,46 @@ python3 scripts/verify_shelf_flags.py --saved-session --native-http --lua-comman
   docker exec -i -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
   ./luajit /source/spec/koreader/shelf_flags_probe.lua /source
 ```
+
+
+## 在架、已知不在架与未知
+
+`weread/lib/shelf_snapshot.lua` 校验书单为不超过 5,000 项的连续数组，编号有效且不重复，
+双编号字段一致。SQLite 将整份书单、分组和一个小型完整快照标记放在同一事务中保存。
+任一条目编码失败、分组／标记写入失败都会回滚，旧书单和旧标记保留。
+保存空书单同样建立有效标记，表示当次书架为空。
+
+状态读取在同一 SQL 语句中核对标记、在架总数及该书记录。
+只有完整标记匹配，缺失的书才显示「否」；旧缓存缺失标记时，已有在架记录可显示「是」，
+缺失记录保持「未知」，由显式刷新补齐。损坏标记或数量不一致保持未知。
+在架记录的展示字段不可读时保留已知在架结果，提示字段不可用，不把损坏载荷当作不在架。
+查询和菜单均按账号隔离，离线重开保留已知结果，详情资料更新不改变成员身份。
+
+Python 先复用既有 Web 账号／书架 GET 验证，真实书架为 139 本；
+8 个在架编号和 1 个不在列表中的合成阴性编号由 Python／Lua 纯模型核对一致。
+阴性编号只验证集合查询，不表示某本真实书籍已经移出书架，也未作写后回读。
+最终一次共 2 个真实 GET，本项含原型共 6 个 GET，未发送授权维护 POST 或账号数据写入。
+首轮会话 Cookie 轮换经归属及现有会话核对后保存回原钥匙串；授权继续保留到整体目标完成。
+真实编号只经捕获内存管道处理，Lua 不接收 Cookie 或账号凭据。
+[真实只读报告](validation-assets/2026-11-09/shelf-membership-owner-readonly.json)只含计数和状态。
+
+新增 48 项模型／实际 SQLite 检查及 8 个 Python 检查，状态菜单协调增至 37 项。
+官方 KOReader v2026.07.1 Linux ARM64／Xvfb 的两尺寸原生场景覆盖 12 项条件，
+包括无快照、仅详情、在架／不在架、空书架、旧缓存、字段／标记损坏、非法书单、
+编码失败及事务回滚、数量不一致和账号切换；真实 SQLite、原生菜单及离线数据库重开通过。
+这些数据库和截图全部使用合成数据，真实账号持久界面另待验收。
+[原生报告](validation-assets/2026-11-09/shelf-membership-runtime.json)、
+[600 已知不在架](validation-assets/2026-11-09/shelf-membership-absent-600.png)、
+[600 未知](validation-assets/2026-11-09/shelf-membership-unknown-600.png)及
+[KO2 尺寸在架](validation-assets/2026-11-09/shelf-membership-present-ko2.png)。
+
+```sh
+python3 scripts/verify_shelf_membership.py
+python3 scripts/test_shelf_membership.py
+python3 scripts/verify_shelf_membership.py --saved-session --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation \
+  ./luajit /source/spec/koreader/shelf_membership_probe.lua /source
+```
+
+后续加入／移除或读完修改仍须真实协议验证、实时预检及写后回读，当前保存结果仅供状态展示。
+入口：书籍详情 → 书架状态。实体 KO2 的输入、网络和文件系统仍待验收。

@@ -25,20 +25,28 @@ function M.show(host,id)
     if type(id)~='string' or id=='' or #id>256 or id:find('[%z%c]') then return false end
     M.cancel(host)
     local owner=scope(host)
-    local ok,entry=pcall(host.library_db.getShelfEntry,host.library_db,id)
+    local ok,entry=pcall(host.library_db.getShelfStatus,host.library_db,id)
     if not current(host,owner) then return false end
     local book=ok and type(entry)=='table' and entry.book or nil
+    local present
+    if ok and type(entry)=='table' and type(entry.present)=='boolean' then present=entry.present end
     local items={
+        {text=_('In cloud bookshelf'),mandatory=type(present)=='boolean' and text(present) or _('Unknown'),select_enabled=false},
         {text=_('Pinned'),mandatory=text(Flags.display(book,'pinned')),select_enabled=false},
         {text=_('Private reading'),mandatory=text(Flags.display(book,'private')),select_enabled=false},
         {text=_('Finished reading'),mandatory=text(Flags.display(book,'finished')),select_enabled=false},
     }
-    if not book then
-        items[#items+1]={text=_('No saved shelf snapshot for this book.'),select_enabled=false}
-    else
+    if book or type(present)=='boolean' then
         local stamp=entry.cached_at
         local date=type(stamp)=='number' and stamp>=1 and stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp)
         items[#items+1]={text=_('Saved shelf snapshot'),mandatory=date or _('Time unavailable'),select_enabled=false}
+    end
+    if present==false then
+        items[#items+1]={text=_('The last saved bookshelf does not contain this book.'),select_enabled=false}
+    elseif present==true and not book then
+        items[#items+1]={text=_('Saved status fields are unavailable for this book.'),select_enabled=false}
+    elseif not book then
+        items[#items+1]={text=_('No saved shelf snapshot for this book.'),select_enabled=false}
     end
     local menu
     items[#items+1]={text=_('Refresh shelf status'),callback=function()
@@ -57,7 +65,7 @@ function M.show(host,id)
     end}
     items[#items+1]={text=_('About shelf status'),callback=function()
         if host._shelf_state_menu~=menu or not current(host,owner) then return end
-        host:showInfo(_('These statuses come from the last saved bookshelf. Refresh to see changes from other devices. “Not provided” means the service did not return that status. Reading progress and the finished mark are separate.'))
+        host:showInfo(_('These statuses come from the last saved bookshelf. Refresh to see changes from other devices. “Unknown” membership means no complete saved list is available. “Not provided” means a status was not returned. Reading progress and the finished mark are separate.'))
     end}
     menu=host:showList(_('Shelf status'),items);host._shelf_state_menu=menu
     if menu then
