@@ -10,13 +10,40 @@ from datetime import datetime, timezone
 import json
 import math
 import subprocess
+from urllib.error import HTTPError
+from urllib.parse import urlencode
+from urllib.request import Request,build_opener
 
 from secure_weread_session import COOKIE_NAMES, SessionStore, StoreError
 from verify_web_source_progress import BASE, PreflightError, WebSourceProbe, identifier
+from verify_mp_link import NoRedirect
+from fetch_weread_epub import USER_AGENT
+from verify_translation_preflight import save_refreshed_web_session
 
 
 class DisplayError(ValueError):
     pass
+
+
+def anonymous_progress(book_id,opener=None):
+    book_id=identifier(book_id)
+    request=Request(BASE+'/web/book/getProgress?'+urlencode(dict(bookId=book_id)),
+                    headers={'User-Agent':USER_AGENT,'Accept':'application/json'},method='GET')
+    try:
+        with (opener or build_opener(NoRedirect())).open(request,timeout=10) as response:
+            code,raw=response.status,response.read(65537)
+    except HTTPError as exc:
+        try:code,raw=exc.code,exc.read(65537)
+        finally:exc.close()
+    if len(raw)>65536:raise DisplayError('anonymous_progress_limit')
+    try:value=json.loads(raw)
+    except (ValueError,UnicodeError):value={}
+    first=value.get('errCode') if isinstance(value,dict) else None
+    second=value.get('errcode') if isinstance(value,dict) else None
+    error=first if first is not None else second
+    if type(error) is not int or first is not None and second is not None and first!=second:error=None
+    return dict(http_status=code,error_code=error,login_rejected=code==401 or error==-2012,
+                cookie_sent=False,authorization_sent=False,redirects_followed=0)
 
 
 def parse(data, book_id):
@@ -48,10 +75,12 @@ def main(argv=None):
     parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--sample',type=int,default=8,choices=range(1,13))
     parser.add_argument('--native-http',action='store_true')
+    parser.add_argument('--anonymous-control',action='store_true')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if args.native_http and not (args.saved_session and args.lua_command) or args.lua_command and not args.saved_session:
         parser.error('Lua comparison requires --saved-session; --native-http also requires --lua-command last')
+    if args.anonymous_control and not args.saved_session:parser.error('anonymous control requires --saved-session')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_writes_attempted=0,
                 raw_positions_saved=False,credentials_written_to_files=False)
     if not args.saved_session:
@@ -61,7 +90,7 @@ def main(argv=None):
         return 0
     probe=WebSourceProbe()
     try:
-        saved=SessionStore().load()
+        store=SessionStore();saved=store.load()
         probe.vid=identifier(saved['vid'])
         for key,value in saved['cookies'].items():probe.set_cookie(key,value)
         probe.verify_account()
@@ -90,11 +119,12 @@ def main(argv=None):
         refreshed={cookie.name:cookie.value for cookie in probe.cookies if cookie.name in COOKIE_NAMES
                    and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
         report['session_cookie_refreshed']=refreshed!=saved['cookies']
-        saved['cookies']=refreshed
         if report['session_cookie_refreshed']:
             # Preserve the newly verified session before optional comparisons.
-            SessionStore().save(probe)
+            save_refreshed_web_session(store,saved,probe)
             report['refreshed_session_saved_to_keychain']=True
+        saved['cookies']=refreshed
+        if args.anonymous_control:report['anonymous_control']=anonymous_progress(ids[0])
         if args.lua_command:
             payload=dict(samples=samples)
             if args.native_http:payload['session']=saved

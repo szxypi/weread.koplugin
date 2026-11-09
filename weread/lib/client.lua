@@ -813,7 +813,9 @@ function Client:get_shelf_display_progress(book_id, access)
         error("display_progress/access_required", 0)
     end
     local _, code, headers = self:request(options)
-    if exceeded or code ~= 200 then error("display_progress/unavailable", 0) end
+    if exceeded then error("display_progress/unavailable", 0) end
+    if code == 401 and access.kind == "web" then error("display_progress/login", 0) end
+    if code ~= 200 then error("display_progress/unavailable", 0) end
     return self:decode_http_json(table.concat(chunks), { sensitive = true, api_name = "shelf_progress", code = code, headers = headers })
 end
 

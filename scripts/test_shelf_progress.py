@@ -1,12 +1,12 @@
 """Synthetic display contract only; never opens the real Keychain or network."""
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout,redirect_stderr
 import io
 import json
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from verify_shelf_progress import DisplayError,main,parse
+from verify_shelf_progress import DisplayError,main,parse,anonymous_progress
 
 
 class DisplayTests(unittest.TestCase):
@@ -43,7 +43,7 @@ class DisplayTests(unittest.TestCase):
     def test_refreshed_verified_session_saved_before_optional_native_failure(self):
         cookies=[SimpleNamespace(name=k,value=v,domain='.weread.qq.com',path='/')
                  for k,v in dict(wr_vid='88008800',wr_skey='new-private-sentinel').items()]
-        probe=SimpleNamespace(vid=None,cookies=cookies,set_cookie=lambda *_:None,verify_account=lambda:None,
+        probe=SimpleNamespace(vid=None,authenticated=True,cookies=cookies,set_cookie=lambda *_:None,verify_account=lambda:None,
                               request=lambda stage,*_:dict(books=[dict(bookId='99009900')]) if stage=='shelf' else dict(book=dict(progress=37.8)),
                               close=lambda:None,report=dict(stages=[]))
         response=SimpleNamespace(returncode=1,stdout=b'\nWEREAD_DISPLAY_RESULT={"stage":"fetch","statuses":[429]}\n')
@@ -65,6 +65,76 @@ class DisplayTests(unittest.TestCase):
             self.assertEqual(main(['--saved-session']),1)
         self.assertEqual(probe.return_value.request.call_count,2)
         self.assertEqual(json.loads(out.getvalue())['reason'],'http_rejected')
+
+    def test_anonymous_control_has_no_credentials_or_redirects(self):
+        class Reply:
+            status=200
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def read(self,_):return b'{"errCode":-2010}'
+        with patch('verify_shelf_progress.build_opener') as opener:
+            opener.return_value.open.return_value=Reply()
+            result=anonymous_progress('99009900')
+        request=opener.return_value.open.call_args.args[0]
+        self.assertEqual(request.get_method(),'GET');self.assertIsNone(request.data)
+        self.assertIsNone(request.get_header('Cookie'));self.assertIsNone(request.get_header('Authorization'))
+        self.assertEqual(result['error_code'],-2010);self.assertFalse(result['login_rejected'])
+        self.assertNotIn('99009900',json.dumps(result))
+
+    def test_anonymous_login_detection_is_narrow(self):
+        class Reply:
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def read(self,_):return self.raw
+        for status,raw,login in ((401,b'private-html',True),(200,b'{"errCode":-2012}',True),
+                                 (200,b'{"errCode":-2010}',False),(429,b'private-html',False),
+                                 (200,b'{"errCode":-2012,"errcode":-2010}',False)):
+            reply=Reply();reply.status,reply.raw=status,raw
+            with patch('verify_shelf_progress.build_opener') as opener:
+                opener.return_value.open.return_value=reply
+                self.assertEqual(anonymous_progress('99009900')['login_rejected'],login)
+
+    def test_anonymous_control_is_bounded(self):
+        class Reply:
+            status=200
+            def __enter__(self):return self
+            def __exit__(self,*_):pass
+            def read(self,size):self.size=size;return b'x'*size
+        reply=Reply()
+        with patch('verify_shelf_progress.build_opener') as opener:
+            opener.return_value.open.return_value=reply
+            with self.assertRaises(DisplayError):anonymous_progress('99009900')
+        self.assertEqual(reply.size,65537)
+        with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(['--anonymous-control'])
+
+    def test_newer_cookie_authority_cannot_be_overwritten(self):
+        cookies=[SimpleNamespace(name=k,value=v,domain='.weread.qq.com',path='/')
+                 for k,v in dict(wr_vid='88008800',wr_skey='new-private-sentinel').items()]
+        probe=SimpleNamespace(vid=None,authenticated=True,cookies=cookies,set_cookie=lambda *_:None,verify_account=lambda:None,
+                              request=lambda stage,*_:dict(books=[dict(bookId='99009900')]) if stage=='shelf' else dict(book=dict(progress=37.8)),
+                              close=lambda:None,report=dict(stages=[]))
+        saved=dict(vid='88008800',cookies=dict(wr_vid='88008800',wr_skey='old-private-sentinel'))
+        with patch('verify_shelf_progress.SessionStore') as store,patch('verify_shelf_progress.WebSourceProbe',return_value=probe),\
+                patch('verify_shelf_progress.subprocess.run') as child,redirect_stdout(io.StringIO()) as out:
+            store.return_value.load.side_effect=[saved,dict(saved,cookies={})]
+            self.assertEqual(main(['--saved-session']),1)
+            store.return_value.save.assert_not_called();child.assert_not_called()
+        self.assertEqual(json.loads(out.getvalue())['reason'],'session_changed')
+        self.assertNotIn('private-sentinel',out.getvalue())
+
+    def test_confirmed_rotation_saved_before_optional_control_failure(self):
+        cookies=[SimpleNamespace(name=k,value=v,domain='.weread.qq.com',path='/')
+                 for k,v in dict(wr_vid='88008800',wr_skey='new-private-sentinel').items()]
+        probe=SimpleNamespace(vid=None,authenticated=True,cookies=cookies,set_cookie=lambda *_:None,verify_account=lambda:None,
+                              request=lambda stage,*_:dict(books=[dict(bookId='99009900')]) if stage=='shelf' else dict(book=dict(progress=37.8)),
+                              close=lambda:None,report=dict(stages=[]))
+        with patch('verify_shelf_progress.SessionStore') as store,patch('verify_shelf_progress.WebSourceProbe',return_value=probe),\
+                patch('verify_shelf_progress.anonymous_progress',side_effect=DisplayError('anonymous_progress_limit')),redirect_stdout(io.StringIO()) as out:
+            store.return_value.load.return_value=dict(vid='88008800',cookies=dict(wr_vid='88008800',wr_skey='old-private-sentinel'))
+            self.assertEqual(main(['--saved-session','--sample','1','--anonymous-control']),1)
+            store.return_value.save.assert_called_once_with(probe)
+        self.assertTrue(json.loads(out.getvalue())['refreshed_session_saved_to_keychain'])
+        self.assertNotIn('private-sentinel',out.getvalue())
 
 
 if __name__=='__main__':unittest.main()

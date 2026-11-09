@@ -498,6 +498,15 @@ for _,response in ipairs({{code=302,body="private-progress"},{code=401,body="pri
     expect(not ok and not tostring(err):find("private-",1,true),"display failure leaked response or exceeded bounds")
 end
 expect(not table.concat(logs,"\n"):find("private-",1,true),"display request logged raw position or private diagnostics")
+responses[#responses+1]={code=401,body='private-progress'}
+ok,err=pcall(client.get_shelf_display_progress,client,'900001',{kind='web',cookies={}})
+expect(not ok and err=='display_progress/login','Web HTTP 401 did not preserve a bounded login reason')
+responses[#responses+1]={code=401,body='private-progress'}
+ok,err=pcall(client.get_shelf_display_progress,client,'900001',{kind='gateway',api_key='captured-display-key'})
+expect(not ok and err=='display_progress/unavailable','gateway failure could trigger Web renewal')
+responses[#responses+1]={code=401,body=string.rep('x',65537)}
+ok,err=pcall(client.get_shelf_display_progress,client,'900001',{kind='web',cookies={}})
+expect(not ok and err=='display_progress/unavailable','oversized reply could trigger credential maintenance')
 local metadata_response={bookId="900001",title="Synthetic metadata",intro="<p>Synthetic introduction</p>",
     publisher="Synthetic publisher",bookVersion=99,progress=99,psvts="private-clock"}
 local metadata_state='{"reader":{"bookInfo":{"bookId":"900001","title":"Synthetic"}}}'

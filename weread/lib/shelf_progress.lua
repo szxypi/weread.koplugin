@@ -36,11 +36,12 @@ function M.display(saved, snapshot, account, id)
     return type(snapshot) == "table" and percent(snapshot.percent) or nil, false
 end
 
-function M.fetch(client, ids, context, selected)
+function M.fetch(client, ids, context, selected, options)
     selected = selected or M.selection(client.settings)
     local snapshots = {}
     if not selected then return { snapshots = snapshots, failed = true } end
-    local access = selected.gateway or selected.web
+    local access = options and options.web_only and selected.web or selected.gateway or selected.web
+    if not access or options and options.web_only and not selected.web then return {snapshots=snapshots,failed=true} end
     local function current()
         context.checkCancelled()
         return M.matches(client.settings, selected)
@@ -69,7 +70,9 @@ function M.fetch(client, ids, context, selected)
                 source = access.kind, unavailable = true }
         elseif reason ~= "unavailable" then
             -- Stop on the first service/auth/rate failure; do not flood the remaining books.
-            return { snapshots = snapshots, failed = true }
+            return { snapshots = snapshots, failed = true,
+                web_expired = not ok and access.kind == "web" and value == "display_progress/login" or nil,
+                next_index = index }
         end
     end
     if not current() then return { snapshots = {}, stale = true } end

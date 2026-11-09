@@ -195,6 +195,7 @@ plugin.settings:set("account", original_account)
 -- My page uses real gateway stats, background workers, native goal input and SQLite.
 local fixtures=debug.getinfo(1,"S").source:match("^@(.*/)")
 dofile(fixtures.."shelf_progress_smoke.lua")(plugin,flush_tasks,evidence,paint,wait_progress)
+dofile(fixtures.."shelf_progress_recovery_smoke.lua")(plugin,flush_tasks,evidence)
 local function paint_profile(name)
     UIManager:forceRePaint()
     Screen:shot(evidence .. "/" .. name .. ".png")
