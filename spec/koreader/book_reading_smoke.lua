@@ -8,6 +8,7 @@ G_reader_settings = require("luasettings"):open(home .. "/settings.reader.lua")
 G_reader_settings:saveSetting("extra_plugin_paths", { home .. "/plugins" })
 G_reader_settings:saveSetting("language", "zh_CN")
 G_reader_settings:saveSetting("color_rendering", false)
+G_reader_settings:saveSetting("footnote_link_in_popup", true)
 require("gettext").changeLang("zh_CN")
 package.path = home .. "/plugins/weread.koplugin/?.lua;" .. package.path
 local Device = require("device")
@@ -227,6 +228,29 @@ assert(reader.document.file:match("%.epub$"), "Read did not open the native EPUB
 assert(not plugin.book_reading_context and not plugin._book_detail_view and not plugin.shelf_view,
     "plugin views survived native handoff")
 shot("reading-native-reader")
+-- Exercise the actual downloaded book through its bound plugin and native tap
+-- routing, in addition to the standalone layout/preference fixture.
+local note = "这是自写的原书脚注。"
+assert(#(reader.document:findAllText(note, false, 0, 10, false, 0) or {}) == 1,
+    "downloaded chapter contains duplicate native note text")
+local origin, note_link = reader.document:getXPointer(), nil
+for page = 1, reader.document:getPageCount() do
+    reader.rolling:onGotoPage(page); tick()
+    note_link = reader.document:getPageLinks()[1]
+    if note_link then break end
+end
+assert(note_link and note_link.segments[1], "downloaded book lacks its native footnote link")
+local segment = note_link.segments[1]
+local source_page = reader:getCurrentPage()
+reader.link:onTap(nil, { pos = require("ui/geometry"):new{
+    x = math.floor((segment.x0 + segment.x1) / 2), y = math.floor((segment.y0 + segment.y1) / 2),
+} })
+local popup = assert(UI:getTopmostVisibleWidget())
+local first = popup.html and popup.html:find(note, 1, true)
+assert(first and not popup.html:find(note, first + #note, true) and reader:getCurrentPage() == source_page,
+    "downloaded footnote popup duplicated text or changed page")
+shot("reading-footnote-popup"); popup:onClose()
+reader:handleEvent(require("ui/event"):new("GotoXPointer", origin)); tick()
 reader.rolling:onGotoPage(2); tick()
 assert(reader:getCurrentPage() == 2, "native page turn failed")
 local current = reader.weread

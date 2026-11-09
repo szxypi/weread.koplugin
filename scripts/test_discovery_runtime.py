@@ -26,9 +26,12 @@ def main():
     parser.add_argument("--dpi", type=int, default=167)
     parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
     parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
+    parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     args = parser.parse_args()
     if args.offline_progress and not args.reading_flow:
         parser.error("--offline-progress requires --reading-flow")
+    if args.footnotes and args.reading_flow:
+        parser.error("--footnotes and --reading-flow use separate fixtures")
     runtime, root = args.koreader.resolve(), args.run_dir.resolve()
     if not (runtime / "luajit").is_file() or not (runtime / "reader.lua").is_file():
         parser.error("--koreader must contain a built runtime")
@@ -59,7 +62,11 @@ def main():
     try:
         with (root / "evidence/runtime.log").open("w") as log:
             fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"
-            result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture)],
+            fixture_args = []
+            if args.footnotes:
+                fixture = "book_footnotes_render.lua"
+                fixture_args = [str(root / "profile/plugins/weread.koplugin"), str(root / "evidence")]
+            result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
                                     cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                     timeout=120)
             if args.reading_flow and result.returncode == 0:
@@ -75,6 +82,17 @@ def main():
                                             stdout=log, stderr=subprocess.STDOUT, timeout=120)
                     # One reading-session entry and one progress update, both zero-time.
                     assert server.request_totals[("/web/book/read", "")] == writes_before + 2, "reconnect repeated or omitted the chosen upload sequence"
+            if args.footnotes and result.returncode == 0:
+                from verify_book_footnotes import inspect_epub
+                packages = list((root / "evidence").glob("*.epub"))
+                assert len(packages) == 1, "expected one native footnote fixture EPUB"
+                inspected = inspect_epub(packages[0])
+                assert inspected["noterefs"] == 5 and inspected["generated_footnotes"] == 4
+                for key in ("duplicate_ids", "broken_targets", "broken_backlinks", "broken_local_links",
+                            "unreferenced_generated_notes", "missing_generated_backlinks"):
+                    assert inspected[key] == 0, key
+                import json
+                (root / "evidence/footnotes-package.json").write_text(json.dumps(inspected, indent=2) + "\n")
     finally:
         server.shutdown()
         server.server_close()

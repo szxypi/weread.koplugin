@@ -294,4 +294,98 @@ for _, anchor in ipairs({ "glyph-arrow", "glyph-arrow-vs", "glyph-left",
         "symbol-only candidate was stored as note text: " .. anchor)
 end
 
+expect(count_occurrences(transformed, "同章脚注内容") == 1,
+    "converted local aside left a duplicate note in the chapter")
+
+local function convert(html)
+    local current = Footnotes.scan_chapter(html, chapter)
+    return Footnotes.transform_chapter(html, current, Footnotes.build_book_index({ ["101"] = current }, { chapter }))
+end
+local repeated = '<p id="body">正文<a id="ref-a" epub:type="noteref" href="#same">[1]</a>'
+    .. '<a name="ref-b" epub:type="noteref" href="#same">[1]</a><a href="#same">查看注释</a></p>'
+    .. '<aside id="same" epub:type="footnote"><p>重复引用的唯一脚注</p></aside>'
+local repeated_body, repeated_stats = convert(repeated)
+expect(repeated_stats.converted == 2 and repeated_stats.removed_note_blocks == 1,
+    "repeated references did not share one consumed definition")
+expect(count_occurrences(repeated_body, "重复引用的唯一脚注") == 1, "same note text was generated per reference")
+for _, id in ipairs({ "same", "ref-a", "ref-b", "wrfnref-101-1", "wrfnref-101-2" }) do
+    expect(count_occurrences(repeated_body, 'id="' .. id .. '"') == 1, "old target or unique reference was lost: " .. id)
+end
+expect(repeated_body:find('href="#wrfnref-101-1"', 1, true) and repeated_body:find('href="#wrfnref-101-2"', 1, true),
+    "shared note lacks a return link to each reference")
+expect(repeated_body:find('href="#same">查看注释', 1, true), "ordinary note link was rewritten")
+expect(Footnotes.validate(repeated_body), "shared note targets do not validate")
+
+for _, tag in ipairs({ "aside", "li", "p", "div", "section", "blockquote", "dd", "td", "AsIdE" }) do
+    local html = '<p>保留正文<a epub:type="noteref" title="a > b" href="#target">[1]</a></p>'
+        .. '<' .. tag .. ' id="target" title="a > b"><span>单份脚注文本</span></' .. tag .. '>'
+        .. '<p>保留后文</p><aside id="unused">未引用注释</aside>'
+    local body, stats = convert(html)
+    expect(stats.converted == 1 and stats.removed_note_blocks == 1, "balanced source target not consumed: " .. tag)
+    expect(count_occurrences(body, "单份脚注文本") == 1 and body:find('<p>保留后文</p>', 1, true)
+        and body:find('<aside id="unused">未引用注释</aside>', 1, true), "removal touched neighboring content: " .. tag)
+end
+
+local adjacent_body, adjacent_stats = convert('<p><a class="noteref" href="#adj">[1]</a></p>'
+    .. '<a name="adj"></a> \n<p>[1] 邻接脚注文本</p><p>后文</p>')
+expect(adjacent_stats.removed_note_blocks == 1 and count_occurrences(adjacent_body, "邻接脚注文本") == 1,
+    "adjacent target/paragraph left duplicate content")
+expect(adjacent_body:find('id="adj"', 1, true) and adjacent_body:find('<p>后文</p>', 1, true), "adjacent alias or following paragraph lost")
+
+local aliases = '<p><a class="noteref" href="#outer">[1]</a><a class="noteref" href="#inner">[1]</a></p>'
+    .. '<aside id="outer"><div id="inner">嵌套同义目标</div></aside><p>尾段</p>'
+local alias_body, alias_stats = convert(aliases)
+expect(alias_stats.converted == 2 and alias_stats.removed_note_blocks == 1
+    and count_occurrences(alias_body, "嵌套同义目标") == 1, "nested aliases were removed twice or generated twice")
+expect(count_occurrences(alias_body, 'id="outer"') == 1 and count_occurrences(alias_body, 'id="inner"') == 1
+    and alias_body:find('<p>尾段</p>', 1, true), "nested ranges damaged aliases or following body")
+
+local nested = '<p><a class="noteref" href="#outer">[1]</a><a class="noteref" href="#inner">[2]</a></p>'
+    .. '<aside id="outer">外层正文<p id="inner">内层不同注释</p></aside><p>尾段</p>'
+local nested_body, nested_stats = convert(nested)
+expect(nested_body == nested and nested_stats.fallback == 1 and not Footnotes.has_converted(nested_stats),
+    "overlapping different definitions must preserve original markup without partial edits")
+
+for _, rich in ipairs({ '<img src="note.png" alt="图片"/>', '<svg><text>图</text></svg>', '<math><mi>x</mi></math>',
+    '<table><tr><td>表格</td></tr></table>', '<a href="https://example.invalid/citation">引文</a>' }) do
+    local html = '<p><a epub:type="noteref" href="#rich">[1]</a></p><aside id="rich">注释正文' .. rich .. '</aside>'
+    local body, stats = convert(html)
+    expect(stats.converted == 0 and body == html, "plain-note conversion discarded rich content or citation")
+end
+
+local ignored = '<!-- <a epub:type="noteref" href="#fake">[1]</a><aside id="fake">伪注释</aside> -->'
+    .. '<![CDATA[<a href="#fake">[2]</a>]]><script>"<a href=\"#fake\">[3]</a>"</script>'
+    .. '<style>/* <a href="#fake">[4]</a> */</style>'
+    .. '<!-- <img class="qqreader-footnote" alt="伪图片注释"/> --><p>真实正文</p>'
+local ignored_scan = Footnotes.scan_chapter(ignored, chapter)
+expect(#ignored_scan.refs == 0 and not ignored_scan.definitions.fake and not ignored_scan.anchors.fake,
+    "comments, CDATA or raw script/style text became footnote markup")
+expect(convert(ignored) == ignored, "ignored literal markup was rewritten")
+
+local local_collision = '<p><a class="noteref" href="chapter2.xhtml#collision">[1]</a></p>'
+    .. '<p class="note" id="collision">本章不同注释</p>'
+local collision_scan = Footnotes.scan_chapter(local_collision, chapter)
+local remote_scan = Footnotes.scan_chapter('<aside id="collision">远端脚注正文</aside>', target_chapter)
+local collision_body = Footnotes.transform_chapter(local_collision, collision_scan,
+    Footnotes.build_book_index({ ["101"] = collision_scan, ["202"] = remote_scan }, { chapter, target_chapter }))
+expect(collision_body:find('<p class="note" id="collision">本章不同注释</p>', 1, true),
+    "cross-chapter reference removed an unrelated same-name local target")
+expect(count_occurrences(collision_body, "远端脚注正文") == 1, "cross-chapter note missing")
+
+local identical = '<p><a class="noteref" href="#one">[1]</a><a class="noteref" href="#two">[2]</a></p>'
+    .. '<aside id="one">相同文字不同脚注</aside><aside id="two">相同文字不同脚注</aside>'
+local identical_body, identical_stats = convert(identical)
+expect(identical_stats.removed_note_blocks == 2 and count_occurrences(identical_body, "相同文字不同脚注") == 2,
+    "separate definitions were collapsed merely because their text matched")
+expect(convert(repeated_body) == repeated_body, "reprocessing an already converted chapter duplicated its notes")
+
+local malformed = '<p><a epub:type="noteref" href="#bad">[1]</a></p><aside id="bad"><div>保留未闭合注释</aside><p>尾段</p>'
+expect(convert(malformed) == malformed, "malformed nested block caused partial deletion")
+local ambiguous = '<p><a epub:type="noteref" href="#ambiguous">[1]</a></p>'
+    .. '<aside id="ambiguous">第一份</aside><aside id="ambiguous">第二份不同内容</aside>'
+local ambiguous_body, ambiguous_stats = convert(ambiguous)
+expect(ambiguous_body == ambiguous and ambiguous_stats.converted == 0, "ambiguous duplicate source ids were selected arbitrarily")
+local quoted_image, quoted_stats = convert('<p>正文<img class="qqreader-footnote" alt="比较 a > b 的图片注释"/></p>')
+expect(quoted_stats.image_notes == 1 and count_occurrences(quoted_image, "比较 a &gt; b 的图片注释") == 1,
+    "quoted angle bracket truncated an image note")
 print(("footnotes_spec: %d checks"):format(checks))

@@ -8,6 +8,7 @@ never prints credential values, request headers, or chapter text.
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import json
 import os
 import re
@@ -184,23 +185,25 @@ def inspect_epub(path: Path) -> dict[str, int | bool]:
     with zipfile.ZipFile(path) as archive:
         bad_member = archive.testzip()
         chapter_names = sorted(
-            name for name in archive.namelist() if name.startswith("OEBPS/text/chapter_")
+            name for name in archive.namelist() if name.startswith("OEBPS/text/chapter") and name.endswith(".xhtml")
         )
         if len(chapter_names) != 1:
             raise RuntimeError(f"Expected one EPUB chapter, found {len(chapter_names)}")
         chapter_data = archive.read(chapter_names[0])
     root = ET.fromstring(chapter_data)
-    ids = {
+    counts = Counter(
         element.attrib["id"]
         for element in root.iter()
         if element.attrib.get("id")
-    }
+    )
+    ids = set(counts)
     noterefs = []
     footnotes = []
     broken_targets = 0
     broken_backlinks = 0
     broken_local_links = 0
     original_note_blocks = 0
+    generated = {}
     for element in root.iter():
         classes = set(element.attrib.get("class", "").lower().split())
         if "note" in classes and "wr-book-footnote" not in classes:
@@ -215,10 +218,20 @@ def inspect_epub(path: Path) -> dict[str, int | bool]:
                 broken_targets += 1
         elif epub_type == "footnote":
             footnotes.append(element)
+            if "wr-book-footnote" in classes:
+                generated[element.attrib.get("id", "")] = element
             for link in element.iter():
                 href = link.attrib.get("href", "")
                 if href.startswith("#") and href[1:] not in ids:
                     broken_backlinks += 1
+    referenced_generated = {element.attrib.get("href", "")[1:] for element in noterefs
+                            if element.attrib.get("href", "").startswith("#wrfn-")}
+    missing_generated_backlinks = 0
+    for target, element in generated.items():
+        required = {ref.attrib.get("id", "") for ref in noterefs if ref.attrib.get("href") == "#" + target}
+        actual = {link.attrib.get("href", "")[1:] for link in element.iter()
+                  if link.attrib.get("href", "").startswith("#")}
+        missing_generated_backlinks += len(required - actual)
     return {
         "zip_ok": bad_member is None,
         "xml_ok": True,
@@ -228,6 +241,11 @@ def inspect_epub(path: Path) -> dict[str, int | bool]:
         "broken_backlinks": broken_backlinks,
         "broken_local_links": broken_local_links,
         "original_note_blocks": original_note_blocks,
+        "generated_footnotes": len(generated),
+        "distinct_generated_targets": len(referenced_generated),
+        "unreferenced_generated_notes": len(set(generated) - referenced_generated),
+        "missing_generated_backlinks": missing_generated_backlinks,
+        "duplicate_ids": sum(count - 1 for count in counts.values()),
     }
 
 
@@ -296,8 +314,10 @@ def main() -> int:
         and inspection["broken_targets"] == 0
         and inspection["broken_backlinks"] == 0
         and inspection["broken_local_links"] == 0
-        and inspection["original_note_blocks"] == 0
-        and inspection["footnotes"] == inspection["noterefs"]
+        and inspection["duplicate_ids"] == 0
+        and inspection["unreferenced_generated_notes"] == 0
+        and inspection["missing_generated_backlinks"] == 0
+        and inspection["generated_footnotes"] == inspection["distinct_generated_targets"]
         and inspection["footnotes"] > 0
     )
     print(json.dumps({
