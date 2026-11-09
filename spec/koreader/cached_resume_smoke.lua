@@ -165,15 +165,86 @@ for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog'}) do
     close_reader()
 end
 host=assert(FM.instance.weread);assert(host.library_db:putChapters(id,catalog))
+local handoff_position
+if os.getenv('WEREAD_TEST_RESUME_HANDOFF')=='1' then
+    current=select(2,read_from_shelf())
+    current:showChapterList(book(current));view=assert(current._chapter_list_view);view._chapter_rows[2].callback()
+    pump(function() return Reader.instance and Reader.instance.document.file==first end)
+    reader,current=Reader.instance,Reader.instance.weread
+    pump(function() return current.progress_sync.current_book_id==id end)
+    local chapter_index=assert(Dom.open(reader.document,id,2))
+    local quote=format=='web_txt' and '这是第2章的第8段。窗外的风穿过树梢' or '这是第2章的第8段。我们沿着小路慢慢前行'
+    local point=assert(chapter_index.map:locate(quote))
+    local original=assert(Source.read_document(reader.document,id,2))
+    local target={book_id=id,chapter_uid='2',chapter_offset=point.co,basis=Source.coordinate_basis(format),upload_verified=false}
+    for _i,key in ipairs({'file_id','book_version','raw_sha256','render_path'}) do target[key]=original[key] end
+    local applied;assert(current:openSourcePosition(target,function(result) applied=result or false end))
+    pump(function() return applied~=nil end);assert(applied)
+    close_reader()
+    handoff_position=assert(book(assert(FM.instance.weread)).last_local_position.source_position)
+    assert(handoff_position.chapter_uid=='2' and handoff_position.chapter_offset==point.co)
+end
 host,view=detail();press(view,'⇩ Download full book')
 pump(function() return book(host).cached_full_book~=nil and not host.downloader._active_job end)
 local full=assert(book(host).cached_full_book)
 pump(function() return Reader.instance and Reader.instance.document.file==full end)
 reader,current=Reader.instance,Reader.instance.weread;report.full_download=true
+if handoff_position then
+    local deadline=socket.gettime()+12
+    while not current.progress_sync:current_source_target() and socket.gettime()<deadline do tick();socket.sleep(.01) end
+    local retained=assert(current.progress_sync:current_source_target(),'single-chapter position was not restored in the full EPUB')
+    assert(retained.chapter_uid==handoff_position.chapter_uid and retained.chapter_offset==handoff_position.chapter_offset
+        and retained.raw_sha256==handoff_position.raw_sha256 and retained.file_id~=handoff_position.file_id
+        and retained.upload_verified==false and current.progress_sync.verified==false)
+    report.single_to_full_handoff=true
+end
 for uid=1,6 do
     local original=assert(Source.read_document(reader.document,id,uid));assert(original.format==format)
 end
 report.full_source_records=true
+if handoff_position then
+    local live_index=assert(Dom.open(reader.document,id,2))
+    local quote=format=='web_txt' and '这是第2章的第12段。窗外的风穿过树梢' or '这是第2章的第12段。我们沿着小路慢慢前行'
+    local point=assert(live_index.map:locate(quote))
+    local located=assert(live_index:locate(point.co))
+    local Task=require('weread.lib.source_position_worker')
+    local capture=Task.capture
+    Task.capture=function(input) socket.sleep(.8);return capture(input) end
+    reader.rolling:onGotoXPointer(located.xpointer)
+    current.source_position:on_view_changed(true)
+    current:showChapterList(book(current));view=assert(current._chapter_list_view);view._chapter_rows[2].callback()
+    assert(Reader.instance==reader and current._read_resume_token and not current._read_resume_token.dispatched)
+    pump(function() return current.source_position.worker and current.source_position.worker.job~=nil end)
+    local pid=current.source_position.worker.job.pid
+    clean(reader);reader.rolling:onGotoPage(reader:getCurrentPage()+1)
+    Task.capture=capture
+    pump(function() return require('ffi/util').isSubProcessDone(pid) end)
+    assert(Reader.instance==reader and reader.document.file==full and not current._read_resume_token)
+    report.cancelled_live_file_open=true
+
+    reader.rolling:onGotoXPointer(located.xpointer)
+    current.source_position:on_view_changed(true)
+    local location=assert(require('weread.lib.source_context').location(reader.document,reader.view.view_mode))
+    local live_expected=assert(live_index:capture(location.xpointer)).co
+    assert(not current.source_position:current())
+    current:showChapterList(book(current));view=assert(current._chapter_list_view);view._chapter_rows[2].callback()
+    assert(Reader.instance==reader and current._read_resume_token and not current._read_resume_token.dispatched)
+    pump(function() return Reader.instance and Reader.instance.document.file==first
+        and Reader.instance.weread.progress_sync:current_source_target()~=nil end)
+    current=Reader.instance.weread
+    local retained=assert(current.progress_sync:current_source_target())
+    assert(retained.chapter_uid=='2' and retained.chapter_offset==live_expected and retained.file_id==handoff_position.file_id)
+    report.full_to_single_handoff=true;report.live_source_preparation=true
+    current:showBookMenu(book(current))
+    pump(function() return current._book_detail_view and not current.book_metadata_context end)
+    press(current._book_detail_view,'▤ Read')
+    pump(function() return Reader.instance and Reader.instance.document.file==full
+        and Reader.instance.weread.progress_sync:current_source_target()~=nil end)
+    reader,current=Reader.instance,Reader.instance.weread
+    retained=assert(current.progress_sync:current_source_target())
+    assert(retained.chapter_uid=='2' and retained.chapter_offset==live_expected and retained.file_id~=handoff_position.file_id)
+    report.live_single_to_full_handoff=true
+end
 local index,why=Dom.open(reader.document,id,4);assert(index,why)
 local quote=format=='web_txt' and '这是第4章的第8段。窗外的风穿过树梢' or '这是第4章的第8段。我们沿着小路慢慢前行'
 local point=assert(index.map:locate(quote))

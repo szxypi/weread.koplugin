@@ -32,6 +32,7 @@ function M:closeReadingPositionMessage()
     if self._source_position_message then UIManager:close(self._source_position_message);self._source_position_message=nil end
 end
 function M:showReadingPosition()
+    if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
     self:closeReadingPositionMessage()
     if not self.source_position then return end
     self:showTransientInfo(_('Checking the current reading position...'),1)

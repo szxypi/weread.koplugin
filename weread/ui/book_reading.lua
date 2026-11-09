@@ -41,12 +41,19 @@ end
 
 -- Shared by cached and uncached Read. File-backed book storage already has an
 -- account scope; explicit nested owner/book conflicts must still be ignored.
-function M.resume_index(chapters, local_book, remote, account)
+function M.local_positions(local_book, account)
     local_book=type(local_book)=='table' and local_book or {}
     local id=local_book.book_id or local_book.bookId
     local pending=local_hint(local_book.pending_upload_position,id,
         local_book.pending_upload_account or local_book.recent_read_account,account)
     local recent=local_hint(local_book.last_local_position,id,local_book.recent_read_account,account)
+    return {pending,recent}
+end
+
+function M.resume_index(chapters, local_book, remote, account)
+    local_book=type(local_book)=='table' and local_book or {}
+    local positions=M.local_positions(local_book,account)
+    local pending,recent=positions[1],positions[2]
     for _i, hint in ipairs({pending,recent,local_book,type(remote)=='table' and remote or {}}) do
         for index, chapter in ipairs(chapters) do
             if hint.chapter_uid ~= nil and tostring(hint.chapter_uid) == tostring(chapter.chapterUid or chapter.chapterId) then return index end
@@ -148,7 +155,7 @@ function M.start(host, book, view)
                 if host.book_reading_context ~= context then return end
                 if not current() then M.cancel(host); return end
                 host.book_reading_context = nil
-                host:openFile(path)
+                host:openFile(path,nil,latest)
             end)
         end
         local launched, accepted = pcall(host.downloader.start, host.downloader, latest, { target }, "chapter", {

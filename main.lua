@@ -96,7 +96,7 @@ function WeReadPlugin:init()
         show_transient  = function(text, timeout) self:showTransientInfo(text, timeout) end,
         refresh_ui      = function() self:refreshUI() end,
         refresh_shelf   = function() self:refreshShelfCacheIndicators() end,
-        open_file       = function(path) self:openFile(path) end,
+        open_file       = function(path, book) self:openFile(path,nil,book) end,
         safe_callback   = function(label, fn) return self:safeCallback(label, fn) end,
         require_login   = function(cookie, api_key) return self:requireLogin(cookie, api_key) end,
         run_online_task = function(label, fn)
@@ -171,6 +171,7 @@ function WeReadPlugin:init()
         get_source_position = function() return self.source_position:current() end,
         get_navigation_xpointer = function() return self.ui and self.ui.rolling and self.ui.rolling.xpointer end,
         on_before_navigate = function()
+            if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
             if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
             if self.source_navigation then self.source_navigation:cancel() end
         end,
@@ -265,7 +266,10 @@ function WeReadPlugin:init()
             self.source_position:pause("source_jump")
         end,
         on_done = function() self.source_position:resume("source_jump") end,
-        on_cancel = function(job) require("weread.ui.cloud_source").navigation_cancelled(self, job) end,
+        on_cancel = function(job)
+            require("weread.ui.cloud_source").navigation_cancelled(self, job)
+            if self._read_resume_active then require('weread.ui.read_resume').navigation_cancelled(self,job) end
+        end,
         on_applied = function(position, xpointer, metadata)
             return self.progress_sync:retain_source_target(position, xpointer, metadata)
         end,

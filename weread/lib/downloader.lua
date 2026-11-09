@@ -436,7 +436,7 @@ function Downloader:_applyPrefetchResult(dl, result)
         "chapter_uid=", uid, "path=", value.path)
     self:_notifyCompletion(dl, true, value.path)
     self:_finishJob(dl)
-    if dl.open_on_complete then self.open_file(value.path) end
+    if dl.open_on_complete then self.open_file(value.path,dl.book) end
 end
 
 function Downloader:_startPrefetchWorker(dl)
@@ -1335,7 +1335,7 @@ function Downloader:_step(dl)
         if dl.open_on_complete then
             self:_notifyCompletion(dl, true, path)
             self:_finishJob(dl)
-            self.open_file(path)
+            self.open_file(path,dl.book)
             return
         end
         self:_notifyCompletion(dl, true, path)
@@ -1352,7 +1352,7 @@ function Downloader:_step(dl)
             text = completion_text,
             ok_text = _("Read now"),
             ok_callback = self.safe_callback(_("Read now"), function()
-                self.open_file(path)
+                self.open_file(path,dl.book)
             end),
             cancel_text = _("Close"),
         })

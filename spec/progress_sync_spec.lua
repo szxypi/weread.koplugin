@@ -1549,6 +1549,86 @@ test("a cloud chapter switch discards local intent only after the new chapter is
     end
 end)
 
+test('failed file resume preserves the previous local intent until real movement',function()
+    local f=fixture({})
+    f.values.sync.pull_on_open=false
+    local saved=f.values.books.book
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
+    f.sync:on_reader_ready()
+    local frame=assert(f.sync:begin_file_resume())
+    f.drain()
+    eq(saved.last_local_position,old,'initial reader timer did not replace the old local point')
+    eq(f.sync:checkpoint_local('during_restore'),nil,'pending restore checkpointed the default new-file page')
+    eq(f.sync:finish_file_resume(frame,false),true,'failed restore did not finish')
+    f.sync:on_page_update()
+    eq(f.sync:checkpoint_local('unchanged_failed'),nil,'failed unchanged restore overwrote the previous point')
+    eq(saved.pending_upload_position,old,'failed restore discarded unsent intent')
+    eq(f.sync:on_network_connected(),false,'failed unchanged file resume started automatic sync')
+    f.document.page=f.document.page+1;f.sync:on_page_update()
+    eq(f.sync.file_resume,nil,'real movement did not release failed-position protection')
+    assert(f.sync:checkpoint_local('actual_movement'))
+    eq(saved.pending_upload_position.percent,f.document.page,'real movement did not replace old pending intent')
+    eq(#f.uploads,0,'file resume state wrote to cloud')
+end)
+
+test('closing or suspending a failed unchanged file resume preserves local records',function()
+    local f=fixture({});f.values.sync.pull_on_open=false
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    f.values.books.book.last_local_position=old
+    local frame=assert(f.sync:begin_file_resume());assert(f.sync:finish_file_resume(frame,false))
+    f.sync:on_suspend();f.sync:on_resume()
+    eq(f.sync:checkpoint_local('after_resume'),nil,'suspend/resume released unchanged-failure protection')
+    f.sync:on_close_document()
+    eq(f.values.books.book.last_local_position,old,'closing an unchanged failed target replaced the original local point')
+    eq(f.sync.file_resume,nil,'closed reader retained transient file-resume state')
+    eq(#f.uploads,0,'failed restore close uploaded a default new-file page')
+end)
+
+test('successful file resume carries local intent without approving a cloud write',function()
+    local f=fixture({});f.values.sync.pull_on_open=false
+    local old=assert(f.sync:capture_local())
+    f.values.books.book.pending_upload_position=old;f.values.books.book.pending_upload_account=f.sync:_account_key()
+    local frame=assert(f.sync:begin_file_resume())
+    f.document.page=40;f.sync:on_page_update()
+    eq(f.sync.local_position.percent,old.percent,'automatic restore movement became a premature checkpoint')
+    eq(f.sync:finish_file_resume(frame,true),true,'successful restore did not finish')
+    eq(f.values.books.book.pending_upload_position.percent,40,'pending intent was not rebound to the actual new viewport')
+    eq(f.values.books.book.last_local_position.percent,40,'restored local point was not persisted')
+    eq(f.sync.verified,false,'local file restore granted upload verification')
+    eq(#f.uploads,0,'local file restore uploaded progress')
+end)
+
+test('file resume refreshes automatic comparison only after success and under its current scope',function()
+    for _i,change in ipairs({'success','account','navigation','failure'}) do
+        local f=fixture({});local pulls=0
+        f.values.sync.pull_on_open=true
+        f.sync._pull=function(_self,options) eq(options.manual,false,'file restore used manual write intent');pulls=pulls+1;return true end
+        local frame=assert(f.sync:begin_file_resume())
+        eq(pulls,0,'file resume compared before locating its source')
+        assert(f.sync:finish_file_resume(frame,change~='failure'))
+        if change=='account' then f.sync:on_account_changed()
+        elseif change=='navigation' then f.sync:begin_local_navigation() end
+        f.drain()
+        eq(pulls,change=='success' and 1 or 0,'automatic file-resume comparison ignored its final state/scope')
+    end
+end)
+
+test('file resume departure revokes queued writes and stale frames cannot finish',function()
+    local callbacks={}
+    local f=fixture({}, {run_online=function(_kind,callback) callbacks[#callbacks+1]=callback;return true end})
+    f.values.sync.pull_on_open=false
+    local local_position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',local_position,{})
+    f.sync:_upload_snapshot(local_position,'before_file_resume',false)
+    f.sync:begin_file_resume_departure();callbacks[1]()
+    eq(#f.uploads,0,'old queued upload survived local file handoff')
+    eq(f.sync.verified,false,'old file retained reporting permission')
+    local frame=assert(f.sync:begin_file_resume())
+    f.sync:on_account_changed()
+    eq(f.sync:finish_file_resume(frame,true),false,'old account file-resume result committed')
+end)
+
 print(string.format(
     "progress_sync_spec: %d checks, %d failure(s)", checks, failures))
 os.exit(failures == 0 and 0 or 1)

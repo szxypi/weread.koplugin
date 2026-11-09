@@ -163,6 +163,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
     if self.source_navigation then self.source_navigation:cancel() end
     if self.source_position then self.source_position:on_account_changed() end
     if self.native_renewal then self.native_renewal:cancel() end
@@ -1661,21 +1662,23 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         _("No chapters."), { items_per_page = perpage })
 end
 
-function M:openFile(path, after_open_callback)
+function M:openFile(path, after_open_callback, resume_book)
     if not path or path == "" then
         self:showInfo(_("No cached file."))
         return
     end
-    self:closeWeReadUI()
-    if self.ui.document then
-        self.ui:switchDocument(path, nil, after_open_callback)
-    else
-        self.ui:openFile(path, nil, nil, nil, after_open_callback)
+    if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
+    local function dispatch(callback)
+        self:closeWeReadUI()
+        if self.ui.document then self.ui:switchDocument(path,nil,callback)
+        else self.ui:openFile(path,nil,nil,nil,callback) end
     end
+    if resume_book and not after_open_callback then return require('weread.ui.read_resume').open(self,path,resume_book,dispatch) end
+    return dispatch(after_open_callback)
 end
 
 function M:openCachedBook(book)
-    self:openFile(self:getFullBookCachePath(book))
+    self:openFile(self:getFullBookCachePath(book),nil,book)
 end
 
 -- Read offline from the best available cache. A complete EPUB wins. Otherwise
@@ -1684,7 +1687,7 @@ end
 function M:openBookForReading(book, quiet)
     local full_path = self:getFullBookCachePath(book)
     if file_exists(full_path) then
-        self:openFile(full_path)
+        self:openFile(full_path,nil,book)
         return true
     end
 
@@ -1729,7 +1732,7 @@ function M:openBookForReading(book, quiet)
             if left_precedes ~= right_precedes then return left_precedes end
             return left.index < right.index
         end)
-        self:openFile(candidates[1].path)
+        self:openFile(candidates[1].path,nil,book)
         return true
     end
 
@@ -1740,7 +1743,7 @@ function M:openBookForReading(book, quiet)
     table.sort(fallback_paths, function(left, right) return left.uid < right.uid end)
     local fallback=fallback_paths[Reading.resume_index(fallback_paths,book,nil,account) or 1]
     if fallback then
-        self:openFile(fallback.path)
+        self:openFile(fallback.path,nil,book)
         return true
     end
     if not quiet then self:showInfo(_("No cached file.")) end
@@ -1764,7 +1767,7 @@ function M:openChapter(book, chapter, on_downloaded)
     local chapter_uid = chapter.chapterUid or chapter.chapterId
     local cached = book.cached_chapters and book.cached_chapters[tostring(chapter_uid)]
     if cached and file_exists(cached) then
-        self:openFile(cached)
+        self:openFile(cached,nil,book)
     elseif self.downloader:promotePrefetch(book, chapter) then
         -- The downloader promotes the background task to a visible progress
         -- dialog and opens the chapter as soon as the same task completes.

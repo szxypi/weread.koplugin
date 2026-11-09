@@ -31,6 +31,7 @@ def main():
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
+    parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
     args = parser.parse_args()
     if args.offline_progress and not args.reading_flow:
         parser.error("--offline-progress requires --reading-flow")
@@ -42,6 +43,8 @@ def main():
         parser.error('--cached-resume uses a separate fixture')
     if args.content_format!='epub' and not args.cached_resume:
         parser.error('--content-format txt requires --cached-resume')
+    if args.resume_handoff and not args.cached_resume:
+        parser.error('--resume-handoff requires --cached-resume')
     runtime, root = args.koreader.resolve(), args.run_dir.resolve()
     if not (runtime / "luajit").is_file() or not (runtime / "reader.lua").is_file():
         parser.error("--koreader must contain a built runtime")
@@ -65,6 +68,8 @@ def main():
     server = MockServer(0, root / "evidence/requests.jsonl")
     server.content_format=args.content_format
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
+    if args.resume_handoff:
+        environment['WEREAD_TEST_RESUME_HANDOFF']='1'
     server.progress[BOOK_ID] = dict(chapterUid=2, chapterIdx=2, chapterOffset=120, progress=37, summary="合成进度")
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()

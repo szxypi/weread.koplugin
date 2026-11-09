@@ -140,14 +140,70 @@ function ProgressSync:begin_local_navigation()
     end
 end
 
+-- A different EPUB can have the same original chapter with a new spine/path.
+-- Preserve the previous local intent until that source-bound jump succeeds.
+function ProgressSync:begin_file_resume()
+    self:_begin_source_transition('file_resume')
+    local id=tostring(self.detect_book() or '')
+    local baseline=self:capture_local()
+    if not baseline then return nil end
+    local saved=self.get_book(id) or {}
+    local owner=saved.pending_upload_account or saved.recent_read_account
+    local frame={scope=self:_scope(),baseline=copy(baseline),marker=self:_navigation_marker(),
+        had_pending=type(saved.pending_upload_position)=='table' and owner==self:_account_key()}
+    self.current_book_id,self.checkpoint_account=id,self:_account_key()
+    self.local_position,self.dirty=copy(baseline),false
+    self.file_resume=frame
+    return frame
+end
+
+function ProgressSync:_file_resume_unchanged(frame)
+    if not self:_session_current(frame.scope) then return false end
+    local position=self:capture_local()
+    return not position or (PositionMapper.same_position(position,frame.baseline)
+        and self:_navigation_marker()==frame.marker)
+end
+
+function ProgressSync:finish_file_resume(frame, applied)
+    if self.file_resume~=frame or not self:_session_current(frame.scope) then return false end
+    if not applied then
+        frame.failed=true
+        if not self:_file_resume_unchanged(frame) then self.file_resume=nil end
+        self.state='unverified'
+        return true
+    end
+    self.file_resume=nil
+    self.local_position=self:capture_local() or frame.baseline
+    self.dirty=frame.had_pending
+    self:checkpoint_local('file_resume')
+    self.state='unverified'
+    if self:_config().pull_on_open==true then
+        local scope,nav=self:_scope(),self.navigation_generation
+        self.scheduler:scheduleIn(0.1,function()
+            if not self.file_resume and self:_session_current(scope) and self.navigation_generation==nav then
+                self:_pull({manual=false})
+            end
+        end)
+    end
+    return true
+end
+
 -- A read-only cloud choice must not be undone by an older queued local write.
 -- Keep its durable intent until navigation succeeds, but close the report gate
 -- and cancel this book's unsent task before starting the read/locate pipeline.
 function ProgressSync:begin_cloud_source_navigation()
+    self:_begin_source_transition('cloud_source_navigation')
+end
+
+function ProgressSync:begin_file_resume_departure()
+    self:_begin_source_transition('file_resume_open')
+end
+
+function ProgressSync:_begin_source_transition(reason)
     self:begin_local_navigation()
     local id=tostring(self.detect_book() or '')
     if self.upload_job and self.upload_job.book_id==id then self.upload_job,self.uploading=nil,false end
-    self:_clear_verified('cloud_source_navigation')
+    self:_clear_verified(reason)
     self.dirty,self.state=false,'unverified'
 end
 
@@ -209,6 +265,7 @@ end
 -- session explicitly, so old dialogs, tasks and chapter downloads cannot act
 -- with the newly installed credentials.
 function ProgressSync:on_account_changed()
+    self.file_resume=nil
     self.account_generation = self.account_generation + 1
     self.generation = self.generation + 1
     self:_invalidate_pull()
@@ -1052,6 +1109,7 @@ function ProgressSync:cancel_pending_jump(reason)
 end
 
 function ProgressSync:on_reader_ready()
+    self.file_resume=nil
     self.remote_anchor, self.source_anchor = nil, nil
     self.generation = self.generation + 1
     self:_invalidate_pull()
@@ -1081,6 +1139,7 @@ function ProgressSync:on_reader_ready()
         end
         book_id = tostring(book_id)
         self.current_book_id = book_id
+        if self.file_resume then self.state='unverified';return end
         if navigation_generation ~= self.navigation_generation then
             if not self.local_position then self.local_position = self:capture_local() end
             if not self.verified then self.state = "unverified" end
@@ -1106,6 +1165,10 @@ end
 
 function ProgressSync:on_page_update()
     if not self.current_book_id then return end
+    if self.file_resume then
+        if not self.file_resume.failed or self:_file_resume_unchanged(self.file_resume) then return end
+        self.file_resume=nil
+    end
     local position = self:capture_local()
     if not position then return end
     if self.local_position
@@ -1118,6 +1181,10 @@ end
 -- Durable local movement is independent of cloud verification and automatic
 -- upload settings. A checkpoint never starts a request or opens the report gate.
 function ProgressSync:checkpoint_local(reason, source_position)
+    if self.file_resume then
+        if not self.file_resume.failed or self:_file_resume_unchanged(self.file_resume) then return end
+        self.file_resume=nil
+    end
     local position = self:capture_local() or self.local_position
     if not position or (self.current_book_id ~= position.book_id and not self.verified) then return end
     local account = self:_account_key()
@@ -1159,11 +1226,13 @@ function ProgressSync:on_close_document(source_position)
     self.remote_position = nil
     self.document_context = nil
     self.remote_anchor, self.source_anchor = nil, nil
+    self.file_resume=nil
 end
 
 function ProgressSync:on_suspend(source_position)
     local position = self:checkpoint_local("suspend", source_position)
     self.generation = self.generation + 1
+    if self.file_resume then self.file_resume.scope.generation=self.generation end
     for _, slot in ipairs({"remote_anchor", "source_anchor"}) do
         if self[slot] then self[slot].scope.generation = self.generation end
     end
@@ -1186,7 +1255,7 @@ function ProgressSync:on_network_disconnected()
 end
 
 function ProgressSync:on_network_connected()
-    if self:_config().pull_on_open ~= true or not self.current_book_id or self.pulling
+    if self.file_resume or self:_config().pull_on_open ~= true or not self.current_book_id or self.pulling
         or self.state == "awaiting_choice" or self.pending_jump or self:current_source_target() then return false end
     if self.checkpoint_account ~= self:_account_key() then return false end
     if self.verified and not self.network_disconnected then return false end
@@ -1198,6 +1267,7 @@ end
 function ProgressSync:on_resume()
     local slept = self.suspended_at and self.now() - self.suspended_at or 0
     self.suspended_at = nil
+    if self.file_resume then return end
     local pending = self._suspend_pending_upload
     self._suspend_pending_upload = nil
     local automatic = self:_config().pull_on_open == true
@@ -1208,6 +1278,8 @@ function ProgressSync:on_resume()
 end
 
 function ProgressSync:sync_now()
+    if self.file_resume and self.on_before_navigate then pcall(self.on_before_navigate) end
+    self.file_resume=nil
     return self:_pull({ manual = true })
 end
 

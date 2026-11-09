@@ -187,6 +187,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
     if self.source_position then self.source_position:on_view_changed() end
@@ -195,6 +196,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
     if self.source_position then self.source_position:on_view_changed() end
@@ -203,6 +205,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self._read_resume_token then require('weread.ui.read_resume').on_close(self) end
     if self.cancelShelfCovers then self:cancelShelfCovers() end
     if self.cancelShelfProgress then self:cancelShelfProgress() end
     if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
@@ -389,6 +392,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
     if self.cancelShelfCovers then self:cancelShelfCovers(true) end
     if self.cancelShelfProgress then self:cancelShelfProgress() end
     if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
