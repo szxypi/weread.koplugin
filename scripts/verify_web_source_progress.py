@@ -190,6 +190,9 @@ class WebSourceProbe:
             if not isinstance(data, (dict, list)):
                 raise PreflightError("response_invalid")
             if isinstance(data, dict) and data.get("errcode", data.get("errCode", 0)) not in (None, 0):
+                api_code=data.get('errcode',data.get('errCode'))
+                if type(api_code) is int and -2147483648 <= api_code <= 2147483647:
+                    record['api_code']=api_code
                 raise PreflightError("api_rejected")
             return data
         except HTTPError as exc:

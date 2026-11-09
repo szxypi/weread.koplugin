@@ -63,6 +63,13 @@ def ready(rows=None):
 
 
 class WebSourceProgressTests(unittest.TestCase):
+    def test_business_failure_keeps_numeric_code_without_private_message(self):
+        web=WebSourceProbe(Opener([dict(errcode=-2012,errmsg='private account diagnostic')]))
+        web.authenticated=True;web.book_id=BOOK
+        with self.assertRaisesRegex(PreflightError,'api_rejected'):
+            web.request('progress_before',BASE+'/web/book/getProgress?bookId='+BOOK)
+        self.assertEqual(web.report['stages'],[dict(stage='progress_before',status=200,api_code=-2012)])
+        self.assertNotIn('private account diagnostic',json.dumps(web.report))
     def test_default_command_never_networks_and_reports_partial_scope(self):
         probe = WebSourceProbe(Opener([]))
         with patch('verify_web_source_progress.WebSourceProbe', return_value=probe), redirect_stdout(io.StringIO()) as out:

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Linux-only native reading acceptance with a disposable tmpfs profile."""
 import argparse
+import base64
 import json
 import os
 from pathlib import Path
@@ -10,6 +11,8 @@ import tempfile
 
 from run_persistent_ui_probe import extract_candidate, run_child
 from verify_owner_reading import FRAME, RUNNER_ERRORS, decode_envelope, validate_cookies
+from check_owner_full_book import inspect_full_book,FullBookIncomplete
+from verify_reader_context import project as reader_context, ContextError
 
 
 def main(argv=None):
@@ -32,6 +35,11 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        full_chapters = len(payload['full_manifest']) if 'full_manifest' in payload else 1
+        if not 1 <= full_chapters <= 32:
+            raise ValueError('input_limit')
+        if full_chapters > 1:
+            report['full_book'] = None
         cookies = validate_cookies(payload['cookies'], payload['vid'])
         with tempfile.TemporaryDirectory(prefix='weread-reading-', dir='/dev/shm') as temporary:
             root = Path(temporary)
@@ -44,19 +52,41 @@ def main(argv=None):
                        EMULATE_READER_W=str(args.width), EMULATE_READER_H=str(args.height),
                        EMULATE_READER_DPI=str(args.dpi))
             probe = Path(__file__).resolve().parent.parent / 'spec/koreader/owner_reading_probe.lua'
+            full_hash = None
             for mode in ('live', 'reopen'):
                 payload['cookies'] = cookies
                 code, out, repaint = run_child([str(runtime / 'luajit'), str(probe), mode], env,
-                                               json.dumps(payload, ensure_ascii=False).encode(), runtime)
-                envelope = decode_envelope(out, payload['vid'], mode=mode)
+                                               json.dumps(payload, ensure_ascii=False).encode(), runtime,
+                                               timeout=600 if full_chapters > 1 and mode == 'live' else 150)
+                envelope = decode_envelope(out, payload['vid'], mode=mode, full_chapters=full_chapters)
                 cookies = envelope['cookies']
+                private_html=envelope.pop('rejected_html',None)
+                if private_html:
+                    comparison=dict(checked=True,valid=False,reason='other')
+                    try:
+                        reader_context(dict(book_id=payload['book_id']),base64.b64decode(private_html,validate=True).decode())
+                        comparison.update(valid=True,reason='none')
+                    except ContextError as exc:
+                        reason=str(exc).removeprefix('reader_context/')
+                        if reason in ('invalid_identity','invalid_response','book_mismatch','invalid_session'):
+                            comparison['reason']=reason
+                    envelope['report']['reader_python_projection']=comparison
+                    private_html=None
                 report['stages'].append(envelope['report'])
                 if code or repaint or envelope['report']['result'] != 'PASS':
                     raise ValueError('stage_unverified')
+                if full_chapters > 1:
+                    inspected, current_hash = inspect_full_book(profile, payload)
+                    if mode == 'reopen' and current_hash != full_hash:
+                        raise ValueError('stage_unverified')
+                    full_hash = current_hash
+                    inspected['fresh_offline_package_identical'] = mode == 'reopen'
+                    report['full_book'] = inspected
             report['result'] = 'PASS'
     except subprocess.TimeoutExpired:
         report['runner_error'] = 'child_timeout'
     except Exception as exc:
+        if isinstance(exc,FullBookIncomplete):report['full_book']=exc.summary
         report['runner_error'] = str(exc) if str(exc) in RUNNER_ERRORS else 'runner_exception'
     finally:
         report['profile_removed'] = root is not None and not root.exists()

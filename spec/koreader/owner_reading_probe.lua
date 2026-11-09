@@ -12,6 +12,8 @@ local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_auth=false,tr
     credential_file_audit=false,workers_reaped=false,shelf_books=0,pages=0,profile_files_audited=0,
     failed_line=0,screenshots=0,last_http_status=0,denied_kind=0,denied_route=0,denied_flags=0,requests={0,0,0,0,0,0,0}}
 local counters,plugin,reader,latest_cookies
+local mapping_bytes=4096
+local rejected_html
 local descriptors={}
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
@@ -27,6 +29,22 @@ local ok,reason=pcall(function()
     assert(type(input.source_raw_sha256)=='string' and #input.source_raw_sha256==64 and input.source_raw_sha256:match('^[a-f0-9]+$'))
     assert(type(input.source_sample_offset)=='number' and input.source_sample_offset>=0 and input.source_sample_offset%1==0)
     assert(type(input.cookies)=='table' and input.cookies.wr_vid == input.vid)
+    local full=type(input.full_manifest)=='table'
+    local chapter_ids,chapter_urls={},{}
+    if full then
+        report.native_images_decoded=0
+        report.download_error,report.download_error_module,report.download_error_line='none','none',0
+        report.download_error_chapter,report.reader_context_failure=0,'none'
+        report.reader_identity_shape={field='none',kind='none',zero=false,null=false}
+        report.reader_python_projection={checked=false,valid=false,reason='none'}
+        report.reader_cookie_snapshot={checked=false,same_login=false,same_header=false}
+        assert(#input.full_manifest>=2 and #input.full_manifest<=32 and input.source_format=='web_xhtml')
+        for _i,item in ipairs(input.full_manifest) do
+            assert(type(item.chapter_uid)=='string' and item.chapter_uid:match('^[1-9]%d*$') and not chapter_ids[item.chapter_uid])
+            chapter_ids[item.chapter_uid]=true
+        end
+        assert(chapter_ids[input.chapter_uid])
+    else chapter_ids[input.chapter_uid]=true end
     latest_cookies=input.cookies
     local source=home..'/plugins/weread.koplugin'
     package.path=source..'/?.lua;'..package.path
@@ -64,16 +82,25 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
+        if full then
+            local cache=value:get('cache');cache.download_book_images=true;cache.download_underlines_and_thoughts=false
+            cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
+        end
         value:flush()
         return value
     end
     report.anonymous_auth=true
     pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
-    local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1));counters=ffi.cast('int *',memory)
+    mapping_bytes=full and 4096+4*1024*1024 or 4096
+    local memory=ffi.C.mmap(nil,mapping_bytes,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1));counters=ffi.cast('int *',memory)
     local Protocol=require('weread.lib.protocol')
     local Cookie=require('weread.lib.cookie')
+    local original_login,original_cookie_header=input.cookies.wr_skey,Cookie.to_header(input.cookies)
     local root_url=Protocol.reader_url(input.book_id)
     local chapter_url=Protocol.reader_url(input.book_id,input.chapter_uid)
+    for uid in pairs(chapter_ids) do chapter_urls[Protocol.reader_url(input.book_id,uid)]=uid end
+    local content_chapters={}
+    for uid in pairs(chapter_ids) do content_chapters[Protocol.e(uid)]=Protocol.reader_url(input.book_id,uid) end
     local progress_urls={}
     for _i,id in ipairs(input.shelf_ids) do progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id]=true end
     local URL=require('socket.url')
@@ -86,8 +113,21 @@ local ok,reason=pcall(function()
         return host:match('%.qpic%.cn$') or host:match('%.qlogo%.cn$') or host:match('%.gtimg%.com$')
             or host:match('%.qq%.com$') and host~='weread.qq.com' and host~='i.weread.qq.com'
     end
-    local limits={2,60,8,4,12,60}
+    local chapter_count=full and #input.full_manifest or 1
+    local limits={2,60,math.max(8,2*chapter_count+4),4,math.max(12,6*chapter_count),full and 512 or 60}
     local resource_urls={}
+    local protected_resources={}
+    local function protected_resource(url)
+        if not resource(url) then return false end
+        local parts=URL.parse(url)
+        return parts.scheme=='https' and parts.authority=='res.weread.qq.com'
+    end
+    if full then
+        assert(type(input.protected_resource_urls)=='table' and #input.protected_resource_urls<=32)
+        for _i,url in ipairs(input.protected_resource_urls) do
+            assert(protected_resource(url));protected_resources[url]=true
+        end
+    end
     local function public_redirect(url)
         if type(url)~='string' or #url>8192 or url:find('[%z%c%s]') then return false end
         local parts=URL.parse(url)
@@ -110,8 +150,13 @@ local ok,reason=pcall(function()
         local h=options.headers or {}
         if h.Authorization or h.authorization or h.accessToken or h.vid then return end
         if resource_urls[options.url] then
-            if options.method=='GET' and not options.body and options.skip_cookie==true and not h.Cookie
-                and options.persist_response_cookies==false then return 6 end
+            if options.method=='GET' and not options.body and options.persist_response_cookies==false then
+                if protected_resources[options.url] then
+                    local cookies=client.settings:get('cookies',{})
+                    if options.skip_cookie==false and cookies.wr_vid == input.vid
+                        and (not h.Cookie or h.Cookie==Cookie.to_header(cookies)) then return 6 end
+                elseif options.skip_cookie==true and not h.Cookie then return 6 end
+            end
             return
         end
         local cookies=client.settings:get('cookies',{})
@@ -121,7 +166,7 @@ local ok,reason=pcall(function()
         if options.method=='GET' and not options.body then
             if options.url=='https://weread.qq.com/web/shelf/sync' then return 1 end
             if progress_urls[options.url] then return 2 end
-            if options.url==root_url or options.url==chapter_url then return 3 end
+            if options.url==root_url or chapter_urls[options.url] then return 3 end
         elseif options.method=='POST' and type(options.body)=='string' and #options.body<=16384 then
             local decoded,payload=pcall(json.decode,options.body)
             if not decoded or type(payload)~='table' then return end
@@ -134,9 +179,9 @@ local ok,reason=pcall(function()
             if shard and ({e_0=true,e_1=true,e_2=true,e_3=true,t_0=true,t_1=true})[shard] then
                 local keys={b=true,c=true,r=true,ct=true,ps=true,pc=true,sc=true,prevChapter=true,st=true,s=true}
                 local count=0;for key in pairs(payload) do if not keys[key] then return end;count=count+1 end
-                if count==10 and payload.b==Protocol.e(input.book_id) and payload.c==Protocol.e(input.chapter_uid)
+                if count==10 and payload.b==Protocol.e(input.book_id) and content_chapters[payload.c]
                     and payload.sc==1 and payload.prevChapter==false and payload.st==(shard=='e_2' and 1 or 0)
-                    and h.Referer==chapter_url then return 5 end
+                    and h.Referer==content_chapters[payload.c] then return 5 end
             end
         end
     end
@@ -168,8 +213,17 @@ local ok,reason=pcall(function()
     assert((classify({settings={get=function() return {} end}},public_request)~=nil)==(mode=='live'))
     public_request.headers.Cookie=Cookie.to_header(input.cookies);assert(not classify(test,public_request))
     resource_urls[public_url]=nil
+    for url in pairs(protected_resources) do
+        resource_urls[url]=true
+        local options={url=url,method='GET',skip_cookie=false,persist_response_cookies=false,headers={}}
+        assert((classify(test,options)~=nil)==(mode=='live'))
+        options.headers.Cookie='invalid';assert(not classify(test,options))
+        options.headers.Cookie=nil;options.skip_cookie=true;assert(not classify(test,options))
+        resource_urls[url]=nil
+    end
     report.transport_guard_selftest=true
     function Client:request(options)
+        if resource_urls[options.url] and not protected_resources[options.url] then options.skip_cookie=true end
         local kind=classify(self,options)
         if not kind or counters[kind-1]>=limits[kind] then
             if counters[6]==0 then
@@ -190,12 +244,50 @@ local ok,reason=pcall(function()
         counters[kind-1]=counters[kind-1]+1
         local response,code,headers,status=request(self,options)
         counters[7]=tonumber(code) or 0
+        if full and kind==3 and code==200 and not options.sink then
+            local context_valid,problem=pcall(require('weread.lib.reader_context').project,{book_id=input.book_id},response,
+                function(encoded) return self:json_decode(encoded) end)
+            if not context_valid and counters[11]==0 then
+                counters[11]=({['reader_context/invalid_identity']=1,['reader_context/invalid_response']=2,
+                    ['reader_context/book_mismatch']=3,['reader_context/invalid_session']=4})[problem] or 5
+                if type(response)=='string' and #response<=4*1024*1024 then
+                    ffi.copy(ffi.cast('char *',memory)+4096,response,#response)
+                    counters[16]=#response
+                    local jar=self.settings:get('cookies',{})
+                    local effective=(options.headers or {}).Cookie or (options.headers or {}).cookie or Cookie.to_header(jar)
+                    counters[17]=jar.wr_skey == original_login and 1 or 2
+                    counters[18]=effective==original_cookie_header and 1 or 2
+                end
+                if problem=='reader_context/invalid_identity' then
+                    local encoded=response:match('window%.__INITIAL_STATE__%s*=%s*(%{.-%})%s*;%s*%(function')
+                    local parsed,initial=pcall(json.decode,encoded or '')
+                    local state=parsed and type(initial)=='table' and initial.reader
+                    if type(state)=='table' then
+                        local chapter=type(state.currentChapter)=='table' and state.currentChapter or {}
+                        local progress=type(state.progress)=='table' and state.progress or {}
+                        if type(progress.book)=='table' then progress=progress.book end
+                        local rows={type(state.bookInfo)=='table' and state.bookInfo or {},chapter,progress}
+                        for index,row in ipairs(rows) do
+                            local value=row.bookId
+                            if (index==1 or value~=nil and value~=json.util.null)
+                                and not pcall(require('weread.lib.reader_context').identifier,value) then
+                                counters[12]=index
+                                counters[13]=({['nil']=1,['function']=2,number=3,string=4,boolean=5})[type(value)] or 6
+                                counters[14]=(value==0 or value=='0') and 1 or 0
+                                counters[15]=value==json.util.null and 1 or 0
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
         return response,code,headers,status
     end
     local function resource_options(url,options)
         assert(resource(url),'resource scope rejected')
         resource_urls[url]=true
-        options=options or {};options.skip_cookie=true;options.persist_response_cookies=false;options.sensitive=true
+        options=options or {};options.skip_cookie=not protected_resources[url];options.persist_response_cookies=false;options.sensitive=true
         return options
     end
     function Client:get_binary(url,options)
@@ -212,6 +304,7 @@ local ok,reason=pcall(function()
             options.on_redirect=function(previous,next_url,...)
                 assert(resource_urls[previous] and public_redirect(next_url),'resource redirect rejected')
                 resource_urls[next_url]=true
+                if protected_resources[previous] and protected_resource(next_url) then protected_resources[next_url]=true end
                 if redirected then redirected(previous,next_url,...) end
             end
         end
@@ -225,10 +318,63 @@ local ok,reason=pcall(function()
     package.path=source..'/?.lua;'..package.path
     local FM,Reader=require('apps/filemanager/filemanager'),require('apps/reader/readerui')
     local socket=require('socket')
-    local function tick() UI:setInputTimeout(0);UI:handleInput() end
+    local download_finished
+    local download_failed=false
+    if full then
+        local Downloader=require('weread.lib.downloader')
+        local completed=Downloader._notifyCompletion
+        function Downloader:_notifyCompletion(dl,success,...)
+            if dl.suffix=='full' then download_finished=success end
+            return completed(self,dl,success,...)
+        end
+        local failed=Downloader._failChapter
+        function Downloader:_failChapter(dl,err)
+            if dl.suffix=='full' and not download_failed then
+                download_failed=true
+                report.download_error_chapter=dl.index
+                local text=tostring(err)
+                report.download_error=text:find('resource scope rejected',1,true) and 'resource_scope'
+                    or text:find('reading scope rejected',1,true) and 'request_scope'
+                    or text:find('returned empty object',1,true) and 'empty_content' or 'other'
+                local file,line=text:match('([%w_]+)%.lua:(%d+):')
+                report.download_error_module=({content=true,client=true,reader_context=true,position_source=true,downloader=true,
+                    owner_reading_probe=true})[file] and file or 'other'
+                report.download_error_line=tonumber(line) or 0
+            end
+            return failed(self,dl,err)
+        end
+    end
+    local status_at=0
+    local function tick()
+        UI:setInputTimeout(0);UI:handleInput()
+        if full then
+            local dialog=UI:getTopmostVisibleWidget()
+            local tr=require('weread.lib.plugin_util').tr
+            if dialog and dialog.ok_callback and (dialog.ok_text==tr('Download') or dialog.ok_text==tr('Read now')) then
+                UI:close(dialog);dialog.ok_callback()
+            end
+            if socket.gettime()-status_at>=2 then
+                status_at=socket.gettime()
+                local dl=plugin and plugin.downloader._active_job
+                local snapshot={phase=report.phase,download_index=dl and dl.index or 0,download_total=dl and dl.total or 0,
+                    active_download=dl~=nil,busy=plugin and plugin.busy_message~=nil or false,
+                    reader_open=Reader.instance and Reader.instance.document~=nil or false,
+                    confirmation=dialog and dialog.ok_callback~=nil or false,last_http_status=tonumber(counters[7]),
+                    context_failure=tonumber(counters[11]),requests={}}
+                for _i=1,7 do snapshot.requests[_i]=tonumber(counters[_i-1]) end
+                local file=assert(io.open(home..'/probe-status.json','wb'));file:write(json.encode(snapshot));file:close()
+            end
+        end
+    end
     local function pump(predicate)
-        local deadline=socket.gettime()+70
-        while not predicate() do assert(socket.gettime()<deadline);tick();socket.sleep(.01) end
+        local deadline=socket.gettime()+(full and report.phase=='prepare' and 480 or 70)
+        while not predicate() do
+            assert(download_finished~=false,'full download did not complete')
+            assert(not download_failed,'full chapter failed')
+            assert(not (full and report.phase=='prepare' and counters[11]>0 and plugin
+                and not plugin.downloader._active_job),'full catalog context rejected')
+            assert(socket.gettime()<deadline);tick();socket.sleep(.01)
+        end
     end
     FM:showFiles(home);plugin=assert(FM.instance.weread)
     local host=plugin
@@ -261,7 +407,7 @@ local ok,reason=pcall(function()
     report.phase='detail'
     pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
     local detail=assert(plugin._book_detail_view)
-    local label=require('weread.lib.plugin_util').tr('▤ Read')
+    local label=require('weread.lib.plugin_util').tr(full and mode=='live' and '⇩ Download full book' or '▤ Read')
     local pressed=false
     for _i,buttons in ipairs({detail._action_buttons or {},detail._footer_actions or {}}) do
         for _j,button in ipairs(buttons) do
@@ -270,7 +416,7 @@ local ok,reason=pcall(function()
         if pressed then break end
     end
     assert(pressed)
-    if mode=='live' then assert(plugin.book_reading_context and not Reader.instance) end
+    if mode=='live' then assert((full or plugin.book_reading_context) and not Reader.instance) end
     report.phase='prepare'
     pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document end)
     reader=Reader.instance;plugin=reader.weread
@@ -279,10 +425,36 @@ local ok,reason=pcall(function()
     assert(document.file:sub(1,#home)==home and document.file:match('%.epub$'))
     assert(plugin:detectWeReadBook()==input.book_id)
     local book=assert(plugin.settings:get_book(input.book_id))
-    assert(book.cached_chapters and book.cached_chapters[input.chapter_uid]==document.file)
+    if full then assert(book.cached_full_book==document.file)
+    else assert(book.cached_chapters and book.cached_chapters[input.chapter_uid]==document.file) end
     local source_receipt=assert(require('weread.lib.position_source').read_document(document,input.book_id,input.chapter_uid))
     assert(source_receipt.format==input.source_format and source_receipt.raw_sha256==input.source_raw_sha256)
     report.source_receipt_verified=true
+    if full then
+        local RenderImage=require('ui/renderimage')
+        local function decode_image(raw_image)
+            assert(type(raw_image)=='string' and #raw_image>0 and #raw_image<=64*1024*1024)
+            local bitmap=assert(RenderImage:renderImageData(raw_image,#raw_image,false,160,160))
+            assert(bitmap:getWidth()>0 and bitmap:getHeight()>0);bitmap:free()
+            report.native_images_decoded=report.native_images_decoded+1
+        end
+        local opf=assert(document:getDocumentFileContent('OEBPS/content.opf'))
+        for item in opf:gmatch('<item%s[^>]+>') do
+            local media=item:match('media%-type="([^"]+)"')
+            local href=item:match('href="([^"]+)"')
+            if media and media:match('^image/') then
+                assert(href and href:match('^images/[^/]+$'))
+                decode_image(document:getDocumentFileContent('OEBPS/'..href))
+            end
+        end
+        for _i,item in ipairs(input.full_manifest) do
+            local source_record=assert(require('weread.lib.position_source').document_metadata(document,input.book_id,item.chapter_uid))
+            local body=assert(document:getDocumentFileContent(source_record.record.render_path))
+            for data in body:gmatch('src=["\'](data:image/[^"\']+)["\']') do
+                decode_image(require('mime').unb64(assert(data:match('^data:image/[^;]+;base64,(.+)$'))))
+            end
+        end
+    end
     report.pages=document:getPageCount();assert(report.pages>1)
     local matches=assert(document:findAllText(input.source_text,false,0,4,false,0))
     assert(matches[1] and matches[1].start)
@@ -312,7 +484,9 @@ local ok,reason=pcall(function()
     UI:forceRePaint()
     -- Read an ordinary body page through the production cooperative service,
     -- independent archive worker, position dialog and bound native navigator.
-    reader.rolling:onGotoPage(math.min(3,report.pages));tick()
+    if full then reader.rolling:onGotoXPointer(matches[1].start)
+    else reader.rolling:onGotoPage(math.min(3,report.pages)) end
+    tick()
     local service=assert(plugin.source_position)
     pump(function() return service:current()~=nil end)
     local position=assert(service:current())
@@ -339,7 +513,7 @@ local ok,reason=pcall(function()
     report.source_navigation_roundtrip=true
     local after=assert(plugin.progress_sync:capture_local())
     assert(after.chapter_offset==legacy.chapter_offset and after.source_position.basis==basis
-        and after.source_position.chapter_offset==position.chapter_offset and after.chapter_offset~=position.chapter_offset)
+        and after.source_position.chapter_offset==position.chapter_offset and (full or after.chapter_offset~=position.chapter_offset))
     report.legacy_progress_units_preserved=true
     local checkpoint={file=document.file,xpointer=document:getXPointer(),page=reader:getCurrentPage()}
     local file=assert(io.open(checkpoint_path,'wb'));assert(file:write(json.encode(checkpoint)));file:close()
@@ -372,7 +546,7 @@ local ok,reason=pcall(function()
                 if info.mode=='directory' then audit(filename)
                 elseif info.mode=='file' then
                     report.profile_files_audited=report.profile_files_audited+1
-                    assert(report.profile_files_audited<=1024 and info.size<=16*1024*1024)
+                    assert(report.profile_files_audited<=1024 and info.size<=(full and 64 or 16)*1024*1024)
                     local handle=assert(io.open(filename,'rb'));local content=handle:read('*a');handle:close()
                     for _i,secret in ipairs(secrets) do assert(not content:find(secret,1,true)) end
                 else error('unexpected profile entry',0) end
@@ -387,11 +561,21 @@ if counters then
     for index=1,7 do report.requests[index]=tonumber(counters[index-1]) end
     report.last_http_status,report.denied_kind=tonumber(counters[7]),tonumber(counters[8])
     report.denied_route,report.denied_flags=tonumber(counters[9]),tonumber(counters[10])
-    ffi.C.munmap(counters,4096)
+    if report.reader_context_failure then
+        report.reader_context_failure=({'none','invalid_identity','invalid_response','book_mismatch','invalid_session','other'})[tonumber(counters[11])+1]
+        report.reader_identity_shape={field=({'none','book','chapter','progress'})[tonumber(counters[12])+1],
+            kind=({'none','nil','function','number','string','boolean','other'})[tonumber(counters[13])+1],
+            zero=counters[14]==1,null=counters[15]==1}
+        if counters[16]>0 then
+            rejected_html=require('mime').b64(ffi.string(ffi.cast('char *',counters)+4096,tonumber(counters[16]))):gsub('%s+','')
+            report.reader_cookie_snapshot={checked=true,same_login=counters[17]==1,same_header=counters[18]==1}
+        end
+    end
+    ffi.C.munmap(counters,mapping_bytes)
 end
 for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
     report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
 end
-io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {}}..'\n')
+io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {},rejected_html=rejected_html}..'\n')
 os.exit(ok and 0 or 1)

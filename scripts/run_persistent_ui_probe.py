@@ -27,11 +27,11 @@ def extract_candidate(candidate, destination):
         archive.extractall(destination)
 
 
-def run_child(command, environment, raw, cwd=None):
+def run_child(command, environment, raw, cwd=None, *, timeout=150):
     child = subprocess.Popen(command, env=environment, stdin=subprocess.PIPE,
                              stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True, cwd=cwd)
     try:
-        out, err = child.communicate(raw, timeout=150)
+        out, err = child.communicate(raw, timeout=timeout)
         for domain in set(re.findall(rb'(?m)^WEREAD_PUBLIC_COVER_DOMAIN=([a-z-]{1,63}\.[a-z]{2,12})$', err)):
             sys.stderr.buffer.write(b'WEREAD_PUBLIC_COVER_DOMAIN=' + domain + b'\n')
         return child.returncode, out, b'[WeRead] forceRePaint failed:' in out + err
