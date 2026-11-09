@@ -488,6 +488,9 @@ function M:fetchVisibleShelfCovers(view, items, options)
                     return self.client:get_binary(shelf_cover_url(book), {
                         skip_cookie = true,
                         persist_response_cookies = false,
+                        sensitive = true,
+                        diagnostic_api = "shelf_cover",
+                        max_bytes = cache.MAX_IMAGE_BYTES,
                         timeout = { 8, 12 },
                     })
                 end)

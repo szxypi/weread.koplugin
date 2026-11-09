@@ -56,6 +56,7 @@ package.preload["weread.lib.content"] = function() return {} end
 local cached_covers = {}
 local cover_path_lookups = 0
 local fake_cover_cache = {
+    MAX_IMAGE_BYTES = 3 * 1024 * 1024,
     pathFor = function(_self, book)
         cover_path_lookups = cover_path_lookups + 1
         return cached_covers[book]
@@ -228,7 +229,9 @@ expect(#cover_requests == 9,
 expect(subprocess_runs == 9,
     "cover network and thumbnail work did not run in background subprocesses")
 expect(cover_requests[1].options.skip_cookie == true
-        and cover_requests[1].options.persist_response_cookies == false,
+        and cover_requests[1].options.persist_response_cookies == false
+        and cover_requests[1].options.max_bytes == fake_cover_cache.MAX_IMAGE_BYTES
+        and cover_requests[1].options.sensitive == true,
     "public cover request did not suppress account credentials")
 expect(#shown == 10 and shown[10].data.cover_paths[shelf[1]] ~= nil,
     "cover batch did not refresh the page once with cached paths")

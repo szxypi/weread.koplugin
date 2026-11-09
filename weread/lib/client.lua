@@ -558,6 +558,7 @@ end
 
 function Client:get_binary(url, opts)
     opts = opts or {}
+    local chunks, bytes, exceeded = {}, 0, false
     local req_opts = merge_req_opts(opts, {
         maxredirects = 5,
         headers = {
@@ -565,10 +566,34 @@ function Client:get_binary(url, opts)
             ["Referer"] = header_value(opts.headers, "Referer") or opts.referer or "https://weread.qq.com/",
         }
     })
+    if opts.max_bytes ~= nil then
+        local limit = tonumber(opts.max_bytes)
+        if not limit or limit < 1 or limit == math.huge or limit ~= math.floor(limit) or opts.sink then
+            error("invalid binary response limit", 0)
+        end
+        req_opts.max_bytes = nil
+        req_opts.sink = function(chunk)
+            if not chunk then return 1 end
+            if exceeded or bytes + #chunk > limit then
+                exceeded = true
+                return nil, "binary response exceeds size limit"
+            end
+            bytes = bytes + #chunk
+            chunks[#chunks + 1] = chunk
+            return 1
+        end
+        req_opts.on_redirect = function(...)
+            if exceeded then error("binary response exceeds size limit", 0) end
+            chunks, bytes = {}, 0
+            if opts.on_redirect then opts.on_redirect(...) end
+        end
+    end
     local text, code, resp_headers = self:request_follow(
         merge_req_opts(req_opts, { url = url, method = "GET" })
     )
+    if exceeded then error("binary response exceeds size limit", 0) end
     if code and code >= 200 and code < 300 then
+        if opts.max_bytes ~= nil then text = table.concat(chunks) end
         return text, code, resp_headers
     end
     error(http_error(self, code, text, resp_headers))

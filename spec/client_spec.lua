@@ -57,7 +57,17 @@ package.preload["socket.http"] = function()
             requests[#requests + 1] = options
             local response = table.remove(responses, 1)
             if response.raise then error(response.raise) end
-            if options.sink then options.sink(response.body or "") end
+            if response.chunks then
+                response.sink_calls = 0
+                for _, chunk in ipairs(response.chunks) do
+                    response.sink_calls = response.sink_calls + 1
+                    local accepted, sink_err = options.sink(chunk)
+                    if not accepted then return nil, sink_err end
+                end
+                options.sink(nil)
+            elseif options.sink then
+                options.sink(response.body or "")
+            end
             return 1, response.code, response.headers or {}, response.status
         end,
     }
@@ -599,4 +609,25 @@ for _,reader_code in ipairs({302,403}) do
 end
 expect(not table.concat(logs,'\n'):find('private-',1,true),'Reader diagnostics exposed private body')
 
+responses[#responses+1]={code=200,chunks={'\0abc','def\255'}}
+local binary, binary_code=client:get_binary('https://cdn.example/cover',{max_bytes=8,skip_cookie=true})
+expect(binary=='\0abcdef\255' and binary_code==200,'bounded binary response changed bytes at exact limit')
+expect(requests[#requests].max_bytes==nil,'private binary limit leaked into HTTP transport options')
+local overflow={code=200,chunks={'1234','56789','must-not-read'}}
+responses[#responses+1]=overflow
+ok,err=pcall(client.get_binary,client,'https://cdn.example/cover',{max_bytes=8})
+expect(not ok and err=='binary response exceeds size limit' and overflow.sink_calls==2,
+    'chunked binary overflow was retained or transport did not stop immediately')
+responses[#responses+1]={code=302,chunks={'redirect'},headers={Location='https://other.example/cover'}}
+responses[#responses+1]={code=200,chunks={'12345678'}}
+local redirects=0
+binary=client:get_binary('https://cdn.example/cover',{max_bytes=8,on_redirect=function() redirects=redirects+1 end})
+expect(binary=='12345678' and redirects==1,'redirect body contaminated final bounded bytes or callback was lost')
+local before_binary_invalid=#requests
+for _,limit in ipairs({0,-1,1.5,math.huge,0/0,'invalid'}) do
+    ok=pcall(client.get_binary,client,'https://cdn.example/cover',{max_bytes=limit})
+    expect(not ok and #requests==before_binary_invalid,'invalid binary limit opened the network')
+end
+responses[#responses+1]={code=200,body='legacy binary'}
+expect(client:get_binary('https://cdn.example/cover')=='legacy binary','unbounded legacy binary call changed')
 print(("client_spec: %d checks"):format(checks))

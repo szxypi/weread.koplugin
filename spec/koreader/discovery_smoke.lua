@@ -33,7 +33,15 @@ assert(#second.books == 6 and not second.has_more)
 local search = Data.page("search", plugin.client:gateway("/store/search", { keyword = "合成读物", count = 20 }), 0)
 assert(#search.books == 20)
 local response = plugin.client:get_shelf()
-local cover = plugin.client:get_binary("https://weread.qq.com/mock/cover.png", { skip_cookie = true })
+local bounded, limit_error = pcall(plugin.client.get_binary, plugin.client,
+    "https://weread.qq.com/mock/cover.png", {
+        skip_cookie = true, persist_response_cookies = false, sensitive = true, max_bytes = 16,
+    })
+assert(not bounded and limit_error == "binary response exceeds size limit",
+    "real HTTP cover overflow was not rejected by the receiving sink")
+local cover = plugin.client:get_binary("https://weread.qq.com/mock/cover.png", {
+    skip_cookie = true, max_bytes = plugin:getShelfCoverCache().MAX_IMAGE_BYTES,
+})
 assert(plugin:getShelfCoverCache():store(response.books[1], cover))
 local function paint(name)
     UIManager:forceRePaint()

@@ -56,6 +56,7 @@ jobs:
           python3 scripts/test_mp_export.py
           python3 scripts/test_mp_link.py
           python3 scripts/test_mp_images.py
+          python3 scripts/test_shelf_covers.py
           python3 scripts/test_web_renewal.py
 
       - name: Native authorization prototype checks
