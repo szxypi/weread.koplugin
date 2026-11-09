@@ -80,6 +80,7 @@ jobs:
         run: |
           python3 scripts/test_web_source_progress.py
           python3 scripts/test_cloud_source_target.py
+          python3 scripts/test_reader_progress.py
 
       - name: Saved Web session boundary checks
         run: python3 scripts/test_secure_weread_session.py

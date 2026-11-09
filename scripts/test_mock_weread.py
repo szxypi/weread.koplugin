@@ -46,7 +46,17 @@ class MockTests(unittest.TestCase):
 
     def setUp(self):
         self.request("/__control", dict(delay=0, match="", status=503, times=0,
-                                        empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1))
+                                        empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
+                                        progress_response="plain"))
+
+    def test_progress_faults_are_identical_on_web_and_gateway(self):
+        for mode in ("foreign", "aliases", "range", "offset", "ambiguous", "rejected", "plain"):
+            self.assertEqual(self.request('/__control', dict(progress_response=mode))[0], 200)
+            web = self.request('/web/book/getProgress?bookId=' + BOOK_ID)
+            gateway = self.gateway('/book/getprogress', bookId=BOOK_ID)
+            self.assertEqual(web, gateway)
+            self.assertEqual(web[0], 200)
+        self.assertEqual(self.request('/__control', dict(progress_response='unknown'))[0], 400)
 
     def test_active_requests_track_delayed_transport_and_route_failure(self):
         entered,release=threading.Event(),threading.Event()

@@ -255,6 +255,52 @@ reader.rolling:onGotoPage(2); tick()
 assert(reader:getCurrentPage() == 2, "native page turn failed")
 local current = reader.weread
 current.isNetworkOnline, current.isNetworkConnected = function() return true end, function() return true end
+if os.getenv("WEREAD_TEST_PROGRESS_RESPONSE") == "1" then
+    local HTTP, LTN = require("socket.http"), require("ltn12")
+    local function request(path, data)
+        local chunks, raw = {}, data and json.encode(data)
+        local _, code = HTTP.request{url=current.settings.mock_endpoint..path,proxy=current.settings.mock_endpoint,
+            method=raw and "POST" or "GET",source=raw and LTN.source.string(raw) or nil,
+            headers=raw and {["Content-Type"]="application/json",["Content-Length"]=tostring(#raw)} or {},
+            sink=LTN.sink.table(chunks)}
+        assert(code==200);return json.decode(table.concat(chunks))
+    end
+    local function writes()
+        local count=0
+        for _i,row in ipairs(request("/__state").totals) do if row.path=="/web/book/read" then count=count+row.count end end
+        return count
+    end
+    current:onFlushSettings()
+    local id=assert(current:detectWeReadBook())
+    local pending=assert(current.settings:get_book(id).pending_upload_position)
+    local Mapper=require("weread.lib.position_mapper")
+    local before,xpointer=writes(),reader.document:getXPointer()
+    local cases={"foreign","aliases","range","offset","ambiguous","rejected"}
+    for _i,mode in ipairs(cases) do
+        request("/__control",{progress_response=mode})
+        assert(current:onWeReadSyncProgress())
+        pump(function() return not current.progress_sync.pulling end)
+        assert(current.progress_sync.state=="error" and not current.progress_sync.verified,"invalid cloud progress was accepted")
+        assert(reader.document:getXPointer()==xpointer,"invalid response moved the reader")
+        assert(Mapper.same_position(current.settings:get_book(id).pending_upload_position,pending),"invalid response erased local intent")
+        assert(writes()==before,"invalid response started a cloud write")
+        local position,why=current.progress_sync:position_for_report(id)
+        assert(not position and why=="progress_unverified","reporter used unverified progress")
+        if mode~="rejected" then
+            local message=assert(UI:getTopmostVisibleWidget())
+            local key=(mode=="foreign" or mode=="aliases")
+                and "WeRead returned a position that does not match this book.\nYour current position is kept. Please try syncing again later."
+                or "WeRead's reading position could not be verified.\nYour current position is kept. Please try syncing again later."
+            assert(message.text==require("weread.lib.plugin_util").tr(key),"invalid progress lacks a clear native message")
+            if mode=="aliases" then shot("reading-progress-response-rejected") end
+        end
+        clean_popups(reader)
+    end
+    request("/__control",{progress_response="plain"})
+    local output=assert(io.open(evidence.."/reading-progress-response-result.json","wb"))
+    assert(output:write(json.encode{result="PASS",synthetic_only=true,cases=#cases,cloud_posts_during_rejection=0,
+        local_checkpoint_preserved=true,native_location_preserved=true,reporting_blocked=true}));output:close()
+end
 assert(current:onWeReadSyncProgress(), "reader sync action failed")
 pump(function() return not current.progress_sync.pulling end)
 local choice = UI:getTopmostVisibleWidget()

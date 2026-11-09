@@ -158,7 +158,8 @@ class MockServer(ThreadingHTTPServer):
         self.active_requests = Counter()
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0,
-                            empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1)
+                            empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
+                            progress_response="plain")
         self.web_renewal_posts = 0
 
     def record(self, event):
@@ -425,8 +426,17 @@ class MockServer(ThreadingHTTPServer):
 
     def get_progress(self, book_id):
         with self.lock:
-            return dict(book=self.progress.get(book_id, dict(chapterUid=1, chapterIdx=1,
-                                                             chapterOffset=0, progress=0, summary="" )).copy())
+            book = self.progress.get(book_id, dict(chapterUid=1, chapterIdx=1,
+                                                  chapterOffset=0, progress=0, summary="")).copy()
+            mode = self.control["progress_response"]
+        normal = dict(book=book)
+        if mode == "foreign": return dict(bookId="900099", data=normal)
+        if mode == "aliases": return dict(book=dict(book, bookId=book_id, book_id="900099"))
+        if mode == "range": return dict(book=dict(book, progress=140))
+        if mode == "offset": return dict(book=dict(book, chapterOffset="invalid"))
+        if mode == "ambiguous": return dict(data=[normal, dict(book=book.copy())])
+        if mode == "rejected": return dict(normal, errCode=-1)
+        return normal
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -525,6 +535,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("match must be a string")
             if candidate["web_renewal_mode"] not in {"plain", "rotate", "reject", "empty", "foreign", "verify-fail"}:
                 raise ValueError("invalid Web renewal mode")
+            if candidate["progress_response"] not in {"plain", "foreign", "aliases", "range", "offset", "ambiguous", "rejected"}:
+                raise ValueError("invalid progress response mode")
             if type(candidate["mp_article_version"]) is not int or not 1 <= candidate["mp_article_version"] <= 100:
                 raise ValueError("invalid MP article version")
             for key in ("empty_shelf", "empty_annotations"):

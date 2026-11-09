@@ -158,6 +158,73 @@ local function fixture(remote, options)
     }
 end
 
+test("malformed cloud rechecks revoke old authority without losing local intent", function()
+    for _i, bad in ipairs({
+        { bookId = "other", data = { progress = 25 } },
+        { bookId = "book", book_id = "other", progress = 25 },
+        { progress = 140 },
+        { progress = 25, chapterOffset = "bad" },
+        { errCode = -1, progress = 25 },
+        { data = { { progress = 25 }, { progress = 26 } } },
+    }) do
+        local f = fixture({ progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+        f.sync:on_reader_ready(); f.drain()
+        -- Use the real state machine to establish a prior accepted decision.
+        if #f.choices > 0 then f.choices[#f.choices].keep_local() end
+        eq(f.sync.verified, true, "initial comparison verified")
+        f.document.page = 30; f.sync:on_page_update(); f.sync:checkpoint_local("test_flush")
+        local pending = f.values.books.book.pending_upload_position
+        local before = #f.uploads
+        f.client.get_progress, f.client.get_web_progress = function() return bad end, function() return bad end
+        assert(f.sync:sync_now()); f.drain()
+        eq(f.sync.state, "error", "bad response is an error")
+        eq(f.sync.verified, false, "old authority revoked")
+        eq(f.values.books.book.pending_upload_position, pending, "local intent retained")
+        eq(f.document.page, 30, "bad data did not navigate")
+        eq(#f.uploads, before, "bad data did not upload")
+        local position, reason = f.sync:position_for_report("book")
+        eq(position, nil, "time reporter cannot reuse old verification")
+        eq(reason, "progress_unverified", "reporter waits for a valid comparison")
+    end
+end)
+
+test("new comparisons cancel queued writes and busy retries for the same book", function()
+    for _i, busy in ipairs({ false, true }) do
+        local callbacks, attempts = {}, 0
+        local f = fixture({}, { run_online = function(_kind, callback)
+            callbacks[#callbacks + 1] = callback; return true
+        end })
+        f.sync.upload_position = function()
+            attempts = attempts + 1; return false, { error_kind = "busy" }
+        end
+        local position = assert(f.sync:capture_local())
+        f.sync:_upload_snapshot(position, "manual_sync", true)
+        if busy then callbacks[1]() end
+        local pending = f.values.books.book.pending_upload_position
+        assert(f.sync:sync_now())
+        if busy then f.drain() else callbacks[1]() end
+        callbacks[2]()
+        eq(attempts, busy and 1 or 0, "replaced write never dispatches again")
+        eq(f.sync.uploading, false, "old writer ownership released")
+        eq(f.values.books.book.last_uploaded_position, nil, "no old acknowledgement")
+        eq(f.values.books.book.pending_upload_position, pending, "queued local intent retained")
+    end
+end)
+
+test("a unique valid source remains usable when the other source is malformed", function()
+    for _i, bad_source in ipairs({ "web", "gateway" }) do
+        local good = { progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 }
+        local f = fixture(good)
+        local bad = function() return { bookId = "other", data = good } end
+        if bad_source == "web" then f.client.get_web_progress = bad else f.client.get_progress = bad end
+        f.sync:on_reader_ready(); f.drain()
+        eq(f.sync.verified, true, "valid source can verify the comparison")
+        eq(f.sync.remote_position.source, bad_source == "web" and "gateway" or "web", "malformed source was ignored")
+        eq(#f.choices, 0, "valid matching response needs no conflict choice")
+        eq(#f.uploads, 0, "source fallback remains read-only")
+    end
+end)
+
 test("page turns reuse word counts and document changes rebuild them", function()
     local word_reads = 0
     local function chapter(uid, words)

@@ -26,10 +26,13 @@ def main():
     parser.add_argument("--dpi", type=int, default=167)
     parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
     parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
+    parser.add_argument("--progress-response", action="store_true", help="Reject foreign/malformed sync responses in the reading flow")
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     args = parser.parse_args()
     if args.offline_progress and not args.reading_flow:
         parser.error("--offline-progress requires --reading-flow")
+    if args.progress_response and not args.reading_flow:
+        parser.error("--progress-response requires --reading-flow")
     if args.footnotes and args.reading_flow:
         parser.error("--footnotes and --reading-flow use separate fixtures")
     runtime, root = args.koreader.resolve(), args.run_dir.resolve()
@@ -59,6 +62,8 @@ def main():
     environment["WEREAD_MOCK_PORT"] = str(server.server_port)
     if args.offline_progress:
         environment["WEREAD_TEST_OFFLINE_PROGRESS"] = "1"
+    if args.progress_response:
+        environment["WEREAD_TEST_PROGRESS_RESPONSE"] = "1"
     try:
         with (root / "evidence/runtime.log").open("w") as log:
             fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"

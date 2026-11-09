@@ -59,8 +59,14 @@ function ProgressSyncDialog.notify(code, data)
     elseif code == "local_kept" then
         text = _("Kept the current KOReader position.")
     elseif code == "pull_failed" then
-        text = T(_("Could not fetch WeRead progress:\n%1"),
-            tostring(data.error or ""))
+        if data.error == "progress_book_mismatch" then
+            text = _("WeRead returned a position that does not match this book.\nYour current position is kept. Please try syncing again later.")
+        elseif data.error == "progress_invalid" or data.error == "progress_ambiguous"
+            or data.error == "progress_rejected" or data.error == "progress_not_found" then
+            text = _("WeRead's reading position could not be verified.\nYour current position is kept. Please try syncing again later.")
+        else
+            text = T(_("Could not fetch WeRead progress:\n%1"), tostring(data.error or ""))
+        end
     elseif code == "jump_failed" then
         text = T(_("Could not jump to WeRead progress:\n%1"),
             tostring(data.error or ""))

@@ -872,6 +872,13 @@ function ProgressSync:_pull(options)
         self.navigation_generation = self.navigation_generation + 1
         self.pull_retry_token = self.pull_retry_token + 1
         retry_token = self.pull_retry_token
+        local book_id = tostring(self.detect_book() or "")
+        if self.upload_job and self.upload_job.book_id == book_id then
+            self.upload_job, self.uploading = nil, false
+        end
+        -- A new comparison replaces the previous decision, including when the
+        -- server returns malformed/foreign data. Keep the local checkpoint.
+        self:_clear_verified("progress_recheck")
     elseif retry_token ~= self.pull_retry_token then
         return false
     end
