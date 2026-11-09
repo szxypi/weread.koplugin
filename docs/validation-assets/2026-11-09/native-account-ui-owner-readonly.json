@@ -1,0 +1,154 @@
+{
+  "schema": 1,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "screen": {
+    "width": 1264,
+    "height": 1680,
+    "dpi": 300,
+    "grayscale": true,
+    "bb_type": "BB8"
+  },
+  "final_owner_run": {
+    "result": "OWNER_NATIVE_UI_READ_VERIFIED",
+    "checked_at": "2026-11-09T06:21:53.545319+00:00",
+    "credentials_written_to_persistent_files": false,
+    "private_results_written_to_persistent_files": false,
+    "screenshots": 0,
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 0,
+    "ui": {
+      "result": "PASS",
+      "phase": "complete",
+      "anonymous_credentials": true,
+      "volatile_settings": true,
+      "volatile_sqlite": true,
+      "transport_guard_selftest": true,
+      "worker_heartbeat": true,
+      "metadata_projection_matches": true,
+      "paged_shelf": true,
+      "shelf_books": 139,
+      "shelf_groups": 6,
+      "search_books": 20,
+      "similar_books": 20,
+      "recommend_books": 0,
+      "painted_views": 7,
+      "profile_files_audited": 4,
+      "screenshots": 0,
+      "forbidden_requests": 0,
+      "request_counts": [
+        1,
+        1,
+        1,
+        1,
+        1
+      ]
+    },
+    "python_preflight_gets": 2,
+    "same_owner_verified": true
+  },
+  "initial_preflight": {
+    "result": "UNVERIFIED",
+    "checked_at": "2026-11-09T06:09:53.947245+00:00",
+    "credentials_written_to_files": false,
+    "account_data_writes_attempted": 0,
+    "reason": "shelf_reuse: HTTP 401"
+  },
+  "separate_authorization_maintenance": {
+    "result": "SAVED_NATIVE_RENEWAL_VERIFIED",
+    "checked_at": "2026-11-09T06:10:08.039461+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 1,
+    "credentials_written_to_files": false,
+    "keychain_pending_readback_verified": true,
+    "same_owner_verified": true,
+    "book_count": 139,
+    "keychain_renewed_readback_verified": true,
+    "access_token_changed": true,
+    "refresh_token_returned": false,
+    "stages": [
+      {
+        "stage": "renewal",
+        "status": 200,
+        "keys": [
+          "accessToken",
+          "firstLogin",
+          "openId",
+          "pf",
+          "skey",
+          "user",
+          "vid",
+          "wxAccessToken"
+        ]
+      },
+      {
+        "stage": "renewed_shelf",
+        "status": 200,
+        "keys": [
+          "archive",
+          "bookCount",
+          "bookProgress",
+          "books",
+          "lectureBooks",
+          "lectureRemoved",
+          "lectureSynckey",
+          "lectureUpdate",
+          "mp",
+          "mpEx",
+          "pureBookCount",
+          "removed",
+          "removedArchive",
+          "synckey"
+        ]
+      }
+    ]
+  },
+  "cumulative_requests": {
+    "ui_runs": 2,
+    "ui_native_gets": 10,
+    "ui_python_preflight_gets": 4,
+    "initial_401_gets": 1,
+    "renewed_shelf_gets": 1,
+    "authentication_posts": 1,
+    "account_data_writes": 0
+  },
+  "candidate": {
+    "installed_files": 173,
+    "all_source_and_installed_bytes_match": true,
+    "production_baseline": "e0eb64ac7e271effd5b42f410805cf0054f84ddb",
+    "production_code_unchanged": true,
+    "sha256": "fad65587efb6f0e25d45251bac526bd8afb2b06335ba9277f857fac50f91b19a"
+  },
+  "probe_sha256": "763f3b11d639e1e4c718b714b836bc7f543063175c87fb15689a6c9413a9b22d",
+  "runner_sha256": "75662210e148c1f428922e215473e376dc1014ecc46fd1b8e5fc0b8d1239e3b1",
+  "checks": {
+    "lua_specs": 142,
+    "python_suites": 30,
+    "python_tests": 291,
+    "luacheck_files": 370,
+    "lua_syntax_files": 372,
+    "new_python_boundary_tests": 13
+  },
+  "limits": {
+    "real_cover_ui_verified": false,
+    "real_visible_progress_ui_verified": false,
+    "real_nonempty_personal_recommendation": false,
+    "real_result_disk_persistence_verified": false,
+    "real_ui_automatic_renewal_verified": false,
+    "human_visual_review_of_private_pages": false,
+    "physical_ko2": false,
+    "full_functionality_complete": false,
+    "central_performance_optimization_started": false
+  },
+  "hardware": {
+    "recognizable_kindle_or_amazon_usb": false,
+    "mounted_kindle_volumes": 0,
+    "usb_query_success": true
+  },
+  "existing_profile_guard": {
+    "result": "PASS",
+    "synthetic_input": true,
+    "credentials_not_loaded": true,
+    "network_requests": 0,
+    "screenshots": 0
+  }
+}
