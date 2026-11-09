@@ -97,6 +97,9 @@ jobs:
           python3 scripts/test_native_discovery.py
           python3 scripts/test_category_catalog.py
 
+      - name: Native MP catalog prototype checks
+        run: python3 scripts/test_native_mp.py
+
       - name: Web shelf prototype checks
         run: |
           python3 scripts/test_web_shelf_contract.py

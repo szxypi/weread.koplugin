@@ -103,3 +103,6 @@ python3 scripts/verify_mp_catalog.py --saved-session --check-content --lua-comma
 原生入口另已接入[Web 续期与读取恢复](web-authorization-renewal.md)：目录／正文的登录失效最多完成一次确认后的读取恢复，
 `-2041` 不自动续期，真实成功目录仍未验证。固定续期协议在 Python 与插件 HTTPS 各独立验证一次，
 均完成同账号核对、139 本书架及钥匙串保存回读；自然过期和真实限频不据此标为通过。
+
+后续独立检查了墨水屏 `/mp/chapters`：同账号书架可读，目录为 HTTP 499／`-2041`，未取得成功目录。
+新原型不续期或重试，未接入产品 Lua；请求范围、人工验证限制与离线测试见[墨水屏目录原型](native-mp-catalog-prototype.md)。
