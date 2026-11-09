@@ -169,6 +169,8 @@ class MockServer(ThreadingHTTPServer):
         url = urlsplit(target)
         path = url.path
         query = parse_qs(url.query)
+        if method == "GET" and url.hostname == "mmbiz.qpic.cn" and path == "/synthetic-mp-bitmap.png" and not query:
+            return 200, png()
         if method == "GET" and url.hostname == "open.weixin.qq.com" and path == "/connect/sdk/qrconnect":
             if query.get("appid") != ["wxab9b71ad2b90ff34"] or query.get("signature") != ["mock-native-ticket"]:
                 raise ValueError("invalid native QR ticket")
@@ -201,6 +203,8 @@ class MockServer(ThreadingHTTPServer):
                 raise ValueError("invalid MP account")
             return 200, dict(errCode=-2041, errMsg="Synthetic MP verification unavailable")
         if path == "/web/mp/content" and method == "GET":
+            if query == {"reviewId": ["background-fixture"]}:
+                return 200, '<html><body><div id="js_content"><p>合成后台文章正文</p><img src="https://mmbiz.qpic.cn/synthetic-mp-bitmap.png"/><img src="https://mmbiz.qpic.cn/synthetic-mp-bitmap.png"/></div><script>ignored()</script></body></html>'
             samples={"cache-fixture-a/b":"甲", "cache-fixture-a_b":"乙", "cache-fixture-c":"丙", "cache-fixture-d":"丁"}
             if set(query)!={"reviewId"} or len(query["reviewId"])!=1 or query["reviewId"][0] not in samples:
                 raise ValueError("unknown synthetic MP article")

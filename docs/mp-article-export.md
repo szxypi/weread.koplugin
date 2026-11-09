@@ -85,3 +85,7 @@ python3 scripts/check_mp_export_package.py /path/to/new-directory
 结构依据 [W3C EPUB 3.3](https://www.w3.org/TR/epub-33/#sec-ocf-zip-container)，
 描述符写入依据 [libarchive 官方接口](https://github.com/libarchive/libarchive/blob/master/libarchive/archive_write_open.3)。
 实体 KO2、更多真实内容与整项功能后的集中性能优化继续待办。
+
+新的后台下载使用文章身份／代次图片目录，导出器已支持在同一身份下读取这些位图，
+仍兼容原固定图片目录；跨文章代次、路径穿越和目录符号链接不被读取。
+下载时已经转换为文字的缺图占位会原样导出，不计入导出阶段的缺图引用数。

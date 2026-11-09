@@ -2389,15 +2389,8 @@ function Content.mp_article_cached_path(settings, book, article)
     return legacy_path,'legacy'
 end
 
-function Content.save_mp_article_html(settings, book, article, body_html)
-    local book_id = book.book_id or book.bookId
-    local dir = Content.book_resolved_dir(settings, book_id, book)
-    -- Pin the real directory on the record so later lookups, moves and cleanup
-    -- can find these files after the download directory changes.
-    book.cache_dir = dir
-    local _,key=prepare_mp_article_cache(settings,book,article)
+function Content.render_mp_article_html(article, body_html, key)
     local title = article.title or "Article"
-    local path = Content.mp_article_path(settings, book, article)
     body_html = strip_mp_reader_font_styles(body_html)
     body_html = strip_blank_mp_blocks(body_html)
 
@@ -2453,6 +2446,14 @@ p {
 </body>
 </html>]]
 
+    return html
+end
+
+function Content.save_mp_article_html(settings, book, article, body_html)
+    local dir,key=prepare_mp_article_cache(settings,book,article)
+    book.cache_dir = dir
+    local html=Content.render_mp_article_html(article,body_html,key)
+    local path=Content.mp_article_path(settings,book,article)
     local saved=require('weread.lib.mp_cache_identity').write(dir,key,html)
     if not saved then error(require('weread.lib.plugin_util').tr('Could not save this article cache. The previous cache is kept.'),0) end
     return path

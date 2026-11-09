@@ -177,6 +177,8 @@ local function image_resolver(input,assets)
     if key=='' then key=tostring(input.article.bookId or input.book.book_id or input.book.bookId or '') end
     if key=='' then key=tostring(input.article.title or 'article') end
     local directory='.weread-mp-'..key:gsub('[^%w%._-]','_')..'-assets'
+    local identity=require('weread.lib.mp_cache_identity').key(input.book,input.article)
+    local generation_prefix=identity and '.weread-mp-'..identity..'-assets-'
     local seen,total={},0
     return function(src)
         if seen[src]~=nil then return seen[src] or nil end
@@ -188,9 +190,18 @@ local function image_resolver(input,assets)
             asset.data=require('mime').unb64(encoded)
             if type(asset.data)~='string' then return nil end
             asset.size=#asset.data;asset.media,asset.ext=M.mime(asset.data)
-        elseif src:sub(1,#directory+1)==directory..'/' and src:sub(#directory+2):match('^img%-%d+%.[%w]+$') then
+        else
             local lfs=require('libs/libkoreader-lfs')
-            if lfs.symlinkattributes(root..'/'..directory,'mode')~='directory' then return nil end
+            local generation,nonce=src:match('^([^/]+)/images/img%-%d%d%d%d%.[a-z]+$')
+            if generation_prefix and generation and generation:sub(1,#generation_prefix)==generation_prefix then
+                nonce=generation:sub(#generation_prefix+1)
+            end
+            if nonce and #nonce==16 and nonce:match('^[a-f0-9]+$') then
+                if lfs.symlinkattributes(root..'/'..generation,'mode')~='directory'
+                    or lfs.symlinkattributes(root..'/'..generation..'/images','mode')~='directory' then return nil end
+            elseif src:sub(1,#directory+1)==directory..'/' and src:sub(#directory+2):match('^img%-%d+%.[%w]+$') then
+                if lfs.symlinkattributes(root..'/'..directory,'mode')~='directory' then return nil end
+            else return nil end
             asset.path=root..'/'..src
             local info=lfs.symlinkattributes(asset.path)
             if not info or info.mode~='file' then return nil end
@@ -198,7 +209,7 @@ local function image_resolver(input,assets)
             local file=io.open(asset.path,'rb');if not file then return nil end
             local head=file:read(32) or '';file:close()
             asset.media,asset.ext=M.mime(head);asset.size=info.size;asset.identity=info
-        else return nil end
+        end
         if not asset.media or asset.size<1 then return nil end
         total=total+asset.size
         if #assets>=M.MAX_ASSETS or total>M.MAX_ASSET_BYTES then fail('too_large') end

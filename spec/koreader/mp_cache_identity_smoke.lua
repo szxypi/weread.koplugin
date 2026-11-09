@@ -1,5 +1,5 @@
 -- Distinct real HTTP bodies, native SQLite/settings, filesystem and CRE.
-return function(plugin,count,flush,home)
+return function(plugin,count,flush,home,pump)
     local Content=require('weread.lib.content')
     local Identity=require('weread.lib.mp_cache_identity')
     local Output=require('weread.lib.notes_export_file')
@@ -34,7 +34,7 @@ return function(plugin,count,flush,home)
     local old_open=plugin.openFile;local opened
     plugin.openFile=function(_self,path) opened=path end
     local function download(article)
-        opened=nil;plugin:downloadMPArticleAndRead(book,article);flush()
+        opened=nil;plugin:downloadMPArticleAndRead(book,article);flush();pump(function() return not plugin.mp_download_job end)
         assert(opened and not plugin.busy_message,'native MP download did not finish')
         return opened
     end
@@ -69,7 +69,7 @@ return function(plugin,count,flush,home)
     menu=assert(plugin._mp_article_list_view)
     assert(menu.item_table[1].mandatory==tr('Legacy cache needs refresh'),'legacy ambiguity not visible')
     UIManager:forceRePaint();Screen:shot(home..'/../evidence/mp-cache-legacy-ambiguous.png')
-    menu:onMenuSelect(menu.item_table[1]);flush()
+    menu:onMenuSelect(menu.item_table[1]);flush();pump(function() return not plugin.mp_download_job end)
     assert(opened~=legacy_c and opened==Content.mp_article_path(settings,book,c),'ambiguous old row did not re-download selected identity')
     assert(read(legacy_c)==old_html,'redownload removed or rewrote old ambiguous file')
     local legacy_e=Content.mp_article_legacy_path(settings,book,e);write(legacy_e,old_html)

@@ -7,7 +7,6 @@ local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfFlags = require("weread.lib.shelf_flags")
 local InputDialog = require("ui/widget/inputdialog")
 local logger = require("weread.lib.logger")
-local ProgressbarDialog = require("ui/widget/progressbardialog")
 local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
 local WeRead = require("weread.lib.protocol")
@@ -101,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
@@ -1366,55 +1366,11 @@ function M:showMPArticleList(book, articles)
 end
 
 function M:downloadMPArticleAndRead(book, article)
-    if not self:requireLogin(true, false) then
-        return
-    end
-    self:runOnlineTask(_("Download article and read"), function()
-        self:showBusy(T(_("Downloading article: %1"), article.title or ""))
-        local progress_dialog
-        local ok, path_or_err = pcall(function()
-            return Content.fetch_mp_article_html(self.client, self.settings, book, article, {
-                progress = function(current, total)
-                    if not progress_dialog then
-                        self:closeBusy()
-                        progress_dialog = ProgressbarDialog:new{
-                            title = T(_("Downloading images: %1"), article.title or ""),
-                            progress_max = total,
-                        }
-                        progress_dialog:show()
-                        self:refreshUI()
-                    end
-                    progress_dialog:reportProgress(current)
-                end,
-            })
-        end)
-        if progress_dialog then
-            progress_dialog:close()
-        else
-            self:closeBusy()
-        end
-        if not ok then
-            logger.err("download MP article failed:", log_error(path_or_err))
-            self:showInfo(T(_("Download failed:\n%1"), display_error(path_or_err)))
-            return
-        end
-        logger.info(
-            "MP article downloaded:",
-            "images=", self.settings:get("cache").download_mp_images and "embedded" or "removed"
-        )
-        -- Persist the resolved cache directory (set by save_mp_article_html) so the
-        -- article files can still be located after the download directory changes.
-        local book_id = book.book_id or book.bookId
-        if book_id and book.cache_dir then
-            local books = self.settings:get("books", {})
-            local record = books[book_id] or {}
-            record.cache_dir = book.cache_dir
-            books[book_id] = record
-            self.settings:set("books", books)
-            self.settings:flush()
-        end
-        self:openFile(path_or_err)
-    end)
+    return require('weread.ui.mp_download').start(self,book,article)
+end
+
+function M:cancelMPArticleDownload()
+    return require('weread.ui.mp_download').cancel(self)
 end
 
 function M:loadChapters(book, callback, force_refresh)

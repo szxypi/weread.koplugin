@@ -105,6 +105,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     self._reader_session_gen = (self._reader_session_gen or 0) + 1
@@ -195,6 +196,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.closeReadingLanguageDocument then self:closeReadingLanguageDocument() end
@@ -362,6 +364,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
