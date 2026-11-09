@@ -12,14 +12,16 @@ import json
 import re
 import subprocess
 
-from fetch_weread_epub import decode_content_shards
+from fetch_weread_epub import decode_content_shards, normalize_chapter_infos
 from secure_weread_session import COOKIE_NAMES, SessionStore, StoreError
 from verify_translation_preflight import save_refreshed_web_session
-from verify_web_source_progress import BASE, PreflightError, WebSourceProbe, identifier, position
+from verify_web_source_progress import BASE, PreflightError, WebSourceProbe, identifier, position, versions
+from verify_txt_reading import TxtProbe, select_chapter
+from verify_reader_progress import project as project_progress
 
 FRAME = b'\nWEREAD_OWNER_READING_RESULT='
 FLAGS = {'anonymous_auth', 'transport_guard_selftest', 'plugin_selection', 'native_reader',
-         'source_text_visible', 'page_turn', 'position_checkpoint', 'credential_file_audit', 'workers_reaped'}
+         'source_text_visible', 'source_receipt_verified', 'page_turn', 'position_checkpoint', 'credential_file_audit', 'workers_reaped'}
 COUNTS = {'shelf_books': 5000, 'pages': 100000, 'profile_files_audited': 1024,
           'failed_line': 1000, 'screenshots': 1, 'last_http_status': 599, 'denied_kind': 7,
           'denied_route': 10, 'denied_flags': 511}
@@ -111,6 +113,19 @@ class SourceText(HTMLParser):
             self.samples.append(text[:32])
 
 
+def reading_position(value, book_id, *, allow_unstarted=False):
+    try:
+        return position(value, book_id)
+    except PreflightError as exc:
+        if not allow_unstarted or str(exc) != 'position_has_no_chapter':
+            raise
+        projected = project_progress(value, book_id)
+        if (str(projected.get('chapter_uid')) != '0' or projected['raw_percent'] != 0
+                or not projected['has_chapter_offset'] or projected['chapter_offset'] != 0 or projected['chapter_idx'] != 0):
+            raise PreflightError('reading_start_unverified') from None
+        return dict(chapter='0', offset=0, percent=0)
+
+
 class ReadingPreflight(WebSourceProbe):
     def __init__(self):
         super().__init__()
@@ -141,23 +156,62 @@ class ReadingPreflight(WebSourceProbe):
         if not parser.samples:
             raise PreflightError('reading_no_text_sample')
         return dict(book_id=self.book_id, chapter_uid=self.chapter, source_text=parser.samples[0],
-                    shelf_ids=self.shelf_ids, shelf_books=self.report['shelf_book_count'])
+                    shelf_ids=self.shelf_ids, shelf_books=self.report['shelf_book_count'], source_format='web_xhtml')
+
+
+class TxtReadingPreflight(TxtProbe):
+    def __init__(self):
+        super().__init__()
+        self.baseline, self.shards = None, {}
+
+    def choose_chapter(self, chapters):
+        self.baseline = reading_position(self.request('progress_before', BASE + '/web/book/getProgress?bookId=' + self.book_id),
+                                         self.book_id, allow_unstarted=True)
+        preferred = self.baseline['chapter']
+        if preferred == '0':
+            # Match the normal plugin's first readable chapter for an unstarted
+            # book. A short first chapter is not replaced with an easier sample.
+            readable = [row for row in chapters if type(row.get('wordCount')) in (int, float)
+                        and row['wordCount'] > 0 and row.get('title') != '封面']
+            if not readable:
+                raise PreflightError('reading_no_readable_chapter')
+            preferred = identifier(readable[0]['chapterUid'])
+        return select_chapter(chapters, preferred)
+
+    def prepare(self):
+        if not self.find_sample():
+            raise PreflightError('reading_no_txt_sample')
+        sample = self.sample
+        later, chapters = normalize_chapter_infos(self.request('catalog_after', BASE + '/web/book/chapterInfos',
+                                                               dict(bookIds=[self.book_id])), self.book_id)
+        after = reading_position(self.request('progress_after', BASE + '/web/book/getProgress?bookId=' + self.book_id),
+                                 self.book_id, allow_unstarted=True)
+        if after != self.baseline or chapters != sample['chapters'] or versions(later) != versions(sample['record']):
+            raise PreflightError('reading_baseline_changed')
+        # TXT is literal text: HTML-looking strings and entities must not be parsed.
+        lines = [' '.join(line.split()) for line in sample['plain'].replace('\r\n', '\n').replace('\r', '\n').split('\n')]
+        source = next((line[:32] for line in lines if len(line) >= 32), None)
+        if source is None:
+            raise PreflightError('reading_no_text_sample')
+        return dict(book_id=self.book_id, chapter_uid=self.chapter, source_text=source,
+                    shelf_ids=self.shelf_ids, shelf_books=self.shelf_count, source_format='web_txt')
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
+    parser.add_argument('--book-format', choices=('epub', 'txt'), default='epub')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if bool(args.saved_session) != bool(args.lua_command):
         parser.error('pair --saved-session and --lua-command; put --lua-command last')
-    report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
+    report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(), book_format=args.book_format,
                   account_data_writes_attempted=0, authentication_posts_attempted=0,
                   private_data_on_regular_disk=False, screenshots=0)
     saved = probe = payload = envelope = None
     try:
         if args.saved_session:
-            store, probe = SessionStore(), ReadingPreflight()
+            store, probe = SessionStore(), (TxtReadingPreflight() if args.book_format == 'txt' else ReadingPreflight())
             saved = store.load()
             probe.vid = saved['vid']
             for key, value in saved['cookies'].items():
@@ -182,7 +236,8 @@ def main(argv=None):
             for key, value in envelope['cookies'].items():
                 probe.set_cookie(key, value)
             probe.verify_account()
-            after = position(probe.request('progress_after', BASE + '/web/book/getProgress?bookId=' + probe.book_id), probe.book_id)
+            after = reading_position(probe.request('progress_after', BASE + '/web/book/getProgress?bookId=' + probe.book_id),
+                                     probe.book_id, allow_unstarted=args.book_format == 'txt')
             probe.verify_account()
             report['native_rotation_saved'] = save_refreshed_web_session(store, saved, probe)
             report['cloud_position_unchanged'] = after == probe.baseline
@@ -201,6 +256,8 @@ def main(argv=None):
             report['preflight_stages'] = [{k: row[k] for k in ('stage', 'status') if k in row}
                                           for row in probe.report['stages']]
             probe.shards.clear()
+            if isinstance(probe, TxtProbe):
+                probe.sample = None
             probe.close()
         for private in (saved, payload, envelope):
             if private:

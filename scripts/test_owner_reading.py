@@ -37,6 +37,13 @@ class OwnerReadingTests(unittest.TestCase):
         store.assert_not_called(); web.assert_not_called(); child.assert_not_called()
         self.assertEqual(json.loads(output.getvalue())['result'], 'OFFLINE_ONLY')
 
+    def test_txt_selection_stays_offline_without_saved_session(self):
+        with patch.object(probe, 'SessionStore') as store, patch.object(probe, 'TxtReadingPreflight') as web, \
+                patch.object(probe.subprocess, 'run') as child, redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(probe.main(['--book-format', 'txt']), 0)
+        store.assert_not_called(); web.assert_not_called(); child.assert_not_called()
+        self.assertEqual(json.loads(output.getvalue())['book_format'], 'txt')
+
     def test_opt_in_requires_both_session_and_command(self):
         for args in (['--saved-session'], ['--lua-command', 'synthetic']):
             with self.subTest(args=args), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
@@ -95,21 +102,23 @@ class OwnerReadingTests(unittest.TestCase):
         parser.feed('<head><title>'+'A'*40+'</title></head><script>'+'B'*40+'</script><p>'+'正文示例'*12+'</p>')
         self.assertEqual(parser.samples, [('正文示例'*12)[:32]])
 
-    def run_online(self, child_result=None, after=None, rotated=None):
+    def run_online(self, child_result=None, after=None, rotated=None, book_format='epub'):
         web=MagicMock()
         web.report=dict(stages=[])
         web.prepare.return_value=dict(book_id='900001', chapter_uid='2', source_text='private source',
-                                      shelf_ids=['900001'], shelf_books=139)
+                                      shelf_ids=['900001'], shelf_books=139,
+                                      source_format='web_txt' if book_format == 'txt' else 'web_xhtml')
         web.book_id='900001'; web.baseline=dict(chapter='2', offset=10, percent=20)
         web.request.return_value=after or dict(bookId='900001', chapterUid=2, chapterOffset=10, progress=20)
         result=child_result or SimpleNamespace(returncode=0, stdout=frame(envelope()), stderr=b'private child diagnostics')
         snapshots=iter((dict(vid=OWNER, cookies=COOKIES.copy()), dict(vid=OWNER, cookies=rotated or COOKIES.copy())))
-        with patch.object(probe, 'SessionStore') as store, patch.object(probe, 'ReadingPreflight', return_value=web), \
+        factory = 'TxtReadingPreflight' if book_format == 'txt' else 'ReadingPreflight'
+        with patch.object(probe, 'SessionStore') as store, patch.object(probe, factory, return_value=web), \
                 patch.object(probe, 'save_refreshed_web_session', return_value=False), \
                 patch.object(probe.subprocess, 'run', **({'side_effect':result} if isinstance(result, Exception)
                                                       else {'return_value':result})) as child, redirect_stdout(io.StringIO()) as output:
             store.return_value.load.side_effect=lambda: next(snapshots)
-            code=probe.main(['--saved-session', '--lua-command', 'synthetic'])
+            code=probe.main(['--saved-session', '--book-format', book_format, '--lua-command', 'synthetic'])
         public=output.getvalue()
         self.assertNotIn('synthetic-only-key', public)
         self.assertNotIn('private source', public)
@@ -129,6 +138,13 @@ class OwnerReadingTests(unittest.TestCase):
         code, _public, child=self.run_online(rotated=rotated)
         self.assertEqual(code, 0)
         self.assertEqual(json.loads(child.call_args.kwargs['input'])['cookies'], rotated)
+
+    def test_txt_native_probe_requires_txt_receipt_and_private_preflight(self):
+        code, public, child = self.run_online(book_format='txt')
+        self.assertEqual(code, 0)
+        self.assertEqual(public['book_format'], 'txt')
+        self.assertEqual(json.loads(child.call_args.kwargs['input'])['source_format'], 'web_txt')
+        self.assertTrue(public['ui']['stages'][0]['source_receipt_verified'])
 
     def test_failed_child_or_changed_cloud_cannot_pass(self):
         code, public, _child=self.run_online(SimpleNamespace(returncode=1, stdout=frame(envelope()), stderr=b''))

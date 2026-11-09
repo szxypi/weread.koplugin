@@ -7,7 +7,7 @@ local ffi=require('ffi');require('ffi/posix_h')
 local json=require('json')
 local mode=arg[1]
 local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_auth=false,transport_guard_selftest=false,
-    plugin_selection=false,native_reader=false,source_text_visible=false,page_turn=false,position_checkpoint=false,
+    plugin_selection=false,native_reader=false,source_text_visible=false,source_receipt_verified=false,page_turn=false,position_checkpoint=false,
     credential_file_audit=false,workers_reaped=false,shelf_books=0,pages=0,profile_files_audited=0,
     failed_line=0,screenshots=0,last_http_status=0,denied_kind=0,denied_route=0,denied_flags=0,requests={0,0,0,0,0,0,0}}
 local counters,plugin,reader,latest_cookies
@@ -22,6 +22,7 @@ local ok,reason=pcall(function()
     assert(type(input.book_id)=='string' and input.book_id:match('^[1-9]%d*$'))
     assert(type(input.chapter_uid)=='string' and input.chapter_uid:match('^[1-9]%d*$'))
     assert(type(input.source_text)=='string' and #input.source_text>=32 and #input.source_text<=128)
+    assert(input.source_format=='web_xhtml' or input.source_format=='web_txt')
     assert(type(input.cookies)=='table' and input.cookies.wr_vid == input.vid)
     latest_cookies=input.cookies
     local source=home..'/plugins/weread.koplugin'
@@ -276,6 +277,9 @@ local ok,reason=pcall(function()
     assert(plugin:detectWeReadBook()==input.book_id)
     local book=assert(plugin.settings:get_book(input.book_id))
     assert(book.cached_chapters and book.cached_chapters[input.chapter_uid]==document.file)
+    local source_receipt=assert(require('weread.lib.position_source').read_document(document,input.book_id,input.chapter_uid))
+    assert(source_receipt.format==input.source_format)
+    report.source_receipt_verified=true
     report.pages=document:getPageCount();assert(report.pages>1)
     local matches=assert(document:findAllText(input.source_text,false,0,4,false,0))
     assert(matches[1] and matches[1].start)
