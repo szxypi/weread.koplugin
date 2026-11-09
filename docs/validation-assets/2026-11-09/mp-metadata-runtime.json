@@ -1,0 +1,556 @@
+{
+  "schema": 1,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "fixture": "synthetic only",
+  "runs": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "metadata": {
+        "synthetic_only": true,
+        "modes": [
+          {
+            "actual_docsettings_location": true,
+            "changed_body_isolated": true,
+            "identical_redownload_isolated": true,
+            "old_notes_readback": true,
+            "metadata_bytes_preserved": true,
+            "native_history_three_versions": true,
+            "cre_changed_bodies": true,
+            "location": "doc",
+            "interrupted_cleanup_keeps_metadata": true,
+            "progress_pending_preserved": true,
+            "synthetic_transport_calls": 3,
+            "explicit_body_cleanup_keeps_metadata": true
+          },
+          {
+            "actual_docsettings_location": true,
+            "changed_body_isolated": true,
+            "identical_redownload_isolated": true,
+            "old_notes_readback": true,
+            "metadata_bytes_preserved": true,
+            "native_history_three_versions": true,
+            "cre_changed_bodies": true,
+            "location": "dir",
+            "interrupted_cleanup_keeps_metadata": true,
+            "progress_pending_preserved": true,
+            "synthetic_transport_calls": 3,
+            "explicit_body_cleanup_keeps_metadata": true
+          },
+          {
+            "actual_docsettings_location": true,
+            "changed_body_isolated": true,
+            "identical_redownload_isolated": true,
+            "old_notes_readback": true,
+            "metadata_bytes_preserved": true,
+            "native_history_three_versions": true,
+            "cre_changed_bodies": true,
+            "location": "hash",
+            "interrupted_cleanup_keeps_metadata": true,
+            "progress_pending_preserved": true,
+            "synthetic_transport_calls": 3,
+            "explicit_body_cleanup_keeps_metadata": true
+          }
+        ],
+        "invalid_revision_rejected": true,
+        "unstamped_changed_body_same_sample_hash": true,
+        "credential_renewals": 0,
+        "result": "PASS",
+        "account_data_writes": 0,
+        "account_reads": 0
+      },
+      "fresh_process": {
+        "result": "PASS",
+        "modes": [
+          {
+            "location": "doc",
+            "fresh_process_notes_and_position": true,
+            "progress_pending_preserved": true,
+            "retained_versions": 2
+          },
+          {
+            "location": "dir",
+            "fresh_process_notes_and_position": true,
+            "progress_pending_preserved": true,
+            "retained_versions": 2
+          },
+          {
+            "location": "hash",
+            "fresh_process_notes_and_position": true,
+            "progress_pending_preserved": true,
+            "retained_versions": 2
+          }
+        ],
+        "fresh_process": true,
+        "account_reads": 0,
+        "account_data_writes": 0,
+        "synthetic_only": true
+      },
+      "versions_regression": {
+        "synthetic_only": true,
+        "account_data_writes": 0,
+        "result": "PASS",
+        "actual_background_http": true,
+        "native_actions_and_confirmation": true,
+        "immutable_html_and_images": true,
+        "old_sidecar_bytes_preserved": true,
+        "new_version_has_no_old_coordinates": true,
+        "native_history_opens_old_notes_path": true,
+        "cre_reads_distinct_versions": true,
+        "new_version_epub_images": true,
+        "historical_current_article_export": true,
+        "fresh_local_progress_intent_preserved": true,
+        "cancel_and_failed_selector_keep_prior": true,
+        "failed_publication_cleans_new_files": true,
+        "external_selection_preserved": true,
+        "corrupt_and_symlink_selector_no_http": true,
+        "version_capacity_no_http": true,
+        "legacy_body_and_sidecar_preserved": true,
+        "stale_suspend_confirmation_no_http": true,
+        "returns_to_reader": true,
+        "credential_renewals": 0
+      },
+      "cleanup_regression": {
+        "synthetic_only": true,
+        "account_data_writes": 0,
+        "result": "PASS",
+        "actual_background_scan": true,
+        "ui_heartbeat": true,
+        "native_preview_confirmation": true,
+        "confirmation_cancel_no_delete": true,
+        "batch_cancel_exact_partial_count": true,
+        "referenced_images_preserved": true,
+        "open_article_protected": true,
+        "parent_only_mutation": true,
+        "old_version_explicit_delete": true,
+        "current_cache_preserved": true,
+        "sidecar_bytes_preserved": true,
+        "kernel_lock_blocks_downloads": true,
+        "released_marker_reusable": true,
+        "actual_owner_death_releases_lock": true,
+        "stale_preview_no_delete": true,
+        "suspend_old_confirmation_no_delete": true,
+        "returns_to_reader": true,
+        "progress_pending_preserved": true,
+        "credential_renewals": 0,
+        "account_reads": 0
+      },
+      "recovery_regression": {
+        "synthetic_only": true,
+        "account_data_writes": 0,
+        "result": "PASS",
+        "actual_background_scan": true,
+        "ui_heartbeat": true,
+        "confirmation_cancel_no_delete": true,
+        "credential_renewals": 0,
+        "account_reads": 0,
+        "returns_to_reader": true,
+        "progress_pending_preserved": true,
+        "suspend_cancels_repair": true,
+        "inherited_writer_after_creator_fd_close": true,
+        "actual_writer_reaped": true,
+        "active_blocks_clean_and_quarantine": true,
+        "durable_ownership_record": true,
+        "inactive_owned_cleanup": true,
+        "saved_body_notes_preserved": true,
+        "unknown_quarantine_reversible": true,
+        "quarantine_images_protected": true,
+        "published_content_preserved": true,
+        "completed_receipt_only_cleanup": true,
+        "stale_confirmation_no_delete": true
+      },
+      "download_regression": {
+        "synthetic_only": true,
+        "invalid_receipts_rejected": true,
+        "symlink_cleanup_does_not_follow": true,
+        "successful_refresh_retains_prior_images": true,
+        "ui_heartbeat": true,
+        "local_progress_intent_preserved": true,
+        "account_data_writes": 0,
+        "result": "PASS",
+        "credential_renewals": 0,
+        "metadata_failure_keeps_complete_cache": true,
+        "replaced_stage_root_preserved": true,
+        "images_streamed_and_deduplicated": true,
+        "http_in_child": true,
+        "anonymous_cdn": true,
+        "record_json_order_only_changed": false,
+        "cre_rendered_body": true,
+        "generation_images_in_epub": true,
+        "cancel_preserves_old_body_and_images": true,
+        "close_suspend_session_epoch_auth_config_guard": true,
+        "failed_publish_preserves_old_generation": true,
+        "concurrent_file_replacement_preserved": true,
+        "replacement_stage_body_preserved": true
+      },
+      "original_export_package": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "exported_files": 2,
+        "legacy_copy_identical": true,
+        "checks": [
+          {
+            "crc_verified": true,
+            "mimetype_first_stored_no_extra": true,
+            "xml_well_formed": true,
+            "container_manifest_spine_resolve": true,
+            "unicode_metadata_and_text": true,
+            "duplicate_images_share_member": true,
+            "images_inside_archive": true,
+            "missing_image_placeholders": true,
+            "png_crc_and_pixels_verified": true,
+            "passive_article_markup": true,
+            "members": 7
+          },
+          {
+            "crc_verified": true,
+            "mimetype_first_stored_no_extra": true,
+            "xml_well_formed": true,
+            "container_manifest_spine_resolve": true,
+            "unicode_metadata_and_text": true,
+            "duplicate_images_share_member": true,
+            "images_inside_archive": true,
+            "missing_image_placeholders": true,
+            "png_crc_and_pixels_verified": true,
+            "passive_article_markup": true,
+            "members": 7
+          }
+        ]
+      },
+      "version_export_package": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "exported_files": 2,
+        "new_version": {
+          "zip_crc": true,
+          "first_stored_mimetype": true,
+          "xml_manifest_spine": true,
+          "expected_revision_text": true,
+          "png_crc_pixels": true,
+          "images_inside_archive": true
+        },
+        "historical_version": {
+          "zip_crc": true,
+          "first_stored_mimetype": true,
+          "xml_manifest_spine": true,
+          "expected_revision_text": true,
+          "png_crc_pixels": true,
+          "images_inside_archive": true
+        }
+      }
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "metadata": {
+        "synthetic_only": true,
+        "invalid_revision_rejected": true,
+        "result": "PASS",
+        "credential_renewals": 0,
+        "unstamped_changed_body_same_sample_hash": true,
+        "account_data_writes": 0,
+        "account_reads": 0,
+        "modes": [
+          {
+            "cre_changed_bodies": true,
+            "explicit_body_cleanup_keeps_metadata": true,
+            "interrupted_cleanup_keeps_metadata": true,
+            "progress_pending_preserved": true,
+            "synthetic_transport_calls": 3,
+            "location": "doc",
+            "actual_docsettings_location": true,
+            "changed_body_isolated": true,
+            "identical_redownload_isolated": true,
+            "old_notes_readback": true,
+            "metadata_bytes_preserved": true,
+            "native_history_three_versions": true
+          },
+          {
+            "cre_changed_bodies": true,
+            "explicit_body_cleanup_keeps_metadata": true,
+            "interrupted_cleanup_keeps_metadata": true,
+            "progress_pending_preserved": true,
+            "synthetic_transport_calls": 3,
+            "location": "dir",
+            "actual_docsettings_location": true,
+            "changed_body_isolated": true,
+            "identical_redownload_isolated": true,
+            "old_notes_readback": true,
+            "metadata_bytes_preserved": true,
+            "native_history_three_versions": true
+          },
+          {
+            "cre_changed_bodies": true,
+            "explicit_body_cleanup_keeps_metadata": true,
+            "interrupted_cleanup_keeps_metadata": true,
+            "progress_pending_preserved": true,
+            "synthetic_transport_calls": 3,
+            "location": "hash",
+            "actual_docsettings_location": true,
+            "changed_body_isolated": true,
+            "identical_redownload_isolated": true,
+            "old_notes_readback": true,
+            "metadata_bytes_preserved": true,
+            "native_history_three_versions": true
+          }
+        ]
+      },
+      "fresh_process": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "fresh_process": true,
+        "modes": [
+          {
+            "progress_pending_preserved": true,
+            "retained_versions": 2,
+            "fresh_process_notes_and_position": true,
+            "location": "doc"
+          },
+          {
+            "progress_pending_preserved": true,
+            "retained_versions": 2,
+            "fresh_process_notes_and_position": true,
+            "location": "dir"
+          },
+          {
+            "progress_pending_preserved": true,
+            "retained_versions": 2,
+            "fresh_process_notes_and_position": true,
+            "location": "hash"
+          }
+        ],
+        "account_data_writes": 0,
+        "account_reads": 0
+      },
+      "versions_regression": {
+        "actual_background_http": true,
+        "native_actions_and_confirmation": true,
+        "immutable_html_and_images": true,
+        "old_sidecar_bytes_preserved": true,
+        "new_version_has_no_old_coordinates": true,
+        "native_history_opens_old_notes_path": true,
+        "cre_reads_distinct_versions": true,
+        "new_version_epub_images": true,
+        "historical_current_article_export": true,
+        "fresh_local_progress_intent_preserved": true,
+        "cancel_and_failed_selector_keep_prior": true,
+        "failed_publication_cleans_new_files": true,
+        "external_selection_preserved": true,
+        "corrupt_and_symlink_selector_no_http": true,
+        "synthetic_only": true,
+        "legacy_body_and_sidecar_preserved": true,
+        "stale_suspend_confirmation_no_http": true,
+        "returns_to_reader": true,
+        "credential_renewals": 0,
+        "account_data_writes": 0,
+        "version_capacity_no_http": true,
+        "result": "PASS"
+      },
+      "cleanup_regression": {
+        "actual_background_scan": true,
+        "ui_heartbeat": true,
+        "native_preview_confirmation": true,
+        "confirmation_cancel_no_delete": true,
+        "batch_cancel_exact_partial_count": true,
+        "referenced_images_preserved": true,
+        "open_article_protected": true,
+        "parent_only_mutation": true,
+        "result": "PASS",
+        "current_cache_preserved": true,
+        "sidecar_bytes_preserved": true,
+        "kernel_lock_blocks_downloads": true,
+        "released_marker_reusable": true,
+        "actual_owner_death_releases_lock": true,
+        "synthetic_only": true,
+        "suspend_old_confirmation_no_delete": true,
+        "returns_to_reader": true,
+        "progress_pending_preserved": true,
+        "credential_renewals": 0,
+        "account_data_writes": 0,
+        "account_reads": 0,
+        "stale_preview_no_delete": true,
+        "old_version_explicit_delete": true
+      },
+      "recovery_regression": {
+        "actual_background_scan": true,
+        "ui_heartbeat": true,
+        "confirmation_cancel_no_delete": true,
+        "result": "PASS",
+        "credential_renewals": 0,
+        "account_reads": 0,
+        "inherited_writer_after_creator_fd_close": true,
+        "synthetic_only": true,
+        "active_blocks_clean_and_quarantine": true,
+        "durable_ownership_record": true,
+        "inactive_owned_cleanup": true,
+        "saved_body_notes_preserved": true,
+        "unknown_quarantine_reversible": true,
+        "quarantine_images_protected": true,
+        "published_content_preserved": true,
+        "completed_receipt_only_cleanup": true,
+        "stale_confirmation_no_delete": true,
+        "suspend_cancels_repair": true,
+        "account_data_writes": 0,
+        "returns_to_reader": true,
+        "progress_pending_preserved": true,
+        "actual_writer_reaped": true
+      },
+      "download_regression": {
+        "close_suspend_session_epoch_auth_config_guard": true,
+        "failed_publish_preserves_old_generation": true,
+        "concurrent_file_replacement_preserved": true,
+        "replacement_stage_body_preserved": true,
+        "replaced_stage_root_preserved": true,
+        "invalid_receipts_rejected": true,
+        "symlink_cleanup_does_not_follow": true,
+        "successful_refresh_retains_prior_images": true,
+        "metadata_failure_keeps_complete_cache": true,
+        "local_progress_intent_preserved": true,
+        "result": "PASS",
+        "credential_renewals": 0,
+        "ui_heartbeat": true,
+        "synthetic_only": true,
+        "account_data_writes": 0,
+        "record_json_order_only_changed": false,
+        "http_in_child": true,
+        "anonymous_cdn": true,
+        "images_streamed_and_deduplicated": true,
+        "cre_rendered_body": true,
+        "generation_images_in_epub": true,
+        "cancel_preserves_old_body_and_images": true
+      },
+      "original_export_package": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "exported_files": 2,
+        "legacy_copy_identical": true,
+        "checks": [
+          {
+            "crc_verified": true,
+            "mimetype_first_stored_no_extra": true,
+            "xml_well_formed": true,
+            "container_manifest_spine_resolve": true,
+            "unicode_metadata_and_text": true,
+            "duplicate_images_share_member": true,
+            "images_inside_archive": true,
+            "missing_image_placeholders": true,
+            "png_crc_and_pixels_verified": true,
+            "passive_article_markup": true,
+            "members": 7
+          },
+          {
+            "crc_verified": true,
+            "mimetype_first_stored_no_extra": true,
+            "xml_well_formed": true,
+            "container_manifest_spine_resolve": true,
+            "unicode_metadata_and_text": true,
+            "duplicate_images_share_member": true,
+            "images_inside_archive": true,
+            "missing_image_placeholders": true,
+            "png_crc_and_pixels_verified": true,
+            "passive_article_markup": true,
+            "members": 7
+          }
+        ]
+      },
+      "version_export_package": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "exported_files": 2,
+        "new_version": {
+          "zip_crc": true,
+          "first_stored_mimetype": true,
+          "xml_manifest_spine": true,
+          "expected_revision_text": true,
+          "png_crc_pixels": true,
+          "images_inside_archive": true
+        },
+        "historical_version": {
+          "zip_crc": true,
+          "first_stored_mimetype": true,
+          "xml_manifest_spine": true,
+          "expected_revision_text": true,
+          "png_crc_pixels": true,
+          "images_inside_archive": true
+        }
+      }
+    }
+  ],
+  "before_fix": {
+    "source_commit": "9820763fc34acd63cbc7ba3e7af2c66ee34e36fc",
+    "actual_docsettings": true,
+    "same_partial_hash": true,
+    "old_coordinates_in_new": true,
+    "old_notes_in_new": true,
+    "synthetic_only": true,
+    "changed_body": true
+  },
+  "candidate_verification": [
+    {
+      "case": "mp-metadata600-v2",
+      "result": "PASS",
+      "installed_files": 173,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0,
+      "package_sha256": "d8622dfa7d16fc59ec231fbc7e38806804c7a6f97a25eddc579877905994a5bc"
+    },
+    {
+      "case": "mp-metadata-ko2-final",
+      "result": "PASS",
+      "installed_files": 173,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0,
+      "package_sha256": "925a7cff0487b58ef471edc328d55361777b5385799080c5e6582e458fe4fc6b"
+    },
+    {
+      "case": "mp-metadata-discoveryko2-final",
+      "result": "PASS",
+      "installed_files": 173,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0,
+      "package_sha256": "463d6a9a9b5d07b76fedf9edc9ae1502125f6a53a2b9ac185d41fcc3c3bd433a"
+    },
+    {
+      "case": "mp-metadata-translationko2-final",
+      "result": "PASS",
+      "installed_files": 173,
+      "all_installed_bytes_match": true,
+      "repaint_failures": 0,
+      "package_sha256": "dbd4dcc80b0c25c24ff351ac48ec1a43dc39f3a6a53c855ee5c59233df021afb"
+    }
+  ],
+  "checks": {
+    "lua_specs": 142,
+    "python_suites": 29,
+    "python_tests": 278,
+    "luacheck_files": 369,
+    "lua_syntax_files": 371,
+    "mp_download_model_checks": 121
+  },
+  "limits": {
+    "real_account_reads": 0,
+    "real_account_writes": 0,
+    "real_credential_maintenance_posts": 0,
+    "keychain_opened": false,
+    "synthetic_transport_for_new_metadata_scene": true,
+    "storage_location_switch_migration_verified": false,
+    "old_shared_metadata_automatically_split": false,
+    "physical_ko2": false,
+    "whole_system_crash_power_loss_tested": false,
+    "central_performance_optimization_started": false
+  },
+  "hardware": {
+    "recognizable_kindle_usb_devices": 0,
+    "mounted_kindle_volumes": 0
+  }
+}

@@ -101,7 +101,8 @@ local function body(client,input)
     fail()
 end
 function M.write(client,input,stage,labels)
-    if not stage:images_owned() then fail() end
+    local revision=type(stage.version_name)=='string' and stage.version_name:match('^article%-([a-f0-9]+)%.html$')
+    if not revision or #revision~=16 or not stage:images_owned() then fail() end
     local raw=body(client,input)
     local images,total,resolved=0,0,{}
     local function resolve(src)
@@ -131,7 +132,7 @@ function M.write(client,input,stage,labels)
     end
     if not input.images then raw=Content.strip_mp_images(raw) end
     local converted,missing=Passive.convert('<html><body>'..raw..'</body></html>',resolve,require('util').htmlEntitiesToUtf8,labels.missing)
-    local html=Content.render_mp_article_html(input.article,converted,input.key)
+    local html=Content.render_mp_article_html(input.article,converted,input.key,revision)
     if #html>Stage.MAX_HTML or not stage:images_owned() or not stage.output:write(html) or not stage.output:sync() then fail() end
     return {ok=true,bytes=#html,images=images,image_bytes=total,missing=missing}
 end

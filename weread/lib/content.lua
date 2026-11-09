@@ -2394,15 +2394,23 @@ function Content.mp_article_cached_path(settings, book, article)
     return legacy_path,'legacy'
 end
 
-function Content.render_mp_article_html(article, body_html, key)
+function Content.render_mp_article_html(article, body_html, key, revision)
     local title = article.title or "Article"
+    local revision_marker = ""
+    if revision ~= nil then
+        assert(type(revision) == "string" and #revision == 16 and revision:match("^[a-f0-9]+$"),
+            "invalid MP cache revision")
+        -- KOReader's hash metadata uses sampled bytes. Put the immutable
+        -- attempt identity in the first sample, including for image-free bodies.
+        revision_marker = '<meta name="weread-mp-cache-revision" content="' .. revision .. '"/>\n'
+    end
     body_html = strip_mp_reader_font_styles(body_html)
     body_html = strip_blank_mp_blocks(body_html)
 
     local html = [[<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-]] .. require('weread.lib.mp_cache_identity').marker(key) .. [[
+]] .. require('weread.lib.mp_cache_identity').marker(key) .. revision_marker .. [[
 <meta charset="utf-8"/>
 <title>]] .. xml_escape(title) .. [[</title>
 <style>

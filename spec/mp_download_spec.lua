@@ -4,7 +4,10 @@ package.preload['weread.lib.content']=function() return {
     book_resolved_dir=function(_settings,book_id,book) return book.cache_dir or '/cache/'..book_id end,
     extract_mp_body=function(text) return text:match('<div id="js_content">(.-)</div>') end,
     strip_mp_images=function(text) return (text:gsub('<img[^>]*>','')) end,
-    render_mp_article_html=function(_article,text,key) return require('weread.lib.mp_cache_identity').marker(key)..text end} end
+    render_mp_article_html=function(_article,text,key,revision)
+        state.revision=revision
+        return require('weread.lib.mp_cache_identity').marker(key)..text
+    end} end
 package.preload['weread.lib.read_access']=function() return {capture=function() return state.no_web and {} or {web={cookies={wr_skey='XXX'}}} end,
     matches=function() return not state.changed end} end
 package.preload['weread.lib.notes_export_file']=function() return {create=function()
@@ -26,7 +29,7 @@ local function fixture()
     local settings={get=function(_self,key,default) if key=='cache' then return state.cache end;return default end}
     local book={book_id='MP_WXS_42'}
     local article={reviewId='one/two',reviewIds={'one/two','fallback'},title='Article'}
-    local stage={directory='/stage',generation='.generation',key='key',output={write=function(_self,text) state.html=text;return not state.body_failed end,sync=function() return true end},images_owned=function() return not state.replaced end}
+    local stage={directory='/stage',generation='.generation',key='key',version_name='article-0123456789abcdef.html',output={write=function(_self,text) state.html=text;return not state.body_failed end,sync=function() return true end},images_owned=function() return not state.replaced end}
     local client={request=function(_self,opts)
         state.requests[#state.requests+1]=opts
         expect(opts.method=='GET' and opts.skip_cookie and opts.persist_response_cookies==false and opts.sensitive,'mutable or unsafe transport')
@@ -48,6 +51,13 @@ expect(input.article.title=='Article' and input.ids[2]=='fallback','input not sn
 local result=Model.write(client,input,stage,{missing='Unavailable'})
 expect(result.ok and result.images==1 and #state.requests==2 and result.image_bytes==#state.image_value,'duplicates not streamed once')
 expect(state.html:find('.generation/images/img-0001.png',1,true) and not state.html:find('https://',1,true),'remote image retained')
+expect(state.revision=='0123456789abcdef','immutable attempt identity absent from rendering')
+for _,bad in ipairs({false,1,{},'article-../escape.html','article-abc.html','article-0123456789ABCDEF.html','article-0123456789abcdef0.html',''}) do
+    local bad_settings,bad_book,bad_article,bad_stage,bad_client=fixture()
+    local bad_input=assert(Model.capture(bad_settings,bad_book,bad_article))
+    bad_stage.version_name=bad
+    expect(not pcall(Model.write,bad_client,bad_input,bad_stage,{}) and #state.requests==0,'invalid revision reached HTTP')
+end
 state.changed=true;expect(not Model.matches(settings,input),'changed account accepted')
 for _,value in ipairs({'https://mmbiz.qpic.cn.evil/x','https://user@mmbiz.qpic.cn/x','https://mmbiz.qpic.cn:443/x','file:///x','https://mmbiz.qpic.cn/x y'}) do expect(not Model.image_url(value),'unsafe CDN URL accepted') end
 expect(Model.image_url('http://mmbiz.qlogo.cn/x#fragment')=='https://mmbiz.qlogo.cn/x','HTTPS normalization failed')
