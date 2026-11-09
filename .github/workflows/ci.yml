@@ -122,6 +122,7 @@ jobs:
           python3 scripts/test_native_metadata.py
           python3 scripts/test_native_ui.py
           python3 scripts/test_persistent_ui.py
+          python3 scripts/test_owner_reading.py
 
       - name: Bundled TLS trust store integrity
         working-directory: integrations/ssl
