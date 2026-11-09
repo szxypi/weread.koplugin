@@ -63,6 +63,10 @@ local function apply(host,job,id)
     local ok,stage=pcall(host.create_mp_stage or Stage.create,job.input.root,job.input.key,{preserve=true})
     if not ok or not stage then stop(host);return end
     job.stage=stage;job.started=os.time()
+    if job.input.legacy then
+        local bound,good=pcall(Model.bind_stage,job.input,stage)
+        if not bound or not good then stop(host);return end
+    end
     busy(host,job,_('Restoring reading records…\nTap or press a key to cancel.'))
     local active,started=pcall(host.mp_records_worker.start,host.mp_records_worker,function()
         return Model.write(job.input,stage,job.sha256)
@@ -70,6 +74,10 @@ local function apply(host,job,id)
         if host.mp_records_job~=job then return end
         local age=os.time()-job.started
         if not current(host,job) or age<0 or age>120 then M.cancel(host);return end
+        if job.input.legacy then
+            local checked,good=pcall(Model.assets_match,job.input)
+            if not checked or not good then stop(host);return end
+        end
         local committed,path=pcall(stage.commit,stage,result,true)
         if not committed or not path then stop(host);return end
         local restored,good=pcall(Model.restore,job.store,job.input,id,path)
@@ -154,8 +162,13 @@ function M.show(host,book,article,path,automatic)
         local age=os.time()-job.started
         if not current(host,job) or age<0 or age>120 then M.cancel(host);return end
         if type(result)~='table' or result.ok~=true or type(result.rows)~='table' or #result.rows>Store.MAX_RECORDS
-            or type(result.source_sha256)~='string' or #result.source_sha256~=64 or not result.source_sha256:match('^[a-f0-9]+$') then stop(host);return end
+            or #result.rows>0 and (type(result.source_sha256)~='string' or #result.source_sha256~=64
+                or not result.source_sha256:match('^[a-f0-9]+$')) then stop(host);return end
         job.sha256=result.source_sha256;clear_busy(host,job)
+        if input.legacy and #result.rows>0 then
+            local bound,assets_good=pcall(Model.bind_assets,input,result.assets)
+            if not bound or not assets_good then stop(host);return end
+        end
         if #result.rows==0 then
             host.mp_records_job=nil
             if automatic then host:openFile(input.path) else host:showInfo(_('No saved reading records for this article.')) end
@@ -168,7 +181,7 @@ end
 function M.open(host,book,article,path)
     local ok,input,reason=pcall(Model.capture,host.settings,book,article,path)
     if not ok then failed(host);return false end
-    if reason=='legacy' or input and input.stamped then host:openFile(path);return true end
+    if reason=='legacy' or input and input.stamped and not input.legacy then host:openFile(path);return true end
     return M.show(host,book,article,path,true)
 end
 return M

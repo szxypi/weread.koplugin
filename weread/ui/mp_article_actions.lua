@@ -116,7 +116,7 @@ function M.show(host,book,article)
         {text=_('Saved versions'),callback=action(function() M.history(host,book,article) end)},
         {text=_('Export cached article'),callback=action(function() host:showMPArticleExport(book,article) end)},
         {text=_('Clean article cache'),callback=action(function() require('weread.ui.mp_cache_cleanup').show(host,book,article) end)},
-        {text=_('Recover reading records'),select_enabled=saved.kind~='legacy',
+        {text=_('Recover reading records'),select_enabled=saved.kind~='legacy' or saved.path:match('%.html$')~=nil,
             callback=action(function() require('weread.ui.mp_record_recovery').show(host,book,article,saved.path) end)},
     }
     close(host,'_mp_actions_menu');menu=host:showList(article.title or _('Article'),rows);own(host,'_mp_actions_menu',menu);return true

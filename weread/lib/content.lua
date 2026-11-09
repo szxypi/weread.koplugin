@@ -2263,6 +2263,9 @@ local function mp_article_asset_name(book, article)
     return ".weread-mp-" .. basename_safe(key) .. "-assets"
 end
 
+-- Older title-based HTML refers to this directory beside its original file.
+Content.mp_article_asset_name = mp_article_asset_name
+
 function Content.download_mp_images_to_files(
         client, settings, book, article, body_html, progress)
     prepare_mp_article_cache(settings,book,article)

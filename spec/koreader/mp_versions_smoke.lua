@@ -135,7 +135,24 @@ return function(plugin,count,flush,home,pump,control)
     assert(opened~=legacy_path and read(legacy_sidecar)==legacy_metadata and read(legacy_path):find('保留旧格式正文',1,true),'legacy refresh changed source or sidecar')
     plugin:closeWeReadUI();assert(Actions.history(plugin,book,legacy));menu=plugin._mp_versions_menu
     assert(#menu.item_table==2,'legacy version missing from history');opened=nil;menu.item_table[2].callback()
-    assert(opened==legacy_path,'legacy history did not reopen original notes path')
+    pump(function() return plugin._mp_records_menu~=nil or plugin.mp_records_job==nil end)
+    assert(not opened and plugin._mp_records_menu,'legacy history bypassed record protection')
+    local recovery=assert(require('weread.lib.mp_records_db').new(settings,plugin.library_db:accountKey()))
+    local legacy_key=assert(Identity.key(book,legacy));local snapshots=assert(recovery:list(legacy_key))
+    assert(#snapshots>0 and read(legacy_sidecar)==legacy_metadata,'legacy records were not preserved before selection')
+    local selected
+    for index,row in ipairs(snapshots) do
+        if row.valid then
+            local data=require('weread.lib.mp_record_data').record(assert(recovery:get(legacy_key,row.id)))
+            if data.annotations and data.annotations[1].text=='旧格式笔记' then selected=index;break end
+        end
+    end
+    assert(selected);plugin._mp_records_menu.item_table[selected].callback();assert(plugin._mp_records_confirmation).ok_callback()
+    pump(function() return plugin.mp_records_job==nil end)
+    assert(opened and opened~=legacy_path and Versions.contains(book.cache_dir,legacy_key,opened)
+        and DocSettings:open(opened):readSetting('annotations')[1].text=='旧格式笔记'
+        and read(legacy_path):find('保留旧格式正文',1,true) and read(legacy_sidecar)==legacy_metadata,
+        'confirmed legacy recovery lost its original body, sidecar, or selected record')
     plugin:closeWeReadUI();assert(Actions.refresh(plugin,book,article));dialog=plugin._mp_refresh_confirmation
     reads=count('/web/mp/content');plugin:onSuspend();dialog.ok_callback()
     assert(not plugin._mp_refresh_confirmation and count('/web/mp/content')==reads,'suspended confirmation restarted refresh')
@@ -146,6 +163,7 @@ return function(plugin,count,flush,home,pump,control)
         native_history_opens_old_notes_path=true,cre_reads_distinct_versions=true,new_version_epub_images=true,historical_current_article_export=true,fresh_local_progress_intent_preserved=true,
         cancel_and_failed_selector_keep_prior=true,failed_publication_cleans_new_files=true,external_selection_preserved=true,
         corrupt_and_symlink_selector_no_http=true,version_capacity_no_http=true,legacy_body_and_sidecar_preserved=true,
+        legacy_history_requires_explicit_recovery=true,legacy_recovery_opens_independent_notes_copy=true,
         stale_suspend_confirmation_no_http=true,returns_to_reader=true,account_data_writes=0,credential_renewals=0}
     write(home..'/../evidence/mp-versions.json',client:json_encode(report))
     print('PASS: article refresh -> immutable versions, native menus, old/new DocSettings, CRE, EPUB images and selector failure/cancellation boundaries')

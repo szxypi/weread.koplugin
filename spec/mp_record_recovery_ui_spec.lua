@@ -12,7 +12,8 @@ package.preload['weread.lib.mp_record_recovery']=function() return {
     capture=function(_settings,book,article,path)
         if state.bad_source then error('private-source-error') end
         if state.legacy then return nil,'legacy' end
-        return {root=book.cache_dir,key=string.rep('a',64),path=path,stamped=state.stamped,review=article.reviewId}
+        return {root=book.cache_dir,key=string.rep('a',64),path=path,stamped=state.stamped,review=article.reviewId,
+            legacy=state.legacy_html or nil}
     end,
     matches=function(_settings,book,article,input) return not state.stale and book.cache_dir==input.root and article.reviewId==input.review end,
     hash_directory=function(path) return state.live and 'shared' or path end,
@@ -24,8 +25,11 @@ package.preload['weread.lib.mp_record_recovery']=function() return {
     end,
     prepare=function()
         if state.prepare_failed then error('private-storage-error') end
-        return {ok=true,source_sha256=string.rep('b',64),rows=state.rows}
+        return {ok=true,source_sha256=not state.no_sha and string.rep('b',64) or nil,rows=state.rows,assets={}}
     end,
+    bind_stage=function() state.stage_bound=true;return not state.stage_bind_failed end,
+    bind_assets=function() state.assets_bound=true;return not state.asset_bind_failed end,
+    assets_match=function() return not state.assets_changed end,
     write=function() state.body_written=true;return {ok=true} end,
     restore=function(_store,_input,id)
         state.restore_id=id;state.restored=not state.restore_failed;return state.restored
@@ -129,4 +133,21 @@ state.done=true;table.remove(timers,1)();expect(state.cleaned and not state.open
 host,book,article=fixture();Recovery.open(host,book,article,'/cache/old.html');deliver(host)
 host._mp_records_menu.item_table[2].callback();host._mp_records_confirmation.ok_callback();deliver(host)
 expect(state.restore_id==false and state.opened=='/cache/new.html','fresh copy applied an arbitrary saved record')
+host,book,article=fixture();state.legacy_html=true;state.stamped=true
+Recovery.open(host,book,article,'/cache/title.html');deliver(host)
+expect(state.assets_bound and host._mp_records_menu and not state.opened,'title-based HTML skipped preservation because of an old revision marker')
+choose(host).ok_callback();deliver(host)
+expect(state.stage_bound and state.body_written and state.published and state.opened=='/cache/new.html','legacy HTML was not bound to its first stage')
+for _i,failure in ipairs({'asset_bind_failed','stage_bind_failed','assets_changed'}) do
+    host,book,article=fixture();state.legacy_html=true;state[failure]=true
+    Recovery.open(host,book,article,'/cache/title.html');deliver(host)
+    if host._mp_records_menu then
+        choose(host).ok_callback()
+        if state.body_written or failure=='assets_changed' then deliver(host) end
+    end
+    expect(not state.opened and not state.published and state.notice,'legacy resource or target failure published a copy: '..failure)
+end
+host,book,article=fixture();state.legacy_html=true;state.rows={};state.no_sha=true
+Recovery.open(host,book,article,'/cache/title.html');deliver(host)
+expect(state.opened=='/cache/title.html' and not state.assets_bound and not state.stage_created,'ordinary title cache required copy-only preparation')
 print('PASS: native record recovery choice, ownership, failure and cancellation ('..checks..' checks)')

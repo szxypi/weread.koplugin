@@ -52,7 +52,11 @@ return function(plugin,count,flush,home,pump,control)
         and menu.item_table[3].text==require('weread.lib.i18n').tr('Article cache and versions'),'catalog fields/rows or cache toolbar not shown')
     local record=Settings:new():get('books',{})[book.book_id]
     assert(#record.mp_articles==2 and not record.mp_articles[1].private and record.progress==.6 and record.pending_upload_position.offset==19,'catalog not persisted or overwrote newer reading state')
-    menu:onMenuSelect(menu.item_table[1]);assert(opened==path and contents(path)==previous,'refreshed list lost existing identity cache')
+    menu:onMenuSelect(menu.item_table[1])
+    -- Another article may already have created the account's recovery archive.
+    -- The empty per-article lookup then completes in the real background worker.
+    pump(function() return not plugin.mp_records_job end)
+    assert(opened==path and not plugin._mp_records_menu and contents(path)==previous,'refreshed list lost existing identity cache')
     plugin:showMPAccount(book);assert(plugin._mp_article_list_view.item_table[1].text=='合成目录文章甲','saved catalog did not reopen')
     -- Existing offline list stays visible; no DNS or HTTP work is scheduled.
     local connected=plugin.isNetworkConnected;plugin.isNetworkConnected=function() return false end

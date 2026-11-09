@@ -5,9 +5,31 @@ local Identity=require('weread.lib.mp_cache_identity')
 local Versions=require('weread.lib.mp_cache_versions')
 local Data=require('weread.lib.mp_record_data')
 local Crypto=require('weread.lib.crypto')
+local Assets=require('weread.lib.mp_record_assets')
 local M={}
 local function fs() return require('libs/libkoreader-lfs') end
 local function fail() error('mp_records/unavailable',0) end
+local function inode(a,b) return a and b and a.mode==b.mode and a.dev==b.dev and a.ino==b.ino end
+local function optional(path)
+    local info,_,code=fs().symlinkattributes(path)
+    if not info and code~=2 then fail() end
+    return info
+end
+local function capture_target(root,key)
+    local container=optional(root..'/mp-articles')
+    local parent=container and optional(Identity.path(root,key):match('^(.*)/[^/]+$'))
+    if container and container.mode~='directory' or parent and parent.mode~='directory' then fail() end
+    if parent then local snapshot=Versions.capture(root,key);if not snapshot then fail() end;return snapshot end
+    return false,container or false
+end
+local function target_matches(input)
+    if input.snapshot then return Versions.matches(input.snapshot) end
+    if not input.legacy then return false end
+    local snapshot,container=capture_target(input.root,input.key)
+    -- Another article may create the shared container while this chooser is
+    -- open. The source root must still match and our own directory stay absent.
+    return not snapshot and (not input.container or inode(input.container,container))
+end
 local function read(path,max,expected)
     local info=fs().symlinkattributes(path)
     if not info or info.mode~='file' or info.size>max or expected and not Versions.same(info,expected) then fail() end
@@ -24,10 +46,20 @@ function M.capture(settings,book,article,path)
     if path:sub(1,#root+13)~=root..'/mp-articles/' then
         local legacy=Content.mp_article_legacy_path(settings,book,article)
         if path~=legacy and path~=legacy:gsub('%.html$','.epub') then fail() end
-        local allowed=Identity.legacy_allowed(book,article,book.mp_articles or (settings:get('books',{})[book.book_id or book.bookId] or {}).mp_articles,
+        local stored=(settings:get('books',{})[book.book_id or book.bookId] or {}).mp_articles
+        local allowed=Identity.legacy_allowed(book,article,stored or book.mp_articles,
             function(row) return Content.mp_article_legacy_path(settings,book,row) end)
         if not allowed or fs().symlinkattributes(path,'mode')~='file' then fail() end
-        return nil,'legacy'
+        if path:match('%.epub$') then return nil,'legacy' end
+        local root_info=fs().symlinkattributes(root);if not root_info or root_info.mode~='directory' then fail() end
+        local snapshot,container=capture_target(root,key)
+        local file=io.open(path,'rb');if not file then fail() end
+        local head=file:read(4096) or '';file:close()
+        local marked=head:match('<meta name="weread%-mp%-cache%-key" content="([a-f0-9]+)"/>')
+        if marked and marked~=key then fail() end
+        return {root=root,key=key,path=path,info=fs().symlinkattributes(path),root_info=root_info,legacy=true,
+            asset_name=Content.mp_article_asset_name(book,article),snapshot=snapshot,container=container,stamped=false,
+            catalog_origin=stored~=nil and 'stored' or 'provided'}
     end
     if not Versions.contains(root,key,path) then fail() end
     local snapshot=Versions.capture(root,key);if not snapshot then fail() end
@@ -39,8 +71,27 @@ end
 function M.matches(settings,book,article,input)
     local ok,now=pcall(M.capture,settings,book,article,input.path)
     return ok and now and now.root==input.root and now.key==input.key and Versions.same(input.info,now.info)
-        and Versions.matches(input.snapshot)
+        and input.legacy==now.legacy and (not input.legacy or inode(input.root_info,now.root_info)
+            and input.catalog_origin==now.catalog_origin) and target_matches(input)
 end
+-- Stage.create may create the first identity directory. Accept only that empty
+-- target; an existing selector/body cannot become authorized by this transition.
+function M.bind_stage(input,stage)
+    if not input.legacy then return true end
+    if stage.root~=input.root or stage.key~=input.key or not inode(input.root_info,fs().symlinkattributes(input.root)) then return false end
+    if input.snapshot then return Versions.matches(input.snapshot) end
+    local snapshot=stage.version_snapshot
+    if not snapshot or snapshot.selector.info or snapshot.selector.name or snapshot.info
+        or input.container and not inode(input.container,fs().symlinkattributes(input.root..'/mp-articles')) then return false end
+    input.snapshot=snapshot;input.container=nil
+    return Versions.matches(snapshot)
+end
+function M.bind_assets(input,rows)
+    if not input.legacy then return true end
+    if not Assets.matches(input,rows) then return false end
+    input.assets=rows;return true
+end
+function M.assets_match(input) return not input.legacy or Assets.matches(input,input.assets) end
 function M.hash_directory(path)
     local Doc=require('docsettings');local directory=Doc:getSidecarDir(path,'hash')
     local base=Doc.getSidecarStorage('hash')
@@ -76,22 +127,33 @@ function M.preserve(store,input,rows)
     return true
 end
 function M.prepare(store,input)
+    if not target_matches(input) then fail() end
+    local saved={}
+    if store then saved=store:list(input.key);if not saved then fail() end end
+    -- No copy is needed for an ordinary legacy read without saved records.
+    -- It must not require parsing resources or loading a large embedded image.
+    if input.legacy and #saved==0 then return {ok=true,rows={}} end
     local raw=read(input.path,Data.MAX_BYTES,input.info)
-    if not Versions.matches(input.snapshot) then fail() end
-    if not store then return {ok=true,rows={},source_sha256=Crypto.sha256_hex(raw)} end
-    local saved=store:list(input.key);if not saved then fail() end
-    return {ok=true,rows=saved,source_sha256=Crypto.sha256_hex(raw)}
+    return {ok=true,rows=saved,source_sha256=Crypto.sha256_hex(raw),assets=input.legacy and Assets.inspect(input,raw) or nil}
 end
 function M.write(input,stage,sha256)
     local raw=read(input.path,Data.MAX_BYTES,input.info)
-    if Crypto.sha256_hex(raw)~=sha256 or not Versions.matches(input.snapshot) then fail() end
-    local start=raw:find('<head>',1,true);local stop=raw:find('</head>',1,true)
-    if not start or start>256 or not stop then fail() end
+    if Crypto.sha256_hex(raw)~=sha256 or not target_matches(input) then fail() end
+    local images,image_bytes=0,0
+    if input.legacy then raw,images,image_bytes=Assets.copy(input,stage,raw) end
+    local finish,stop
+    if input.legacy then raw,finish,stop=Assets.header(raw)
+    else
+        local start=raw:find('<head>',1,true);stop=raw:find('</head>',1,true)
+        if not start or start>256 or not stop then fail() end;finish=start+5
+    end
     local nonce=stage.version_name:match('^article%-([a-f0-9]+)%.html$');if not nonce or #nonce~=16 then fail() end
-    local head=raw:sub(start+6,stop-1):gsub('<meta name="weread%-mp%-cache%-revision" content="[a-f0-9]+"/>\n?','')
-    local html=raw:sub(1,start+5)..'\n<meta name="weread-mp-cache-revision" content="'..nonce..'"/>'..head..raw:sub(stop)
+    local head=raw:sub(finish+1,stop-1):gsub('<meta name="weread%-mp%-cache%-revision" content="[a-f0-9]+"/>\n?','')
+    if input.legacy then head=head:gsub('<meta name="weread%-mp%-cache%-key" content="[a-f0-9]+"/>\n?','') end
+    local identity=input.legacy and Identity.marker(input.key)..'\n' or ''
+    local html=raw:sub(1,finish)..'\n<meta name="weread-mp-cache-revision" content="'..nonce..'"/>'..identity..head..raw:sub(stop)
     if #html>Data.MAX_BYTES or not stage.output:write(html) or not stage.output:sync() then fail() end
-    return {ok=true,bytes=#html,images=0,image_bytes=0}
+    return {ok=true,bytes=#html,images=images,image_bytes=image_bytes}
 end
 local function empty_target(path)
     local Doc=require('docsettings');local filename=Doc.getSidecarFilename(path)
