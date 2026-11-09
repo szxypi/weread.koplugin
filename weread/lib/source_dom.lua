@@ -191,9 +191,10 @@ local function open_index(document,book_id,uid,options,metadata)
         if not source then fail('source_unavailable') end
         self.file_id,self.chapter_uid,self.render_path=source.file_id,source.chapter_uid,source.render_path
         self:_check()
-        if source.format ~= 'web_xhtml' then fail('format_unsupported') end
+        self.basis = Source.coordinate_basis(source.format)
+        if not self.basis then fail('format_unsupported') end
         if not metadata then
-            self.map = Coordinates.build(source.raw)
+            self.map = Coordinates.build(source.raw,{format=source.format})
             if not self.map then fail("source_unsupported") end
         end
         local ordinal,total=spine(document,source.render_path)
@@ -304,7 +305,7 @@ function Index:locate_anchor(anchor)
     return self:_protected(function()
         self:_check()
         if type(anchor) ~= 'table' or type(anchor.text) ~= 'string' or #anchor.text > Coordinates.MAX_ANCHOR_BYTES
-            or anchor.basis ~= 'filtered_xhtml_utf16' or anchor.point_unit ~= 'unicode_scalars'
+            or anchor.basis ~= self.basis or anchor.point_unit ~= 'unicode_scalars'
             or type(anchor.co) ~= 'number' or anchor.co < 0 or anchor.co % 1 ~= 0 or anchor.co > Coordinates.MAX_BYTES*8
             or type(anchor.point_offset) ~= 'number' or anchor.point_offset < 0 or anchor.point_offset % 1 ~= 0 then
             fail('invalid_anchor')

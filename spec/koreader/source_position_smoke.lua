@@ -20,6 +20,8 @@ local Content = require("weread.lib.content")
 local settings = require("weread.lib.settings"):new()
 assert(settings.mock_endpoint and settings.data_dir:match("/weread%-mock$"), "isolated profile required")
 local Source=require('weread.lib.position_source')
+local source_format=os.getenv('WEREAD_TEST_SOURCE_FORMAT') or 'web_xhtml'
+assert(source_format=='web_xhtml' or source_format=='web_txt')
 local Identity=require('weread.lib.book_file_identity')
 local Context=require('weread.lib.source_context')
 local Dom=require('weread.lib.source_dom')
@@ -43,8 +45,18 @@ local function make_book(book_id,version)
                 ..string.rep('阅读状态必须来自当前文档，后台任务不能覆盖新的页面。',3)..'</p>'
         end
         local body=table.concat(parts,'\n')
+        local original='<html><body>'..body..'</body></html>'
+        if source_format=='web_txt' then
+            local lines={'\239\187\191'..chapter.title,'Edition '..version..' '..canary..'。'}
+            for _i=1,450 do
+                lines[#lines+1]='第'..chapter.chapterUid..'章第'.._i..'段：'
+                    ..string.rep('阅读状态必须来自当前文档，后台任务不能覆盖新的页面。',3)..'\t<tag>&amp;😀\194\160\227\128\128  '
+            end
+            original=table.concat(lines,'\r\n\r\n')..'\r\n'
+            body=Content.txt_to_xhtml(original)
+        end
         bodies[tostring(chapter.chapterUid)]=body
-        sources[tostring(chapter.chapterUid)]=assert(Source.capture(book,chapter,'<html><body>'..body..'</body></html>','web_xhtml'))
+        sources[tostring(chapter.chapterUid)]=assert(Source.capture(book,chapter,original,source_format))
     end
     local file=Content.save_book_epub(settings,book,chapters,bodies,'full',{},nil,nil,Identity.capture(book),sources)
     book.cached_file,book.cached_full_book=file,file
@@ -102,7 +114,7 @@ local function assert_reference(position)
     local expected,why=index:capture(location.xpointer)
     assert(expected,why)
     assert(expected.co==position.chapter_offset,'background result differs from native chapter DOM reference')
-    assert(position.upload_verified==false and position.basis=='filtered_xhtml_utf16','local check activated wire writes')
+    assert(position.upload_verified==false and position.basis==Source.coordinate_basis(source_format),'local check activated wire writes or used another format')
 end
 local function dismiss_info()
     local stack=UIManager._window_stack
@@ -214,6 +226,7 @@ local next_book=ready();assert_reference(next_book)
 assert(next_book.book_id=='900002' and not old_service:current(),'book switch retained old result')
 pump_until(function() return util.isSubProcessDone(old_pid) end)
 local result={status='PARTIAL',public_network_used=false,production_account_writes_attempted=0,
+    source_format=source_format,coordinate_basis=Source.coordinate_basis(source_format),
     wire_precision_sync_enabled=false,live_reader_capture=true,background_process_observed=saw_worker,
     native_document_kept_in_parent=true,menu_check=true,page_turn=true,scroll=true,account_change=true,
     suspend_resume_callbacks=true,low_memory_recovery=true,same_path_replacement=true,reopen_version=8,

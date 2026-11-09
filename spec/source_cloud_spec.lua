@@ -163,4 +163,7 @@ resolved=Cloud.resolve(client,input,target,selected,candidates)
 local bad_count=0;for _,file in ipairs(attempts) do if file=='/bad' then bad_count=bad_count+1 end end
 expect(not resolved.position and resolved.chapter.chapterUid==uid and resolved.request_id==input.request_id
     and bad_count==1,'missing matching cache did not yield bounded download target/deduplicate paths')
+local txt_target={};for key,value in pairs(target) do txt_target[key]=value end
+txt_target.basis='raw_txt_utf16'
+expect(not Cloud.remote(txt_target),'local TXT model activated unverified cloud coordinate semantics')
 print(('source_cloud_spec: %d checks'):format(checks))

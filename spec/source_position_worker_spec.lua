@@ -61,11 +61,26 @@ local repeated_input=copy(input);repeated_input.metadata=repeated_meta
 local repeated_members={[Identity.PATH]=root,[Source.path_meta_path(path)]=repeated_meta,
     [Source.raw_path(repeated_source.raw_sha256)]=repeated_raw,[path]=rendered}
 expect(Worker.capture(repeated_input,function() return repeated_members end).error=='context_unmatched','repeated source was guessed')
-local txt=assert(Source.capture(book,chapter,'original TXT bytes','web_txt'))
-local txt_input=copy(input)
-txt_input.metadata=assert(Source.bind(txt,identity,path,Crypto.sha256_hex(rendered)))
-expect(Worker.capture(txt_input,function() error('TXT must not be parsed as XHTML') end).error=='source_unsupported',
-    'TXT failure suggested re-downloading rather than unsupported mapping')
+local plain='\239\187\191prefix \r\n  <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'
+local txt=assert(Source.capture(book,chapter,plain,'web_txt'))
+local txt_rendered=require('weread.lib.content').txt_to_xhtml(plain)
+local txt_root=Identity.encode(book,{chapter},Identity.capture(book),Crypto.sha256_hex(txt_rendered))
+local txt_identity=assert(Identity.decode(txt_root))
+local txt_input=copy(input);txt_input.identity=txt_identity
+txt_input.text=assert(require('weread.lib.source_dom').normalize(plain));txt_input.point_offset=7
+txt_input.metadata=assert(Source.bind(txt,txt_identity,path,Crypto.sha256_hex(txt_rendered)))
+local txt_members={[Identity.PATH]=txt_root,[Source.path_meta_path(path)]=txt_input.metadata,
+    [Source.raw_path(txt.raw_sha256)]=plain,[path]=txt_rendered}
+local txt_result=Worker.capture(txt_input,function() return txt_members end)
+expect(txt_result.position and txt_result.position.chapter_offset==12,'TXT original CRLF/BOM widths changed')
+expect(txt_result.position.basis=='raw_txt_utf16' and txt_result.position.upload_verified==false,'TXT acquired XHTML/wire units')
+txt_input.target=copy(txt_result.position)
+local txt_prepared=Worker.prepare_target(txt_input,function() return txt_members end)
+expect(txt_prepared.anchor and txt_prepared.anchor.basis=='raw_txt_utf16','TXT reverse target was not prepared')
+txt_input.target.basis='filtered_xhtml_utf16'
+expect(Worker.prepare_target(txt_input,function() return txt_members end).error=='target_changed','XHTML target used TXT bytes')
+local changed_txt=copy(txt_members);changed_txt[Source.raw_path(txt.raw_sha256)]=plain..'changed'
+expect(Worker.capture(txt_input,function() return changed_txt end).error=='source_changed','TXT source tampering was accepted')
 local jump_input=copy(input);jump_input.target=copy(result.position)
 local prepared=Worker.prepare_target(jump_input,read)
 expect(prepared.position.chapter_offset==32 and prepared.request_id==9,'target preparation changed position or request')

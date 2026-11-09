@@ -184,4 +184,18 @@ expect(not service:current(),'same-line marker change without movement event exp
 local pending=#worker.jobs;drain()
 expect(#worker.jobs==pending+1,'observed same-line marker change did not schedule a fresh capture')
 service:stop();expect(not service:current(),'stopped source service exposed retained target')
+raw='literal <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'
+captured=assert(Source.capture(book,chapter,raw,'web_txt'))
+root=Identity.encode(book,{chapter},Identity.capture(book),Crypto.sha256_hex(raw))
+identity=assert(Identity.decode(root))
+metadata=assert(Source.bind(captured,identity,path,Crypto.sha256_hex(raw)))
+doc=document();service:on_reader_ready();drain()
+worker.jobs[#worker.jobs].callback(value(service.sequence))
+expect(not service:current(),'XHTML basis accepted for a TXT receipt')
+service:on_view_changed(true);drain()
+local txt_packet=value(service.sequence);txt_packet.position.basis='raw_txt_utf16'
+worker.jobs[#worker.jobs].callback(txt_packet)
+expect(service:current() and service:current().basis=='raw_txt_utf16','TXT local source result rejected')
+expect(service:current().upload_verified==false,'TXT readiness granted upload rights')
+service:stop()
 print(('source_position_spec: %d checks'):format(checks))

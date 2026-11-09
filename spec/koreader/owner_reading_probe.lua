@@ -8,6 +8,7 @@ local json=require('json')
 local mode=arg[1]
 local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_auth=false,transport_guard_selftest=false,
     plugin_selection=false,native_reader=false,source_text_visible=false,source_receipt_verified=false,page_turn=false,position_checkpoint=false,
+    local_source_position_verified=false,source_navigation_roundtrip=false,source_dialog_verified=false,legacy_progress_units_preserved=false,
     credential_file_audit=false,workers_reaped=false,shelf_books=0,pages=0,profile_files_audited=0,
     failed_line=0,screenshots=0,last_http_status=0,denied_kind=0,denied_route=0,denied_flags=0,requests={0,0,0,0,0,0,0}}
 local counters,plugin,reader,latest_cookies
@@ -23,6 +24,8 @@ local ok,reason=pcall(function()
     assert(type(input.chapter_uid)=='string' and input.chapter_uid:match('^[1-9]%d*$'))
     assert(type(input.source_text)=='string' and #input.source_text>=32 and #input.source_text<=128)
     assert(input.source_format=='web_xhtml' or input.source_format=='web_txt')
+    assert(type(input.source_raw_sha256)=='string' and #input.source_raw_sha256==64 and input.source_raw_sha256:match('^[a-f0-9]+$'))
+    assert(type(input.source_sample_offset)=='number' and input.source_sample_offset>=0 and input.source_sample_offset%1==0)
     assert(type(input.cookies)=='table' and input.cookies.wr_vid == input.vid)
     latest_cookies=input.cookies
     local source=home..'/plugins/weread.koplugin'
@@ -278,11 +281,16 @@ local ok,reason=pcall(function()
     local book=assert(plugin.settings:get_book(input.book_id))
     assert(book.cached_chapters and book.cached_chapters[input.chapter_uid]==document.file)
     local source_receipt=assert(require('weread.lib.position_source').read_document(document,input.book_id,input.chapter_uid))
-    assert(source_receipt.format==input.source_format)
+    assert(source_receipt.format==input.source_format and source_receipt.raw_sha256==input.source_raw_sha256)
     report.source_receipt_verified=true
     report.pages=document:getPageCount();assert(report.pages>1)
     local matches=assert(document:findAllText(input.source_text,false,0,4,false,0))
     assert(matches[1] and matches[1].start)
+    local source_index,source_reason=require('weread.lib.source_dom').open(document,input.book_id,input.chapter_uid)
+    assert(source_index,source_reason)
+    local source_match,match_reason=source_index:capture(matches[1].start)
+    assert(source_match,match_reason)
+    assert(source_match.co==input.source_sample_offset)
     report.native_reader=true
     local checkpoint_path=home..'/checkpoint.json'
     if mode=='reopen' then
@@ -302,6 +310,37 @@ local ok,reason=pcall(function()
     assert(reader:getCurrentPage()==next_page)
     report.page_turn=true
     UI:forceRePaint()
+    -- Read an ordinary body page through the production cooperative service,
+    -- independent archive worker, position dialog and bound native navigator.
+    reader.rolling:onGotoPage(math.min(3,report.pages));tick()
+    local service=assert(plugin.source_position)
+    pump(function() return service:current()~=nil end)
+    local position=assert(service:current())
+    local basis=require('weread.lib.position_source').coordinate_basis(input.source_format)
+    assert(position.basis==basis and position.upload_verified==false and position.raw_sha256==input.source_raw_sha256)
+    local location=assert(require('weread.lib.source_context').location(document,reader.view.view_mode))
+    local current,current_reason=source_index:capture(location.xpointer)
+    assert(current,current_reason);assert(current.co==position.chapter_offset)
+    report.local_source_position_verified=true
+    plugin:showReadingPosition()
+    pump(function() return plugin._source_position_message~=nil end)
+    assert(plugin._source_position_message.text:find('已定位到当前页正文',1,true)
+        and plugin._source_position_message.text:find('精确云端同步仍在验证中',1,true))
+    UI:forceRePaint();plugin:closeReadingPositionMessage();report.source_dialog_verified=true
+    local legacy=assert(plugin.progress_sync:capture_local())
+    local applied
+    assert(plugin:openSourcePosition(position,function(result) applied=result or false end))
+    pump(function() return applied~=nil end)
+    assert(applied and applied.basis==basis and applied.chapter_offset==position.chapter_offset)
+    local retained=assert(plugin.progress_sync:current_source_target())
+    assert(retained.basis==basis and retained.chapter_offset==position.chapter_offset and retained.upload_verified==false)
+    local roundtrip=assert(source_index:capture(document:getXPointer()))
+    assert(roundtrip.co==position.chapter_offset)
+    report.source_navigation_roundtrip=true
+    local after=assert(plugin.progress_sync:capture_local())
+    assert(after.chapter_offset==legacy.chapter_offset and after.source_position.basis==basis
+        and after.source_position.chapter_offset==position.chapter_offset and after.chapter_offset~=position.chapter_offset)
+    report.legacy_progress_units_preserved=true
     local checkpoint={file=document.file,xpointer=document:getXPointer(),page=reader:getCurrentPage()}
     local file=assert(io.open(checkpoint_path,'wb'));assert(file:write(json.encode(checkpoint)));file:close()
     report.phase='close'

@@ -138,4 +138,28 @@ eq(pair_point,nil)
 eq(pair_error,"source_coordinates/inside_entity_or_scalar")
 eq(assert(pair_map:locate_point("XY1234567890abcdefghijklmnop",2)).co,15)
 
+local txt_raw='\239\187\191prefix \r\n  <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'
+local txt_map=assert(Source.build(txt_raw,{format='web_txt'}))
+local literal='<tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'
+eq(txt_map.basis,'raw_txt_utf16')
+eq(txt_map.flat,'\239\187\191prefix'..literal)
+local txt_point=assert(txt_map:locate(literal))
+eq(txt_point.co,12)
+eq(txt_point.end_co,46)
+eq(txt_point.basis,'raw_txt_utf16')
+for _i,case in ipairs({{0,12},{10,22},{11,24},{13,26},{33,46}}) do
+    local value=assert(txt_map:locate_point(literal,case[1]))
+    eq(value.co,case[2]);eq(value.basis,'raw_txt_utf16')
+    local txt_reverse=assert(txt_map:anchor(value.co))
+    eq(txt_reverse.basis,'raw_txt_utf16')
+    eq(assert(txt_map:locate_point(txt_reverse.text,txt_reverse.point_offset)).co,value.co)
+end
+eq(select(2,txt_map:anchor(23)),'source_coordinates/inside_entity_or_scalar')
+eq(assert(txt_map:anchor(19)).co,19) -- Literal entity letters have their own source boundaries.
+for _i,bad in ipairs({'','\0','\1','\12','\237\160\128','\255',string.rep('x',Source.MAX_BYTES+1)}) do
+    eq(Source.build(bad,{format='web_txt'}),nil)
+end
+eq(Source.build(txt_raw),nil) -- No implicit format sniffing.
+eq(Source.build(txt_raw,{format='unknown'}),nil)
+
 print("source_coordinates_spec: " .. checks .. " checks")

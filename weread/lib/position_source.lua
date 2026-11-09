@@ -10,6 +10,15 @@ local RECEIPT_KEYS = { "schema", "book_id", "chapter_uid", "format", "raw_bytes"
 local META_KEYS = { "schema", "book_id", "chapter_uid", "format", "raw_bytes", "raw_sha256", "capture_id",
     "book_version", "file_id", "render_path", "render_sha256" }
 
+-- Local coordinate models only. Neither basis grants cloud upload rights.
+function M.coordinate_basis(format)
+    if format == 'web_xhtml' then return 'filtered_xhtml_utf16' end
+    if format == 'web_txt' then return 'raw_txt_utf16' end
+end
+function M.is_coordinate_basis(basis)
+    return basis == 'filtered_xhtml_utf16' or basis == 'raw_txt_utf16'
+end
+
 local function hash(value)
     return type(value) == "string" and #value == 64 and value:match("^[0-9a-f]+$") ~= nil
 end

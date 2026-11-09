@@ -20,9 +20,12 @@ def main():
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
     parser.add_argument("--dpi", type=int, default=167)
+    parser.add_argument('--source-format', choices=('web_xhtml','web_txt'), default='web_xhtml')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
         parser.error("screen dimensions and DPI must be positive")
+    if args.source_format != 'web_xhtml' and args.probe != 'source-state':
+        parser.error('--source-format web_txt requires --probe source-state')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     server = MockServer(0)
     if args.probe == 'cloud-source':
@@ -37,6 +40,7 @@ def main():
         thread.start()
         environment = os.environ | dict(KO_HOME=str(root / "profile"), WEREAD_EVIDENCE=str(root / "evidence"),
                                         XDG_RUNTIME_DIR=str(root / "xdg"),
+                                        WEREAD_TEST_SOURCE_FORMAT=args.source_format,
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                                         EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")

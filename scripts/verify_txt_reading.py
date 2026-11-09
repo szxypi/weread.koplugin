@@ -162,9 +162,13 @@ def main(argv=None):
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-id')
     parser.add_argument('--sample', type=int, choices=range(1, 17), default=8)
+    parser.add_argument('--coordinates', action='store_true')
+    parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if args.book_id and not args.saved_session:
         parser.error('--book-id requires --saved-session')
+    if args.lua_command is not None and (not args.lua_command or not args.coordinates or not args.saved_session):
+        parser.error('--lua-command requires --saved-session --coordinates; put it last')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   account_data_writes_attempted=0, purchase_or_trial_requests=0,
                   private_source_saved=False, credentials_written_to_files=False)
@@ -188,6 +192,9 @@ def main(argv=None):
                 report.update(result='TXT_READ_CONTRACT_VERIFIED', fallback_marker_verified=True, same_book_chapter=True,
                               plain_bytes=len(plain.encode()), plain_utf16_units=len(plain.encode('utf-16-le'))//2,
                               t1_present=bool(web.sample['shards'][1]), raw_text_kept_in_memory=True)
+                if args.coordinates:
+                    from txt_coordinates import verify_sample
+                    report.update(verify_sample(plain, args.lua_command))
             else:
                 report.update(result='NO_TXT_IN_BOUNDED_SAMPLE', txt_read_contract_verified=False)
     except (StoreError, PreflightError, ContextError, TxtError, ValueError, TypeError):

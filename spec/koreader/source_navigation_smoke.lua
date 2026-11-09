@@ -16,7 +16,7 @@ return function(reader,plugin,pump,evidence)
     local point=assert(reference.map:locate('第22章第8段：阅读状态必须来自当前文档，后台任务不能覆盖新的页面。'))
     local expected=assert(reference:locate(point.co))
     local snapshot=assert(Source.document_metadata(doc,'900001','22'))
-    local target={book_id='900001',chapter_uid='22',chapter_offset=point.co,basis='filtered_xhtml_utf16',upload_verified=false}
+    local target={book_id='900001',chapter_uid='22',chapter_offset=point.co,basis=Source.coordinate_basis(snapshot.record.format),upload_verified=false}
     for _,key in ipairs({'file_id','book_version','raw_sha256','render_path'}) do target[key]=snapshot.record[key] end
     local native_read=doc.getDocumentFileContent
     doc.getDocumentFileContent=function(self,name)

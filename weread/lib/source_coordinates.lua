@@ -3,6 +3,7 @@
 -- (AGPL-3.0-only), with retained-tag resets rather than raw-XHTML extrapolation.
 -- Pure local mapping: no network, persistence or progress-upload activation.
 local M = { MAX_BYTES = 2 * 1024 * 1024, MAX_ANCHOR_BYTES = 8192, SCHEMA = 1 }
+local Source = require('weread.lib.position_source')
 local Map = {}
 Map.__index = Map
 local retained = {}
@@ -175,7 +176,7 @@ local function parse(raw, options)
 end
 
 function Map:_token(text, at)
-    if text:sub(at, at) == "&" and text:sub(at + 1, at + 1):match("[%a#]") then
+    if not self.literal and text:sub(at, at) == "&" and text:sub(at + 1, at + 1):match("[%a#]") then
         local ending = text:find(";", at + 1, true)
         if not ending or ending - at > 64 then fail("invalid_entity") end
         local entity = text:sub(at, ending)
@@ -186,6 +187,7 @@ function Map:_token(text, at)
         return clean, ending + 1, ending - at + 1
     end
     local cp, width, n = scalar(text, at)
+    if self.literal and cp < 32 and cp ~= 9 and cp ~= 10 and cp ~= 13 then fail('invalid_xml_control') end
     return whitespace(cp) and "" or text:sub(at, at + width - 1), at + width, n
 end
 
@@ -256,7 +258,7 @@ function Map:locate(text, before, after)
         end
         if not selected then fail("anchor_missing") end
         selected.co, selected.end_co = self:_point(selected.first), self:_point(selected.last, true)
-        selected.basis = "filtered_xhtml_utf16"
+        selected.basis = self.basis
         return selected
     end)
     if ok then return result end
@@ -279,7 +281,7 @@ function Map:locate_point(text, point_offset, before, after)
             for _i = 1, point_offset do local width = select(2, scalar(clean, at)) at = at + width end
             co = self:_point(found.first + at - 1)
         end
-        return { co = co, point_offset = point_offset, basis = "filtered_xhtml_utf16" }
+        return { co = co, point_offset = point_offset, basis = self.basis }
     end)
     if ok then return result end
     return nil, type(result) == "string" and result:match("^source_coordinates/[a-z_]+$") or "source_coordinates/unavailable"
@@ -333,7 +335,7 @@ function Map:anchor(co)
                 local at, offset = first, 0
                 while at < byte do local size = select(2, scalar(self.flat, at)) at, offset = at + size, offset + 1 end
                 return { co = co, text = quote, point_offset = offset, point_unit = "unicode_scalars",
-                    basis = "filtered_xhtml_utf16" }
+                    basis = self.basis }
             elseif reason ~= "source_coordinates/anchor_too_short" and reason ~= "source_coordinates/anchor_ambiguous" then
                 fail("reverse_anchor_unavailable")
             end
@@ -346,7 +348,15 @@ end
 
 function M.build(raw, options)
     local ok, result = pcall(function()
-        local map = parse(raw, options)
+        local format = options and options.format or 'web_xhtml'
+        local basis = Source.coordinate_basis(format)
+        if not basis then fail('invalid_source') end
+        local map
+        if format == 'web_txt' then
+            if type(raw) ~= 'string' or #raw == 0 or #raw > M.MAX_BYTES then fail('invalid_source') end
+            map = setmetatable({segments={{0,raw}}, literal=true}, Map)
+        else map = parse(raw, options) end
+        map.basis = basis
         map:_index()
         return map
     end)

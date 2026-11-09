@@ -104,8 +104,17 @@ local _,_,failing_doc=fixture(raw,text)
 failing_doc.getHTMLFromXPointer=function() error('private DOM diagnostic') end
 local failure,failure_reason=Dom.open(failing_doc,'synthetic-dom',11)
 expect(not failure and failure_reason=='source_dom/native_failure','native diagnostic leaked')
-local unsupported,unsupported_reason=fixture('plain text original',text,{format='web_txt'})
-expect(not unsupported and unsupported_reason=='source_dom/format_unsupported','TXT activated as XHTML coordinates')
+local txt_plain='\239\187\191literal <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST\r\n第二段跨行定位正文内容必须足够长。'
+local txt_index,txt_reason=fixture(txt_plain,txt_plain,{format='web_txt'})
+expect(txt_index,txt_reason)
+local txt_map=assert(Coordinates.build(txt_plain,{format='web_txt'}))
+local txt_target=assert(txt_map:locate('literal<tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'))
+local txt_located,txt_why=txt_index:locate(txt_target.co)
+expect(txt_located,txt_why)
+expect(assert(txt_index:capture(txt_located.xpointer)).co==txt_target.co,'TXT DOM roundtrip changed raw source position')
+local txt_anchor=assert(txt_map:anchor(txt_target.co))
+txt_anchor.basis='filtered_xhtml_utf16'
+expect(not txt_index:locate_anchor(txt_anchor),'XHTML basis was accepted for a TXT source')
 local changed,changed_err,changed_doc,changed_archive=fixture(raw,text)
 expect(changed,changed_err)
 local old_identity=changed_archive[Identity.PATH]

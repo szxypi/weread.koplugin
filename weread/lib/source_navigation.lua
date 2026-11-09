@@ -19,7 +19,7 @@ local function copy_position(value)
     return result
 end
 local function valid_offset(position)
-    return type(position)=='table' and position.basis=='filtered_xhtml_utf16' and position.upload_verified==false
+    return type(position)=='table' and Source.is_coordinate_basis(position.basis) and position.upload_verified==false
         and type(position.chapter_offset)=='number' and position.chapter_offset>=0
         and position.chapter_offset%1==0 and position.chapter_offset<=Source.MAX_BYTES*8
 end
@@ -156,7 +156,7 @@ function Navigation:_prepare(job)
             for _,key in ipairs(fields) do if position[key]~=job.scope.position[key] then valid=false end end
         end
         if not valid or type(anchor.text)~='string' or #anchor.text>8192 or anchor.co~=position.chapter_offset
-            or anchor.basis~='filtered_xhtml_utf16' or anchor.point_unit~='unicode_scalars'
+            or anchor.basis~=position.basis or anchor.point_unit~='unicode_scalars'
             or type(anchor.point_offset)~='number' or anchor.point_offset<0 or anchor.point_offset%1~=0 or anchor.point_offset>8192 then
             self:_finish(job,nil,'target_unavailable');return
         end
@@ -175,6 +175,7 @@ function Navigation:jump(position,callback)
     local snapshot=Source.document_metadata(document,position.book_id,position.chapter_uid,position.render_path)
     local location=Context.location(document,self.get_mode())
     if not snapshot or not location then return false,'source_unavailable' end
+    if position.basis~=Source.coordinate_basis(snapshot.record.format) then return false,'target_changed' end
     for _,key in ipairs({'book_id','chapter_uid','file_id','book_version','raw_sha256','render_path'}) do
         if position[key]~=snapshot.record[key] then return false,'target_changed' end
     end

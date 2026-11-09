@@ -144,4 +144,20 @@ expect(cancelled==1,'navigation cancellation did not notify its owner once')
 owned=fixture();cancelled=0;owned.nav.on_cancel=function() cancelled=cancelled+1 end
 assert(owned.jump());owned.drain();owned.worker.jobs[1].callback(owned.packet());owned.drain()
 expect(owned.nav.state=='ready' and cancelled==0,'successful navigation used cancellation cleanup')
+raw='literal <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+source=assert(Source.capture(book,chapter,raw,'web_txt'))
+root=Identity.encode(book,{chapter},Identity.capture(book),Crypto.sha256_hex(raw))
+identity=assert(Identity.decode(root))
+metadata=assert(Source.bind(source,identity,path,Crypto.sha256_hex(raw)))
+target=clone(target);target.file_id=identity.file_id;target.raw_sha256=source.raw_sha256;target.basis='raw_txt_utf16'
+anchor=assert(assert(Coordinates.build(raw,{format='web_txt'})):anchor(32))
+local txt_nav=fixture();assert(txt_nav.jump());txt_nav.drain()
+txt_nav.worker.jobs[1].callback(txt_nav.packet());txt_nav.drain()
+expect(txt_nav.nav.state=='ready' and txt_nav.binds[1].position.basis=='raw_txt_utf16','TXT target did not navigate with its own basis')
+local wrong_basis=clone(target);wrong_basis.basis='filtered_xhtml_utf16'
+local rejected=fixture();expect(not rejected.jump(wrong_basis),'XHTML target activated on TXT receipt')
+local wrong_anchor=fixture();assert(wrong_anchor.jump());wrong_anchor.drain()
+local wrong_packet=wrong_anchor.packet();wrong_packet.anchor.basis='filtered_xhtml_utf16'
+wrong_anchor.worker.jobs[1].callback(wrong_packet);wrong_anchor.drain()
+expect(wrong_anchor.nav.state=='unavailable' and #wrong_anchor.binds==0,'TXT worker accepted mismatched anchor basis')
 print(('source_navigation_spec: %d checks'):format(checks))

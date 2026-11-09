@@ -11,7 +11,7 @@ local payload = json.decode(input)
 assert(type(payload) == "table" and type(payload.sources) == "table" and #payload.sources <= 64, "invalid probe input")
 local maps = json.array{}
 for index, source in ipairs(payload.sources) do
-    local map = assert(Source.build(source.html))
+    local map = assert(Source.build(source.html,{format=source.format or 'web_xhtml'}))
     local positions, scalar_positions = json.array{}, json.array{}
     for query, quote in ipairs(source.queries) do
         local position = assert(map:locate(quote))
@@ -30,7 +30,7 @@ for index, source in ipairs(payload.sources) do
         local roundtrip = assert(map:locate_point(target.text, target.point_offset))
         assert(roundtrip.co == source.target_co, "current target did not roundtrip")
     end
-    maps[index] = { segments = json.array(map.segments), flat = map.flat, positions = positions,
+    maps[index] = { basis=map.basis, segments = json.array(map.segments), flat = map.flat, positions = positions,
         scalar_positions = scalar_positions, target_anchor = target }
 end
 io.stdout:write(json.encode({ maps = maps }))

@@ -155,7 +155,7 @@ function ProgressSync:accept_cloud_source_target(position)
     if type(position)~='table' or position.basis~='filtered_xhtml_utf16' or position.upload_verified~=false
         or position.book_id~=tostring(self.detect_book() or '') then return false end
     local held=self:current_source_target()
-    if not held then return false end
+    if not held or held.basis~=position.basis then return false end
     for _,key in ipairs({'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path'}) do
         if held[key]~=position[key] then return false end
     end
@@ -353,13 +353,14 @@ end
 -- Only a target already tied to this exact EPUB may be pinned. This does not
 -- interpret cloud payloads, change outer progress units, or grant upload rights.
 function ProgressSync:retain_source_target(position, xpointer, metadata)
-    if type(position) ~= "table" or position.basis ~= "filtered_xhtml_utf16" or position.upload_verified ~= false
+    if type(position) ~= "table" or not Source.is_coordinate_basis(position.basis) or position.upload_verified ~= false
         or type(position.chapter_offset) ~= "number" or position.chapter_offset < 0
         or position.chapter_offset % 1 ~= 0 or position.chapter_offset > Source.MAX_BYTES * 8 then return false end
     local document = self.get_document()
     local book_id = tostring(self.detect_book() or "")
     local snapshot = Source.document_metadata(document, book_id, position.chapter_uid, position.render_path)
     if not snapshot or snapshot.metadata ~= metadata then return false end
+    if position.basis ~= Source.coordinate_basis(snapshot.record.format) then return false end
     for _, key in ipairs({"book_id", "chapter_uid", "file_id", "book_version", "raw_sha256", "render_path"}) do
         if position[key] ~= snapshot.record[key] then return false end
     end
@@ -367,7 +368,7 @@ function ProgressSync:retain_source_target(position, xpointer, metadata)
     local frame = self:_viewport(document)
     if not member or member.render_path ~= position.render_path
         or not ReaderPosition.contains_anchor(document, frame, member.xpointer) then return false end
-    local accepted = { retained_source_target = true, basis = "filtered_xhtml_utf16", upload_verified = false }
+    local accepted = { retained_source_target = true, basis = position.basis, upload_verified = false }
     for _, key in ipairs({"book_id", "chapter_uid", "chapter_offset", "file_id", "book_version", "raw_sha256", "render_path"}) do
         accepted[key] = position[key]
     end

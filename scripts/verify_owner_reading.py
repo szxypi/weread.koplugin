@@ -7,6 +7,7 @@ authentication POST is permitted. The default never opens credentials/network.
 """
 import argparse
 from datetime import datetime, timezone
+import hashlib
 from html.parser import HTMLParser
 import json
 import re
@@ -21,7 +22,9 @@ from verify_reader_progress import project as project_progress
 
 FRAME = b'\nWEREAD_OWNER_READING_RESULT='
 FLAGS = {'anonymous_auth', 'transport_guard_selftest', 'plugin_selection', 'native_reader',
-         'source_text_visible', 'source_receipt_verified', 'page_turn', 'position_checkpoint', 'credential_file_audit', 'workers_reaped'}
+         'source_text_visible', 'source_receipt_verified', 'local_source_position_verified',
+         'source_navigation_roundtrip', 'source_dialog_verified', 'legacy_progress_units_preserved',
+         'page_turn', 'position_checkpoint', 'credential_file_audit', 'workers_reaped'}
 COUNTS = {'shelf_books': 5000, 'pages': 100000, 'profile_files_audited': 1024,
           'failed_line': 1000, 'screenshots': 1, 'last_http_status': 599, 'denied_kind': 7,
           'denied_route': 10, 'denied_flags': 511}
@@ -152,11 +155,15 @@ class ReadingPreflight(WebSourceProbe):
         if not self.report.get('cloud_position_stable') or not self.report.get('catalog_stable'):
             raise PreflightError('reading_baseline_changed')
         parser = SourceText()
-        parser.feed(decode_content_shards(*(self.shards[k] for k in ('e_0', 'e_1', 'e_3'))))
+        source = decode_content_shards(*(self.shards[k] for k in ('e_0', 'e_1', 'e_3')))
+        parser.feed(source)
         if not parser.samples:
             raise PreflightError('reading_no_text_sample')
+        from verify_source_coordinates import FilteredSource
         return dict(book_id=self.book_id, chapter_uid=self.chapter, source_text=parser.samples[0],
-                    shelf_ids=self.shelf_ids, shelf_books=self.report['shelf_book_count'], source_format='web_xhtml')
+                    shelf_ids=self.shelf_ids, shelf_books=self.report['shelf_book_count'], source_format='web_xhtml',
+                    source_raw_sha256=hashlib.sha256(source.encode()).hexdigest(),
+                    source_sample_offset=FilteredSource(source).locate(parser.samples[0])[0])
 
 
 class TxtReadingPreflight(TxtProbe):
@@ -193,8 +200,11 @@ class TxtReadingPreflight(TxtProbe):
         source = next((line[:32] for line in lines if len(line) >= 32), None)
         if source is None:
             raise PreflightError('reading_no_text_sample')
+        from txt_coordinates import PlainSource
         return dict(book_id=self.book_id, chapter_uid=self.chapter, source_text=source,
-                    shelf_ids=self.shelf_ids, shelf_books=self.shelf_count, source_format='web_txt')
+                    shelf_ids=self.shelf_ids, shelf_books=self.shelf_count, source_format='web_txt',
+                    source_raw_sha256=hashlib.sha256(sample['plain'].encode()).hexdigest(),
+                    source_sample_offset=PlainSource(sample['plain']).locate(source)[0])
 
 
 def main(argv=None):

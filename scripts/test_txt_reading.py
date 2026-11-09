@@ -3,6 +3,7 @@ from contextlib import redirect_stdout
 from copy import deepcopy
 import io
 import json
+import subprocess
 import unittest
 from unittest.mock import patch
 
@@ -10,11 +11,12 @@ from fetch_weread_epub import make_content_params
 from mock_weread import shards
 from test_web_source_progress import Opener
 import verify_txt_reading as txt
+from txt_coordinates import PlainSource, verify_sample, CoordinateError
 from verify_owner_reading import TxtReadingPreflight, reading_position
 
 BOOK = '900001'
 POINT = dict(bookId=BOOK, chapterUid=2, chapterOffset=10, progress=20)
-PLAIN = '\ufeffLiteral <tag> &amp; text must remain visible. 中文正文😀\r\n' * 12
+PLAIN = '\ufeff' + ''.join(f'{i:06d} Literal <tag> &amp; text must remain visible. 中文正文😀\r\n' for i in range(12))
 
 
 def catalog():
@@ -159,6 +161,12 @@ class TxtReadingTests(unittest.TestCase):
         with self.assertRaises(txt.TxtError): web.prepare()
         self.assertEqual(len(opener.calls), 3)
 
+    def test_ambiguous_source_sample_stops_before_native_acceptance(self):
+        values = rows(native=True)
+        values[5:7] = [part.encode() for part in shards(PLAIN + PLAIN, count=2)]
+        web, _opener = ready(values, native=True)
+        with self.assertRaises(CoordinateError): web.prepare()
+
     def test_unstarted_txt_uses_first_readable_chapter_without_cloud_write(self):
         values = rows(native=True)
         empty = dict(bookId=BOOK, chapterUid=0, chapterOffset=0, chapterIdx=0, progress=0)
@@ -182,6 +190,50 @@ class TxtReadingTests(unittest.TestCase):
         for change in (dict(errcode=-1), dict(offset=1), dict(chapterId=2), dict(chapterIdx=3)):
             with self.subTest(change=change), self.assertRaises(ValueError if 'chapterIdx' not in change else txt.PreflightError):
                 reading_position(dict(book=dict(empty, **change)), BOOK, allow_unstarted=True)
+
+
+class TxtCoordinateTests(unittest.TestCase):
+    def test_literal_tags_entities_bom_and_crlf_keep_original_widths(self):
+        raw = '\ufeffprefix \r\n  <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'
+        with patch('txt_coordinates.SourceText.__init__', side_effect=AssertionError('must not parse TXT as HTML')):
+            model = PlainSource(raw)
+        quote = '<tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'
+        self.assertEqual(model.locate(quote), (12, 46))
+        self.assertEqual(model.flat, '\ufeffprefix' + quote)
+        self.assertEqual([model.locate_point(quote, n) for n in (0,10,11,13,33)], [12,22,24,26,46])
+
+    def test_invalid_text_and_xml_controls_are_rejected(self):
+        for raw in ('', '\0', '\x01', '\x0c', '\ud800', 'x'*(2*1024*1024+1)):
+            with self.subTest(size=len(raw)), self.assertRaises(CoordinateError): PlainSource(raw)
+
+    def test_repeated_text_does_not_choose_first_match(self):
+        with self.assertRaises(CoordinateError): PlainSource(PLAIN + PLAIN).locate('Literal <tag> &amp; text')
+
+    def test_scalar_point_rejects_non_integer_or_outside_anchor(self):
+        model = PlainSource(PLAIN)
+        for value in (True, 1.5, -1, 999, '1'):
+            with self.subTest(value=value), self.assertRaises(CoordinateError): model.locate_point('Literal <tag> &amp; text', value)
+
+    def test_default_model_check_never_starts_lua_or_claims_cloud_semantics(self):
+        with patch('txt_coordinates.subprocess.run') as child:
+            value = verify_sample('Unique literal <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST')
+        child.assert_not_called()
+        self.assertEqual(value['txt_coordinate_basis'], 'raw_txt_utf16')
+        self.assertFalse(value['cloud_coordinate_semantics_verified'])
+        self.assertFalse(value['precision_wire_sync_enabled'])
+
+    def test_private_child_output_and_failures_are_not_exposed(self):
+        from types import SimpleNamespace
+        for response in (SimpleNamespace(returncode=1,stdout='private source'),
+                         SimpleNamespace(returncode=0,stdout='private source'),
+                         SimpleNamespace(returncode=0,stdout='{"maps":[]}')):
+            with patch('txt_coordinates.subprocess.run', return_value=response), self.assertRaises(CoordinateError) as caught:
+                verify_sample('Unique literal <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST', ['synthetic'])
+            self.assertNotIn('private', str(caught.exception))
+        with patch('txt_coordinates.subprocess.run', side_effect=subprocess.TimeoutExpired('private source',60)), \
+                self.assertRaises(CoordinateError) as caught:
+            verify_sample('Unique literal <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST', ['synthetic'])
+        self.assertNotIn('private', str(caught.exception))
 
 
 if __name__ == '__main__':

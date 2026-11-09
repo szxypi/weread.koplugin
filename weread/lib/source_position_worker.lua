@@ -51,7 +51,7 @@ local function verified_source(input, read_archive)
     if not record or record.book_id ~= input.book_id or record.chapter_uid ~= input.chapter_uid
         or record.render_path ~= input.render_path or record.file_id ~= input.identity.file_id
         or record.book_version ~= input.identity.book_version then return nil, 'source_unavailable' end
-    if record.format ~= 'web_xhtml' then return nil, 'source_unsupported' end
+    if not Source.coordinate_basis(record.format) then return nil, 'source_unsupported' end
     local alias, raw_path = Source.path_meta_path(record.render_path), Source.raw_path(record.raw_sha256)
     local members = (read_archive or Archive.read)(input.file, {
         [Identity.PATH]=Identity.MAX_BYTES, [alias]=Source.MAX_META_BYTES,
@@ -65,7 +65,7 @@ local function verified_source(input, read_archive)
     local verified = Source.verify_snapshot({ metadata=members[alias], identity=identity,
         book_id=input.book_id, chapter_uid=input.chapter_uid, raw=members[raw_path], rendered=members[record.render_path] })
     if not verified then return nil, 'source_changed' end
-    local map = Coordinates.build(verified.raw)
+    local map = Coordinates.build(verified.raw,{format=record.format})
     if not map then return nil, 'source_unsupported' end
     return { record=record, map=map, title=chapter_title(members[record.render_path]) }
 end
@@ -74,7 +74,7 @@ local function position(prepared, co)
     return { book_id=record.book_id, chapter_uid=record.chapter_uid, chapter_offset=co,
         file_id=record.file_id, book_version=record.book_version, raw_sha256=record.raw_sha256,
         chapter_title=prepared.title, render_path=record.render_path,
-        basis='filtered_xhtml_utf16', upload_verified=false }
+        basis=prepared.map.basis, upload_verified=false }
 end
 function M.capture(input, read_archive)
     local ok, result = pcall(function()
@@ -99,12 +99,13 @@ end
 function M.prepare_target(input, read_archive)
     local ok, result = pcall(function()
         local target = type(input) == 'table' and input.target
-        if type(target) ~= 'table' or target.basis ~= 'filtered_xhtml_utf16'
+        if type(target) ~= 'table' or not Source.is_coordinate_basis(target.basis)
             or target.upload_verified ~= false or type(target.chapter_offset) ~= 'number'
             or target.chapter_offset < 0 or target.chapter_offset % 1 ~= 0
             or target.chapter_offset > Source.MAX_BYTES * 8 then return {error='target_invalid'} end
         local prepared, why = verified_source(input, read_archive)
         if not prepared then return {error=why} end
+        if target.basis ~= prepared.map.basis then return {error='target_changed'} end
         for _, key in ipairs({'book_id','chapter_uid','file_id','book_version','raw_sha256','render_path'}) do
             if target[key] ~= prepared.record[key] then return {error='target_changed'} end
         end

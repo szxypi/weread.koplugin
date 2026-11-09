@@ -146,7 +146,7 @@ function Service:_launch(job)
         if type(position)~='table' or result.request_id~=input.request_id or not record or position.book_id~=job.scope.book_id
             or position.file_id~=job.scope.identity.file_id or position.chapter_uid~=record.chapter_uid
             or position.raw_sha256~=record.raw_sha256 or position.render_path~=record.render_path
-            or position.book_version~=record.book_version or position.basis~='filtered_xhtml_utf16'
+            or position.book_version~=record.book_version or position.basis~=Source.coordinate_basis(record.format)
             or position.upload_verified~=false or type(position.chapter_offset)~='number'
             or position.chapter_offset<0 or position.chapter_offset>Source.MAX_BYTES*8 or position.chapter_offset%1~=0 then
             self:_finish(job,nil,type(result)=='table' and result.error or 'position_unavailable')
