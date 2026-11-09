@@ -46,7 +46,10 @@ function M.capture(settings,book,article,path)
     if path:sub(1,#root+13)~=root..'/mp-articles/' then
         local legacy=Content.mp_article_legacy_path(settings,book,article)
         if path~=legacy and path~=legacy:gsub('%.html$','.epub') then fail() end
-        local stored=(settings:get('books',{})[book.book_id or book.bookId] or {}).mp_articles
+        local id=book.book_id or book.bookId
+        local saved
+        if settings.get_book then saved=settings:get_book(id) else saved=settings:get('books',{})[id] end
+        local stored=(saved or {}).mp_articles
         local allowed=Identity.legacy_allowed(book,article,stored or book.mp_articles,
             function(row) return Content.mp_article_legacy_path(settings,book,row) end)
         if not allowed or fs().symlinkattributes(path,'mode')~='file' then fail() end

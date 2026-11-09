@@ -18,13 +18,23 @@ local function own(host,key,widget)
     end
 end
 local function scope(host,book)
-    local record=host.settings:get('books',{})[book.book_id or book.bookId]
+    local id=book.book_id or book.bookId
+    local record
+    if host.settings.get_book then record=host.settings:get_book(id) else record=host.settings:get('books',{})[id] end
     return {account=host.library_db and host.library_db:accountKey() or false,epoch=host.discovery_epoch or 0,
         document=host.ui and host.ui.document or false,file=host.ui and host.ui.document and host.ui.document.file or false,
         session=host._reader_session_gen or false,cache=host.settings.cache_dir or false,record=record and record.cache_dir or false}
 end
+local function external_current(options)
+    if not options or not options.context_valid then return true end
+    local ok,value=pcall(options.context_valid);return ok and value
+end
 local function current(host,job)
     if host.mp_records_job~=job then return false end
+    if job.context_valid then
+        local ok,valid=pcall(job.context_valid)
+        if not ok or not valid then return false end
+    end
     local now=scope(host,job.book)
     for key,value in pairs(job.owner) do if now[key]~=value then return false end end
     return Model.matches(host.settings,job.book,job.article,job.input)
@@ -84,7 +94,7 @@ local function apply(host,job,id)
         if not restored or not good then stop(host);return end
         local published,complete=pcall(stage.publish_deferred,stage)
         if not published or not complete then stop(host);return end
-        host.mp_records_job=nil;clear_busy(host,job);host:openFile(path)
+        host.mp_records_job=nil;clear_busy(host,job);job.open_file(path)
     end)
     if not active or not started then stop(host);return end
     job.pid=host.mp_records_worker.job and host.mp_records_worker.job.pid
@@ -127,8 +137,10 @@ local function preview(host,job,rows)
     items[#items+1]={text=_('About reading record recovery'),callback=function() if host._mp_records_menu==menu and current(host,job) then host:showInfo(_(warning)) end end}
     menu=host:showList(_('Recover reading records'),items);own(host,'_mp_records_menu',menu)
 end
-function M.show(host,book,article,path,automatic)
+function M.show(host,book,article,path,automatic,options)
     M.cancel(host)
+    if not external_current(options) then return false end
+    local open_file=options and options.open_file or function(selected) return host:openFile(selected) end
     local captured,input=pcall(Model.capture,host.settings,book,article,path)
     if not captured or not input then failed(host);return false end
     local frozen,rows=pcall(Model.freeze,input)
@@ -142,7 +154,7 @@ function M.show(host,book,article,path,automatic)
         end
     end)
     if not ok then failed(host);return false end
-    if automatic and #rows==0 and (not store or not store:exists()) then host:openFile(input.path);return true end
+    if automatic and #rows==0 and (not store or not store:exists()) then open_file(input.path);return true end
     -- Menus and ordinary KOReader saves may flush/migrate the open document.
     -- Commit its bounded snapshots before closing widgets or yielding to them.
     local preserved,good=pcall(Model.preserve,store,input,rows)
@@ -150,7 +162,8 @@ function M.show(host,book,article,path,automatic)
     host:closeWeReadUI()
     local owner=scope(host,book)
     if owner.account~=prior.account or not Model.matches(host.settings,book,article,input) then failed(host);return false end
-    local job={book=book,article=article,input=input,owner=owner,started=os.time(),store=store}
+    local job={book=book,article=article,input=input,owner=owner,started=os.time(),store=store,
+        open_file=open_file,context_valid=options and options.context_valid}
     host.mp_records_job=job
     busy(host,job,_('Preserving reading records…\nTap or press a key to cancel.'))
     if not host.mp_records_worker then
@@ -171,17 +184,21 @@ function M.show(host,book,article,path,automatic)
         end
         if #result.rows==0 then
             host.mp_records_job=nil
-            if automatic then host:openFile(input.path) else host:showInfo(_('No saved reading records for this article.')) end
+            if automatic then open_file(input.path) else host:showInfo(_('No saved reading records for this article.')) end
         else preview(host,job,result.rows) end
     end)
     if not active or not started then stop(host);return false end
     job.pid=host.mp_records_worker.job and host.mp_records_worker.job.pid
     return true
 end
-function M.open(host,book,article,path)
+function M.open(host,book,article,path,options)
+    if not external_current(options) then return false end
     local ok,input,reason=pcall(Model.capture,host.settings,book,article,path)
     if not ok then failed(host);return false end
-    if reason=='legacy' or input and input.stamped and not input.legacy then host:openFile(path);return true end
-    return M.show(host,book,article,path,true)
+    if reason=='legacy' or input and input.stamped and not input.legacy then
+        if options and options.open_file then options.open_file(path) else host:openFile(path) end
+        return true
+    end
+    return M.show(host,book,article,path,true,options)
 end
 return M

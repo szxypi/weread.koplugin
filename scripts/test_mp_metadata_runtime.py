@@ -7,6 +7,8 @@ used. A second process reopens every version using its saved location.
 of the default normal-location migration cases. It does not enable a product UI.
 --record-recovery exercises the native product dialogs, storage and reader handoff.
 --legacy-title checks title-based HTML, bitmap relocation and record recovery.
+--legacy-epub checks EPUB identity without changing original member payloads.
+--file-manager checks native file rows, providers, callbacks and record choices.
 """
 import argparse
 import io
@@ -19,6 +21,7 @@ import struct
 import threading
 import warnings
 import zipfile
+import zlib
 
 from mock_weread import MockServer, prepare
 
@@ -87,6 +90,27 @@ def epub_cases(root):
     (directory/'cases.json').write_text(json.dumps(cases)+'\n')
 
 
+def filemanager_seed(root):
+    def chunk(kind, data):
+        return struct.pack('>I', len(data))+kind+data+struct.pack('>I', zlib.crc32(kind+data) & 0xffffffff)
+    pixels = (b'\0'+b'\0'*24+b'\xff'*24)*48
+    png = b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR', struct.pack('>IIBBBBB', 48, 48, 8, 0, 0, 0, 0))
+    png += chunk(b'IDAT', zlib.compress(pixels))+chunk(b'IEND', b'')
+    (root/'evidence/fm-seed.png').write_bytes(png)
+    paragraph = '<p>这是文件管理器打开流程的合成 EPUB。原始章节、图片和阅读记录完整保留，继续阅读山谷中的故事。</p>'
+    body = '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>文件管理器</title></head><body><h1>FM_EPUB_TEXT</h1><p><img src="image.png" width="48" height="48"/></p>'+paragraph*300+'</body></html>'
+    entries = {
+        'META-INF/container.xml': '<container xmlns="urn:oasis:names:tc:opendocument:xmlns:container" version="1.0"><rootfiles><rootfile full-path="EPUB/package.opf" media-type="application/oebps-package+xml"/></rootfiles></container>',
+        'EPUB/package.opf': '<package xmlns="http://www.idpf.org/2007/opf" version="3.0" unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="id">synthetic-filemanager</dc:identifier><dc:title>文件管理器 EPUB</dc:title><dc:language>zh-CN</dc:language></metadata><manifest><item id="article" href="article.xhtml" media-type="application/xhtml+xml"/><item id="png" href="image.png" media-type="image/png"/></manifest><spine><itemref idref="article"/></spine></package>',
+        'EPUB/article.xhtml': body,
+        'EPUB/image.png': png,
+    }
+    with zipfile.ZipFile(root/'evidence/fm-seed.epub', 'w', zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr('mimetype', b'application/epub+zip', compress_type=zipfile.ZIP_STORED)
+        for name, value in entries.items():
+            archive.writestr(name, value)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader', type=Path, required=True)
@@ -98,8 +122,9 @@ def main():
     parser.add_argument('--record-recovery', action='store_true', help='exercise the native record-recovery product flow')
     parser.add_argument('--legacy-title', action='store_true', help='exercise title-based HTML recovery and images')
     parser.add_argument('--legacy-epub', action='store_true', help='exercise member-preserving EPUB record recovery')
+    parser.add_argument('--file-manager', action='store_true', help='exercise native FileManager article opening')
     args = parser.parse_args()
-    if sum((args.legacy_shared, args.record_recovery, args.legacy_title, args.legacy_epub)) > 1:
+    if sum((args.legacy_shared, args.record_recovery, args.legacy_title, args.legacy_epub, args.file_manager)) > 1:
         parser.error('select one metadata validation mode')
     if min(args.width, args.height, args.dpi) < 1:
         parser.error('display dimensions must be positive')
@@ -112,6 +137,8 @@ def main():
         prepare(root, runtime, server.server_port, args.width, args.height, args.dpi)
         if args.legacy_epub:
             epub_cases(root)
+        if args.file_manager:
+            filemanager_seed(root)
         (root / 'xdg').mkdir(mode=0o700)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
         thread.start()
@@ -119,9 +146,9 @@ def main():
                            XDG_RUNTIME_DIR=str(root / 'xdg'), EMULATE_READER='1', EMULATE_BW_SCREEN='1',
                            EMULATE_BB_TYPE='BB8', EMULATE_READER_W=str(args.width),
                            EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
-        probe = REPO / ('spec/koreader/mp_legacy_metadata.lua' if args.legacy_shared or args.record_recovery or args.legacy_title or args.legacy_epub else 'spec/koreader/mp_metadata_migration.lua')
-        phases = ('epub', 'epub-reopen') if args.legacy_epub else ('title', 'title-reopen') if args.legacy_title else ('product', 'product-reopen') if args.record_recovery else ('recover', 'reopen') if args.legacy_shared else ('migrate', 'reopen')
-        prefix = 'mp-epub-' if args.legacy_epub else 'mp-title-' if args.legacy_title else 'mp-records-' if args.record_recovery else 'mp-legacy-' if args.legacy_shared else 'mp-metadata-'
+        probe = REPO / ('spec/koreader/mp_legacy_metadata.lua' if args.legacy_shared or args.record_recovery or args.legacy_title or args.legacy_epub or args.file_manager else 'spec/koreader/mp_metadata_migration.lua')
+        phases = ('manager', 'manager-reopen') if args.file_manager else ('epub', 'epub-reopen') if args.legacy_epub else ('title', 'title-reopen') if args.legacy_title else ('product', 'product-reopen') if args.record_recovery else ('recover', 'reopen') if args.legacy_shared else ('migrate', 'reopen')
+        prefix = 'mp-manager-' if args.file_manager else 'mp-epub-' if args.legacy_epub else 'mp-title-' if args.legacy_title else 'mp-records-' if args.record_recovery else 'mp-legacy-' if args.legacy_shared else 'mp-metadata-'
         for phase in phases:
             log = root / 'evidence' / (prefix + phase + '.log')
             with log.open('w') as output:

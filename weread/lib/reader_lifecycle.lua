@@ -251,6 +251,14 @@ function M:onCloseDocument()
     self.read_report:on_close_document()
 end
 
+function M:onShowingReader()
+    require('weread.ui.mp_file_open').cancel(self)
+end
+
+function M:onCloseWidget()
+    require('weread.ui.mp_file_open').detach(self)
+end
+
 function M:showPrefetchNotice(text, timeout)
     if self.settings:get("cache").show_prefetch_notifications == false then
         return

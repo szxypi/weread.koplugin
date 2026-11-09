@@ -161,4 +161,19 @@ expect(state.opened=='/cache/version.epub' and not state.task,'independent EPUB 
 host,book,article=fixture();state.epub=true;state.legacy_epub=true;state.stage_bind_failed=true
 Recovery.open(host,book,article,'/cache/title.epub');deliver(host);choose(host).ok_callback()
 expect(not state.opened and not state.published and state.notice,'EPUB target binding failure published a copy')
+host,book,article=fixture();local selected
+local external={context_valid=function() return not state.external_closed end,open_file=function(path) selected=path end}
+Recovery.open(host,book,article,'/cache/old.html',external);deliver(host);choose(host).ok_callback();deliver(host)
+expect(selected=='/cache/new.html' and not state.opened,'external native opener was not used after record publication')
+host,book,article=fixture();state.external_closed=true
+expect(not Recovery.open(host,book,article,'/cache/old.html',external) and not state.task and not state.preserved,'stale external context started preservation')
+host,book,article=fixture();Recovery.open(host,book,article,'/cache/old.html',external);deliver(host)
+local external_dialog=choose(host);state.external_closed=true;external_dialog.ok_callback()
+expect(not state.stage_created and not state.opened,'closed external browser created a recovery copy')
+host,book,article=fixture();Recovery.open(host,book,article,'/cache/old.html',external);deliver(host);choose(host).ok_callback()
+state.external_closed=true;deliver(host)
+expect(not state.restored and not state.published and not state.opened and state.cleaned,'late external result committed after its browser closed')
+host,book,article=fixture();state.rows={};state.no_history=true
+Recovery.open(host,book,article,'/cache/original.html',external)
+expect(selected=='/cache/original.html' and not state.opened,'no-record external read lost its native opener')
 print('PASS: native record recovery choice, ownership, failure and cancellation ('..checks..' checks)')
