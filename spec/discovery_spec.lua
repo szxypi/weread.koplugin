@@ -114,6 +114,7 @@ package.preload["weread.ui.library_view"] = function()
 end
 plugin.settings = { get = function() return { a = { book_id = "a", cached_chapters = {} } } end }
 plugin.getShelfCoverCache = function() return { pathFor = function() return nil end } end
+plugin.cancelShelfCovers = function(self) self.shelf_cover_generation=(self.shelf_cover_generation or 0)+1 end
 plugin.isBookDownloaded = function() return true end
 plugin.fetchVisibleShelfCovers = function(_self, _view, _books, options) fetched = options end
 plugin.openBookForReading = function(_self, book) opened = book end

@@ -4,6 +4,7 @@ import json
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import ProxyHandler, Request, build_opener
 
@@ -46,6 +47,29 @@ class MockTests(unittest.TestCase):
     def setUp(self):
         self.request("/__control", dict(delay=0, match="", status=503, times=0,
                                         empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1))
+
+    def test_active_requests_track_delayed_transport_and_route_failure(self):
+        entered,release=threading.Event(),threading.Event()
+        original=self.server.route
+        def held(method,target,data):
+            if target=='https://weread.qq.com/mock/cover.png':
+                entered.set()
+                if not release.wait(3):raise ValueError('synthetic route gate timed out')
+            return original(method,target,data)
+        results=[]
+        worker=threading.Thread(target=lambda: results.append(self.request('/mock/cover.png')))
+        with patch.object(self.server,'route',side_effect=held):
+            worker.start()
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertEqual(self.request('/__state')[1]['active_requests'].get('https://weread.qq.com/mock/cover.png'),1)
+            finally:
+                release.set();worker.join(timeout=3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(results[0][0],200)
+        self.assertEqual(self.request('/__state')[1]['active_requests'],{})
+        self.assertEqual(self.request('/not-implemented')[0],501)
+        self.assertEqual(self.request('/__state')[1]['active_requests'],{})
 
     def test_mp_article_versions_keep_identity(self):
         code, first = self.request('/web/mp/content?reviewId=background-fixture')

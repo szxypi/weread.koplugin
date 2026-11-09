@@ -155,6 +155,7 @@ class MockServer(ThreadingHTTPServer):
         self.log_path = log_path
         self.events = deque(maxlen=500)
         self.request_totals = Counter()
+        self.active_requests = Counter()
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0,
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1)
@@ -457,7 +458,8 @@ class Handler(BaseHTTPRequestHandler):
                 with self.server.lock:
                     totals = [dict(path=path, api=api, count=count) for (path, api), count in self.server.request_totals.items()]
                     status, result = 200, dict(control=self.server.control.copy(), requests=list(self.server.events),
-                                              totals=totals, progress=self.server.progress.copy())
+                                              totals=totals, active_requests=dict(self.server.active_requests),
+                                              progress=self.server.progress.copy())
             elif path.path == "/__control" and self.command == "POST":
                 self.set_control(data)
                 status, result = 200, dict(ok=True)
@@ -466,7 +468,15 @@ class Handler(BaseHTTPRequestHandler):
                     target = parse_qs(path.query)["url"][0]
                 else:
                     target = "https://weread.qq.com" + self.path
-                routed = self.server.route(self.command, target, data)
+                with self.server.lock:
+                    self.server.active_requests[target] += 1
+                try:
+                    routed = self.server.route(self.command, target, data)
+                finally:
+                    with self.server.lock:
+                        self.server.active_requests[target] -= 1
+                        if not self.server.active_requests[target]:
+                            del self.server.active_requests[target]
                 status, result = routed[:2]
                 if len(routed) == 3: extra_headers = routed[2]
         except (ValueError, KeyError, TypeError, StopIteration) as exc:

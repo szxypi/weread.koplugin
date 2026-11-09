@@ -41,7 +41,7 @@ function M:showDiscoveryPage(tab, books, options)
         visible[#visible + 1] = book
     end
     local snapshots = tab == "home" and self.prepareShelfProgress and self:prepareShelfProgress(visible)
-    self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
+    self:cancelShelfCovers()
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.shelf_view then UIManager:close(self.shelf_view) end
     local function redraw(next_page)

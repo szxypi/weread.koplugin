@@ -33,6 +33,16 @@ local function cover_subprocess_runner()
     }
 end
 
+local function terminate_cover_job(job)
+    if job.termination_requested then return end
+    job.termination_requested = true
+    local ok = pcall(job.runner.terminate, job.pid)
+    if not ok then
+        job.termination_requested = nil
+        logger.warn("bookshelf cover worker termination failed")
+    end
+end
+
 local local_cache_fields = {
     cache_dir = true,
     cached_file = true,
@@ -100,6 +110,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    self:cancelShelfCovers()
     if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
     if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
@@ -239,8 +250,7 @@ function M:refreshBookshelf(old_view, view_options)
             and require("weread.lib.shelf_source").mode(self.settings) == source
     end
     -- A finishing thumbnail batch must not replace the view being refreshed.
-    self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
-    self.shelf_cover_pending = nil
+    self:cancelShelfCovers()
     if old_view then old_view:setRefreshing(true) end
     local function done()
         if self.shelf_refresh_context ~= context then return end
@@ -407,6 +417,29 @@ function M:getShelfCoverCache()
     return self.shelf_cover_cache
 end
 
+function M:cancelShelfCovers(resume_on_wake)
+    local job = self.shelf_cover_job
+    local request = self.shelf_cover_pending or (job and job.request)
+    self.shelf_cover_resume = resume_on_wake and request
+        and request.view == self.shelf_view and request or nil
+    self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
+    self.shelf_cover_pending = nil
+    if job then
+        job.cancelled = true
+        terminate_cover_job(job)
+    end
+    -- Keep the job and its pipe until the existing poll has reaped the child.
+    -- Reopened pages may queue work but cannot overlap a retiring writer.
+end
+
+function M:resumeShelfCovers()
+    local request = self.shelf_cover_resume
+    self.shelf_cover_resume = nil
+    if request and request.view == self.shelf_view then
+        self:fetchVisibleShelfCovers(request.view, request.items, request.options)
+    end
+end
+
 function M:fetchVisibleShelfCovers(view, items, options)
     if not view or not items or #items == 0 then return end
     options = options or {}
@@ -429,6 +462,10 @@ function M:fetchVisibleShelfCovers(view, items, options)
     if self.shelf_cover_job then
         -- Keep only the newest visible page while the current child exits.
         self.shelf_cover_pending = { view = view, items = items, options = options }
+        if self.shelf_cover_job.request.view ~= view then
+            self.shelf_cover_job.cancelled = true
+            terminate_cover_job(self.shelf_cover_job)
+        end
         return
     end
 
@@ -505,14 +542,18 @@ function M:fetchVisibleShelfCovers(view, items, options)
             return
         end
 
-        local job = { pid = pid, read_fd = read_fd, started_at = os.time() }
+        local job = { pid = pid, read_fd = read_fd, started_at = os.time(), runner = runner,
+            request = { view = view, items = items, options = options } }
         self.shelf_cover_job = job
         local poll
         poll = function()
             if self.shelf_cover_job ~= job then return end
             if not runner.is_done(job.pid) then
-                if os.time() - job.started_at > 30 then
-                    runner.terminate(job.pid)
+                if job.cancelled or os.time() - job.started_at > 30 then
+                    -- A signal can race with the child's process-group setup.
+                    -- Retry only while this exact child is still unreaped.
+                    job.termination_requested = nil
+                    terminate_cover_job(job)
                 end
                 UIManager:scheduleIn(0.15, poll)
                 return
@@ -520,10 +561,14 @@ function M:fetchVisibleShelfCovers(view, items, options)
             local result = job.read_fd and runner.read_all(job.read_fd) or nil
             job.read_fd = nil
             self.shelf_cover_job = nil
-            if result == "ok" and cache:pathFor(book) then
-                changed = true
-            else
-                logger.warn("bookshelf cover background task failed")
+            -- Cancellation may race with a completed cache commit. Keep valid
+            -- thumbnails, but never redraw or continue the cancelled page.
+            if not job.cancelled then
+                if result == "ok" and cache:pathFor(book) then
+                    changed = true
+                else
+                    logger.warn("bookshelf cover background task failed")
+                end
             end
             index = index + 1
             fetch_next()
@@ -543,7 +588,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     options.keyword = keyword
     local skip_cover_fetch_once = options.skip_cover_fetch_once == true
     options.skip_cover_fetch_once = nil
-    self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
+    self:cancelShelfCovers()
     self.shelf_view_mode = mode
     self.shelf_search_keyword = keyword
     self.shelf_view_pages = self.shelf_view_pages or { books = 1, public_account = 1 }
