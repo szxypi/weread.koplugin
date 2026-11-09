@@ -89,5 +89,27 @@ maximum=Versions.MAX_ENTRIES;Versions.MAX_ENTRIES=1
 expect(not Versions.list(root,key),'directory capacity ignored');Versions.MAX_ENTRIES=maximum
 fixture();put(parent..'/article-fedcba9876543210.html',Identity.marker(string.rep('b',64)))
 expect(#assert(Versions.list(root,key))==2,'foreign-marker revision listed')
+local function p16(n) return string.char(n%256,math.floor(n/256)%256) end
+local function p32(n) return p16(n%65536)..p16(math.floor(n/65536)) end
+local function epub_header(owner,revision)
+    local function local_header(path,body,extra)
+        return 'PK\3\4'..p16(20)..p16(0)..p16(0)..p32(0)..p32(0)..p32(#body)..p32(#body)
+            ..p16(#path)..p16(#extra)..path..extra..body
+    end
+    local marker='weread-mp-epub-v1\n'..owner..'\n'..revision..'\n'
+    return local_header('mimetype','application/epub+zip','')
+        ..local_header('META-INF/container.xml','<container/>',p16(0x5752)..p16(#marker)..marker)
+end
+snapshot=fixture();local epub_name='article-0123456789abcdef.epub';local epub_path=parent..'/'..epub_name
+put(epub_path,epub_header(key,'0123456789abcdef'))
+expect(Versions.publish(snapshot,epub_name) and Versions.resolve(root,key)==epub_path,'independent EPUB could not become current')
+expect(Versions.contains(root,key,epub_path) and #assert(Versions.list(root,key))==3,'EPUB disappeared from mixed-format history')
+put(epub_path,epub_header(key,'fedcba9876543210'))
+expect(not Versions.resolve(root,key) and not Versions.contains(root,key,epub_path),'EPUB filename/identity mismatch accepted')
+put(epub_path,epub_header(string.rep('b',64),'0123456789abcdef'))
+expect(not Versions.resolve(root,key),'foreign EPUB identity accepted')
+put(epub_path,epub_header(key,'0123456789abcdef'));files[epub_path].size=72*1024*1024+1
+expect(not Versions.resolve(root,key),'EPUB file-size bound ignored')
+expect(not Versions.name_ok('article-0123456789abcdef.zip') and not Versions.name_ok('article-0123456789abcdef.epub/extra'),'unmanaged archive extension/path accepted')
 rawset(io,'open',old_open);rawset(os,'rename',old_rename)
 print('PASS: immutable MP cache versions and selector boundaries ('..checks..' checks)')

@@ -13,7 +13,7 @@ package.preload['weread.lib.mp_record_recovery']=function() return {
         if state.bad_source then error('private-source-error') end
         if state.legacy then return nil,'legacy' end
         return {root=book.cache_dir,key=string.rep('a',64),path=path,stamped=state.stamped,review=article.reviewId,
-            legacy=state.legacy_html or nil}
+            legacy=(state.legacy_html or state.legacy_epub) or nil,epub=state.epub or nil}
     end,
     matches=function(_settings,book,article,input) return not state.stale and book.cache_dir==input.root and article.reviewId==input.review end,
     hash_directory=function(path) return state.live and 'shared' or path end,
@@ -53,13 +53,13 @@ local function fixture()
     host.mp_records_worker={runner={done=function() return state.done~=false end},
         start=function(self,task,callback) state.task=task;state.callback=callback;self.job={pid=1};return true end,
         cancel=function(self) state.cancelled=true;self.job=nil end}
-    host.create_mp_stage=function()
-        state.stage_created=true
+    host.create_mp_stage=function(_root,_key,options)
+        state.stage_created=true;state.stage_format=options.format
         return {close=function() state.stage_closed=true end,cleanup=function() state.cleaned=true end,
             commit=function(_self,_result,deferred)
                 state.deferred=deferred
                 if state.commit_failed then return nil end
-                return '/cache/new.html'
+                return state.epub and '/cache/new.epub' or '/cache/new.html'
             end,
             publish_deferred=function()
                 assert(state.restored,'current selector published before record readback')
@@ -150,4 +150,15 @@ end
 host,book,article=fixture();state.legacy_html=true;state.rows={};state.no_sha=true
 Recovery.open(host,book,article,'/cache/title.html');deliver(host)
 expect(state.opened=='/cache/title.html' and not state.assets_bound and not state.stage_created,'ordinary title cache required copy-only preparation')
+host,book,article=fixture();state.epub=true;state.legacy_epub=true
+Recovery.open(host,book,article,'/cache/title.epub');deliver(host)
+expect(host._mp_records_menu and state.preserved and not state.assets_bound and not state.opened,'legacy EPUB bypassed preservation or required external assets')
+choose(host).ok_callback();deliver(host)
+expect(state.stage_bound and state.stage_format=='epub' and state.published and state.opened=='/cache/new.epub','EPUB recovery used the HTML publisher or skipped first-stage binding')
+host,book,article=fixture();state.epub=true;state.stamped=true
+Recovery.open(host,book,article,'/cache/version.epub')
+expect(state.opened=='/cache/version.epub' and not state.task,'independent EPUB did not retain direct reading')
+host,book,article=fixture();state.epub=true;state.legacy_epub=true;state.stage_bind_failed=true
+Recovery.open(host,book,article,'/cache/title.epub');deliver(host);choose(host).ok_callback()
+expect(not state.opened and not state.published and state.notice,'EPUB target binding failure published a copy')
 print('PASS: native record recovery choice, ownership, failure and cancellation ('..checks..' checks)')

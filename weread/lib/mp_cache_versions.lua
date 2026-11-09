@@ -2,6 +2,7 @@
 -- Old HTML paths and their KOReader sidecars remain available for explicit opening.
 local Identity=require('weread.lib.mp_cache_identity')
 local Output=require('weread.lib.notes_export_file')
+local Epub=require('weread.lib.mp_epub_records')
 local M={MAX_VERSIONS=128,MAX_ENTRIES=1024}
 local MAGIC='weread-mp-current-v1\n'
 local function lfs() return require('libs/libkoreader-lfs') end
@@ -18,9 +19,11 @@ local function directory(root,key)
     return parent
 end
 local function name_ok(name)
-    local nonce=type(name)=='string' and name:match('^article%-([a-f0-9]+)%.html$')
-    return nonce and #nonce==16
+    local nonce,ext
+    if type(name)=='string' then nonce,ext=name:match('^article%-([a-f0-9]+)%.([a-z]+)$') end
+    return nonce and #nonce==16 and (ext=='html' or ext=='epub')
 end
+M.name_ok=name_ok
 local function selector(parent)
     local path=parent..'/current';local info=lfs().symlinkattributes(path)
     if not info then return {path=path} end
@@ -32,10 +35,12 @@ local function selector(parent)
     return {path=path,info=info,raw=raw,name=name}
 end
 function M.valid(path,key)
+    local epub=path:match('%.epub$')~=nil
     local info=lfs().symlinkattributes(path)
-    if not info or info.mode~='file' or info.size<1 or info.size>4*1024*1024 then return false end
+    if not info or info.mode~='file' or info.size<1 or info.size>(epub and Epub.MAX_ARCHIVE or 4*1024*1024) then return false end
     local file=io.open(path,'rb');if not file then return false end
     local head=file:read(4096) or '';file:close()
+    if epub then return Epub.header(head,key,path:match('article%-([a-f0-9]+)%.epub$'))~=nil end
     return head:find(Identity.marker(key),1,true)~=nil
 end
 function M.contains(root,key,path)

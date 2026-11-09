@@ -60,7 +60,7 @@ end
 local function apply(host,job,id)
     if not current(host,job) then M.cancel(host);return end
     close(host,'_mp_records_confirmation');close(host,'_mp_records_menu')
-    local ok,stage=pcall(host.create_mp_stage or Stage.create,job.input.root,job.input.key,{preserve=true})
+    local ok,stage=pcall(host.create_mp_stage or Stage.create,job.input.root,job.input.key,{preserve=true,format=job.input.epub and 'epub' or nil})
     if not ok or not stage then stop(host);return end
     job.stage=stage;job.started=os.time()
     if job.input.legacy then
@@ -74,7 +74,7 @@ local function apply(host,job,id)
         if host.mp_records_job~=job then return end
         local age=os.time()-job.started
         if not current(host,job) or age<0 or age>120 then M.cancel(host);return end
-        if job.input.legacy then
+        if job.input.legacy and not job.input.epub then
             local checked,good=pcall(Model.assets_match,job.input)
             if not checked or not good then stop(host);return end
         end
@@ -165,7 +165,7 @@ function M.show(host,book,article,path,automatic)
             or #result.rows>0 and (type(result.source_sha256)~='string' or #result.source_sha256~=64
                 or not result.source_sha256:match('^[a-f0-9]+$')) then stop(host);return end
         job.sha256=result.source_sha256;clear_busy(host,job)
-        if input.legacy and #result.rows>0 then
+        if input.legacy and not input.epub and #result.rows>0 then
             local bound,assets_good=pcall(Model.bind_assets,input,result.assets)
             if not bound or not assets_good then stop(host);return end
         end

@@ -70,7 +70,27 @@ node('/root/mp-articles');node(parent);node(parent..'/article.html','unexpected 
 expect(not Model.bind_stage(input,{root='/root',key=input.key,version_snapshot=Versions.capture('/root',input.key)}),'nonempty target gained authority during stage binding')
 settings,book,article=fixture();node('/root/Legacy.epub','synthetic archive')
 local value,reason=Model.capture(settings,book,article,'/root/Legacy.epub')
-expect(value==nil and reason=='legacy','EPUB compatibility scope changed without its recovery implementation')
+expect(value and value.legacy and value.epub and reason==nil,'legacy EPUB bypassed record protection')
+expect(Model.matches(settings,book,article,value) and Model.bind_assets(value,nil) and Model.assets_match(value),'self-contained EPUB required external bitmap authority')
+local empty=Model.prepare({list=function() return {} end},value)
+expect(empty.ok and #empty.rows==0 and not empty.source_sha256,'no-record EPUB required unnecessary archive parsing')
+local archive_calls=0
+package.loaded['weread.lib.mp_epub_records']={inspect=function(path,info,key)
+    assert(path==value.path and info==value.info and key==value.key);archive_calls=archive_calls+1
+    return {source_sha256=string.rep('c',64)}
+end,write=function(source,output,nonce,sha)
+    assert(source==value and output==stage.output and nonce=='0123456789abcdef' and sha==string.rep('c',64))
+    return {ok=true,bytes=100,images=0,image_bytes=0}
+end}
+prepared=Model.prepare({list=function() return {{valid=true}} end},value)
+expect(archive_calls==1 and prepared.source_sha256==string.rep('c',64) and not prepared.assets,'EPUB preparation used the HTML resource parser')
+node('/root/mp-articles');node(parent)
+stage={root='/root',key=value.key,format='epub',version_snapshot=Versions.capture('/root',value.key),
+    version_name='article-0123456789abcdef.epub',output={}}
+expect(Model.bind_stage(value,stage) and Model.matches(settings,book,article,value),'first EPUB identity tree did not bind')
+expect(Model.write(value,stage,prepared.source_sha256).ok,'EPUB write did not reach the independent archive copier')
+stage.format='html'
+expect(not pcall(Model.write,value,stage,prepared.source_sha256),'EPUB records were copied into an HTML staging format')
 settings,book,article=fixture();node('/root/Legacy.html','<head>'..Identity.marker(string.rep('f',64))..'</head>')
 expect(not pcall(Model.capture,settings,book,article,'/root/Legacy.html'),'foreign explicit article identity was promoted by title')
 rawset(io,'open',original_open)

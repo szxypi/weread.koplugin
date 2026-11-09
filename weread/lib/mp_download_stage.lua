@@ -3,7 +3,7 @@ local Identity=require('weread.lib.mp_cache_identity')
 local Output=require('weread.lib.notes_export_file')
 local Crypto=require('weread.lib.crypto')
 local Versions=require('weread.lib.mp_cache_versions')
-local M={MAX_HTML=4*1024*1024,MAX_IMAGE=32*1024*1024,MAX_IMAGES=256,MAX_TOTAL=64*1024*1024}
+local M={MAX_HTML=4*1024*1024,MAX_EPUB=72*1024*1024,MAX_IMAGE=32*1024*1024,MAX_IMAGES=256,MAX_TOTAL=64*1024*1024}
 M.__index=M
 local serial=0
 local function same(a,b)
@@ -17,6 +17,7 @@ local function create_locked(root,key,options,path,unleased,holder)
     local snapshot=Versions.capture(root,key);if not snapshot then return nil end
     -- Once a selector exists, subsequent downloads must preserve its version too.
     local preserve=options and options.preserve or snapshot.selector.name~=nil
+    local format=options and options.format or 'html'
     if preserve then local entries=Versions.list(root,key);if not entries or #entries>=Versions.MAX_VERSIONS then return nil end end
     local previous=lfs.symlinkattributes(path)
     if previous and previous.mode~='file' then return nil end
@@ -33,7 +34,7 @@ local function create_locked(root,key,options,path,unleased,holder)
             ffi.C.chmod(directory,448) -- 0700; FAT may ignore permissions.
             local job=setmetatable({root=root,key=key,path=path,parent=parent,parent_identity=owner,
                 previous=previous,directory=directory,identity=lfs.symlinkattributes(directory),lfs=lfs,
-                version_snapshot=snapshot,preserve=preserve,version_name='article-'..nonce..'.html',
+                version_snapshot=snapshot,preserve=preserve,format=format,version_name='article-'..nonce..'.'..format,
                 generation='.weread-mp-'..key..'-assets-'..nonce},M)
             holder.job=job
             if not lfs.mkdir(directory..'/images') then job:cleanup();return nil end
@@ -50,6 +51,8 @@ local function create_locked(root,key,options,path,unleased,holder)
     end
 end
 function M.create(root,key,options)
+    local format=options and options.format or 'html'
+    if format~='html' and format~='epub' or format=='epub' and not (options and options.preserve) then return nil end
     local cleanup=require('weread.lib.mp_cache_cleanup')
     if cleanup.locked(root,key) then return nil end
     local path=Identity.prepare(root,key);if not path then return nil end
@@ -72,6 +75,7 @@ end
 function M:same_target(other)
     return type(other)=='table' and self.path==other.path and same(self.parent_identity,other.parent_identity)
         and unchanged(self.previous,other.previous) and self.preserve==other.preserve
+        and self.format==other.format
         and self.version_snapshot.path==other.version_snapshot.path
         and unchanged(self.version_snapshot.info,other.version_snapshot.info)
         and self.version_snapshot.selector.raw==other.version_snapshot.selector.raw
@@ -121,8 +125,9 @@ local function integer(value,max)
 end
 function M:commit(result,defer_selector)
     if defer_selector~=nil and defer_selector~=true or defer_selector and not self.preserve then return nil end
-    if type(result)~='table' or result.ok~=true or not integer(result.bytes,M.MAX_HTML) or result.bytes<1
+    if type(result)~='table' or result.ok~=true or not integer(result.bytes,self.format=='epub' and M.MAX_EPUB or M.MAX_HTML) or result.bytes<1
         or not integer(result.images,M.MAX_IMAGES) or not integer(result.image_bytes,M.MAX_TOTAL)
+        or self.format=='epub' and (result.images~=0 or result.image_bytes~=0)
         or not self:images_owned() or not unchanged(self.previous,self.lfs.symlinkattributes(self.path))
         or not Versions.matches(self.version_snapshot) then return nil end
     local count,total=0,0
@@ -140,7 +145,9 @@ function M:commit(result,defer_selector)
         or not self.output:accept(result.bytes) then return nil end
     local file=io.open(self.output.path,'rb');if not file then return nil end
     local head=file:read(4096) or '';file:close()
-    if not head:find(Identity.marker(self.key),1,true) then return nil end
+    if self.format=='epub' then
+        if not require('weread.lib.mp_epub_records').header(head,self.key,self.version_name:match('article%-([a-f0-9]+)%.epub$')) then return nil end
+    elseif not head:find(Identity.marker(self.key),1,true) then return nil end
     local destination=self.parent..'/'..self.generation
     if self.lfs.symlinkattributes(destination) then return nil end
     local target=self.preserve and self.parent..'/'..self.version_name or self.path

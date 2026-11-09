@@ -8,8 +8,7 @@ local function same(a,b)
 end
 local function regular(a,b) return same(a,b) and a.size==b.size and a.modification==b.modification end
 local function body_name(name)
-    local nonce=name:match('^article%-([a-f0-9]+)%.html$')
-    return name=='article.html' or nonce and #nonce==16
+    return name=='article.html' or Versions.name_ok(name)
 end
 local function generation(name,key)
     local prefix='.weread-mp-'..key..'-assets-'
@@ -59,8 +58,11 @@ function M.scan(root,key,opened,lock)
         elseif body_name(name) then
             if not Versions.contains(root,key,path) then fail('unavailable') end
             local info=fs().symlinkattributes(path)
-            local file=io.open(path,'rb');if not file then fail('unavailable') end
-            local raw=file:read(4*1024*1024+1);file:close()
+            local raw=''
+            if not name:match('%.epub$') then
+                local file=io.open(path,'rb');if not file then fail('unavailable') end
+                raw=file:read(4*1024*1024+1);file:close()
+            end
             if not raw or #raw>4*1024*1024 or not regular(info,fs().symlinkattributes(path)) then fail('changed') end
             if #plan.versions>=Versions.MAX_VERSIONS then fail('capacity') end
             local refs={}
@@ -86,7 +88,7 @@ function M.scan(root,key,opened,lock)
                 files[#files+1]={name=filename,info=image};bytes=bytes+image.size
             end
             plan.generations[#plan.generations+1]={name=name,info=info,images=images,files=files,bytes=bytes,protected=open_parent or plan.quarantined or false}
-        elseif name:match('%.html$') then fail('unavailable') end
+        elseif name:match('%.html$') or name:match('%.epub$') then fail('unavailable') end
     end
     if not Versions.matches(snapshot) or not names_equal(names,children(parent,Versions.MAX_ENTRIES)) then fail('changed') end
     return plan
@@ -199,7 +201,7 @@ local function guard(job)
         end
     end
     for _i,name in ipairs(children(plan.snapshot.parent,Versions.MAX_ENTRIES)) do
-        if name:match('^%.mp%-pending%-') or name:match('%.html$') and not expected[name] then return false end
+        if name:match('^%.mp%-pending%-') or (name:match('%.html$') or name:match('%.epub$')) and not expected[name] then return false end
     end
     return true
 end

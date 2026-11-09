@@ -1,6 +1,7 @@
 -- Attempt records are local metadata, never login state or downloaded content.
 local Identity=require('weread.lib.mp_cache_identity')
 local Lease=require('weread.lib.file_lease')
+local Versions=require('weread.lib.mp_cache_versions')
 local M={MAX_RECORD=4096,MAX_FILES=1024}
 local function fs() return require('libs/libkoreader-lfs') end
 local function same(a,b) return Lease.same(a,b) end
@@ -53,8 +54,7 @@ local function layout(key,n)
         quarantine_pending='.mp-quarantine-pending-'..n,quarantine_generation='.mp-quarantine-generation-'..n}
 end
 local function body_name(name)
-    local n=name:match('^article%-([a-f0-9]+)%.html$')
-    return name=='article.html' or n and nonce(n)
+    return name=='article.html' or Versions.name_ok(name)
 end
 local function payload(lease,key,n,parent_info)
     local raw=lease:read(M.MAX_RECORD);local ok,value=pcall(function() return raw and json().decode(raw) end)
@@ -105,7 +105,9 @@ local function snapshot(root,key)
             local info=fs().symlinkattributes(parent..'/'..name);if not info then fail() end
             state.entries[#state.entries+1]={name=name,info=info}
             if body_name(name) then
-                if info.mode~='file' or info.size>4*1024*1024 then state.unsafe=true
+                if name:match('%.epub$') then
+                    if not Versions.valid(parent..'/'..name,key) then state.unsafe=true end
+                elseif info.mode~='file' or info.size>4*1024*1024 then state.unsafe=true
                 else
                     local file=io.open(parent..'/'..name,'rb');if not file then fail() end
                     local raw=file:read(4*1024*1024+1);file:close()
@@ -117,7 +119,7 @@ local function snapshot(root,key)
                     end
                 end
                 state.bodies[#state.bodies+1]={name=name,info=info}
-            elseif name:match('%.html$') then state.unsafe=true end
+            elseif name:match('%.html$') or name:match('%.epub$') then state.unsafe=true end
         end
     end
     return state

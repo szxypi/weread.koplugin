@@ -50,19 +50,22 @@ function M.capture(settings,book,article,path)
         local allowed=Identity.legacy_allowed(book,article,stored or book.mp_articles,
             function(row) return Content.mp_article_legacy_path(settings,book,row) end)
         if not allowed or fs().symlinkattributes(path,'mode')~='file' then fail() end
-        if path:match('%.epub$') then return nil,'legacy' end
+        local epub=path:match('%.epub$') and true or nil
         local root_info=fs().symlinkattributes(root);if not root_info or root_info.mode~='directory' then fail() end
         local snapshot,container=capture_target(root,key)
         local file=io.open(path,'rb');if not file then fail() end
         local head=file:read(4096) or '';file:close()
-        local marked=head:match('<meta name="weread%-mp%-cache%-key" content="([a-f0-9]+)"/>')
+        local marked=not epub and head:match('<meta name="weread%-mp%-cache%-key" content="([a-f0-9]+)"/>')
         if marked and marked~=key then fail() end
         return {root=root,key=key,path=path,info=fs().symlinkattributes(path),root_info=root_info,legacy=true,
             asset_name=Content.mp_article_asset_name(book,article),snapshot=snapshot,container=container,stamped=false,
-            catalog_origin=stored~=nil and 'stored' or 'provided'}
+            catalog_origin=stored~=nil and 'stored' or 'provided',epub=epub}
     end
     if not Versions.contains(root,key,path) then fail() end
     local snapshot=Versions.capture(root,key);if not snapshot then fail() end
+    if path:match('%.epub$') then
+        return {root=root,key=key,path=path,info=fs().symlinkattributes(path),snapshot=snapshot,epub=true,stamped=true}
+    end
     local file=io.open(path,'rb');if not file then fail() end
     local head=file:read(1024) or '';file:close()
     local revision=head:match('<meta name="weread%-mp%-cache%-revision" content="([a-f0-9]+)"/>')
@@ -71,7 +74,7 @@ end
 function M.matches(settings,book,article,input)
     local ok,now=pcall(M.capture,settings,book,article,input.path)
     return ok and now and now.root==input.root and now.key==input.key and Versions.same(input.info,now.info)
-        and input.legacy==now.legacy and (not input.legacy or inode(input.root_info,now.root_info)
+        and input.legacy==now.legacy and input.epub==now.epub and (not input.legacy or inode(input.root_info,now.root_info)
             and input.catalog_origin==now.catalog_origin) and target_matches(input)
 end
 -- Stage.create may create the first identity directory. Accept only that empty
@@ -87,11 +90,11 @@ function M.bind_stage(input,stage)
     return Versions.matches(snapshot)
 end
 function M.bind_assets(input,rows)
-    if not input.legacy then return true end
+    if not input.legacy or input.epub then return true end
     if not Assets.matches(input,rows) then return false end
     input.assets=rows;return true
 end
-function M.assets_match(input) return not input.legacy or Assets.matches(input,input.assets) end
+function M.assets_match(input) return not input.legacy or input.epub or Assets.matches(input,input.assets) end
 function M.hash_directory(path)
     local Doc=require('docsettings');local directory=Doc:getSidecarDir(path,'hash')
     local base=Doc.getSidecarStorage('hash')
@@ -133,10 +136,20 @@ function M.prepare(store,input)
     -- No copy is needed for an ordinary legacy read without saved records.
     -- It must not require parsing resources or loading a large embedded image.
     if input.legacy and #saved==0 then return {ok=true,rows={}} end
+    if input.epub then
+        if #saved==0 then return {ok=true,rows={}} end
+        local plan=require('weread.lib.mp_epub_records').inspect(input.path,input.info,input.key)
+        return {ok=true,rows=saved,source_sha256=plan.source_sha256}
+    end
     local raw=read(input.path,Data.MAX_BYTES,input.info)
     return {ok=true,rows=saved,source_sha256=Crypto.sha256_hex(raw),assets=input.legacy and Assets.inspect(input,raw) or nil}
 end
 function M.write(input,stage,sha256)
+    if input.epub then
+        if stage.format~='epub' or not target_matches(input) then fail() end
+        return require('weread.lib.mp_epub_records').write(input,stage.output,
+            stage.version_name:match('^article%-([a-f0-9]+)%.epub$'),sha256)
+    end
     local raw=read(input.path,Data.MAX_BYTES,input.info)
     if Crypto.sha256_hex(raw)~=sha256 or not target_matches(input) then fail() end
     local images,image_bytes=0,0
