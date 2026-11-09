@@ -18,7 +18,9 @@ return function(reader, request_count, flush_tasks)
     plugin.settings:set("offline_time", { enabled = true })
     plugin.settings:flush()
     local writes = request_count("/web/book/read")
-    assert(collector:start() and collector.active, "offline collector did not start with native statistics")
+    local started=collector:start()
+    assert(started and collector.active, "offline collector did not start with native statistics: state="..tostring(collector.state)
+        .." stats_paused="..tostring(stats._reading_paused_ts~=nil).." reader_visible="..tostring(UIManager:getTopmostVisibleWidget()==reader))
     local first_start = collector.active.last_seen
     -- Real wall/monotonic clocks and a genuine page dwell, without changing
     -- native tuples, its counters, clock values or ledger data.

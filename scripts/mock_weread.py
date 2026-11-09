@@ -201,6 +201,21 @@ class MockServer(ThreadingHTTPServer):
         if path == "/web/mp/articles" and method == "GET":
             if not book_id.startswith("MP_WXS_"):
                 raise ValueError("invalid MP account")
+            if book_id in {"MP_WXS_900096", "MP_WXS_900095", "MP_WXS_900094", "MP_WXS_900093", "MP_WXS_900092", "MP_WXS_900091", "MP_WXS_900090", "MP_WXS_900089"}:
+                if query != {"bookId": [book_id], "maxIdx": ["0"], "count": ["100"]}:
+                    raise ValueError("invalid MP first-page query")
+                if book_id == "MP_WXS_900095": return 200, dict(reviews=[])
+                if book_id == "MP_WXS_900094": return 200, dict(unexpected=True)
+                if book_id == "MP_WXS_900093": return 200, dict(reviews={})
+                if book_id == "MP_WXS_900092": return 200, dict(errCode=-2012)
+                if book_id == "MP_WXS_900091": return 200, dict(reviews=[dict(subReviews=[dict(reviewId="bad-date", createTime="invalid")])])
+                if book_id == "MP_WXS_900090": return 200, " " * (4*1024*1024+1)
+                ids = ["cache-fixture-a/b", "cache-fixture-a_b"]
+                if book_id == "MP_WXS_900089": ids = [f"catalog-long-{index}" for index in range(100)]
+                return 200, dict(errCode=0, reviews=[dict(subReviews=[dict(reviewId=identity, review=dict(
+                    reviewId=identity, belongBookId=book_id, createTime=1700000000,
+                    mpInfo=dict(title=("合成目录文章甲" if index == 0 else "合成目录文章乙") if len(ids) == 2 else f"合成目录第{index+1}篇 "+"目录文字"*100),
+                    private="not retained")) for index, identity in enumerate(ids)])])
             return 200, dict(errCode=-2041, errMsg="Synthetic MP verification unavailable")
         if path == "/web/mp/content" and method == "GET":
             if query == {"reviewId": ["background-fixture"]}:

@@ -94,3 +94,8 @@ python3 scripts/verify_mp_catalog.py --saved-session --check-content --lua-comma
 ```
 
 即使正文对照通过，目录仍失败时报告保留 `MP_CATALOG_UNVERIFIED`，不会用正文成功覆盖它。
+
+目录读取现已将既有首批 GET 移到后台，每次刷新只读一次，不再自动续期并重读。
+取消／账号与会话保护、失败恢复保存列表、有效空目录及满 100 篇提示已接入；
+成功、空目录、分页控件与存储回读仍只由合成数据验证，不改变真实 `-2041` 的未通过结论。
+见[后台目录说明](mp-article-catalog.md)。

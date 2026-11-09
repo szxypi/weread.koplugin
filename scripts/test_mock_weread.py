@@ -55,6 +55,16 @@ class MockTests(unittest.TestCase):
         self.assertEqual(result['errCode'],-2041)
         self.assertEqual(self.request('/web/login/renewal',{})[0],400)
 
+    def test_mp_catalog_synthetic_shapes_are_explicit(self):
+        base='/web/mp/articles?maxIdx=0&count=100&bookId='
+        code,page=self.request(base+'MP_WXS_900096')
+        self.assertEqual(code,200);self.assertEqual(len(page['reviews'][0]['subReviews']),2)
+        self.assertEqual(self.request(base+'MP_WXS_900095')[1],{'reviews':[]})
+        self.assertEqual(self.request(base+'MP_WXS_900093')[1],{'reviews':{}})
+        self.assertEqual(self.request(base+'MP_WXS_900092')[1],{'errCode':-2012})
+        self.assertEqual(len(self.request(base+'MP_WXS_900089')[1]['reviews'][0]['subReviews']),100)
+        self.assertEqual(self.request(base.replace('count=100','count=20')+'MP_WXS_900096')[0],400)
+
     def test_mp_content_samples_remain_distinct(self):
         from urllib.parse import quote
         bodies=[]

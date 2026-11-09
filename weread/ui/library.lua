@@ -100,6 +100,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
@@ -1211,7 +1212,7 @@ function M:showMPAccount(book)
     self:rememberMPAccount(book)
     local book_id = book.book_id or book.bookId
     local cached = self:getCachedMPArticles(book_id)
-    if cached and #cached > 0 then
+    if type(cached)=='table' then
         self:showMPArticleList(book, cached)
         return
     end
@@ -1240,51 +1241,11 @@ function M:rememberMPAccount(book)
 end
 
 function M:fetchMPArticles(book)
-    if not self:requireLogin(true, false) then
-        return
-    end
-    self:runOnlineTask(_("Loading articles..."), function()
-        self:showBusy(_("Loading articles..."))
-        local book_id = book.book_id or book.bookId
-        local function request_articles()
-            local ticket = self.settings:get("wr_ticket", "")
-            if ticket == "" then ticket = nil end
-            return self.client:get_mp_articles(book_id, 0, 100, ticket)
-        end
-        local ok, result, err_code = pcall(request_articles)
-        if ok and not result and (err_code == -2041 or err_code == -2012) then
-            logger.info("MP credentials rejected; renewing before retry")
-            local renew_ok = pcall(function()
-                return self.client:renew_cookie()
-            end)
-            if renew_ok then
-                ok, result, err_code = pcall(request_articles)
-            end
-        end
-        self:closeBusy()
-        if not ok then
-            logger.err("load MP articles failed:", log_error(result))
-            self:showInfo(T(_("Load articles failed:\n%1"), display_error(result)))
-            return
-        end
-        if not result and (err_code == -2041 or err_code == -2012) then
-            logger.warn("load MP articles rejected, error_code:", tostring(err_code))
-            if err_code == -2041 then
-                self:showInfo(_("Public-account verification is temporarily unavailable. Cached articles can still be read. Please try again later."))
-            else
-                self:showInfo(_("WeRead could not refresh the public-account credential. Please scan the QR code again."))
-            end
-            return
-        end
-        if not result then
-            logger.warn("load MP articles failed, error_code:", tostring(err_code))
-            self:showInfo(T(_("Load articles failed:\n%1"), "errCode " .. tostring(err_code)))
-            return
-        end
-        local articles = Content.parse_mp_articles(result)
-        self:cacheMPArticles(book_id, articles)
-        self:showMPArticleList(book, articles)
-    end)
+    return require('weread.ui.mp_catalog').start(self,book)
+end
+
+function M:cancelMPArticleCatalog()
+    return require('weread.ui.mp_catalog').cancel(self)
 end
 
 function M:getCachedMPArticles(book_id)
@@ -1306,6 +1267,7 @@ function M:cacheMPArticles(book_id, articles)
 end
 
 function M:showMPArticleList(book, articles)
+    if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     local previous=self._mp_article_list_view;self._mp_article_list_view=nil
     if previous then UIManager:close(previous) end
     local owner_account=self.library_db and self.library_db:accountKey()
@@ -1319,7 +1281,9 @@ function M:showMPArticleList(book, articles)
             and owner_session==self._reader_session_gen
     end
     local items = {}
+    if #articles==0 then items[1]={text=_("No articles."),select_enabled=false} end
     for _i, article in ipairs(articles) do
+        local title=type(article.title)=="string" and article.title~="" and article.title or _("Article")
         local cached_path,cache_reason = Content.mp_article_cached_path(self.settings, book, article)
         local is_cached = cached_path ~= nil
         local date_str = ""
@@ -1327,11 +1291,11 @@ function M:showMPArticleList(book, articles)
             date_str = os.date("%Y-%m-%d", article.createTime)
         end
         table.insert(items, {
-            text = article.title or _("Article"),
+            text = title,
             post_text = date_str,
             mandatory = is_cached and (cache_reason=='legacy' and _("Legacy cache") or _("Cached"))
                 or cache_reason=='ambiguous_legacy' and _("Legacy cache needs refresh") or "",
-            callback = self:safeCallback(article.title or _("Article"), function()
+            callback = self:safeCallback(title, function()
                 if not current() then return end
                 if is_cached then
                     self:openFile(cached_path)
@@ -1341,6 +1305,7 @@ function M:showMPArticleList(book, articles)
             end),
         })
     end
+    if #articles==100 then items[#items+1]={text=_("First 100 articles loaded."),select_enabled=false} end
     table.insert(items, {
         text = _("Export cached article"),
         callback = self:safeCallback(_("Export cached article"), function()
