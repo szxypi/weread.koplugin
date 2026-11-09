@@ -12,6 +12,10 @@ package.preload['weread.lib.content']=function() return {
     mp_article_cached_path=function(_settings,book) if not state.uncached then return book.cache_dir..'/article.html','identity' end end,
     mp_article_legacy_path=function() return '/legacy/article.html' end} end
 package.preload['weread.ui.mp_download']=function() return {start=function(_host,_book,article,options) state.downloaded=article;state.preserve=options.preserve;return true end} end
+package.preload['weread.ui.mp_record_recovery']=function() return {
+    cancel=function() end,
+    open=function(host,_book,_article,path) state.guarded=true;host:openFile(path) end,
+    show=function() state.recovered=true end} end
 local Versions=require('weread.lib.mp_cache_versions')
 Versions.list=function() return {{path='/cache/article.html',current=true,info={mode='file',ino=2,size=40,modification=1700000000,dev=1}}} end
 Versions.valid=function() return not state.invalid end
@@ -34,9 +38,10 @@ end
 local host,book,article=fixture()
 expect(Actions.list(host,book,{article,article}) and #host._mp_cache_picker.item_table==1,'cache picker did not deduplicate identity')
 host._mp_cache_picker.item_table[1].callback()
-expect(#host._mp_actions_menu.item_table==5,'native cache actions missing')
-host._mp_actions_menu.item_table[1].callback();expect(state.opened=='/cache/article.html','read cache action failed')
+expect(#host._mp_actions_menu.item_table==6,'native cache actions missing')
+host._mp_actions_menu.item_table[1].callback();expect(state.guarded and state.opened=='/cache/article.html','read cache action bypassed record guard')
 host._mp_actions_menu.item_table[4].callback();expect(state.exported,'export delegation missing')
+host._mp_actions_menu.item_table[6].callback();expect(state.recovered,'record recovery entry missing')
 host,book,article=fixture();Actions.refresh(host,book,article)
 expect(host._mp_refresh_confirmation.text:find('reading position and notes',1,true),'refresh omitted retained history explanation')
 host._mp_refresh_confirmation.ok_callback();expect(state.downloaded==article and state.preserve and not host._mp_refresh_confirmation,'refresh did not request immutable version')

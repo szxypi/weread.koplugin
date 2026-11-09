@@ -20,6 +20,7 @@ local function own(host,key,widget)
     end
 end
 function M.cancel(host)
+    require('weread.ui.mp_record_recovery').cancel(host)
     for _i,key in ipairs({'_mp_refresh_confirmation','_mp_versions_menu','_mp_actions_menu','_mp_cache_picker'}) do close(host,key) end
 end
 local function scope(host,book)
@@ -90,7 +91,9 @@ function M.history(host,book,article)
             mandatory=entry.current and _('Current cache') or entry.legacy and _('Legacy cache') or _('Previous cache'),callback=function()
                 if host._mp_versions_menu~=menu or not current(host,owner,book) then return end
                 local info=require('libs/libkoreader-lfs').symlinkattributes(entry.path)
-                if Versions.same(info,entry.info) and (entry.legacy or Versions.contains(owner.root,saved.key,entry.path)) then host:openFile(entry.path) else failed(host) end
+                if Versions.same(info,entry.info) and (entry.legacy or Versions.contains(owner.root,saved.key,entry.path)) then
+                    require('weread.ui.mp_record_recovery').open(host,book,article,entry.path)
+                else failed(host) end
             end}
     end
     if #rows==0 then failed(host);return false end
@@ -108,11 +111,13 @@ function M.show(host,book,article)
         end
     end
     local rows={
-        {text=_('Read cached article'),callback=action(function() host:openFile(saved.path) end)},
+        {text=_('Read cached article'),callback=action(function() require('weread.ui.mp_record_recovery').open(host,book,article,saved.path) end)},
         {text=_('Refresh article'),callback=action(function() M.refresh(host,book,article) end)},
         {text=_('Saved versions'),callback=action(function() M.history(host,book,article) end)},
         {text=_('Export cached article'),callback=action(function() host:showMPArticleExport(book,article) end)},
         {text=_('Clean article cache'),callback=action(function() require('weread.ui.mp_cache_cleanup').show(host,book,article) end)},
+        {text=_('Recover reading records'),select_enabled=saved.kind~='legacy',
+            callback=action(function() require('weread.ui.mp_record_recovery').show(host,book,article,saved.path) end)},
     }
     close(host,'_mp_actions_menu');menu=host:showList(article.title or _('Article'),rows);own(host,'_mp_actions_menu',menu);return true
 end

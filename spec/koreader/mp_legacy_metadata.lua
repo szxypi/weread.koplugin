@@ -24,6 +24,8 @@ local lfs=require('libs/libkoreader-lfs')
 local util=require('util')
 local json=require('json')
 local settings=Settings:new();assert(settings.mock_endpoint,'synthetic profile required')
+local product=arg[1]=='product' or arg[1]=='product-reopen'
+if product then settings:set('account',{user_vid='900000',login_method='qr'}) end
 settings:set('sync',{pull_on_open=false,upload_on_close=false});settings:set('read_report',{enabled=false})
 local cache=settings:get('cache');cache.auto_prefetch_next_chapter=false;cache.show_annotations=false
 settings:set('cache',cache);settings:flush()
@@ -34,9 +36,9 @@ local function clean(reader)
         UIManager:close(UIManager:getTopmostVisibleWidget())
     end
 end
-local function choose(location)
+local function choose(location,reader)
     for index,name in ipairs(locations) do
-        if name==location then menu[index+1].callback();clean();assert(menu[index+1].checked_func());return end
+        if name==location then menu[index+1].callback();clean(reader);assert(menu[index+1].checked_func());return end
     end
     error('unknown test location')
 end
@@ -90,13 +92,18 @@ local function verify(entry)
     assert(data:readSetting('last_xpointer')==entry.xpointer)
     local _,location=Doc:findSidecarFile(entry.path);assert(location==entry.location)
     assert(Crypto.sha256_hex(read(entry.path))==entry.body_sha256,'recovery modified published HTML')
-    assert(Crypto.sha256_hex(read(entry.archive_path))==entry.archive_sha256,'snapshot archive changed')
+    if entry.archive_path then assert(Crypto.sha256_hex(read(entry.archive_path))==entry.archive_sha256,'snapshot archive changed') end
+    if entry.record_id then
+        local store=assert(require('weread.lib.mp_records_db').new(settings,require('weread.lib.library_db'):new(settings):accountKey()))
+        assert(Crypto.sha256_hex(assert(store:get(entry.article_key,entry.record_id)))==entry.record_sha256,'saved raw snapshot changed')
+        assert(data:readSetting('partial_md5_checksum')==util.partialMD5(entry.path),'recovery reused the old checksum')
+    end
 end
 local old_location=G_reader_settings:readSetting('document_metadata_folder','doc')
-local manifest_path=evidence..'/mp-legacy-fixtures.json'
+local manifest_path=evidence..(product and '/mp-records-fixtures.json' or '/mp-legacy-fixtures.json')
 local report={result='UNVERIFIED',synthetic_only=true,actual_reader=true,actual_location_menu=true,
-    automatic_product_recovery=false,account_requests=0,account_data_writes=0}
-if arg[1]=='recover' then
+    automatic_product_recovery=false,product_recovery_entry_implemented=product,account_requests=0,account_data_writes=0}
+if arg[1]=='recover' or arg[1]=='product' then
     local book={book_id='MP_WXS_990081',title='合成旧共享阅读记录',cache_dir=settings.data_dir..'/legacy-metadata',
         progress=.45,pending_upload_position={offset=23}}
     local article={reviewId='legacy-record-fixture',title='旧文章的记录恢复'};book.mp_articles={article}
@@ -133,6 +140,14 @@ if arg[1]=='recover' then
     assert(sources[1].xpointer~=sources[2].xpointer)
     local originals={primary=read(shared),backup=read(shared..'.old')}
     local entries={}
+    if product then
+        local fixture=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))..'mp_record_recovery_smoke.lua'
+        local result=dofile(fixture){home=home,evidence=evidence,settings=settings,book=book,article=article,sources=sources,
+            shared=shared,originals=originals,key=key,open=open,close=close,choose=choose,verify=verify,projection=projection,
+            same=same,read=read,count_external_open=function(count) opens=opens+count end}
+        entries=result.entries;report.product_cases=result.cases
+        report.native_confirmation=true;report.expected_reader_opens=result.expected_reader_opens
+    else
     for _,location in ipairs(locations) do
         choose(location)
         for index,source in ipairs(sources) do
@@ -177,13 +192,15 @@ if arg[1]=='recover' then
     report.stock_migration_deletes_shared_candidates=true;report.original_html_unchanged=true
     report.chosen_snapshots_restored=true;report.recovered_after_source_candidates_removed=true
     report.recovered_versions=#entries;report.source_snapshots=2
+    end
+    if product then write(manifest_path,json.encode(entries));report.recovered_versions=#entries end
 else
-    assert(arg[1]=='reopen','expected recover or reopen')
-    local entries=json.decode(read(manifest_path));assert(#entries==6)
+    assert(arg[1]=='reopen' or arg[1]=='product-reopen','expected recovery or reopen mode')
+    local entries=json.decode(read(manifest_path));assert(#entries==(product and 8 or 6))
     for _,entry in ipairs(entries) do verify(entry) end
     report.fresh_process=true;report.recovered_versions=#entries
 end
 choose(old_location);G_reader_settings:flush()
-report.reader_opens=opens;assert(opens==(arg[1]=='recover' and 15 or 6))
-report.result='PASS';write(evidence..'/mp-legacy-'..arg[1]..'.json',json.encode(report))
-print('PASS: explicit legacy snapshot '..arg[1]..', '..report.recovered_versions..' independent copies')
+report.reader_opens=opens;assert(opens==(product and (arg[1]=='product' and report.expected_reader_opens or 8) or arg[1]=='recover' and 15 or 6))
+report.result='PASS';write(evidence..(product and '/mp-records-' or '/mp-legacy-')..arg[1]..'.json',json.encode(report))
+print('PASS: native reading record '..arg[1]..', '..report.recovered_versions..' independent copies')

@@ -89,7 +89,14 @@ end
 -- remove a replacement body file. Unknown files are left for manual inspection.
 function M:cleanup()
     self:close()
-    if self.committed or self.published and Versions.points_to(self.root,self.key,self.version_name) then self:release_lease(true);return end
+    if self.committed then self:release_lease(true);return end
+    if self.published then
+        local selected,reason=Versions.resolve(self.root,self.key)
+        if selected==self.parent..'/'..self.version_name then self:release_lease(true);return end
+        -- An unreadable selector may already reference this complete body.
+        -- Preserve both the body and its attempt record for later inspection.
+        if reason=='invalid' then self:release_lease(false);return end
+    end
     if not self:owns() then self:release_lease(false);return end
     if self.published and unchanged(self.published,self.lfs.symlinkattributes(self.parent..'/'..self.version_name)) then
         os.remove(self.parent..'/'..self.version_name)
@@ -112,7 +119,8 @@ end
 local function integer(value,max)
     return type(value)=='number' and value>=0 and value<=max and value%1==0
 end
-function M:commit(result)
+function M:commit(result,defer_selector)
+    if defer_selector~=nil and defer_selector~=true or defer_selector and not self.preserve then return nil end
     if type(result)~='table' or result.ok~=true or not integer(result.bytes,M.MAX_HTML) or result.bytes<1
         or not integer(result.images,M.MAX_IMAGES) or not integer(result.image_bytes,M.MAX_TOTAL)
         or not self:images_owned() or not unchanged(self.previous,self.lfs.symlinkattributes(self.path))
@@ -145,11 +153,20 @@ function M:commit(result)
     self.output=nil
     if self.preserve then
         self.published=self.lfs.symlinkattributes(target)
+        if defer_selector then self.deferred=true;return target end
         if not Versions.publish(self.version_snapshot,self.version_name) then return nil end
     end
     self.committed=true
     self:release_lease(true)
     -- Retain prior generations: an already-open CRE document may still use them.
     return target
+end
+-- Recovery first writes a complete independent body and its records. The
+-- current-version selector changes only after both have been verified.
+function M:publish_deferred()
+    local path=self.parent..'/'..self.version_name
+    if not self.deferred or self.committed or not self:owns() or not unchanged(self.published,self.lfs.symlinkattributes(path))
+        or not Versions.publish(self.version_snapshot,self.version_name) then return false end
+    self.committed=true;self:release_lease(true);return true
 end
 return M

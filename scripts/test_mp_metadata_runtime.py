@@ -5,6 +5,7 @@ All text, notes and account data are synthetic. No real account or Keychain is
 used. A second process reopens every version using its saved location.
 --legacy-shared selects the explicit shared-record recovery prototype instead
 of the default normal-location migration cases. It does not enable a product UI.
+--record-recovery exercises the native product dialogs, storage and reader handoff.
 """
 import argparse
 import os
@@ -25,7 +26,10 @@ def main():
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
     parser.add_argument('--legacy-shared', action='store_true', help='exercise explicit old shared-record recovery prototype')
+    parser.add_argument('--record-recovery', action='store_true', help='exercise the native record-recovery product flow')
     args = parser.parse_args()
+    if args.legacy_shared and args.record_recovery:
+        parser.error('select one metadata validation mode')
     if min(args.width, args.height, args.dpi) < 1:
         parser.error('display dimensions must be positive')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
@@ -42,9 +46,9 @@ def main():
                            XDG_RUNTIME_DIR=str(root / 'xdg'), EMULATE_READER='1', EMULATE_BW_SCREEN='1',
                            EMULATE_BB_TYPE='BB8', EMULATE_READER_W=str(args.width),
                            EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
-        probe = REPO / ('spec/koreader/mp_legacy_metadata.lua' if args.legacy_shared else 'spec/koreader/mp_metadata_migration.lua')
-        phases = ('recover', 'reopen') if args.legacy_shared else ('migrate', 'reopen')
-        prefix = 'mp-legacy-' if args.legacy_shared else 'mp-metadata-'
+        probe = REPO / ('spec/koreader/mp_legacy_metadata.lua' if args.legacy_shared or args.record_recovery else 'spec/koreader/mp_metadata_migration.lua')
+        phases = ('product', 'product-reopen') if args.record_recovery else ('recover', 'reopen') if args.legacy_shared else ('migrate', 'reopen')
+        prefix = 'mp-records-' if args.record_recovery else 'mp-legacy-' if args.legacy_shared else 'mp-metadata-'
         for phase in phases:
             log = root / 'evidence' / (prefix + phase + '.log')
             with log.open('w') as output:

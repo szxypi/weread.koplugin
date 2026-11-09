@@ -1351,7 +1351,7 @@ function M:showMPArticleList(book, articles)
             callback = self:safeCallback(title, function()
                 if not current() then return end
                 if is_cached then
-                    self:openFile(cached_path)
+                    require('weread.ui.mp_record_recovery').open(self,book,article,cached_path)
                 else
                     self:downloadMPArticleAndRead(book, article)
                 end
