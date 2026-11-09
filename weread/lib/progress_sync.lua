@@ -216,6 +216,7 @@ function ProgressSync:on_account_changed()
     self.pending_jump, self.document_context = nil, nil
     self.remote_anchor, self.source_anchor = nil, nil
     self._suspend_pending_upload = nil
+    self.checkpoint_account, self.network_disconnected = nil, nil
     self.current_book_id, self.local_position, self.remote_position = nil, nil, nil
     self.verified, self.dirty, self.state = false, false, "unverified"
 end
@@ -470,6 +471,7 @@ end
 
 function ProgressSync:_mark_verified(book_id, reason, local_position, remote)
     self.current_book_id = tostring(book_id)
+    self.checkpoint_account = self:_account_key()
     self.verified = true
     self.verified_at = self.now()
     self.verified_reason = reason
@@ -553,6 +555,14 @@ end
 
 function ProgressSync:_apply_remote(remote, context, options)
     options = options or {}
+    -- Park the latest movement before revoking writes. A rejected target or
+    -- failed engine navigation or chapter download must not lose this checkpoint.
+    self:checkpoint_local("cloud_navigation")
+    if self.upload_job and self.upload_job.book_id == context.book_id then
+        self.upload_job, self.uploading = nil, false
+    end
+    self:_clear_verified("cloud_navigation")
+    self.dirty = false
     local target, reason = PositionMapper.remote_to_local(
         context.chapters,
         remote,
@@ -569,9 +579,6 @@ function ProgressSync:_apply_remote(remote, context, options)
         if not ready then return false, "jump_failed" end
     end
 
-    -- A cloud-position choice supersedes unsent local intent for this book.
-    -- A task already waiting for the reporter must not undo that choice later.
-    self:_discard_pending_upload(context.book_id)
     self.remote_anchor, self.source_anchor = nil, nil
 
     if target.requires_chapter_open then
@@ -602,6 +609,7 @@ function ProgressSync:_apply_remote(remote, context, options)
     end
     local ok, err = self.goto_fraction(target.fraction)
     if not ok then return false, err or "jump_failed" end
+    self:_discard_pending_upload(context.book_id)
     self:_retain_target(context, target)
     local selected_position = self:capture_local()
     self.dirty = false
@@ -1001,6 +1009,7 @@ function ProgressSync:_apply_pending_jump(book_id)
         self.notify("jump_failed", { error = err })
         return true
     end
+    self:_discard_pending_upload(book_id)
     self:_retain_target(context, target)
     local_position = self:capture_local() or local_position
     self.dirty = false
@@ -1046,6 +1055,8 @@ function ProgressSync:on_reader_ready()
     local generation = self.generation
     local navigation_generation = self.navigation_generation
     self.current_book_id = nil
+    self.checkpoint_account = self:_account_key()
+    self.network_disconnected = nil
     self.local_position = nil
     self.remote_position = nil
     self.document_context = nil
@@ -1096,11 +1107,31 @@ function ProgressSync:on_page_update()
     self.local_position = position
 end
 
-function ProgressSync:on_close_document(source_position)
+-- Durable local movement is independent of cloud verification and automatic
+-- upload settings. A checkpoint never starts a request or opens the report gate.
+function ProgressSync:checkpoint_local(reason, source_position)
     local position = self:capture_local() or self.local_position
+    if not position or (self.current_book_id ~= position.book_id and not self.verified) then return end
+    local account = self:_account_key()
+    if not account or self.checkpoint_account and self.checkpoint_account ~= account then return end
     if position and source_position and source_position.book_id == position.book_id then
         position.source_position = copy(source_position)
     end
+    if self.local_position and not PositionMapper.same_position(position, self.local_position) then self.dirty = true end
+    local patch = { last_local_position = position }
+    if self.dirty then
+        patch.pending_upload_position = position
+        patch.pending_upload_reason = reason or "local_checkpoint"
+        patch.pending_upload_account = account
+    end
+    self:_persist(position.book_id, patch)
+    self.local_position = copy(position)
+    return position
+end
+
+function ProgressSync:on_close_document(source_position)
+    local position = self:checkpoint_local("document_close", source_position)
+        or self:capture_local() or self.local_position
     if position and self.verified
         and self:_config().upload_on_close == true then
         if not self.local_position
@@ -1114,6 +1145,7 @@ function ProgressSync:on_close_document(source_position)
     self.generation = self.generation + 1
     self:_invalidate_pull()
     self.current_book_id = nil
+    self.checkpoint_account, self.network_disconnected = nil, nil
     self.verified = false
     self.local_position = nil
     self.remote_position = nil
@@ -1122,7 +1154,7 @@ function ProgressSync:on_close_document(source_position)
 end
 
 function ProgressSync:on_suspend(source_position)
-    local position = self:capture_local() or self.local_position
+    local position = self:checkpoint_local("suspend", source_position)
     self.generation = self.generation + 1
     for _, slot in ipairs({"remote_anchor", "source_anchor"}) do
         if self[slot] then self[slot].scope.generation = self.generation end
@@ -1131,24 +1163,28 @@ function ProgressSync:on_suspend(source_position)
     self._suspend_pending_upload = self.uploading == true
     self.upload_job, self.uploading = nil, false
     self.suspended_at = self.now()
-    if position and source_position and source_position.book_id == position.book_id then
-        position.source_position = copy(source_position)
-    end
-    if position and self.local_position
-        and not PositionMapper.same_position(position, self.local_position) then
-        self.dirty = true
-    end
-    if position and self.verified and self.dirty
-        and self:_config().upload_on_close == true then
-        local account = self:_account_key()
-        if account then
-            self:_persist(position.book_id, {
-                last_local_position = position, pending_upload_position = position,
-                pending_upload_reason = "suspend", pending_upload_account = account,
-            })
-            self._suspend_pending_upload = true
-        end
-    end
+    if position and self.dirty then self._suspend_pending_upload = true end
+end
+
+function ProgressSync:on_network_disconnected()
+    if not self.current_book_id then return false end
+    self:checkpoint_local("network_disconnected")
+    self.navigation_generation = self.navigation_generation + 1
+    self:_invalidate_pull()
+    self.upload_job, self.uploading = nil, false
+    self:_clear_verified("network_disconnected")
+    self.network_disconnected, self.state = true, "offline"
+    return true
+end
+
+function ProgressSync:on_network_connected()
+    if self:_config().pull_on_open ~= true or not self.current_book_id or self.pulling
+        or self.state == "awaiting_choice" or self.pending_jump or self:current_source_target() then return false end
+    if self.checkpoint_account ~= self:_account_key() then return false end
+    if self.verified and not self.network_disconnected then return false end
+    self.network_disconnected = nil
+    self:_clear_verified("network_recheck")
+    return self:_pull({ manual = false })
 end
 
 function ProgressSync:on_resume()

@@ -25,7 +25,10 @@ def main():
     parser.add_argument("--height", type=int, default=800)
     parser.add_argument("--dpi", type=int, default=167)
     parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
+    parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
     args = parser.parse_args()
+    if args.offline_progress and not args.reading_flow:
+        parser.error("--offline-progress requires --reading-flow")
     runtime, root = args.koreader.resolve(), args.run_dir.resolve()
     if not (runtime / "luajit").is_file() or not (runtime / "reader.lua").is_file():
         parser.error("--koreader must contain a built runtime")
@@ -51,6 +54,8 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment["WEREAD_MOCK_PORT"] = str(server.server_port)
+    if args.offline_progress:
+        environment["WEREAD_TEST_OFFLINE_PROGRESS"] = "1"
     try:
         with (root / "evidence/runtime.log").open("w") as log:
             fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"
@@ -63,6 +68,13 @@ def main():
                                         cwd=runtime, env=dict(environment, WEREAD_READING_REOPEN="1"),
                                         stdout=log, stderr=subprocess.STDOUT, timeout=120)
                 assert server.request_totals == before, "offline reopen contacted the mock service"
+                if args.offline_progress and result.returncode == 0:
+                    writes_before = server.request_totals[("/web/book/read", "")]
+                    result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture)],
+                                            cwd=runtime, env=dict(environment, WEREAD_READING_RECONNECT="1"),
+                                            stdout=log, stderr=subprocess.STDOUT, timeout=120)
+                    # One reading-session entry and one progress update, both zero-time.
+                    assert server.request_totals[("/web/book/read", "")] == writes_before + 2, "reconnect repeated or omitted the chosen upload sequence"
     finally:
         server.shutdown()
         server.server_close()

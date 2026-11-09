@@ -1322,6 +1322,155 @@ test("suspend retains a copied source snapshot only for the same book", function
     eq(unverified.values.books.book.pending_upload_position, nil, "source cannot bypass verification gate")
 end)
 
+test("offline unverified close preserves the latest local reading intent", function()
+    local f = fixture({}, { is_online = function() return false end })
+    f.sync:on_reader_ready(); f.drain()
+    f.document.page = 64; f.sync:on_page_update(); f.sync:on_close_document()
+    local saved = f.values.books.book
+    eq(saved.last_local_position.percent, 64, "offline close saves latest location")
+    eq((saved.pending_upload_position or {}).percent, 64, "unverified movement remains available for later comparison")
+    eq(saved.pending_upload_account, f.sync:_account_key(), "offline intent remains account-bound")
+    eq(#f.uploads, 0, "local checkpoint does not grant upload permission")
+end)
+
+test("manual-only reading checkpoints without enabling automatic sync", function()
+    local f = fixture({})
+    f.values.sync.pull_on_open, f.values.sync.upload_on_close = false, false
+    f.sync:on_reader_ready(); f.drain()
+    f.document.page = 61; f.sync:on_page_update()
+    f.sync:checkpoint_local("settings_flush")
+    eq(f.values.books.book.pending_upload_position.percent, 61, "flush saves manual-only movement")
+    eq(f.sync.verified, false, "local save cannot verify the cloud session")
+    eq(f.sync:on_network_connected(), false, "manual-only settings prevent reconnect lookup")
+    f.document.page = 73; f.sync:on_page_update(); f.sync:on_suspend()
+    eq(f.values.books.book.pending_upload_position.percent, 73, "unverified sleep captures newer page")
+    f.sync:on_resume()
+    eq(#f.uploads, 0, "manual-only resume cannot replay checkpoint")
+    eq(#f.choices, 0, "manual-only resume does not ask a cloud question")
+    f.document.page = 82; f.sync:on_page_update(); f.sync:on_close_document()
+    eq(f.values.books.book.pending_upload_position.percent, 82, "close replaces older local checkpoint")
+end)
+
+test("unchanged reading and replaced accounts cannot create a new local intent", function()
+    local f = fixture({})
+    f.values.sync.pull_on_open = false
+    f.sync:on_reader_ready(); f.drain()
+    f.sync:checkpoint_local("settings_flush")
+    eq(f.values.books.book.pending_upload_position, nil, "opening alone is not unsent movement")
+    f.document.page = 65; f.sync:on_page_update()
+    f.values.account = { user_vid = "fixture-account-b" }
+    eq(f.sync:checkpoint_local("settings_flush"), nil, "changed account rejects old document position")
+    eq(f.values.books.book.pending_upload_position, nil, "new account did not inherit old movement")
+    f.sync:on_account_changed()
+    f.sync:on_close_document()
+    eq(f.values.books.book.pending_upload_position, nil, "account-change close did not save old reader as new user")
+end)
+
+test("reconnect restarts an exhausted offline read chain before any upload", function()
+    local online = false
+    local f = fixture({ bookId = "book", progress = 25, chapterUid = 22, chapterOffset = 150 },
+        { is_online = function() return online end })
+    local reads = 0
+    f.client.get_progress = function() reads = reads + 1; return { book = { bookId = "book", progress = 25 } } end
+    f.sync:on_reader_ready(); f.drain()
+    eq(reads, 0, "offline retries made no request")
+    f.document.page = 65; f.sync:on_page_update(); f.sync:on_network_disconnected()
+    eq(f.values.books.book.pending_upload_position.percent, 65, "disconnect parks the live page")
+    online = true
+    eq(f.sync:on_network_connected(), true, "link event starts a fresh read after retries exhausted")
+    eq(reads, 1, "one gateway lookup on reconnect")
+    eq(#f.uploads, 0, "reconnect cannot send before a position decision")
+    eq(#f.choices, 1, "changed cloud position is compared with the live local page")
+    eq(f.sync:on_network_connected(), false, "duplicate link event keeps current choice")
+    eq(reads, 1, "duplicate event does not refetch cloud")
+    f.choices[1].keep_local()
+    eq(#f.uploads, 1, "explicit current local choice uploads once")
+    eq(f.values.books.book.pending_upload_position, nil, "acknowledgement clears chosen checkpoint")
+end)
+
+test("network loss revokes queued writes and old conflict decisions", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback; return true end })
+    f.values.sync.pull_on_open = false
+    f.sync:on_reader_ready(); f.drain()
+    f.sync.verified = true
+    f.document.page = 54; f.sync:on_page_update()
+    f.sync:_upload_snapshot(assert(f.sync:capture_local()), "manual_sync", false)
+    f.sync:on_network_disconnected()
+    callbacks[1]()
+    eq(#f.uploads, 0, "lost link revoked the queued write")
+    eq(f.sync.verified, false, "report gate closes on link loss")
+    eq(f.values.books.book.pending_upload_position.percent, 54, "revoked write retains durable intent")
+    f.sync:on_network_connected()
+    eq(#callbacks, 1, "disabled automatic sync does not restart cloud work")
+
+    local g = fixture({ bookId = "book", progress = 70 })
+    g.sync:on_reader_ready(); g.drain()
+    local old = g.choices[1]
+    g.sync:on_network_disconnected()
+    old.keep_local(); old.use_remote()
+    eq(#g.uploads, 0, "old conflict decision cannot write after disconnect")
+    eq(#g.jumps, 0, "old conflict decision cannot navigate after disconnect")
+    g.sync:on_network_connected()
+    eq(#g.choices, 2, "reconnect creates a current comparison")
+end)
+
+test("reconnect respects source navigation and session ownership", function()
+    local f = fixture({})
+    f.values.sync.pull_on_open = false
+    f.sync:on_reader_ready(); f.drain()
+    f.values.sync.pull_on_open = true
+    f.sync.current_source_target = function() return { upload_verified = false } end
+    eq(f.sync:on_network_connected(), false, "read-only source target is not replaced by reconnect")
+    f.sync.current_source_target = function() return nil end
+    f.values.account = { user_vid = "fixture-account-b" }
+    eq(f.sync:on_network_connected(), false, "new credentials cannot compare the old reading session")
+    eq(#f.choices, 0, "account mismatch did not create a decision")
+end)
+
+test("failed cloud navigation preserves the checkpoint while revoking its queued write", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback; return true end })
+    local position, _, context = f.sync:capture_local()
+    f.sync:_upload_snapshot(position, "manual_sync", false)
+    f.sync.verified, f.sync.dirty = true, true
+    f.sync.goto_fraction = function() return false, "engine_unavailable" end
+    eq(f.sync:_apply_remote({ percent = 50, chapter_uid = 33, chapter_offset = 100 }, context), false,
+        "native navigation failure is reported")
+    eq((f.values.books.book.pending_upload_position or {}).percent, position.percent,
+        "failed cloud jump retains the durable local location")
+    eq(f.sync.verified, false, "failed jump cannot retain upload verification")
+    f.sync:on_close_document()
+    callbacks[1]()
+    eq(#f.uploads, 0, "failed navigation cannot revive the old queued write")
+end)
+
+test("a cloud chapter switch discards local intent only after the new chapter is applied", function()
+    for _, mode in ipairs({ "failed", "cancelled", "applied" }) do
+        local f = fixture({ bookId = "book", progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+        local chapter = chapters[1]
+        f.sync.get_file_context = function() return 1, chapter, false end
+        f.sync.open_chapter = function() return mode ~= "failed", "download_failed" end
+        f.sync:on_reader_ready(); f.drain()
+        local position = assert(f.sync:capture_local())
+        f.values.books.book.pending_upload_position = position
+        f.values.books.book.pending_upload_account = f.sync:_account_key()
+        f.choices[1].use_remote()
+        eq((f.values.books.book.pending_upload_position or {}).percent, position.percent,
+            "waiting or failed chapter open retains local intent: " .. mode)
+        if mode == "cancelled" then
+            f.sync:cancel_pending_jump("cancelled")
+            eq((f.values.books.book.pending_upload_position or {}).percent, position.percent, "cancel preserves local intent")
+        elseif mode == "applied" then
+            chapter = chapters[2]
+            f.sync:on_reader_ready(); f.drain()
+            eq(f.values.books.book.pending_upload_position, nil, "applied new chapter supersedes old local intent")
+            eq(f.sync.verified, true, "applied cloud chapter verifies")
+        end
+        eq(#f.uploads, 0, "cloud navigation does not write local checkpoint: " .. mode)
+    end
+end)
+
 print(string.format(
     "progress_sync_spec: %d checks, %d failure(s)", checks, failures))
 os.exit(failures == 0 and 0 or 1)

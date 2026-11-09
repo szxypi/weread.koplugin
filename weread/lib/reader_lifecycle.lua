@@ -442,10 +442,12 @@ function M:onReadingResumed()
 end
 
 function M:onNetworkConnected()
+    if self.progress_sync then self.progress_sync:on_network_connected() end
     if self.offline_time then self.offline_time:update("network_connected", true) end
 end
 
 function M:onNetworkDisconnected()
+    if self.progress_sync then self.progress_sync:on_network_disconnected() end
     if self.offline_time then self.offline_time:update("network_disconnected", false) end
 end
 
@@ -585,6 +587,7 @@ function M:getChapterInfoFromFile(book, file_path)
 end
 
 function M:onFlushSettings()
+    if self.progress_sync then self.progress_sync:checkpoint_local("settings_flush") end
     if self.settings then
         self.settings:flush()
     end
