@@ -60,8 +60,39 @@ return function(host,response,cover,evidence)
     end)
     assert(host.shelf_view==view and view._shelf_popup==picker and view._shelf_redraw,'progress result interrupted selector')
     UI:close(picker);pump(function() return host.shelf_view~=view end)
+    host:closeWeReadUI()
+    assert(host.library_db:cacheShelf(response.books,response.archive))
+    host.isNetworkOnline=function() return false end;host.isNetworkConnected=host.isNetworkOnline
+    host:showHome()
+    view=assert(host.shelf_view)
+    local book=assert(view:getVisibleBooks()[1]);assert(cache:store(book,cover))
+    host:showHome();view=host.shelf_view
+    local path=assert(cache:pathFor(book));local source=cache.dir..'/'..cache:key(book)..'.png'
+    local file=assert(io.open(source,'wb'));assert(file:write(cover));file:close();assert(os.remove(path))
+    host:showHome();view=host.shelf_view
+    local job=assert(host.shelf_cover_job);local pid=assert(job.pid)
+    view.on_search();local search=assert(view._shelf_popup)
+    pump(function() return not host.shelf_cover_job and not host.shelf_cover_pending end)
+    assert(require('ffi/util').isSubProcessDone(pid))
+    assert(host.shelf_view==view and view._shelf_popup==search and view._shelf_redraw,'home thumbnail result interrupted search')
+    UI:forceRePaint();require('device').screen:shot(evidence..'/portal-home-thumbnail-search.png')
+    search.buttons[1][1].callback();pump(function() return host.shelf_view~=view end)
+    assert(cache:pathFor(book),'home search cancel lost thumbnail')
+    host:closeWeReadUI()
+    host.isNetworkOnline=function() return true end;host.isNetworkConnected=host.isNetworkOnline
+    host:showHome(true);view=host.shelf_view
+    worker=assert(host.shelf_progress_worker);assert(worker.job and worker.job.pid)
+    host:showHomeQuickSettings();local quick=assert(host._home_controls_menu)
+    pump(function()
+        local context=host.shelf_progress_context
+        return not context or not context.request and not context.renewing
+    end)
+    assert(host.shelf_view==view and view._shelf_popup==quick and view._shelf_redraw,'home HTTP progress interrupted quick settings')
+    UI:forceRePaint();require('device').screen:shot(evidence..'/portal-home-progress-settings.png')
+    quick:onCloseAllMenus();pump(function() return host.shelf_view~=view end)
     host:closeWeReadUI();host.settings:set('shelf',original);host.settings:flush()
     host.isNetworkOnline,host.isNetworkConnected=online,connected
     host.shelf_group_key=original_group
     print('PASS: native selector retained through thumbnail children and HTTP progress; cancel refreshes, selection wins')
+    print('PASS: native home search and quick settings retained through thumbnail children and HTTP progress')
 end

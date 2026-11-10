@@ -131,7 +131,6 @@ function M:closeWeReadUI()
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.closeHomeControls then self:closeHomeControls(false) end
-    self._home_pending_redraw = nil
     if self._stats_busy_generation then
         self._stats_busy_generation = nil
         self:closeBusy()
@@ -671,6 +670,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         end
         return true
     end
+    if navigation then navigation = self:discoveryNavigation("shelf", current) end
     view = LibraryView.show({
         mode = mode,
         navigation = navigation,
@@ -788,6 +788,15 @@ function M:showShelfView(mode, keyword, old_view, options)
     })
     if paged then self.shelf_view_pages[mode] = view.page end
     self.shelf_view = view
+    view._prepare_detail_return = function()
+        if not current() then return end
+        return function()
+            if self.shelf_view == view and not view._shelf_closed then
+                options.page = view.page
+                self:showShelfView(mode, keyword, view, options)
+            end
+        end
+    end
     if progress_books then
         local force = options.refresh_progress
         options.refresh_progress = nil
@@ -1163,7 +1172,12 @@ function M:showBookMenu(book)
                 self:cancelBookReading()
                 if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
                 self._book_detail_view = nil
+                local parent = self.shelf_view
+                local resume = parent and parent._prepare_detail_return and parent._prepare_detail_return()
                 self.discovery_epoch = (self.discovery_epoch or 0) + 1
+                -- Rebuild the retained parent with fresh callbacks after the
+                -- detail's epoch is invalidated; old deferred taps stay stale.
+                if resume then resume() end
             end
         end,
     })

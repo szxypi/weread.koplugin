@@ -3,8 +3,11 @@ local Layout = require("weread.lib.home_layout")
 local checks = 0
 local function expect(value, message) checks = checks + 1 assert(value, message) end
 local scheduled, unscheduled, shown, battery, light, lights, wifi_calls = {}, {}, nil, 63, false, 0, 0
+local ticks={}
 package.preload["ui/uimanager"] = function() return {
-    close = function() end, show = function(_self, view) shown = view end,
+    close = function(_self, view) if view.onCloseWidget then view:onCloseWidget() end end,
+    show = function(_self, view) shown = view end,
+    nextTick = function(_self, callback) ticks[#ticks+1]=callback end,
     scheduleIn = function(_self, delay, fn) scheduled[#scheduled + 1] = { delay = delay, fn = fn } end,
     unschedule = function(_self, fn) unscheduled[fn] = true end,
 } end
@@ -90,13 +93,40 @@ shown.ok_callback()
 expect(prefetch == true and host._home_prefetch_confirmation == nil, "prefetch control did not reuse existing service")
 local pending = 0
 host:showHomeQuickSettings()
-host._home_pending_redraw = function() pending = pending + 1 end
-host._home_controls_menu.close_callback()
+host.shelf_view._shelf_redraw = function() pending = pending + 1 end
+require('ui/uimanager'):close(host._home_controls_menu)
+for _tick_index,callback in ipairs(ticks) do callback() end;ticks={}
 expect(pending == 1 and host._home_controls_menu == nil, "modal close lost deferred redraw")
 host:showHomeQuickSettings()
-host._home_pending_redraw = function() pending = pending + 1 end
+host.shelf_view._shelf_redraw = function() pending = pending + 1 end
 host:closeHomeControls(false)
-expect(pending == 1 and host._home_pending_redraw == nil, "global close replayed stale redraw")
+for _tick_index,callback in ipairs(ticks) do callback() end;ticks={}
+expect(pending == 1 and host.shelf_view._shelf_redraw == nil, "global close replayed stale redraw")
+for _event_index,event in ipairs({'closed','replaced','page','session'}) do
+    host.shelf_view={home_layout=preferences}
+    host:showHomeQuickSettings()
+    local menu=host._home_controls_menu
+    local callback=find(menu.items,'Download book images').callback
+    local saved_count=saves
+    if event=='closed' then host:closeHomeControls(false)
+    elseif event=='replaced' then host:showHomeQuickSettings()
+    elseif event=='page' then host.shelf_view={home_layout=preferences}
+    else host._reader_session_gen=(host._reader_session_gen or 0)+1 end
+    local active=host._home_controls_menu;callback()
+    expect(saves==saved_count and host._home_controls_menu==active,'old home setting callback: '..event)
+    host:closeHomeControls(false)
+    host.shelf_view={home_layout=preferences}
+    host:showHomeQuickSettings()
+    find(host._home_controls_menu.items,'Automatically prefetch').callback()
+    local box=assert(host._home_prefetch_confirmation);prefetch=nil
+    if event=='closed' then host:closeHomeControls(false)
+    elseif event=='replaced' then host:showHomeQuickSettings()
+    elseif event=='page' then host.shelf_view={home_layout=preferences}
+    else host._reader_session_gen=(host._reader_session_gen or 0)+1 end
+    active=host._home_controls_menu;box.ok_callback();box.cancel_callback()
+    expect(prefetch==nil and host._home_controls_menu==active,'old prefetch confirmation: '..event)
+    host:closeHomeControls(false)
+end
 host.homeReadingSummary = function() return summary end
 local view = { home_layout = Layout.normalize(nil),
     updateHomeStatus = function(_self, text) status_text = text end,

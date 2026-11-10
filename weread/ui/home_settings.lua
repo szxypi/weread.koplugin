@@ -3,6 +3,8 @@ local UIManager = require("ui/uimanager")
 local Layout = require("weread.lib.home_layout")
 local Profile = require("weread.lib.profile")
 local Util = require("weread.lib.plugin_util")
+local Scope = require("weread.ui.page_scope")
+local Popup = require("weread.ui.shelf_popup")
 local _, T = Util.tr, Util.T
 local M = {}
 local section_labels = { status = "Clock and device status", summary = "Reading overview",
@@ -42,7 +44,7 @@ function M:startHomeStatusTimer(view, refresh_now)
     tick = function()
         if self._home_status_task ~= tick then return end
         self._home_status_task = nil
-        if self.shelf_view ~= view then return end
+        if self.shelf_view ~= view or view._shelf_closed or view._discovery_current and not view._discovery_current() then return end
         update()
         self._home_status_task = tick
         UIManager:scheduleIn(60 - os.time() % 60, tick)
@@ -89,31 +91,43 @@ function M:homeControlsOpen()
 end
 
 function M:closeHomeControls(redraw)
-    local menu = self._home_controls_menu
-    self._home_controls_menu = nil
-    if menu then UIManager:close(menu) end
-    local pending = self._home_pending_redraw
-    self._home_pending_redraw = nil
-    if redraw and pending and self.shelf_view and self.shelf_view.home_layout then pending() end
+    local menu, confirmation = self._home_controls_menu, self._home_prefetch_confirmation
+    self._home_controls_menu, self._home_prefetch_confirmation = nil, nil
+    for _widget_index, widget in pairs({menu, confirmation}) do
+        local owner = widget._home_owner
+        if owner and Popup.current(owner, widget) then
+            if not redraw then owner._shelf_redraw = nil end
+            Popup.close(owner)
+        else UIManager:close(widget) end
+    end
 end
 
 function M:_showHomeMenu(title, items)
     self:closeHomeControls(true)
+    local owner, menu = self.shelf_view
+    local current = Scope.capture(self, owner)
     local function wrap(rows)
-        for _, item in ipairs(rows) do
-            if item.callback then item.callback = self:safeCallback(title, item.callback) end
+        for _row_index, item in ipairs(rows) do
+            if item.callback then
+                local callback = self:safeCallback(title, item.callback)
+                item.callback = function(...)
+                    if self._home_controls_menu == menu and current() then return callback(...) end
+                end
+            end
             if item.sub_item_table then wrap(item.sub_item_table) end
         end
     end
     wrap(items)
-    local menu = self:showList(title, items)
+    menu = self:showList(title, items)
     self._home_controls_menu = menu
-    menu.close_callback = function()
-        if self._home_controls_menu == menu then
-            self._home_controls_menu = nil
-            self:closeHomeControls(true)
-        end
+    menu._home_owner = owner
+    local on_close = menu.onCloseWidget
+    menu.onCloseWidget = function(widget, ...)
+        if self._home_controls_menu == widget then self._home_controls_menu = nil end
+        if on_close then return on_close(widget, ...) end
     end
+    menu.close_callback = function() if self._home_controls_menu == menu then self._home_controls_menu = nil end end
+    if owner then Popup.show(owner, menu, function() end) end
     return menu
 end
 
@@ -230,14 +244,26 @@ function M:showHomeQuickSettings()
             callback = function()
                 dismiss()
                 if cache.auto_prefetch_next_chapter then self:setChapterPrefetchEnabled(false) return end
+                local owner = self.shelf_view
+                local current = Scope.capture(self, owner)
                 local box
+                local function valid()
+                    return self._home_prefetch_confirmation == box and current()
+                        and (not owner or Popup.current(owner, box))
+                end
                 box = require("ui/widget/confirmbox"):new{
                     text = _("Automatic prefetch runs in a background process and uses extra network and storage. Enable it?"),
-                    ok_callback = function() self._home_prefetch_confirmation = nil self:setChapterPrefetchEnabled(true) self:closeHomeControls(true) end,
-                    cancel_callback = function() self._home_prefetch_confirmation = nil self:closeHomeControls(true) end,
+                    ok_callback = function() if valid() then self:setChapterPrefetchEnabled(true) self:closeHomeControls(true) end end,
+                    cancel_callback = function() if valid() then self:closeHomeControls(true) end end,
                 }
                 self._home_prefetch_confirmation = box
-                UIManager:show(box)
+                box._home_owner = owner
+                local on_close = box.onCloseWidget
+                box.onCloseWidget = function(widget, ...)
+                    if self._home_prefetch_confirmation == widget then self._home_prefetch_confirmation = nil end
+                    if on_close then return on_close(widget, ...) end
+                end
+                if owner then Popup.show(owner, box) else UIManager:show(box) end
             end },
         { text = _("Frontlight"), select_enabled = Device:hasFrontlight(),
             callback = function() if Device:hasFrontlight() then dismiss() Device:showLightDialog() end end },
@@ -245,13 +271,13 @@ function M:showHomeQuickSettings()
     local loaded, network = pcall(require, "ui/network/manager")
     if loaded and network.getWifiMenuTable then
         local native = network:getWifiMenuTable()
-        local epoch = self.discovery_epoch or 0
+        local current = Scope.capture(self, self.shelf_view)
         items[#items + 1] = { text = _("Wi-Fi settings"), select_enabled = not native.enabled_func or native.enabled_func(),
             callback = function()
                 if native.enabled_func and not native.enabled_func() then return end
                 dismiss()
                 native.callback({ updateItems = function()
-                    if (self.discovery_epoch or 0) == epoch and self.shelf_view and self.shelf_view.home_layout then
+                    if current() and self.shelf_view and self.shelf_view.home_layout then
                         self:showHomeQuickSettings()
                     end
                 end })

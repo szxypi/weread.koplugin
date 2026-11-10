@@ -39,6 +39,8 @@ local function reset()
     plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books')
 end
 local popup_cases=0
+local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+local portal=dofile(fixtures..'discovery_lifetime_case.lua')(plugin,evidence)
 for _kind_index,kind in ipairs({'sort','filter','search'}) do
     for _event_index,event in ipairs({'current','closed','session'}) do
         reset();local view=assert(plugin.shelf_view)
@@ -92,10 +94,10 @@ local function paint(tag,reverse)
     UI:forceRePaint();report.painted_views=report.painted_views+1
     if tag=='group:24' and not reverse then Device.screen:shot(evidence..'/groups-unavailable.png') end
 end
-local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
 dofile(fixtures..'shelf_groups_ui_case.lua')(plugin,input,mode,report,pump,paint,manifest)
 if mode=='live' then file=assert(io.open(manifest_path,'wb'));assert(file:write(json.encode(manifest)));file:close() end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
+report.portal=portal
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

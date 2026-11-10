@@ -308,9 +308,10 @@ UIManager:forceRePaint()
 Screen:shot(evidence .. "/home-quick-settings.png")
 local behind = plugin.shelf_view
 behind.on_page_changed(behind.page)
-assert(plugin.shelf_view == behind and plugin._home_pending_redraw, "redraw covered home settings")
+assert(plugin.shelf_view == behind and behind._shelf_redraw, "redraw covered home settings")
 quick:onCloseAllMenus()
-assert(plugin._home_controls_menu == nil and plugin._home_pending_redraw == nil and plugin.shelf_view ~= behind,
+flush_tasks()
+assert(plugin._home_controls_menu == nil and behind._shelf_redraw == nil and plugin.shelf_view ~= behind,
     "settings close did not apply deferred redraw")
 plugin.shelf_view.settings_button.callback()
 flush_tasks()

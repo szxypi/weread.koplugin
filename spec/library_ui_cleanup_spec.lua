@@ -98,10 +98,17 @@ expect(detail_data.actions[1].text == "Similar books", "detail omitted similar b
 detail_data.actions[1].callback()
 expect(similar_book == book, "similar books action used a different seed")
 local old_epoch = host.discovery_epoch or 0
+local resumed=false
+host.shelf_view={_prepare_detail_return=function()
+    expect(host._book_detail_view==nil and (host.discovery_epoch or 0)==old_epoch,'parent return prepared outside original context')
+    return function() resumed=host.discovery_epoch==old_epoch+1 end
+end}
 detail_callbacks.on_close()
 expect(host._book_detail_view == nil and host.discovery_epoch == old_epoch + 1,
     "detail close did not invalidate pending discovery requests")
 expect(discovery_cancels == 1, "closing details did not cancel running similar-book requests")
+expect(resumed,'parent callbacks were not recreated after detail invalidation')
+host.shelf_view=nil
 host:showBookMenu(book)
 
 host:showChapterList(book)

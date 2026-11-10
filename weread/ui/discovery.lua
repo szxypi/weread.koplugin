@@ -2,12 +2,15 @@
 local Data = require("weread.lib.discovery_data")
 local PluginUtil = require("weread.lib.plugin_util")
 local UIManager = require("ui/uimanager")
+local Scope = require("weread.ui.page_scope")
+local Popup = require("weread.ui.shelf_popup")
 local _ = PluginUtil.tr
 local M = {}
 
-function M:discoveryNavigation(active)
+function M:discoveryNavigation(active, current)
     local function switch(callback)
         return function()
+            if current and not current() then return end
             self:closeWeReadUI()
             callback()
         end
@@ -44,36 +47,36 @@ function M:showDiscoveryPage(tab, books, options)
     self:cancelShelfCovers()
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self.shelf_view then UIManager:close(self.shelf_view) end
+    local view, scope
+    local function current() return scope and scope() end
     local function redraw(next_page)
+        if not current() then return end
         options.page = next_page
-        if home and self.homeControlsOpen and self:homeControlsOpen() then
-            self._home_pending_redraw = function() self:showDiscoveryPage(tab, books, options) end
-            return
-        end
-        self:showDiscoveryPage(tab, books, options)
+        Popup.redraw(view, function()
+            if current() then self:showDiscoveryPage(tab, books, options) end
+        end)
     end
-    local view
     view = LibraryView.show({
         mode = "books", portal = true, title = options.title,
-        empty_text = options.empty_text, actions = options.actions,
+        empty_text = options.empty_text, actions = Scope.entries(current, options.actions),
         home_layout = home,
         status_text = home and self:homeStatusText(),
         summary_text = home and self:homeReadingSummary(),
-        navigation = self:discoveryNavigation(tab), books = books,
+        navigation = self:discoveryNavigation(tab, current), books = books,
         cover_mode = cover_mode, paged = true, page = page,
         page_size = layout.page_size, cover_columns = layout.columns,
         cover_rows = layout.rows, cover_paths = cover_paths,
     }, {
-        on_search = function() self:showDiscoverySearch() end,
-        on_refresh = options.on_refresh,
-        on_settings = home and function() self:showHomeQuickSettings() end or nil,
-        on_summary = home and function() self:closeWeReadUI() self:showProfile() end or nil,
-        on_select = function(book)
+        on_search = Scope.guard(current, function() self:showDiscoverySearch() end),
+        on_refresh = Scope.guard(current, options.on_refresh),
+        on_settings = home and Scope.guard(current, function() self:showHomeQuickSettings() end) or nil,
+        on_summary = home and Scope.guard(current, function() self:closeWeReadUI() self:showProfile() end) or nil,
+        on_select = Scope.guard(current, function(book)
             if tab == "home" and book._cached then
                 local stored = self.settings:get("books", {})[book.bookId or book.book_id] or book
                 self:openBookForReading(stored)
             else self:showBookRecord(book) end
-        end,
+        end),
         on_page_changed = redraw,
         on_close = function()
             if self.shelf_view == view then
@@ -83,6 +86,17 @@ function M:showDiscoveryPage(tab, books, options)
         end,
     })
     self.shelf_view = view
+    scope = Scope.capture(self, view)
+    view._discovery_current = current
+    view._prepare_detail_return = function()
+        if not current() then return end
+        return function()
+            if self.shelf_view == view and not view._shelf_closed then
+                options.page = view.page
+                self:showDiscoveryPage(tab, books, options)
+            end
+        end
+    end
     if home and self.startHomeStatusTimer then self:startHomeStatusTimer(view, false) end
     if snapshots then
         local force = options.refresh_progress
@@ -125,20 +139,25 @@ end
 
 function M:showDiscoverySearch()
     local InputDialog = require("ui/widget/inputdialog")
+    local owner = self.shelf_view
+    if not owner or owner._shelf_closed then return end
+    local current = Scope.capture(self, owner)
     local dialog
+    local function valid() return current() and Popup.current(owner, dialog) end
     dialog = InputDialog:new{
         title = _("Search WeRead"), input = "", input_type = "text",
         buttons = {{
-            { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
+            { text = _("Cancel"), id = "close", callback = function() if valid() then Popup.close(owner) end end },
             { text = _("Search"), is_enter_default = true, callback = function()
+                if not valid() then return end
                 local keyword = dialog:getInputText():match("^%s*(.-)%s*$")
                 if keyword == "" then return end
-                UIManager:close(dialog)
+                Popup.close(owner)
                 self:loadDiscoveryBatch("search", keyword, 0)
             end },
         }},
     }
-    self:showInputDialog(dialog)
+    Popup.show(owner, dialog, function(widget) self:showInputDialog(widget) end)
 end
 
 function M:showSimilarBooks(book)
@@ -151,13 +170,14 @@ end
 
 function M:showDiscoveryCategoryPicker(data)
     local menu
-    local account,epoch=self.library_db:accountKey(),self.discovery_epoch or 0
+    local owner = self.shelf_view
+    local scope = Scope.capture(self, owner)
     local function current()
-        return self._discovery_menu==menu and account==self.library_db:accountKey() and epoch==(self.discovery_epoch or 0)
+        return self._discovery_menu==menu and scope() and (not owner or Popup.current(owner, menu))
     end
     local function dismiss()
         if self._discovery_menu == menu then self._discovery_menu = nil end
-        if menu then UIManager:close(menu) end
+        if owner then Popup.close(owner) elseif menu then UIManager:close(menu) end
     end
     local function rows(entries)
         local items = {}
@@ -196,12 +216,19 @@ function M:showDiscoveryCategoryPicker(data)
         end },
     })
     self._discovery_menu = menu
-    menu.close_callback = function()
+    local function forget()
         if self._discovery_menu == menu then
             self._discovery_menu = nil
-            self.discovery_epoch = (self.discovery_epoch or 0) + 1
+            if not owner then self.discovery_epoch = (self.discovery_epoch or 0) + 1 end
         end
     end
+    local on_close = menu.onCloseWidget
+    menu.onCloseWidget = function(widget, ...)
+        forget()
+        if on_close then return on_close(widget, ...) end
+    end
+    menu.close_callback = forget
+    if owner then Popup.show(owner, menu, function() end) end
 end
 
 function M:showDiscoveryCategories(refresh)

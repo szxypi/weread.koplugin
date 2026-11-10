@@ -44,7 +44,10 @@ def main():
         raw=(root/f'evidence/{mode}.log').read_bytes();frame=b'\nWEREAD_GROUP_UI_RESULT='
         if result.returncode or raw.count(frame)!=1:raise RuntimeError('native synthetic group UI failed; inspect isolated log')
         stage=json.loads(raw.split(frame)[1])
-        assert set(stage)=={'result','mode','http_requests','popup_cases','fresh_db_read','painted_views','group_coverage'}
+        assert set(stage)=={'result','mode','http_requests','popup_cases','fresh_db_read','painted_views','group_coverage','portal'}
+        assert set(stage['portal'])=={'cases','painted_views','intercepted_searches','pluginloader_filemanager'}
+        assert stage['portal']['cases']==29 and stage['portal']['painted_views']>=30
+        assert stage['portal']['intercepted_searches']==2 and stage['portal']['pluginloader_filemanager'] is True
         assert stage['result']=='PASS' and stage['mode']==mode and stage['http_requests']==0 and stage['popup_cases']==11 and stage['fresh_db_read'] is True
         assert stage['painted_views']==validate(stage['group_coverage'],mode,len(groups),True)
         assert b'[WeRead] forceRePaint failed:' not in raw
