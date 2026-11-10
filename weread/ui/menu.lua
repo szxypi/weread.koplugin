@@ -750,6 +750,7 @@ function M:getSettingsMenuItems()
             text = _("Advanced options"),
             sub_item_table_func = function()
                 return {
+                    require('weread.ui.startup_patch').entry(self),
                     {
                         text = _("Mock service"),
                         sub_item_table_func = function() return self:getMockMenuItems() end,

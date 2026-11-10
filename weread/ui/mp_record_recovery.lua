@@ -49,6 +49,7 @@ local function dispose(stage,worker,pid)
 end
 function M.cancel(host)
     local job=host.mp_records_job;host.mp_records_job=nil
+    if job and job.on_cancel then pcall(job.on_cancel) end
     for _i,key in ipairs(fields) do close(host,key) end
     if not job then return end
     local worker=host.mp_records_worker
@@ -163,7 +164,7 @@ function M.show(host,book,article,path,automatic,options)
     local owner=scope(host,book)
     if owner.account~=prior.account or not Model.matches(host.settings,book,article,input) then failed(host);return false end
     local job={book=book,article=article,input=input,owner=owner,started=os.time(),store=store,
-        open_file=open_file,context_valid=options and options.context_valid}
+        open_file=open_file,context_valid=options and options.context_valid,on_cancel=options and options.on_cancel}
     host.mp_records_job=job
     busy(host,job,_('Preserving reading records…\nTap or press a key to cancel.'))
     if not host.mp_records_worker then

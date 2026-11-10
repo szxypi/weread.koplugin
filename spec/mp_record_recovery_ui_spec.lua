@@ -176,4 +176,10 @@ expect(not state.restored and not state.published and not state.opened and state
 host,book,article=fixture();state.rows={};state.no_history=true
 Recovery.open(host,book,article,'/cache/original.html',external)
 expect(selected=='/cache/original.html' and not state.opened,'no-record external read lost its native opener')
+host,book,article=fixture();local cancelled=0
+Recovery.open(host,book,article,'/cache/old.html',{on_cancel=function() cancelled=cancelled+1 end})
+Recovery.cancel(host);Recovery.cancel(host)
+expect(cancelled==1,'external cancellation was not delivered once')
+host,book,article=fixture();Recovery.open(host,book,article,'/cache/old.html',{on_cancel=function() error('cancel failure') end})
+expect(pcall(Recovery.cancel,host) and not host.mp_records_job,'external cancellation error interrupted cleanup')
 print('PASS: native record recovery choice, ownership, failure and cancellation ('..checks..' checks)')
