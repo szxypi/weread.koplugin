@@ -415,6 +415,20 @@ expect(public_request.url == "https://weread.qq.com/web/bookListInCategory/risin
 responses[#responses + 1] = { body = "category-books", code = 200 }
 public_client:get_category_books("100000", 0, false)
 expect(requests[#requests].url:find("rank=0&maxIndex=0", 1, true), "category request used ranking flag")
+local before_category_cookies=#merged_cookies
+responses[#responses+1]={body='category-books',code=200,headers={['set-cookie']='wr_skey=XXX-category-cookie'}}
+public_client:get_category_books('100000',0,false)
+expect(#merged_cookies==before_category_cookies,'anonymous book list changed login cookies')
+local large_category={code=200,chunks={string.rep('x',4*1024*1024),'overflow','must-not-read'}}
+responses[#responses+1]=large_category
+local book_list_ok,book_list_error=pcall(public_client.get_category_books,public_client,'100000',0,false)
+expect(not book_list_ok and book_list_error=='category_books/unavailable' and large_category.sink_calls==2,
+    'category response limit did not stop the receiving sink')
+logs={}
+responses[#responses+1]={body='private-category-body',code=429,headers={location='private-category-location'}}
+book_list_ok,book_list_error=pcall(public_client.get_category_books,public_client,'100000',0,false)
+expect(not book_list_ok and book_list_error=='category_books/unavailable' and not table.concat(logs,'\n'):find('private-',1,true),
+    'category failure exposed the response or location')
 local before_invalid = #requests
 expect(not pcall(public_client.get_category_books, public_client, "../../bad", 0), "invalid category path accepted")
 expect(not pcall(public_client.get_category_books, public_client, "rising", -1), "negative cursor accepted")

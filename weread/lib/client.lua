@@ -789,11 +789,17 @@ function Client:get_category_books(category_id, cursor, rank)
     assert(cursor >= 0 and cursor < math.huge and cursor % 1 == 0, "Invalid bookstore cursor")
     local url = "https://weread.qq.com/web/bookListInCategory/" .. WeRead.urlencode(category_id)
         .. "?rank=" .. (rank and "1" or "0") .. "&maxIndex=" .. tostring(cursor)
-    local text, code, headers = self:get_text(url, {
-        skip_cookie = true, accept = "application/json",
-        referer = "https://weread.qq.com/web/category/" .. category_id,
-    })
-    return self:decode_http_json(text, { method = "GET", url = url, code = code, headers = headers })
+    local chunks, bytes, exceeded = {}, 0, false
+    local _, code, headers = self:request{url=url,method="GET",skip_cookie=true,persist_response_cookies=false,
+        sensitive=true,diagnostic_api="public_category_books",timeout={8,15},
+        headers={Accept="application/json",Referer="https://weread.qq.com/web/category/"..category_id},sink=function(chunk)
+            if not chunk then return 1 end
+            bytes=bytes+#chunk
+            if bytes>4*1024*1024 then exceeded=true;return nil,"category_books_limit" end
+            chunks[#chunks+1]=chunk;return 1
+        end}
+    if exceeded or code~=200 then error("category_books/unavailable",0) end
+    return self:decode_http_json(table.concat(chunks), {sensitive=true,api_name="public_category_books",code=code,headers=headers})
 end
 
 function Client:get_book_reviews(book_id, review_list_type, count)

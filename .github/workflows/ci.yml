@@ -104,6 +104,7 @@ jobs:
           python3 scripts/test_native_discovery.py
           python3 scripts/test_owner_discovery.py
           python3 scripts/test_category_catalog.py
+          python3 scripts/test_category_books.py
 
       - name: Native MP catalog prototype checks
         run: python3 scripts/test_native_mp.py

@@ -15,8 +15,11 @@
   保存失败可继续浏览本次列表，同时提示该次结果未能保存供离线使用。
 - 原始响应最多 4 MiB，内存结果及 SQLite 载荷最多 1 MiB，最多 5,000 个条目；
   标题、ID、层级、数组、状态和时间均有校验。损坏、过大或字段冲突的缓存不作为有效结果。
-- 持久缓存范围是**分类层级目录**。分类书单仍沿用现有后台分页与内存状态；
-  本阶段没有把书单、搜索或个人推荐变成持久离线书库。
+- 层级目录和未登录时已浏览的公开分类书单保存在 `bookstore-public.db`。
+  公开书单只接受分类／榜单查询及匿名公开来源，沿用批次、字段、事务与容量校验。
+  已登录时的分类书单仍使用账号自己的数据库；个人搜索、推荐和相似书籍不会进入这份未登录缓存。
+  缓存只包含书籍卡片，不包含正文。新进程可恢复最后保存的分类批次，经原生目录重选后可在已保存批次间往返；
+  未保存的下一批不显示为可离线浏览，明确刷新才联网重取首批。
 
 ## 真实读取先行
 
@@ -55,4 +58,42 @@ SQLite 新实例回读、未登录离线重开、缓存时间标识、旧／替�
 xvfb-run -a python3 scripts/test_discovery_runtime.py \
   --koreader /path/to/koreader --run-dir /path/to/new-directory \
   --width 1264 --height 1680 --dpi 300
+```
+
+## 未登录的公开书单与实际页面（2026-11-11）
+
+此前未登录时能在线浏览目录和书单，但书单保存仍依赖账号数据库，重启后无法离线重开。
+组件测试已复现此缺口。本次接入有界的未登录分类书单缓存；登录场景保留原有账号隔离。
+分类书单的 GET 也新增接收期间 4 MiB 上限、禁止保存响应 Cookie 及去敏错误；不跟随重定向、自动续期或重试。
+已有书架、搜索和个人推荐的通道未改动，没有新增账号数据写入入口。
+
+先由独立 Python 匿名读取目录，选择一个排行榜、一个有子分类的主分类及其一个子分类，各读取最多两批。
+真实三个入口均返回 20＋20 条；随后两种尺寸各以实际 PluginLoader／FileManager 加载同一候选，
+由原生目录选择入口、前往下一批并逐页绘制。另由全新离线进程恢复最后批次、重选三个入口，
+在已保存的前后批次及组内页之间往返。界面字段与**各自同一次响应**的独立 Python 投影一致，
+离线结果与首次文件 SQLite 快照一致，过期目录回调被拒绝。
+
+600×800 的联网／离线分别为 6／10 次批次核对、24／70 次实际重绘；
+KO2 1264×1680／300 DPI 分别为 6／10 次批次核对、12／30 次实际重绘。
+120 条来源展示记录会出现在多个页面／离线往返中，不等于 120 本不同书籍。
+本轮核对原生控件及封面字段，封面图片下载沿用已有独立验证，没有在这些公开书单场景中重新下载。
+没有真实截图或人工目视验收。实际公共缓存仅保存在 Linux tmpfs，目录和书单共用文件 SQLite，
+每次结束审计、核对安装包字节后删除临时配置；不打开项目钥匙串或读取账号凭据。
+
+另以合成 HTTP 覆盖排行榜／主分类 20＋6、子分类 15 条、两尺寸的原生宿主／全新离线重开，
+拒绝把个人查询存入公开缓存。登录后的既有首页／书架／书城／统计、授权、普通阅读与同步组合继续回归。
+固定范围、请求数量及候选／工具哈希见[本批证据](validation-assets/2026-11-11/public-category-books.json)。
+实体 KO2 的网络、休眠、文件系统和按键仍待验收，集中性能专项尚未开始。
+
+默认离线检查与匿名实测入口：
+
+```sh
+python3 scripts/verify_category_books.py
+python3 scripts/test_category_books.py
+python3 scripts/verify_category_books.py --online
+python3 scripts/verify_category_books.py --online --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation \
+  flock -x /validation/weread-native-ui.lock xvfb-run -a \
+  python3 /source/scripts/run_public_category_ui.py \
+  --koreader /validation/runtime/lib/koreader --candidate /validation/weread-public-category.zip
 ```
