@@ -1,13 +1,18 @@
 -- Opt-in addon for the real-book reading probe. Tokens are read-only RAM
 -- values; only one selected chapter's underline/thought reads can dispatch.
-return function(input, mode, counters)
+return function(input, mode, counters, dependencies)
     local Json = require("json")
     local Crypto = require("weread.lib.crypto")
     local Protocol = require("weread.lib.protocol")
     local config = assert(input.annotations)
-    assert(type(config.ranges) == "table" and #config.ranges > 0 and #config.ranges <= 4096)
-    assert(type(config.digest) == "string" and config.digest:match("^[a-f0-9]+$") and #config.digest == 64)
-    assert(config.underlines == #config.ranges and config.thought_items > 0)
+    -- Only the separately opted-in expiry factory can defer the independent
+    -- model until postflight. JSON alone cannot enable that code path.
+    local pending_model = dependencies and dependencies.pending_model == true
+    if not pending_model then
+        assert(type(config.ranges) == "table" and #config.ranges > 0 and #config.ranges <= 4096)
+        assert(type(config.digest) == "string" and config.digest:match("^[a-f0-9]+$") and #config.digest == 64)
+        assert(config.underlines == #config.ranges and config.thought_items > 0)
+    end
     local credentials = assert(config.credentials)
     assert(credentials.vid == input.vid and type(credentials.accessToken) == "string")
     local case = { enabled = false, ranges = config.ranges, report = {
@@ -107,6 +112,7 @@ return function(input, mode, counters)
             if top and getmetatable(top) == require("ui/widget/infomessage") then UI:close(top) end
         end
         dismiss(); self.enabled = true
+        if self.before_fetch then self:before_fetch(plugin) end
         if mode == "live" then
             local picker = assert(plugin:chooseAnnotationChapters())
             local target = assert(picker.model.by_uid[input.chapter_uid]); assert(target.selectable)
@@ -125,17 +131,25 @@ return function(input, mode, counters)
         pump(function() return not plugin._external_annotation_sync end)
         local context = assert(plugin:_prepareAnnotationContext(false))
         local source = assert(context.store:get(input.book_id, "source", input.chapter_uid))
-        assert(digest(source) == config.digest)
-        self.report.source_data_matches = true
         local count = 0
         for _i, row in ipairs(source.reviews) do count = count + #row.pageReviews end
-        assert(#source.underlines == config.underlines and count == config.thought_items)
+        local ranges = config.ranges
+        if pending_model then
+            assert(#source.underlines > 0 and #source.underlines <= 4096 and count > 0 and count <= 122880)
+            ranges = {}
+            for _i, row in ipairs(source.underlines) do ranges[#ranges + 1] = row.range end
+            self.private_model = { ranges = ranges, digest = digest(source), underlines = #source.underlines, thought_items = count }
+        else
+            assert(digest(source) == config.digest)
+            assert(#source.underlines == config.underlines and count == config.thought_items)
+            self.report.source_data_matches = true
+        end
         self.report.underlines, self.report.thought_items = #source.underlines, count
         local key = context.store:projectionKey(context.document_key, input.chapter_uid)
         local projection = assert(context.store:get(input.book_id, "projection", key))
         local stats = assert(projection.stats)
         self.report.located, self.report.unmatched, self.report.partial = stats.located, stats.total - stats.located, stats.partial or 0
-        assert(stats.total == config.underlines and stats.located == #projection.records and stats.located > 0)
+        assert(stats.total == #source.underlines and stats.located == #projection.records and stats.located > 0)
         assert(not context.store:get(input.book_id, "download", input.chapter_uid))
         self.report.picker_and_matching = true
         local located = {}
@@ -148,14 +162,16 @@ return function(input, mode, counters)
         local spans = require("weread.lib.annotation_source").index(sealed.raw)
         local source_quotes, quote_parts = {}, {}
         local markers = {}
-        for _i, marker in ipairs(config.ranges) do markers[#markers + 1] = marker end
+        for _i, marker in ipairs(ranges) do markers[#markers + 1] = marker end
         table.sort(markers)
         for _i, marker in ipairs(markers) do
             local text = require("weread.lib.annotation_source").quote(spans, marker)
             source_quotes[marker] = text
             quote_parts[#quote_parts + 1] = #marker .. ":" .. marker .. #text .. ":" .. text
         end
-        assert(Crypto.sha256_hex(table.concat(quote_parts)) == config.source_quotes_digest)
+        local quotes_digest = Crypto.sha256_hex(table.concat(quote_parts))
+        if pending_model then self.private_model.source_quotes_digest = quotes_digest
+        else assert(quotes_digest == config.source_quotes_digest) end
         local candidate = { book_id = source.book_id, chapter_uid = source.chapter_uid, reviews = source.reviews, underlines = {} }
         for _i, row in ipairs(source.underlines) do
             local copy = {}
@@ -172,7 +188,7 @@ return function(input, mode, counters)
             local text = assert(reader.document:getTextFromXPointers(record.pos0, record.pos1))
             assert(External.flatten_text(text) == External.flatten_text(record.text))
         end
-        self.report.source_quote_recheck_verified = true
+        self.report.source_quote_recheck_verified = not pending_model
         local source_index = assert(require("weread.lib.source_dom").open(reader.document, input.book_id, input.chapter_uid))
         local bounded = { start_xpointer = context.ranges[input.chapter_uid].start_xpointer, end_xpointer = source_index.ending }
         local sealed_records, sealed_stats = External.locate(reader.document, { candidate }, {

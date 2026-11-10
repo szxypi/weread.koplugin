@@ -171,6 +171,57 @@ python3 scripts/verify_owner_annotations.py --saved-session --lua-command \
 持续 401 最多一次续期及一次再读，429 不续期；延迟授权请求中实际暂停后无迟到提交，后续读取不重放未确认续期。
 故意取消所留下的待确认状态由一次新的合成扫码授权解除，不影响后续独立回归。
 
-真实账号复核则在原生书架读取时观察到 HTTP 401，只读工具已停止，账号数据写入及授权 POST 均为零。
-过期授权仍保留在原项目钥匙串，尚未用这份真实授权验证新恢复分支；不将合成续期结果宣称为真实过期恢复通过。
+该轮真实账号复核在原生书架读取时观察到 HTTP 401，只读工具停止，账号数据写入及授权 POST 均为零。
+当时保留了原项目钥匙串中的过期授权，尚未验证真实恢复；后续组合验收见下一节。
 完整记录见[本轮恢复证据](validation-assets/2026-11-10/annotation-native-recovery.json)。
+
+## 真实过期授权的组合验收
+
+随后在官方 KOReader v2026.07.1 Linux ARM64／Xvfb 中，以同一份自然过期的本人授权，
+从正常插件书架、详情「阅读」进入原生阅读器，再由实际标注选择器触发下载。
+先运行禁止授权 POST 的检查：划线 GET 返回真实 HTTP 401，父进程尝试创建续期意图，
+测试适配器在发送前阻止续期；授权请求为零，云端位置不变。
+
+明确启用单次续期后，宿主先在原 macOS 钥匙串保存并回读待确认意图，
+插件收到真实 401 后经生产父进程恢复服务仅发送一次原生 `/login`，
+用响应中的新授权读取同账号书架，再恢复划线与三个想法批次。
+600×800 下，76 处划线全部定位、零截断，180 条想法一致，实际覆盖层点击及弹窗通过；
+全新进程离线重开、位置恢复、弹窗通过，Web／原生 HTTP 均为零。
+宿主独立重新读取新授权书架、全部划线和想法，核对账号、范围、数量、内容摘要和来源文字摘要，
+并实际将新授权写回原钥匙串、回读一致后解除本次待确认状态。
+前后云端阅读位置不变，没有书架、笔记、进度或阅读时长写入，没有私人截图。
+
+该专用入口与原只读入口分开：`--saved-session` 单独使用只做上述发送前检查，
+额外的 `--renew-in-parent` 才允许一次授权 POST；只读入口仍拒绝所有登录／续期。
+传输范围限定同书同章、固定请求体、无 Cookie／Bearer 混用；授权请求发送前即消耗唯一名额。
+原生临时配置使用 RAM 凭据存储适配器，真实持久化及回读发生在原 macOS 钥匙串；
+因此本项不替代 Kindle 上凭据文件落盘／休眠恢复验收。
+若回执缺失或结果不明，宿主持久意图保留，不自动重新发送。
+新授权一经独立确认便保存，即使后续界面或内容核对失败，也不会丢弃已轮换授权后重登。
+
+由于旧授权已失效，在线阶段无法预先取得原生对照模型，两个对照标记保持未核对状态；
+只有宿主在真实续期完成后独立读取并比对模型，最终报告才标记通过。
+离线阶段严格核对该已独立验证的模型，没有把插件自己的下载结果当作独立对照。
+
+可复现入口（默认不读钥匙串、不联网）：
+
+```sh
+python3 scripts/verify_owner_recovery.py
+python3 scripts/test_owner_recovery.py
+```
+
+已有授权、自然过期样本及候选包时，明确执行一次恢复：
+
+```sh
+python3 scripts/verify_owner_recovery.py --saved-session --renew-in-parent --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
+  python3 /source/scripts/run_owner_reading_probe.py \
+  --koreader /validation/runtime/lib/koreader --candidate /validation/owner-parent-recovery-candidate.zip \
+  --annotation-recovery
+```
+
+移除 `--renew-in-parent` 即为禁止授权 POST 的真实过期检查。
+新工具增加 9 项 Python 检查和 20 项 Lua 传输边界检查，覆盖默认离线、显式选择、
+私有回执、一次发送上限、未知结果保留、确认零发送才释放、独立模型、同账号保存与离线零请求。
+完整结果及共享只读流程的 KO2 分辨率回归见[真实恢复证据](validation-assets/2026-11-10/owner-parent-annotation-recovery.json)。
+真实中途想法批次过期、更多书籍类型及 KO2 实体设备仍待验收；中途恢复现有合成服务覆盖。

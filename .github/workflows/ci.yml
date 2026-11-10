@@ -127,6 +127,7 @@ jobs:
           python3 scripts/test_persistent_ui.py
           python3 scripts/test_owner_reading.py
           python3 scripts/test_owner_annotations.py
+          python3 scripts/test_owner_recovery.py
           python3 scripts/test_annotation_source_quotes.py
           python3 scripts/test_txt_reading.py
 

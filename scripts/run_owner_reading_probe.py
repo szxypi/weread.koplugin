@@ -22,7 +22,9 @@ def main(argv=None):
     parser.add_argument('--width', type=int, default=600)
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
-    parser.add_argument('--annotations', action='store_true')
+    addons = parser.add_mutually_exclusive_group()
+    addons.add_argument('--annotations', action='store_true')
+    addons.add_argument('--annotation-recovery', action='store_true')
     args = parser.parse_args(argv)
     runtime = args.koreader.resolve()
     if sys.platform != 'linux' or not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
@@ -31,6 +33,7 @@ def main(argv=None):
         parser.error('/dev/shm must be tmpfs')
     report = dict(result='UNVERIFIED', tmpfs_profile=True, profile_removed=False, stages=[], runner_error='none')
     root, cookies = None, {}
+    recovery_private = []
     try:
         raw = sys.stdin.buffer.read(256 * 1024 + 1)
         if len(raw) > 256 * 1024:
@@ -40,7 +43,11 @@ def main(argv=None):
         if args.annotations:
             from owner_annotation_contract import decode
             decoder = decode
-        if args.annotations != ('annotations' in payload) or args.annotations and 'full_manifest' in payload:
+        if args.annotation_recovery:
+            from owner_recovery_contract import decode
+            decoder = decode
+        has_annotations = args.annotations or args.annotation_recovery
+        if has_annotations != ('annotations' in payload) or has_annotations and 'full_manifest' in payload:
             raise ValueError('input_limit')
         full_chapters = len(payload['full_manifest']) if 'full_manifest' in payload else 1
         if not 1 <= full_chapters <= 32:
@@ -65,11 +72,21 @@ def main(argv=None):
                 command = [str(runtime / 'luajit'), str(probe), mode]
                 if args.annotations:
                     command.append(str(probe.with_name('owner_annotations_case.lua')))
+                if args.annotation_recovery:
+                    command.append(str(probe.with_name('owner_expired_annotations_case.lua')))
                 code, out, repaint = run_child(command, env,
                                                json.dumps(payload, ensure_ascii=False).encode(), runtime,
                                                timeout=600 if full_chapters > 1 and mode == 'live' else 150)
                 envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters)
                 cookies = envelope['cookies']
+                if args.annotation_recovery:
+                    private = envelope['recovery_private']
+                    recovery_private.append(private)
+                    if mode == 'live' and private['recovery']['saved_new_grant']:
+                        payload['annotations']['credentials'] = private['credentials']
+                        payload['annotations']['permit_renewal'] = False
+                        payload['annotations']['intent_digest'] = ''
+                        if private['model'] is not None: payload['annotations'].update(private['model'])
                 private_html=envelope.pop('rejected_html',None)
                 if private_html:
                     comparison=dict(checked=True,valid=False,reason='other')
@@ -101,7 +118,9 @@ def main(argv=None):
     finally:
         report['profile_removed'] = root is not None and not root.exists()
     # This private envelope is consumed only by the captured host verifier pipe.
-    sys.stdout.buffer.write(FRAME + json.dumps(dict(report=report, cookies=cookies)).encode() + b'\n')
+    envelope = dict(report=report, cookies=cookies)
+    if args.annotation_recovery: envelope['recovery_private'] = recovery_private
+    sys.stdout.buffer.write(FRAME + json.dumps(envelope).encode() + b'\n')
     return 0 if report['result'] == 'PASS' and report['profile_removed'] else 1
 
 

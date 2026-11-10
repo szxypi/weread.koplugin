@@ -16,6 +16,7 @@ local mapping_bytes=4096
 local rejected_html
 local descriptors={}
 local annotation_case
+local recovery_private
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
@@ -578,7 +579,10 @@ local ok,reason=pcall(function()
     report.phase,report.result='complete','PASS'
 end)
 if counters then
-    if annotation_case then annotation_case:finish(reason) end
+    if annotation_case then
+        annotation_case:finish(reason)
+        if annotation_case.private then recovery_private=annotation_case:private() end
+    end
     for index=1,7 do report.requests[index]=tonumber(counters[index-1]) end
     report.last_http_status,report.denied_kind=tonumber(counters[7]),tonumber(counters[8])
     report.denied_route,report.denied_flags=tonumber(counters[9]),tonumber(counters[10])
@@ -598,5 +602,6 @@ for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
     report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
 end
-io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {},rejected_html=rejected_html}..'\n')
+io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {},rejected_html=rejected_html,
+    recovery_private=recovery_private}..'\n')
 os.exit(ok and 0 or 1)
