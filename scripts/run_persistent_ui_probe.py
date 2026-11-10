@@ -55,6 +55,7 @@ def main(argv=None):
     parser.add_argument('--width', type=int, default=600)
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
+    parser.add_argument('--all-shelf-pages',action='store_true')
     args = parser.parse_args(argv)
     runtime = args.koreader.resolve()
     if sys.platform != 'linux' or not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
@@ -66,6 +67,9 @@ def main(argv=None):
     try:
         raw = sys.stdin.buffer.read(256 * 1024 + 1)
         if len(raw) > 256 * 1024:
+            raise ValueError('input_limit')
+        payload=json.loads(raw)
+        if not isinstance(payload,dict) or payload.get('all_shelf_pages',False) is not args.all_shelf_pages:
             raise ValueError('input_limit')
         with tempfile.TemporaryDirectory(prefix='weread-persistent-', dir='/dev/shm') as temporary:
             root = Path(temporary)
@@ -79,8 +83,9 @@ def main(argv=None):
                        EMULATE_READER_DPI=str(args.dpi))
             probe = Path(__file__).resolve().parent.parent / 'spec/koreader/persistent_ui_probe.lua'
             for mode in ('live', 'reopen'):
-                code, out, repaint = run_child([str(runtime / 'luajit'), str(probe), mode], env, raw, runtime)
-                stage = decode_stage(out, mode)
+                code, out, repaint = run_child([str(runtime / 'luajit'), str(probe), mode], env, raw, runtime,
+                                              timeout=600 if args.all_shelf_pages else 150)
+                stage = decode_stage(out, mode,all_shelf_pages=args.all_shelf_pages)
                 report['stages'].append(stage)
                 if code or repaint or stage['result'] != 'PASS':
                     raise ValueError('stage_unverified')

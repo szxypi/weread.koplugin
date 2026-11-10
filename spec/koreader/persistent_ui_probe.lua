@@ -23,6 +23,15 @@ local ok,reason=pcall(function()
     assert((lfs.symlinkattributes(home..'/weread')~=nil)==(mode=='reopen'))
     local raw=assert(io.stdin:read(256*1024+1));assert(#raw<=256*1024)
     local input=json.decode(raw)
+    local all_pages=input.all_shelf_pages==true
+    assert(input.all_shelf_pages==nil or type(input.all_shelf_pages)=='boolean')
+    if all_pages then
+        assert(type(input.shelf_books)=='number' and input.shelf_books>=1 and input.shelf_books<=160)
+        assert(type(input.expected_shelf)=='table')
+        report.shelf_coverage={reference_books=0,regular_books=0,public_accounts=0,forward_pages=0,reverse_pages=0,
+            unique_cells=0,progress_eligible=0,cover_eligible=0,partition_verified=false,
+            reference_fields_match=false,page_cache_matches=false,boundaries_verified=false}
+    end
     local grant=assert(input.credentials)
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
     assert(type(input.book_id)=='string' and input.book_id:match('^[1-9]%d*$') and #input.book_id<=20)
@@ -129,7 +138,8 @@ local ok,reason=pcall(function()
         local rule=classify(options)
         local index=rule and (rule.kind=='cover' and 2 or rule.kind=='progress' and 3)
         local maximum=rule and rule.kind=='cover' and 2 or 1
-        if not rule or counters[rule.slot]>=maximum or index and counters[index]>=(index==2 and 48 or 24) then
+        local global_limit=index==2 and (all_pages and 640 or 48) or (all_pages and 160 or 24)
+        if not rule or counters[rule.slot]>=maximum or index and counters[index]>=global_limit then
             local kind=allowed[options.url] and allowed[options.url].kind
             counters[10]=kind=='native' and 1 or kind=='progress' and 2 or kind=='cover' and 3 or 0
             counters[11]=not allowed[options.url] and 1 or not rule and 2 or counters[rule.slot]>=maximum and 3 or 4
@@ -231,6 +241,20 @@ local ok,reason=pcall(function()
     local books=assert(plugin.library_db:getShelf());assert(#books==input.shelf_books)
     plugin:applyShelfSnapshot(books,assert(plugin.library_db:getShelfArchives()))
     report.shelf_books,report.shelf_groups=#books,#plugin.shelf_groups
+    if all_pages then
+        local coverage=report.shelf_coverage
+        for _id in pairs(input.expected_shelf) do coverage.reference_books=coverage.reference_books+1 end
+        assert(coverage.reference_books==#books)
+        for _i,book in ipairs(books) do
+            local expected=assert(input.expected_shelf[tostring(book.bookId)])
+            assert(book.title==expected.title and (book.author or '')==expected.author and (book.cover or '')==expected.cover)
+            if tostring(book.bookId):match('^[1-9]%d*$') then coverage.progress_eligible=coverage.progress_eligible+1 end
+            if book.cover and book.cover~='' then coverage.cover_eligible=coverage.cover_eligible+1 end
+        end
+        coverage.regular_books,coverage.public_accounts=#plugin.shelf_regular,#plugin.shelf_mp
+        assert(coverage.regular_books+coverage.public_accounts==coverage.reference_books)
+        coverage.reference_fields_match=true
+    end
     local function allow(url,kind)
         if not allowed[url] then slot=slot+1;assert(slot<12000);allowed[url]={kind=kind,slot=slot} end
     end
@@ -245,20 +269,29 @@ local ok,reason=pcall(function()
     local _,name,file=db:rowexec('PRAGMA database_list')
     assert(name=='main' and file==plugin.library_db:databasePath() and lfs.symlinkattributes(file,'mode')=='file')
     db:close();report.file_backed_sqlite=true
-    local seen_covers,seen_progress={},{}
+    local seen_covers,seen_progress,seen_cells={},{},{}
+    local manifest={pages={}}
+    local manifest_path=home..'/full-shelf-pages.json'
+    if all_pages and mode=='reopen' then
+        local handle=assert(io.open(manifest_path,'rb'));local bytes=handle:read(1024*1024+1);handle:close()
+        assert(#bytes<=1024*1024);manifest=json.decode(bytes);assert(type(manifest.pages)=='table')
+    elseif all_pages then assert(not lfs.symlinkattributes(manifest_path)) end
     local function settled()
         local context=plugin.shelf_progress_context
         return not plugin.shelf_cover_job and not plugin.shelf_cover_pending
             and (not context or not context.request and not context.renewing)
     end
-    local function paint()
+    local function paint(tag,reverse)
         pump(settled)
         local view=assert(plugin.shelf_view);assert(view.cover_mode)
         local visible=view:getVisibleBooks();local ids={}
         for _i,book in ipairs(visible) do ids[#ids+1]=tostring(book.bookId) end
         local progress=plugin.library_db:getShelfProgress(ids)
+        local entries={}
+        assert(#view._item_rows==#visible)
         for _i,row in ipairs(view._item_rows) do
             local book=row.book;local id=tostring(book.bookId)
+            assert(tostring(visible[_i].bookId)==id)
             if allowed['https://weread.qq.com/web/book/getProgress?bookId='..id] then
                 local snapshot=assert(progress[id]);assert(book._shelf_progress==snapshot.percent)
                 seen_progress[id]=snapshot
@@ -266,12 +299,64 @@ local ok,reason=pcall(function()
             if book.cover and book.cover~='' then
                 assert(row._has_cover and plugin:getShelfCoverCache():pathFor(book));seen_covers[id]=true
             end
+            if all_pages and tag then
+                local expected=assert(input.expected_shelf[id])
+                assert(book.title==expected.title and (book.author or '')==expected.author and (book.cover or '')==expected.cover)
+                if not reverse then assert(not seen_cells[id]);seen_cells[id]=true end
+                local cover_path=plugin:getShelfCoverCache():pathFor(book)
+                local hash=''
+                if cover_path then
+                    local handle=assert(io.open(cover_path,'rb'));local bytes=handle:read('*a');handle:close()
+                    hash=require('weread.lib.crypto').sha256_hex(bytes)
+                end
+                local snapshot=progress[id]
+                entries[#entries+1]={id,book.title,book.author or '',book.cover or '',
+                    snapshot and snapshot.percent or -1,snapshot and snapshot.unavailable==true or false,hash}
+            end
+        end
+        if all_pages and tag then
+            local key=tag..':'..view.page;local encoded=json.encode(entries)
+            if mode=='live' then assert(not manifest.pages[key]);manifest.pages[key]=encoded
+            else assert(manifest.pages[key]==encoded) end
         end
         UIManager:forceRePaint();report.painted_views=report.painted_views+1
     end
-    plugin:showShelfView('books',nil,nil,{page=1});paint()
-    if plugin.shelf_view.page_count>1 then
-        plugin:showShelfView('books',nil,nil,{page=2});paint();report.paged_shelf=true
+    if all_pages then
+        local coverage=report.shelf_coverage
+        for _i,tag in ipairs({'books','public_account'}) do
+            local count=tag=='books' and #plugin.shelf_regular or #plugin.shelf_mp
+            if count>0 then
+                plugin:showShelfView(tag,nil,plugin.shelf_view,{page=1});paint(tag)
+                local total=plugin.shelf_view.page_count
+                if total>1 then report.paged_shelf=true end
+                local first=plugin.shelf_view;first:onShelfSwipe(nil,{direction='east'});assert(plugin.shelf_view==first)
+                coverage.forward_pages=coverage.forward_pages+1
+                for page=2,total do
+                    plugin.shelf_view:onShelfSwipe(nil,{direction='west'});paint(tag)
+                    assert(plugin.shelf_view.page==page and plugin.shelf_view.page_count==total)
+                    coverage.forward_pages=coverage.forward_pages+1
+                end
+                local last=plugin.shelf_view;last:onShelfSwipe(nil,{direction='west'});assert(plugin.shelf_view==last)
+                if mode=='reopen' then
+                    for page=total-1,1,-1 do
+                        plugin.shelf_view:onShelfSwipe(nil,{direction='east'});paint(tag,true)
+                        assert(plugin.shelf_view.page==page)
+                        coverage.reverse_pages=coverage.reverse_pages+1
+                    end
+                end
+            end
+        end
+        for _id in pairs(seen_cells) do coverage.unique_cells=coverage.unique_cells+1 end
+        assert(coverage.unique_cells==coverage.reference_books)
+        coverage.partition_verified,coverage.page_cache_matches,coverage.boundaries_verified=true,true,true
+        if mode=='live' then
+            local handle=assert(io.open(manifest_path,'wb'));assert(handle:write(json.encode(manifest)));assert(handle:close())
+        end
+    else
+        plugin:showShelfView('books',nil,nil,{page=1});paint()
+        if plugin.shelf_view.page_count>1 then
+            plugin:showShelfView('books',nil,nil,{page=2});paint();report.paged_shelf=true
+        end
     end
     report.phase='home';plugin:closeWeReadUI();plugin:showHome();paint()
     report.phase='book';plugin:closeWeReadUI()
