@@ -14,6 +14,25 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_native_multi_batch_fixture_expires_only_the_second_request(self):
+        self.assertEqual(self.request('/__control',dict(native_annotation_many=True,match='/book/readreviews',skip=1,times=1,status=401))[0],200)
+        target='https://i.weread.qq.com'
+        _,raw=self.server.route('GET',target+'/book/underlines?bookId='+BOOK_ID+'&chapterUid=1&synckey=0',{})
+        ranges=[row['range'] for row in raw['underlines']]
+        self.assertEqual((len(ranges),len(set(ranges))),(31,31))
+        bodies=[dict(bookId=BOOK_ID,chapterUid=1,cht2sMode='',reviews=[dict(range=marker,maxIdx=0,count=30,synckey=0) for marker in batch])
+                for batch in (ranges[:30],ranges[30:])]
+        status,first=self.server.route('POST',target+'/book/readreviews',bodies[0])
+        self.assertEqual((status,len(first['reviews'])),(200,30))
+        self.assertEqual(self.server.route('POST',target+'/book/readreviews',bodies[1])[0],401)
+        status,last=self.server.route('POST',target+'/book/readreviews',bodies[1])
+        self.assertEqual((status,len(last['reviews'])),(200,1))
+
+    def test_native_batch_fault_controls_are_bounded_and_typed(self):
+        for value in (True,-1,10001,'1'):
+            self.assertEqual(self.request('/__control',dict(skip=value))[0],400)
+        self.assertEqual(self.request('/__control',dict(native_annotation_many=1))[0],400)
+
     def test_native_annotations_match_the_existing_readonly_shapes(self):
         target='https://i.weread.qq.com'
         code,raw=self.server.route('GET',target+'/book/underlines?bookId='+BOOK_ID+'&chapterUid=1&synckey=0',{})
@@ -55,7 +74,7 @@ class MockTests(unittest.TestCase):
         return self.request("/api/agent/gateway", dict(api_name=api, **params))
 
     def setUp(self):
-        self.request("/__control", dict(delay=0, match="", status=503, times=0,
+        self.request("/__control", dict(delay=0, match="", status=503, times=0,skip=0,native_annotation_many=False,
                                         empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
                                         progress_response="plain"))
 

@@ -21,7 +21,7 @@ end
 
 function Sync:new(options)
     local job = setmetatable(options, self)
-    if job.client.capture_annotation_access then job.annotation_access = job.client:capture_annotation_access() end
+    if not job.annotation_access and job.client.capture_annotation_access then job.annotation_access = job.client:capture_annotation_access() end
     job.index, job.completed = 0, 0
     job.thread = coroutine.create(function() job:run() end)
     return job

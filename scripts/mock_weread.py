@@ -120,6 +120,20 @@ def annotation(uid):
     return dict(range=f"{start}-{start + len(QUOTE)}", markText=QUOTE, count=12, metadata=None)
 
 
+def native_annotations(uid, many=False):
+    if not many: return [annotation(uid)]
+    source = chapter_html(uid)
+    rows = []
+    for index in range(1, 19):
+        text = QUOTE + f'这是第{uid}章的第{index}段。'
+        start = source.index(text)
+        rows.append(dict(range=f'{start}-{start+len(QUOTE)}', markText=QUOTE, count=12, metadata=None))
+    for index in range(1, 14):
+        text = f'这是第{uid}章的第{index}段。'; start = source.index(text)
+        rows.append(dict(range=f'{start}-{start+len(text)}', markText=text, count=12, metadata=None))
+    return rows
+
+
 def shards(text, count=3):
     """Inverse of the existing decoder; real Client still checks MD5 and decodes."""
     encoded = base64.urlsafe_b64encode(text.encode()).decode().rstrip("=")
@@ -163,7 +177,7 @@ class MockServer(ThreadingHTTPServer):
         self.request_totals = Counter()
         self.active_requests = Counter()
         self.progress = {}
-        self.control = dict(delay=0, match="", status=503, times=0,
+        self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
                             progress_response="plain")
         self.web_renewal_posts = 0
@@ -201,6 +215,9 @@ class MockServer(ThreadingHTTPServer):
             control = self.control.copy()
             matches = not control["match"] or control["match"] in (api or path)
             fail = matches and control["times"] != 0
+            if fail and control['skip'] > 0:
+                self.control['skip'] -= 1
+                fail = False
             if fail and control["times"] > 0:
                 self.control["times"] -= 1
         if matches:
@@ -267,7 +284,7 @@ class MockServer(ThreadingHTTPServer):
                         or not query["chapterUid"][0].isdigit() or not 1<=int(query["chapterUid"][0])<=len(CHAPTERS)):
                     raise ValueError("invalid native underline query")
                 uid=int(query["chapterUid"][0])
-                return 200,dict(chapterUid=uid,underlines=[] if control["empty_annotations"] else [annotation(uid)])
+                return 200,dict(chapterUid=uid,underlines=[] if control["empty_annotations"] else native_annotations(uid,control['native_annotation_many']))
             if path == "/book/readreviews" and method == "POST":
                 if (set(data)!={"bookId","chapterUid","cht2sMode","reviews"} or data["cht2sMode"]!=""
                         or not any(book["bookId"]==book_id for book in BOOKS) or type(data["chapterUid"]) is not int
@@ -275,10 +292,10 @@ class MockServer(ThreadingHTTPServer):
                     raise ValueError("invalid native thought query")
                 from verify_native_annotations import validate_batch
                 validate_batch(data["reviews"])
-                uid=data["chapterUid"];mark=annotation(uid)
+                uid=data["chapterUid"];marks={row['range'] for row in native_annotations(uid,control['native_annotation_many'])}
                 return 200,dict(reviews=[] if control["empty_annotations"] else [
                     dict(range=item["range"],metadata=None,pageReviews=[dict(review=review(uid))])
-                    for item in data["reviews"] if item["range"]==mark["range"]])
+                    for item in data["reviews"] if item["range"] in marks])
             if path == "/readdata/detail" and method == "GET":
                 if set(query) != {"mode", "baseTime"} or any(len(v) != 1 for v in query.values()):
                     raise ValueError("invalid native statistics query")
@@ -564,6 +581,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("delay must be 0..60 seconds")
             if type(candidate["times"]) is not int or candidate["times"] < -1:
                 raise ValueError("times must be -1 (always) or a non-negative integer")
+            if type(candidate['skip']) is not int or not 0 <= candidate['skip'] <= 10000:
+                raise ValueError('skip must be a bounded non-negative integer')
             if type(candidate["status"]) is not int or not 400 <= candidate["status"] <= 599:
                 raise ValueError("status must be 400..599")
             if not isinstance(candidate["match"], str):
@@ -574,7 +593,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("invalid progress response mode")
             if type(candidate["mp_article_version"]) is not int or not 1 <= candidate["mp_article_version"] <= 100:
                 raise ValueError("invalid MP article version")
-            for key in ("empty_shelf", "empty_annotations"):
+            for key in ("empty_shelf", "empty_annotations", "native_annotation_many"):
                 if type(candidate[key]) is not bool:
                     raise ValueError(key + " must be boolean")
             self.server.control = candidate
