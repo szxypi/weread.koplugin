@@ -1858,6 +1858,88 @@ test('read-only source navigation and normal sync choices keep separate reportin
     eq(f.sync.local_position.source_position.upload_verified,false,'sync choice flipped source metadata upload flag')
 end)
 
+test('closed source plan survives document generation but releases on terminal confirmation',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end})
+    f.sync.prepare_upload=function() error('closed document used live preparation') end
+    local token,ready={},nil
+    f.sync.freeze_close=function(position) eq(position.source_position.chapter_offset,10000,'close did not freeze source');return token end
+    f.sync.prepare_closed=function(value,_position,callback) eq(value,token,'close lost opaque token');ready=callback;return true end
+    local position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',position,{})
+    f.sync.dirty=true
+    local captured,frozen=f.sync:prepare_close(source)
+    eq(captured,token,'eligible close did not freeze')
+    f.sync:on_close_document(source,captured,frozen)
+    eq(f.sync.uploading,true,'close did not retain asynchronous work')
+    local released=0
+    local plan={position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=position.percent},
+        basis='filtered_xhtml_utf16',source_position=source,detached=true,is_current=function() return true end,
+        release=function() released=released+1 end}
+    ready(plan)
+    eq(#f.uploads,1,'closed generation rejected detached source plan')
+    eq(released,1,'confirmed close retained detached plan')
+    eq(f.sync.verified,false,'close reactivated closed reader')
+    eq(f.values.books.book.last_uploaded_position.chapter_offset,10000,'close wrote old projection')
+    eq(f.values.books.book.pending_upload_position,nil,'closed acknowledgement did not clear own intent')
+end)
+
+test('superseded dispatch acknowledgement cannot clear a newer pending record',function()
+    local f=fixture({})
+    local finished,released=0,0
+    f.sync.source_dispatch={pending=function() return false end,begin=function() return {} end,
+        owns=function() return true end,finish=function() finished=finished+1;return false end}
+    f.sync.prepare_upload=function(position,ready)
+        ready{position=position,is_current=function() return true end,release=function() released=released+1 end}
+    end
+    f.sync.upload_position=function(_id,_position,_seconds,plan)
+        eq(plan.before_send(),true,'source dispatch did not start')
+        return true,{acknowledged=true,position_confirmed=true}
+    end
+    local position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',position,{})
+    f.sync:_upload_snapshot(position,'explicit_local_choice',false)
+    eq(finished,1,'terminal result did not check dispatch ownership')
+    eq(released,1,'superseded plan was retained')
+    eq(f.values.books.book.last_uploaded_position,nil,'superseded result was saved as uploaded')
+    eq(f.values.books.book.pending_upload_position~=nil,true,'superseded result cleared pending intent')
+end)
+
+test('source dispatch interruption keeps journal and blocks replay until explicit comparison',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end})
+    local journal=require('weread.lib.source_dispatch'):new{settings=f.sync.settings,nonce=function() return string.rep('a',32) end}
+    f.sync.source_dispatch=journal
+    f.sync.prepare_upload=function(position,callback)
+        callback{position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=position.percent},
+            source_position=source,basis='filtered_xhtml_utf16',is_current=function() return true end}
+    end
+    local sends=0
+    f.sync.upload_position=function(_book,_position,_elapsed,plan)
+        eq(plan.before_send(),true,'dispatch did not reserve before first HTTP')
+        eq(plan.before_send(),true,'same dispatch could not check before second HTTP')
+        sends=sends+1;f.sync:on_network_disconnected()
+        return false,{error_kind='unconfirmed',report_attempted=true}
+    end
+    local position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',position,{})
+    f.sync:_upload_snapshot(position,'explicit_local_choice',true)
+    eq(journal:pending('book'),true,'interrupted generation lost journal')
+    f.sync:_upload_snapshot(position,'document_close',false)
+    eq(sends,1,'interrupted dispatch was replayed on close')
+    f.sync.verified=true
+    local value,why=f.sync:position_for_report('book')
+    eq(value,nil,'unresolved dispatch granted periodic position')
+    eq(why,'progress_confirmation_pending','journal did not explain reporting pause')
+    local remote={book_id='book',chapter_uid=22,chapter_idx=2,chapter_offset=10000,percent=position.percent,
+        has_chapter_offset=true,has_chapter_index=true}
+    f.sync:_resolve(position,remote,{book_id='book',book=f.values.books.book,chapters=chapters},{manual=true})
+    eq(journal:pending('book'),false,'exact read-only comparison did not retire uncertainty')
+    eq(sends,1,'read-only comparison resent a write')
+end)
+
 print(string.format(
     "progress_sync_spec: %d checks, %d failure(s)", checks, failures))
 os.exit(failures == 0 and 0 or 1)

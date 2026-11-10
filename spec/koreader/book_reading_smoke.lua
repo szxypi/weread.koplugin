@@ -350,7 +350,11 @@ end
 local checkpoint = { book_id = book_id, path = reader.document.file,
     xpointer = reader.document:getXPointer(), chapter_uid = saved.last_uploaded_position.chapter_uid,
     synthetic_only = true, native_reader = true, page = reader:getCurrentPage() }
-clean_popups(reader); reader:onClose(false)
+clean_popups(reader)
+if os.getenv('WEREAD_TEST_SOURCE_UPLOAD')=='1' then
+    local closed=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'source_close_smoke.lua')(reader,current,pump,clean_popups)
+    for key,value in pairs(closed) do checkpoint[key]=value end
+else reader:onClose(false) end
 local output = assert(io.open(evidence .. "/reading-checkpoint.json", "wb"))
 assert(output:write(json.encode(checkpoint))); output:close()
 print("PASS: plugin Home/shelf/store -> uncached Read -> cancellable preparation -> download -> native ReaderUI -> page turn -> sync -> synthetic readback")

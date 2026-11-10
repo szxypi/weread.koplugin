@@ -79,6 +79,9 @@ function ProgressSync:new(options)
         run_online = options.run_online,
         upload_position = options.upload_position,
         prepare_upload = options.prepare_upload,
+        freeze_close = options.freeze_close,
+        prepare_closed = options.prepare_closed,
+        source_dispatch = options.source_dispatch,
         apply_source_remote = options.apply_source_remote,
         confirm_position = options.confirm_position,
         goto_fraction = options.goto_fraction,
@@ -295,6 +298,11 @@ end
 function ProgressSync:_persist(book_id, patch)
     book_id = tostring(book_id or "")
     if book_id == "" or type(patch) ~= "table" then return false end
+    if self.settings.patch_reading_state then
+        local ok,err=self.settings:patch_reading_state(book_id,copy(patch))
+        if not ok then error(err or 'Could not save reading state',0) end
+        return true
+    end
     local books = self.settings:get("books", {})
     local book = books[book_id] or { book_id = book_id }
     for key, value in pairs(patch) do
@@ -622,6 +630,7 @@ function ProgressSync:_discard_pending_upload(book_id)
     if self.upload_job and self.upload_job.book_id == book_id then
         self.upload_job, self.uploading = nil, false
     end
+    if self.source_dispatch then self.source_dispatch:resolve(book_id) end
     local saved = self.get_book(book_id) or {}
     local owner = saved.pending_upload_account or saved.recent_read_account
     if saved.pending_upload_position and owner and owner == self:_account_key() then
@@ -715,10 +724,11 @@ function ProgressSync:_apply_remote(remote, context, options)
     return true
 end
 
-function ProgressSync:_upload_snapshot(position, reason, show_result)
+function ProgressSync:_upload_snapshot(position, reason, show_result, close_token)
     if type(position) ~= "table" then return false end
     local book_id = tostring(position.book_id or self.current_book_id or "")
     if book_id == "" then return false end
+    if self.source_dispatch and self.source_dispatch:pending(book_id) then return false end
     position = copy(position)
     local scope = self:_scope()
     scope.book_id = book_id
@@ -745,6 +755,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
     local function current()
         if self.upload_job ~= job then return false end
         if self:_account_current(scope) then return true end
+        if job.plan and job.plan.release then job.plan.release() end
         self.upload_job, self.uploading = nil, false
         return false
     end
@@ -774,6 +785,12 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
             return
         end
         self.upload_job, self.uploading = nil, false
+        local owned=not job.dispatch or self.source_dispatch:finish(job.dispatch,type(outcome)=='table' and outcome or nil)
+        if job.plan and job.plan.release then job.plan.release() end
+        if not owned then
+            if self:_session_current(scope) then self.verified,self.dirty,self.state=false,true,'unverified' end
+            return
+        end
         local confirmed = ok and accepted and type(outcome) == "table" and outcome.position_confirmed == true
             and outcome.acknowledged == true
         if confirmed then
@@ -844,16 +861,21 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
     end
     attempt = function()
         if not current() then return end
-        if self.prepare_upload and (not self:_session_current(scope) or scope.navigation_generation~=self.navigation_generation) then
+        if self.prepare_upload and not close_token and (not self:_session_current(scope) or scope.navigation_generation~=self.navigation_generation) then
             self.upload_job,self.uploading=nil,false;return
         end
         if self.prepare_upload and not job.plan then
             if job.preparing then return end
             job.preparing=true
-            self.prepare_upload(copy(position),function(plan,error_reason)
-                if not current() then return end
+            local function prepared(plan,error_reason)
+                if not current() then
+                    if plan and plan.release then plan.release() end
+                    return
+                end
                 job.preparing=false
-                if type(plan)~='table' or type(plan.is_current)~='function' or not plan.is_current() then
+                if type(plan)~='table' or close_token and plan.detached~=true
+                    or type(plan.is_current)~='function' or not plan.is_current() then
+                    if plan and plan.release then plan.release() end
                     finish(true,false,{error=error_reason or 'source_position_changed',error_kind='position'});return
                 end
                 if not position.source_position and plan.source_position then
@@ -862,8 +884,18 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
                     position.source_position=copy(plan.source_position)
                     if own then self:_persist(book_id,{pending_upload_position=position,last_local_position=position}) end
                 end
+                if self.source_dispatch then
+                    plan.before_send=function()
+                        if not current() or not plan.is_current() then return false end
+                        if job.dispatch then return self.source_dispatch:owns(job.dispatch) end
+                        job.dispatch=self.source_dispatch:begin(book_id,plan.position,plan.source_position,'position')
+                        return job.dispatch~=nil
+                    end
+                end
                 job.plan=plan;attempt()
-            end)
+            end
+            if close_token and self.prepare_closed then self.prepare_closed(close_token,copy(position),prepared)
+            else self.prepare_upload(copy(position),prepared) end
             return
         end
         if job.plan and not job.plan.is_current() then
@@ -882,6 +914,7 @@ end
 
 function ProgressSync:_keep_local(local_position, remote, options)
     options = options or {}
+    if options.reason=='explicit_local_choice' and self.source_dispatch then self.source_dispatch:resolve(local_position.book_id) end
     if self.prepare_upload then
         local chapters=self.get_chapters(self.get_book(local_position.book_id) or {})
         self.dirty=self:_compare_source(local_position,remote,chapters)~='same'
@@ -927,6 +960,7 @@ function ProgressSync:_resolve(local_position, remote, context, options)
     local saved = self.get_book(context.book_id) or {}
     local uncertain = saved.pending_upload_reason == "upload_readback_unconfirmed"
         and saved.pending_upload_account == self:_account_key() and saved.pending_upload_position ~= nil
+    uncertain = uncertain or self.source_dispatch and self.source_dispatch:pending(context.book_id)
     local needs_choice = uncertain and not ProgressReadback.matches_normalized(local_position, remote)
     if self.prepare_upload then
         local source_comparison=self:_compare_source(local_position,remote,context.chapters)
@@ -1317,8 +1351,18 @@ function ProgressSync:checkpoint_local(reason, source_position)
     return position
 end
 
-function ProgressSync:on_close_document(source_position)
+function ProgressSync:prepare_close(source_position)
     local position = self:checkpoint_local("document_close", source_position)
+    if position and self.verified and self.dirty and not self.uploading and self.freeze_close
+        and not (self.source_dispatch and self.source_dispatch:pending(position.book_id))
+        and self:_config().upload_on_close == true then
+        return self.freeze_close(copy(position)),position
+    end
+    return nil,position
+end
+
+function ProgressSync:on_close_document(source_position, close_token, close_position)
+    local position = close_position or self:checkpoint_local("document_close", source_position)
         or self:capture_local() or self.local_position
     if position and self.verified
         and self:_config().upload_on_close == true then
@@ -1327,7 +1371,7 @@ function ProgressSync:on_close_document(source_position)
             self.dirty = true
         end
         if self.dirty then
-            self:_upload_snapshot(position, "document_close", false)
+            self:_upload_snapshot(position, "document_close", false, close_token)
         end
     end
     self.generation = self.generation + 1
@@ -1403,6 +1447,9 @@ function ProgressSync:position_for_report(book_id)
         return nil, nil, false
     end
     if self.uploading then return nil, "progress_confirmation_pending", true end
+    if self.source_dispatch and self.source_dispatch:pending(tostring(book_id)) then
+        return nil,"progress_confirmation_pending",true
+    end
     if not self.verified then
         return nil, "progress_unverified", true
     end

@@ -302,7 +302,7 @@ test('source upload guards each dispatch and never persists its source summary',
 end)
 
 test('periodic source reports use only scalar child guards and never retry an uncertain send',function()
-    for _i,mode in ipairs({'plain','expired','backwards','rotated','noack','transport'}) do
+    for _i,mode in ipairs({'plain','expired','backwards','rotated','noack','transport','readback'}) do
         local report=fixture()
         if mode=='backwards' then report.now=function() return 90 end end
         local posts,contexts,auth=0,0,'A'
@@ -319,10 +319,16 @@ test('periodic source reports use only scalar child guards and never retry an un
             return mode=='noack' and {} or {succ=1},200
         end
         local position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=25,summary='SOURCE_SUMMARY_CANARY'}
+        local reads=0
+        report.client.get_web_progress=function()
+            reads=reads+1
+            return {bookId='book',chapterUid=22,chapterIdx=2,chapterOffset=mode=='readback' and 9999 or 10000,progress=25}
+        end
         local outcome=report:_run_pipeline('book',{position=position,source_deadline=mode=='expired' and 99 or 130,allow_renewal=true})
         eq(outcome.accepted,mode=='plain','periodic source outcome')
         eq(contexts,1,'source report refreshed or retried context')
-        eq(posts,mode=='plain' and 2 or (mode=='noack' or mode=='transport') and 1 or 0,'source report retried a send')
+        eq(posts,(mode=='plain' or mode=='readback') and 2 or (mode=='noack' or mode=='transport') and 1 or 0,'source report retried a send')
+        eq(reads,mode=='plain' and 1 or mode=='readback' and 3 or 0,'periodic source confirmation was not bounded independent GETs')
         eq(book.summary,'original context','child source summary mutated settings context')
         eq(outcome.book.summary,'original context','child source summary entered parent outcome')
         eq(outcome.renew_attempted,false,'source report tried authorization renewal')
@@ -330,7 +336,7 @@ test('periodic source reports use only scalar child guards and never retry an un
         local uncertain=0
         report.on_source_unconfirmed=function() uncertain=uncertain+1 end
         report:_apply_outcome(outcome)
-        eq(uncertain,(mode=='noack' or mode=='transport') and 1 or 0,'parent did not revoke unknown source write authority')
+        eq(uncertain,(mode=='noack' or mode=='transport' or mode=='readback') and 1 or 0,'parent did not revoke unknown source write authority')
     end
 end)
 

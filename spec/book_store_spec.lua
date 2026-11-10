@@ -42,6 +42,7 @@ local ok, index = BookStore.save(settings, "book/42", {
     progress = 37,
     chapter_uid = 9,
     pending_upload_account = "synthetic-account-key",
+    source_dispatch = { schema = 1, id = "synthetic-receipt", account = "synthetic-account-key" },
     mp_articles = { { title = "Fixture article" } },
     chapters = { { chapterUid = 9 } },
 })
@@ -78,12 +79,26 @@ local state_file = assert(io.open(index.cache_dir .. "/reading_state.json", "rb"
 local state = require("json").decode(state_file:read("*a"))
 state_file:close()
 expect(state.pending_upload_account == "synthetic-account-key", "pending owner escaped the reading-state file")
+expect(state.source_dispatch.id == "synthetic-receipt" and loaded.source_dispatch.id == "synthetic-receipt",
+    "dispatch journal did not survive per-book reading-state storage")
 expect(loaded.mp_articles[1].title == "Fixture article",
     "article data did not round-trip")
 expect(loaded.chapters == nil,
     "large chapter catalog should not be stored in the book record")
 expect(loaded.cache_dir == index.cache_dir,
     "resolved cache directory did not round-trip")
+local metadata_file=assert(io.open(index.cache_dir..'/metadata.json','rb'))
+local metadata_bytes=metadata_file:read('*a');metadata_file:close()
+expect(BookStore.patch_reading(settings,'book/42',index,{progress=38,source_dispatch=false}),
+    'bounded reading-state patch failed')
+local patched=BookStore.load(settings,'book/42',index)
+expect(patched.progress==38 and not patched.source_dispatch and patched.chapter_uid==9
+    and patched.pending_upload_account=='synthetic-account-key','patch overwrote unrelated state')
+metadata_file=assert(io.open(index.cache_dir..'/metadata.json','rb'))
+expect(metadata_file:read('*a')==metadata_bytes,'late reading patch rewrote metadata');metadata_file:close()
+expect(not BookStore.patch_reading(settings,'book/42',index,{title='late stale title'}),'reading patch changed non-state data')
+local corrupt=assert(io.open(index.cache_dir..'/reading_state.json','wb'));corrupt:write('corrupt fixture');corrupt:close()
+expect(not BookStore.patch_reading(settings,'book/42',index,{progress=39}),'malformed stored state was silently replaced')
 
 ok, index = BookStore.save(settings, "book/42", {
     book_id = "book/42",

@@ -280,6 +280,12 @@ function Settings:get_book(book_id)
     return index and BookStore.load(self,tostring(book_id),index) or nil
 end
 
+function Settings:patch_reading_state(book_id, patch)
+    book_id = tostring(book_id)
+    local indexes = self.store:readSetting('books',{})
+    return BookStore.patch_reading(self,book_id,type(indexes)=='table' and indexes[book_id],patch)
+end
+
 function Settings:set(key, value)
     if key == "account" then
         local old = self:get("account", {})

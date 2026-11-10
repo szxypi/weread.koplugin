@@ -168,6 +168,7 @@ function M:onReaderReady()
     local annotations_ready = perf("annotations_ready", opened)
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
     if self.source_navigation then self.source_navigation:cancel() end
+    if self.source_close then self.source_close:on_reader_ready(weread_book_id) end
     if self.source_position then self.source_position:on_reader_ready() end
     self.progress_sync:on_reader_ready()
     if self.onTranslationReaderReady then self:onTranslationReaderReady() end
@@ -229,6 +230,7 @@ function M:onCloseDocument()
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end
     local source_position = self.source_position and self.source_position:current()
+    local close_token,close_position = self.progress_sync:prepare_close(source_position)
     if self.source_position then self.source_position:stop() end
     if self.native_renewal then self.native_renewal:cancel() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end
@@ -238,7 +240,7 @@ function M:onCloseDocument()
     -- Capture the immutable local position while the document is still alive.
     -- The network upload is scheduled; stopping ReadReport below also frees any
     -- in-flight report slot before that scheduled upload begins.
-    self.progress_sync:on_close_document(source_position)
+    self.progress_sync:on_close_document(source_position,close_token,close_position)
     self._reader_session_gen = (self._reader_session_gen or 0) + 1
     self.downloader:cancelPrefetch("document_closed")
     if self._cancelUnifiedAnnotationSync then self:_cancelUnifiedAnnotationSync() end
@@ -416,6 +418,7 @@ function M:onSuspend()
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end
     local source_position = self.source_position and self.source_position:current()
+    if self.source_close then self.source_close:cancel() end
     if self.source_position then self.source_position:pause("suspend") end
     if self.native_renewal then self.native_renewal:cancel() end
     if self.cancelShelfRefresh then self:cancelShelfRefresh() end

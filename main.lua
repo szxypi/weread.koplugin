@@ -114,7 +114,9 @@ function WeReadPlugin:init()
     self.qr_login = QRLogin:new(self, self.client, self.settings)
     self.native_renewal = NativeRenewal:new{ settings = self.settings, client = self.client, scheduler = UIManager }
     self.native_authorization = NativeAuthorization:new(self, self.client, self.settings)
+    self.source_dispatch = require("weread.lib.source_dispatch"):new{settings=self.settings}
     self.read_report = ReadReport:new{
+        source_dispatch = self.source_dispatch,
         coverage = self.readtime_coverage,
         settings = self.settings,
         client = self.client,
@@ -183,7 +185,14 @@ function WeReadPlugin:init()
         end,
     }
     self.source_upload = require("weread.lib.source_upload"):new{source=self.source_position,scheduler=UIManager}
+    self.source_close = require("weread.lib.source_close"):new{source=self.source_position,scheduler=UIManager,
+        get_catalog=function(book_id)
+            if self.library_db then return self.library_db:getChapters(book_id) end
+            local book=self.settings:get("books",{})[book_id]
+            return book and book.chapters
+        end}
     self.progress_sync = ProgressSync:new{
+        source_dispatch = self.source_dispatch,
         settings = self.settings,
         client = self.client,
         scheduler = UIManager,
@@ -254,6 +263,8 @@ function WeReadPlugin:init()
                 _("Sync progress"), callback, nil, run_options)
         end,
         prepare_upload = function(position,callback) return self.source_upload:prepare(position,callback) end,
+        freeze_close = function(position) return self.source_close:freeze(position) end,
+        prepare_closed = function(token,position,callback) return self.source_close:prepare(token,position,callback) end,
         apply_source_remote = function() return self:showCloudSourcePosition(true) end,
         upload_position = function(book_id, position, elapsed_seconds, plan)
             return self.read_report:upload_position(

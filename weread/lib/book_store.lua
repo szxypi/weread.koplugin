@@ -20,6 +20,7 @@ local reading_fields = {
     pending_upload_position = true,
     pending_upload_reason = true,
     pending_upload_account = true,
+    source_dispatch = true,
     progress = true,
     psvts = true,
     read_context_updated_at = true,
@@ -132,6 +133,22 @@ function BookStore.load(settings, book_id, index)
     book.book_id = book.book_id or book.bookId or tostring(book_id)
     book.cache_dir = dir
     return book
+end
+
+-- Late reader jobs update one bounded state file, never an older in-memory
+-- copy of the global settings, metadata or another book's state.
+function BookStore.patch_reading(settings, book_id, index, patch)
+    if type(index) ~= 'table' or type(patch) ~= 'table' then return false, 'missing book index' end
+    for key in pairs(patch) do if not reading_fields[key] then return false, 'not a reading-state field' end end
+    local path = resolved_dir(settings, book_id, index) .. '/reading_state.json'
+    local state = read_json(path)
+    if not state then
+        local file = io.open(path,'rb')
+        if file then file:close(); return false, 'invalid reading state' end
+        state = {}
+    end
+    for key,value in pairs(patch) do state[key] = value ~= false and value or nil end
+    return write_json(path,state)
 end
 
 function BookStore.save(settings, book_id, book)

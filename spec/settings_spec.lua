@@ -78,6 +78,10 @@ package.preload["weread.lib.book_store"] = function()
             saved_books[book_id] = book
             return true, { cache_dir = "/saved/" .. book_id }
         end,
+        patch_reading = function(_settings, book_id, index, patch)
+            expect(book_id=='7' and index==values.books['7'] and patch.progress==38,'reading patch did not use one indexed book')
+            return true
+        end,
         is_minimal_index = function(books)
             minimal_index_checked = books == values.books
             return false
@@ -142,6 +146,9 @@ expect(saved_books["7"].title == "Seven",
     "book was not persisted through BookStore")
 expect(values.books["7"].cache_dir == "/saved/7",
     "settings did not store the minimal book index")
+local patch_flushes=flush_count
+expect(settings:patch_reading_state('7',{progress=38}) and flush_count==patch_flushes,
+    'late reading patch flushed an older global settings snapshot')
 values.large_runtime_data = { "temporary" }
 settings:delete("large_runtime_data")
 expect(values.large_runtime_data == nil,

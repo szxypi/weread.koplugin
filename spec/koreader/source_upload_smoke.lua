@@ -47,6 +47,8 @@ return function(reader,plugin,pump,clean_popups)
         if options.url=='https://weread.qq.com/web/book/read' then
             local body=Json.decode(options.body)
             assert(tonumber(ffi.C.getpid())~=parent,'periodic source report did not use its production subprocess')
+            assert(plugin.source_dispatch:pending(id),'source report dispatched before its durable journal')
+            if counters[1]==1 then counters[2]=1;ffi.C.usleep(5000000) end
             assert(body.c==Protocol.e(point.chapter_uid) and body.ci==uploaded.chapter_idx and body.co==point.chapter_offset
                 and body.pr==uploaded.percent and body.sm==summary,'periodic source body used projected words')
             assert(body.rt==30,'periodic source duration changed')
@@ -68,6 +70,22 @@ return function(reader,plugin,pump,clean_popups)
     end)
     assert(counters[0]==1 and saw_prepare and saw_report,'periodic source preparation or single dispatch was not observed')
     report:stop('source_fixture_first_complete')
+    assert(not plugin.source_dispatch:pending(id),'exact periodic readback did not clear dispatch journal')
+    counters[1]=1
+    report:maybe_start('source_upload_interrupted_fixture')
+    pump(function() return counters[2]==1 end)
+    local interrupted=assert(report.job).pid
+    report:stop('source_fixture_interrupted')
+    pump(function() return require('ffi/util').isSubProcessDone(interrupted) end)
+    assert(require('weread.lib.source_dispatch'):new{settings=plugin.settings}:pending(id),
+        'fresh journal instance lost an interrupted subprocess')
+    local position,why=plugin.progress_sync:position_for_report(id)
+    assert(not position and why=='progress_confirmation_pending' and counters[0]==1,
+        'interrupted dispatch was replayed or did not block reporting')
+    counters[1]=0
+    clean_popups(reader);assert(plugin:onWeReadSyncProgress())
+    pump(function() return not plugin.progress_sync.pulling end)
+    assert(plugin.progress_sync.verified and not plugin.source_dispatch:pending(id),'read-only comparison did not resolve interruption')
     local function control(mode)
         local chunks,body={},Json.encode{progress_confirmation=mode}
         local _,code=HTTP.request{url=plugin.settings.mock_endpoint..'/__control',proxy=plugin.settings.mock_endpoint,
@@ -83,6 +101,7 @@ return function(reader,plugin,pump,clean_popups)
     saved=plugin.settings:get_book(id)
     assert(saved.pending_upload_position and saved.pending_upload_reason=='upload_readback_unconfirmed',
         'unknown periodic source write lost local intent')
+    assert(saved.source_dispatch and plugin.source_dispatch:pending(id),'unknown periodic write lost its dispatch journal')
     for _i=1,5 do UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput() end
     assert(counters[0]==2,'unknown periodic source write was automatically replayed')
     config.enabled=false;plugin.settings:set('read_report',config);report:stop('source_fixture_complete')
@@ -98,6 +117,7 @@ return function(reader,plugin,pump,clean_popups)
     file:write(Json.encode{result='PASS',synthetic_only=true,native_source_wire_and_summary=true,
         source_summary_not_in_checkpoints=true,background_preparation_observed=true,background_report_observed=true,
         no_inherited_native_document_calls=true,periodic_posts=2,periodic_duration_seconds=30,
+        dispatch_persisted_before_fork_and_http=true,interrupted_child_retained_journal=true,interrupted_child_reaped=true,
         unknown_ack_paused_reporting=true,no_automatic_write_retry=true,explicit_readonly_recheck_resolved=true,
         real_account_data_writes_attempted=0});file:close()
 end
