@@ -94,7 +94,9 @@ jobs:
           python3 scripts/test_saved_native_renewal.py
 
       - name: Native statistics prototype checks
-        run: python3 scripts/test_native_statistics.py
+        run: |
+          python3 scripts/test_native_statistics.py
+          python3 scripts/test_owner_statistics.py
 
       - name: Native bookstore prototype checks
         run: |

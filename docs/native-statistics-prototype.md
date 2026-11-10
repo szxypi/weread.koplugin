@@ -49,6 +49,32 @@
   当前月缓存不能冒充上月、周或年度数据。保存失败时可显示刚读取的统计，并提示无法离线保存。
 - 每日目标为本插件当前账号的本地设置，不修改微信读书目标、书架、阅读进度或阅读时长。
 
+## 真实账号页面与文件缓存验收（2026-11-10）
+
+在官方 KOReader v2026.07.1 Linux ARM64／Xvfb 中，通过实际 FileManager 的 PluginLoader
+加载候选插件，分别验证 600×800／167 DPI 与 1264×1680／300 DPI。后者只是 KO2 分辨率模拟。
+每种尺寸先由 Python 独立读取六份周期响应并投影，再由插件正常后台子进程发出七次统计 GET。
+实际打开“我的”、月历、月统计、上月、返回当月、周、年及总计；每个进程核对七个视图的展示字段、
+原生根容器尺寸和实际重绘。时长汇总、阅读天数、逐日桶、连续阅读、排名、偏好及导航与独立模型一致。
+账号昵称使用空值，不属于真实昵称显示验收；没有截取私人统计页面或进行人工视觉检查。
+
+实际按钮将临时本地目标设为 45 分钟，账号 SQLite 回读通过，不修改微信读书的目标。
+缓存是私有 tmpfs 上的普通 SQLite 文件，另一个账号读不到当前月快照或目标。
+关闭后用独立的新进程以离线状态重新打开上述页面，读取最后保存的对应周期快照，网络请求为零。
+在线进程采用 America/New_York，离线进程采用 Pacific/Apia，周期仍按北京时间核对。
+自有工作进程全部回收；凭据通过匿名内存文件交接，文件审计未发现访问／刷新凭据或设备标识。
+归档候选的 201 个生产文件与源码逐字节一致，ZIP CRC 通过；临时目录删除后没有再测安装目录字节。
+此前六份其他原生场景的安装字节证据独立保留，不将它借作本场景的安装后测量。
+
+最终两尺寸合计 26 次只读 GET，28 个已校验视图；此前六视图版两尺寸另有 24 次 GET。
+本项累计 50 次统计 GET，数据及授权 POST 均为零。私有统计投影仅短暂存在于进程和 tmpfs，
+报告不含日期、时长、书名、账号或凭据，结束时临时资料目录全部删除，原钥匙串登录条目继续保留。
+真实账号只需回溯一个月；24 个月上限、重叠查询 30 次上限和返回当月的缓存替换另由合成服务验证，
+没有把这些边界称为真实账号已覆盖。新增 16 项离线边界检查加入 CI。
+
+去敏元数据、请求数量和代码哈希见[页面与离线证据](validation-assets/2026-11-10/owner-statistics-file-ui.json)。
+完整真实账号 UI 的失效续期组合、更多连续阅读边界及实体 KO2 仍待验收。
+
 ## 开发授权失效与保存续期
 
 本轮先在 KOReader 原生 HTTPS 中观察到真实统计 GET 返回 **HTTP 401**。
@@ -64,7 +90,8 @@ HTTP 401 证明该授权失效；没有证据区分自然到期与其他服务�
 外部替换、账号不符或未完成书架验证均不能提交。明确重新扫码可保存新授权。
 
 真实授权失效 GET 使用 Lua，真实续期 POST 使用 Python，续期后的统计 GET 再使用 Lua。
-不把此组合验证写成真实账号在完整 Lua UI 中的自动续期验收；完整 UI 流程仍使用合成账号。
+不把此组合验证写成真实账号在完整 Lua UI 中的自动续期验收；续期 UI 流程仍使用合成账号。
+上节真实页面验收使用有效授权，没有触发授权续期。
 其他真实过期业务码、限频及实体 KO2 的休眠／存储仍待验收。
 
 ## 复验
@@ -75,6 +102,8 @@ HTTP 401 证明该授权失效；没有证据区分自然到期与其他服务�
 python3 scripts/verify_native_statistics.py
 python3 scripts/renew_saved_native_session.py
 python3 scripts/test_native_statistics.py
+python3 scripts/test_owner_statistics.py
+python3 scripts/verify_owner_statistics.py
 python3 scripts/test_saved_native_renewal.py
 ```
 
@@ -86,13 +115,20 @@ python3 scripts/verify_native_statistics.py --saved-session --native-http --lua-
   -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
   ./luajit /source/spec/koreader/statistics_probe.lua /source
 
+# 实际插件页面及新进程离线缓存；候选文件需先打包：
+python3 scripts/verify_owner_statistics.py --saved-session --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
+  python3 /source/scripts/run_owner_statistics.py --koreader /validation/runtime/lib/koreader \
+  --candidate /validation/owner-statistics-candidate.zip
+
 # 单独读取书架，不发送续期：
 python3 scripts/renew_saved_native_session.py --saved-session
 # 明确的一次续期；不作为读取失败后的循环重试：
 python3 scripts/renew_saved_native_session.py --saved-session --renew
 ```
 
-真实凭据、私有时长、日期、书名与原始响应只留在比较进程内存，不进入截图、文件或报告。
+早期协议复核的真实凭据、私有字段与原始响应只留在比较进程内存；
+新增页面验收的私有统计缓存使用上述临时内存文件系统，不写普通持久磁盘或公开报告。
 Web 与墨水屏授权继续保留在两个独立 macOS 钥匙串项目条目，直到整体目标验收收尾。
 原生控件／工作进程／SQLite 在 600×800 与 KO2 1264×1680／300 DPI 完成合成 HTTP 验证，
 包括四个周期、历史月、离线重开、取消、一次恢复、429、实际阅读器休眠和迟到结果保护。
