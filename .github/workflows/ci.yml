@@ -114,7 +114,9 @@ jobs:
           python3 scripts/test_shelf_flags.py
 
       - name: Display progress prototype checks
-        run: python3 scripts/test_shelf_progress.py
+        run: |
+          python3 scripts/test_shelf_progress.py
+          python3 scripts/test_cb_progress.py
 
       - name: Book metadata prototype checks
         run: |

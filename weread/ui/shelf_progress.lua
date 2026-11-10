@@ -27,11 +27,11 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     options = options or {}
     local account = self.library_db and self.library_db:accountKey()
     local ids = {}
+    local access = Data.selection(self.settings)
     for _, book in ipairs(books) do
         local id = Data.book_id(book.bookId or book.book_id)
-        if id then ids[#ids + 1] = id end
+        if id and Data.supports(id, access) then ids[#ids + 1] = id end
     end
-    local access = Data.selection(self.settings)
     local key = tostring(account) .. ":" .. tostring(self.discovery_epoch or 0) .. ":"
         .. (access and access.revision or "") .. ":" .. table.concat(ids, ",")
     local current = self.shelf_progress_context

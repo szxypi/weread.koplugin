@@ -248,7 +248,7 @@ local ok,reason=pcall(function()
         for _i,book in ipairs(books) do
             local expected=assert(input.expected_shelf[tostring(book.bookId)])
             assert(book.title==expected.title and (book.author or '')==expected.author and (book.cover or '')==expected.cover)
-            if tostring(book.bookId):match('^[1-9]%d*$') then coverage.progress_eligible=coverage.progress_eligible+1 end
+            if require('weread.lib.shelf_progress').book_id(book.bookId) then coverage.progress_eligible=coverage.progress_eligible+1 end
             if book.cover and book.cover~='' then coverage.cover_eligible=coverage.cover_eligible+1 end
         end
         coverage.regular_books,coverage.public_accounts=#plugin.shelf_regular,#plugin.shelf_mp
@@ -260,7 +260,7 @@ local ok,reason=pcall(function()
     end
     for _i,book in ipairs(books) do
         local id=tostring(book.bookId)
-        if id:match('^[1-9]%d*$') then allow('https://weread.qq.com/web/book/getProgress?bookId='..id,'progress') end
+        if require('weread.lib.shelf_progress').book_id(id) then allow('https://weread.qq.com/web/book/getProgress?bookId='..id,'progress') end
         local cover=book.cover
         if type(cover)=='string' and cover:match('^http://wx%.qlogo%.cn/') then cover='https://'..cover:sub(8) end
         if type(cover)=='string' and cover:match('^https://[%w.-]+/') and not cover:find('[%z%c%s]') then allow(cover,'cover') end

@@ -529,6 +529,25 @@ for _i,response in ipairs({{code=403,body='private-progress'},{code=429,body='pr
     local called,value,classified=pcall(client.get_progress_snapshot,client,'900001',{kind='web',cookies={}},{classify_auth=true})
     expect(not called and classified==nil and not tostring(value):find('private-',1,true),'non-401 or transport text forged preflight recovery')
 end
+display_data.book.bookId='CB_SyntheticAlpha'
+responses[#responses+1]={code=200,body='progress'}
+expect(client:get_shelf_display_progress('CB_SyntheticAlpha',{kind='web',cookies={wr_skey='XXX-display-snapshot'}})==display_data,
+    'verified CB display GET was rejected')
+display_request=requests[#requests]
+expect(display_request.method=='GET' and display_request.url=='https://weread.qq.com/web/book/getProgress?bookId=CB_SyntheticAlpha'
+    and display_request.headers.Authorization==nil and display_request.headers.Cookie=='wr_skey=XXX-display-snapshot',
+    'CB display used another route or native authorization')
+local before_cb=#requests
+expect(not pcall(client.get_shelf_display_progress,client,'CB_SyntheticAlpha',{kind='gateway',api_key='captured-display-key'})
+    and #requests==before_cb,'unverified CB gateway request was sent')
+expect(not pcall(client.get_progress_snapshot,client,'CB_SyntheticAlpha',{kind='web',cookies={}},{fresh=true,classify_auth=true})
+    and #requests==before_cb,'display-only CB acceptance expanded synchronization preflight')
+expect(not pcall(client.get_display_book_metadata,client,'CB_SyntheticAlpha',{kind='web',cookies={}})
+    and #requests==before_cb,'display-only CB acceptance expanded unverified metadata')
+for _i,id in ipairs({'CB_','CB_'..string.rep('A',65),'CB_a/b','CB_a?bookId=900001','CB_a_b','CB_a-b'}) do
+    expect(not pcall(client.get_shelf_display_progress,client,id,{kind='web',cookies={}})
+        and #requests==before_cb,'invalid CB identity reached transport')
+end
 local metadata_response={bookId="900001",title="Synthetic metadata",intro="<p>Synthetic introduction</p>",
     publisher="Synthetic publisher",bookVersion=99,progress=99,psvts="private-clock"}
 local metadata_state='{"reader":{"bookInfo":{"bookId":"900001","title":"Synthetic"}}}'

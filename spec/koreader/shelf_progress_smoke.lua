@@ -110,6 +110,45 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
         "display refresh changed reading state, owner or server progress")
     control{match="",times=0,delay=0}
     plugin:closeWeReadUI()
+    -- Exercise the display-only CB_ route with the actual worker and SQLite.
+    local cb={bookId='CB_SyntheticDisplay',title='CB 编号合成书籍',author='合成作者'}
+    shelf=settings:get('shelf');shelf.view_mode='cover';settings:set('shelf',shelf)
+    settings:set('api_key','synthetic-valid-key');settings:flush()
+    local cb_before,gateway_before=count('/web/book/getProgress'),count('/api/agent/gateway','/book/getprogress')
+    plugin:showShelfView('books',nil,nil,{page=1,refresh_progress=true,
+        prepared_shelf={books={cb,books[1]},accounts={}}})
+    wait_progress()
+    assert(count('/web/book/getProgress')==cb_before+1
+        and count('/api/agent/gateway','/book/getprogress')==gateway_before+1,'mixed CB/numeric batch used the wrong channels')
+    assert(progress(cb.bookId).percent==0 and progress(cb.bookId).source=='web'
+        and cb._shelf_progress==0,'CB display was not persisted or rendered')
+    assert(progress(seed).source=='gateway','CB read changed the ordinary-book route')
+    paint('cb-shelf-progress-web')
+    cb_before,gateway_before=count('/web/book/getProgress'),count('/api/agent/gateway','/book/getprogress')
+    plugin.isNetworkOnline=function() return false end
+    plugin.shelf_view.on_display_change('view_mode','list')
+    assert(plugin.shelf_view:itemStatus(cb):find('0%%') and count('/web/book/getProgress')==cb_before
+        and count('/api/agent/gateway','/book/getprogress')==gateway_before,'offline CB list lost its cache or contacted HTTP')
+    paint('cb-shelf-progress-offline')
+    plugin.isNetworkOnline=function() return true end
+    plugin:closeWeReadUI()
+    settings:update_auth({cookies={},api_key='synthetic-valid-key'},{replace_cookies=true})
+    local unknown={bookId='CB_SyntheticUnknown',title='未授权的 CB 合成书籍',author='合成作者'}
+    plugin:showShelfView('books',nil,nil,{page=1,refresh_progress=true,
+        prepared_shelf={books={unknown,books[1]},accounts={}}})
+    wait_progress()
+    assert(count('/web/book/getProgress')==cb_before
+        and count('/api/agent/gateway','/book/getprogress')==gateway_before+1,
+        'gateway-only visible batch sent CB or blocked its ordinary book')
+    assert(unknown._shelf_progress==nil and not progress(unknown.bookId),'missing CB Web access invented a cloud percentage')
+    assert(count('/web/book/read')==writes,'CB display changed reading state')
+    paint('cb-shelf-progress-gateway-only')
+    local report=assert(io.open(evidence..'/cb-shelf-progress.json','wb'))
+    assert(report:write(client:json_encode({mixed_channels_verified=true,cb_snapshot_source_web=true,
+        sqlite_display_verified=true,offline_cached_list_zero_requests=true,gateway_only_cb_skipped=true,
+        ordinary_gateway_continued=true,unavailable_progress_not_invented=true,reading_writes_unchanged=true})))
+    assert(report:close())
+    plugin:closeWeReadUI()
     settings:update_auth({api_key=old_key,cookies=old_cookies},{replace_cookies=true})
     settings:set("shelf",client:json_decode(old_shelf));settings:flush()
     print("PASS: keyless visible Web progress -> worker/HTTP/SQLite -> cover/list/home; pending-local priority, offline cache, one gateway fallback, rate backoff and Cookie race; no reading writes")

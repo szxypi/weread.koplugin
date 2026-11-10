@@ -36,10 +36,11 @@ local ok,result=pcall(function()
         }
         local client=require("weread.lib.client"):new(settings)
         local request=client.request
-        local reads=0
+        local reads,seen=0,{}
         function client:request(options)
-            local id=options.url:match("^https://weread%.qq%.com/web/book/getProgress%?bookId=(%d+)$")
-            assert(options.method=="GET" and id and allowed[id],"readonly_scope_required")
+            local id=options.url:match("^https://weread%.qq%.com/web/book/getProgress%?bookId=([A-Za-z0-9_]+)$")
+            assert(options.method=="GET" and not options.body and Data.book_id(id) and allowed[id] and not seen[id],"readonly_scope_required")
+            seen[id]=true
             reads=reads+1
             assert(reads<=#ids)
             local body,code,headers,status=request(self,options)

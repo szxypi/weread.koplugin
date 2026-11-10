@@ -9,6 +9,14 @@ function M.book_id(value)
     if #id <= 20 and id:match("^[1-9]%d*$") then return id end
 end
 
+-- Display-only CB_ GETs were independently verified by verify_cb_progress.py.
+-- Keep the numeric validator for account, chapter and synchronization callers.
+function M.display_book_id(value)
+    local numeric = M.book_id(value)
+    if numeric then return numeric end
+    if type(value) == "string" and #value <= 67 and value:match("^CB_[A-Za-z0-9]+$") then return value end
+end
+
 function M.capture(settings)
     if not settings then return end
     local scope = settings.get_auth_scope and settings:get_auth_scope()

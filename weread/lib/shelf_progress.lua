@@ -1,7 +1,11 @@
 -- Read-only display snapshots. Never write these into a reader's sync state.
 local M = { TTL = 120 }
 local Access = require("weread.lib.read_access")
-M.book_id, M.selection, M.matches = Access.book_id, Access.capture, Access.matches
+M.book_id, M.selection, M.matches = Access.display_book_id, Access.capture, Access.matches
+
+function M.supports(id, selected)
+    return M.book_id(id) ~= nil and (Access.book_id(id) ~= nil or type(selected) == "table" and type(selected.web) == "table")
+end
 
 local function percent(value)
     local n = tonumber(value)
@@ -49,29 +53,36 @@ function M.fetch(client, ids, context, selected, options)
     for index, id in ipairs(ids) do
         if not current() then return { snapshots = {}, stale = true } end
         context.emit { stage = "shelf_progress", current = index, total = #ids }
-        local ok, value = pcall(client.get_shelf_display_progress, client, id, access)
+        -- CB_ is verified only on Web. Do not send it to the gateway, and do
+        -- not switch later ordinary books away from their selected channel.
+        local book_access = type(id) == "string" and id:sub(1, 3) == "CB_" and selected.web or access
+        if type(id) == "string" and id:sub(1, 3) == "CB_" and not selected.web then
+            return { snapshots = snapshots, failed = true }
+        end
+        local ok, value = pcall(client.get_shelf_display_progress, client, id, book_access)
         if not current() then return { snapshots = {}, stale = true } end
         local snapshot, reason
         if ok then snapshot, reason = M.parse(value, id) end
-        if not snapshot and reason ~= "unavailable" and access.kind == "gateway" and selected.web then
+        if not snapshot and reason ~= "unavailable" and book_access.kind == "gateway" and selected.web then
             -- After one failed gateway read, use Web for the rest of this batch.
             access = selected.web
-            ok, value = pcall(client.get_shelf_display_progress, client, id, access)
+            book_access = access
+            ok, value = pcall(client.get_shelf_display_progress, client, id, book_access)
             if not current() then return { snapshots = {}, stale = true } end
             if ok then snapshot, reason = M.parse(value, id) else reason = nil end
         end
         if snapshot then
-            snapshot.source = access.kind
+            snapshot.source = book_access.kind
             snapshots[#snapshots + 1] = snapshot
         elseif reason == "unavailable" then
             -- Cache absence for the same TTL, so cover redraws do not repeatedly
             -- fetch a book which has duration but no cloud reading position.
             snapshots[#snapshots + 1] = { book_id = tostring(id), fetched_at = os.time(),
-                source = access.kind, unavailable = true }
+                source = book_access.kind, unavailable = true }
         elseif reason ~= "unavailable" then
             -- Stop on the first service/auth/rate failure; do not flood the remaining books.
             return { snapshots = snapshots, failed = true,
-                web_expired = not ok and access.kind == "web" and value == "display_progress/login" or nil,
+                web_expired = not ok and book_access.kind == "web" and value == "display_progress/login" or nil,
                 next_index = index }
         end
     end

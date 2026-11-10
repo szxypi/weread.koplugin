@@ -811,7 +811,11 @@ end
 -- Bounded progress reads using captured access. No cookie persistence or
 -- reader synchronization state; errors and raw positions stay out of logs.
 function Client:get_shelf_display_progress(book_id, access, flags)
-    assert(require("weread.lib.read_access").book_id(book_id), "display_progress/invalid_book")
+    local Access = require("weread.lib.read_access")
+    assert(Access.display_book_id(book_id), "display_progress/invalid_book")
+    if not Access.book_id(book_id) and (type(access) ~= "table" or access.kind ~= "web") then
+        error("display_progress/access_required", 0)
+    end
     local chunks, bytes, exceeded = {}, 0, false
     local options = { method = "GET", skip_cookie = true, persist_response_cookies = false,
         sensitive = true, diagnostic_api = "shelf_progress", timeout = { 5, 10 },
@@ -847,7 +851,10 @@ function Client:get_shelf_display_progress(book_id, access, flags)
     if code ~= 200 then error("display_progress/unavailable", 0) end
     return self:decode_http_json(table.concat(chunks), { sensitive = true, api_name = "shelf_progress", code = code, headers = headers })
 end
-Client.get_progress_snapshot = Client.get_shelf_display_progress
+function Client:get_progress_snapshot(book_id, access, flags)
+    assert(require("weread.lib.read_access").book_id(book_id), "display_progress/invalid_book")
+    return self:get_shelf_display_progress(book_id, access, flags)
+end
 
 function Client:get_display_book_metadata(book_id, access)
     assert(require("weread.lib.read_access").book_id(book_id), "book_metadata/invalid_book")
