@@ -5,6 +5,7 @@ local Identity = require('weread.lib.book_file_identity')
 local Source = require('weread.lib.position_source')
 local WorkerTask = require('weread.lib.source_position_worker')
 local Candidate = require('weread.lib.source_upload_candidate')
+local Currentness = require('weread.lib.source_currentness')
 local Service = {}
 Service.__index = Service
 local function clone(value)
@@ -23,6 +24,7 @@ function Service:new(options)
         is_busy=options.is_busy or function() return false end, on_change=options.on_change,
         get_retained=options.get_retained,
         get_upload_context=options.get_upload_context,
+        client=options.client, is_online=options.is_online or function() return false end,
         get_viewport_height=options.get_viewport_height,
         now=options.now or os.time, generation=0, sequence=0, state='idle', pauses={} },self)
 end
@@ -63,7 +65,68 @@ function Service:_invalidate(state)
 end
 function Service:cancel_upload_preview()
     self.preview_job,self.preview_token=nil,nil
+    self.checked_previews=setmetatable({},{__mode='k'})
     if self.preview_worker then self.preview_worker:cancel() end
+end
+
+local point_fields={'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}
+function Service:_preview_current(job,candidate)
+    if not self:_current(job.scope) or self.is_busy() or not self.can_prepare() then return false end
+    local point=self:current()
+    for _i,key in ipairs(point_fields) do if not point or point[key]~=job.point[key] then return false end end
+    local live=self.get_upload_context and self.get_upload_context()
+    return live and live.book_id==point.book_id
+        and Candidate.same(Candidate.project(point,candidate.summary,live.chapters,live.percent),candidate) or false
+end
+
+-- Explicit, read-only freshness preparation. The opaque receipt stays in
+-- memory, expires after 30 seconds and never enables the upload adapter.
+function Service:prepare_current_upload_preview(callback)
+    assert(type(callback)=='function')
+    if not self.is_online() then self:cancel_upload_preview();callback(nil,'offline');return false end
+    if not self.client then self:cancel_upload_preview();callback(nil,'web_required');return false end
+    return self:prepare_upload_preview(function(candidate,reason)
+        if not candidate then callback(nil,reason);return end
+        if not self.is_online() then callback(nil,'offline');return end
+        local selected=Currentness.capture(self.client.settings)
+        if not selected or not selected.web then callback(nil,'web_required');return end
+        local point=self:current()
+        local scope=self:_live()
+        local snapshot=point and Source.document_metadata(self.get_document(),point.book_id,point.chapter_uid,point.render_path)
+        if not point or not scope or not snapshot then callback(nil,'context_unavailable');return end
+        scope.metadata,scope.render_path=snapshot.metadata,point.render_path
+        local expected=Currentness.expected{book_id=point.book_id,chapter_uid=point.chapter_uid,chapter_idx=candidate.chapter_idx,
+            raw_sha256=point.raw_sha256,raw_bytes=snapshot.record.raw_bytes}
+        if not expected then callback(nil,'context_unavailable');return end
+        self.sequence=self.sequence+1
+        local job={scope=scope,point=clone(point),candidate=clone(candidate),access=selected,expected=expected,
+            started=self.now(),request_id=self.sequence}
+        local token=self.preview_token
+        self.preview_job=job
+        local started=self.preview_worker:start(function()
+            return {request_id=job.request_id,check=Currentness.fetch(self.client,expected,selected)}
+        end,function(result)
+            if self.preview_job~=job or self.preview_token~=token then return end
+            self.preview_job=nil
+            if not self:_preview_current(job,candidate) or not self.is_online()
+                or not Currentness.matches(self.client.settings,selected) then return end
+            local age=self.now()-job.started
+            if type(result)~='table' or result.request_id~=job.request_id
+                or not Currentness.packet(result.check,expected) or age<0 or age>30 then
+                callback(nil,'source_currentness_unavailable');return
+            end
+            local receipt={}
+            self.checked_previews[receipt]=job
+            callback(clone(candidate),nil,receipt)
+        end)
+        if not started and self.preview_job==job then self.preview_job=nil;callback(nil,'worker_unavailable') end
+    end)
+end
+function Service:is_current_upload_preview(receipt,candidate)
+    local job=type(receipt)=='table' and self.checked_previews and self.checked_previews[receipt]
+    if not job or not self.client or not self.is_online() or not Candidate.same(job.candidate,candidate) then return false end
+    local age=self.now()-job.started
+    return age>=0 and age<=30 and Currentness.matches(self.client.settings,job.access) and self:_preview_current(job,candidate) or false
 end
 
 -- No network or persistence. The caller receives an immutable, unverified
@@ -247,6 +310,7 @@ function Service:on_view_changed(force)
     if not live then self:_invalidate('unsupported'); return false end
     local held=self:_held()
     if held then
+        self:cancel_upload_preview()
         if self.job or self.task then self:_invalidate('waiting');live.generation=self.generation end
         self.scope,self.result=live,held
         self:_set('ready')

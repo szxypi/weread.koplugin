@@ -192,6 +192,11 @@ local ok,reason=pcall(function()
                 if id==input.book_id and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 then return 2 end
             end
             if options.url==root_url or chapter_urls[options.url] then return 3 end
+            if input.source_upload_preview and options.url=='https://weread.qq.com/api/userInfo?userVid='..input.vid
+                and options.sensitive==true and options.diagnostic_api=='source_currentness'
+                and options.skip_cookie==true and options.persist_response_cookies==false
+                and h.Cookie==Cookie.to_header(cookies) and h['X-Vid']==input.vid and h['X-Skey']==cookies.wr_skey
+                and h.Referer==chapter_url then return 3 end
         elseif options.method=='POST' and type(options.body)=='string' and #options.body<=16384 then
             local decoded,payload=pcall(json.decode,options.body)
             if not decoded or type(payload)~='table' then return end

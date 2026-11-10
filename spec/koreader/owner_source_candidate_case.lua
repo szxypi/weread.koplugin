@@ -1,4 +1,4 @@
--- No HTTP dispatcher or uploader is used. The base transport stays read-only.
+-- No progress dispatcher or uploader is used. The base transport stays read-only.
 return function(input)
     assert(input.source_upload_preview==true and input.source_format=='web_xhtml')
     local Source=require('weread.lib.position_source')
@@ -7,6 +7,7 @@ return function(input)
     local case={records=require('json').decode('[]'),report={normal_capture=false,page_turn_capture=false,retained_target=false,
         native_dom_summary=false,legacy_units_preserved=false,reader_position_restored=false,
         source_gate_preserved=false,summary_not_in_source_state=false,summary_not_in_settings=false,
+        currentness_policy_verified=false,currentness_receipt_invalidated=false,currentness_checks=0,
         background_workers_observed=false,candidates=0,background_workers=0,legacy_equal_source=0,failed_line=0,preparation_failure=0,
         capture_failure_state=0,capture_failure_reason=0,unexpected_retained=0,capture_origin_kind=0,next_text_visible=0}}
     function case:run(plugin,reader,pump,index,origin)
@@ -70,6 +71,22 @@ return function(input)
             assert(candidate,'candidate_unavailable')
             assert(candidate.chapter_offset==point.chapter_offset and candidate.percent==legacy.percent
                 and candidate.book_id==input.book_id and candidate.chapter_uid==input.chapter_uid and candidate.upload_verified==false)
+            if label=='page' then
+                local fresh,why,receipt,completed
+                service:prepare_current_upload_preview(function(value,problem,checked) fresh,why,receipt,completed=value,problem,checked,true end)
+                pump(function() return completed end)
+                if plugin:isNetworkConnected() then
+                    assert(require('weread.lib.source_upload_candidate').same(fresh,candidate)
+                        and service:is_current_upload_preview(receipt,fresh),'candidate_current_source_unverified')
+                    self.report.currentness_checks=1
+                    self.checked_receipt,self.checked_candidate=receipt,fresh
+                else assert(not fresh and not receipt and why=='offline','candidate_offline_currentness_dispatched') end
+                self.report.currentness_policy_verified=true
+            elseif label=='turned' then
+                assert(not service:is_current_upload_preview(self.checked_receipt,self.checked_candidate),'candidate_movement_retained_receipt')
+                self.checked_receipt,self.checked_candidate=nil,nil
+                self.report.currentness_receipt_invalidated=true
+            end
             local target=assert(index:locate(point.chapter_offset))
             assert(document:isXPointerInCurrentPage(target.xpointer))
             assert(assert(index:capture(target.xpointer)).co==point.chapter_offset)

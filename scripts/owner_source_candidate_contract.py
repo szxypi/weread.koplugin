@@ -8,8 +8,10 @@ from source_upload_candidate import project,identifier
 
 FLAGS={'normal_capture','page_turn_capture','retained_target','native_dom_summary',
        'legacy_units_preserved','reader_position_restored','source_gate_preserved',
-       'summary_not_in_source_state','summary_not_in_settings','background_workers_observed'}
+       'summary_not_in_source_state','summary_not_in_settings','background_workers_observed',
+       'currentness_policy_verified','currentness_receipt_invalidated'}
 COUNTS=dict(candidates=3,background_workers=3,legacy_equal_source=3,failed_line=10000,preparation_failure=6,
+            currentness_checks=1,
             capture_failure_state=10,capture_failure_reason=9,unexpected_retained=1,capture_origin_kind=3,next_text_visible=1)
 STAGES=('page','turned','retained')
 SOURCE_FIELDS={'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}
@@ -85,6 +87,7 @@ def decode(raw,owner,*,mode=None,full_chapters=1):
         addon=stage.pop('source_candidate')
         complete=stage.get('result')=='PASS'
         validate(addon,complete);private(item,addon,complete);addons.append(addon)
+        if complete and addon['currentness_checks']!=int(stage.get('mode')=='live'):raise ValueError('candidate_incomplete')
     decoded=decode_envelope(FRAME+json.dumps(dict(report=report,cookies=envelope['cookies'])).encode(),owner,mode=mode)
     if saved_error:decoded['report']['runner_error']=saved_error
     targets=decoded['report']['stages'] if mode is None else [decoded['report']]

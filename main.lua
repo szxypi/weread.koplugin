@@ -140,6 +140,7 @@ function WeReadPlugin:init()
     }
     self.source_position = SourcePosition:new{
         scheduler = UIManager, codec = self.client,
+        client = self.client, is_online = function() return self:isNetworkConnected() end,
         get_document = function() return self.ui and self.ui.document end,
         get_book_id = function() return self._current_weread_book_id end,
         get_account = function() return self.settings:get("account", {}).user_vid end,

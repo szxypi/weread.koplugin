@@ -490,3 +490,37 @@ python3 scripts/verify_owner_source_candidate.py --saved-session --lua-command \
   --koreader /validation/runtime/lib/koreader --candidate /validation/owner-source-candidate-fixed.zip \
   --source-upload-preview
 ```
+
+## 上传候选的当前远端原文核对
+
+新增显式 `prepare_current_upload_preview(callback)`，先复用本机归档候选准备，再在独立工作进程中
+核对当前所选章节的远端原文。它不依赖云端上次读到的章节，不调用原文云端跳转或内容下载落盘路径。
+八次只读请求依次核对账号、目录、同书 Reader 会话、三份正文分片、目录及账号；
+正文必须与归档记录的原始字节长度和 SHA-256 完全相同，章节 UID／明确序号及前后目录观察必须一致。
+目录中的版本字段只用来识别本次读取期间的变化，不声称其等同于内容版本；
+只有版本相同而原文不同仍拒绝，版本不同但稳定且原文逐字节相同可通过。
+固定会话、响应大小及超时均有界；429／失效／账号变化不重试、不续期，也不切换写入通道。
+
+父进程再次核对文档、账号、原文记录、当前原文点、章节序号和百分比，才返回候选及不透明内存回执。
+回执最多有效三十秒，换页、保留目标事件、换书、暂停、关书或显式取消立即撤销；
+同页目标、百分比、目录序号或登录会话变化也使其无效。迟到或格式不完整的工作进程结果不能提交。
+回执与摘要不进入 `current()`、状态通知、检查点或设置，候选仍为 `upload_verified=false`。
+离线在启动读取前返回，不在普通捕获或自动同步中悄悄加入网络请求。
+
+先用独立 Python 原型对本人账号的云端当前章节及相邻章节各重复读取，再在官方运行环境中
+通过实际 Lua HTTPS 读取并逐字段比较，两章均通过，云端位置未变。
+原生组合验收继续从插件书架／详情「阅读」进入正文，在线检查当前章节及回执，
+翻页后确认失效；全新离线进程明确拒绝网络核对并完成原有本地候选流程。
+这项是有时间范围的读取观察，不能保证核对结束后服务端不再修改内容，也不是服务端原子写入前提。
+实际一字往返另经本次独立授权验证并恢复，见[实验记录](position-roundtrip-validation.md#本次明确授权后的实际原生往返已完成并恢复)。
+
+固定字段结果见[原文核对证据](validation-assets/2026-11-10/source-currentness.json)。
+通用精确上传适配仍未开启，更多书籍／格式、多设备、实体 KO2 和完整功能验收后的性能优化仍待完成。
+
+```sh
+python3 scripts/verify_source_currentness.py
+python3 scripts/test_source_currentness.py
+python3 scripts/verify_source_currentness.py --saved-session --native-http --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
+  ./luajit /source/spec/koreader/source_currentness_probe.lua /source
+```

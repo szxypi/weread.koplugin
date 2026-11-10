@@ -95,4 +95,71 @@ service.check=function(_self,callback) pending_callback=callback;return true end
 service:prepare_upload_preview(function() error('cancelled preparation callback resumed') end)
 service:cancel_upload_preview();pending_callback(point)
 expect(not service.preview_job,'cancelled preview launched after a deferred source check finished')
+-- Explicit fresh reads remain separate from the local preparation and do not
+-- make a receipt portable across time, scope, account or reader movement.
+local Currentness=require('weread.lib.source_currentness')
+local online,clock,reads=true,100,0
+local cookies={wr_vid='900000',wr_skey='synthetic-cookie-value'}
+local auth={vid='900000',epoch=1}
+local settings={get_auth_scope=function() return auth end,auth_scope_matches=function(_self,value_) return value_==auth end,
+    get=function(_self,key,default) return key=='cookies' and cookies or default end}
+service=Service:new{scheduler={unschedule=function() end,scheduleIn=function() end},worker={cancel=function() end},make_worker=function() return worker end,
+    context={location=function() return location end},get_document=function() return doc end,get_book_id=function() return '900001' end,
+    get_account=function() return account end,get_upload_context=function() return context end,
+    client={settings=settings},is_online=function() return online end,now=function() return clock end}
+service.state='ready';service.result=copy(point);service.scope=service:_live()
+local fetch=Currentness.fetch
+Currentness.fetch=function(_client,expected)
+    reads=reads+1
+    return {book_id=expected.book_id,chapter_uid=expected.chapter_uid,chapter_idx=expected.chapter_idx,
+        raw_sha256=expected.raw_sha256,raw_bytes=expected.raw_bytes,catalog_stamp=string.rep('a',64),source_current=true,upload_verified=false}
+end
+local receipt,reason,received
+local function fresh()
+    value,receipt,reason,received=nil,nil,nil,false
+    service:prepare_current_upload_preview(function(candidate,why,checked) value,reason,receipt,received=candidate,why,checked,true end)
+    expect(service.preview_job~=nil,'freshness did not first prepare a local candidate')
+    worker.callback({request_id=service.preview_job.request_id,candidate=prepared.candidate})
+    expect(service.preview_job~=nil,'freshness did not launch its separate read worker')
+end
+local function finish() worker.callback(worker.task()) end
+fresh();finish()
+expect(received and value and receipt and next(receipt)==nil and reads==1,'fresh checked candidate was not delivered')
+expect(service:is_current_upload_preview(receipt,value),'owned fresh receipt was rejected')
+expect(not service:is_current_upload_preview({},value),'forged receipt was accepted')
+local changed_candidate=copy(value);changed_candidate.summary='changed'
+expect(not service:is_current_upload_preview(receipt,changed_candidate),'receipt granted a different summary')
+expect(not service:current().summary and not service:current().receipt,'fresh source content entered public state')
+clock=131;expect(not service:is_current_upload_preview(receipt,value),'expired receipt remained current')
+clock=99;expect(not service:is_current_upload_preview(receipt,value),'backwards clock accepted receipt')
+clock=100;context.percent=38;expect(not service:is_current_upload_preview(receipt,value),'changed percent accepted receipt')
+context.percent=37;chapters[1].chapterIdx=1;expect(not service:is_current_upload_preview(receipt,value),'changed chapter index accepted receipt')
+chapters[1].chapterIdx=0
+cookies.wr_skey='synthetic-rotated-cookie';expect(not service:is_current_upload_preview(receipt,value),'changed credentials accepted receipt')
+cookies.wr_skey='synthetic-cookie-value'
+online=false;local previous_reads=reads
+service:prepare_current_upload_preview(function(candidate,why) expect(not candidate and why=='offline','offline request was not refused') end)
+expect(reads==previous_reads and not service.preview_job,'offline request dispatched reads')
+online=true;expect(not service:is_current_upload_preview(receipt,value),'cancelled receipt survived')
+fresh();clock=131;finish()
+expect(received and not value and reason=='source_currentness_unavailable','slow fresh check accepted an expired snapshot')
+clock=100;fresh();cookies.wr_skey='synthetic-rotated-cookie';finish()
+expect(not received,'late changed-account check called its consumer')
+cookies.wr_skey='synthetic-cookie-value';fresh();local callback=worker.callback
+service:pause('suspend');callback({request_id=service.sequence,check={}})
+expect(not received and not service.preview_job,'suspend retained a fresh worker')
+service.pauses={};service.state='ready';service.result=copy(point);service.scope=service:_live()
+fresh();worker.callback({request_id=service.sequence,check={source_current=true}})
+expect(received and not value and reason=='source_currentness_unavailable','malformed remote proof was accepted')
+fresh();finish();local old_receipt,old_candidate=receipt,value
+service.result.chapter_offset=16
+expect(not service:is_current_upload_preview(old_receipt,old_candidate),'same-page point change retained receipt')
+service.result=copy(point);fresh();finish()
+service.get_retained=function() local held=copy(point);held.retained_source_target=true;return held end
+service:on_view_changed(true)
+expect(not service:is_current_upload_preview(receipt,value),'held-target event revived a previous receipt')
+service.get_retained=nil;service.task=nil
+service.result=copy(point);fresh();finish();service:stop()
+expect(not service:is_current_upload_preview(receipt,value),'closed reader retained fresh receipt')
+Currentness.fetch=fetch
 print(('source_upload_candidate_spec: %d checks'):format(checks))

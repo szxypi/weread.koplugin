@@ -192,3 +192,23 @@ python3 scripts/verify_owner_progress_roundtrip.py --saved-session --check-only 
   --koreader /validation/runtime/lib/koreader --candidate /validation/owner-progress-preview-candidate.zip \
   --progress-roundtrip
 ```
+
+## 本次明确授权后的实际原生往返：已完成并恢复
+
+收到新的独立许可后，使用 `fbca284178683d85ad0318bca2f9a49a4cbce4e9` 对应的已验证候选包，
+仅执行一次 `--apply`。执行前重新核对账号、原文、原位置和私有计划指纹；没有待确认操作。
+正常插件书架／详情进入阅读，实际 `ReadReport:upload_position` 服务依次发送进入阅读、同位置、
+同章前进一个 UTF-16 单位及恢复，四次 HTTP 均为 200，时长参数为零，没有合成回执、授权 POST 或写入重试。
+
+原生服务明确确认同位置和一字前进，观察到探测坐标后才恢复原位，并确认恢复回执及坐标。
+宿主独立比较四份实际请求，又重新读取原始远端元数据，确认原章节 UID／序号、偏移和原百分比恢复。
+原生阅读器本机位置也已恢复；没有观察到无关位置或守卫拒绝。
+本次临时意图经所属回执清除后，再以新实例确认没有待确认标记；原有 Web 和墨水屏钥匙串授权仍在。
+工作进程回收、凭据文件审计和 tmpfs 删除通过，私人截图与普通磁盘私人数据均为零。
+
+这项通过只适用于所选普通 XHTML 章节的限定实际原生往返；该包尚未包含本次新增的原文新鲜度服务，
+两者分别记录，不能把单独只读核对当作已接通通用上传适配。
+普通原文采集器仍为 `upload_verified=false`，未开启自动精确上传；更多章节／格式、多设备和实体 KO2 仍待验收。
+最近阅读时间、历史和摘要不保证恢复，服务端时长总计未独立审计。
+此次四请求许可已使用，不据此重复写入实验。
+见[实际原生往返固定字段证据](validation-assets/2026-11-10/owner-native-roundtrip-authorized.json)。

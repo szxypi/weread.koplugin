@@ -28,12 +28,14 @@ def records():
 
 def addon():
     return dict(**dict.fromkeys(contract.FLAGS,True),candidates=3,background_workers=3,legacy_equal_source=0,failed_line=0,preparation_failure=0,
+                currentness_checks=1,
                 capture_failure_state=0,capture_failure_reason=0,unexpected_retained=0,capture_origin_kind=0,next_text_visible=0)
 
 
 def envelope():
     stages=[stage(),stage('reopen')]
     for row in stages:row['source_candidate']=addon()
+    stages[1]['source_candidate']['currentness_checks']=0
     return dict(report=dict(result='PASS',tmpfs_profile=True,profile_removed=True,stages=stages,runner_error='none'),
                 cookies=COOKIES.copy(),candidate_private=[records(),records()])
 
@@ -70,6 +72,9 @@ class OwnerCandidateTests(unittest.TestCase):
         with self.assertRaises(ValueError):contract.decode(frame(value),OWNER)
         for index in range(7):
             value=envelope();value['report']['stages'][1]['requests'][index]=1
+            with self.assertRaises(ValueError):contract.decode(frame(value),OWNER)
+        for index,bad in ((0,0),(1,1)):
+            value=envelope();value['report']['stages'][index]['source_candidate']['currentness_checks']=bad
             with self.assertRaises(ValueError):contract.decode(frame(value),OWNER)
 
     def test_private_record_order_scope_and_bounds_are_strict(self):
