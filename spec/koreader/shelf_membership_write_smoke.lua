@@ -140,6 +140,10 @@ return function(reader,plugin,pump,shot,clean_popups)
         'membership changes replaced cached content, checkpoint or native position')
     assert(count('/web/book/read')==data_before and count('/login')+count('/web/login/renewal')==auth_before,
         'membership operations reported progress or renewed authentication')
+    local recovery=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'shelf_membership_recovery_smoke.lua')(
+        reader,plugin,pump,clean_popups,{request=request,count=count,writes=writes,preview=preview,confirm=confirm,present=present,id=id})
+    assert(Crypto.sha256_hex(raw(path))==file_hash and raw(state_path)==state_bytes and reader.document:getXPointer()==origin
+        and count('/web/book/read')==data_before,'membership recovery replaced reading state or reported progress')
     plugin.client.request=original_request;clean_popups(reader)
     local output=assert(io.open(assert(os.getenv('WEREAD_EVIDENCE'))..'/shelf-membership-write-result.json','wb'))
     output:write(Json.encode{result='PASS',synthetic_only=true,native_confirmations=true,worker_http=true,durable_intent_before_http=true,
@@ -148,5 +152,5 @@ return function(reader,plugin,pump,shot,clean_popups)
         unknown_receipt_retained=true,fresh_service_no_replay=true,explicit_readonly_pending_resolution=true,
         changed_full_preflight_no_post=true,http429_no_retry_or_renewal=true,possible_dispatch_cancel_reaped=true,
         confirmed_cloud_local_cache_failure_no_repost=true,cache_checkpoint_and_native_location_preserved=true,
-        progress_and_authentication_posts_during_cases=0,real_account_requests_attempted=0});output:close()
+        progress_and_authentication_posts_during_original_cases=0,recovery=recovery,real_account_requests_attempted=0});output:close()
 end

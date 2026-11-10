@@ -39,11 +39,11 @@ local function fixture()
     f.options={settings=settings,client={},scheduler={},journal=journal,store=store,worker=worker,now=function() return f.clock end}
     f.service=Service:new(f.options)
     function f.prepare(resolve)
-        return f.service:prepare('42',function() return f.frame end,function(plan,reason) f.plan,f.reason=plan,reason end,resolve)
+        return f.service:prepare('42',function() return f.frame end,function(plan,reason,selected) f.plan,f.reason,f.selected=plan,reason,selected end,resolve)
     end
     function f.complete(value) local callback=f.callback;callback(value or f.task()) end
     function f.commit()
-        return f.service:commit(f.plan,function(result,finished) f.outcome,f.finished=result,finished end)
+        return f.service:commit(f.plan,function(result,finished,selected) f.outcome,f.finished,f.selected=result,finished,selected end)
     end
     return f
 end
@@ -88,4 +88,14 @@ f=fixture();f.auth_pending=true
 expect(not f.prepare() and f.starts==0,'unknown renewal was used for a data write')
 f=fixture();f.corrupt=true
 expect(not f.prepare() and f.starts==0,'corrupt journal was overwritten')
+f=fixture();Task.fetch=function() error('native_auth/shelf/http_401',0) end
+f.prepare();f.complete()
+expect(f.reason=='native_expired' and f.selected and not f.service.job and not f.plan and f.record.phase=='idle',
+    'preview expiry lost the captured grant or reserved a data change')
+for _i,failed_finish in ipairs({false,true}) do
+    f=fixture();f.prepare();f.complete();f.commit();f.fail_finish=failed_finish
+    f.complete({book_id='42',operation='add',attempted=false,kind='login'})
+    expect(f.finished==not failed_finish and f.selected and (f.record.phase=='idle')==not failed_finish,
+        'proven-unsent expiry requires durable journal completion before recovery')
+end
 print(('shelf_membership_service_spec: %d checks'):format(checks))

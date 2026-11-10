@@ -38,9 +38,12 @@ function M:prepare(book_id,guard,callback,resolve)
     if not Task.book_id(book_id) or not guard() then return false,'unavailable' end
     local job={book_id=book_id,guard=guard,access=selected,started=self.now(),record=resolve and record or nil}
     self.job=job
-    local called,started=pcall(self._worker,self,function() return {snapshot=Task.fetch(self.client,self.settings,selected)} end,function(result)
+    local called,started=pcall(self._worker,self,function() return Task.preview(self.client,self.settings,selected) end,function(result)
         if not self:current(job) then if self.job==job then self:cancel();callback(nil,'session_changed') end;return end
         self.job=nil
+        if type(result)=='table' and result.native_expired==true and not result.snapshot then
+            callback(nil,'native_expired',selected);return
+        end
         local snapshot=type(result)=='table' and result.snapshot
         local members=Task.members(snapshot)
         if not members then callback(nil,'unavailable');return end
@@ -88,9 +91,9 @@ function M:commit(plan,callback)
         local confirmed=valid and observed_members and result.attempted and result.confirmed==true and result.acknowledged==true
             and Task.contains(result.snapshot,input.book_id)==(input.operation=='add')
             and Task.digest(observed_members)==Task.expected(input)
-        local unsent=valid and result.attempted==false and ({noop=true,changed=true,unavailable=true})[result.kind]
+        local unsent=valid and result.attempted==false and ({noop=true,changed=true,unavailable=true,login=true})[result.kind]
         local finished=(confirmed or unsent) and journal:finish(selected.scope,record)
-        callback(valid and result or {kind='unconfirmed',attempted=true},finished==true)
+        callback(valid and result or {kind='unconfirmed',attempted=true},finished==true,selected)
     end)
     if not called or not started then self:cancel();return false,'unconfirmed' end
     return true

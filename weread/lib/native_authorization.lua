@@ -1,6 +1,6 @@
 -- E-Ink QR protocol validated by scripts/verify_eink_login.py on 2026-11-08.
--- Adapted from MiuRead shelf_client.lua (AGPL-3.0-only). No persistence, writes
--- to the shelf, Web-Cookie conversion or diagnostic payloads. Renewal follows
+-- Adapted from MiuRead shelf_client.lua (AGPL-3.0-only). No persistence,
+-- Web-Cookie conversion or diagnostic payloads. Renewal follows
 -- scripts/verify_eink_renewal.py's real two-renewal/readback check on 2026-11-08.
 local Crypto = require("weread.lib.crypto")
 local Protocol = require("weread.lib.protocol")
@@ -92,9 +92,9 @@ function Auth:_request(stage, url, body, credentials, timeout, on_dispatch)
     if not ok then fail(stage, "transport") end
     code = tonumber(code)
     if not code then fail(stage, "timeout") end
-    if code < 200 or code >= 300 then fail(stage, "http_" .. tostring(code)) end
     raw = type(raw) == "string" and raw or table.concat(chunks)
     if #raw > MAX_BYTES or size > MAX_BYTES then fail(stage, "response_limit") end
+    if code < 200 or code >= 300 then fail(stage, "http_" .. tostring(code)) end
     local parsed, data = pcall(self.client.json_decode, self.client, raw)
     if not parsed or type(data) ~= "table" then fail(stage, "invalid_json") end
     local error_code = data.errcode or data.errCode

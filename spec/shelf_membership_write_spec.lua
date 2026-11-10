@@ -21,7 +21,8 @@ local function fixture(queue,operation)
             expect(options.skip_cookie and options.persist_response_cookies==false and options.sensitive,'membership request leaked shared Web state')
             expect(options.headers.vid=='900000' and options.headers.accessToken=='synthetic-access' and not options.headers.Cookie,'captured owner/grant lost')
             f.requests[#f.requests+1]=options;response=assert(table.remove(f.queue,1),'missing fixture response')
-            if response.raise then error('private transport') end
+            if response.raise then error(response.raise==true and 'private transport' or response.raise,0) end
+            if response.stream then options.sink(response.stream) end
             return response.raw or 'fixture',response.status or 200,{}
         end}
     f.selected=Access.capture(settings,store);f.client,f.settings=client,settings
@@ -54,8 +55,18 @@ for _i,reply in ipairs({{books={{bookId='41',title='One'},{bookId='41',title='Du
     {status=401},{status=429},{invalid=true},{raw=string.rep('x',4*1024*1024+1)}}) do
     f=fixture({reply});r=f.run()
     if reply.books and #reply.books==0 then expect(r.kind=='changed' and not r.attempted,'empty shelf was not a changed preflight')
-    else expect(r.kind=='unavailable' and not r.attempted and #f.requests==1,'invalid/preflight rejection attempted a write') end
+    else expect(r.kind==(reply.status==401 and 'login' or 'unavailable') and not r.attempted and #f.requests==1,
+        'invalid/preflight rejection attempted a write') end
 end
+for _i,reply in ipairs({{status=401},{status=403},{status=429},{raise='native_auth/shelf/http_401'},
+    {errcode=401},{status=401,raw=string.rep('x',4*1024*1024+1)},
+    {status=401,stream=string.rep('x',4*1024*1024+1)}}) do
+    f=fixture({reply});local preview=Task.preview(f.client,f.settings,f.selected)
+    expect(not preview.snapshot and preview.native_expired==(reply.status==401 and not reply.raw and not reply.stream),
+        'only a bounded, explicit HTTP401 may request native recovery')
+end
+f=fixture({shelf('41'),{succ=1},{status=401},{status=401},{status=401}});r=f.run()
+expect(r.attempted and r.kind=='unconfirmed' and #f.requests==5,'post-write401 requested renewal or discarded uncertainty')
 f=fixture({})
 local auth=Auth:new(f.client,{expected_vid='900000'})
 for _i,id in ipairs({'MP_1','0','42/other',string.rep('1',21)}) do

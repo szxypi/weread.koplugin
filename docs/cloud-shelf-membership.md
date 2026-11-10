@@ -20,7 +20,11 @@
 
 本机快照由父进程保存到原有 SQLite 事务，并更新书架展示；云端成功但本机保存失败会提示刷新，不重复修改。
 下载文件、阅读检查点、原生位置和进度／时长上报权限不由此操作改变。
-读取授权过期时提示在设置授权或续期后重新预览，已可能发送的修改不会通过续期再发。
+实时预览或发送前预检得到明确 HTTP 401 时，最多进行一次已持久记录的墨水屏续期，
+重新读取完整书架并显示新的确认窗口；旧按钮与确认不会沿用到新授权。
+发送前预检必须先持久结束已证明未发送的记录，才能续期。
+存在待确认修改、记录异常、续期回执未知、非 401 或超限响应时，不自动续期；
+已可能发送的修改及其回读失败均不通过续期再发。
 本机制不提供服务端原子条件写入，也不宣称协调任意其他进程或多设备的并发操作。
 
 ## 实际协议验证
@@ -39,10 +43,14 @@
 官方 KOReader v2026.07.1 Linux ARM64／Xvfb，两种尺寸通过原生加入／移除确认、工作进程 HTTP、
 持久发送记录、SQLite 快照、新书加入、取消／关窗／休眠／账号变化、未知回执与新服务防重放、
 显式只读解决、完整预检变化、429 不重发、发送中取消及回收、云端成功而缓存保存失败不再 POST。
-下载文件与阅读状态文件的字节、正文位置保持一致；专用用例没有进度或登录维护 POST。
+下载文件与阅读状态文件的字节、正文位置保持一致；基础成员用例没有进度或登录维护 POST。
+新增两尺寸真实工作进程与持久凭据的模拟恢复验证：预览及未发送预检 401 后重新确认、
+写入及写后回读 401 不续期、不重发，待确认核对 401 不自动续期，
+关闭实际状态窗口会回收续期工作进程，未知授权回执仍保留且重新进入不会重放。
 定时／周期／关书同步、恢复保存、三进程离线／重连和跨章／跨文件定位继续回归。
 
 固定字段与包字节见[原生证据](validation-assets/2026-11-10/shelf-membership-write.json)。
+登录恢复的新增范围见[恢复证据](validation-assets/2026-11-10/shelf-membership-recovery.json)。
 新增两尺寸[真实原生只读预览](owner-native-membership.md)：详情、实时成员核对、确认／取消、
 关闭窗口回收与生产本机存储链路通过，独立回读确认 139 本成员未变；真实数据及授权 POST 为零。
 上述 Lua 写入验收仅使用本地模拟服务；新的 Lua 组合真实写入、读完等其他状态协议、实体 KO2、
@@ -53,6 +61,7 @@ python3 scripts/test_eink_shelf_write.py
 luajit spec/shelf_membership_write_spec.lua
 luajit spec/shelf_membership_journal_spec.lua
 luajit spec/shelf_membership_service_spec.lua
+luajit spec/shelf_membership_recovery_spec.lua
 xvfb-run -a python3 scripts/test_discovery_runtime.py \
   --koreader /path/to/runtime --run-dir /path/to/new-profile \
   --reading-flow --offline-progress --progress-confirmation --source-upload \

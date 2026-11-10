@@ -36,11 +36,20 @@ function M.fetch(client,settings,selected)
     end})
     return Source.normalize(auth:read_shelf(selected.credentials))
 end
+function M.preview(client,settings,selected)
+    local ok,value=pcall(M.fetch,client,settings,selected)
+    if ok then return {snapshot=value} end
+    -- Only this bounded native transport's exact status marker requests
+    -- recovery. Network exception text and business errors stay unavailable.
+    return {native_expired=value=='native_auth/shelf/http_401'}
+end
 function M.run(client,settings,selected,plan,owns)
     local attempted=false
     local result={book_id=plan.book_id,operation=plan.operation,attempted=false,confirmed=false}
     local ok=pcall(function()
-        local fresh=M.fetch(client,settings,selected)
+        local first=M.preview(client,settings,selected)
+        if first.native_expired then result.kind='login';return end
+        local fresh=assert(first.snapshot)
         local members=assert(M.members(fresh))
         local before=M.contains(fresh,plan.book_id)
         if before==(plan.operation=='add') then result.kind='noop';result.snapshot=fresh;return end
