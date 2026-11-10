@@ -130,6 +130,8 @@ jobs:
         run: |
           python3 scripts/test_native_metadata.py
           python3 scripts/test_cb_metadata.py
+          python3 scripts/test_cb_reading.py
+          python3 scripts/test_cb_native_reading.py
           python3 scripts/test_native_annotations.py
           python3 scripts/test_native_ui.py
           python3 scripts/test_persistent_ui.py

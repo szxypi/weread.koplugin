@@ -103,12 +103,17 @@ end
 
 local function parse(raw, options)
     if type(raw) ~= "string" or #raw > M.MAX_BYTES or not raw:find("<body", 1, true) then fail("invalid_source") end
-    local first, body_closing = raw:find("<body", 1, true), raw:find("</body", 1, true)
-    if not body_closing or raw:find("<body", first + 5, true) or raw:find("</body", body_closing + 6, true) then
+    -- Concatenated chapter documents are a separately opted-in local model.
+    -- Cloud coordinate consumers keep the original single-body validation.
+    local multiple = options and options.allow_multiple_bodies == true
+    local _, opens = raw:gsub("<body", "")
+    local _, closes = raw:gsub("</body", "")
+    if opens < 1 or opens > (multiple and 256 or 1) or closes ~= opens then
         fail("multiple_or_incomplete_bodies")
     end
     local map = setmetatable({ segments = {}, decode = options and options.decode_entity or decode_entity }, Map)
     local at, co, base, body, seen, raw_text = 1, 0, 0, false, false, nil
+    local bodies = 0
     local pieces = {}
     local function flush()
         if #pieces > 0 then
@@ -152,9 +157,11 @@ local function parse(raw, options)
                 name = name:lower()
                 local self_closing = tag:match("/%s*>$") ~= nil
                 if name == "body" and closing == "" then
-                    if seen or self_closing then fail("multiple_or_incomplete_bodies") end
+                    if body or seen and not multiple or self_closing then fail("multiple_or_incomplete_bodies") end
                     body, seen = true, true
+                    bodies = bodies + 1
                 end
+                if name == "body" and closing == "/" and not body then fail("multiple_or_incomplete_bodies") end
                 local is_retained = body and retained[name]
                 if is_retained then flush() end
                 consume(ending)
@@ -170,7 +177,7 @@ local function parse(raw, options)
             consume(last)
         end
     end
-    if not seen or body then fail("incomplete_body") end
+    if not seen or body or bodies ~= opens then fail("incomplete_body") end
     flush()
     return map
 end
@@ -287,15 +294,17 @@ function Map:locate_point(text, point_offset, before, after)
     return nil, type(result) == "string" and result:match("^source_coordinates/[a-z_]+$") or "source_coordinates/unavailable"
 end
 
-function Map:anchor(co)
+function Map:anchor(co, options)
     local ok, result = pcall(function()
         if type(co) ~= "number" or co ~= co or co % 1 ~= 0 or co < 0 or co > M.MAX_BYTES * 8 then fail("invalid_offset") end
         self:_index()
         local candidates, interior, flat = {}, false, 1
+        local ranges={}
         local function candidate(byte, visible)
             candidates[byte] = candidates[byte] == true or visible
         end
         for _, segment in ipairs(self.segments) do
+            local first=flat
             local cursor, text, at = segment[1], segment[2], 1
             while at <= #text do
                 local clean, next_at, n = self:_token(text, at)
@@ -304,6 +313,7 @@ function Map:anchor(co)
                 if co > cursor and co < cursor + n then interior = true end
                 at, cursor, flat = next_at, cursor + n, flat + #clean
             end
+            ranges[#ranges+1]={first,flat}
         end
         local byte, count, visible
         count = 0
@@ -316,16 +326,24 @@ function Map:anchor(co)
             while at > 1 and self.flat:byte(at) >= 128 and self.flat:byte(at) < 192 do at = at - 1 end
             return at
         end
-        for _, width in ipairs({ 24, 48, 96, 192 }) do
+        local windows={{1,#self.flat+1}}
+        if options and options.segment_only then
+            windows={}
+            for _i,range in ipairs(ranges) do
+                if range[1]<=byte and byte<=range[2] and range[1]<range[2] then windows[#windows+1]=range end
+            end
+        end
+        for _window_index,window in ipairs(windows) do
+          for _, width in ipairs({ 24, 48, 96, 192 }) do
             local first, after = byte, byte
             for _i = 1, width do
-                if first > 1 then first = previous(first) end
-                if after <= #self.flat then local size = select(2, scalar(self.flat, after)) after = after + size end
+                if first > window[1] then first = previous(first) end
+                if after < window[2] then local size = select(2, scalar(self.flat, after)) after = after + size end
             end
             -- A multi-character entity has only one source interval. Expand
             -- the search window to its boundaries, never invent an inner co.
-            while first > 1 and not pcall(self._point, self, first) do first = previous(first) end
-            while after <= #self.flat and not pcall(self._point, self, after - 1, true) do
+            while first > window[1] and not pcall(self._point, self, first) do first = previous(first) end
+            while after < window[2] and not pcall(self._point, self, after - 1, true) do
                 local size = select(2, scalar(self.flat, after))
                 after = after + size
             end
@@ -334,11 +352,14 @@ function Map:anchor(co)
             if found and found.first == first then
                 local at, offset = first, 0
                 while at < byte do local size = select(2, scalar(self.flat, at)) at, offset = at + size, offset + 1 end
-                return { co = co, text = quote, point_offset = offset, point_unit = "unicode_scalars",
-                    basis = self.basis }
+                local reverse=options and options.segment_only and self:locate_point(quote,offset)
+                if not options or not options.segment_only or reverse and reverse.co==co then
+                    return { co = co, text = quote, point_offset = offset, point_unit = "unicode_scalars", basis = self.basis }
+                end
             elseif reason ~= "source_coordinates/anchor_too_short" and reason ~= "source_coordinates/anchor_ambiguous" then
                 fail("reverse_anchor_unavailable")
             end
+          end
         end
         fail("reverse_anchor_ambiguous_or_short")
     end)

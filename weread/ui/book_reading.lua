@@ -88,7 +88,9 @@ end
 
 function M.start(host, book, view)
     if view and host._book_detail_view ~= view then return false end
-    local id = Access.book_id(book.book_id or book.bookId)
+    -- CB_ catalog/content queries were verified independently before opening
+    -- this read path. Chapter IDs and synchronization retain their own gates.
+    local id = Access.display_book_id(book.book_id or book.bookId)
     if not id then return false end
     local online
     if host.isNetworkConnected then online = host:isNetworkConnected() else online = host:isNetworkOnline() end

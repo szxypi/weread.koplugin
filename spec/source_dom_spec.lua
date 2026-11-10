@@ -155,6 +155,25 @@ expect(long_index.stats.checkpoints>100 and long_index.stats.checkpoints<200,'in
 local steps=long_index.stats.steps
 expect(long_index:locate(early.co),'cached lookup failed')
 expect(long_index.stats.steps-steps<=Dom.CHECKPOINT_INTERVAL+100,'repeat query walked whole chapter')
+-- Large single chapters can span hundreds of pages. Use a validated native
+-- page prefix before the exact walk, without whole-book text search or a
+-- growing page-position cache.
+local page_index,_,page_doc,_,page_counts,page_xp=fixture(long_raw,table.concat(plain,'\n'))
+local physical_count=#chars(table.concat(plain,''))
+page_doc.getPageCount=function() return math.ceil(physical_count/200) end
+page_doc.getPageXPointer=function(_self,page) return page_xp(math.min(physical_count,(page-1)*200)) end
+local page_point=assert(page_index:locate(early.co))
+expect(assert(page_index:capture(page_point.xpointer)).co==early.co,'page checkpoint changed the exact source point')
+expect(page_index.stats.steps<1000 and page_counts.search==0 and page_counts.move==0,'page checkpoint walked or searched the full chapter')
+local bad_page,_,bad_doc,_,_,bad_xp=fixture(long_raw,table.concat(plain,'\n'))
+bad_doc.getPageCount=page_doc.getPageCount
+bad_doc.getPageXPointer=function(_self,page) return bad_xp(math.min(physical_count,(page-1)*200)) end
+local extract=bad_doc.getTextFromXPointers
+bad_doc.getTextFromXPointers=function(self,first,last)
+    local value=extract(self,first,last)
+    return first=='/body/DocFragment[1].0' and value..'corrupted' or value
+end
+expect(not bad_page:locate(early.co),'unverified native page prefix was accepted')
 -- Cancelling an in-progress walk permanently invalidates that operation's index.
 local active=true
 long_index.options.is_current=function() return active end
@@ -183,6 +202,13 @@ expect(native_index,prepared_reason)
 local prepared_point=assert(native_index:locate_anchor(assert(map:anchor(point.co))))
 expect(prepared_point.co==point.co and prepared_point.xpointer==located.xpointer,'prepared anchor changed native scalar point')
 expect(not native_index:locate(point.co),'prepared native index rebuilt original source map')
+local literal='A unique body paragraph remains exactly unchanged after note conversion.'
+local moved_raw='<body><p>Original footnote text before the paragraph.</p><p>'..literal..'</p></body>'
+local moved_prefix='Different generated note block.\n'
+local moved_index,_,_,_,_,moved_xp=fixture(moved_raw,moved_prefix..literal)
+local moved_point=assert(moved_index:capture(moved_xp(#chars(moved_prefix:gsub('[\r\n]','')))))
+expect(moved_point.co==moved_raw:find(literal,1,true)-1,'changed adjacent block prevented exact paragraph mapping')
+expect(assert(moved_index:locate(moved_point.co)).co==moved_point.co,'segment quote did not reverse through the native document')
 for _,bad_anchor in ipairs({{}, {co=point.co,text='short',point_offset=0,basis='filtered_xhtml_utf16',point_unit='unicode_scalars'},
     {co=point.co,text=assert(map:anchor(point.co)).text,point_offset=99999,basis='filtered_xhtml_utf16',point_unit='unicode_scalars'}}) do
     expect(not native_index:locate_anchor(bad_anchor),'unbounded/invalid prepared anchor accepted')

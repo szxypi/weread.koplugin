@@ -95,4 +95,8 @@ client,state=fixture();state.code=401;state.changed_at=1
 expect(Check.run(client,expected).error=='source_currentness_unavailable','stale session promoted an HTTP status to renewal')
 client,state=fixture();state.transport=true
 expect(Check.run(client,expected).error=='source_currentness_unavailable','transport error text forged an HTTP 401')
+client,state=fixture()
+local cb_expected=copy(expected);cb_expected.book_id='CB_SyntheticReading'
+expect(not Check.expected(cb_expected) and Check.run(client,cb_expected).error=='source_currentness_unavailable'
+    and #state.requests==0,'local CB reading expanded unverified source-upload network access')
 print(('source_currentness_spec: %d checks'):format(checks))

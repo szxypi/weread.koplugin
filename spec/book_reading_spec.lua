@@ -147,4 +147,16 @@ for _, change in ipairs({ "offline", "login", "worker", "catalog", "storage", "d
     if state.job then state.job.complete(change == "catalog" and {} or state.job.task()) end
     expect(not host.book_reading_context and not host.busy_message and state.opened == 0, "failure retained task: " .. change)
 end
+host,state=fixture()
+local cb_book={book_id='CB_SyntheticReading',title='CB title'}
+expect(Reading.start(host,cb_book),'verified CB reading did not start')
+result=state.job.task();state.job.complete(result)
+expect(result.book_id==cb_book.book_id and state.download.book.book_id==cb_book.book_id
+    and state.downloads==1,'CB reading did not reach the normal chapter downloader')
+state.download.options.on_complete(true,'/cache/cb.epub');tasks[1]()
+expect(state.path=='/cache/cb.epub','CB download did not open the native reader')
+for _i,id in ipairs({'CB_','CB_'..string.rep('a',65),'CB_a/b','CB_a_b','MP_WXS_synthetic'}) do
+    host,state=fixture()
+    expect(not Reading.start(host,{book_id=id}) and not state.job and state.downloads==0,'invalid CB reading started work')
+end
 print(("book_reading_spec: %d checks"):format(checks))

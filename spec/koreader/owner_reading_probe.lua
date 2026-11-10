@@ -26,7 +26,12 @@ local ok,reason=pcall(function()
     local raw=assert(io.stdin:read(256*1024+1));assert(#raw<=256*1024)
     local input=json.decode(raw)
     assert(type(input.vid)=='string' and input.vid:match('^[1-9]%d*$'))
-    assert(type(input.book_id)=='string' and input.book_id:match('^[1-9]%d*$'))
+    local cb_reading=input.cb_reading==true
+    if cb_reading then report.source_match_reason='none' end
+    assert(type(input.book_id)=='string' and (cb_reading and #input.book_id<=67 and input.book_id:match('^CB_[A-Za-z0-9]+$')
+        or not cb_reading and input.book_id:match('^[1-9]%d*$')))
+    assert(not cb_reading or not (input.full_manifest or input.annotations or input.progress_preview
+        or input.progress_roundtrip or input.source_upload_preview))
     assert(type(input.chapter_uid)=='string' and input.chapter_uid:match('^[1-9]%d*$'))
     assert(type(input.source_text)=='string' and #input.source_text>=32 and #input.source_text<=128)
     assert(input.source_format=='web_xhtml' or input.source_format=='web_txt')
@@ -499,6 +504,18 @@ local ok,reason=pcall(function()
     local source_index,source_reason=require('weread.lib.source_dom').open(document,input.book_id,input.chapter_uid)
     assert(source_index,source_reason)
     local source_match,match_reason=source_index:capture(matches[1].start)
+    if not source_match and cb_reading then
+        local reason_name=type(match_reason)=='string' and match_reason:match('^source_dom/([a-z_]+)$')
+        report.source_match_reason=({walk_diverged=true,anchor_ambiguous=true,anchor_missing=true,source_point_unavailable=true,
+            invalid_point=true,source_unsupported=true,source_unavailable=true,cancelled=true})[reason_name] and reason_name or 'other'
+        local Dom=require('weread.lib.source_dom')
+        local begin=source_index.flat:find(assert(Dom.normalize(input.source_text)),1,true)
+        local prefix=Dom.normalize(document:getTextFromXPointers(source_index.root..'.0',matches[1].start))
+        local anchor=source_index.map:anchor(input.source_sample_offset)
+        if begin and prefix and begin~=#prefix+1 then report.source_match_reason='sample_start_mismatch'
+        elseif not anchor then report.source_match_reason='source_anchor_unavailable'
+        elseif not source_index.flat:find(anchor.text,1,true) then report.source_match_reason='source_anchor_missing' end
+    end
     assert(source_match,match_reason)
     assert(source_match.co==input.source_sample_offset)
     report.native_reader=true

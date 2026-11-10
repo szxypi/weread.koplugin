@@ -17,12 +17,11 @@ end
 local function match(map, text, offset)
     local points = boundaries(text)
     local target = offset + 1
-    for _, width in ipairs({24, 48, 96, 192}) do
-        local first, last = math.max(1, target - width), math.min(#points, target + width)
+    local function attempt(first,last)
         local quote = text:sub(points[first], points[last] - 1)
         local point = map:locate_point(quote, target - first)
         if point then
-            local anchor = map:anchor(point.co)
+            local anchor = map:anchor(point.co,{segment_only=true}) or map:anchor(point.co)
             if anchor then
                 local start = text:find(anchor.text, 1, true)
                 if start and not text:find(anchor.text, start + 1, true) then
@@ -33,6 +32,24 @@ local function match(map, text, offset)
             end
         end
     end
+    local windows={}
+    for _i, width in ipairs({24, 48, 96, 192}) do
+        local first,last=math.max(1,target-width),math.min(#points,target+width)
+        local found=attempt(first,last)
+        if found~=nil then return found end
+        windows[#windows+1]={target,last};windows[#windows+1]={first,target}
+    end
+    -- Moving footnotes can change one adjacent block. A one-sided quote must
+    -- still be unique and reversible; conflicting exact results are refused.
+    local resolved
+    for _i,window in ipairs(windows) do
+        local found=attempt(window[1],window[2])
+        if found~=nil then
+            if resolved~=nil and found~=resolved then return end
+            resolved=found
+        end
+    end
+    return resolved
 end
 local function chapter_title(rendered)
     local title=rendered:match('<title>(.-)</title>')
@@ -66,7 +83,7 @@ local function verified_source(input, read_archive)
     local verified = Source.verify_snapshot({ metadata=members[alias], identity=identity,
         book_id=input.book_id, chapter_uid=input.chapter_uid, raw=members[raw_path], rendered=members[record.render_path] })
     if not verified then return nil, 'source_changed' end
-    local map = Coordinates.build(verified.raw,{format=record.format})
+    local map = Coordinates.build(verified.raw,{format=record.format,allow_multiple_bodies=true})
     if not map then return nil, 'source_unsupported' end
     return { record=record, map=map, title=chapter_title(members[record.render_path]) }
 end
@@ -115,7 +132,7 @@ function M.prepare_target(input, read_archive)
     local ok, result = pcall(function()
         local prepared,target=target_source(input,read_archive)
         if not target then return prepared end
-        local anchor = prepared.map:anchor(target.chapter_offset)
+        local anchor = prepared.map:anchor(target.chapter_offset,{segment_only=true}) or prepared.map:anchor(target.chapter_offset)
         if not anchor or #anchor.text > M.MAX_CONTEXT_BYTES then return {error='target_unavailable'} end
         return {position=position(prepared, target.chapter_offset), anchor=anchor, request_id=input.request_id}
     end)

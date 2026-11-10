@@ -98,4 +98,20 @@ for _,change in ipairs({{book_id='other'},{chapter_uid='22'},{file_id=string.rep
 end
 expect(Worker.prepare_target(jump_input,function() error('private archive diagnostic') end).error=='position_unavailable',
     'private target-preparation diagnostic escaped worker')
+local literal='Auniquebodyparagraphremainsexactlyunchangedafternoteconversion.'
+local moved_raw='<body><p>Original footnote before the paragraph.</p><p>'..literal..'</p></body>'
+local moved=assert(Source.capture(book,chapter,moved_raw,'web_xhtml'))
+local moved_input=copy(input)
+moved_input.metadata=assert(Source.bind(moved,identity,path,Crypto.sha256_hex(rendered)))
+local prefix='Differentgeneratednoteblock.'
+moved_input.text=prefix..literal;moved_input.point_offset=#prefix
+local moved_members={[Identity.PATH]=root,[Source.path_meta_path(path)]=moved_input.metadata,
+    [Source.raw_path(moved.raw_sha256)]=moved_raw,[path]=rendered}
+local moved_result=Worker.capture(moved_input,function() return moved_members end)
+expect(moved_result.position and moved_result.position.chapter_offset==moved_raw:find(literal,1,true)-1,
+    'a modified adjacent block prevented exact unique paragraph capture')
+moved_input.target=moved_result.position
+local moved_target=Worker.prepare_target(moved_input,function() return moved_members end)
+expect(moved_target.anchor and moved_target.anchor.point_offset==0 and literal:find(moved_target.anchor.text,1,true)==1,
+    'native target preparation depended on an adjacent converted block')
 print(('source_position_worker_spec: %d checks'):format(checks))

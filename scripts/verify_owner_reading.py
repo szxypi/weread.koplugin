@@ -51,15 +51,24 @@ RUNNER_ERRORS |= {'full_resource_path', 'full_external_image', 'full_image_size'
                   'full_source_text_missing'}
 
 
-def validate_stage(value, mode, *, full_chapters=1):
-    if type(full_chapters) is not int or not 1 <= full_chapters <= 32:
+CB_SOURCE_REASONS = {'none', 'walk_diverged', 'anchor_ambiguous', 'anchor_missing', 'source_point_unavailable',
+                     'invalid_point', 'source_unsupported', 'source_unavailable', 'cancelled', 'other',
+                     'sample_start_mismatch', 'source_anchor_missing', 'source_anchor_unavailable'}
+
+
+def validate_stage(value, mode, *, full_chapters=1, cb_reading=False):
+    if type(full_chapters) is not int or not 1 <= full_chapters <= 32 or cb_reading and full_chapters != 1:
         raise ValueError('reading_scope')
     expected = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'requests'}
+    if cb_reading: expected.add('source_match_reason')
     if full_chapters > 1:
         expected |= {'native_images_decoded', 'download_error', 'download_error_module', 'download_error_line',
                      'download_error_chapter', 'reader_context_failure', 'reader_identity_shape',
                      'reader_python_projection', 'reader_cookie_snapshot'}
     if not isinstance(value, dict) or set(value) != expected:
+        raise ValueError('reading_schema')
+    if cb_reading and (type(value['source_match_reason']) is not str or value['source_match_reason'] not in CB_SOURCE_REASONS
+                       or value['result'] == 'PASS' and value['source_match_reason'] != 'none'):
         raise ValueError('reading_schema')
     if (type(value['result']) is not str or type(value['phase']) is not str or type(value['mode']) is not str
             or value['result'] not in ('PASS', 'UNVERIFIED') or value['phase'] not in PHASES or value['mode'] != mode
@@ -145,7 +154,7 @@ def validate_full_book(value, chapters, *, complete=True):
     return value
 
 
-def decode_envelope(raw, owner, *, mode=None, full_chapters=1):
+def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False):
     """The private cookie envelope is consumed here; never print this value."""
     if not isinstance(raw, bytes) or len(raw) > (8 if full_chapters>1 else 2) * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('reading_frame')
@@ -161,7 +170,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1):
         raise ValueError('reading_envelope')
     validate_cookies(value['cookies'], owner)
     if mode is not None:
-        validate_stage(value['report'], mode, full_chapters=full_chapters)
+        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading)
     else:
         report = value['report']
         fields = {'result', 'tmpfs_profile', 'profile_removed', 'stages', 'runner_error'}
@@ -174,7 +183,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1):
                 or not isinstance(report['stages'], list) or len(report['stages']) > 2):
             raise ValueError('reading_runner')
         for phase, stage in zip(('live', 'reopen'), report['stages']):
-            validate_stage(stage, phase, full_chapters=full_chapters)
+            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading)
         if report['result'] == 'PASS' and (not report['tmpfs_profile'] or not report['profile_removed']
                 or report['runner_error'] != 'none' or len(report['stages']) != 2
                 or any(stage['result'] != 'PASS' for stage in report['stages'])

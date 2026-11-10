@@ -166,4 +166,9 @@ expect(not resolved.position and resolved.chapter.chapterUid==uid and resolved.r
 local txt_target={};for key,value in pairs(target) do txt_target[key]=value end
 txt_target.basis='raw_txt_utf16'
 expect(not Cloud.remote(txt_target),'local TXT model activated unverified cloud coordinate semantics')
+local cb_target=copy(target);cb_target.book_id='CB_SyntheticReading'
+expect(not Cloud.remote(cb_target) and not pcall(Cloud.project,cb_target.book_id,before,reader,raw,before),
+    'local CB reading expanded unverified cloud coordinates')
+expect(not pcall(Cloud.project,id,before,reader,raw..raw,before),
+    'local concatenated-body support expanded the default cloud coordinate model')
 print(('source_cloud_spec: %d checks'):format(checks))

@@ -160,7 +160,7 @@ local function open_index(document,book_id,uid,options,metadata)
         self.basis = Source.coordinate_basis(source.format)
         if not self.basis then fail('format_unsupported') end
         if not metadata then
-            self.map = Coordinates.build(source.raw,{format=source.format})
+            self.map = Coordinates.build(source.raw,{format=source.format,allow_multiple_bodies=true})
             if not self.map then fail("source_unsupported") end
         end
         local ordinal,total=spine(document,source.render_path)
@@ -218,6 +218,38 @@ function M.open_prepared(document,book_id,metadata,options)
 end
 
 local function copy(point) return {ptr=point.ptr,flat=point.flat,xp=point.xp} end
+function Index:_page_checkpoint(last)
+    local document=self.document
+    if not document.getPageCount or not document.getPageXPointer then return end
+    local ok,pages=pcall(document.getPageCount,document)
+    if not ok or type(pages)~='number' or pages<32 or pages>100000 or pages%1~=0 then return end
+    local lo,hi,best=1,pages,nil
+    -- A native page boundary is only a candidate checkpoint. Its complete
+    -- chapter prefix must match the pinned native text before it can shorten
+    -- the exact character walk; no page ratio or nearest-text inference.
+    while lo<=hi do
+        self:_yield()
+        local mid=math.floor((lo+hi)/2)
+        local found,xp=pcall(document.getPageXPointer,document,mid)
+        if not found or type(xp)~='string' then return end
+        if fragment(xp)~=self.root then
+            if not document.compareXPointers then return end
+            local compared,order=pcall(document.compareXPointers,document,self.root..'.0',xp)
+            if not compared or order~=1 and order~=-1 then return end
+            if order==1 then hi=mid-1 else lo=mid+1 end
+        else
+            local prefix=self:_extract(self.root..'.0',xp)
+            local flat=normalize(prefix,function() self:_yield() end)
+            if self.flat:sub(1,#flat)~=flat then fail('walk_diverged') end
+            if #flat+1>=last then
+                if self.text:sub(1,#prefix)==prefix then best={ptr=#prefix,flat=#flat+1,xp=xp} end
+                hi=mid-1
+            else lo=mid+1 end
+        end
+    end
+    self:_check()
+    return best
+end
 function Index:_endpoints(first,target,last)
     -- Checkpoints descend through the chapter; retain one native pointer per
     -- 256 characters, not a pointer/table for every scalar in a long chapter.
@@ -227,6 +259,10 @@ function Index:_endpoints(first,target,last)
         if self.points[mid].flat >= last then best,lo=mid,mid+1 else hi=mid-1 end
     end
     local cursor=copy(self.points[best])
+    if cursor.flat-last>4096 then
+        local page=self:_page_checkpoint(last)
+        if page and page.flat<cursor.flat then cursor=page end
+    end
     local needed,result={[first]=true,[target]=true,[last]=true},{}
     if needed[cursor.flat] then result[cursor.flat]=cursor.xp end
     while cursor.flat > first and cursor.ptr >= 1 do
@@ -268,7 +304,8 @@ function Index:locate(co)
     local active,reason=protected(function() self:_check();return true end)
     if not active then return nil,reason end
     if not self.map then return nil,'source_dom/source_unavailable' end
-    local anchor,err=self.map:anchor(co)
+    local anchor,err=self.map:anchor(co,{segment_only=true})
+    if not anchor then anchor,err=self.map:anchor(co) end
     if not anchor then
         return nil,err == 'source_coordinates/offset_ambiguous' and 'source_dom/source_ambiguous' or 'source_dom/source_offset_unavailable'
     end
@@ -324,16 +361,7 @@ function Index:capture(xpointer)
         if self.flat:sub(1,#prefix) ~= prefix then fail('walk_diverged') end
         local byte=#prefix+1
         if byte > #self.flat+1 then fail('invalid_point') end
-        for _,width in ipairs({24,48,96,192}) do
-            local first,after,offset=byte,byte,0
-            for _i=1,width do
-                if first > 1 then
-                    first=first-1
-                    while first > 1 and self.flat:byte(first) >= 128 and self.flat:byte(first) < 192 do first=first-1 end
-                    offset=offset+1
-                end
-                if after <= #self.flat then local _,size=scalar(self.flat,after); after=after+size end
-            end
+        local function attempt(first,after,offset)
             local point=self.map:locate_point(self.flat:sub(first,after-1),offset)
             if point then
                 local located,reason=self:locate(point.co)
@@ -344,6 +372,30 @@ function Index:capture(xpointer)
                 elseif reason == 'source_dom/cancelled' then fail('cancelled') end
             end
         end
+        local windows={}
+        for _width_index,width in ipairs({24,48,96,192}) do
+            local first,after,offset=byte,byte,0
+            for _i=1,width do
+                if first > 1 then
+                    first=first-1
+                    while first > 1 and self.flat:byte(first) >= 128 and self.flat:byte(first) < 192 do first=first-1 end
+                    offset=offset+1
+                end
+                if after <= #self.flat then local _,size=scalar(self.flat,after); after=after+size end
+            end
+            local located=attempt(first,after,offset)
+            if located then return located end
+            windows[#windows+1]={byte,after,0};windows[#windows+1]={first,byte,offset}
+        end
+        local resolved
+        for _i,window in ipairs(windows) do
+            local located=attempt(window[1],window[2],window[3])
+            if located then
+                if resolved and resolved.co~=located.co then fail('source_point_unavailable') end
+                resolved=located
+            end
+        end
+        if resolved then return resolved end
         fail('source_point_unavailable')
     end)
 end

@@ -23,6 +23,7 @@ def main(argv=None):
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
     addons = parser.add_mutually_exclusive_group()
+    addons.add_argument('--cb-reading', action='store_true')
     addons.add_argument('--annotations', action='store_true')
     addons.add_argument('--annotation-recovery', action='store_true')
     addons.add_argument('--progress-preview', action='store_true')
@@ -44,6 +45,8 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        if args.cb_reading != (payload.get('cb_reading') is True) or args.cb_reading and 'full_manifest' in payload:
+            raise ValueError('input_limit')
         decoder = decode_envelope
         if args.annotations:
             from owner_annotation_contract import decode
@@ -103,7 +106,8 @@ def main(argv=None):
                 code, out, repaint = run_child(command, env,
                                                json.dumps(payload, ensure_ascii=False).encode(), runtime,
                                                timeout=600 if full_chapters > 1 and mode == 'live' else 150)
-                envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters)
+                envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters,
+                                   **({'cb_reading': True} if args.cb_reading else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview: candidate_private.append(envelope['candidate_private'])

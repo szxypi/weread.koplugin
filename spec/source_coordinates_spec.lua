@@ -162,4 +162,20 @@ end
 eq(Source.build(txt_raw),nil) -- No implicit format sniffing.
 eq(Source.build(txt_raw,{format='unknown'}),nil)
 
+-- Local concatenated documents retain original UTF-16 offsets across their
+-- wrappers; the default used by cloud validation still rejects them.
+local first='<html><body><p>Uniquely written first body with 中文😀 and &amp;.</p></body></html>'
+local second='<html><head><title>Ignored heading</title></head><body><p>A unique second body marker with enough text.</p></body></html>'
+local multi=first..second
+eq(Source.build(multi),nil)
+local local_map=build(multi,{allow_multiple_bodies=true})
+local marker='A unique second body marker with enough text.'
+local expected=#first+#second:match('^(.-)A unique')-#'中文😀'+4 -- UTF-16 replaces ten UTF-8 bytes with four units.
+eq(locate(local_map,marker).co,expected)
+eq(assert(local_map:anchor(expected)).co,expected)
+for _i,invalid in ipairs({'<body>one<body>nested</body></body>','<body>one</body></body>','<body/>',
+    '<body>open','<!-- <body> --><body>one</body>',string.rep('<body>x</body>',257)}) do
+    eq(Source.build(invalid,{allow_multiple_bodies=true}),nil)
+end
+
 print("source_coordinates_spec: " .. checks .. " checks")

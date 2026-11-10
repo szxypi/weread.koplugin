@@ -188,19 +188,22 @@ class FilteredSource(HTMLParser):
     end; the next retained tag resets the source base. This is neither a raw
     index nor the index in an entirely stripped/rebuilt document.
     """
-    def __init__(self, raw):
+    def __init__(self, raw, *, allow_multiple_bodies=False):
         super().__init__(convert_charrefs=False)
         self.raw, self.offsets = boundaries(raw)
-        if (self.raw.count('<body') != 1 or self.raw.count('</body') != 1
+        self.allow_multiple_bodies = allow_multiple_bodies is True
+        body_count = self.raw.count('<body')
+        if (not 1 <= body_count <= (256 if self.allow_multiple_bodies else 1) or self.raw.count('</body') != body_count
                 or any(ord(char) < 32 and char not in '\t\r\n' for char in self.raw)):
             raise CoordinateError("source: unsupported XHTML structure")
         self.line_starts = [0] + [m.end() for m in re.finditer("\n", self.raw)]
         self.body, self.saw_body, self.raw_text_tag = False, False, None
         self.base, self.pieces, self.segments = 0, [], []
+        self.body_count = 0
         self.characters, self.starts, self.ends = [], [], []
         self.feed(self.raw)
         self.close()
-        if not self.saw_body or self.body:
+        if not self.saw_body or self.body or self.body_count != body_count:
             raise CoordinateError("source: complete body required")
         self.flush_run()
         # Reuse the conservative local text matcher, retaining coordinates in
@@ -226,9 +229,10 @@ class FilteredSource(HTMLParser):
 
     def handle_starttag(self, tag, _attrs):
         if tag == 'body':
-            if self.saw_body:
+            if self.body or self.saw_body and not self.allow_multiple_bodies:
                 raise CoordinateError("source: multiple bodies")
             self.saw_body, self.body = True, True
+            self.body_count += 1
         if self.body and tag in BODY_TAGS:
             self.retained(self.position() + len(self.get_starttag_text()))
         if self.body and tag in ('script', 'style') and not self.get_starttag_text().rstrip().endswith('/>'):
@@ -240,6 +244,8 @@ class FilteredSource(HTMLParser):
         self.handle_starttag(tag, attrs)
 
     def handle_endtag(self, tag):
+        if tag == 'body' and not self.body:
+            raise CoordinateError("source: complete body required")
         if self.body and tag in BODY_TAGS:
             end = self.raw.find('>', self.position())
             if end < 0:
