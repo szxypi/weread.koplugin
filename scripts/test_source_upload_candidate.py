@@ -30,6 +30,13 @@ class CandidateTests(unittest.TestCase):
         self.assertTrue(value['summary'].startswith('😀&中文'))
         self.assertLessEqual(len(value['summary']),20)
 
+    def test_summary_normalizes_visible_whitespace_without_moving_source_offsets(self):
+        raw='<html><body><p>AB CD😀&nbsp;EF</p>\r\n<p>GHIJ\u3000KLMN OPQRSTUVWXYZ末尾。</p></body></html>'
+        value=project(raw,self.point,self.chapters,37)
+        self.assertEqual(value['chapter_offset'],15)
+        self.assertEqual(value['summary'],'ABCD😀EFGHIJKLMNOPQRS')
+        with self.assertRaises(ValueError):project(raw,dict(self.point,chapter_offset=17),self.chapters,37)
+
     def test_no_guess_for_markup_entity_interior_or_end_boundary(self):
         for offset in (0,23,25,999):
             with self.assertRaises(ValueError):project(self.raw,dict(self.point,chapter_offset=offset),self.chapters,10)

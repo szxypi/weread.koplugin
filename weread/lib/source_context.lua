@@ -44,10 +44,9 @@ function M.capture(document,book_id,location,options)
         check()
         local xp=location.xpointer
         if not xp:find('/text()',1,true) then
-            -- At the top of scroll mode CREngine may report a structural
-            -- boundary instead of its first text node. Resolve only into text
-            -- that is actually inside this viewport, never past an image page.
-            if xp:find('/img',1,true) then return {error='no_visible_text'} end
+            -- CREngine may put a page/scroll origin on an image or structural
+            -- boundary. A caption can still be visible in this viewport;
+            -- never borrow its next text node from a following image-only page.
             local next_point=document:getNextVisibleChar(xp)
             local frame=ReaderPosition.snapshot(document,location.view_mode,options.viewport_height)
             if type(next_point)~='string' or not next_point:find('/text()',1,true)

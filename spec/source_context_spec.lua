@@ -79,6 +79,20 @@ expect(first.point_offset==0 and first.chapter_uid=='11','scroll structural boun
 top.getPosFromXPointer=function() return 600 end
 expect(Context.capture(top,'synthetic',{xpointer=structural,view_mode='scroll'},{viewport_height=600}).error=='no_visible_text',
     'structural boundary selected text below the viewport')
+local caption,caption_xp=fixture(text,0)
+local image='/body/DocFragment[1]/body/p/img.0'
+local caption_next=caption.getNextVisibleChar
+caption.getNextVisibleChar=function(self,point) return point==image and caption_xp(0) or caption_next(self,point) end
+caption.isXPointerInCurrentPage=function(_self,point) return point==caption_xp(0) end
+local caption_frame=Context.capture(caption,'synthetic',{xpointer=image,view_mode='page'})
+expect(caption_frame.text=='ABCDE😀&中文[36]FGHIJKLMNOPQRSTUVWXYZ' and caption_frame.point_offset==0,
+    'image origin hid a visible caption on the current page')
+caption.isXPointerInCurrentPage=function() return false end
+expect(Context.capture(caption,'synthetic',{xpointer=image,view_mode='page'}).error=='no_visible_text',
+    'image-only page borrowed text from the next page')
+caption.getNextVisibleChar=function(self,point) if point==image then return nil end;return caption_next(self,point) end
+expect(Context.capture(caption,'synthetic',{xpointer=image,view_mode='page'}).error=='no_visible_text',
+    'image without a visible text successor acquired a coordinate')
 local long=string.rep('abcdefghijklm',60)
 local long_doc=fixture(long,300)
 local current=true

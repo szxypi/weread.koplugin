@@ -27,6 +27,7 @@ def main(argv=None):
     addons.add_argument('--annotation-recovery', action='store_true')
     addons.add_argument('--progress-preview', action='store_true')
     addons.add_argument('--progress-roundtrip', action='store_true')
+    addons.add_argument('--source-upload-preview', action='store_true')
     args = parser.parse_args(argv)
     runtime = args.koreader.resolve()
     if sys.platform != 'linux' or not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
@@ -37,6 +38,7 @@ def main(argv=None):
     root, cookies = None, {}
     recovery_private = []
     progress_private = None
+    candidate_private = []
     try:
         raw = sys.stdin.buffer.read(256 * 1024 + 1)
         if len(raw) > 256 * 1024:
@@ -55,12 +57,17 @@ def main(argv=None):
         if args.progress_roundtrip:
             from owner_progress_roundtrip_contract import decode
             decoder = decode
+        if args.source_upload_preview:
+            from owner_source_candidate_contract import decode
+            decoder = decode
         has_annotations = args.annotations or args.annotation_recovery
         if has_annotations != ('annotations' in payload) or has_annotations and 'full_manifest' in payload:
             raise ValueError('input_limit')
         if args.progress_preview != ('progress_preview' in payload) or args.progress_preview and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         if args.progress_roundtrip != ('progress_roundtrip' in payload) or args.progress_roundtrip and ('full_manifest' in payload or has_annotations):
+            raise ValueError('input_limit')
+        if args.source_upload_preview != ('source_upload_preview' in payload) or args.source_upload_preview and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         full_chapters = len(payload['full_manifest']) if 'full_manifest' in payload else 1
         if not 1 <= full_chapters <= 32:
@@ -91,12 +98,15 @@ def main(argv=None):
                     command.append(str(probe.with_name('owner_progress_preview_case.lua')))
                 if args.progress_roundtrip:
                     command.append(str(probe.with_name('owner_progress_roundtrip_case.lua')))
+                if args.source_upload_preview:
+                    command.append(str(probe.with_name('owner_source_candidate_case.lua')))
                 code, out, repaint = run_child(command, env,
                                                json.dumps(payload, ensure_ascii=False).encode(), runtime,
                                                timeout=600 if full_chapters > 1 and mode == 'live' else 150)
                 envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters)
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
+                if args.source_upload_preview: candidate_private.append(envelope['candidate_private'])
                 if args.annotation_recovery:
                     private = envelope['recovery_private']
                     recovery_private.append(private)
@@ -141,12 +151,16 @@ def main(argv=None):
         if args.progress_roundtrip:
             from owner_progress_roundtrip_contract import ERRORS
             if str(exc) in ERRORS:report['runner_error']=str(exc)
+        if args.source_upload_preview:
+            from owner_source_candidate_contract import ERRORS
+            if str(exc) in ERRORS:report['runner_error']=str(exc)
     finally:
         report['profile_removed'] = root is not None and not root.exists()
     # This private envelope is consumed only by the captured host verifier pipe.
     envelope = dict(report=report, cookies=cookies)
     if args.annotation_recovery: envelope['recovery_private'] = recovery_private
     if args.progress_preview or args.progress_roundtrip: envelope['progress_private'] = progress_private
+    if args.source_upload_preview: envelope['candidate_private'] = candidate_private
     sys.stdout.buffer.write(FRAME + json.dumps(envelope).encode() + b'\n')
     return 0 if report['result'] == 'PASS' and report['profile_removed'] else 1
 

@@ -34,16 +34,21 @@ def project(raw,point,chapters,percent):
     if type(percent) not in (int,float) or not math.isfinite(percent) or percent%1 or not 0<=percent<=100:
         raise ValueError('candidate_percent')
     model=FilteredSource(raw)
-    found=[i for i,n in enumerate(model.starts) if n==co]
+    # Normalize visible text only. Keep the original filtered-source offsets,
+    # including every markup/entity/whitespace UTF-16 width, unchanged.
+    visible=[i for i,char in enumerate(model.characters) if not char.isspace()]
+    characters=[model.characters[i] for i in visible]
+    starts=[model.starts[i] for i in visible]
+    found=[i for i,n in enumerate(starts) if n==co]
     if len(found)!=1:raise ValueError('candidate_point')
     index=found[0]
     for width in (24,48,96,192):
-        first,last=max(0,index-width),min(len(model.characters),index+width)
-        quote=''.join(model.characters[first:last])
+        first,last=max(0,index-width),min(len(characters),index+width)
+        quote=''.join(characters[first:last])
         try:
-            if model.locate(quote)[0]==model.starts[first]:break
+            if model.locate(quote)[0]==starts[first]:break
         except CoordinateError:pass
     else:raise ValueError('candidate_ambiguous')
     return dict(book_id=book,chapter_uid=uid,chapter_idx=chapter_index(chapters,uid),chapter_offset=co,
-                percent=int(percent),summary=''.join(model.characters[index:index+20]),
+                percent=int(percent),summary=''.join(characters[index:index+20]),
                 basis='filtered_xhtml_utf16',upload_verified=False)

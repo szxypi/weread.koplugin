@@ -439,8 +439,8 @@ TXT 两尺寸保留原文定位、导航和生命周期检查，但候选明确�
 完整 168 组 Lua、562 项 Python、441 个静态文件、443 个 Lua 语法文件及既有检查通过。
 
 结果见[固定字段证据](validation-assets/2026-11-10/source-upload-candidate.json)。
-下一步仍需本人账号的正常采集器到候选的组合核对、服务端当前内容版本核对、
-限定实际写后回读及最终上传适配；不能只因候选已准备好就开启自动上传。
+该准备提交的本人账号组合核对已在下节完成一个样本；当前仍需服务端内容版本核对、
+限定实际写后回读及最终上传适配，不能只因候选已准备好就开启自动上传。
 多设备、更多格式、实体 KO2 和完整功能验收后的集中性能优化仍待完成。
 
 ```sh
@@ -449,4 +449,44 @@ python3 scripts/test_source_upload_candidate.py
 python3 scripts/verify_source_upload_candidate.py --saved-session --lua-command \
   docker exec -i -w /validation/runtime/lib/koreader weread-validation \
   ./luajit /source/spec/koreader/source_upload_candidate_probe.lua /source
+```
+
+## 真实原生采集组合与图片页首正文
+
+新增严格只读的 `verify_owner_source_candidate.py` 和专用原生验收分支。
+默认离线，不提供 `--apply` 或授权续期入口；实际从插件首页／书架、详情「阅读」下载并进入原生正文。
+正常页面、原生翻页后的页面，以及精确跳转后保留的目标，各调用实际 `prepare_upload_preview`。
+每份候选核对来源、可见 DOM 锚点、章节序号、摘要及原有字数／百分比投影未变；
+宿主再以独立 Python HTMLParser 模型核对实际采集结果，没有向原生进程传入候选预期答案。
+
+真实运行发现第 4 页的页首指针落在图片上，但下一文字节点仍在当前页内；旧代码仅因图片指针就直接拒绝。
+先增加回归并确认失败，再移除该提前返回，复用已有的可见范围和文字节点核对。
+现在同页正文可被定位；纯图片页、下一文字在视口外、没有后续文字仍返回无可定位正文，不猜偏移或跨页借字。
+真实验收关闭图片资源下载，证明原生图片元素页首与同页正文的几何关系，不包含实际图片位图或人工目视验收。
+
+独立模型还暴露出 Python 候选原型的摘要误带空格／换行：原型的字符列表保留空白，Lua 与实际 DOM 使用规范化可见文字。
+新增空格、CRLF、NBSP、全角空格及表情的失败回归后，Python 只规范化可见摘要；
+每个字符仍保留原始标签／实体／空白的 UTF-16 来源坐标，空白边界本身不取得可见位置。
+没有移动源偏移或放宽独立回读条件来制造通过结果。
+
+官方 KOReader v2026.07.1 Linux ARM64／Xvfb 中，600×800 和 KO2 1264×1680 各完成在线及全新离线两个进程，
+分别 39／41 页，同一普通 XHTML 章节共十二份候选与独立模型一致，在线／离线记录逐字段相同。
+离线 Web HTTP 为零，原生工作进程均观察并回收，本机原文目标恢复、配置凭据审计、摘要不入设置和 tmpfs 删除通过。
+实际上传服务、真实进度／授权 POST、私人截图均为零，前后云端位置一致，原有两份登录授权继续保留。
+该项只证明所选章节的本机候选组合；上传权限、服务端百分比／当前版本含义及实际写后回读仍未通过。
+
+新增十一项 Python 组合／隐私合同检查、一项摘要空白回归及三项 Lua 图片／文字边界检查。
+完整 168 组 Lua、574 项 Python、442 个静态文件零警告／错误，444 个 Lua 语法文件、命名空间、四时区及 Python 编译通过。
+两尺寸 XHTML／TXT 的本机采集、导航、取消、重开和文件替换回归继续通过，四份合成包各 190 个生产文件与源码／安装目录一致。
+详见[真实组合固定字段证据](validation-assets/2026-11-10/owner-source-candidate.json)。
+更多书籍／格式、当前云端来源绑定、精确上传、多设备、实体 KO2 仍待完成；此前实验许可未复用。
+
+```sh
+python3 scripts/verify_owner_source_candidate.py
+python3 scripts/test_owner_source_candidate.py
+python3 scripts/verify_owner_source_candidate.py --saved-session --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
+  python3 /source/scripts/run_owner_reading_probe.py \
+  --koreader /validation/runtime/lib/koreader --candidate /validation/owner-source-candidate-fixed.zip \
+  --source-upload-preview
 ```

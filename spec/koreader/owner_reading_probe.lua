@@ -18,6 +18,7 @@ local descriptors={}
 local annotation_case
 local recovery_private
 local progress_case,progress_private
+local candidate_case,candidate_private
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
@@ -85,7 +86,7 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
-        if full or input.annotations or input.progress_preview or input.progress_roundtrip then
+        if full or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview then
             local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
@@ -108,6 +109,10 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         progress_case=dofile(arg[2])(input,counters)
         report.progress_roundtrip=progress_case.report
+    elseif input.source_upload_preview then
+        assert(not full and arg[2])
+        candidate_case=dofile(arg[2])(input)
+        report.source_candidate=candidate_case.report
     else assert(not arg[2]) end
     local Protocol=require('weread.lib.protocol')
     local Cookie=require('weread.lib.cookie')
@@ -552,6 +557,7 @@ local ok,reason=pcall(function()
         and after.source_position.chapter_offset==position.chapter_offset and (full or after.chapter_offset~=position.chapter_offset))
     report.legacy_progress_units_preserved=true
     if progress_case then progress_case:run(plugin,reader,pump,source_index,position) end
+    if candidate_case then candidate_case:run(plugin,reader,pump,source_index,position) end
     local checkpoint={file=document.file,xpointer=document:getXPointer(),page=reader:getCurrentPage()}
     local file=assert(io.open(checkpoint_path,'wb'));assert(file:write(json.encode(checkpoint)));file:close()
     report.phase='close'
@@ -589,6 +595,7 @@ local ok,reason=pcall(function()
                     assert(report.profile_files_audited<=1024 and info.size<=(full and 64 or 16)*1024*1024)
                     local handle=assert(io.open(filename,'rb'));local content=handle:read('*a');handle:close()
                     for _i,secret in ipairs(secrets) do assert(not content:find(secret,1,true)) end
+                    if candidate_case then candidate_case:audit(filename,content) end
                 else error('unexpected profile entry',0) end
             end
         end
@@ -599,6 +606,7 @@ local ok,reason=pcall(function()
 end)
 if counters then
     if progress_case then progress_case:finish(reason);progress_private=progress_case:private() end
+    if candidate_case then candidate_case:finish(reason);candidate_private=candidate_case:private() end
     if annotation_case then
         annotation_case:finish(reason)
         if annotation_case.private then recovery_private=annotation_case:private() end
@@ -623,5 +631,5 @@ if not ok then
     report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
 end
 io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {},rejected_html=rejected_html,
-    recovery_private=recovery_private,progress_private=progress_private}..'\n')
+    recovery_private=recovery_private,progress_private=progress_private,candidate_private=candidate_private}..'\n')
 os.exit(ok and 0 or 1)
