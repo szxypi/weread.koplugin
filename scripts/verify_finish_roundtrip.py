@@ -106,7 +106,7 @@ class FinishProbe(NativeProbe):
         bound['position_sha256']=digest(position);self.plan=Plan(bound,flags,position);self.original=fingerprint(bound)
         self.report.update(shelf_books=len(flags),finished_books=sum(value is True for value in flags.values()),
                            unknown_flags=sum(value is None for value in flags.values()),before=False,desired=True,
-                           position_baseline_verified=True,plan_fingerprint=fingerprint(bound))
+                           position_baseline_verified=True,plan_fingerprint=self.plan_fingerprint())
         return self.plan,rows[identity]
 
     def observe(self,credentials,stage):
@@ -114,6 +114,16 @@ class FinishProbe(NativeProbe):
         flags,_rows=shelf_flags(self.request(stage+'_shelf',BASE+'/shelf/sync',credentials=credentials))
         position=point(self.request(stage+'_position',BASE+'/book/getProgress?'+urlencode(dict(bookId=identity)),credentials=credentials),identity)
         return flags,position
+
+    def plan_fingerprint(self):
+        return fingerprint(self.plan.bound)
+
+    def receipt_shape(self,response,desired):
+        return dict(known_fields=[key for key in ('succ','success','errcode','errCode','status') if key in response],
+                    other_fields_count=len(set(response)-{'succ','success','errcode','errCode','status'}))
+
+    def accept_receipt(self,response,desired):
+        return acknowledged(response)
 
     def _post(self,credentials,desired,ordinal):
         if self.report['data_writes_attempted']!=ordinal or ordinal not in (0,1):raise FinishError('finish_post_limit')
@@ -125,10 +135,8 @@ class FinishProbe(NativeProbe):
             response=self.request(stage,url,body=body,credentials=credentials)
             # Keep only a fixed-key shape summary when an undocumented ACK
             # differs from expectations; never include response values/IDs.
-            self.report['write_receipts'].append(dict(
-                known_fields=[key for key in ('succ','success','errcode','errCode','status') if key in response],
-                other_fields_count=len(set(response)-{'succ','success','errcode','errCode','status'})))
-            return acknowledged(response)
+            self.report['write_receipts'].append(self.receipt_shape(response,desired))
+            return self.accept_receipt(response,desired)
         except (ProbeError,FinishError):return False
         finally:self.dispatch=None
 
@@ -163,8 +171,8 @@ class FinishProbe(NativeProbe):
         self.report['steps_verified']=True
 
 
-def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__)
+def main(argv=None,*,probe_factory=None,description=None):
+    parser=argparse.ArgumentParser(description=description or __doc__)
     parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--apply',action='store_true')
     parser.add_argument('--expected-plan')
@@ -182,10 +190,10 @@ def main(argv=None):
             report.update(pending_intent_present=pending,pending_membership_experiment=other_pending)
             if pending:report['intent_state']='pending'
             if args.apply and (pending or other_pending):raise FinishError('finish_experiment_unconfirmed')
-            probe=FinishProbe();plan,_row=probe.prepare(credentials)
+            probe=(probe_factory or FinishProbe)();plan,_row=probe.prepare(credentials)
             report.update(same_owner_verified=True,planned_post_limit=2)
             if args.apply:
-                if fingerprint(plan.bound)!=args.expected_plan:raise FinishError('finish_plan_changed')
+                if probe.plan_fingerprint()!=args.expected_plan:raise FinishError('finish_plan_changed')
                 report['intent_state']='unknown';receipt=intents.begin(plan.bound);report['intent_state']='pending'
                 probe.run(credentials,plan,confirmed=True)
                 if probe.observe(credentials,'finish_independent_final')!=(plan.flags,plan.position):raise FinishError('finish_final_changed')

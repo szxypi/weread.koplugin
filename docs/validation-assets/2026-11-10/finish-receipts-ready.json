@@ -1,0 +1,114 @@
+{
+  "result": "REVISED_FINISH_RECEIPT_PREPARED_REAL_WRITES_UNVERIFIED",
+  "checked_at": "2026-11-10T15:26:18.334027+00:00",
+  "executed_base_head": "de1cfae6c7bc566f85881de11c907c265d0dcd9b",
+  "receipt_policy": "finish-reading-integer-v1",
+  "receipt_hypothesis": "top_level_integer_finishReading_equals_requested_flag",
+  "hypothesis_real_write_verified": false,
+  "lua_write_implemented": false,
+  "earlier_mark_and_restore_permissions_consumed": true,
+  "new_write_permission_consumed": false,
+  "prior_unknown_receipt_roundtrip_reclassified": false,
+  "source_references": [
+    {
+      "repository": "teng-lin/weread-omni",
+      "commit": "88bd2e095d7d7ee423eaadf8f40653e72c5be6d4",
+      "paths": [
+        "src/api/types.ts",
+        "src/api/resources/shelf.ts"
+      ],
+      "role": "optional_numeric_field_and_request_reference_not_ack_proof"
+    }
+  ],
+  "initial_readonly_preview_http_status": 401,
+  "authorization_renewal": {
+    "result": "SAVED_NATIVE_RENEWAL_VERIFIED",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 1,
+    "same_owner_verified": true,
+    "book_count": 139,
+    "keychain_renewed_readback_verified": true
+  },
+  "preview": {
+    "result": "OWNER_FINISH_PREVIEW_VERIFIED",
+    "shelf_books": 139,
+    "finished_books": 20,
+    "unknown_flags": 0,
+    "before": false,
+    "desired": true,
+    "position_baseline_verified": true,
+    "independent_flags_and_position_unchanged": true,
+    "selected_is_previous_test_book": true,
+    "pending_intent_present": false,
+    "pending_membership_experiment": false,
+    "stages": [
+      {
+        "stage": "finish_preview_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_preview_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_preview_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_preview_independent_position",
+        "status": 200
+      }
+    ]
+  },
+  "actual_total_requests": {
+    "gets": 6,
+    "authentication_posts": 1,
+    "account_data_posts": 0
+  },
+  "automatic_data_retry_or_replay": false,
+  "credentials_retained": true,
+  "credentials_written_to_files": false,
+  "private_responses_titles_ids_or_positions_in_report": false,
+  "offline_checks": {
+    "new_receipt_tests": 21,
+    "legacy_roundtrip_tests": 25,
+    "restoration_tests": 11,
+    "python_files": 57,
+    "python_tests": 697,
+    "skipped": 0,
+    "linux_process_loss_tests": 6,
+    "python_compiled_files": 157
+  },
+  "production": {
+    "changed": false,
+    "files": 208,
+    "source_zip_and_previous_head_match": true,
+    "previous_head": "de1cfae6c7bc566f85881de11c907c265d0dcd9b",
+    "manifest_sha256": "457a6de21c9de4e6efe9250b74c70489b406e594f6540e5e215988ccf4b89ac1",
+    "zip_crc_verified": true,
+    "native_ui_repeated": false,
+    "previous_lua_groups": 186
+  },
+  "pending": [
+    "new_specific_finish_roundtrip_permission",
+    "real_receipt_hypothesis_verification",
+    "lua_completion_ui",
+    "physical_ko2",
+    "other_server_metadata_restoration",
+    "remaining_roadmap_features",
+    "performance_after_full_feature_acceptance"
+  ],
+  "prepared_source_sha256": {
+    "scripts/verify_finish_receipts.py": "bd4d66b28691c4494832dcbbc39623dae55aa7c087c36b8cbc7f88c4416e7b64",
+    "scripts/test_finish_receipts.py": "d936d5e55dde9db46c3eee4316940432d6ba03c22e2816dbcbd7c3f6c6723f40",
+    "scripts/verify_finish_roundtrip.py": "337ce98203125bea242a663f837c0fa35336d93b6dd159b06ea9ea4bf3e0c17b",
+    "scripts/test_finish_roundtrip.py": "e2453234d0747a820b18fd66d91ce329a3b6fd4848ec2ecdbb51c01df1654dcc",
+    "scripts/renew_saved_native_session.py": "8dc512f286b45a126308020a680e29966b099c6fc702cf4f1a6dc8ae02fccc7d",
+    ".github/workflows/ci.yml": "d4cd154db2f92c4fece8cce7f7464770e0446306bbbcebb04d07e82ee5bf2255"
+  },
+  "readonly_preview_executed_source_sha256": {
+    "scripts/verify_finish_receipts.py": "7f70a9c333dd23049fd33d804abe2d9a06595fbe336b1ad35ad4e46a7812702b",
+    "scripts/verify_finish_roundtrip.py": "b35db04aba557c3e1e7ccf1212902e2a89d47722a195e2e1bf3f9729e40bef49"
+  },
+  "post_preview_source_change": "CLI_help_description_only; protocol_and_preview_logic_unchanged; targeted_57_tests_repeated"
+}

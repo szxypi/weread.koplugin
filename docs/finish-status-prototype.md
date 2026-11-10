@@ -69,6 +69,47 @@ HTTP 200 后的独立书架／位置回读及额外最终回读确认：目标�
 上游[接口目录](https://github.com/teng-lin/weread-omni/blob/main/docs/endpoints.md)可核对请求字段，不能代替本次回执语义实测。
 标记与取消的实际效果已分别读回确认；成功回执语义及 Lua 协调器仍未验证完成，暂不接入 Lua 菜单。
 
+## 独立的 finishReading 回执假设
+
+后续检查固定的 weread-omni 提交
+[`88bd2e095d7d7ee423eaadf8f40653e72c5be6d4`](https://github.com/teng-lin/weread-omni/blob/88bd2e095d7d7ee423eaadf8f40653e72c5be6d4/src/api/types.ts#L700-L706)：
+它为普通修改声明 `succ`，为读完操作单独声明可选数字 `finishReading`。
+同提交的[调用代码](https://github.com/teng-lin/weread-omni/blob/88bd2e095d7d7ee423eaadf8f40653e72c5be6d4/src/api/resources/shelf.ts#L49-L56)
+使用相同的 `/book/markstatus` 请求字段。这个类型声明只支持继续调查该字段，
+没有证明它必然存在、取值是 0／1、与请求对应，或 `status=1` 代表成功。
+未将其推断改写成之前实际回执的结论，未复制其实现代码。
+
+另建 `verify_finish_receipts.py`，将“顶层严格整数 `finishReading` 等于请求的 0／1”作为待实测假设。
+已知错误码、明确失败的 `succ`／`success` 或存在但不匹配的书籍编号都会拒绝；
+单独的 HTTP 200、`status`、`succ`、`finished`、嵌套字段、字符串／布尔／浮点数都不能代替该标记。
+`status` 仅保存受限枚举作为诊断，不参与判断。
+该候选回执仍必须与完整书架／标记及原生位置的独立回读同时通过，才允许下一步恢复。
+缺失或矛盾回执时仍立即停止修改；超时、401 和进程重启都不重发，也没有自动续期。
+
+原工具默认的旧回执规则和历史证据保持原样。新工具沿用原有两次上限、持久意图、
+完整预检、最多三次只读回读及额外最终核对；预览摘要额外绑定新规则，旧摘要不能执行新实验。
+输出只保留固定字段名、0／1、受限状态枚举与匹配布尔值，不记录真实编号、书名、位置或未知字段。
+21 项新增离线检查与旧工具／恢复工具的 36 项检查通过，均接入 CI。
+
+新工具初次只读书架 HTTP 401，随后既有受保护续期工具仅发一次授权 POST，
+同账号 139 本书架及钥匙串回读一致。重新只读预览的四次 GET 确认：
+139 本、20 本读完、零未知标记，仍选中前次测试的未读完书籍，独立全体成员／标记及原位置一致。
+本轮账号数据 POST 为零，登录凭据继续保留；没有待确认的读完或成员实验。
+不能把这次预览与旧两份已使用许可拼成新的实际往返，新的两步写入仍需单独明确许可。
+
+57 份离线 Python 的 697 项检查全部通过，Linux 中断监督器六项也实际执行、零跳过；
+157 个 Python 文件编译通过。插件的 208 个安装文件与之前已验收的 `de1cfae` 及新候选 ZIP 逐字节一致，
+未改变 Lua、菜单或生产代码，未重复运行原生界面场景。
+本轮范围、请求阶段和代码哈希见[准备证据](validation-assets/2026-11-10/finish-receipts-ready.json)。
+新回执假设、Lua 入口及实体 KO2 仍未通过实际写入验收。
+
+```sh
+python3 scripts/test_finish_receipts.py
+python3 scripts/verify_finish_receipts.py
+# 只读预览，无账号数据修改：
+python3 scripts/verify_finish_receipts.py --saved-session
+```
+
 ## 早期只读证据与范围
 
 2026-11-10 真实只读检查通过：139 本书、20 本明确读完、未知标记为零。
