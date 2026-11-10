@@ -15,6 +15,7 @@ local counters,plugin,reader,latest_cookies
 local mapping_bytes=4096
 local rejected_html
 local descriptors={}
+local annotation_case
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
@@ -82,8 +83,8 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
-        if full then
-            local cache=value:get('cache');cache.download_book_images=true;cache.download_underlines_and_thoughts=false
+        if full or input.annotations then
+            local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
         value:flush()
@@ -93,6 +94,11 @@ local ok,reason=pcall(function()
     pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
     mapping_bytes=full and 4096+4*1024*1024 or 4096
     local memory=ffi.C.mmap(nil,mapping_bytes,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1));counters=ffi.cast('int *',memory)
+    if input.annotations then
+        assert(not full and arg[2])
+        annotation_case=dofile(arg[2])(input,mode,counters)
+        report.annotations=annotation_case.report
+    else assert(not arg[2]) end
     local Protocol=require('weread.lib.protocol')
     local Cookie=require('weread.lib.cookie')
     local original_login,original_cookie_header=input.cookies.wr_skey,Cookie.to_header(input.cookies)
@@ -223,6 +229,9 @@ local ok,reason=pcall(function()
     end
     report.transport_guard_selftest=true
     function Client:request(options)
+        if annotation_case and annotation_case:is_native(options) then
+            return annotation_case:request(self,options,request)
+        end
         if resource_urls[options.url] and not protected_resources[options.url] then options.skip_cookie=true end
         local kind=classify(self,options)
         if not kind or counters[kind-1]>=limits[kind] then
@@ -501,6 +510,14 @@ local ok,reason=pcall(function()
     assert(plugin._source_position_message.text:find('已定位到当前页正文',1,true)
         and plugin._source_position_message.text:find('精确云端同步仍在验证中',1,true))
     UI:forceRePaint();plugin:closeReadingPositionMessage();report.source_dialog_verified=true
+    if annotation_case then
+        annotation_case:run(plugin,reader,pump,tick)
+        -- Restore the exact validated source target after the overlay tour.
+        local restored
+        assert(plugin:openSourcePosition(position,function(value) restored=value or false end))
+        pump(function() return restored~=nil end);assert(restored)
+        annotation_case.report.position_restored=true
+    end
     local legacy=assert(plugin.progress_sync:capture_local())
     local applied
     assert(plugin:openSourcePosition(position,function(result) applied=result or false end))
@@ -537,6 +554,9 @@ local ok,reason=pcall(function()
     report.phase='audit'
     local lfs=require('libs/libkoreader-lfs')
     local secrets={}
+    if annotation_case then
+        for _i,value in ipairs(annotation_case:secrets()) do secrets[#secrets+1]=value end
+    end
     for key,value in pairs(latest_cookies) do if key~='wr_vid' and #value>=8 then secrets[#secrets+1]=value end end
     for key,value in pairs(input.cookies) do if key~='wr_vid' and #value>=8 then secrets[#secrets+1]=value end end
     local function audit(path)
@@ -558,6 +578,7 @@ local ok,reason=pcall(function()
     report.phase,report.result='complete','PASS'
 end)
 if counters then
+    if annotation_case then annotation_case:finish(reason) end
     for index=1,7 do report.requests[index]=tonumber(counters[index-1]) end
     report.last_http_status,report.denied_kind=tonumber(counters[7]),tonumber(counters[8])
     report.denied_route,report.denied_flags=tonumber(counters[9]),tonumber(counters[10])

@@ -76,8 +76,8 @@ KO2 1264×1680／300 DPI，安装后的候选插件通过：
 每个范围均返回明确的无后续页标记，`totalCount` 与实际条数一致；全部范围恰好请求一次。
 验证工具新增 `--all-batches`，每批之间间隔一秒，并限制私有响应总量；不自动请求范围内后续页。
 该样本没有后续页，不证明存在后续页时已支持完整分页，见[独立结果](validation-assets/2026-11-10/native-annotations-all-ranges.json)。
-整章全部批次的真实原文匹配、覆盖层点击及离线重开，
-更多格式、任务内自动续期、云端批注写入及实体 KO2 仍待验收。集中性能优化未开始。
+另有下述真实正文验收，仍存在未匹配范围。更多格式、任务内自动续期、云端批注写入及实体 KO2 仍待验收。
+集中性能优化未开始。
 
 ```sh
 python3 scripts/verify_native_annotations.py
@@ -87,3 +87,44 @@ python3 scripts/verify_native_annotations.py --saved-session --all-batches --nat
   -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
   ./luajit /source/spec/koreader/native_annotations_probe.lua /source
 ```
+
+## 真实正文、想法弹窗与离线重开：仍有未匹配范围
+
+新增 `scripts/verify_owner_annotations.py`，从本人当前续读的普通 XHTML 章节准备只读对照，
+再沿插件首页／书架、详情「阅读」、章节下载与原生阅读进入划线章节选择。
+文件管理器只用于创建插件宿主，未直接打开测试文件。
+测试阶段的墨水屏授权由只读内存后端提供，正文及 SQLite 仅在已核对的临时内存文件系统中处理，
+完整 Web 主流程仍使用生产 HTTP；没有账号数据写入或授权 POST。
+
+该章 76 个划线范围、3 批共 180 条想法与 Python 对照的编号／引文／正文摘要一致。
+73 处成功匹配，3 处未匹配；全部已定位记录均逐项核对实际 DOM 选中文字，没有部分截断匹配。
+点击真实覆盖区域打开的想法弹窗与 SQLite 内容一致。新进程从插件书架重开，
+缓存来源与匹配数量相同，弹窗仍可用，Web 与墨水屏 HTTP 均为零。
+恢复进入验收前的本机原文位置、关闭保存、子进程回收、凭据文件审计及临时目录删除均已核对，
+前后云端位置不变，未生成私人截图，也没有人工目视私人正文。
+
+未匹配诊断保留在固定字段中：两处使用的云端引文与原始范围文本不同，而原始范围文本可被原生搜索找到；
+另有一处现用引文也能被原生搜索找到，但现有顺序／章节匹配未接纳。这里只记录现象，未放宽位置核验以制造通过。
+工具将整体验收明确标为 `OWNER_NATIVE_ANNOTATIONS_PARTIAL`，返回非零状态，整章完整匹配仍待修复。
+两种模拟尺寸的结果与代码摘要见[固定字段证据](validation-assets/2026-11-10/owner-native-annotations.json)。
+
+默认运行不读取授权、不联网：
+
+```sh
+python3 scripts/verify_owner_annotations.py
+python3 scripts/test_owner_annotations.py
+```
+
+明确复用本人开发授权时：
+
+```sh
+python3 scripts/verify_owner_annotations.py --saved-session --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
+  python3 /source/scripts/run_owner_reading_probe.py \
+  --koreader /validation/runtime/lib/koreader --candidate /validation/owner-annotations-candidate.zip \
+  --annotations
+```
+
+该入口固定当前书籍与章节，只允许一次划线 GET 和恰好覆盖已预览范围的想法批次，
+拒绝重复、异书／异章、授权混用、登录／续期及写入路径。11 项离线 Python 检查与 21 项 Lua 传输边界检查
+覆盖默认离线、严格公开字段、真实文本的私有摘要、缺页拒绝、离线零请求、未匹配不通过及错误诊断脱敏。

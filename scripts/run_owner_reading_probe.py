@@ -22,6 +22,7 @@ def main(argv=None):
     parser.add_argument('--width', type=int, default=600)
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
+    parser.add_argument('--annotations', action='store_true')
     args = parser.parse_args(argv)
     runtime = args.koreader.resolve()
     if sys.platform != 'linux' or not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
@@ -35,6 +36,12 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        decoder = decode_envelope
+        if args.annotations:
+            from owner_annotation_contract import decode
+            decoder = decode
+        if args.annotations != ('annotations' in payload) or args.annotations and 'full_manifest' in payload:
+            raise ValueError('input_limit')
         full_chapters = len(payload['full_manifest']) if 'full_manifest' in payload else 1
         if not 1 <= full_chapters <= 32:
             raise ValueError('input_limit')
@@ -55,10 +62,13 @@ def main(argv=None):
             full_hash = None
             for mode in ('live', 'reopen'):
                 payload['cookies'] = cookies
-                code, out, repaint = run_child([str(runtime / 'luajit'), str(probe), mode], env,
+                command = [str(runtime / 'luajit'), str(probe), mode]
+                if args.annotations:
+                    command.append(str(probe.with_name('owner_annotations_case.lua')))
+                code, out, repaint = run_child(command, env,
                                                json.dumps(payload, ensure_ascii=False).encode(), runtime,
                                                timeout=600 if full_chapters > 1 and mode == 'live' else 150)
-                envelope = decode_envelope(out, payload['vid'], mode=mode, full_chapters=full_chapters)
+                envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters)
                 cookies = envelope['cookies']
                 private_html=envelope.pop('rejected_html',None)
                 if private_html:
