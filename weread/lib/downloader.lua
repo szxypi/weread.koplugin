@@ -184,6 +184,7 @@ function Downloader:_notifyCompletion(dl, ok, value)
 end
 
 function Downloader:_finishJob(dl)
+    if dl.operation_lease then dl.operation_lease:release();dl.operation_lease=nil end
     if self._active_job == dl then
         self._active_job = nil
     end
@@ -650,6 +651,17 @@ function Downloader:start(book, chapters, suffix, options)
         auth_fingerprint = WorkerSettings.fingerprint(self.settings),
     }
     self._active_job = dl
+
+    if self.operation_lock then
+        local locked,lease,reason=pcall(self.operation_lock,book)
+        if not locked or not lease and reason~='unsupported' then
+            self:_notifyCompletion(dl,false,'cache_busy')
+            self:_finishJob(dl)
+            if not dl.prefetch then self.show_info(_('This book’s cache is being changed or cannot be locked. Try again after the other task finishes.')) end
+            return false
+        end
+        dl.operation_lease=lease
+    end
 
     local task_label = options.single_chapter and _("Download chapter and read") or _("Download full book")
     local task_runner = function(callback)

@@ -38,6 +38,7 @@ def main():
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
     parser.add_argument('--cb-resume',action='store_true',help='Use the opt-in synthetic CB_ shelf book for cached reading')
+    parser.add_argument('--cache-cleanup',action='store_true',help='Verify native cache cleanup keeps local reading records')
     parser.add_argument('--download-pacing',action='store_true',help='Cancel a paced source worker and preserve the existing full book')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
@@ -64,6 +65,7 @@ def main():
     if args.cached_resume and (args.footnotes or args.reading_flow):
         parser.error('--cached-resume uses a separate fixture')
     if args.cb_resume and not args.cached_resume:parser.error('--cb-resume requires --cached-resume')
+    if args.cache_cleanup and not args.cached_resume:parser.error('--cache-cleanup requires --cached-resume')
     if args.download_pacing and not args.cached_resume:parser.error('--download-pacing requires --cached-resume')
     if args.content_format!='epub' and not args.cached_resume:
         parser.error('--content-format txt requires --cached-resume')
@@ -105,6 +107,7 @@ def main():
     server.content_format=args.content_format
     server.cb_reading=args.cb_resume
     if args.cb_resume:environment['WEREAD_TEST_CB_RESUME']='1'
+    if args.cache_cleanup:environment['WEREAD_TEST_CACHE_CLEANUP']='1'
     if args.download_pacing:environment['WEREAD_TEST_DOWNLOAD_PACING']='1'
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
     if args.resume_handoff:
@@ -153,7 +156,7 @@ def main():
             else:
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
                                         cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
-                                        timeout=120)
+                                        timeout=240 if args.cache_cleanup else 120)
             if (args.reading_flow or args.cached_resume) and result.returncode == 0 and not args.process_loss:
                 if args.cached_resume:
                     assert server.request_totals[('/web/book/read','')]==0,'cached reading wrote progress/time'

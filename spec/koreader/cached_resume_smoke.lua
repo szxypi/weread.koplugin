@@ -272,6 +272,12 @@ if os.getenv('WEREAD_TEST_DOWNLOAD_PACING')=='1' then
     local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
     dofile(fixtures..'download_pacing_case.lua')(current,reader,id,report,pump,tick,press,evidence)
 end
+if os.getenv('WEREAD_TEST_CACHE_CLEANUP')=='1' then
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    local restored_xpointer
+    reader,current,restored_xpointer=dofile(fixtures..'book_cache_cleanup_smoke.lua')(reader,current,id,report,pump,tick,press,evidence,detail,close_reader)
+    full=reader.document.file;bound={xpointer=restored_xpointer}
+end
 UI:forceRePaint();Device.screen:shot(evidence..'/cached-resume-full.png')
 local checkpoint={file=full,page=reader:getCurrentPage(),xpointer=bound.xpointer,chapter_uid='4'}
 local file=assert(io.open(evidence..'/cached-resume-checkpoint.json','wb'));assert(file:write(json.encode(checkpoint)));file:close()

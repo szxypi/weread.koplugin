@@ -111,6 +111,7 @@ end
 
 function M:closeWeReadUI()
     self:cancelShelfCovers()
+    if self.cancelBookCacheCleanup then self:cancelBookCacheCleanup() end
     if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
     if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
@@ -981,14 +982,18 @@ function M:showBookMenu(book)
     local has_cache = self:bookRecordHasDownload(saved)
     book.cached_full_book = is_full_cached and cached_path or nil
     local cached_chapter_count = 0
-    for _uid, path in pairs(book.cached_chapters or {}) do
-        if file_exists(path) then cached_chapter_count = cached_chapter_count + 1 end
+    local catalog_uids,seen_paths={},{}
+    for _i,chapter in ipairs(book.chapters or {}) do
+        local uid=chapter.chapterUid or chapter.chapterId
+        if uid~=nil then catalog_uids[tostring(uid)]=true end
+    end
+    for uid, path in pairs(saved.cached_chapters or {}) do
+        if (type(book.chapters)~='table' or catalog_uids[tostring(uid)]) and not seen_paths[path] and file_exists(path) then
+            cached_chapter_count = cached_chapter_count + 1;seen_paths[path]=true
+        end
     end
     local total_chapters = type(book.chapters) == "table" and #book.chapters or nil
-    if is_full_cached and cached_chapter_count == 0 and total_chapters then
-        cached_chapter_count = total_chapters
-    end
-    local chapter_status = total_chapters
+    local chapter_status = is_full_cached and _("Full book cached") or total_chapters
         and T(_("Cached %1/%2 chapters"), tostring(cached_chapter_count), tostring(total_chapters))
         or T(_("%1 chapters cached"), tostring(cached_chapter_count))
 
@@ -1069,12 +1074,9 @@ function M:showBookMenu(book)
             text = _("Clear book cache"),
             callback = self:safeCallback(_("Clear book cache"), function()
                 self:confirmClearBookCache(book_id, book.title or book_id, function()
-                    book.cached_file = nil
-                    book.cached_full_book = nil
-                    book.cached_chapters = nil
-                    book.cache_dir = nil
+                    local latest = self.settings:get("books", {})[book_id] or book
                     if view then UIManager:close(view) end
-                    self:showBookMenu(book)
+                    self:showBookMenu(latest)
                 end)
             end),
         }

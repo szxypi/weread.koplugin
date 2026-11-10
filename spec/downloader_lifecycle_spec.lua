@@ -399,4 +399,25 @@ expect(not pcall(downloader._runInterruptible, downloader, { trapper = worker, t
 end), 'batch worker failure was hidden')
 expect(downloader.client == before_client, 'failed worker changed the UI transport')
 ReadClient.wrap = original_wrap
+local lease_releases,lock_completions=0,0
+local cache_guarded=Downloader:new{
+    settings={},client={},require_login=function() return true end,
+    run_online_task=function() return false end,show_info=function() end,show_transient=function() end,refresh_ui=function() end,
+    operation_lock=function() return {release=function() lease_releases=lease_releases+1 end} end,
+}
+expect(not cache_guarded:start({book_id='900001'}, {},'book'), 'offline cache_guarded download started')
+expect(lease_releases==1 and not cache_guarded._active_job,'offline exit leaked book gate')
+cache_guarded.operation_lock=function() return nil,'busy' end
+cache_guarded:start({book_id='900001'},{},'book',{on_complete=function(ok,reason)
+    expect(not ok and reason=='cache_busy','gate rejection changed completion result');lock_completions=lock_completions+1
+end})
+expect(lock_completions==1 and not cache_guarded._active_job and lease_releases==1,'busy cache started or released someone else’s gate')
+cache_guarded.operation_lock=function() return {release=function() lease_releases=lease_releases+1 end} end
+scheduled={}
+expect(cache_guarded:start({book_id='900001'},{{chapterUid=1}},'chapter',{prefetch=true}),'cache_guarded prefetch did not start')
+expect(lease_releases==1 and cache_guarded._active_job.operation_lease,'scheduled prefetch did not retain gate')
+cache_guarded:cancelPrefetch('synthetic_cancel')
+expect(lease_releases==1,'prefetch cancellation released the gate before completion')
+table.remove(scheduled,1)()
+expect(lease_releases==2 and not cache_guarded._active_job,'cancelled scheduled prefetch leaked its gate')
 print(("downloader_lifecycle_spec: %d checks"):format(checks))

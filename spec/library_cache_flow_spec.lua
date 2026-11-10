@@ -25,7 +25,7 @@ end
 package.preload["weread.lib.plugin_util"] = function()
     return {
         tr = function(text) return text end,
-        T = function(text, ...) return text end,
+        T = function(text, ...) local values={...};return (text:gsub('%%(%d+)',function(index) return tostring(values[tonumber(index)] or '') end)) end,
         log_error = tostring,
         display_error = tostring,
         file_exists = function(path) return existing_paths[path] == true end,
@@ -236,4 +236,20 @@ books["99"] = uncached
 db_chapters = nil
 expect(host:startBookReading({ book_id = "99", title = "Stale" }, view)
     and preparation.book == uncached and preparation.view == view, "uncached Read did not prepare the latest record")
+local detail_data
+package.preload['weread.ui.book_detail_view']=function() return {show=function(data) detail_data=data;return {} end} end
+local detail_book={book_id='42',title='Synthetic book',chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3}},
+    cached_chapters={['1']='/cache/1.epub',['2']='/cache/2.epub',['unknown']='/cache/unknown.epub'}}
+existing_paths['/cache/1.epub']=true;existing_paths['/cache/2.epub']=true;existing_paths['/cache/unknown.epub']=true
+books['42']=detail_book
+detail_book.full_path='/cache/full.epub';existing_paths[detail_book.full_path]=true
+host.bookRecordHasDownload=function() return true end
+host.safeCallback=function(_self,_title,callback) return callback end
+Library.showBookMenu(host,detail_book)
+expect(detail_data.status_line=='Full book cached','full download with separate chapters displayed a partial count')
+detail_book.chapters=nil;Library.showBookMenu(host,detail_book)
+expect(detail_data.status_line=='Full book cached','full download without a catalog displayed a partial count')
+detail_book.full_path=nil;detail_book.chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3}}
+Library.showBookMenu(host,detail_book)
+expect(detail_data.status_line=='Cached 2/3 chapters','partial download lost the count status')
 print(("library_cache_flow_spec: %d checks"):format(checks))

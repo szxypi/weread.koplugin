@@ -53,15 +53,25 @@ end
 function M.create(root,key,options)
     local format=options and options.format or 'html'
     if format~='html' and format~='epub' or format=='epub' and not (options and options.preserve) then return nil end
+    local operations=require('weread.lib.book_operation')
+    local book_gate,book_reason=operations.open(root,true)
+    if not book_gate and book_reason~='unsupported' and book_reason~='absent' then return nil end
     local cleanup=require('weread.lib.mp_cache_cleanup')
-    if cleanup.locked(root,key) then return nil end
-    local path=Identity.prepare(root,key);if not path then return nil end
-    local gate,reason=cleanup.acquire(root,key)
-    if not gate and reason~='unsupported' then return nil end
-    local holder={}
-    local ok,job=pcall(create_locked,root,key,options,path,not gate,holder)
+    local gate,holder=nil,{}
+    local ok,job=pcall(function()
+        if cleanup.locked(root,key) then return nil end
+        local path=Identity.prepare(root,key);if not path then return nil end
+        if not book_gate and book_reason=='absent' then
+            book_gate,book_reason=operations.open(root,true)
+            if not book_gate and book_reason~='unsupported' then return nil end
+        end
+        local reason;gate,reason=cleanup.acquire(root,key)
+        if not gate and reason~='unsupported' then return nil end
+        return create_locked(root,key,options,path,not gate,holder)
+    end)
     if not ok and holder.job then pcall(holder.job.cleanup,holder.job) end
     if gate then gate:release() end
+    if book_gate then book_gate:release() end
     return ok and job or nil
 end
 function M:owns()

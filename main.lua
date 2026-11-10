@@ -92,6 +92,10 @@ function WeReadPlugin:init()
         client = self.client,
         settings = self.settings,
         background_worker = self.prefetch_worker,
+        operation_lock = function(book)
+            local id=book.book_id or book.bookId
+            return require('weread.lib.book_operation').prepare(Content.book_resolved_dir(self.settings,id,book))
+        end,
         show_info       = function(text) self:showInfo(text) end,
         show_transient  = function(text, timeout) self:showTransientInfo(text, timeout) end,
         refresh_ui      = function() self:refreshUI() end,
