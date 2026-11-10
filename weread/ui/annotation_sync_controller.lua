@@ -471,6 +471,10 @@ function M:_runAnnotationJob(context, options)
         chapters = options.chapters or context.chapters, ranges = context.ranges,
         document = not options.prefetch and self.ui.document or nil,
         document_key = not options.prefetch and context.document_key or nil,
+        get_document_source = not options.prefetch and function(chapter)
+            return require("weread.lib.position_source").read_document(self.ui.document,
+                context.book_id, Chapters.uid(chapter))
+        end or nil,
         refresh = options.refresh or options.clear_existing, clear_existing = options.clear_existing,
         offline = options.offline, async_network = request.trapper ~= nil,
         is_online = function() return self:isNetworkConnected() end,

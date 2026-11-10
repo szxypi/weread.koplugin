@@ -5,15 +5,20 @@ import time
 from urllib.parse import urlencode
 
 from verify_native_annotations import AnnotationProbe, BASE, batch_for, project
+from annotation_source_quotes import SourceQuotes
 
 
 FLAGS = {'source_data_matches', 'picker_and_matching', 'all_records_checked',
-         'real_overlay_tap', 'popup_matches_cached_items', 'position_restored'}
+         'real_overlay_tap', 'popup_matches_cached_items', 'position_restored', 'source_quote_recheck_verified'}
 COUNTS = {'underlines': 4096, 'thought_items': 122880, 'located': 4096, 'unmatched': 4096,
           'partial': 4096, 'native_underlines_requests': 1, 'native_thought_requests': 137,
           'native_denied_requests': 1024, 'failed_line': 10000}
 COUNTS.update(dict.fromkeys(('unmatched_missing_quote', 'unmatched_quote_search_hits',
-                            'unmatched_original_quote_differs', 'unmatched_original_search_hits'), 4096))
+                            'unmatched_original_quote_differs', 'unmatched_original_search_hits',
+                            'source_quote_recheck_located', 'source_quote_recheck_unmatched'), 4096))
+COUNTS.update(dict.fromkeys(('source_quote_miss_overlap', 'source_quote_miss_equal_start',
+                            'source_quote_miss_earlier_hit', 'source_quote_miss_outside_chapter',
+                            'sealed_chapter_recheck_located'), 4096))
 
 
 def digest(underlines, reviews):
@@ -37,7 +42,7 @@ def digest(underlines, reviews):
     return hashlib.sha256(b''.join(parts)).hexdigest()
 
 
-def prepare(payload, credentials):
+def prepare(payload, credentials, raw_source):
     probe = AnnotationProbe()
     probe.book_id, probe.chapter_uid = payload['book_id'], payload['chapter_uid']
     raw = probe.request('underlines', BASE + '/book/underlines?' + urlencode(dict(
@@ -63,6 +68,7 @@ def prepare(payload, credentials):
     if not summary['all_requested_range_pages_complete'] or not summary['thought_items']:
         raise ValueError('annotations_incomplete_page_scope')
     return dict(credentials=credentials, ranges=[row['range'] for row in underlines],
+                source_quotes_digest=SourceQuotes(raw_source).digest([row['range'] for row in underlines]),
                 digest=digest(underlines, reviews), underlines=len(underlines), thought_items=summary['thought_items'])
 
 

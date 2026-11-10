@@ -17,7 +17,10 @@ def addon(mode='live'):
                 located=2, unmatched=0, partial=0, native_underlines_requests=int(mode=='live'),
                 native_thought_requests=int(mode=='live'), native_denied_requests=0, failed_line=0,
                 unmatched_missing_quote=0,unmatched_quote_search_hits=0,
-                unmatched_original_quote_differs=0,unmatched_original_search_hits=0)
+                unmatched_original_quote_differs=0,unmatched_original_search_hits=0,
+                source_quote_recheck_located=2,source_quote_recheck_unmatched=0,
+                source_quote_miss_overlap=0,source_quote_miss_equal_start=0,
+                source_quote_miss_earlier_hit=0,source_quote_miss_outside_chapter=0,sealed_chapter_recheck_located=2)
 
 
 class OwnerAnnotationsTests(unittest.TestCase):
@@ -83,18 +86,18 @@ class OwnerAnnotationsTests(unittest.TestCase):
         credentials=dict(vid=OWNER,accessToken='synthetic-only')
         with patch.object(AnnotationProbe,'request',side_effect=[dict(underlines=rows),dict(reviews=pages[:30]),dict(reviews=pages[30:])]) as request, \
                 patch.object(contract.time,'sleep') as pause:
-            result=contract.prepare(payload,credentials)
+            result=contract.prepare(payload,credentials,'x'*100)
         self.assertEqual((result['underlines'],result['thought_items'],request.call_count,pause.call_count),(31,31,3,2))
         self.assertEqual(result['ranges'],[row['range'] for row in rows])
         self.assertIs(result['credentials'],credentials)
         pages[0]['hasMore']=1
         with patch.object(AnnotationProbe,'request',side_effect=[dict(underlines=rows),dict(reviews=pages[:30]),dict(reviews=pages[30:])]), \
-                patch.object(contract.time,'sleep'),self.assertRaises(ValueError):contract.prepare(payload,credentials)
+                patch.object(contract.time,'sleep'),self.assertRaises(ValueError):contract.prepare(payload,credentials,'x'*100)
 
     def test_prepare_never_uses_an_empty_current_chapter_as_success(self):
         from verify_native_annotations import AnnotationProbe
         with patch.object(AnnotationProbe,'request',return_value=dict(underlines=[])) as request,self.assertRaises(ValueError):
-            contract.prepare(dict(book_id='900001',chapter_uid='2',shelf_books=1),{})
+            contract.prepare(dict(book_id='900001',chapter_uid='2',shelf_books=1),{},'x'*100)
         self.assertEqual(request.call_count,1)
 
     def run_online(self, *, unmatched=0, moved=False, failure=False):
@@ -107,7 +110,7 @@ class OwnerAnnotationsTests(unittest.TestCase):
             private['report']['stages'].append(row)
         with patch.object(task,'SessionStore') as store,patch.object(task,'NativeSessionStore') as native, \
                 patch.object(task,'ReadingPreflight',return_value=web),patch.object(task,'save_refreshed_web_session',return_value=False), \
-                patch.object(task,'prepare',return_value=dict(underlines=2,thought_items=3)), \
+                patch.object(task,'prepare',return_value=dict(underlines=2,thought_items=3)),patch.object(task,'decode_content_shards',return_value='<p>text</p>'), \
                 patch.object(task,'reading_position',return_value=dict(chapter='2',offset=11 if moved else 10,percent=20)), \
                 patch.object(task.subprocess,'run',return_value=SimpleNamespace(stdout=frame(private),returncode=0)) as child, \
                 redirect_stdout(io.StringIO()) as output:

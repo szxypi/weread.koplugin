@@ -14,6 +14,7 @@ from secure_weread_session import SessionStore
 from verify_owner_reading import BASE, ReadingPreflight, reading_position
 from verify_translation_preflight import save_refreshed_web_session
 from owner_annotation_contract import decode, prepare
+from fetch_weread_epub import decode_content_shards
 
 
 def main(argv=None):
@@ -40,7 +41,7 @@ def main(argv=None):
                 saved = store.load()
             grant = NativeSessionStore().load(web.vid)
             payload.update(vid=web.vid, cookies=saved['cookies'])
-            payload['annotations'] = prepare(payload, grant)
+            payload['annotations'] = prepare(payload, grant, decode_content_shards(*(web.shards[k] for k in ('e_0','e_1','e_3'))))
             report.update(underlines=payload['annotations']['underlines'], thought_items=payload['annotations']['thought_items'])
             raw = json.dumps(payload, ensure_ascii=False).encode()
             if len(raw) > 256*1024: raise ValueError('annotations_input_limit')

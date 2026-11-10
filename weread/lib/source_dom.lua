@@ -3,6 +3,7 @@
 local Coordinates = require('weread.lib.source_coordinates')
 local Source = require('weread.lib.position_source')
 local Identity = require('weread.lib.book_file_identity')
+local TextEnd = require('weread.lib.document_text_end')
 local M = { MAX_TEXT_BYTES = 8 * 1024 * 1024, CHECKPOINT_INTERVAL = 256, MAX_EDGE_STEPS = 65536 }
 local Index = {}
 Index.__index = Index
@@ -142,41 +143,6 @@ local function spine(document, path)
     return index,total
 end
 
-local function node_end(index, point)
-    local doc = index.document
-    if fragment(point) ~= index.root then fail('chapter_end_unavailable') end
-    local prefix = point:match('^(.-)%.%d+$')
-    if not prefix or not prefix:find('/text()',1,true) then fail('chapter_end_unavailable') end
-    local text = doc:getTextFromXPointer(point)
-    if type(text) ~= 'string' or #text > M.MAX_TEXT_BYTES then fail('text_limit') end
-    local at,count=1,0
-    while at <= #text do local _,width=scalar(text,at); at,count=at+width,count+1 end
-    local ending = doc:getNormalizedXPointer(prefix .. '.' .. count)
-    if type(ending) ~= 'string' or fragment(ending) ~= index.root then fail('chapter_end_unavailable') end
-    return ending
-end
-
--- A final page can contain only an image or punctuation. Word-boundary
--- traversal misses its preceding text; walk visible characters from the
--- already-rendered final page, retaining only this fragment's last text node.
-local function final_text(index)
-    local doc=index.document
-    if not doc.been_rendered then fail('document_not_ready') end
-    local cursor=doc:getPageXPointer(doc:getPageCount())
-    if type(cursor) ~= 'string' then fail('chapter_end_unavailable') end
-    cursor=doc:getPrevVisibleChar(cursor) or cursor
-    local ending
-    for step=1,M.MAX_EDGE_STEPS do
-        if fragment(cursor) == index.root and cursor:find('/text()',1,true) then ending=cursor end
-        local next_point=doc:getNextVisibleChar(cursor)
-        if not next_point then return ending end
-        if next_point == cursor then fail('walk_diverged') end
-        cursor=next_point
-        if step % 128 == 0 then index:_yield() end
-    end
-    fail('chapter_end_limit')
-end
-
 local function open_index(document,book_id,uid,options,metadata)
     return protected(function()
         local self = setmetatable({ document=document, options=options or {}, book_id=tostring(book_id),
@@ -212,15 +178,23 @@ local function open_index(document,book_id,uid,options,metadata)
             if not header or attributes(header).Source ~= source.render_path then fail('chapter_mismatch') end
         end
         self:_yield()
-        local ending
+        local ending, ending_error
+        local end_options = { root=self.root, max_steps=M.MAX_EDGE_STEPS, max_bytes=M.MAX_TEXT_BYTES,
+            yield=function() self:_yield() end }
         if ordinal < total then
-            ending=document:getPrevVisibleChar('/body/DocFragment[' .. (ordinal+1) .. '].0')
+            local point=document:getPrevVisibleChar('/body/DocFragment[' .. (ordinal+1) .. '].0')
+            ending,ending_error=TextEnd.node(document,point,end_options)
         else
             -- ReaderUI has already rendered the last page. Do not trigger
             -- rendering or move the viewport merely to find a DOM endpoint.
-            ending=final_text(self)
+            if not document.been_rendered then fail('document_not_ready') end
+            ending,ending_error=TextEnd.last(document,end_options)
         end
-        self.ending=node_end(self,ending)
+        if not ending then
+            self:_check()
+            fail(type(ending_error)=='string' and ending_error:match('^document_text_end/([a-z_]+)$') or 'chapter_end_unavailable')
+        end
+        self.ending=ending
         self.text=self:_extract(self.root .. '.0',self.ending)
         self.flat=normalize(self.text,function() self:_yield() end)
         if self.flat == '' then fail('text_unavailable') end

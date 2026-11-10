@@ -17,6 +17,10 @@ return function(input, mode, counters)
         native_underlines_requests = 0, native_thought_requests = 0, native_denied_requests = 0, failed_line = 0,
         unmatched_missing_quote = 0, unmatched_quote_search_hits = 0,
         unmatched_original_quote_differs = 0, unmatched_original_search_hits = 0,
+        source_quote_recheck_verified = false, source_quote_recheck_located = 0, source_quote_recheck_unmatched = 0,
+        source_quote_miss_overlap = 0, source_quote_miss_equal_start = 0,
+        source_quote_miss_earlier_hit = 0, source_quote_miss_outside_chapter = 0,
+        sealed_chapter_recheck_located = 0,
     } }
     local owner_case = case
     local Store = require("weread.lib.native_credentials")
@@ -138,6 +142,77 @@ return function(input, mode, counters)
         for _i, record in ipairs(projection.records) do located[record.range] = true end
         local External = require("weread.lib.external_annotations")
         local original = context.store:get(input.book_id, "original", input.chapter_uid)
+        -- Re-run a private copy against the sealed, actually opened source.
+        -- This experiment never changes stored source/projections or the UI.
+        local sealed = assert(require("weread.lib.position_source").read_document(reader.document, input.book_id, input.chapter_uid))
+        local spans = require("weread.lib.annotation_source").index(sealed.raw)
+        local source_quotes, quote_parts = {}, {}
+        local markers = {}
+        for _i, marker in ipairs(config.ranges) do markers[#markers + 1] = marker end
+        table.sort(markers)
+        for _i, marker in ipairs(markers) do
+            local text = require("weread.lib.annotation_source").quote(spans, marker)
+            source_quotes[marker] = text
+            quote_parts[#quote_parts + 1] = #marker .. ":" .. marker .. #text .. ":" .. text
+        end
+        assert(Crypto.sha256_hex(table.concat(quote_parts)) == config.source_quotes_digest)
+        local candidate = { book_id = source.book_id, chapter_uid = source.chapter_uid, reviews = source.reviews, underlines = {} }
+        for _i, row in ipairs(source.underlines) do
+            local copy = {}
+            for field, value in pairs(row) do copy[field] = value end
+            local text = source_quotes[row.range]
+            if text ~= "" then copy.markText = text end
+            candidate.underlines[#candidate.underlines + 1] = copy
+        end
+        local candidate_records, candidate_stats = External.locate(reader.document, { candidate }, {
+            chapter_ranges = context.ranges, include_items = false })
+        self.report.source_quote_recheck_located = candidate_stats.located
+        self.report.source_quote_recheck_unmatched = candidate_stats.total - candidate_stats.located
+        for _i, record in ipairs(candidate_records) do
+            local text = assert(reader.document:getTextFromXPointers(record.pos0, record.pos1))
+            assert(External.flatten_text(text) == External.flatten_text(record.text))
+        end
+        self.report.source_quote_recheck_verified = true
+        local source_index = assert(require("weread.lib.source_dom").open(reader.document, input.book_id, input.chapter_uid))
+        local bounded = { start_xpointer = context.ranges[input.chapter_uid].start_xpointer, end_xpointer = source_index.ending }
+        local sealed_records, sealed_stats = External.locate(reader.document, { candidate }, {
+            chapter_ranges = { [input.chapter_uid] = bounded }, include_items = false })
+        for _i, record in ipairs(sealed_records) do
+            local text = assert(reader.document:getTextFromXPointers(record.pos0, record.pos1))
+            assert(External.flatten_text(text) == External.flatten_text(record.text))
+            assert(require("weread.lib.source_dom").fragment(record.pos0) == source_index.root
+                and require("weread.lib.source_dom").fragment(record.pos1) == source_index.root)
+        end
+        self.report.sealed_chapter_recheck_located = sealed_stats.located
+        local rechecked, previous = {}, nil
+        for _i, record in ipairs(candidate_records) do rechecked[record.range] = record end
+        local ordered = {}
+        for _i, row in ipairs(candidate.underlines) do ordered[#ordered + 1] = row end
+        table.sort(ordered, function(a, b) return tonumber(a.range:match("^(%d+)")) < tonumber(b.range:match("^(%d+)")) end)
+        for _i, row in ipairs(ordered) do
+            if rechecked[row.range] then previous = rechecked[row.range]
+            else
+                local quote = External.quote_for(row, source.reviews)
+                local hits = reader.document:findAllText(quote, true, 0, 16, false, 0) or {}
+                local same, earlier, inside = false, false, false
+                local boundary = assert(context.ranges[input.chapter_uid])
+                for _j, hit in ipairs(hits) do
+                    if previous then
+                        local cmp = reader.document:compareXPointers(previous.pos0, hit.start)
+                        same, earlier = same or cmp == 0, earlier or cmp == -1
+                    end
+                    local cmp = reader.document:compareXPointers(boundary.start_xpointer, hit.start)
+                    if cmp ~= -1 and reader.document:compareXPointers(hit.start, boundary.end_xpointer) == 1
+                        and reader.document:compareXPointers(hit["end"], boundary.end_xpointer) ~= -1 then inside = true end
+                end
+                if previous and tonumber(row.range:match("^(%d+)")) < tonumber(previous.range:match("%-(%d+)$")) then
+                    self.report.source_quote_miss_overlap = self.report.source_quote_miss_overlap + 1
+                end
+                if same then self.report.source_quote_miss_equal_start = self.report.source_quote_miss_equal_start + 1 end
+                if earlier then self.report.source_quote_miss_earlier_hit = self.report.source_quote_miss_earlier_hit + 1 end
+                if #hits > 0 and not inside then self.report.source_quote_miss_outside_chapter = self.report.source_quote_miss_outside_chapter + 1 end
+            end
+        end
         for _i, row in ipairs(source.underlines) do
             if not located[row.range] then
                 local quote = External.quote_for(row, source.reviews)
@@ -162,6 +237,9 @@ return function(input, mode, counters)
             assert(type(record.pos0) == "string" and type(record.pos1) == "string" and not record.partial)
             local text = assert(reader.document:getTextFromXPointers(record.pos0, record.pos1))
             assert(normalized(text) == normalized(record.text))
+            if source_quotes[record.range] ~= "" then
+                assert(External.flatten_text(record.text) == External.flatten_text(source_quotes[record.range]))
+            end
             local review
             for _j, row in ipairs(source.reviews) do if row.range == record.range then review = row; break end end
             if not selected and review and #review.pageReviews > 0 then

@@ -210,6 +210,22 @@ function Sync:run()
             if not projection or projection.revision ~= source.revision
                 or projection.matcher_version ~= External.MATCHER_VERSION
                 or projection.range_key ~= range_key then
+                -- Only a verified source belonging to the actually opened
+                -- archive may override a service's stale review abstract.
+                -- Keep fetched source/thought rows immutable on reprojection.
+                local local_quotes
+                if self.get_document_source then
+                    self:yield("source")
+                    local local_source = self.get_document_source(chapter)
+                    if local_source and type(local_source.raw) == "string" then
+                        local spans = local_source.format == "web_txt" and Source.plain(local_source.raw) or Source.index(local_source.raw)
+                        local_quotes = {}
+                        for _i, row in ipairs(source.underlines) do
+                            local text = Source.quote(spans, row.range)
+                            if text ~= "" then local_quotes[tostring(row.range)] = text end
+                        end
+                    end
+                end
                 local match_current = 0
                 self:yield("match", nil, { current = 0, count = #source.underlines })
                 local saved = store:get(book_id, "matching", key)
@@ -225,6 +241,7 @@ function Sync:run()
                 end
                 local records, stats = External.locate(self.document, { source }, {
                     chapter_ranges = self.ranges,
+                    chapter_quotes = local_quotes and { [uid] = local_quotes },
                     resume = saved,
                     include_items = false,
                     yield = function(current, count)
