@@ -32,6 +32,17 @@ return function(reader,plugin,pump,clean_popups)
     end
     local auth_before=recover and renewals()
     if recover then mock_request('/__control',{match='/web/book/chapter/e_0',times=1,status=401,web_renewal_mode='rotate'}) end
+    local save_retry=os.getenv('WEREAD_TEST_RECOVERY_SAVE_RETRY')=='1'
+    local service,original_sync,blocked
+    if save_retry then
+        assert(recover)
+        service=require('weread.ui.web_renewal').service(plugin)
+        original_sync,blocked=service.store.sync,true
+        service.store.sync=function(path)
+            if blocked and path==plugin.settings.settings_file then return false end
+            return original_sync(path)
+        end
+    end
     local original=plugin.client.request
     function plugin.client:request(options)
         if options.url=='https://weread.qq.com/web/book/read' then
@@ -54,7 +65,15 @@ return function(reader,plugin,pump,clean_popups)
         end
     end
     reader:onClose(false);closed=true
+    if save_retry then
+        pump(function() return plugin._web_renewal_request and plugin._web_renewal_request.dialog end)
+        assert(posts==0 and plugin.progress_sync.uploading and service.job.state=='save_failed',
+            'closed consumer dispatched before credential save confirmation')
+        blocked=false
+        plugin._web_renewal_request.dialog.ok_callback()
+    end
     pump(function() return not plugin.progress_sync.uploading end)
+    if save_retry then service.store.sync=original_sync;assert(service.store:read().phase=='done') end
     local saved=plugin.settings:get_book(id)
     assert(posts==1 and reads>=1,'closed document did not complete one report and independent readback')
     assert(not saved.pending_upload_position and not saved.source_dispatch,'confirmed close retained stale pending state')
@@ -67,6 +86,7 @@ return function(reader,plugin,pump,clean_popups)
         independent_source_preparation=true,no_closed_native_document_calls=true,source_wire_and_summary=true,
         durable_dispatch_before_http=true,report_posts=posts,position_readback_gets=reads,elapsed_seconds=0,
         closed_401_recovered=recover,mock_authentication_posts=recover and 1 or 0,
+        closed_save_only_retry=save_retry,
         real_account_data_writes_attempted=0});file:close()
     return checkpoint
 end

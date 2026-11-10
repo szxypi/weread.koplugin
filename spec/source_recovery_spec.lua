@@ -18,7 +18,8 @@ local function fixture()
             if key=='api_key' then return f.key end
             return default
         end}
-    Auth.capture=function() assert(f.valid);return {scope=copy(f.scope),revision=f.revision} end
+    Auth.memory=function() assert(f.valid);return {scope=copy(f.scope),revision=f.revision} end
+    Auth.capture=function() error('primary reconciliation belongs to the renewal service') end
     Auth.current=function(_settings,value) return value.revision==f.revision and value.scope.vid==f.scope.vid and value.scope.epoch==f.scope.epoch end
     f.service=Recovery:new{settings=settings,can_recover=function() return not f.pending end,
         renew=function(options,callback)
@@ -63,4 +64,8 @@ expect(started and not f.service.job and f.callbacks==0 and f.cancelled==1,'canc
 f.service:cancel(nil)
 f=fixture();f.service.renew=function() return false,'busy' end
 expect(not f.start() and not f.service.job and f.callbacks==0,'busy renewal retained a source job')
+f=fixture();f.service.renew=function() return false,'session_changed' end
+expect(not f.start() and not f.service.job and not f.fresh,'refused primary reconciliation adopted credentials')
+f=fixture();Auth.memory=function() error('invalid memory') end
+expect(not f.start() and not f.service.job and f.posts==0,'invalid memory scope reached credential maintenance')
 print(('source_recovery_spec: %d checks'):format(checks))

@@ -57,16 +57,37 @@ Web 返回明确 401 时，即使官方通道先取得位置，也不直接采�
 原生翻页立即取消和工作进程回收。上述前置恢复用例没有发送阅读位置数据。
 固定字段、候选包及代码哈希见[进度拉取恢复证据](validation-assets/2026-11-10/progress-fetch-recovery.json)。
 
+## 保存失败与回执接续
+
+进度拉取、原文来源准备、定时核对及关书独立准备均已通过保存失败组合验证。
+续期完成核对后，如果回执文件、主登录文件或完成标记的同步确认失败，会停在原生「只重试保存」提示；
+当前消费者不提前继续。重试保存不会再次发送续期 POST，成功后才重新比较或准备来源。
+期间更新的本机设置和原生阅读位置保留；完成标记移除状态文件中的凭据副本。
+
+修复了取消后重建服务的一处门槛：主文件已经写入新凭据、内存还保留旧修订时，
+消费者现在固定内存中的同账号／登录代次，交由原有续期服务核对持久回执与主文件。
+服务只允许已核对回执所描述的旧／新修订接续，并重新只读核对，不再次 POST；
+未知的第三种主文件修订不会被采用、覆盖或续期。最终成功仍须重新核对内存和主文件。
+
+取消保存提示保留已核对回执及本机待同步意图。翻页、关闭定时设置或恢复窗口超时会撤销提示与旧消费者，
+迟到按钮不能恢复旧任务。实际关书后的重试先完成凭据保存，再独立准备和更新位置，不访问已关闭文档。
+
+两尺寸各覆盖七组保存重试、取消后重建、未知主修订拒绝、三个撤销入口及关书重试。
+测试注入的是同步函数失败返回，不是真实断电或磁盘损坏；全部网络为本地模拟服务。
+固定字段、代码及包字节见[组合保存证据](validation-assets/2026-11-10/recovery-save-retry.json)，
+界面：[600×800](validation-assets/2026-11-10/recovery-save-retry-600.png)、
+[KO2 分辨率](validation-assets/2026-11-10/recovery-save-retry-ko2.png)。
+
 ```sh
 luajit spec/source_recovery_spec.lua
 luajit spec/progress_fetch_recovery_spec.lua
 luajit spec/source_currentness_spec.lua
 xvfb-run -a python3 scripts/test_discovery_runtime.py \
   --koreader /path/to/runtime --run-dir /path/to/new-profile \
-  --reading-flow --offline-progress --progress-confirmation --source-upload --source-recovery --progress-recovery
+  --reading-flow --offline-progress --progress-confirmation --source-upload --source-recovery --progress-recovery --recovery-save-retry
 ```
 
 本轮没有请求真实账号，所有凭据维护和位置写入只发往本地模拟服务，旧一字往返许可未复用。
 仍待完成：HTTP 200 业务码及更多自然失效样本、
-本组合的保存失败／仅重试保存验收、新组合真实写后回读、更多书籍／格式、多设备并发、
+新组合真实写后回读、更多书籍／格式、多设备并发、
 整机断电／完整进程强杀及实体 KO2；集中性能优化留在完整功能验收之后。

@@ -25,7 +25,10 @@ end
 function M:start(book_id,access,is_current,callback)
     if self.job or not self.can_recover(book_id) or not Access.matches(self.settings,access)
         or not access.web or not is_current() then return false end
-    local ok,input=pcall(Auth.capture,self.settings)
+    -- Pin the caller's memory scope here. The renewal service owns primary
+    -- validation and may align a verified receipt after an interrupted save;
+    -- requiring equal primary/memory revisions here would prevent that repair.
+    local ok,input=pcall(Auth.memory,self.settings)
     if not ok or input.scope.vid~=access.web.cookies.wr_vid then return false end
     local job={book_id=book_id,access=access,scope=input.scope,is_current=is_current,callback=callback};self.job=job
     local function finish(success,receipt)
