@@ -61,7 +61,8 @@ local function fixture()
         if state.oversized then text=string.rep('x',65537) end
         options.sink(text);options.sink(nil)
         if state.changed_at==count then state.valid=false end
-        return 1,state.code,{}
+        if state.transport then error('source_currentness/web_expired') end
+        return 1,state.fail_at and (count==state.fail_at and 401 or 200) or state.code,{}
     end
     return client,state
 end
@@ -81,4 +82,17 @@ client,state=fixture();state.foreign=true
 expect(not pcall(Check.fetch,client,expected) and #state.requests==1,'foreign account fetched private source')
 client,state=fixture();state.oversized=true
 expect(not pcall(Check.fetch,client,expected) and #state.requests==1,'oversized account response continued')
+for index=1,8 do
+    client,state=fixture();state.fail_at=index
+    local envelope=Check.run(client,expected)
+    expect(envelope.error=='source_web_expired' and not envelope.check and #state.requests==index,'HTTP 401 lost its stage or retried')
+end
+for _i,code in ipairs({400,403,404,429,500,'401'}) do
+    client,state=fixture();state.code=code
+    expect(Check.run(client,expected).error=='source_currentness_unavailable' and #state.requests==1,'non-confirmed 401 requested renewal')
+end
+client,state=fixture();state.code=401;state.changed_at=1
+expect(Check.run(client,expected).error=='source_currentness_unavailable','stale session promoted an HTTP status to renewal')
+client,state=fixture();state.transport=true
+expect(Check.run(client,expected).error=='source_currentness_unavailable','transport error text forged an HTTP 401')
 print(('source_currentness_spec: %d checks'):format(checks))

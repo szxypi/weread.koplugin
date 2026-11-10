@@ -65,4 +65,26 @@ expect(not plan and count==1,'cancelled worker called consumer again')
 start();finish();plan.release();expect(not plan.is_current() and next(tasks)==nil,'released close retained active timer')
 start();clock=136;local timeout=next(tasks);timeout();expect(not plan and count==1 and reason=='source_preparation_timeout','closed preparation was unbounded')
 expect(next(tasks)==nil,'timeout leaked timer')
+local success_fetch=Currentness.fetch
+local expired,renewals,cancelled=0,0,0
+local recover_guard,recover_ready
+source.recovery={start=function(_self,_book,_access,guard,done)
+    renewals=renewals+1;recover_guard,recover_ready=guard,done;return true,{}
+end,cancel=function() cancelled=cancelled+1 end}
+Currentness.fetch=function(...)
+    if expired>0 then expired=expired-1;error('source_currentness/web_expired',0) end
+    return success_fetch(...)
+end
+expired=1;start();local first_call=calls[#calls];finish()
+expect(not plan and count==0 and recover_guard() and renewals==1,'closed HTTP 401 did not wait for recovery')
+clock=125;recover_ready({web={}})
+expect(calls[#calls]~=first_call and count==0,'closed recovery reused old archive/source proof')
+first_call.callback(first_call.task());expect(count==0,'late pre-renewal proof replaced the retry')
+finish();expect(plan and plan.is_current() and plan.deadline==135 and count==1,'closed recovery extended its overall deadline')
+clock=136;expect(not plan.is_current(),'closed recovery sent beyond overall preparation window');plan.release()
+expired=2;start();finish();recover_ready({web={}});finish()
+expect(not plan and count==1 and reason=='source_authentication_unavailable' and renewals==2,'closed repeated 401 renewed twice')
+expired=1;start();finish();local late_recovery=recover_ready;service:cancel();late_recovery({web={}})
+expect(not plan and count==1 and cancelled>0,'cancelled closed recovery delivered a plan')
+Currentness.fetch=success_fetch
 print(('source_close_spec: %d checks'):format(checks))

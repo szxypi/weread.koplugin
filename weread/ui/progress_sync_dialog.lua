@@ -52,7 +52,9 @@ function ProgressSyncDialog.notify(code, data)
     elseif code == "upload_unconfirmed" then
         text = _("The cloud position could not be confirmed.\nYour local position is kept. This upload will not be sent again automatically. Please sync again later to compare positions.")
     elseif code == "upload_failed" then
-        if data.error=='source_format_unsupported' then
+        if data.error=='source_authentication_unavailable' then
+            text=_("Could not restore login for checking this position. Your local position is kept. Please check login and sync again.")
+        elseif data.error=='source_format_unsupported' then
             text=_("Cloud position sync is not available for this file format yet. Your local position is kept.")
         elseif data.error=='source_no_visible_text' then
             text=_("This page has no text position to check.")

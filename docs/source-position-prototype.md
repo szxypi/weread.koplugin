@@ -575,7 +575,9 @@ python3 scripts/verify_source_currentness.py --saved-session --native-http --lua
 有界文件持久化和服务重建已验证，尚未执行整台设备突然断电或完整 KOReader 进程强杀验收。
 独立的定时零时长上传已接入，默认关闭；沿用同一来源核对与待确认记录，先比对已知云端位置，
 连续翻页不推迟截止，云端变化须选择。周期时长仍由原有时长开关控制，见[定时同步说明](progress-interval.md)。
-来源核对失效授权的恢复、更多书籍／格式和译文视图、TXT 云端坐标、百分比语义校准、
+来源核对明确 HTTP 401 的一次父进程恢复已接入，含关闭后的独立准备；只接收同账号／登录代次的核对回执，
+然后重新准备归档与来源，失败停止自动报告，不重放待确认写入，见[来源登录恢复](source-authentication-recovery.md)。
+进度拉取阶段的失效恢复、更多业务码、自然失效及保存失败组合、更多书籍／格式和译文视图、TXT 云端坐标、百分比语义校准、
 多设备、新适配组合的真实写后回读及实体 KO2 仍待完成。
 固定字段与范围见[正常原文发送证据](validation-assets/2026-11-10/source-upload.json)。
 关书及中断恢复见[独立发送证据](validation-assets/2026-11-10/source-close.json)。

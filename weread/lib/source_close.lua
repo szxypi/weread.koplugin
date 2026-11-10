@@ -29,6 +29,7 @@ function M:_drop(entry,reason)
     active[self.namespace] = nil
     self.scheduler:unschedule(entry.timeout)
     if entry.worker then entry.worker:cancel() end
+    if entry.recovery and self.source.recovery then self.source.recovery:cancel(entry.recovery) end
     local callback = entry.callback; entry.callback = nil
     if callback then callback(nil,reason or 'source_cancelled') end
 end
@@ -65,7 +66,7 @@ function M:freeze(intent)
     active[self.namespace] = entry
     entry.timeout = function()
         if active[self.namespace] ~= entry then return end
-        local deadline = entry.started and entry.started+35 or entry.frozen+60
+        local deadline = entry.deadline or entry.frozen+60
         if self.now() < deadline then self.scheduler:scheduleIn(deadline-self.now(),entry.timeout); return end
         self:_drop(entry,'source_preparation_timeout')
     end
@@ -81,32 +82,54 @@ function M:prepare(token,intent,callback)
         callback(nil,'source_position_changed'); return false
     end
     entry.used,entry.callback,entry.started = true,callback,self.now()
+    entry.deadline=entry.started+35
     self.scheduler:unschedule(entry.timeout); self.scheduler:scheduleIn(35,entry.timeout)
     entry.worker = self.source.make_worker()
+    return self:_launch(entry)
+end
+function M:_launch(entry)
+    entry.sequence=(entry.sequence or 0)+1
+    entry.started=self.now()
     -- These child inputs do not reference any inherited native document.
     local input,expected,access,client = copy(entry.input),copy(entry.expected),entry.access,self.source.client
+    input.request_id=entry.sequence
     local started = entry.worker:start(function()
         local result = Task.prepare_upload(input)
-        if result.candidate then result.check = Currentness.fetch(client,expected,access) end
+        if result.candidate then
+            local proof=Currentness.run(client,expected,access);result.check,result.error=proof.check,proof.error
+        end
         return result
     end,function(result)
-        if active[self.namespace] ~= entry then return end
+        if active[self.namespace] ~= entry or entry.sequence~=input.request_id or not entry.callback then return end
         local candidate = type(result) == 'table' and result.candidate
         local projected = type(candidate) == 'table' and Candidate.project(input.target,candidate.summary,
             self.get_catalog(input.book_id),input.percent)
-        local function valid()
+        local function valid(allow_transition)
             local age = self.now()-entry.started
-            return active[self.namespace] == entry and age >= 0 and age <= 30
-                and Currentness.matches(self.settings,entry.access)
+            return active[self.namespace] == entry and age >= 0 and age <= 30 and self.now()<=entry.deadline
+                and (allow_transition or Currentness.matches(self.settings,entry.access))
                 and Candidate.same(Candidate.project(input.target,candidate.summary,
                     self.get_catalog(input.book_id),input.percent),candidate)
         end
         if type(result) ~= 'table' or result.request_id ~= input.request_id or not same(result.position,input.target)
-            or not Candidate.same(projected,candidate) or not Currentness.packet(result.check,expected) or not valid() then
+            or not Candidate.same(projected,candidate) or not valid() then
             self:_drop(entry,'source_currentness_unavailable'); return
         end
+        if result.error=='source_web_expired' and not result.check then
+            if entry.recovery_attempted or not self.source.recovery then self:_drop(entry,'source_authentication_unavailable');return end
+            entry.recovery_attempted=true
+            local renewing,handle=self.source.recovery:start(input.book_id,access,function() return valid(true) end,function(fresh,why)
+                if active[self.namespace]~=entry or entry.sequence~=input.request_id then return end
+                if fresh then entry.access=fresh;self:_launch(entry) else self:_drop(entry,why) end
+            end)
+            if active[self.namespace]==entry and entry.sequence==input.request_id then
+                if renewing then entry.recovery=handle else self:_drop(entry,'source_authentication_unavailable') end
+            end
+            return
+        end
+        if not Currentness.packet(result.check,expected) then self:_drop(entry,'source_currentness_unavailable');return end
         local wire = {}; for _i,key in ipairs({'book_id','chapter_uid','chapter_idx','chapter_offset','percent','summary'}) do wire[key] = candidate[key] end
-        local original,origin,deadline = copy(wire),copy(input.target),entry.started+30
+        local original,origin,deadline = copy(wire),copy(input.target),math.min(entry.started+30,entry.deadline)
         local plan
         plan = {position=wire,source_position=copy(origin),basis='filtered_xhtml_utf16',deadline=deadline,detached=true,
             is_current=function()
@@ -114,7 +137,8 @@ function M:prepare(token,intent,callback)
                     and plan.deadline == deadline and plan.detached == true and plan.basis == 'filtered_xhtml_utf16'
             end,
             release=function() self:_drop(entry) end}
-        entry.callback = nil
+        local callback=entry.callback
+        entry.callback=nil
         callback(plan)
     end)
     if not started and active[self.namespace] == entry then self:_drop(entry,'source_worker_unavailable') end

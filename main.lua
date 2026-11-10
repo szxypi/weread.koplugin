@@ -151,7 +151,18 @@ function WeReadPlugin:init()
             return self:isNetworkConnected()
         end,
     }
+    self.source_recovery = require("weread.lib.source_recovery"):new{settings=self.settings,
+        renew=function(options,callback) return require('weread.ui.web_renewal').run(self,options,callback) end,
+        cancel=function(handle) require('weread.ui.web_renewal').cancel(self,handle) end,
+        can_recover=function(book_id) return not self.source_dispatch:pending(book_id) end}
     self.source_position = SourcePosition:new{
+        recovery = self.source_recovery,
+        on_auth_failure = function(book_id)
+            if self.progress_sync and self.progress_sync.current_book_id==book_id and self.progress_sync.verified then
+                self.progress_sync:_clear_verified('source_authentication_unavailable')
+                self.progress_sync.notify('upload_failed',{error='source_authentication_unavailable'})
+            end
+        end,
         scheduler = UIManager, codec = self.client,
         client = self.client, is_online = function() return self:isNetworkConnected() end,
         get_document = function() return self.ui and self.ui.document end,

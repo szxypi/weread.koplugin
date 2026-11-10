@@ -853,7 +853,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             and (outcome.error_kind == "unconfirmed" or outcome.error_kind == "confirmation_pending")
         if unconfirmed then error_message = "upload_readback_unconfirmed" end
         if active then
-            if unconfirmed then self:_clear_verified("upload_readback_unconfirmed") end
+            if unconfirmed then self:_clear_verified("upload_readback_unconfirmed")
+            elseif error_message=='source_authentication_unavailable' then self:_clear_verified(error_message) end
             self.state = "error"
         end
         local patch = { last_sync_error = tostring(error_message or "upload_failed") }
@@ -863,7 +864,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         end
         self:_persist(book_id, patch)
         log("warn", "upload failed:", tostring(error_message))
-        if (show_result or interval_cycle and unconfirmed) and active then
+        if (show_result or interval_cycle and (unconfirmed or error_message=='source_authentication_unavailable')) and active then
             self.notify(unconfirmed and "upload_unconfirmed" or "upload_failed", {
                 error = tostring(error_message or "upload_failed"),
             })

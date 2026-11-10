@@ -163,5 +163,32 @@ expect(not service:is_current_upload_preview(receipt,value),'held-target event r
 service.get_retained=nil;service.task=nil
 service.result=copy(point);fresh();finish();service:stop()
 expect(not service:is_current_upload_preview(receipt,value),'closed reader retained fresh receipt')
+service.pauses={};service.state='ready';service.result=copy(point);service.scope=service:_live()
+local success_fetch=Currentness.fetch
+local expired,renewals,cancelled,auth_failures=0,0,0,0
+local recover_ready,recover_guard
+service.on_auth_failure=function(id) expect(id=='900001');auth_failures=auth_failures+1 end
+service.recovery={start=function(_self,_id,_access,guard,done)
+    renewals=renewals+1;recover_ready,recover_guard=done,guard;return true,{}
+end,cancel=function() cancelled=cancelled+1 end}
+Currentness.fetch=function(...)
+    if expired>0 then expired=expired-1;error('source_currentness/web_expired',0) end
+    return success_fetch(...)
+end
+expired=1;fresh();finish()
+expect(not received and renewals==1 and recover_guard(),'HTTP 401 did not wait for parent recovery')
+cookies.wr_skey='synthetic-recovered-cookie'
+recover_ready(Currentness.capture(settings))
+expect(service.preview_job and not received,'recovery skipped archive preparation')
+worker.callback({request_id=service.preview_job.request_id,candidate=prepared.candidate})
+finish()
+expect(received and value and service:is_current_upload_preview(receipt,value) and renewals==1,'recovered frame did not produce a fresh receipt')
+expired=2;fresh();finish();recover_ready(Currentness.capture(settings))
+worker.callback({request_id=service.preview_job.request_id,candidate=prepared.candidate});finish()
+expect(received and not value and reason=='source_authentication_unavailable' and renewals==2 and auth_failures==1,
+    'a second HTTP 401 repeated renewal or retained automatic authority')
+expired=1;fresh();finish();local late_recovery=recover_ready;local old_worker=worker.callback
+service:cancel_upload_preview();late_recovery(Currentness.capture(settings))
+expect(not service.preview_job and not received and cancelled>0 and worker.callback==old_worker,'cancelled recovery relaunched a reader')
 Currentness.fetch=fetch
 print(('source_upload_candidate_spec: %d checks'):format(checks))

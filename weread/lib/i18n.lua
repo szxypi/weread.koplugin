@@ -568,6 +568,7 @@ local zh = {
     ["Off"] = "关闭",
     ["Synchronize changed reading positions after checking the cloud. Sync once first, or enable progress pull on open. Reading time is controlled separately."] = "核对云端后同步已变化的阅读位置。请先同步一次，或开启“打开时拉取进度”。阅读时长由单独的设置控制。",
     ["Reading progress sync"] = "阅读进度同步",
+    ["Could not restore login for checking this position. Your local position is kept. Please check login and sync again."] = "暂时无法恢复登录以核对位置。本机进度已保留，请检查登录后重新同步。",
     ["Use WeRead progress"] = "使用微信读书进度",
     ["Keep KOReader progress"] = "保留 KOReader 进度",
     ["WeRead's two progress sources disagree for \"%1\".\n\nKOReader: %2%\nSelected cloud position: %3%\n\nChoose which position to keep."] = "《%1》的两个微信读书进度来源不一致。\n\nKOReader：%2%\n选中的云端位置：%3%\n\n请选择要保留的位置。",

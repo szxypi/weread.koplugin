@@ -25,6 +25,8 @@ function Service:new(options)
         get_retained=options.get_retained,
         get_upload_context=options.get_upload_context,
         client=options.client, is_online=options.is_online or function() return false end,
+        recovery=options.recovery,
+        on_auth_failure=options.on_auth_failure,
         get_viewport_height=options.get_viewport_height,
         now=options.now or os.time, generation=0, sequence=0, state='idle', pauses={} },self)
 end
@@ -64,7 +66,9 @@ function Service:_invalidate(state)
     self:_set(state or 'idle')
 end
 function Service:cancel_upload_preview()
+    local job=self.preview_job
     self.preview_job,self.preview_token=nil,nil
+    if job and job.recovery and self.recovery then self.recovery:cancel(job.recovery) end
     self.checked_previews=setmetatable({},{__mode='k'})
     if self.preview_worker then self.preview_worker:cancel() end
 end
@@ -78,10 +82,15 @@ function Service:_preview_current(job,candidate)
     return live and live.book_id==point.book_id
         and Candidate.same(Candidate.project(point,candidate.summary,live.chapters,live.percent),candidate) or false
 end
+function Service:_auth_unavailable(callback,book_id)
+    self.preview_job=nil
+    callback(nil,'source_authentication_unavailable')
+    if self.on_auth_failure then self.on_auth_failure(book_id) end
+end
 
 -- Explicit, read-only freshness preparation. The opaque receipt stays in
 -- memory, expires after 30 seconds and never enables the upload adapter.
-function Service:prepare_current_upload_preview(callback)
+function Service:prepare_current_upload_preview(callback, recovered)
     assert(type(callback)=='function')
     if not self.is_online() then self:cancel_upload_preview();callback(nil,'offline');return false end
     if not self.client then self:cancel_upload_preview();callback(nil,'web_required');return false end
@@ -104,12 +113,27 @@ function Service:prepare_current_upload_preview(callback)
         local token=self.preview_token
         self.preview_job=job
         local started=self.preview_worker:start(function()
-            return {request_id=job.request_id,check=Currentness.fetch(self.client,expected,selected)}
+            local result=Currentness.run(self.client,expected,selected);result.request_id=job.request_id;return result
         end,function(result)
             if self.preview_job~=job or self.preview_token~=token then return end
-            self.preview_job=nil
             if not self:_preview_current(job,candidate) or not self.is_online()
-                or not Currentness.matches(self.client.settings,selected) then return end
+                or not Currentness.matches(self.client.settings,selected) then self.preview_job=nil;return end
+            if type(result)=='table' and result.request_id==job.request_id and result.error=='source_web_expired' and not result.check then
+                if recovered or not self.recovery then self:_auth_unavailable(callback,point.book_id);return end
+                local renewing,handle=self.recovery:start(point.book_id,selected,function()
+                    return self.preview_job==job and self.preview_token==token and self.is_online() and self:_preview_current(job,candidate)
+                end,function(fresh,why)
+                    if self.preview_job~=job or self.preview_token~=token then return end
+                    if fresh then self:prepare_current_upload_preview(callback,true)
+                    else self:_auth_unavailable(callback,point.book_id) end
+                end)
+                if self.preview_job==job then
+                    if renewing then job.recovery=handle
+                    else self:_auth_unavailable(callback,point.book_id) end
+                end
+                return
+            end
+            self.preview_job=nil
             local age=self.now()-job.started
             if type(result)~='table' or result.request_id~=job.request_id
                 or not Currentness.packet(result.check,expected) or age<0 or age>30 then

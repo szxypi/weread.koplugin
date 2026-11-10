@@ -118,6 +118,7 @@ function M.fetch(client,expected,selected)
                 chunks[#chunks+1]=chunk;return 1
             end})
         current()
+        if ok and code==401 and not exceeded then fail('web_expired') end
         if not ok or code~=200 or exceeded then fail('unavailable') end
         local raw=table.concat(chunks)
         if not as_json then return raw end
@@ -150,5 +151,12 @@ function M.fetch(client,expected,selected)
     account()
     current()
     return M.project(expected,before,reader,raw,after)
+end
+-- Only a confirmed HTTP status may ask the parent to recover credentials.
+-- Body errors, redirects, worker failures and other statuses stay generic.
+function M.run(client,expected,selected)
+    local ok,value=pcall(M.fetch,client,expected,selected)
+    if ok then return {check=value} end
+    return {error=value=='source_currentness/web_expired' and 'source_web_expired' or 'source_currentness_unavailable'}
 end
 return M
