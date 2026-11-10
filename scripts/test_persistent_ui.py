@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch, MagicMock
 import zipfile
 
-from verify_persistent_ui import (FRAME,FLAGS,FullShelfMetadataProbe,decode_result,decode_stage,main,
+from verify_persistent_ui import (FRAME,FLAGS,CbShelfMetadataProbe,FullShelfMetadataProbe,decode_result,decode_stage,main,
                                   shelf_reference,validate_stage,verified_web_snapshot)
 from run_persistent_ui_probe import extract_candidate, run_child
 
@@ -48,6 +48,15 @@ def full_stage(mode='live'):
 
 
 def full_result():return dict(result(),stages=[full_stage(),full_stage('reopen')])
+
+
+def cb_stage(mode='live',books=5):
+    value=full_stage(mode);value['cb_metadata_books']=books;value['painted_views']+=books-1
+    if mode=='live':value['request_counts']=[1,books]
+    return value
+
+
+def cb_result():return dict(result(),stages=[cb_stage(),cb_stage('reopen')])
 
 
 class PersistentUITests(unittest.TestCase):
@@ -297,6 +306,67 @@ class FullShelfUITests(unittest.TestCase):
         for private in ('private-title','private-cookie','private-access','88008800','99009900'):
             self.assertNotIn(private,out.getvalue())
         self.assertEqual(json.loads(out.getvalue())['result'],'OWNER_FILE_BACKED_UI_READ_VERIFIED')
+
+
+class CbMetadataUITests(unittest.TestCase):
+    def test_cb_metadata_scope_is_explicit_and_legacy_limits_stay_fixed(self):
+        value=cb_stage()
+        self.assertEqual(validate_stage(value,'live',all_shelf_pages=True,cb_metadata=True,metadata_books=5),value)
+        for options in ({},{'all_shelf_pages':True},{'cb_metadata':True,'metadata_books':5}):
+            with self.assertRaises(ValueError):validate_stage(value,'live',**options)
+        for count in (0,9,True,1.0):
+            with self.assertRaises(ValueError):validate_stage(value,'live',all_shelf_pages=True,cb_metadata=True,metadata_books=count)
+
+    def test_all_requested_details_native_gets_and_views_are_required(self):
+        for key,invalid in (('cb_metadata_books',4),('cb_metadata_books',True),('request_counts',[1,4]),('painted_views',26)):
+            value=cb_stage();value[key]=invalid
+            with self.assertRaises(ValueError):validate_stage(value,'live',all_shelf_pages=True,cb_metadata=True,metadata_books=5)
+        value=cb_result();value['stages'][1]['cb_metadata_books']=4
+        with self.assertRaises(ValueError):decode_result(FRAME+json.dumps(value).encode(),all_shelf_pages=True,cb_metadata=True,metadata_books=5)
+
+    def test_cb_details_reopen_must_have_no_native_or_other_network_requests(self):
+        self.assertEqual(decode_result(FRAME+json.dumps(cb_result()).encode(),all_shelf_pages=True,cb_metadata=True,metadata_books=5),cb_result())
+        value=cb_stage('reopen');value['request_counts']=[0,1]
+        with self.assertRaises(ValueError):validate_stage(value,'reopen',all_shelf_pages=True,cb_metadata=True,metadata_books=5)
+        value=cb_stage();value['private_title']='private'
+        with self.assertRaises(ValueError):validate_stage(value,'live',all_shelf_pages=True,cb_metadata=True,metadata_books=5)
+
+    def test_cb_flag_requires_the_full_saved_session_scope_before_loading_stores(self):
+        for args in (['--cb-metadata'],['--saved-session','--cb-metadata','--lua-command','synthetic']):
+            with patch('verify_persistent_ui.SessionStore') as store,redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
+            store.assert_not_called()
+
+    def test_cb_preflight_reads_only_the_bound_cb_books_and_keeps_metadata_private(self):
+        from test_cb_progress import FIRST,SECOND
+        from test_eink_login import Opener
+        probe=CbShelfMetadataProbe()
+        shelf=dict(books=[dict(bookId=identity,title='Private shelf title') for identity in ('41',FIRST,SECOND)])
+        values=[shelf,*[dict(bookId=identity,title='Private metadata title',totalWords=1234) for identity in sorted((FIRST,SECOND))]]
+        opener=Opener(values);probe.opener=opener
+        summary=probe.inspect(dict(vid='900000',accessToken='private-access'),8)
+        self.assertEqual(summary,dict(shelf_book_count=3));self.assertEqual(len(probe.samples),2)
+        self.assertEqual(set(probe.shelf_reference),{'41',FIRST,SECOND})
+        self.assertEqual(len(opener.requests),3);self.assertTrue(all(r.get_method()=='GET' for r in opener.requests))
+        self.assertEqual({r['expected']['wordCount'] for r in probe.samples},{1234})
+        for value in (FIRST,SECOND,'Private metadata title','private-access'):self.assertNotIn(value,json.dumps(summary))
+
+    def test_full_cb_cli_passes_only_expected_metadata_in_the_private_pipe(self):
+        samples=[dict(book_id='CB_Synthetic'+str(index),expected=dict(bookId='CB_Synthetic'+str(index),title='Private title')) for index in range(5)]
+        reference={'CB_Synthetic'+str(index):dict(title='Private title',author='',cover='') for index in range(5)}
+        probe=SimpleNamespace(inspect=lambda *_:dict(shelf_book_count=139),samples=samples,shelf_reference=reference)
+        credentials=dict(vid='88008800',accessToken='private-access');saved=dict(vid='88008800',cookies={'wr_skey':'private-cookie'})
+        child=SimpleNamespace(returncode=0,stdout=FRAME+json.dumps(cb_result()).encode(),stderr=b'')
+        with patch('verify_persistent_ui.SessionStore') as web,patch('verify_persistent_ui.NativeSessionStore') as native,\
+             patch('verify_persistent_ui.CbShelfMetadataProbe',return_value=probe),\
+             patch('verify_persistent_ui.verified_web_snapshot',return_value=(saved['cookies'],False)),\
+             patch('verify_persistent_ui.subprocess.run',return_value=child) as run,redirect_stdout(io.StringIO()) as out:
+            web.return_value.load.return_value=saved;native.return_value.load.return_value=credentials
+            self.assertEqual(main(['--saved-session','--all-shelf-pages','--cb-metadata','--lua-command','synthetic']),0)
+        payload=json.loads(run.call_args.kwargs['input'])
+        self.assertTrue(payload['cb_metadata']);self.assertEqual(len(payload['metadata_samples']),5)
+        self.assertEqual(json.loads(out.getvalue())['python_preflight_gets'],7)
+        self.assertEqual(saved,{});self.assertEqual(credentials,{});self.assertEqual(samples,[]);self.assertEqual(reference,{})
+        for value in ('Private title','CB_Synthetic0','88008800','private-access','private-cookie'):self.assertNotIn(value,out.getvalue())
 
 
 if __name__=='__main__': unittest.main()

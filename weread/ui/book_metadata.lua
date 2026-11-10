@@ -24,7 +24,7 @@ function M.refresh(host, book, old_view, options)
     options = options or {}
     if old_view and host._book_detail_view ~= old_view then return false end
     M.cancel(host)
-    local id = Access.book_id(book.book_id or book.bookId)
+    local id = Access.display_book_id(book.book_id or book.bookId)
     local access = Metadata.capture(host.settings)
     if not id then return false end
     if not host:isNetworkOnline() then

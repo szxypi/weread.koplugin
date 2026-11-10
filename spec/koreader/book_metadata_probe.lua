@@ -11,14 +11,15 @@ local input=io.stdin:read(2*1024*1024+1)
 local ok,result=pcall(function()
     assert(#input<=2*1024*1024)
     local payload=json.decode(input);input=nil
-    assert(type(payload.samples)=="table" and #payload.samples>=1 and #payload.samples<=4)
+    assert(type(payload.samples)=="table" and #payload.samples>=1 and #payload.samples<=(payload.cb_metadata==true and 8 or 4))
     local Metadata=require("weread.lib.book_metadata")
     local Access=require("weread.lib.read_access")
     local Protocol=require("weread.lib.protocol")
     local output={model=json.decode("[]")}
     local allowed={}
     for _,sample in ipairs(payload.samples) do
-        local id=assert(Access.book_id(sample.book_id))
+        local id=assert((payload.cb_metadata==true and Access.display_book_id or Access.book_id)(sample.book_id))
+        if payload.cb_metadata==true then assert(id:match('^CB_')) end
         assert(not allowed[Protocol.reader_url(id)])
         allowed[Protocol.reader_url(id)]=true
         output.model[#output.model+1]=(sample.native and Metadata.normalize_native or Metadata.normalize)(sample.source,id)

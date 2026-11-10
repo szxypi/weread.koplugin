@@ -198,7 +198,8 @@ function Auth:read_book_metadata(credentials, book_id)
     if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("metadata", "account_mismatch") end
     if type(book_id) ~= "string" and type(book_id) ~= "number" then fail("metadata", "invalid_book") end
     book_id = tostring(book_id)
-    if #book_id > 20 or not book_id:match("^[1-9]%d*$") then fail("metadata", "invalid_book") end
+    -- CB_ metadata GETs verified independently before expanding this reader.
+    if not require("weread.lib.read_access").display_book_id(book_id) then fail("metadata", "invalid_book") end
     return self:_request("metadata", BASE .. "/book/info?bookId=" .. Protocol.urlencode(book_id), nil, credentials)
 end
 

@@ -857,7 +857,11 @@ function Client:get_progress_snapshot(book_id, access, flags)
 end
 
 function Client:get_display_book_metadata(book_id, access)
-    assert(require("weread.lib.read_access").book_id(book_id), "book_metadata/invalid_book")
+    local Access = require("weread.lib.read_access")
+    assert(Access.display_book_id(book_id), "book_metadata/invalid_book")
+    if not Access.book_id(book_id) and (type(access) ~= "table" or access.kind ~= "web") then
+        error("book_metadata/access_required", 0)
+    end
     local chunks, bytes, exceeded = {}, 0, false
     local options = { method = "GET", skip_cookie = true, persist_response_cookies = false,
         sensitive = true, diagnostic_api = "book_metadata", timeout = { 10, 20 },

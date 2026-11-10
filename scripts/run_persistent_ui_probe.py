@@ -56,7 +56,9 @@ def main(argv=None):
     parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
     parser.add_argument('--all-shelf-pages',action='store_true')
+    parser.add_argument('--cb-metadata',action='store_true')
     args = parser.parse_args(argv)
+    if args.cb_metadata and not args.all_shelf_pages:parser.error('--cb-metadata requires --all-shelf-pages')
     runtime = args.koreader.resolve()
     if sys.platform != 'linux' or not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
         parser.error('requires Linux, a built runtime and positive display dimensions')
@@ -69,8 +71,10 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload=json.loads(raw)
-        if not isinstance(payload,dict) or payload.get('all_shelf_pages',False) is not args.all_shelf_pages:
+        if (not isinstance(payload,dict) or payload.get('all_shelf_pages',False) is not args.all_shelf_pages
+                or payload.get('cb_metadata',False) is not args.cb_metadata):
             raise ValueError('input_limit')
+        metadata_books=len(payload['metadata_samples']) if args.cb_metadata else 1
         with tempfile.TemporaryDirectory(prefix='weread-persistent-', dir='/dev/shm') as temporary:
             root = Path(temporary)
             profile, xdg = root / 'profile', root / 'xdg'
@@ -85,7 +89,7 @@ def main(argv=None):
             for mode in ('live', 'reopen'):
                 code, out, repaint = run_child([str(runtime / 'luajit'), str(probe), mode], env, raw, runtime,
                                               timeout=600 if args.all_shelf_pages else 150)
-                stage = decode_stage(out, mode,all_shelf_pages=args.all_shelf_pages)
+                stage = decode_stage(out, mode,all_shelf_pages=args.all_shelf_pages,cb_metadata=args.cb_metadata,metadata_books=metadata_books)
                 report['stages'].append(stage)
                 if code or repaint or stage['result'] != 'PASS':
                     raise ValueError('stage_unverified')

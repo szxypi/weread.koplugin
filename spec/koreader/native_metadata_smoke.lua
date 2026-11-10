@@ -85,6 +85,49 @@ return function(plugin,count,flush_tasks,home,pump_until)
         and count("/web/book/getProgress")+count("/api/agent/gateway","/book/getprogress")==progress,"native metadata queried or wrote reading progress")
     control{match="",times=0,delay=0}
     plugin:closeWeReadUI()
+    local numeric_id=id
+    id='CB_SyntheticMetadata'
+    books=settings:get('books',{});local previous_cb=books[id]
+    books[id]={book_id=id,title='Cached CB details',progress=83,chapter_uid=99,chapter_offset=123,bookVersion=47,
+        pending_upload_position={book_id=id,percent=83},pending_upload_account=plugin.library_db:accountKey()}
+    settings:set('books',books);settings:set('api_key',saved_key);settings:flush()
+    reader_path=require('weread.lib.protocol').reader_url(id):match('^https://[^/]+([^?]+)')
+    local cb_gateway,cb_web=count('/api/agent/gateway','/book/info'),count(reader_path)
+    plugin:showBookMenu(cached())
+    control{match='/book/info',times=0,delay=0.5}
+    refresh()
+    local cb_heartbeat=false
+    UIManager:scheduleIn(0.1,function() cb_heartbeat=true end)
+    pump_until(function() return cb_heartbeat end)
+    assert(plugin.book_metadata_context,'CB metadata blocked the native event loop')
+    books=settings:get('books',{});books[id].progress=84;books[id].chapter_uid=100
+    settings:set('books',books);settings:flush();wait()
+    assert(cached().detail_source=='native' and cached().title=='CB 编号合成详情' and cached().wordCount==12000,
+        'CB native metadata was not shown')
+    assert(cached().progress==84 and cached().chapter_uid==100 and cached().chapter_offset==123
+        and cached().bookVersion==47 and cached().pending_upload_position.percent==83,'CB metadata replaced local reading state')
+    assert(plugin.library_db:getBook(id).detail_source=='native','CB metadata did not reach SQLite')
+    assert(plugin._book_detail_view[1][1]:getSize().h==Screen:getHeight(),'CB metadata viewport exceeded the screen')
+    UIManager:forceRePaint();Screen:shot(home..'/../evidence/cb-native-book-metadata.png')
+    control{match='/book/info',times=1,status=503,delay=0}
+    refresh();wait()
+    assert(cached().detail_source=='web' and count(reader_path)==cb_web+1
+        and count('/api/agent/gateway','/book/info')==cb_gateway,'CB fallback used an unverified gateway route')
+    UIManager:forceRePaint();Screen:shot(home..'/../evidence/cb-web-book-metadata.png')
+    control{match='/book/info',times=0,delay=0.5}
+    local cb_updated=cached().detail_updated_at
+    refresh();plugin.busy_message:onTapClose()
+    assert(not plugin.book_metadata_context and not plugin.book_metadata_worker.job and cached().detail_updated_at==cb_updated,
+        'CB cancellation retained a worker or committed stale metadata')
+    assert(count('/web/book/read')==writes
+        and count('/web/book/getProgress')+count('/api/agent/gateway','/book/getprogress')==progress,'CB metadata touched reading endpoints')
+    control{match='',times=0,delay=0};plugin:closeWeReadUI()
+    local report=assert(io.open(home..'/../evidence/cb-metadata-ui.json','wb'))
+    assert(report:write(client:json_encode({native_metadata_verified=true,web_fallback_verified=true,gateway_skipped=true,
+        ui_heartbeat_verified=true,sqlite_verified=true,local_reader_state_preserved=true,cancelled_worker_reaped=true,
+        reading_requests_unchanged=true})));assert(report:close())
+    books=settings:get('books',{});books[id]=previous_cb;settings:set('books',books)
+    id=numeric_id
     books=settings:get("books",{});books[id]=previous;settings:set("books",books);settings:flush()
     print("PASS: keyless native metadata GET -> responsive worker -> totalWords/publisher/rating/native details/SQLite; grant revision/cancel/close; Skill/Web fallback and 429 cache; local reading state preserved")
 end

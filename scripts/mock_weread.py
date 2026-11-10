@@ -44,6 +44,7 @@ BOOKS[0].update(isTop=True,secret=1,finishReading=0,finished=1)
 BOOKS[1].update(isTop=False,secret=0,finishReading=True,finished=0)
 BOOKS[2].update(secret=2,finishReading=0,finished=1)
 BOOKS[3].update(secret=False,finishReading=False,finished=1)
+METADATA_BOOKS=[dict(BOOKS[0],bookId='CB_SyntheticMetadata',title='CB 编号合成详情')]
 
 
 def book_metadata(book):
@@ -323,9 +324,9 @@ class MockServer(ThreadingHTTPServer):
                     raise ValueError("invalid native statistics period")
                 return 200, reading_statistics(query["mode"][0],int(base))
             if path == "/book/info" and method == "GET":
-                if set(query) != {"bookId"} or len(query["bookId"]) != 1 or not any(b["bookId"] == book_id for b in BOOKS):
+                if set(query) != {"bookId"} or len(query["bookId"]) != 1 or not any(b["bookId"] == book_id for b in BOOKS+METADATA_BOOKS):
                     raise ValueError("invalid native metadata query")
-                source = book_metadata(next(b for b in BOOKS if b["bookId"] == book_id))
+                source = book_metadata(next(b for b in BOOKS+METADATA_BOOKS if b["bookId"] == book_id))
                 source["totalWords"] = source.pop("wordCount")
                 source.pop("bookVersion", None)
                 source.update(version=700,progress=99,chapterOffset=321,finishReading=1)
@@ -449,7 +450,7 @@ class MockServer(ThreadingHTTPServer):
                              hasMore=int(start + len(batch) < len(candidates)))
         if path.startswith("/web/reader/") and method == "GET":
             encoded = path.rsplit("/", 1)[1].split("k")
-            book = next(b for b in BOOKS if weread_e(b["bookId"]) == encoded[0])
+            book = next(b for b in BOOKS+METADATA_BOOKS if weread_e(b["bookId"]) == encoded[0])
             chapter = next((c for c in CHAPTERS if len(encoded) > 1 and weread_e(c["chapterUid"]) == encoded[1]), CHAPTERS[0])
             state = dict(reader=dict(bookInfo=book_metadata(book), psvts="mock-session", pclts="mock-clock",
                                      currentChapter=chapter, progress=self.get_progress(book["bookId"])))

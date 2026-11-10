@@ -13,7 +13,9 @@ import subprocess
 
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore, StoreError, COOKIE_NAMES
-from verify_native_metadata import NativeMetadataProbe, MetadataError
+from verify_native_metadata import NativeMetadataProbe, MetadataError, normalize_native
+from verify_cb_metadata import valid_errors
+from verify_cb_progress import cb_ids
 from verify_eink_login import ProbeError
 from verify_web_source_progress import WebSourceProbe
 from verify_translation_preflight import save_refreshed_web_session
@@ -41,6 +43,7 @@ COUNTS = {'shelf_books': 5000, 'shelf_groups': 1000, 'painted_views': 4,
           'profile_files_audited': 512, 'screenshots': 1, 'forbidden_requests': 512}
 RUNNER_ERRORS |= {'persistent_ui_count_' + key for key in COUNTS}
 RUNNER_ERRORS |= {'persistent_ui_coverage_schema','persistent_ui_coverage_incomplete'}
+RUNNER_ERRORS |= {'persistent_ui_cb_scope','persistent_ui_cb_count'}
 FULL_SHELF_LIMIT = 160
 FULL_COUNTS = dict(COUNTS, shelf_books=FULL_SHELF_LIMIT, painted_views=322,
                    cover_gets=640, progress_gets=FULL_SHELF_LIMIT, cover_cells=FULL_SHELF_LIMIT,
@@ -73,9 +76,24 @@ class FullShelfMetadataProbe(NativeMetadataProbe):
         return value
 
 
-def validate_stage(value, mode, *, all_shelf_pages=False):
+class CbShelfMetadataProbe(FullShelfMetadataProbe):
+    def inspect(self,credentials,sample_count):
+        if type(sample_count) is not int or sample_count!=8:raise ValueError('persistent_ui_cb_scope')
+        shelf=self.request('metadata_shelf','https://i.weread.qq.com/shelf/sync',credentials=credentials)
+        identities=cb_ids(shelf);self.allowed_ids=set(identities)
+        for identity in identities:
+            source=self.request('metadata','https://i.weread.qq.com/book/info?bookId='+identity,credentials=credentials)
+            valid_errors(source)
+            self.samples.append(dict(book_id=identity,expected=normalize_native(source,identity)))
+        return dict(shelf_book_count=len(shelf['books']))
+
+
+def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1):
+    if cb_metadata and (not all_shelf_pages or type(metadata_books) is not int or not 1<=metadata_books<=8):
+        raise ValueError('persistent_ui_cb_scope')
     keys = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'request_counts', 'paged_shelf'}
     if all_shelf_pages:keys |= {'shelf_coverage'}
+    if cb_metadata:keys |= {'cb_metadata_books'}
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError('persistent_ui_schema')
     if (type(value['result']) is not str or value['result'] not in {'PASS', 'UNVERIFIED'}
@@ -84,11 +102,15 @@ def validate_stage(value, mode, *, all_shelf_pages=False):
         raise ValueError('persistent_ui_status')
     if any(type(value[k]) is not bool for k in FLAGS):
         raise ValueError('persistent_ui_flags')
-    for key, maximum in (FULL_COUNTS if all_shelf_pages else COUNTS).items():
+    limits=dict(FULL_COUNTS if all_shelf_pages else COUNTS)
+    if cb_metadata:limits['painted_views']=328
+    for key, maximum in limits.items():
         if type(value[key]) is not int or not 0 <= value[key] <= maximum:
             raise ValueError('persistent_ui_count_' + key)
     counts = value['request_counts']
-    if not isinstance(counts, list) or len(counts) != 2 or any(type(n) is not int or not 0 <= n <= 1 for n in counts):
+    expected_native=[1,metadata_books if cb_metadata else 1]
+    if (not isinstance(counts, list) or len(counts) != 2
+            or any(type(n) is not int or not 0 <= n <= expected_native[index] for index,n in enumerate(counts))):
         raise ValueError('persistent_ui_requests')
     if mode == 'reopen' and (counts != [0, 0] or value['cover_gets'] or value['progress_gets']):
         raise ValueError('persistent_ui_offline_network')
@@ -96,6 +118,9 @@ def validate_stage(value, mode, *, all_shelf_pages=False):
         raise ValueError('persistent_ui_progress')
     if value['cover_retries'] > value['cover_gets']:
         raise ValueError('persistent_ui_requests')
+    if cb_metadata and (type(value['cb_metadata_books']) is not int or not 0<=value['cb_metadata_books']<=metadata_books
+            or value['result']=='PASS' and value['cb_metadata_books']!=metadata_books):
+        raise ValueError('persistent_ui_cb_count')
     expected_views=3+int(value['paged_shelf'])
     if all_shelf_pages:
         coverage=value['shelf_coverage']
@@ -115,22 +140,24 @@ def validate_stage(value, mode, *, all_shelf_pages=False):
                 or coverage['reverse_pages']!=(coverage['forward_pages']-tabs if mode=='reopen' else 0)
                 or mode=='live' and value['progress_gets']!=coverage['progress_eligible']):
             raise ValueError('persistent_ui_coverage_incomplete')
+    if cb_metadata:expected_views+=metadata_books-1
     if value['result'] == 'PASS' and (value['phase'] != 'complete' or not all(value[k] for k in FLAGS)
             or value['forbidden_requests'] or value['screenshots'] or value['failed_line'] or not value['shelf_books'] or not value['profile_files_audited']
             or value['painted_views'] != expected_views or not value['cover_cells']
-            or not value['progress_snapshots'] or mode == 'live' and (counts != [1, 1]
+            or not value['progress_snapshots'] or mode == 'live' and (counts != expected_native
                 or not value['cover_gets'] or not value['progress_gets'])):
         raise ValueError('persistent_ui_incomplete')
     return value
 
 
-def decode_stage(raw, mode, *, all_shelf_pages=False):
+def decode_stage(raw, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1):
     if not isinstance(raw, bytes) or len(raw) > 2 * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('persistent_ui_frame')
-    return validate_stage(json.loads(raw.split(FRAME)[1]), mode,all_shelf_pages=all_shelf_pages)
+    return validate_stage(json.loads(raw.split(FRAME)[1]), mode,all_shelf_pages=all_shelf_pages,
+                          cb_metadata=cb_metadata,metadata_books=metadata_books)
 
 
-def decode_result(raw, *, all_shelf_pages=False):
+def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1):
     if not isinstance(raw, bytes) or len(raw) > 65536 or raw.count(FRAME) != 1:
         raise ValueError('persistent_ui_frame')
     value = json.loads(raw.split(FRAME)[1])
@@ -140,7 +167,7 @@ def decode_result(raw, *, all_shelf_pages=False):
             or len(value['stages']) > 2 or type(value['runner_error']) is not str or value['runner_error'] not in RUNNER_ERRORS):
         raise ValueError('persistent_ui_runner_schema')
     for mode, stage in zip(('live', 'reopen'), value['stages']):
-        validate_stage(stage, mode,all_shelf_pages=all_shelf_pages)
+        validate_stage(stage, mode,all_shelf_pages=all_shelf_pages,cb_metadata=cb_metadata,metadata_books=metadata_books)
     if value['result'] == 'PASS' and (value['runner_error'] != 'none' or not value['tmpfs_profile'] or not value['profile_removed']
             or len(value['stages']) != 2 or any(s['result'] != 'PASS' for s in value['stages'])
             or any(value['stages'][0][k] != value['stages'][1][k]
@@ -170,11 +197,13 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--all-shelf-pages', action='store_true',help='opt-in full shelf up to 160 entries and reverse offline paging')
+    parser.add_argument('--cb-metadata',action='store_true',help='also verify every selected CB detail and its offline file cache')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if bool(args.saved_session) != bool(args.lua_command):
         parser.error('pair --saved-session and --lua-command; put --lua-command last')
     if args.all_shelf_pages and not args.saved_session:parser.error('--all-shelf-pages requires --saved-session')
+    if args.cb_metadata and not args.all_shelf_pages:parser.error('--cb-metadata requires --all-shelf-pages')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   credentials_written_to_persistent_files=False, private_data_on_regular_disk=False,
                   account_data_writes_attempted=0, authentication_posts_attempted=0, screenshots=0)
@@ -184,8 +213,8 @@ def main(argv=None):
             store = SessionStore()
             saved = store.load()
             credentials = NativeSessionStore().load(saved['vid'])
-            probe = FullShelfMetadataProbe() if args.all_shelf_pages else NativeMetadataProbe()
-            baseline = probe.inspect(credentials, 1)
+            probe = CbShelfMetadataProbe() if args.cb_metadata else FullShelfMetadataProbe() if args.all_shelf_pages else NativeMetadataProbe()
+            baseline = probe.inspect(credentials, 8 if args.cb_metadata else 1)
             sample = probe.samples[0]
             cookies, rotated = verified_web_snapshot(store, saved)
             report['web_cookie_rotation_saved'] = rotated
@@ -194,6 +223,8 @@ def main(argv=None):
                            shelf_books=baseline['shelf_book_count'])
             if args.all_shelf_pages:
                 payload.update(all_shelf_pages=True,expected_shelf=probe.shelf_reference)
+            if args.cb_metadata:
+                payload.update(cb_metadata=True,metadata_samples=[dict(book_id=row['book_id'],expected_metadata=row['expected']) for row in probe.samples])
             encoded = json.dumps(payload, ensure_ascii=False).encode()
             if len(encoded) > 256 * 1024:
                 raise ValueError('persistent_ui_input_limit')
@@ -201,8 +232,8 @@ def main(argv=None):
             domains = re.findall(rb'(?m)^WEREAD_PUBLIC_COVER_DOMAIN=([a-z-]{1,63}\.[a-z]{2,12})$', child.stderr)
             if domains:
                 report['blocked_image_domains'] = sorted({d.decode('ascii') for d in domains})
-            value = decode_result(child.stdout,all_shelf_pages=args.all_shelf_pages)
-            report.update(ui=value, python_preflight_gets=3, same_owner_verified=True)
+            value = decode_result(child.stdout,all_shelf_pages=args.all_shelf_pages,cb_metadata=args.cb_metadata,metadata_books=len(probe.samples))
+            report.update(ui=value, python_preflight_gets=2+len(probe.samples), same_owner_verified=True)
             if child.returncode or value['result'] != 'PASS':
                 raise ValueError('persistent_ui_unverified')
             report['result'] = 'OWNER_FILE_BACKED_UI_READ_VERIFIED'

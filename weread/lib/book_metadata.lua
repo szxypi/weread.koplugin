@@ -18,7 +18,7 @@ local function number(value, limit)
 end
 
 function M.normalize(source, book_id)
-    book_id = Access.book_id(book_id)
+    book_id = Access.display_book_id(book_id)
     if not book_id or type(source) ~= "table" or tostring(source.bookId or "") ~= book_id
         or not text(source.title, 4096) or source.title == "" then fail("invalid") end
     if (source.errcode ~= nil and tonumber(source.errcode) ~= 0) or (source.errCode ~= nil and tonumber(source.errCode) ~= 0)
@@ -70,7 +70,7 @@ end
 
 function M.fetch(client, book_id, selected, options)
     options = options or {}
-    book_id = Access.book_id(book_id)
+    book_id = Access.display_book_id(book_id)
     if not book_id then fail("invalid_book") end
     selected = selected or M.capture(client.settings)
     if not selected then fail("access_required") end
@@ -92,7 +92,7 @@ function M.fetch(client, book_id, selected, options)
     end
     local display = selected.display or {}
     for _, access in ipairs({ display.gateway or false, display.web or false }) do
-        if access then
+        if access and (Access.book_id(book_id) or access.kind == "web") then
             local ok, value = pcall(client.get_display_book_metadata, client, book_id, access)
             current()
             if ok then

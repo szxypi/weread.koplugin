@@ -338,6 +338,16 @@ class MockTests(unittest.TestCase):
         for query in ('bookId='+BOOK_ID+'&other=1','bookId='+BOOK_ID+'&bookId='+BOOK_ID,'bookId=not-a-book'):
             with self.assertRaises(ValueError):self.server.route('GET',base+query,{})
 
+    def test_cb_metadata_fixture_is_readable_without_joining_the_shelf_or_content_scope(self):
+        identity='CB_SyntheticMetadata'
+        status,value=self.server.route('GET','https://i.weread.qq.com/book/info?bookId='+identity,{})
+        self.assertEqual(status,200);self.assertEqual(value['bookId'],identity);self.assertEqual(value['totalWords'],12000)
+        status,page=self.server.route('GET','https://weread.qq.com/web/reader/'+weread_e(identity),{})
+        self.assertEqual(status,200);self.assertIn(identity,page)
+        _,shelf=self.server.route('GET','https://i.weread.qq.com/shelf/sync',{})
+        self.assertNotIn(identity,{row['bookId'] for row in shelf['books']})
+        with self.assertRaises(ValueError):self.server.route('POST','https://weread.qq.com/web/book/chapterInfos',dict(bookIds=[identity]))
+
     def test_annotations_and_progress_write_read(self):
         _, result = self.gateway("/book/underlines", bookId=BOOK_ID, chapterUid=2)
         mark = result["underlines"][0]

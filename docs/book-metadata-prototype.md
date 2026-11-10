@@ -54,6 +54,7 @@ python3 scripts/verify_book_metadata.py --saved-session --native-http --lua-comm
 原生只发送 2 个固定 Reader GET，没有账号数据写入。
 这 2 本的 Reader 数据没有返回字数；没有推导或虚构该字段。
 Web Reader 资料属于回退入口；更多书籍类型、真实过期和实体 KO2 仍待验证。
+后续已另完成五本 CB_ 编号书籍的原生／Web 协议及两尺寸文件缓存详情，范围与限制见[CB_ 详情说明](cb-book-metadata.md)。
 性能专项测量安排在全部功能开发和测试完成之后，目前不声称已经测得真机性能提升。
 
 ## 原生控件验收

@@ -129,6 +129,7 @@ jobs:
       - name: Native metadata prototype checks
         run: |
           python3 scripts/test_native_metadata.py
+          python3 scripts/test_cb_metadata.py
           python3 scripts/test_native_annotations.py
           python3 scripts/test_native_ui.py
           python3 scripts/test_persistent_ui.py

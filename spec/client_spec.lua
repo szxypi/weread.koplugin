@@ -542,8 +542,8 @@ expect(not pcall(client.get_shelf_display_progress,client,'CB_SyntheticAlpha',{k
     and #requests==before_cb,'unverified CB gateway request was sent')
 expect(not pcall(client.get_progress_snapshot,client,'CB_SyntheticAlpha',{kind='web',cookies={}},{fresh=true,classify_auth=true})
     and #requests==before_cb,'display-only CB acceptance expanded synchronization preflight')
-expect(not pcall(client.get_display_book_metadata,client,'CB_SyntheticAlpha',{kind='web',cookies={}})
-    and #requests==before_cb,'display-only CB acceptance expanded unverified metadata')
+expect(not pcall(client.get_display_book_metadata,client,'CB_SyntheticAlpha',{kind='gateway',api_key='captured-display-key'})
+    and #requests==before_cb,'CB metadata expanded an unverified gateway route')
 for _i,id in ipairs({'CB_','CB_'..string.rep('A',65),'CB_a/b','CB_a?bookId=900001','CB_a_b','CB_a-b'}) do
     expect(not pcall(client.get_shelf_display_progress,client,id,{kind='web',cookies={}})
         and #requests==before_cb,'invalid CB identity reached transport')
@@ -570,6 +570,16 @@ metadata=client:get_display_book_metadata("900001",{kind="gateway",api_key="capt
 metadata_request=requests[#requests]
 expect(encoded_display.api_name=="/book/info" and metadata_request.headers.Authorization=="Bearer captured-metadata-key"
     and metadata_request.headers.Cookie==nil and metadata.title=="Synthetic metadata","captured metadata gateway contract")
+metadata_response.bookId='CB_SyntheticMetadata'
+responses[#responses+1]={code=200,body='<script>window.__INITIAL_STATE__='..metadata_state..';(function(){})();</script>'}
+metadata=client:get_display_book_metadata('CB_SyntheticMetadata',{kind='web',cookies={wr_skey='XXX-cb-metadata'}})
+metadata_request=requests[#requests]
+expect(metadata.bookId=='CB_SyntheticMetadata' and metadata.bookVersion==nil and metadata.progress==nil,
+    'CB Web metadata escaped its display projection')
+expect(metadata_request.method=='GET' and metadata_request.url=='https://weread.qq.com/web/reader/CB_SyntheticMetadata'
+    and metadata_request.headers.Cookie=='wr_skey=XXX-cb-metadata' and metadata_request.headers.Authorization==nil,
+    'CB Web metadata changed route or mixed authorization')
+metadata_response.bookId='900001'
 for _,response in ipairs({{code=302,body="private-metadata"},{code=403,body="private-metadata"},
     {code=200,body=string.rep("x",4*1024*1024+1)},{code=200,body="no initial state"},{raise="private-metadata-transport"}}) do
     responses[#responses+1]=response

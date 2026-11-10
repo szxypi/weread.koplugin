@@ -24,6 +24,10 @@ local ok,reason=pcall(function()
     local raw=assert(io.stdin:read(256*1024+1));assert(#raw<=256*1024)
     local input=json.decode(raw)
     local all_pages=input.all_shelf_pages==true
+    local cb_metadata=input.cb_metadata==true
+    assert(input.cb_metadata==nil or type(input.cb_metadata)=='boolean')
+    assert(not cb_metadata or all_pages)
+    if cb_metadata then report.cb_metadata_books=0 end
     assert(input.all_shelf_pages==nil or type(input.all_shelf_pages)=='boolean')
     if all_pages then
         assert(type(input.shelf_books)=='number' and input.shelf_books>=1 and input.shelf_books<=160)
@@ -34,9 +38,21 @@ local ok,reason=pcall(function()
     end
     local grant=assert(input.credentials)
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
-    assert(type(input.book_id)=='string' and input.book_id:match('^[1-9]%d*$') and #input.book_id<=20)
+    local function valid_metadata_id(id)
+        return type(id)=='string' and (cb_metadata and #id<=67 and id:match('^CB_[A-Za-z0-9]+$')
+            or not cb_metadata and #id<=20 and id:match('^[1-9]%d*$'))
+    end
+    assert(valid_metadata_id(input.book_id))
     assert(type(input.cookies)=='table' and tostring(input.cookies.wr_vid)==grant.vid)
     assert(type(input.expected_metadata)=='table' and input.expected_metadata.bookId==input.book_id)
+    local metadata_samples=cb_metadata and assert(input.metadata_samples) or {{book_id=input.book_id,expected_metadata=input.expected_metadata}}
+    assert(type(metadata_samples)=='table' and #metadata_samples>=1 and #metadata_samples<=(cb_metadata and 8 or 1))
+    local metadata_seen={}
+    for _i,sample in ipairs(metadata_samples) do
+        assert(valid_metadata_id(sample.book_id) and not metadata_seen[sample.book_id])
+        assert(type(sample.expected_metadata)=='table' and sample.expected_metadata.bookId==sample.book_id)
+        metadata_seen[sample.book_id]=true
+    end
     package.path=source..'/?.lua;'..package.path
     G_defaults=require('luadefaults'):open()
     local LuaSettings=require('luasettings')
@@ -97,7 +113,13 @@ local ok,reason=pcall(function()
     local cookie=Cookie.to_header(input.cookies)
     local native_urls={'https://i.weread.qq.com/shelf/sync','https://i.weread.qq.com/book/info?bookId='..input.book_id}
     local allowed,slot={},16
-    for index,url in ipairs(native_urls) do allowed[url]={kind='native',slot=index-1} end
+    allowed[native_urls[1]]={kind='native',slot=0}
+    if cb_metadata then
+        for _i,sample in ipairs(metadata_samples) do
+            slot=slot+1
+            allowed['https://i.weread.qq.com/book/info?bookId='..sample.book_id]={kind='native',slot=slot,aggregate=1}
+        end
+    else allowed[native_urls[2]]={kind='native',slot=1} end
     local function classify(options)
         local h=options.headers or {};local rule=allowed[options.url]
         if not rule or mode~='live' or options.method~='GET' or options.body~=nil
@@ -139,7 +161,8 @@ local ok,reason=pcall(function()
         local index=rule and (rule.kind=='cover' and 2 or rule.kind=='progress' and 3)
         local maximum=rule and rule.kind=='cover' and 2 or 1
         local global_limit=index==2 and (all_pages and 640 or 48) or (all_pages and 160 or 24)
-        if not rule or counters[rule.slot]>=maximum or index and counters[index]>=global_limit then
+        if not rule or counters[rule.slot]>=maximum or index and counters[index]>=global_limit
+            or rule.aggregate and counters[rule.aggregate]>=#metadata_samples then
             local kind=allowed[options.url] and allowed[options.url].kind
             counters[10]=kind=='native' and 1 or kind=='progress' and 2 or kind=='cover' and 3 or 0
             counters[11]=not allowed[options.url] and 1 or not rule and 2 or counters[rule.slot]>=maximum and 3 or 4
@@ -147,6 +170,7 @@ local ok,reason=pcall(function()
         end
         if rule.kind=='cover' and counters[rule.slot]>0 then counters[9]=counters[9]+1 end
         counters[rule.slot]=counters[rule.slot]+1
+        if rule.aggregate then counters[rule.aggregate]=counters[rule.aggregate]+1 end
         if index then counters[index]=counters[index]+1 end
         local response,code,headers,status=request(self,options)
         if rule.kind=='progress' then counters[5]=tonumber(code) or 0 end
@@ -360,21 +384,26 @@ local ok,reason=pcall(function()
     end
     report.phase='home';plugin:closeWeReadUI();plugin:showHome();paint()
     report.phase='book';plugin:closeWeReadUI()
-    local target;for _i,book in ipairs(books) do if book.bookId==input.book_id then target=book end end
-    assert(target);plugin:showBookRecord(target);pump(function() return not plugin.book_metadata_context end)
-    local record=assert(plugin.settings:get_book(input.book_id))
-    for key,value in pairs(input.expected_metadata) do
-        assert((key=='bookId' and tostring(record.bookId or record.book_id) or record[key])==value)
+    for _j,sample in ipairs(metadata_samples) do
+        local id,expected=sample.book_id,sample.expected_metadata
+        local target;for _i,book in ipairs(books) do if book.bookId==id then target=book end end
+        assert(target);plugin:showBookRecord(target);pump(function() return not plugin.book_metadata_context end)
+        local record=assert(plugin.settings:get_book(id))
+        for key,value in pairs(expected) do
+            assert((key=='bookId' and tostring(record.bookId or record.book_id) or record[key])==value)
+        end
+        assert(record.detail_source=='native' and plugin._book_detail_view.data.title==expected.title)
+        assert(plugin._book_detail_view.data.intro==expected.intro)
+        local file_record=assert(require('weread.lib.book_store').load(plugin.settings,id,{cache_dir=record.cache_dir}))
+        for key,value in pairs(expected) do
+            assert((key=='bookId' and tostring(file_record.bookId or file_record.book_id) or file_record[key])==value)
+        end
+        assert(lfs.symlinkattributes(record.cache_dir..'/metadata.json','mode')=='file')
+        UIManager:forceRePaint();report.painted_views=report.painted_views+1
+        if cb_metadata then report.cb_metadata_books=report.cb_metadata_books+1 end
+        plugin:closeWeReadUI()
     end
-    assert(record.detail_source=='native' and plugin._book_detail_view.data.title==input.expected_metadata.title)
-    assert(plugin._book_detail_view.data.intro==input.expected_metadata.intro)
-    local file_record=assert(require('weread.lib.book_store').load(plugin.settings,input.book_id,{cache_dir=record.cache_dir}))
-    for key,value in pairs(input.expected_metadata) do
-        assert((key=='bookId' and tostring(file_record.bookId or file_record.book_id) or file_record[key])==value)
-    end
-    assert(lfs.symlinkattributes(record.cache_dir..'/metadata.json','mode')=='file')
     report.bookstore_readback=true
-    UIManager:forceRePaint();report.painted_views=report.painted_views+1
     plugin:closeWeReadUI();pump(settled);plugin.settings:flush();G_reader_settings:flush()
     report.workers_reaped=settled()
     for _id in pairs(seen_covers) do report.cover_cells=report.cover_cells+1 end
@@ -403,7 +432,7 @@ local ok,reason=pcall(function()
     end
     audit(home);report.credential_file_audit=true
     assert(counters[4]==0)
-    assert(counters[0]==(mode=='live' and 1 or 0) and counters[1]==(mode=='live' and 1 or 0))
+    assert(counters[0]==(mode=='live' and 1 or 0) and counters[1]==(mode=='live' and #metadata_samples or 0))
     report.phase,report.result='complete','PASS'
 end)
 if plugin then pcall(plugin.closeWeReadUI,plugin) end
