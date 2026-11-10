@@ -84,6 +84,7 @@ return function(plugin,count,flush,home,pump,assert_snapshot)
         pump(function() return not plugin.mp_download_job and not lfs.symlinkattributes(directory) end)
         settings:set('wr_ticket',ticket);settings.cache_dir=cache_root
         assert(not opened and read(path)==previous and read(root..'/'..relative)==old_bitmap,'stale/cancelled job replaced cache: '..change)
+        if change=='suspend' then plugin:onResume();assert(not plugin.source_position.pauses.suspend) end
     end
     -- Fail after the generation directory moves but before HTML is published.
     local rename=os.rename

@@ -111,6 +111,7 @@ return function(plugin,count,flush,home,pump,control)
         assert(#kept.mp_articles==1 and kept.mp_articles[1].reviewId==snapshot.reviewId and kept.mp_articles[1].title==snapshot.title
             and kept.mp_articles[1].createTime==snapshot.createTime and kept.mp_articles_time==123,'stale result replaced catalog: '..change)
         assert(not plugin._mp_article_list_view,'stale result reopened list: '..change)
+        if change=='suspend' then plugin:onResume();assert(not plugin.source_position.pauses.suspend) end
     end
     -- A transient HTTP failure restores a saved directory without retry/renewal.
     book=setup('900096');control{match='/web/mp/articles',status=429,times=1,delay=0}

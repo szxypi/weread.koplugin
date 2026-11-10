@@ -70,6 +70,13 @@ assert(code == 501 and denied:find("Unimplemented mock route", 1, true), "HTTP m
 
 local UIManager = require("ui/uimanager")
 local Screen = require("device").screen
+local function pump_until(predicate)
+    local socket=require('socket');local deadline=socket.gettime()+45
+    while not predicate() do
+        assert(socket.gettime()<deadline,'standalone async progress deadline')
+        UIManager:setInputTimeout(0);UIManager:handleInput();socket.sleep(.01)
+    end
+end
 local reader = require("apps/reader/readerui"):new{
     dimen = Screen:getSize(),
     document = require("document/documentregistry"):openDocument(path),
@@ -116,6 +123,7 @@ do dofile(fixture_dir .. "web_renewal_smoke.lua")(plugin, request_count, fastfor
     local socket=require("socket");local deadline=socket.gettime()+35
     while not predicate() do assert(socket.gettime()<deadline,"Web renewal scene deadline");fastforward_ui_events();socket.sleep(.01) end
 end) end
+assert(not next(plugin.source_position.pauses),'an earlier fixture left source acquisition paused')
 local pulls_before = request_count("/web/book/getProgress") + request_count("/api/agent/gateway", "/book/getprogress")
 local position = assert(sync:capture_local())
 assert(sync:_upload_snapshot(position, "manual_sync", false), "queued progress upload did not start")
@@ -134,13 +142,20 @@ plugin.settings:flush()
 plugin:onWeReadAccountChanged()
 position = assert(sync:capture_local())
 assert(sync:_upload_snapshot(position, "manual_sync", false), "current-account upload did not start")
-fastforward_ui_events()
+pump_until(function() return not sync.uploading end)
 assert(request_count("/web/book/read") > writes_before, "valid upload never reached real Client/HTTP")
 local saved = plugin.settings:get("books")[position.book_id]
 assert(saved.last_uploaded_position and not saved.pending_upload_position, "successful upload not persisted")
-assert(saved.last_uploaded_position.chapter_uid == position.chapter_uid, "acknowledgement changed chapter identity")
+local source=assert(plugin.source_position:current())
+local uploaded=saved.last_uploaded_position
+assert(uploaded.wire_basis=='filtered_xhtml_utf16' and uploaded.chapter_uid==source.chapter_uid
+    and uploaded.chapter_offset==source.chapter_offset and uploaded.source_position.file_id==source.file_id,
+    'acknowledgement differs from current original-text coordinates')
+local readback=require('weread.lib.progress_readback')
+local expected=assert(readback.expected(position.book_id,uploaded))
+assert(readback.check(plugin.client:get_web_progress(position.book_id),expected).matches,'independent original-text readback differs')
 local remote = plugin.client:get_progress(position.book_id)
-assert(remote.book.progress == position.percent, "mock cloud readback differs from uploaded position")
+assert(remote.book.progress == uploaded.percent, "mock cloud readback differs from uploaded position")
 local sync_config = plugin.settings:get("sync")
 local old_pull, old_upload = sync_config.pull_on_open, sync_config.upload_on_close
 sync_config.pull_on_open, sync_config.upload_on_close = true, true
@@ -149,8 +164,38 @@ writes_before = request_count("/web/book/read")
 pulls_before = request_count("/web/book/getProgress")
 assert(sync:_upload_snapshot(position, "manual_sync", false), "pre-suspend upload did not queue")
 plugin:onSuspend()
+local SourceTask=require('weread.lib.source_position_worker');local capture=SourceTask.capture
+SourceTask.capture=function(...) require('socket').sleep(.6);return capture(...) end
+local gateway_before=request_count('/api/agent/gateway','/book/getprogress')
+local observed_wait,cancelled_wait,stale_checked=false,false,false
+local old_wait
 plugin:onResume()
-fastforward_ui_events()
+pump_until(function()
+    local job=sync.pull_job
+    if job and job.source_wait then
+        assert(request_count('/web/book/getProgress')==pulls_before
+            and request_count('/api/agent/gateway','/book/getprogress')==gateway_before,
+            'cloud comparison started before local source was ready')
+        assert(request_count('/web/book/read')==writes_before,'source wait replayed a pre-suspend write')
+        local worker=plugin.source_position.worker and plugin.source_position.worker.job
+        if not cancelled_wait and worker then
+            local pid=assert(worker.pid);old_wait=job.source_wait
+            plugin:onSuspend()
+            assert(not sync.pulling and not sync.pull_job and not plugin.source_position.worker.job
+                and require('ffi/util').isSubProcessDone(pid),'suspend retained source wait or local child')
+            cancelled_wait=true;plugin:onResume()
+        elseif cancelled_wait and not stale_checked then
+            old_wait.wake();old_wait.expire()
+            assert(sync.pull_job==job and job.source_wait and sync.pulling,'old wait cancelled its replacement')
+            observed_wait,stale_checked=true,true
+        end
+    end
+    return not sync.pulling and sync.verified
+end)
+SourceTask.capture=capture
+assert(observed_wait and not sync.pull_job,'source readiness wait was not observed or retained a timer')
+assert(request_count('/web/book/getProgress')==pulls_before+1
+    and request_count('/api/agent/gateway','/book/getprogress')==gateway_before+1,'wake comparison was not exactly one read per source')
 assert(request_count("/web/book/read") == writes_before, "wake replayed pre-suspend local upload")
 assert(request_count("/web/book/getProgress") > pulls_before and sync.verified,
     "wake did not compare cloud progress before reopening reporting gate")
@@ -159,6 +204,13 @@ plugin.settings:set("sync", sync_config)
 plugin.settings:flush()
 plugin.isNetworkOnline, plugin.isNetworkConnected = online, connected
 print("PASS: real ReaderUI account/suspend cancels queued HTTP; valid upload persists/readbacks; wake compares cloud first")
+local progress_report={result='PASS',synthetic_only=true,real_account_requests=0,
+    fixture_suspend_resume_pairs_restored=true,queued_old_account_upload_cancelled=true,queued_old_account_pull_cancelled=true,
+    source_coordinates_confirmed=true,independent_web_coordinates_match=true,gateway_percentage_matches=true,
+    local_pending_cleared_after_confirmation=true,source_wait_before_cloud_observed=true,source_wait_max_seconds=35,
+    fresh_reads_after_source_ready=2,pre_suspend_upload_not_replayed=true,verified_after_resume=true,
+    source_wait_job_retired=true,source_wait_cancel_reaped_local_worker=true,stale_source_wait_callbacks_ignored=true}
+
 local verify_reopened_file
 if test_offline_time then
     verify_reopened_file = dofile(fixture_dir .. "offline_time_smoke.lua")(reader, request_count, fastforward_ui_events)
@@ -190,6 +242,9 @@ source_probe.full(full_path, book.bookId or book.book_id, chapters, home .. "/..
 reader:onClose()
 if verify_reopened_file then verify_reopened_file() end
 UIManager:quit()
+progress_report.full_download_and_source_routes=true
+local result_file=assert(io.open(home..'/../evidence/standalone-progress.json','wb'))
+assert(result_file:write(client:json_encode(progress_report)));result_file:close()
 print("PASS: mock HTTP -> real Client/Content/Downloader -> EPUB with image/footnote -> ReaderUI -> page 2")
 print("EPUB: " .. path)
 print("FULL EPUB: " .. full_path)

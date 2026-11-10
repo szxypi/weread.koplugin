@@ -85,8 +85,12 @@ function ProgressSyncDialog.notify(code, data)
         text = T(_("Could not jump to WeRead progress:\n%1"),
             tostring(data.error or ""))
     elseif code == "local_unavailable" then
-        text = T(_("Could not determine the current reading position:\n%1"),
-            tostring(data.error or ""))
+        if data.error=='source_preparation_timeout' or data.error=='source_position_unavailable' then
+            text=_("Reading position is temporarily unavailable. Please try again shortly.")
+        else
+            text = T(_("Could not determine the current reading position:\n%1"),
+                tostring(data.error or ""))
+        end
     elseif code == "authentication_required" then
         text = _("Please scan the QR code to log in first.")
     elseif code == "offline" then

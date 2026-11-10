@@ -8,6 +8,7 @@ local ProgressReadback = require("weread.lib.progress_readback")
 local RemoteProgress = require("weread.lib.remote_progress")
 local SourceCandidate = require("weread.lib.source_upload_candidate")
 local ReadAccess = require("weread.lib.read_access")
+local SourceWait = require("weread.lib.progress_source_wait")
 
 local logger = require("weread.lib.logger").scoped("ProgressSync")
 
@@ -139,6 +140,7 @@ function ProgressSync:_session_current(scope)
 end
 
 function ProgressSync:_invalidate_pull()
+    SourceWait.cancel(self,self.pull_job)
     self:cancel_remote_fetch(self.pull_job)
     self.pull_retry_token = self.pull_retry_token + 1
     self.pull_job, self.pulling = nil, false
@@ -1219,6 +1221,7 @@ function ProgressSync:_pull(options)
     local function current()
         if self.pull_job ~= job then return false end
         if self:_session_current(scope) and scope.navigation_generation == self.navigation_generation then return true end
+        SourceWait.cancel(self,job)
         self:cancel_remote_fetch(job);self.pull_job, self.pulling = nil, false
         return false
     end
@@ -1249,38 +1252,52 @@ function ProgressSync:_pull(options)
                 log("warn", "catalog refresh returned no chapters for:", book_id)
             end
         end
-        self:fetch_remote_checked(context.book_id,context.chapters,job,current,function(remote,pull_error)
+        local function fetch()
             if not current() then return end
-            self.pull_job, self.pulling = nil, false
-            if not remote then
-                self.state = "error"
-                self:_persist(context.book_id, {
-                    last_pull_at = self.now(),
-                    last_sync_error = tostring(pull_error),
-                })
-                if options.manual or pull_error=='progress_authentication_unavailable' then
-                    self.notify("pull_failed", { error = tostring(pull_error) })
+            self:fetch_remote_checked(context.book_id,context.chapters,job,current,function(remote,pull_error)
+                if not current() then return end
+                self.pull_job, self.pulling = nil, false
+                if not remote then
+                    self.state = "error"
+                    self:_persist(context.book_id, {
+                        last_pull_at = self.now(),
+                        last_sync_error = tostring(pull_error),
+                    })
+                    if options.manual or pull_error=='progress_authentication_unavailable' then
+                        self.notify("pull_failed", { error = tostring(pull_error) })
+                    end
+                    return
                 end
-                return
+                -- The user may have turned pages while the online task was queued.
+                -- Compare the cloud result with the live page, not the opening page.
+                local_position, reason, context = self:capture_local()
+                if not local_position then
+                    self.state = "unsafe"
+                    if options.manual then self.notify("local_unavailable", { error = reason }) end
+                    return
+                end
+                self:_persist(context.book_id, {
+                    last_remote_position = remote,
+                    last_local_position = local_position,
+                    last_pull_at = self.now(),
+                    last_sync_error = false,
+                })
+                self:_resolve(local_position, remote, context, options)
+            end)
+        end
+        local function unavailable(why,quiet)
+            if not current() then return end
+            self.pull_job,self.pulling=nil,false
+            self.state=quiet and 'unverified' or 'error'
+            if not quiet then
+                self:_persist(context.book_id,{last_sync_error=why})
+                if options.manual then self.notify('local_unavailable',{error=why}) end
             end
-            -- The user may have turned pages while the online task was queued.
-            -- Compare the cloud result with the live page, not the opening page.
-            local_position, reason, context = self:capture_local()
-            if not local_position then
-                self.state = "unsafe"
-                if options.manual then self.notify("local_unavailable", { error = reason }) end
-                return
-            end
-            self:_persist(context.book_id, {
-                last_remote_position = remote,
-                last_local_position = local_position,
-                last_pull_at = self.now(),
-                last_sync_error = false,
-            })
-            self:_resolve(local_position, remote, context, options)
-        end)
+        end
+        if not SourceWait.start(self,job,current,fetch,unavailable) then fetch() end
     end, { silent_offline = true })
     if not started and self.pull_job == job then
+        SourceWait.cancel(self,job)
         self.pull_job, self.pulling = nil, false
         self.state = "offline"
         if options.manual then
@@ -1605,6 +1622,7 @@ function ProgressSync:on_source_position_changed(state, position)
         self.local_position.source_position = position and tostring(position.book_id) == tostring(self.current_book_id)
             and copy(position) or nil
     end
+    SourceWait.changed(self)
     self.interval:refresh()
 end
 

@@ -156,6 +156,8 @@ return function(plugin,count,flush,home,pump,control)
     plugin:closeWeReadUI();assert(Actions.refresh(plugin,book,article));dialog=plugin._mp_refresh_confirmation
     reads=count('/web/mp/content');plugin:onSuspend();dialog.ok_callback()
     assert(not plugin._mp_refresh_confirmation and count('/web/mp/content')==reads,'suspended confirmation restarted refresh')
+    plugin:onResume();dialog.ok_callback()
+    assert(not plugin.source_position.pauses.suspend and count('/web/mp/content')==reads,'resume revived stale refresh confirmation')
     plugin.openFile=open;plugin:closeWeReadUI();settings:set('cache',original_cache);settings:flush()
     assert(UIManager:getTopmostVisibleWidget()==plugin.ui and count('/web/book/read')==writes and count('/web/login/renewal')==renewals,'versions left overlay or wrote cloud data')
     local report={result='PASS',synthetic_only=true,actual_background_http=true,native_actions_and_confirmation=true,

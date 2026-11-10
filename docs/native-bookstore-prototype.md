@@ -86,9 +86,9 @@
 合成长书名缓存页面已目视核对：[普通尺寸](validation-assets/2026-11-10/bookstore-offline-cached-600.png)、
 [KO2 分辨率](validation-assets/2026-11-10/bookstore-offline-cached-ko2.png)。
 
-旧综合冒烟 `weread_mock_smoke.lua` 在两尺寸的后续第 138 行同步断言失败，
-观察到 `source_position_unavailable`、没有派发该次上传；完整综合冒烟尚未通过，原因仍待定位。
-此前成功的书城子场景及独立正常阅读入口验证单独记录，不把它们扩大为整个旧综合测试通过。
+本项初次验证时，旧综合冒烟在后续同步断言失败，观察到 `source_position_unavailable`；
+该份历史证据保留当时失败。随后已定位测试休眠未配对唤醒，以及原文位置尚未就绪时过早比较的时序问题。
+修复后两尺寸完整综合冒烟通过，详见[原文位置就绪与综合验证](source-comparison-readiness.md)。
 元数据、请求数量、候选字节及代码哈希见[验收证据](validation-assets/2026-11-10/bookstore-offline-batches.json)。
 
 默认离线入口：

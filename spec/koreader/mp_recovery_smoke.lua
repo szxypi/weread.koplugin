@@ -107,6 +107,8 @@ return function(plugin,count,flush,home,pump)
     local top=UIManager:getTopmostVisibleWidget();if top~=plugin.ui and top.text then UIManager:close(top) end
     inspect();row('Interrupted download').callback();dialog=plugin._mp_recovery_confirmation;plugin:onSuspend();dialog.ok_callback()
     assert(not plugin.mp_recovery_job and lfs.attributes(pending,'mode')=='directory','suspended confirmation restarted repair')
+    plugin:onResume();dialog.ok_callback()
+    assert(not plugin.source_position.pauses.suspend and not plugin.mp_recovery_job and lfs.attributes(pending,'mode')=='directory','resume revived stale repair confirmation')
     Model.scan=old_scan;plugin:closeWeReadUI()
     assert(read(base)==saved and read(sidecar)==metadata and settings:get('books',{})[book.book_id].progress==.35
         and settings:get('books',{})[book.book_id].pending_upload_position.offset==19,'recovery changed notes or pending reading state')

@@ -107,6 +107,9 @@ return function(plugin,count,flush,home,pump)
     -- Native suspend cancels a preview, including its old confirmation callback.
     menu=preview();menu.item_table[1].callback();dialog=plugin._mp_cleanup_confirmation;plugin:onSuspend();dialog.ok_callback()
     assert(not plugin.mp_cleanup_job and lfs.attributes(parent..'/'..unused,'mode')=='directory','suspended confirmation deleted files')
+    plugin:onResume();dialog.ok_callback()
+    assert(not plugin.source_position.pauses.suspend and not plugin.mp_cleanup_job
+        and lfs.attributes(parent..'/'..unused,'mode')=='directory','resume revived stale cleanup confirmation')
     Model.scan=old_scan;Model.step=old_step;plugin:closeWeReadUI();close_info()
     assert(UIManager:getTopmostVisibleWidget()==plugin.ui and not Model.locked(book.cache_dir,key),'cleanup left overlay or lock')
     assert(count('/web/mp/content')+count('/web/mp/articles')+count('/api/agent/gateway')==requests
