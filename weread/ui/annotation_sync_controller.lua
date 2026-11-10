@@ -8,6 +8,28 @@ local _ = PluginUtil.tr
 local T = PluginUtil.T
 local M = {}
 
+local function annotation_error_message(reason)
+    local code = tostring(reason):match("annotation_source/([a-z_]+)")
+    if not code then return reason end
+    if code == "native_expired" then
+        return _("E-Ink authorization expired. Renew it in WeRead settings, then continue matching.")
+    elseif code == "rate_limited" then
+        return _("Annotation requests are limited. Try again later. Saved progress was kept.")
+    elseif code == "session_changed" then
+        return _("Authorization changed. Start annotation matching again.")
+    elseif code == "source_changed" then
+        return _("The annotation download channel changed. Fetch the selected chapters again to refresh their saved data.")
+    end
+    return _("Annotation data could not be verified. Saved progress was kept.")
+end
+
+function M:_requireAnnotationAccess()
+    if self.client.capture_annotation_access and self.client:capture_annotation_access() then
+        return self:requireLogin(true, false)
+    end
+    return self:requireLogin(true, true)
+end
+
 local function compare_xpointers(document, a, b)
     local ok, order = pcall(document.compareXPointers, document, a, b)
     if ok then return order end
@@ -523,7 +545,7 @@ function M:_runAnnotationJob(context, options)
                     if state == Sync.NETWORK_REQUIRED then
                         self:showInfo(_("Connect to the network to download annotation data. Saved matching progress will be reused."))
                     else
-                        self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), state))
+                        self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), annotation_error_message(state)))
                     end
                 end
             end
@@ -577,7 +599,7 @@ function M:_runAnnotationJob(context, options)
                 self:_cancelUnifiedAnnotationSync()
                 logger.warn("annotation_sync UI:", err)
                 if not options.background then
-                    self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), tostring(err)))
+                    self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), annotation_error_message(err)))
                 end
             end
         end
@@ -608,7 +630,7 @@ function M:startUnifiedAnnotationSync(options)
         self:_runAnnotationJob(context, options)
     end
     if options.offline then return start() end
-    if not self:requireLogin(true, true) then return end
+    if not self:_requireAnnotationAccess() then return end
     return self:runOnlineTask(_("Sync underlines and thoughts"), start)
 end
 
@@ -711,6 +733,7 @@ end
 function M:canPrefetchAnnotations()
     return self.settings:get("cache").auto_prefetch_next_chapter == true
         and self:isAnnotationPrefetchEnabled() and self:isNetworkConnected()
+        and (not self.client.capture_annotation_access or self.client:capture_annotation_access() ~= nil)
 end
 
 function M:cancelAnnotationPrefetch()
@@ -851,7 +874,7 @@ function M:chooseAnnotationChapters()
     end
     local context = self:_prepareAnnotationContext(false)
     if context and context.catalog and #context.catalog > 0 then return show() end
-    if not self:requireLogin(true, true) then return end
+    if not self:requireLogin(true, false) then return end
     self:runOnlineTask(_("Loading chapter list..."), show)
 end
 

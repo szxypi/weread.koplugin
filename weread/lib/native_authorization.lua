@@ -191,6 +191,27 @@ function Auth:read_book_metadata(credentials, book_id)
     return self:_request("metadata", BASE .. "/book/info?bookId=" .. Protocol.urlencode(book_id), nil, credentials)
 end
 
+-- Read-only chapter annotations verified against real nonempty replies first.
+function Auth:read_annotations(credentials, kind, book_id, chapter_uid, batch)
+    local Data = require("weread.lib.native_annotation_data")
+    if type(credentials) ~= "table" or not vid(credentials.vid) or not text(credentials.accessToken, 8192) then
+        fail("annotations", "invalid_credentials")
+    end
+    if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("annotations", "account_mismatch") end
+    book_id, chapter_uid = Data.book_id(book_id), Data.chapter_uid(chapter_uid)
+    if not book_id then fail("annotations", "invalid_book") end
+    if kind == "underlines" then
+        return self:_request("annotations_underlines", BASE .. "/book/underlines?bookId=" .. Protocol.urlencode(book_id)
+            .. "&chapterUid=" .. Protocol.urlencode(chapter_uid) .. "&synckey=0", nil, credentials)
+    elseif kind == "thoughts" then
+        Data.batch(batch, self.client)
+        return self:_request("annotations_thoughts", BASE .. "/book/readreviews", {
+            bookId = book_id, chapterUid = tonumber(chapter_uid), cht2sMode = "", reviews = batch,
+        }, credentials)
+    end
+    fail("annotations", "invalid_kind")
+end
+
 -- Four statistics modes and historical month verified by the Python prototype.
 function Auth:read_statistics(credentials, mode, base_time)
     local Data = require("weread.lib.statistics_data")

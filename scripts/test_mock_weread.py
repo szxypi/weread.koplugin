@@ -14,6 +14,16 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_native_annotations_match_the_existing_readonly_shapes(self):
+        target='https://i.weread.qq.com'
+        code,raw=self.server.route('GET',target+'/book/underlines?bookId='+BOOK_ID+'&chapterUid=1&synckey=0',{})
+        self.assertEqual((code,raw['chapterUid'],len(raw['underlines'])),(200,1,1))
+        body=dict(bookId=BOOK_ID,chapterUid=1,cht2sMode='',reviews=[dict(range=raw['underlines'][0]['range'],maxIdx=0,count=30,synckey=0)])
+        code,reviews=self.server.route('POST',target+'/book/readreviews',body)
+        self.assertEqual((code,len(reviews['reviews'][0]['pageReviews'])),(200,1))
+        for changed in (dict(body,chapterUid=True),dict(body,extra=0),dict(body,reviews=[])):
+            with self.assertRaises(ValueError):self.server.route('POST',target+'/book/readreviews',changed)
+
     @classmethod
     def setUpClass(cls):
         cls.server = MockServer(0)

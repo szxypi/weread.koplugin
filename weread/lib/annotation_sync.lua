@@ -21,6 +21,7 @@ end
 
 function Sync:new(options)
     local job = setmetatable(options, self)
+    if job.client.capture_annotation_access then job.annotation_access = job.client:capture_annotation_access() end
     job.index, job.completed = 0, 0
     job.thread = coroutine.create(function() job:run() end)
     return job
@@ -36,6 +37,9 @@ end
 function Sync:requireNetwork()
     if self.offline or (self.is_online and not self.is_online()) then
         error(Sync.NETWORK_REQUIRED, 0)
+    end
+    if self.annotation_access and not self.client:annotation_access_matches(self.annotation_access) then
+        error("annotation_source/session_changed", 0)
     end
 end
 
@@ -54,7 +58,9 @@ function Sync:request(fn, progress)
             attempt == 1 and 0.3 or 2 ^ attempt, progress)
         self:requireNetwork()
         local ok, data, err = self:callNetwork(fn)
+        if self.annotation_access then self:requireNetwork() end
         if ok and type(data) == "table" then return data end
+        if require("weread.lib.annotation_access").terminal(err) then error(err, 0) end
         self:requireNetwork()
         if attempt == 3 then error(err or "Invalid annotation response") end
     end
@@ -113,13 +119,17 @@ function Sync:run()
             if not stage then
                 local result = self:request(function()
                     local ok, data, err = self.client:get_chapter_underlines(book_id,
-                        chapter.chapterUid or chapter.chapterId or chapter.chapter_uid)
+                        chapter.chapterUid or chapter.chapterId or chapter.chapter_uid, self.annotation_access)
                     if ok and (type(data) ~= "table" or type(data.underlines) ~= "table") then
                         return false, nil, "Invalid underline response"
                     end
                     return ok, data, err
                 end, { stage = "underlines" })
-                stage = { underlines = unique_underlines(result.underlines), next_batch = 1 }
+                stage = { underlines = unique_underlines(result.underlines), next_batch = 1, source_kind = result._source_kind }
+            end
+            if stage.source_kind and self.annotation_access
+                and (not self.annotation_access.channel or self.annotation_access.channel ~= stage.source_kind) then
+                self.annotation_access = require("weread.lib.annotation_access").pin(self.annotation_access, stage.source_kind, book_id)
             end
             if not stage.revision then
                 -- A persistent generation avoids hashing megabytes of thought
@@ -141,7 +151,7 @@ function Sync:run()
             for batch_index = stage.next_batch or 1, #batches do
                 local result = self:request(function()
                     local ok, data, err = self.client:get_chapter_reviews_batch(book_id,
-                        chapter.chapterUid or chapter.chapterId or chapter.chapter_uid, batches[batch_index])
+                        chapter.chapterUid or chapter.chapterId or chapter.chapter_uid, batches[batch_index], self.annotation_access)
                     if ok and (type(data) ~= "table" or type(data.reviews) ~= "table") then
                         return false, nil, "Invalid thoughts response"
                     end

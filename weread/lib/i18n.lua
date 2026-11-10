@@ -1,6 +1,11 @@
 local I18n = {}
 
 local zh = {
+    ["E-Ink authorization expired. Renew it in WeRead settings, then continue matching."] = "墨水屏授权已失效。请在微信读书设置中续期授权，再继续匹配。",
+    ["Annotation requests are limited. Try again later. Saved progress was kept."] = "划线和想法请求受限，请稍后重试。已保存的进度已保留。",
+    ["Authorization changed. Start annotation matching again."] = "授权已变化，请重新开始划线和想法匹配。",
+    ["The annotation download channel changed. Fetch the selected chapters again to refresh their saved data."] = "划线和想法的下载通道已变化，请重新选择章节获取最新数据。",
+    ["Annotation data could not be verified. Saved progress was kept."] = "无法核对划线和想法数据，已保留保存的进度。",
     ["Repair interrupted downloads"] = "修复下载暂存",
     ["Choose an article to inspect"] = "选择要检查的文章",
     ["Checking interrupted downloads…\nTap or press a key to cancel."] = "正在检查下载暂存…\n点击或按键可取消。",

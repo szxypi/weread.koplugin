@@ -261,6 +261,24 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
+            if path == "/book/underlines" and method == "GET":
+                if (set(query)!={"bookId","chapterUid","synckey"} or any(len(value)!=1 for value in query.values())
+                        or query["synckey"]!=["0"] or not any(book["bookId"]==book_id for book in BOOKS)
+                        or not query["chapterUid"][0].isdigit() or not 1<=int(query["chapterUid"][0])<=len(CHAPTERS)):
+                    raise ValueError("invalid native underline query")
+                uid=int(query["chapterUid"][0])
+                return 200,dict(chapterUid=uid,underlines=[] if control["empty_annotations"] else [annotation(uid)])
+            if path == "/book/readreviews" and method == "POST":
+                if (set(data)!={"bookId","chapterUid","cht2sMode","reviews"} or data["cht2sMode"]!=""
+                        or not any(book["bookId"]==book_id for book in BOOKS) or type(data["chapterUid"]) is not int
+                        or not 1<=data["chapterUid"]<=len(CHAPTERS)):
+                    raise ValueError("invalid native thought query")
+                from verify_native_annotations import validate_batch
+                validate_batch(data["reviews"])
+                uid=data["chapterUid"];mark=annotation(uid)
+                return 200,dict(reviews=[] if control["empty_annotations"] else [
+                    dict(range=item["range"],metadata=None,pageReviews=[dict(review=review(uid))])
+                    for item in data["reviews"] if item["range"]==mark["range"]])
             if path == "/readdata/detail" and method == "GET":
                 if set(query) != {"mode", "baseTime"} or any(len(v) != 1 for v in query.values()):
                     raise ValueError("invalid native statistics query")

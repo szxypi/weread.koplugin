@@ -1010,7 +1010,15 @@ function Client:report_read(payload, referer)
     })
 end
 
-function Client:get_chapter_underlines(book_id, chapter_uid)
+function Client:capture_annotation_access()
+    return require("weread.lib.annotation_access").capture(self.settings)
+end
+
+function Client:annotation_access_matches(selected)
+    return require("weread.lib.annotation_access").matches(self.settings, selected)
+end
+
+function Client:get_chapter_underlines(book_id, chapter_uid, selected)
     if not book_id or tostring(book_id) == "" then
         return false, nil, "empty book_id"
     end
@@ -1019,10 +1027,7 @@ function Client:get_chapter_underlines(book_id, chapter_uid)
     end
 
     local ok, result = pcall(function()
-        return self:gateway("/book/underlines", {
-            bookId = tostring(book_id),
-            chapterUid = chapter_uid,
-        })
+        return require("weread.lib.annotation_access").fetch(self, "underlines", book_id, chapter_uid, nil, selected)
     end)
     if not ok then
         return false, nil, tostring(result)
@@ -1051,7 +1056,7 @@ function Client:build_chapter_review_batches(ranges)
     return batches
 end
 
-function Client:get_chapter_reviews_batch(book_id, chapter_uid, batch)
+function Client:get_chapter_reviews_batch(book_id, chapter_uid, batch, selected)
     if not book_id or tostring(book_id) == "" then
         return false, nil, "empty book_id"
     end
@@ -1063,11 +1068,7 @@ function Client:get_chapter_reviews_batch(book_id, chapter_uid, batch)
     end
 
     local ok, result = pcall(function()
-        return self:gateway("/book/readreviews", {
-            bookId = tostring(book_id),
-            chapterUid = chapter_uid,
-            reviews = batch,
-        })
+        return require("weread.lib.annotation_access").fetch(self, "thoughts", book_id, chapter_uid, batch, selected)
     end)
     if not ok then
         return false, nil, tostring(result)
@@ -1084,11 +1085,12 @@ function Client:get_chapter_reviews(book_id, chapter_uid, ranges)
     end
 
     local all_reviews = {}
+    local selected = self:capture_annotation_access()
     local batches = self:build_chapter_review_batches(ranges)
     local socket_ok, socket = pcall(require, "socket")
 
     for batch_index, batch in ipairs(batches) do
-        local ok, result = self:get_chapter_reviews_batch(book_id, chapter_uid, batch)
+        local ok, result = self:get_chapter_reviews_batch(book_id, chapter_uid, batch, selected)
         if ok and type(result) == "table" and type(result.reviews) == "table" then
             for _, review in ipairs(result.reviews) do
                 all_reviews[#all_reviews + 1] = review
