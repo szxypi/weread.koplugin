@@ -185,7 +185,7 @@ function M:showDiscoveryCategoryPicker(data)
     if old_menu then UIManager:close(old_menu) end
     local title = _("Rankings and categories")
     local age=os.time()-data.loaded_at
-    if age<0 or age>Data.CACHE_TTL then title = title .. " · " .. _("Cached") end
+    if age<0 or age>Data.CACHE_TTL then title = _("Cached") .. " · " .. title end
     menu = self:showList(title, {
         { text = _("Book rankings"), sub_item_table = rows(data.ranks) },
         { text = _("Browse categories"), sub_item_table = rows(data.categories) },
@@ -215,6 +215,10 @@ function M:showBookstore()
         self.discovery_state = nil
         state = nil
     end
+    if not state then
+        state=require('weread.ui.discovery_cache').read(self)
+        self.discovery_state=state
+    end
     local actions = {
         { text = _("For you"), callback = function() self:loadDiscoveryBatch("recommend", nil, 0) end },
         { text = _("Search WeRead"), callback = function() self:showDiscoverySearch() end },
@@ -235,7 +239,7 @@ function M:showBookstore()
         title = state.kind == "search" and PluginUtil.T(_("Search: %1"), state.keyword) or _("For you")
         if state.kind == "similar" then title = PluginUtil.T(_("Similar to: %1"), state.book_title) end
         if state.kind == "category" then title = state.category_title end
-        if os.time() - state.loaded_at > Data.CACHE_TTL then title = title .. " · " .. _("Cached") end
+        if state.cached or os.time() - state.loaded_at > Data.CACHE_TTL then title = _("Cached") .. " · " .. title end
     end
     self:showDiscoveryPage("store", state and state.books or {}, {
         title = title, actions = actions,

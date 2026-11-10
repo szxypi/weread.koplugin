@@ -101,6 +101,7 @@ jobs:
       - name: Native bookstore prototype checks
         run: |
           python3 scripts/test_native_discovery.py
+          python3 scripts/test_owner_discovery.py
           python3 scripts/test_category_catalog.py
 
       - name: Native MP catalog prototype checks

@@ -104,6 +104,21 @@ return function(plugin,count,flush_tasks,home,pump_until)
     UIManager:close(UIManager:getTopmostVisibleWidget())
     control{match="",delay=0,times=0}
     plugin:closeWeReadUI()
+    local online,connected=plugin.isNetworkOnline,plugin.isNetworkConnected
+    plugin.isNetworkOnline,plugin.isNetworkConnected=function() return false end,function() return false end
+    local reads=count('/store/search')+count('/book/detailinfo')+count('/book/recommend')
+    plugin.discovery_state=nil;plugin:showBookstore()
+    assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='search' and plugin.discovery_state.cursor==20)
+    press(plugin.shelf_view,'Previous batch');wait()
+    assert(plugin.discovery_state.cursor==0 and plugin.discovery_state.cached)
+    paint('native-store-offline-search')
+    plugin:showBookMenu(seed);local offline_detail=assert(plugin._book_detail_view)
+    press(offline_detail,'Similar books');wait()
+    assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='similar' and not plugin._book_detail_view)
+    assert(UIManager:getTopmostVisibleWidget()~=offline_detail)
+    paint('native-store-offline-similar')
+    assert(reads==count('/store/search')+count('/book/detailinfo')+count('/book/recommend'),'offline batch used HTTP')
+    plugin:closeWeReadUI();plugin.isNetworkOnline,plugin.isNetworkConnected=online,connected
     plugin.discovery_state=nil
     plugin.fetchVisibleShelfCovers=covers
     assert(count("/web/book/read")==writes,"bookstore wrote reading state")

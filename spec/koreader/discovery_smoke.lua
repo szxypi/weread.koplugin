@@ -398,6 +398,11 @@ paint("store-recommend")
 plugin.discovery_state.kind, plugin.discovery_state.keyword = "search", "中文长标题搜索测试"
 plugin:showBookstore()
 paint("store-search")
+plugin.discovery_state.cached=true
+plugin.discovery_state.kind='similar'
+plugin.discovery_state.book_title=string.rep('这是较长的合成书名',12)
+plugin:showBookstore()
+paint('store-offline-long-title')
 plugin.shelf_view:onClose()
 assert(plugin.shelf_view == nil, "closing store retained a stale view")
 plugin:onWeReadAccountChanged()

@@ -1,6 +1,7 @@
 -- Cancellable bookstore requests. Network/parsing runs in a memory worker.
 local Source=require("weread.lib.discovery_source")
 local Recovery=require("weread.lib.native_read_recovery")
+local Cache=require("weread.ui.discovery_cache")
 local UIManager=require("ui/uimanager")
 local _=require("weread.lib.plugin_util").tr
 local M={}
@@ -19,6 +20,13 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     if host.discovery_loading then return end
     context=context or {}
     if context.account and context~=host.discovery_state then return end
+    cursor=refresh and 0 or cursor or 0
+    local query={kind=kind,keyword=keyword,book_id=context.book_id,book_title=context.book_title,
+        category_id=context.category_id,category_title=context.category_title,rank=context.rank}
+    if context.cached and not refresh or host.isNetworkOnline and not host:isNetworkOnline() then
+        if Cache.open(host,query,cursor) then return true end
+        host:showInfo(_("No saved books for this batch. Connect to Wi-Fi and refresh the list."));return false
+    end
     local selected,reason
     if kind~="category" then
         selected,reason=Source.capture(host.settings)
@@ -31,7 +39,6 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
             return
         end
     end
-    cursor=refresh and 0 or cursor or 0
     local book_id,book_title=context.book_id,context.book_title
     local session_id=not refresh and context.session_id or nil
     if kind=="similar" and (not book_id or book_id=="") then return end
@@ -79,6 +86,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         host.discovery_request_context=nil;host.discovery_loading=nil
         if operation.busy and host.busy_message==operation.busy then host:closeBusy() end
         if type(value)~="table" or value.ok~=true or type(value.page)~="table" then
+            if not source_state then Cache.open(host,query,cursor) end
             host:showInfo(_("Bookstore request failed. Cached books are still available."));return
         end
         local result=value.page
@@ -102,6 +110,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         result.book_id,result.book_title=book_id,book_title
         if kind=="category" then result.category_id,result.category_title,result.rank=context.category_id,context.category_title,context.rank end
         result.history,result.account,result.loaded_at=history,account,os.time()
+        Cache.save(host,result,source_state,not refresh and (cursor>0 or previous))
         host.discovery_state=result
         if host._book_detail_view then
             local detail=host._book_detail_view;host._book_detail_view=nil;UIManager:close(detail)
