@@ -19,7 +19,7 @@ function M:_current(job)
     if self.job~=job or not job.is_current() or not self.can_recover(job.book_id)
         or not self.settings:auth_scope_matches(job.scope) then return false end
     local current=Access.capture(self.settings)
-    return current and current.web and current.web.cookies.wr_vid==job.scope.vid
+    return current and current.web and current.web.cookies.wr_vid == job.scope.vid
         and gateway(current)==gateway(job.access) or false
 end
 function M:start(book_id,access,is_current,callback)

@@ -27,16 +27,14 @@
   ],
   "synthetic_profiles": [
     {
-      "profile": "source-recovery-flow-600-checked3",
+      "profile": "source-recovery-flow-600-scan-checked",
       "files": 196,
       "source_package_installed_bytes_equal": true,
       "zip_crc_verified": true,
       "repaint_errors": 0,
-      "manifest_sha256": "e72a9cb329d3a67679c14eab39838a01d2396c5e98d88101ade1b7bb8f93a45e",
+      "manifest_sha256": "8a6f118c4591c7810f30920f88ddaff78b6235d39e53e4b8927849179822a290",
       "reports": {
         "source-recovery-result.json": {
-          "synthetic_only": true,
-          "real_account_data_writes_attempted": 0,
           "confirmed_401_one_parent_renewal": true,
           "independent_archive_and_source_reprepared": true,
           "source_worker_count": 4,
@@ -50,25 +48,35 @@
           "fresh_same_owner_login_recompares": true,
           "native_page_turn_cancelled_recovery": true,
           "mock_reading_posts_during_preparation": 0,
+          "real_account_data_writes_attempted": 0,
+          "real_authentication_posts_attempted": 0,
           "result": "PASS",
-          "real_authentication_posts_attempted": 0
+          "synthetic_only": true
         },
         "source-close-result.json": {
-          "synthetic_only": true,
-          "report_posts": 1,
-          "position_readback_gets": 1,
-          "closed_401_recovered": true,
           "mock_authentication_posts": 1,
           "real_account_data_writes_attempted": 0,
-          "elapsed_seconds": 0,
           "durable_dispatch_before_http": true,
-          "result": "PASS",
+          "elapsed_seconds": 0,
+          "position_readback_gets": 1,
           "actual_native_document_closed": true,
           "independent_source_preparation": true,
           "no_closed_native_document_calls": true,
-          "source_wire_and_summary": true
+          "source_wire_and_summary": true,
+          "result": "PASS",
+          "report_posts": 1,
+          "synthetic_only": true,
+          "closed_401_recovered": true
         },
         "progress-interval-result.json": {
+          "disable_cancelled_worker": true,
+          "cancelled_worker_reaped": true,
+          "changed_cloud_requires_choice": true,
+          "unknown_write_not_replayed": true,
+          "readonly_recheck_restored": true,
+          "reading_time_setting_unchanged": true,
+          "real_account_data_writes_attempted": 0,
+          "result": "PASS",
           "synthetic_only": true,
           "native_menu_verified": true,
           "default_off": true,
@@ -78,63 +86,55 @@
           "changed_source_zero_time_upload": true,
           "page_turn_recapture_preserves_deadline": true,
           "equal_cloud_skips_duplicate_upload": true,
-          "no_idle_deadline": true,
-          "disable_cancelled_worker": true,
-          "cancelled_worker_reaped": true,
-          "changed_cloud_requires_choice": true,
-          "unknown_write_not_replayed": true,
-          "readonly_recheck_restored": true,
-          "reading_time_setting_unchanged": true,
-          "result": "PASS",
-          "real_account_data_writes_attempted": 0
+          "no_idle_deadline": true
         },
         "source-upload-result.json": {
-          "synthetic_only": true,
-          "dispatch_persisted_before_fork_and_http": true,
-          "interrupted_child_retained_journal": true,
           "interrupted_child_reaped": true,
           "unknown_ack_paused_reporting": true,
           "no_automatic_write_retry": true,
           "explicit_readonly_recheck_resolved": true,
           "real_account_data_writes_attempted": 0,
-          "periodic_duration_seconds": 30,
-          "result": "PASS",
+          "periodic_posts": 2,
+          "dispatch_persisted_before_fork_and_http": true,
           "native_source_wire_and_summary": true,
           "source_summary_not_in_checkpoints": true,
           "background_preparation_observed": true,
           "background_report_observed": true,
           "no_inherited_native_document_calls": true,
-          "periodic_posts": 2
+          "result": "PASS",
+          "periodic_duration_seconds": 30,
+          "synthetic_only": true,
+          "interrupted_child_retained_journal": true
         },
         "progress-confirmation-result.json": {
-          "synthetic_only": true,
           "native_location_preserved": true,
-          "cases": [
-            {
-              "report_posts": 1,
-              "readback_gets": 3,
-              "mode": "delayed",
-              "result": "PASS"
-            },
-            {
-              "report_posts": 1,
-              "readback_gets": 3,
-              "mode": "stale",
-              "result": "PASS"
-            },
-            {
-              "report_posts": 1,
-              "readback_gets": 0,
-              "mode": "noack",
-              "result": "PASS"
-            }
-          ],
-          "explicit_recheck_recovered": true,
-          "result": "PASS",
-          "account_data_writes_attempted": 0,
           "automatic_write_retries": 0,
           "authorization_posts": 0,
-          "pending_intent_preserved": true
+          "pending_intent_preserved": true,
+          "explicit_recheck_recovered": true,
+          "account_data_writes_attempted": 0,
+          "result": "PASS",
+          "synthetic_only": true,
+          "cases": [
+            {
+              "readback_gets": 3,
+              "result": "PASS",
+              "mode": "delayed",
+              "report_posts": 1
+            },
+            {
+              "readback_gets": 3,
+              "result": "PASS",
+              "mode": "stale",
+              "report_posts": 1
+            },
+            {
+              "readback_gets": 0,
+              "result": "PASS",
+              "mode": "noack",
+              "report_posts": 1
+            }
+          ]
         },
         "offline-progress-result.json": {
           "session_entry_and_progress_posts": 2,
@@ -159,12 +159,12 @@
       }
     },
     {
-      "profile": "source-recovery-flow-ko2-checked3",
+      "profile": "source-recovery-flow-ko2-scan-checked",
       "files": 196,
       "source_package_installed_bytes_equal": true,
       "zip_crc_verified": true,
       "repaint_errors": 0,
-      "manifest_sha256": "e72a9cb329d3a67679c14eab39838a01d2396c5e98d88101ade1b7bb8f93a45e",
+      "manifest_sha256": "8a6f118c4591c7810f30920f88ddaff78b6235d39e53e4b8927849179822a290",
       "reports": {
         "source-recovery-result.json": {
           "result": "PASS",
@@ -186,98 +186,89 @@
           "real_authentication_posts_attempted": 0
         },
         "source-close-result.json": {
-          "result": "PASS",
-          "synthetic_only": true,
-          "actual_native_document_closed": true,
-          "independent_source_preparation": true,
-          "no_closed_native_document_calls": true,
-          "source_wire_and_summary": true,
           "durable_dispatch_before_http": true,
           "report_posts": 1,
           "position_readback_gets": 1,
           "closed_401_recovered": true,
           "mock_authentication_posts": 1,
+          "result": "PASS",
+          "synthetic_only": true,
           "real_account_data_writes_attempted": 0,
-          "elapsed_seconds": 0
+          "elapsed_seconds": 0,
+          "actual_native_document_closed": true,
+          "independent_source_preparation": true,
+          "no_closed_native_document_calls": true,
+          "source_wire_and_summary": true
         },
         "progress-interval-result.json": {
-          "result": "PASS",
-          "changed_cloud_requires_choice": true,
-          "synthetic_only": true,
-          "readonly_recheck_restored": true,
-          "reading_time_setting_unchanged": true,
-          "real_account_data_writes_attempted": 0,
-          "unknown_write_not_replayed": true,
-          "cancelled_worker_reaped": true,
           "native_menu_verified": true,
           "default_off": true,
           "controlled_clock": true,
           "configured_minutes": 1,
           "early_tick_no_http": true,
-          "changed_source_zero_time_upload": true,
+          "result": "PASS",
           "page_turn_recapture_preserves_deadline": true,
           "equal_cloud_skips_duplicate_upload": true,
           "no_idle_deadline": true,
-          "disable_cancelled_worker": true
+          "disable_cancelled_worker": true,
+          "cancelled_worker_reaped": true,
+          "changed_cloud_requires_choice": true,
+          "unknown_write_not_replayed": true,
+          "readonly_recheck_restored": true,
+          "reading_time_setting_unchanged": true,
+          "real_account_data_writes_attempted": 0,
+          "synthetic_only": true,
+          "changed_source_zero_time_upload": true
         },
         "source-upload-result.json": {
-          "result": "PASS",
-          "dispatch_persisted_before_fork_and_http": true,
-          "synthetic_only": true,
-          "interrupted_child_reaped": true,
-          "unknown_ack_paused_reporting": true,
-          "no_automatic_write_retry": true,
-          "explicit_readonly_recheck_resolved": true,
-          "real_account_data_writes_attempted": 0,
-          "interrupted_child_retained_journal": true,
-          "periodic_duration_seconds": 30,
-          "native_source_wire_and_summary": true,
           "source_summary_not_in_checkpoints": true,
           "background_preparation_observed": true,
           "background_report_observed": true,
           "no_inherited_native_document_calls": true,
-          "periodic_posts": 2
+          "periodic_posts": 2,
+          "periodic_duration_seconds": 30,
+          "dispatch_persisted_before_fork_and_http": true,
+          "result": "PASS",
+          "interrupted_child_reaped": true,
+          "synthetic_only": true,
+          "no_automatic_write_retry": true,
+          "explicit_readonly_recheck_resolved": true,
+          "real_account_data_writes_attempted": 0,
+          "unknown_ack_paused_reporting": true,
+          "interrupted_child_retained_journal": true,
+          "native_source_wire_and_summary": true
         },
         "progress-confirmation-result.json": {
-          "result": "PASS",
-          "synthetic_only": true,
+          "pending_intent_preserved": true,
+          "explicit_recheck_recovered": true,
           "native_location_preserved": true,
+          "result": "PASS",
           "cases": [
             {
-              "readback_gets": 3,
-              "result": "PASS",
               "mode": "delayed",
-              "report_posts": 1
-            },
-            {
+              "report_posts": 1,
               "readback_gets": 3,
-              "result": "PASS",
-              "mode": "stale",
-              "report_posts": 1
+              "result": "PASS"
             },
             {
-              "readback_gets": 0,
-              "result": "PASS",
+              "mode": "stale",
+              "report_posts": 1,
+              "readback_gets": 3,
+              "result": "PASS"
+            },
+            {
               "mode": "noack",
-              "report_posts": 1
+              "report_posts": 1,
+              "readback_gets": 0,
+              "result": "PASS"
             }
           ],
+          "synthetic_only": true,
           "account_data_writes_attempted": 0,
           "automatic_write_retries": 0,
-          "authorization_posts": 0,
-          "pending_intent_preserved": true,
-          "explicit_recheck_recovered": true
+          "authorization_posts": 0
         },
         "offline-progress-result.json": {
-          "result": "PASS",
-          "synthetic_only": true,
-          "unverified_checkpoint": true,
-          "manual_only_checkpoint": true,
-          "flush_and_suspend": true,
-          "fresh_process": true,
-          "native_position_restored": true,
-          "local_home_progress": true,
-          "reconnect_compared_before_write": true,
           "explicit_choice_required": true,
           "duplicate_link_event_safe": true,
           "mock_readback": true,
@@ -286,25 +277,40 @@
           "flush_preserves_remote_choice": true,
           "offline_new_requests": 0,
           "chosen_updates": 1,
-          "session_entry_and_progress_posts": 2
+          "session_entry_and_progress_posts": 2,
+          "result": "PASS",
+          "synthetic_only": true,
+          "unverified_checkpoint": true,
+          "manual_only_checkpoint": true,
+          "flush_and_suspend": true,
+          "fresh_process": true,
+          "native_position_restored": true,
+          "local_home_progress": true,
+          "reconnect_compared_before_write": true
         }
       }
     },
     {
-      "profile": "source-recovery-cloud-600-checked3",
+      "profile": "source-recovery-cloud-600-scan-checked",
       "files": 196,
       "source_package_installed_bytes_equal": true,
       "zip_crc_verified": true,
       "repaint_errors": 0,
-      "manifest_sha256": "e72a9cb329d3a67679c14eab39838a01d2396c5e98d88101ade1b7bb8f93a45e",
+      "manifest_sha256": "8a6f118c4591c7810f30920f88ddaff78b6235d39e53e4b8927849179822a290",
       "reports": {
         "cloud-source.json": {
+          "upload_verified": false,
+          "result": "PASS",
+          "reading_writes": 0,
+          "synthetic_only": true,
+          "source_target_visible": true,
+          "cross_chapter_full_book": true,
           "background_http": true,
           "independent_archive": true,
           "retained_original_offset": true,
           "offline_no_request": true,
           "rate_no_retry": true,
-          "upload_verified": false,
+          "dismiss_cancelled": true,
           "suspend_cancelled": true,
           "account_cancelled": true,
           "navigator_cancelled": true,
@@ -318,25 +324,24 @@
           "owned_download_cancelled": true,
           "download_reverified": true,
           "downloaded_source_target_visible": true,
-          "changed_source_no_guess": true,
-          "reading_writes": 0,
-          "result": "PASS",
-          "dismiss_cancelled": true,
-          "synthetic_only": true,
-          "source_target_visible": true,
-          "cross_chapter_full_book": true
+          "changed_source_no_guess": true
         }
       }
     },
     {
-      "profile": "source-recovery-cloud-ko2-checked3",
+      "profile": "source-recovery-cloud-ko2-scan-checked",
       "files": 196,
       "source_package_installed_bytes_equal": true,
       "zip_crc_verified": true,
       "repaint_errors": 0,
-      "manifest_sha256": "e72a9cb329d3a67679c14eab39838a01d2396c5e98d88101ade1b7bb8f93a45e",
+      "manifest_sha256": "8a6f118c4591c7810f30920f88ddaff78b6235d39e53e4b8927849179822a290",
       "reports": {
         "cloud-source.json": {
+          "retained_original_offset": true,
+          "offline_no_request": true,
+          "rate_no_retry": true,
+          "dismiss_cancelled": true,
+          "suspend_cancelled": true,
           "account_cancelled": true,
           "navigator_cancelled": true,
           "reader_reopen_cancelled": true,
@@ -344,25 +349,20 @@
           "report_gate_not_granted": true,
           "cached_full_handoff": true,
           "cached_chapter_handoff": true,
-          "startup_pull_superseded": true,
+          "upload_verified": false,
           "download_declined": true,
           "owned_download_cancelled": true,
           "download_reverified": true,
           "downloaded_source_target_visible": true,
           "changed_source_no_guess": true,
           "reading_writes": 0,
-          "upload_verified": false,
           "result": "PASS",
+          "startup_pull_superseded": true,
           "synthetic_only": true,
           "source_target_visible": true,
           "cross_chapter_full_book": true,
           "background_http": true,
-          "independent_archive": true,
-          "retained_original_offset": true,
-          "offline_no_request": true,
-          "rate_no_retry": true,
-          "dismiss_cancelled": true,
-          "suspend_cancelled": true
+          "independent_archive": true
         }
       }
     }
@@ -386,7 +386,7 @@
   ],
   "code_sha256": {
     "main.lua": "7f8e0bcf5648c3dd77448b3a1356f7c67950e0e675b676050c0891aaeb5f4fd6",
-    "weread/lib/source_recovery.lua": "ab733cc6bfc08019dd45822649177f152b8fe106e463beee606a909ffab6869e",
+    "weread/lib/source_recovery.lua": "5806404b3aed1a8e5ffa81a21fb7640adbd7f2f3ad93241736d72ca5cdd25bdf",
     "weread/lib/source_currentness.lua": "42e3c1a9317a4e867fcb228cd456e973508a1071e2c8a961332fa09644e1c430",
     "weread/lib/source_position.lua": "8d3d8e4a173b28a539e93ef6bf5f8e7f7d38483e97e085a25d8f0c0ea93eb033",
     "weread/lib/source_close.lua": "325f11e6ff14d53219e172fa8a4cea58f8015cfd35a58ae62cd54727cbcd66a4",
