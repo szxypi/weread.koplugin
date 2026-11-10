@@ -100,7 +100,10 @@ def payload(plan, stage):
     return value
 
 
-def validate_payload(plan, stage, value):
+def validate_payload(plan, stage, value, *, observed_at=None):
+    observed_at = int(time.time()) if observed_at is None else observed_at
+    if type(observed_at) is not int or observed_at < 0:
+        raise RoundTripError('roundtrip_payload_invalid')
     enter = stage == 'write_enter'
     keys = {'appId', 'b', 'c', 'ci', 'co', 'sm', 'pr', 'ct', 'ps', 'pc', 's'}
     if not enter:
@@ -112,7 +115,7 @@ def validate_payload(plan, stage, value):
             or type(value['co']) is not int or value['co'] != point['chapter_offset']
             or type(value['pr']) not in (int, float) or value['pr'] != point['raw_percent']
             or value['sm'] != point['summary'] or value['ps'] != plan['context']['psvts'] or value['pc'] != plan['pclts']
-            or type(value['ct']) is not int or not 0 <= int(time.time()) - value['ct'] <= 30
+            or type(value['ct']) is not int or not 0 <= observed_at - value['ct'] <= 30
             or value['s'] != weread_sign(sorted_query({k: v for k, v in value.items() if k != 's'}))):
         raise RoundTripError('roundtrip_payload_invalid')
     if not enter:

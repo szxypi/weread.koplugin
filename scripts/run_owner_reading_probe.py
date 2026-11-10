@@ -25,6 +25,7 @@ def main(argv=None):
     addons = parser.add_mutually_exclusive_group()
     addons.add_argument('--annotations', action='store_true')
     addons.add_argument('--annotation-recovery', action='store_true')
+    addons.add_argument('--progress-preview', action='store_true')
     args = parser.parse_args(argv)
     runtime = args.koreader.resolve()
     if sys.platform != 'linux' or not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
@@ -34,6 +35,7 @@ def main(argv=None):
     report = dict(result='UNVERIFIED', tmpfs_profile=True, profile_removed=False, stages=[], runner_error='none')
     root, cookies = None, {}
     recovery_private = []
+    progress_private = None
     try:
         raw = sys.stdin.buffer.read(256 * 1024 + 1)
         if len(raw) > 256 * 1024:
@@ -46,8 +48,13 @@ def main(argv=None):
         if args.annotation_recovery:
             from owner_recovery_contract import decode
             decoder = decode
+        if args.progress_preview:
+            from owner_progress_preview_contract import decode
+            decoder = decode
         has_annotations = args.annotations or args.annotation_recovery
         if has_annotations != ('annotations' in payload) or has_annotations and 'full_manifest' in payload:
+            raise ValueError('input_limit')
+        if args.progress_preview != ('progress_preview' in payload) or args.progress_preview and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         full_chapters = len(payload['full_manifest']) if 'full_manifest' in payload else 1
         if not 1 <= full_chapters <= 32:
@@ -67,18 +74,21 @@ def main(argv=None):
                        EMULATE_READER_DPI=str(args.dpi))
             probe = Path(__file__).resolve().parent.parent / 'spec/koreader/owner_reading_probe.lua'
             full_hash = None
-            for mode in ('live', 'reopen'):
+            for mode in (('live',) if args.progress_preview else ('live', 'reopen')):
                 payload['cookies'] = cookies
                 command = [str(runtime / 'luajit'), str(probe), mode]
                 if args.annotations:
                     command.append(str(probe.with_name('owner_annotations_case.lua')))
                 if args.annotation_recovery:
                     command.append(str(probe.with_name('owner_expired_annotations_case.lua')))
+                if args.progress_preview:
+                    command.append(str(probe.with_name('owner_progress_preview_case.lua')))
                 code, out, repaint = run_child(command, env,
                                                json.dumps(payload, ensure_ascii=False).encode(), runtime,
                                                timeout=600 if full_chapters > 1 and mode == 'live' else 150)
                 envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters)
                 cookies = envelope['cookies']
+                if args.progress_preview: progress_private = envelope['progress_private']
                 if args.annotation_recovery:
                     private = envelope['recovery_private']
                     recovery_private.append(private)
@@ -115,11 +125,15 @@ def main(argv=None):
     except Exception as exc:
         if isinstance(exc,FullBookIncomplete):report['full_book']=exc.summary
         report['runner_error'] = str(exc) if str(exc) in RUNNER_ERRORS else 'runner_exception'
+        if args.progress_preview:
+            from owner_progress_preview_contract import ERRORS
+            if str(exc) in ERRORS:report['runner_error']=str(exc)
     finally:
         report['profile_removed'] = root is not None and not root.exists()
     # This private envelope is consumed only by the captured host verifier pipe.
     envelope = dict(report=report, cookies=cookies)
     if args.annotation_recovery: envelope['recovery_private'] = recovery_private
+    if args.progress_preview: envelope['progress_private'] = progress_private
     sys.stdout.buffer.write(FRAME + json.dumps(envelope).encode() + b'\n')
     return 0 if report['result'] == 'PASS' and report['profile_removed'] else 1
 

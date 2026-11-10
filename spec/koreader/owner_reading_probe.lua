@@ -17,6 +17,7 @@ local rejected_html
 local descriptors={}
 local annotation_case
 local recovery_private
+local progress_case,progress_private
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
@@ -84,7 +85,7 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
-        if full or input.annotations then
+        if full or input.annotations or input.progress_preview then
             local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
@@ -99,6 +100,10 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         annotation_case=dofile(arg[2])(input,mode,counters)
         report.annotations=annotation_case.report
+    elseif input.progress_preview then
+        assert(not full and arg[2])
+        progress_case=dofile(arg[2])(input,counters)
+        report.progress_preview=progress_case.report
     else assert(not arg[2]) end
     local Protocol=require('weread.lib.protocol')
     local Cookie=require('weread.lib.cookie')
@@ -230,6 +235,7 @@ local ok,reason=pcall(function()
     end
     report.transport_guard_selftest=true
     function Client:request(options)
+        if progress_case and progress_case:is_write(options) then return progress_case:request(self,options) end
         if annotation_case and annotation_case:is_native(options) then
             return annotation_case:request(self,options,request)
         end
@@ -533,6 +539,7 @@ local ok,reason=pcall(function()
     assert(after.chapter_offset==legacy.chapter_offset and after.source_position.basis==basis
         and after.source_position.chapter_offset==position.chapter_offset and (full or after.chapter_offset~=position.chapter_offset))
     report.legacy_progress_units_preserved=true
+    if progress_case then progress_case:run(plugin,reader,pump,source_index,position) end
     local checkpoint={file=document.file,xpointer=document:getXPointer(),page=reader:getCurrentPage()}
     local file=assert(io.open(checkpoint_path,'wb'));assert(file:write(json.encode(checkpoint)));file:close()
     report.phase='close'
@@ -579,6 +586,7 @@ local ok,reason=pcall(function()
     report.phase,report.result='complete','PASS'
 end)
 if counters then
+    if progress_case then progress_case:finish(reason);progress_private=progress_case:private() end
     if annotation_case then
         annotation_case:finish(reason)
         if annotation_case.private then recovery_private=annotation_case:private() end
@@ -603,5 +611,5 @@ if not ok then
     report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
 end
 io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {},rejected_html=rejected_html,
-    recovery_private=recovery_private}..'\n')
+    recovery_private=recovery_private,progress_private=progress_private}..'\n')
 os.exit(ok and 0 or 1)

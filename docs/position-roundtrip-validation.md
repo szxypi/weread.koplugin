@@ -76,3 +76,60 @@ python3 scripts/verify_position_roundtrip.py --saved-session \
 使用 `--saved-session --lua-command ...` 可单独执行此只读比较；它不能代替实际插件写后回读。
 结果及工具摘要见[本次固定字段证据](validation-assets/2026-11-10/position-roundtrip-owner-authorized.json)。
 原有 `upload_verified=false` 安全门保持，尚未启用通用原文坐标上传。
+
+## 原生阅读器与实际上传服务的禁止发送预演
+
+随后补齐 `verify_owner_progress_preview.py` 与配套 `--progress-preview` 原生验收入口。
+默认离线；显式复用已保留授权时，先选定同书、同章、原位置及相邻一个 UTF-16 单位的唯一文字目标，
+核对云端与 Reader 上下文、目录及原文字节，再从真实插件书架、详情「阅读」进入原生阅读器。
+本入口没有 `--apply`，没有执行真实位置写入的分支。
+
+插件经生产 `openSourcePosition` 导航原位置、相邻一字及原位置，逐点核对同一 EPUB 的原文来源、
+DOM 锚点往返、锚点在当前页可见，以及仍为只读的保留目标；结束后恢复进入预演前的阅读位置。
+分页引擎的 `getXPointer()` 可能返回页首，不能据此认定任意一字目标已正确定位。
+本轮初次检查恰好复现页首与指定目标不同，随后改为检查精确文字锚点和保留的逻辑坐标，
+没有把“跳到了同一页”当成字符位置核验，也没有把失败状态强改为通过。
+
+每个已验证目标作为验收工具的显式输入交给插件实际 `ReadReport:upload_position` 服务，
+使用它自己读取的新鲜同书 Reader 上下文和生产签名生成器。
+这验证的是指定目标到上传服务的组合，不代表 `ProgressSync:capture_local()` 已切换为原文坐标。
+传输前拦截器只为第一份进入阅读请求返回一次合成成功回执，让实际服务能够生成后续报告；
+同位置、一字前进、恢复三份报告全部在真实 HTTP 派发前抛出受控停止。
+三次服务调用均保持未确认，没有伪造进度上传成功或触发回读成功。
+配套拦截模块没有获得原始派发函数，不能从预演模式切换为真实发送。
+
+四份实际生成的请求及其签名上下文只经捕获的内存管道交给独立 Python 检查。
+逐项核对阶段顺序、同书／章／序号／偏移、零时长、摘要、签名、令牌派生值和本次原生进程的时间窗口；
+每份请求仍须通过既有严格校验器，数值型合法 Reader 计数器也保留其类型。
+私有正文、位置、上下文和凭据不进入公开报告；原生临时配置仅在 tmpfs，结束后移除且工作进程回收。
+失败只公开固定原因、阶段和行号，缺失私有回执不能被判为通过。
+
+官方 KOReader v2026.07.1 Linux ARM64／Xvfb 的 600×800 与 KO2 1264×1680 尺寸分别为 39／41 页，
+均完成上述真实账号预演：四份请求独立一致、原生锚点往返与本机位置恢复通过、云端位置未变，
+真实账号写入、授权 POST 与截图均为零。每次仅有一次合成进入阅读回执。
+两种尺寸下，该样本的普通字数偏移和分页页首均不等于已选定的原文目标，进一步确认不能把这些单位混用。
+这两个运行都是单个在线原生进程，不包含离线重开；既有严格只读的两进程验收入口保持独立。
+
+新增 11 项 Python 与 22 项 Lua 边界检查纳入 CI；完整 166 组 Lua、530 项 Python 通过，
+435 个静态文件零警告／错误，437 个 Lua 语法文件、命名空间、Python 编译及四时区通过。
+189 个生产文件逐字节匹配候选包，生产插件与 `b000b0f` 相同，本轮只增加／完善验收工具。
+结果见[原生禁止发送预演](validation-assets/2026-11-10/owner-progress-upload-preview.json)。
+
+真实插件位置写入仍未执行，不能用这次合成回执／禁止发送的结果替代写后回读。
+此前四请求实验授权已使用；下一次真实实验还需完成独立的持久意图、发送上限及异常恢复入口，
+形成可复核的限定方案后再确认。通用原文上传、TXT 云端语义、多设备及实体 KO2 验收仍待完成。
+
+```sh
+python3 scripts/verify_owner_progress_preview.py
+python3 scripts/test_owner_progress_preview.py
+```
+
+已有本人授权时执行禁止发送的预演：
+
+```sh
+python3 scripts/verify_owner_progress_preview.py --saved-session --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
+  python3 /source/scripts/run_owner_reading_probe.py \
+  --koreader /validation/runtime/lib/koreader --candidate /validation/owner-progress-preview-candidate.zip \
+  --progress-preview
+```
