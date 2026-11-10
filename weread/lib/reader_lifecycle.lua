@@ -270,6 +270,7 @@ function M:onCloseWidget()
     if self.cancelBookReading then self:cancelBookReading() end
     require('weread.ui.mp_file_open').detach(self)
     require('weread.ui.mp_reader_open').detach(self)
+    require('weread.ui.mp_metadata_preview').detach(self)
 end
 
 function M:showPrefetchNotice(text, timeout)

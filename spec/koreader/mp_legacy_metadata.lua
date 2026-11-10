@@ -28,7 +28,8 @@ local title=arg[1]=='title' or arg[1]=='title-reopen'
 local epub=arg[1]=='epub' or arg[1]=='epub-reopen'
 local manager=arg[1]=='manager' or arg[1]=='manager-reopen'
 local history=arg[1]=='reader' or arg[1]=='reader-reopen'
-local product=arg[1]=='product' or arg[1]=='product-reopen' or title or epub or manager or history
+local preview=arg[1]=='preview' or arg[1]=='preview-reopen'
+local product=arg[1]=='product' or arg[1]=='product-reopen' or title or epub or manager or history or preview
 if product then settings:set('account',{user_vid='900000',login_method='qr'}) end
 settings:set('sync',{pull_on_open=false,upload_on_close=false});settings:set('read_report',{enabled=false})
 local cache=settings:get('cache');cache.auto_prefetch_next_chapter=false;cache.show_annotations=false
@@ -108,10 +109,10 @@ local function verify(entry)
     end
 end
 local old_location=G_reader_settings:readSetting('document_metadata_folder','doc')
-local manifest_path=evidence..(history and '/mp-reader-fixtures.json' or manager and '/mp-manager-fixtures.json' or epub and '/mp-epub-fixtures.json' or title and '/mp-title-fixtures.json' or product and '/mp-records-fixtures.json' or '/mp-legacy-fixtures.json')
+local manifest_path=evidence..(preview and '/mp-preview-fixtures.json' or history and '/mp-reader-fixtures.json' or manager and '/mp-manager-fixtures.json' or epub and '/mp-epub-fixtures.json' or title and '/mp-title-fixtures.json' or product and '/mp-records-fixtures.json' or '/mp-legacy-fixtures.json')
 local report={result='UNVERIFIED',synthetic_only=true,actual_reader=true,actual_location_menu=true,
     automatic_product_recovery=false,product_recovery_entry_implemented=product,account_requests=0,account_data_writes=0}
-if arg[1]=='recover' or arg[1]=='product' or arg[1]=='title' or arg[1]=='epub' or arg[1]=='manager' or arg[1]=='reader' then
+if arg[1]=='recover' or arg[1]=='product' or arg[1]=='title' or arg[1]=='epub' or arg[1]=='manager' or arg[1]=='reader' or arg[1]=='preview' then
     local book={book_id='MP_WXS_990081',title='合成旧共享阅读记录',cache_dir=settings.data_dir..'/legacy-metadata',
         progress=.45,pending_upload_position={offset=23}}
     local article={reviewId='legacy-record-fixture',title='旧文章的记录恢复'};book.mp_articles={article}
@@ -150,7 +151,7 @@ if arg[1]=='recover' or arg[1]=='product' or arg[1]=='title' or arg[1]=='epub' o
     local entries={}
     if product then
         local fixture=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
-            ..(history and 'mp_reader_open_smoke.lua' or manager and 'mp_file_open_smoke.lua' or epub and 'mp_epub_record_recovery.lua' or title and 'mp_title_record_recovery.lua' or 'mp_record_recovery_smoke.lua')
+            ..(preview and 'mp_metadata_preview_smoke.lua' or history and 'mp_reader_open_smoke.lua' or manager and 'mp_file_open_smoke.lua' or epub and 'mp_epub_record_recovery.lua' or title and 'mp_title_record_recovery.lua' or 'mp_record_recovery_smoke.lua')
         local result=dofile(fixture){home=home,evidence=evidence,settings=settings,book=book,article=article,sources=sources,
             shared=shared,originals=originals,key=key,open=open,close=close,choose=choose,verify=verify,projection=projection,
             same=same,read=read,count_external_open=function(count) opens=opens+count end}
@@ -204,8 +205,8 @@ if arg[1]=='recover' or arg[1]=='product' or arg[1]=='title' or arg[1]=='epub' o
     end
     if product then write(manifest_path,json.encode(entries));report.recovered_versions=#entries end
 else
-    assert(arg[1]=='reopen' or arg[1]=='product-reopen' or arg[1]=='title-reopen' or arg[1]=='epub-reopen' or arg[1]=='manager-reopen' or arg[1]=='reader-reopen','expected recovery or reopen mode')
-    local entries=json.decode(read(manifest_path));assert(#entries==(history and 4 or manager and 3 or epub and 6 or title and 5 or product and 8 or 6))
+    assert(arg[1]=='reopen' or arg[1]=='product-reopen' or arg[1]=='title-reopen' or arg[1]=='epub-reopen' or arg[1]=='manager-reopen' or arg[1]=='reader-reopen' or arg[1]=='preview-reopen','expected recovery or reopen mode')
+    local entries=json.decode(read(manifest_path));assert(#entries==(preview and 1 or history and 4 or manager and 3 or epub and 6 or title and 5 or product and 8 or 6))
     for _,entry in ipairs(entries) do verify(entry) end
     if title then
         local descriptor=json.decode(read(evidence..'/mp-title-export.json'))
@@ -220,11 +221,12 @@ else
     report.fresh_process=true;report.recovered_versions=#entries
 end
 choose(old_location);G_reader_settings:flush()
-report.reader_opens=opens;local expected=history and (arg[1]=='reader' and report.expected_reader_opens or 4)
+report.reader_opens=opens;local expected=preview and (arg[1]=='preview' and report.expected_reader_opens or 1)
+    or history and (arg[1]=='reader' and report.expected_reader_opens or 4)
     or manager and (arg[1]=='manager' and report.expected_reader_opens or 3)
     or epub and (arg[1]=='epub' and report.expected_reader_opens or 6)
     or title and (arg[1]=='title' and report.expected_reader_opens or 6)
     or product and (arg[1]=='product' and report.expected_reader_opens or 8) or arg[1]=='recover' and 15 or 6
 assert(opens==expected,'reader opens '..opens..' expected '..tostring(expected))
-report.result='PASS';write(evidence..(history and '/mp-reader-' or manager and '/mp-manager-' or epub and '/mp-epub-' or title and '/mp-title-' or product and '/mp-records-' or '/mp-legacy-')..arg[1]..'.json',json.encode(report))
+report.result='PASS';write(evidence..(preview and '/mp-preview-' or history and '/mp-reader-' or manager and '/mp-manager-' or epub and '/mp-epub-' or title and '/mp-title-' or product and '/mp-records-' or '/mp-legacy-')..arg[1]..'.json',json.encode(report))
 print('PASS: native reading record '..arg[1]..', '..report.recovered_versions..' independent copies')

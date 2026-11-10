@@ -346,6 +346,7 @@ function WeReadPlugin:init()
     self.updater:schedule_auto_check()
     require('weread.ui.mp_file_open').attach(self)
     require('weread.ui.mp_reader_open').attach(self)
+    require('weread.ui.mp_metadata_preview').attach(self)
     logger.info("initialized:", "version=", self.version)
     updater:cleanup_backup()
 end

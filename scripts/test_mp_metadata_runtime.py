@@ -9,6 +9,7 @@ of the default normal-location migration cases. It does not enable a product UI.
 --legacy-title checks title-based HTML, bitmap relocation and record recovery.
 --legacy-epub checks EPUB identity without changing original member payloads.
 --file-manager checks native file rows, providers, callbacks and record choices.
+--metadata-preview checks initial list/history reads, preservation failures and recovery.
 """
 import argparse
 import io
@@ -124,8 +125,9 @@ def main():
     parser.add_argument('--legacy-epub', action='store_true', help='exercise member-preserving EPUB record recovery')
     parser.add_argument('--file-manager', action='store_true', help='exercise native FileManager article opening')
     parser.add_argument('--reader-history', action='store_true', help='exercise native reader history and direct switching')
+    parser.add_argument('--metadata-preview', action='store_true', help='protect actual list and history metadata before article opening')
     args = parser.parse_args()
-    if sum((args.legacy_shared, args.record_recovery, args.legacy_title, args.legacy_epub, args.file_manager,args.reader_history)) > 1:
+    if sum((args.legacy_shared, args.record_recovery, args.legacy_title, args.legacy_epub, args.file_manager,args.reader_history,args.metadata_preview)) > 1:
         parser.error('select one metadata validation mode')
     if min(args.width, args.height, args.dpi) < 1:
         parser.error('display dimensions must be positive')
@@ -138,7 +140,7 @@ def main():
         prepare(root, runtime, server.server_port, args.width, args.height, args.dpi)
         if args.legacy_epub:
             epub_cases(root)
-        if args.file_manager or args.reader_history:
+        if args.file_manager or args.reader_history or args.metadata_preview:
             filemanager_seed(root)
         (root / 'xdg').mkdir(mode=0o700)
         thread = threading.Thread(target=server.serve_forever, daemon=True)
@@ -147,9 +149,9 @@ def main():
                            XDG_RUNTIME_DIR=str(root / 'xdg'), EMULATE_READER='1', EMULATE_BW_SCREEN='1',
                            EMULATE_BB_TYPE='BB8', EMULATE_READER_W=str(args.width),
                            EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
-        probe = REPO / ('spec/koreader/mp_legacy_metadata.lua' if args.legacy_shared or args.record_recovery or args.legacy_title or args.legacy_epub or args.file_manager or args.reader_history else 'spec/koreader/mp_metadata_migration.lua')
-        phases = ('reader', 'reader-reopen') if args.reader_history else ('manager', 'manager-reopen') if args.file_manager else ('epub', 'epub-reopen') if args.legacy_epub else ('title', 'title-reopen') if args.legacy_title else ('product', 'product-reopen') if args.record_recovery else ('recover', 'reopen') if args.legacy_shared else ('migrate', 'reopen')
-        prefix = 'mp-reader-' if args.reader_history else 'mp-manager-' if args.file_manager else 'mp-epub-' if args.legacy_epub else 'mp-title-' if args.legacy_title else 'mp-records-' if args.record_recovery else 'mp-legacy-' if args.legacy_shared else 'mp-metadata-'
+        probe = REPO / ('spec/koreader/mp_legacy_metadata.lua' if args.legacy_shared or args.record_recovery or args.legacy_title or args.legacy_epub or args.file_manager or args.reader_history or args.metadata_preview else 'spec/koreader/mp_metadata_migration.lua')
+        phases = ('preview','preview-reopen') if args.metadata_preview else ('reader', 'reader-reopen') if args.reader_history else ('manager', 'manager-reopen') if args.file_manager else ('epub', 'epub-reopen') if args.legacy_epub else ('title', 'title-reopen') if args.legacy_title else ('product', 'product-reopen') if args.record_recovery else ('recover', 'reopen') if args.legacy_shared else ('migrate', 'reopen')
+        prefix = 'mp-preview-' if args.metadata_preview else 'mp-reader-' if args.reader_history else 'mp-manager-' if args.file_manager else 'mp-epub-' if args.legacy_epub else 'mp-title-' if args.legacy_title else 'mp-records-' if args.record_recovery else 'mp-legacy-' if args.legacy_shared else 'mp-metadata-'
         for phase in phases:
             log = root / 'evidence' / (prefix + phase + '.log')
             with log.open('w') as output:
