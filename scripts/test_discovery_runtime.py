@@ -29,6 +29,7 @@ def main():
     parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
     parser.add_argument("--progress-response", action="store_true", help="Reject foreign/malformed sync responses in the reading flow")
     parser.add_argument('--progress-confirmation', action='store_true', help='Exercise delayed and unconfirmed position write receipts')
+    parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
@@ -40,6 +41,7 @@ def main():
         parser.error("--progress-response requires --reading-flow")
     if args.progress_confirmation and not args.reading_flow:
         parser.error('--progress-confirmation requires --reading-flow')
+    if args.owner_roundtrip and not args.reading_flow:parser.error('--owner-roundtrip requires --reading-flow')
     if args.footnotes and args.reading_flow:
         parser.error("--footnotes and --reading-flow use separate fixtures")
     if args.cached_resume and (args.footnotes or args.reading_flow):
@@ -82,6 +84,20 @@ def main():
     if args.progress_response:
         environment["WEREAD_TEST_PROGRESS_RESPONSE"] = "1"
     if args.progress_confirmation: environment['WEREAD_TEST_PROGRESS_CONFIRMATION'] = '1'
+    if args.owner_roundtrip:
+        from mock_weread import chapter_html
+        from verify_source_coordinates import FilteredSource
+        from verify_position_roundtrip import prepare_plan
+        raw=chapter_html(2);co=FilteredSource(raw).starts[30]
+        point=dict(chapterUid=2,chapterIdx=2,chapterOffset=co,progress=37,summary='synthetic')
+        plan=prepare_plan(BOOK_ID,dict(book=point),dict(book_id=BOOK_ID,psvts='synthetic',pclts='synthetic-pc',progress=dict(book=point)),raw)
+        assert plan['target'] is not None
+        server.roundtrip_seed=point.copy();server.progress[BOOK_ID]=point.copy()
+        private=dict(vid='900000',book_id=BOOK_ID,chapter_uid='2',source_format='web_xhtml',source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest(),
+                     progress_roundtrip={k:plan[k] for k in ('baseline','target')})
+        private['progress_roundtrip'].update(permit_writes=True,intent_digest='a'*64)
+        fixture=root/'evidence/synthetic-roundtrip-input.json';fixture.write_text(json.dumps(private))
+        environment['WEREAD_TEST_OWNER_ROUNDTRIP']=str(fixture)
     try:
         with (root / "evidence/runtime.log").open("w") as log:
             fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"

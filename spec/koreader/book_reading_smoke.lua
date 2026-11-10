@@ -310,6 +310,10 @@ if os.getenv("WEREAD_TEST_PROGRESS_RESPONSE") == "1" then
         local_checkpoint_preserved=true,native_location_preserved=true,reporting_blocked=true,
         read_report_context_checked=true}));output:close()
 end
+if os.getenv("WEREAD_TEST_OWNER_ROUNDTRIP") then
+    dofile(debug.getinfo(1,"S").source:match("^@(.*/)") .. "owner_progress_roundtrip_smoke.lua")(
+        reader,current,pump,clean_popups)
+end
 assert(current:onWeReadSyncProgress(), "reader sync action failed")
 pump(function() return not current.progress_sync.pulling end)
 local choice = UI:getTopmostVisibleWidget()

@@ -73,8 +73,8 @@ def decode(raw, owner, *, mode=None, full_chapters=1):
     return value
 
 
-def compare(records, plan, started_at, finished_at):
-    if len(records) != 4: raise ValueError('progress_preview_payload_count')
+def compare(records, plan, started_at, finished_at, *, allow_partial=False):
+    if len(records)>4 or not allow_partial and len(records)!=4: raise ValueError('progress_preview_payload_count')
     for stage,record in zip(WRITE_ORDER,records):
         if record['stage'] != stage:raise ValueError('progress_preview_order')
         body,context=record['body'],record['context']

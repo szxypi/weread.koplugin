@@ -74,9 +74,29 @@ class MockTests(unittest.TestCase):
         return self.request("/api/agent/gateway", dict(api_name=api, **params))
 
     def setUp(self):
+        self.server.roundtrip_seed=None
         self.request("/__control", dict(delay=0, match="", status=503, times=0,skip=0,native_annotation_many=False,
                                         empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
-                                        progress_response="plain",progress_confirmation="plain"))
+                                        progress_response="plain",progress_confirmation="plain",progress_roundtrip_mode="plain"))
+
+    def test_roundtrip_faults_apply_a_known_probe_but_lose_only_its_acknowledgement(self):
+        self.server.roundtrip_seed=dict(chapterUid=2,chapterIdx=2,chapterOffset=170,progress=37)
+        for mode,expected in (('plain',[170,170,171,170]),('probe-noack',[170,170,171,170]),
+                              ('restore-noack',[170,170,171,170]),('concurrent',[170,170,188,170])):
+            self.assertEqual(self.request('/__control',dict(progress_roundtrip_mode=mode))[0],200)
+            seen=[]
+            for index,co in enumerate((170,170,171,170)):
+                wire=dict(b=weread_e(BOOK_ID),c=weread_e(2),ci=2,co=co,pr=37)
+                if index:wire['rt']=0
+                status,result=self.server.route('POST','https://weread.qq.com/web/book/read',wire)
+                self.assertEqual(status,200)
+                self.assertEqual(result,{} if (mode=='probe-noack' and index==2 or mode=='restore-noack' and index==3) else dict(succ=1))
+                seen.append(self.server.get_progress(BOOK_ID)['book']['chapterOffset'])
+            self.assertEqual(seen,expected)
+
+    def test_roundtrip_faults_need_an_explicit_synthetic_fixture(self):
+        self.assertEqual(self.request('/__control',dict(progress_roundtrip_mode='probe-noack'))[0],400)
+        self.assertEqual(self.request('/__control',dict(progress_roundtrip_mode='unknown'))[0],400)
 
     def test_progress_confirmation_faults_apply_only_after_report_and_only_on_web(self):
         wire=dict(b=weread_e(BOOK_ID),c=weread_e(2),ci=2,co=10,pr=25)

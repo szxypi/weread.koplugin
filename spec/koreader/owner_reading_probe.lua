@@ -85,7 +85,7 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
-        if full or input.annotations or input.progress_preview then
+        if full or input.annotations or input.progress_preview or input.progress_roundtrip then
             local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
@@ -104,6 +104,10 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         progress_case=dofile(arg[2])(input,counters)
         report.progress_preview=progress_case.report
+    elseif input.progress_roundtrip then
+        assert(not full and arg[2])
+        progress_case=dofile(arg[2])(input,counters)
+        report.progress_roundtrip=progress_case.report
     else assert(not arg[2]) end
     local Protocol=require('weread.lib.protocol')
     local Cookie=require('weread.lib.cookie')
@@ -178,6 +182,10 @@ local ok,reason=pcall(function()
         if options.method=='GET' and not options.body then
             if options.url=='https://weread.qq.com/web/shelf/sync' then return 1 end
             if progress_urls[options.url] then return 2 end
+            if input.progress_roundtrip and options.sensitive == true then
+                local id, stamp=options.url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=([1-9]%d*)&_=(%d+)$')
+                if id==input.book_id and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 then return 2 end
+            end
             if options.url==root_url or chapter_urls[options.url] then return 3 end
         elseif options.method=='POST' and type(options.body)=='string' and #options.body<=16384 then
             local decoded,payload=pcall(json.decode,options.body)
@@ -235,7 +243,10 @@ local ok,reason=pcall(function()
     end
     report.transport_guard_selftest=true
     function Client:request(options)
-        if progress_case and progress_case:is_write(options) then return progress_case:request(self,options) end
+        if progress_case and progress_case:is_write(options) then
+            if input.progress_roundtrip then return progress_case:request(self,options,request) end
+            return progress_case:request(self,options)
+        end
         if annotation_case and annotation_case:is_native(options) then
             return annotation_case:request(self,options,request)
         end
@@ -392,6 +403,7 @@ local ok,reason=pcall(function()
             assert(socket.gettime()<deadline);tick();socket.sleep(.01)
         end
     end
+    if progress_case and input.progress_roundtrip then progress_case:install_guard() end
     FM:showFiles(home);plugin=assert(FM.instance.weread)
     local host=plugin
     report.phase='shelf'

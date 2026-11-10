@@ -179,9 +179,11 @@ class MockServer(ThreadingHTTPServer):
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
-                            progress_response="plain", progress_confirmation="plain")
+                            progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain")
         self.progress_confirmation_book = None
         self.progress_confirmation_reads = 0
+        self.roundtrip_seed = None
+        self.roundtrip_posts = 0
         self.web_renewal_posts = 0
         self.content_format = 'epub'
 
@@ -479,9 +481,17 @@ class MockServer(ThreadingHTTPServer):
             with self.lock:
                 self.progress[book_id] = dict(chapterUid=uid, chapterIdx=data["ci"],
                                               chapterOffset=data["co"], progress=data["pr"], summary=data.get("sm", ""))
+                if self.roundtrip_seed is not None:
+                    self.roundtrip_posts += 1
+                    roundtrip_stage = self.roundtrip_posts
+                    if control['progress_roundtrip_mode']=='concurrent' and roundtrip_stage==3:
+                        self.progress[book_id]['chapterOffset'] += 17
+                else:roundtrip_stage=0
                 if 'rt' in data and control['progress_confirmation'] != 'plain':
                     self.progress_confirmation_book, self.progress_confirmation_reads = book_id, 0
             if 'rt' in data and control['progress_confirmation'] == 'noack': return 200, {}
+            if ((control['progress_roundtrip_mode']=='probe-noack' and roundtrip_stage==3)
+                    or (control['progress_roundtrip_mode']=='restore-noack' and roundtrip_stage==4)):return 200,{}
             return 200, dict(succ=1)
         if path in {"/mock/cover.png", "/mock/illustration.png"} and method == "GET":
             return 200, png()
@@ -604,6 +614,10 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("invalid progress response mode")
             if candidate['progress_confirmation'] not in {'plain','delayed','stale','noack'}:
                 raise ValueError('invalid progress confirmation mode')
+            if candidate['progress_roundtrip_mode'] not in {'plain','probe-noack','restore-noack','concurrent'}:
+                raise ValueError('invalid progress roundtrip mode')
+            if candidate['progress_roundtrip_mode']!='plain' and self.server.roundtrip_seed is None:
+                raise ValueError('roundtrip fixture not enabled')
             if type(candidate["mp_article_version"]) is not int or not 1 <= candidate["mp_article_version"] <= 100:
                 raise ValueError("invalid MP article version")
             for key in ("empty_shelf", "empty_annotations", "native_annotation_many"):
@@ -612,6 +626,9 @@ class Handler(BaseHTTPRequestHandler):
             self.server.control = candidate
             if 'progress_confirmation' in data:
                 self.server.progress_confirmation_book, self.server.progress_confirmation_reads = None, 0
+            if 'progress_roundtrip_mode' in data:
+                self.server.roundtrip_posts=0
+                if self.server.roundtrip_seed is not None:self.server.progress[BOOK_ID]=self.server.roundtrip_seed.copy()
 
 
 def prepare(run_dir, runtime, port, width=600, height=800, dpi=167):

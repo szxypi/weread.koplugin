@@ -116,8 +116,8 @@ DOM 锚点往返、锚点在当前页可见，以及仍为只读的保留目标�
 结果见[原生禁止发送预演](validation-assets/2026-11-10/owner-progress-upload-preview.json)。
 
 真实插件位置写入仍未执行，不能用这次合成回执／禁止发送的结果替代写后回读。
-此前四请求实验授权已使用；下一次真实实验还需完成独立的持久意图、发送上限及异常恢复入口，
-形成可复核的限定方案后再确认。通用原文上传、TXT 云端语义、多设备及实体 KO2 验收仍待完成。
+此前四请求实验授权已使用；该预演提交尚无持久实验入口，后续实现见下节。
+通用原文上传、TXT 云端语义、多设备及实体 KO2 验收仍待完成。
 
 ```sh
 python3 scripts/verify_owner_progress_preview.py
@@ -132,4 +132,63 @@ python3 scripts/verify_owner_progress_preview.py --saved-session --lua-command \
   python3 /source/scripts/run_owner_reading_probe.py \
   --koreader /validation/runtime/lib/koreader --candidate /validation/owner-progress-preview-candidate.zip \
   --progress-preview
+```
+
+## 限定原生实验执行器：已准备，尚未真实发送
+
+`verify_owner_progress_roundtrip.py` 新增独立入口，复用同书／章／原文预检及实际原生阅读主流程。
+默认离线；`--saved-session` 只准备本机私有计划指纹，不启动实验、不创建意图。
+`--check-only` 进入真实阅读器、核对两处精确原文锚点并生成第一份进入阅读请求，
+在实际传输前因未开启写入而停止。它没有合成成功回执，不能证明写入或服务端确认。
+
+真实执行须另有本次明确许可，并同时提供 `--apply`、`--expected-plan` 与专用 `--progress-roundtrip` 子进程。
+计划绑定账号、书、章 UID／序号、原偏移／相邻一字、原百分比及原文／摘要哈希；改变即停止，不能自动换书或偏移。
+启动子进程前，在独立的临时钥匙串操作条目保存并回读本次随机意图，保留原有两份登录条目。
+新条目仅含上述坐标、哈希、范围和时间，没有凭据、书名、正文或请求体。
+已有待确认意图阻止再次实验；保存或清理的读回失败明确报告状态未知，不能称为已清除。
+
+实际 `ReadReport:upload_position` 服务负责进入阅读、同位置、一字前进及条件恢复，最多四次进度 POST。
+同位置／探测／恢复均为零时长；不混用周期性时长的刷新或重发路径。
+每次发送前独立读取同书进度，核对账号、ReaderUI 实例和原文快照，再次检查新鲜签名与完整字段。
+进入／同位置／探测均要求当前位置仍为原位；恢复只允许在本次探测 UID／序号／偏移上执行一次。
+HTTP 结果不明仍占用名额，不重发、不续期、不产生第五次请求；无关位置保持原状。
+
+恢复坐标与“可以解除待确认意图”分别记录：从未观察到探测生效、未知发送状态、
+不完整原始元数据或丢失私有结果都保留标记，不因看到原位就假定迟到请求不会再生效。
+只有受保护的零发送证据，或已观察探测并完成四个 HTTP 200 请求、Lua 恢复核对与宿主独立原位置核对，
+才可清除属于本次的标记。缺少明确回执即使已证实恢复，实验仍不报告上传成功。
+私有回执绑定本次随机意图；宿主还独立比较每份实际派发载荷及时间窗口，旧结果不能用于解除新意图。
+进度读取不是服务端原子比较交换；断网／断电、强制结束及其他设备恰好写入相同坐标仍有局限。
+最近阅读时间、摘要和历史可能更新，不能保证恢复这些元数据；本实验不独立审计服务端时长统计。
+
+两尺寸最终合成回归均覆盖正常、探测回执缺失、恢复回执缺失、探测被拒绝和其他设备位置变化。
+后两种保留未确认状态且不额外恢复；前两种回执缺失即使恢复完成也不冒充成功。
+真实账号 600×800 的关闭写入检查通过：原文目标及本机恢复、凭据文件审计、工作进程回收和 tmpfs 清理均通过；
+宿主独立读回原位置，真实进度／授权 POST／合成回执／私人截图均为零。
+原生实验阶段的 `UNVERIFIED` 是预期停止状态，宿主只报告 `OWNER_NATIVE_EXECUTOR_DISARMED_VERIFIED`。
+另以合成坐标在实际 macOS 钥匙串完成保存、跨实例读回、重复实验阻止和所有权清理，
+两份原始 Web／墨水屏授权条目逐字节未变。没有对真实账号运行 `--apply`。
+
+新增 32 项 Lua 守卫、14 项 Python 执行器及 6 项持久意图检查；完整 167 组 Lua／552 项 Python 通过。
+438 个静态文件零错误／警告，440 个 Lua 语法文件、命名空间、Python 编译及四时区通过。
+两个尺寸各 189 个生产文件与源码、包及安装目录逐字节一致，ZIP CRC 与重绘检查通过。
+生产代码仍与 `b000b0f` 相同，通用采集器的原文上传门保持关闭。
+固定字段、工具哈希和限定范围见[执行器准备证据](validation-assets/2026-11-10/owner-native-executor-ready.json)，
+不公开真实计划指纹。新的实际插件写后回读等待本次独立许可，不复用已完成的 Python 实验许可。
+
+```sh
+python3 scripts/verify_owner_progress_roundtrip.py
+python3 scripts/verify_owner_progress_roundtrip.py --saved-session
+python3 scripts/test_owner_progress_roundtrip.py
+python3 scripts/test_secure_position_experiment.py
+```
+
+关闭写入的原生检查：
+
+```sh
+python3 scripts/verify_owner_progress_roundtrip.py --saved-session --check-only --lua-command \
+  docker exec -i -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
+  python3 /source/scripts/run_owner_reading_probe.py \
+  --koreader /validation/runtime/lib/koreader --candidate /validation/owner-progress-preview-candidate.zip \
+  --progress-roundtrip
 ```

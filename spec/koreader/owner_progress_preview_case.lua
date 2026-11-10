@@ -26,7 +26,7 @@ return function(input, counters)
         error("progress preview scope rejected", 0)
     end
     function case:is_write(options) return options.url == "https://weread.qq.com/web/book/read" end
-    function case:request(client, options)
+    function case:validate_request(client, options)
         local h = options.headers or {}
         local index = #self.records + 1
         local stage = stages[index]
@@ -57,8 +57,11 @@ return function(input, counters)
         if not enter and (body.rt ~= 0 or type(body.ts) ~= "number" or body.ts % 1 ~= 0 or math.floor(body.ts / 1000) ~= body.ct
             or type(body.rn) ~= "number" or body.rn % 1 ~= 0 or body.rn < 0 or body.rn > 999
             or body.sg ~= Crypto.sha256_hex(tostring(body.ts) .. tostring(body.rn) .. token)) then return reject() end
-        self.records[#self.records + 1] = { stage = stage, body = body,
-            context = { psvts = book.psvts, pclts = book.pclts, token = token } }
+        return { stage = stage, body = body, context = { psvts = book.psvts, pclts = book.pclts, token = token } }, enter
+    end
+    function case:request(client, options)
+        local record, enter = self:validate_request(client, options)
+        self.records[#self.records + 1] = record
         self.report.captured_requests = #self.records
         if enter then
             self.report.synthetic_enter_acknowledgements = self.report.synthetic_enter_acknowledgements + 1
@@ -66,7 +69,7 @@ return function(input, counters)
         end
         error("progress preview dispatch disabled", 0)
     end
-    function case:run(plugin, reader, pump, source_index, origin)
+    function case:source_navigator(plugin, reader, pump, source_index)
         local Source = require("weread.lib.position_source")
         local snapshot = assert(Source.document_metadata(reader.document, input.book_id, input.chapter_uid))
         assert(snapshot.record.format == "web_xhtml" and snapshot.record.raw_sha256 == input.source_raw_sha256)
@@ -85,6 +88,10 @@ return function(input, counters)
             assert(actual.co == p.chapter_offset and retained.chapter_offset == p.chapter_offset and retained.upload_verified == false)
             return source_index:capture(reader.document:getXPointer())
         end
+        return navigate,snapshot
+    end
+    function case:run(plugin, reader, pump, source_index, origin)
+        local navigate = self:source_navigator(plugin,reader,pump,source_index)
         local unconfirmed = 0
         for index, p in ipairs({ baseline, target, baseline }) do
             local page_start = navigate(p)
