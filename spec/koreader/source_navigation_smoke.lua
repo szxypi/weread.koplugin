@@ -1,5 +1,5 @@
 -- Called from the live ReaderUI fixture; all books/accounts are synthetic.
-return function(reader,plugin,pump,evidence)
+return function(reader,plugin,pump,evidence,check_candidate)
     local Source=require('weread.lib.position_source')
     local Dom=require('weread.lib.source_dom')
     local Context=require('weread.lib.source_context')
@@ -54,6 +54,7 @@ return function(reader,plugin,pump,evidence)
     assert(plugin.progress_sync.verified==was_verified and not result.upload_verified,'local source jump granted upload rights')
     local held=assert(plugin.source_position:current())
     assert(held.retained_source_target and held.chapter_offset==point.co,'page origin replaced exact source target')
+    if check_candidate then check_candidate(held) end
     local viewport=assert(Context.location(doc,reader.view.view_mode))
     local page_origin=assert(reference:capture(viewport.xpointer))
     assert(page_origin.co~=point.co,'fixture did not exercise a mid-page target')
@@ -73,6 +74,7 @@ return function(reader,plugin,pump,evidence)
     end)
     assert(doc:getPageCount()~=pages,'native font change did not repaginate')
     assert(assert(plugin.source_position:current()).chapter_offset==point.co,'reflow lost exact source target')
+    if check_candidate then check_candidate(assert(plugin.source_position:current())) end
     local pages_after=doc:getPageCount()
     reader:handleEvent(Event:new('SetViewMode','scroll'))
     pump(function()
@@ -80,6 +82,7 @@ return function(reader,plugin,pump,evidence)
         return position and not (plugin.progress_sync.source_anchor and plugin.progress_sync.source_anchor.reflow_pending)
     end)
     assert(assert(plugin.source_position:current()).chapter_offset==point.co,'mode switch lost exact source target')
+    if check_candidate then check_candidate(assert(plugin.source_position:current())) end
     -- A same-line jump changes the native logical marker even if page and
     -- scroll coordinates remain unchanged. Never revive the retained target.
     local adjacent=assert(doc:getNextVisibleChar(expected.xpointer))

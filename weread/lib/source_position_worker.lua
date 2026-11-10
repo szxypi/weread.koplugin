@@ -1,6 +1,7 @@
 -- Pure source-position work plus independent bounded archive I/O. No native
 -- document, UI, network or settings writes. Capture results are metadata-only;
 -- target preparation returns one bounded quote transiently through the pipe.
+-- Upload preparation returns a separate, transient twenty-scalar summary.
 local Archive = require('weread.lib.source_archive')
 local Coordinates = require('weread.lib.source_coordinates')
 local Dom = require('weread.lib.source_dom')
@@ -96,22 +97,45 @@ end
 
 -- Navigation needs one bounded quote in the memory pipe, never an entire
 -- source chapter. It stays transient and must be checked against the live DOM.
+local function target_source(input,read_archive)
+    local target = type(input) == 'table' and input.target
+    if type(target) ~= 'table' or not Source.is_coordinate_basis(target.basis)
+        or target.upload_verified ~= false or type(target.chapter_offset) ~= 'number'
+        or target.chapter_offset < 0 or target.chapter_offset % 1 ~= 0
+        or target.chapter_offset > Source.MAX_BYTES * 8 then return {error='target_invalid'} end
+    local prepared, why = verified_source(input, read_archive)
+    if not prepared then return {error=why} end
+    if target.basis ~= prepared.map.basis then return {error='target_changed'} end
+    for _i, key in ipairs({'book_id','chapter_uid','file_id','book_version','raw_sha256','render_path'}) do
+        if target[key] ~= prepared.record[key] then return {error='target_changed'} end
+    end
+    return prepared,target
+end
 function M.prepare_target(input, read_archive)
     local ok, result = pcall(function()
-        local target = type(input) == 'table' and input.target
-        if type(target) ~= 'table' or not Source.is_coordinate_basis(target.basis)
-            or target.upload_verified ~= false or type(target.chapter_offset) ~= 'number'
-            or target.chapter_offset < 0 or target.chapter_offset % 1 ~= 0
-            or target.chapter_offset > Source.MAX_BYTES * 8 then return {error='target_invalid'} end
-        local prepared, why = verified_source(input, read_archive)
-        if not prepared then return {error=why} end
-        if target.basis ~= prepared.map.basis then return {error='target_changed'} end
-        for _, key in ipairs({'book_id','chapter_uid','file_id','book_version','raw_sha256','render_path'}) do
-            if target[key] ~= prepared.record[key] then return {error='target_changed'} end
-        end
+        local prepared,target=target_source(input,read_archive)
+        if not target then return prepared end
         local anchor = prepared.map:anchor(target.chapter_offset)
         if not anchor or #anchor.text > M.MAX_CONTEXT_BYTES then return {error='target_unavailable'} end
         return {position=position(prepared, target.chapter_offset), anchor=anchor, request_id=input.request_id}
+    end)
+    return ok and result or {error='position_unavailable'}
+end
+
+function M.prepare_upload(input,read_archive)
+    local ok,result=pcall(function()
+        local prepared,target=target_source(input,read_archive)
+        if not target then return prepared end
+        if prepared.record.format~='web_xhtml' then return {error='source_unsupported'} end
+        local anchor=prepared.map:anchor(target.chapter_offset)
+        if not anchor then return {error='target_unavailable'} end
+        local chars,summary={},{}
+        for char in anchor.text:gmatch('[%z\1-\127\194-\244][\128-\191]*') do chars[#chars+1]=char end
+        for index=anchor.point_offset+1,math.min(#chars,anchor.point_offset+20) do summary[#summary+1]=chars[index] end
+        local point=position(prepared,target.chapter_offset)
+        local candidate,why=require('weread.lib.source_upload_candidate').project(point,table.concat(summary),input.chapters,input.percent)
+        if not candidate then return {error=why} end
+        return {request_id=input.request_id,position=point,candidate=candidate}
     end)
     return ok and result or {error='position_unavailable'}
 end

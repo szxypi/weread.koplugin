@@ -77,6 +77,7 @@ expect(txt_result.position.basis=='raw_txt_utf16' and txt_result.position.upload
 txt_input.target=copy(txt_result.position)
 local txt_prepared=Worker.prepare_target(txt_input,function() return txt_members end)
 expect(txt_prepared.anchor and txt_prepared.anchor.basis=='raw_txt_utf16','TXT reverse target was not prepared')
+expect(Worker.prepare_upload(txt_input,function() return txt_members end).error=='source_unsupported','TXT acquired unverified cloud upload semantics')
 txt_input.target.basis='filtered_xhtml_utf16'
 expect(Worker.prepare_target(txt_input,function() return txt_members end).error=='target_changed','XHTML target used TXT bytes')
 local changed_txt=copy(txt_members);changed_txt[Source.raw_path(txt.raw_sha256)]=plain..'changed'

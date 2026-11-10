@@ -121,8 +121,49 @@ local function dismiss_info()
     local top=stack[#stack]
     if top and getmetatable(top.widget)==require('ui/widget/infomessage') then UIManager:close(top.widget) end
 end
+local candidate_count,held_candidate_count,candidate_summaries=0,0,{}
+local function check_upload_candidate(position)
+    local value,reason,done
+    local legacy=assert(plugin.progress_sync:capture_local())
+    service:prepare_upload_preview(function(candidate,why) value,reason,done=candidate,why,true end)
+    pump_until(function() return done end)
+    if source_format=='web_txt' then
+        assert(not value and reason=='source_unsupported','TXT acquired unverified cloud semantics')
+        return
+    end
+    assert(value and not reason,'upload candidate unavailable: '..tostring(reason))
+    assert(value.book_id==position.book_id and value.chapter_uid==position.chapter_uid
+        and value.chapter_offset==position.chapter_offset and value.percent==legacy.percent
+        and value.upload_verified==false,'candidate mixed source/word/display units')
+    local expected_index
+    for _i,chapter in ipairs(chapters) do
+        if tostring(chapter.chapterUid)==value.chapter_uid then expected_index=chapter.chapterIdx end
+    end
+    assert(value.chapter_idx==expected_index,'candidate guessed current chapter from whole-book fraction')
+    local index=assert(Dom.open(doc,position.book_id,position.chapter_uid))
+    local target=assert(index:locate(value.chapter_offset))
+    local ending=target.xpointer
+    for _i=1,80 do
+        local next_point=doc:getNextVisibleChar(ending)
+        if not next_point or Dom.fragment(next_point)~=Dom.fragment(target.xpointer) then break end
+        ending=next_point
+    end
+    local actual=assert(Dom.normalize(doc:getTextFromXPointers(target.xpointer,ending)))
+    doc:clearSelection()
+    local chars={}
+    for char in actual:gmatch('[%z\1-\127\194-\244][\128-\191]*') do
+        if #chars==20 then break end
+        chars[#chars+1]=char
+    end
+    assert(value.summary==table.concat(chars),'source summary differs from actual native DOM text')
+    assert(not service:current().summary and not service:current().candidate,'candidate leaked into local checkpoint')
+    assert(plugin.progress_sync:capture_local().chapter_offset==legacy.chapter_offset,'preview changed ordinary upload units')
+    candidate_count=candidate_count+1;candidate_summaries[#candidate_summaries+1]=value.summary
+    if position.retained_source_target then held_candidate_count=held_candidate_count+1 end
+end
 open(path)
 local initial=ready();assert_reference(initial)
+check_upload_candidate(initial)
 assert(initial.book_version==7 and initial.book_id=='900001','initial source scope')
 assert(initial.chapter_title=='第一章','chapter title was not read from the verified file')
 assert(plugin.progress_sync:status().source_position.chapter_offset==initial.chapter_offset,'production sync status lacks local source position')
@@ -141,6 +182,18 @@ pump_until(function()
 end)
 UIManager:forceRePaint();Device.screen:shot(evidence..'/source-state-ready.png')
 assert(plugin._source_position_message,'source dialog was not tracked')
+local deferred_preview_cancelled
+do
+    local capture=WorkerTask.capture
+    WorkerTask.capture=function(input) socket.sleep(0.8);return capture(input) end
+    service:on_view_changed(true)
+    local cancelled_callback=false
+    service:prepare_upload_preview(function() cancelled_callback=true end)
+    service:cancel_upload_preview()
+    ready();WorkerTask.capture=capture
+    assert(not cancelled_callback and not service.preview_job,'cancelled preview resumed after deferred capture')
+    deferred_preview_cancelled=true
+end
 -- A confirmed live child remains responsive to a real native page event.
 local original_capture=WorkerTask.capture
 WorkerTask.capture=function(input) socket.sleep(0.8);return original_capture(input) end
@@ -152,12 +205,50 @@ local old_pid=service.worker.job.pid
 reader.rolling:onGotoPage(2)
 WorkerTask.capture=original_capture
 local after_turn=ready();assert_reference(after_turn)
+check_upload_candidate(after_turn)
 assert(after_turn.chapter_offset~=initial.chapter_offset,'real page turn retained old position')
 pump_until(function() return util.isSubProcessDone(old_pid) end)
+local preview_cancelled=false
+local preview_catalog_change_rejected=false
+if source_format=='web_xhtml' then
+    local original_preview=WorkerTask.prepare_upload
+    WorkerTask.prepare_upload=function(input) socket.sleep(0.8);return original_preview(input) end
+    local stale_callback=false
+    service:prepare_upload_preview(function() stale_callback=true end)
+    pump_until(function() return service.preview_worker and service.preview_worker.job end)
+    local preview_pid=service.preview_worker.job.pid
+    reader.rolling:onGotoPage(3)
+    WorkerTask.prepare_upload=original_preview
+    local moved=ready();assert_reference(moved);check_upload_candidate(moved)
+    pump_until(function() return util.isSubProcessDone(preview_pid) end)
+    assert(not stale_callback and not service.preview_job,'old preview committed after a real page turn')
+    preview_cancelled=true
+    -- A normal sync frame caches its catalog. Preview completion must consult
+    -- the currently persisted catalog rather than that older in-memory frame.
+    local live=assert(service.get_upload_context())
+    local catalog=assert(plugin.library_db:getChapters(live.book_id))
+    local changed={}
+    for _i,row in ipairs(catalog) do
+        local copy={};for key,item in pairs(row) do copy[key]=item end
+        if tostring(copy.chapterUid)==service:current().chapter_uid then copy.chapterIdx=copy.chapterIdx+100 end
+        changed[#changed+1]=copy
+    end
+    local rejected,completed
+    WorkerTask.prepare_upload=function(input) socket.sleep(0.8);return original_preview(input) end
+    service:prepare_upload_preview(function(value) rejected,completed=value==nil,true end)
+    pump_until(function() return service.preview_worker and service.preview_worker.job end)
+    assert(plugin.library_db:putChapters(live.book_id,changed))
+    pump_until(function() return completed end)
+    assert(plugin.library_db:putChapters(live.book_id,catalog))
+    WorkerTask.prepare_upload=original_preview
+    assert(rejected,'older sync catalog accepted a changed chapter index')
+    preview_catalog_change_rejected=true
+end
 -- Scroll movement is observed through PosUpdate, without reading a footer cache.
 reader:handleEvent(Event:new('SetViewMode','scroll'))
 reader.rolling:onGotoPercent(35)
 local scrolled=ready();assert_reference(scrolled)
+check_upload_candidate(scrolled)
 reader.view.footer.percent_finished=0.99
 assert(service:current().chapter_offset==scrolled.chapter_offset,'stale footer changed source position')
 -- Account change cancels a live source worker and prepares a separate owner.
@@ -185,7 +276,8 @@ assert(not (service.worker and service.worker.job),'low memory spawned source wo
 plugin.prefetch_worker.availableMemoryKB=memory
 ready()
 local fixture_dir=debug.getinfo(1,'S').source:match('^@(.*/)')
-dofile(fixture_dir..'source_navigation_smoke.lua')(reader,plugin,pump_until,evidence)
+dofile(fixture_dir..'source_navigation_smoke.lua')(reader,plugin,pump_until,evidence,check_upload_candidate)
+check_upload_candidate(ready())
 -- Replacing the active pathname cannot relabel an old open reader as version 8.
 WorkerTask.capture=function(input) socket.sleep(0.8);return original_capture(input) end
 service:on_view_changed(true)
@@ -201,6 +293,7 @@ local old_service=service
 reader:onClose()
 open(path)
 local reopened=ready();assert_reference(reopened)
+check_upload_candidate(reopened)
 assert(reopened.book_version==8 and not old_service:current(),'reopening did not bind new file')
 -- An independent target-preparation child also dies when the reader closes;
 -- reopening the same pathname cannot revive its deferred native navigation.
@@ -223,6 +316,7 @@ old_pid=service.worker.job.pid;old_service=service
 reader:onClose();WorkerTask.capture=original_capture
 open(other_path)
 local next_book=ready();assert_reference(next_book)
+check_upload_candidate(next_book)
 assert(next_book.book_id=='900002' and not old_service:current(),'book switch retained old result')
 pump_until(function() return util.isSubProcessDone(old_pid) end)
 local result={status='PARTIAL',public_network_used=false,production_account_writes_attempted=0,
@@ -232,12 +326,22 @@ local result={status='PARTIAL',public_network_used=false,production_account_writ
     suspend_resume_callbacks=true,low_memory_recovery=true,same_path_replacement=true,reopen_version=8,
     verified_file_chapter_title=true,stale_dialog_closed=true,
     source_navigation=true,source_navigation_close_reopen=true,
+    source_upload_candidates=candidate_count,source_upload_summary_native_dom_verified=source_format=='web_xhtml',
+    source_upload_retained_target_candidates=held_candidate_count,
+    source_upload_preview_child_cancelled_and_reaped=preview_cancelled,
+    source_upload_preview_deferred_cancellation=deferred_preview_cancelled,
+    source_upload_preview_current_catalog_rechecked=preview_catalog_change_rejected,
+    txt_upload_preview_rejected=source_format=='web_txt',
     book_switch=true,initial_co=initial.chapter_offset,page_two_co=after_turn.chapter_offset,
     screen={width=Device.screen:getWidth(),height=Device.screen:getHeight()}}
 reader:onClose()
 assert(not (service.worker and service.worker.job),'closed reader left a source worker')
+assert(not (service.preview_worker and service.preview_worker.job),'closed reader left a preview worker')
 local config=io.open(home..'/settings/weread.lua','rb')
-if config then local text=config:read('*a');config:close();assert(not text:find(canary,1,true),'source body persisted in settings') end
+if config then
+    local text=config:read('*a');config:close();assert(not text:find(canary,1,true),'source body persisted in settings')
+    for _i,summary in ipairs(candidate_summaries) do assert(not text:find(summary,1,true),'candidate summary persisted in settings') end
+end
 local file=assert(io.open(evidence..'/source-state.json','wb'));file:write(require('rapidjson').encode(result));file:close()
 UIManager:quit()
 print('PASS: production ReaderUI -> bounded native context -> independent archive worker -> current local position; stale scopes cancelled')

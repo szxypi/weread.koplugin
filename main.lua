@@ -145,6 +145,18 @@ function WeReadPlugin:init()
         get_account = function() return self.settings:get("account", {}).user_vid end,
         get_mode = function() return self.ui and self.ui.view and self.ui.view.view_mode end,
         get_retained = function() return self.progress_sync and self.progress_sync:current_source_target() end,
+        get_upload_context = function()
+            if not self.progress_sync then return nil end
+            local position, reason, context = self.progress_sync:capture_local()
+            if not position then return nil,reason end
+            local book = self.settings:get("books", {})[position.book_id]
+            if not book or not context then return nil end
+            local chapters
+            if self.library_db then chapters=self.library_db:getChapters(position.book_id)
+            else chapters=book.chapters end
+            return type(chapters)=="table" and #chapters>0
+                and {book_id=position.book_id,percent=position.percent,chapters=chapters} or nil
+        end,
         get_viewport_height = function() return self.progress_sync and self.progress_sync.get_viewport_height() end,
         is_busy = function()
             local highlight = self.ui and self.ui.highlight

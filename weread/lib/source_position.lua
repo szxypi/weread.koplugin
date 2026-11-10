@@ -4,6 +4,7 @@ local Context = require('weread.lib.source_context')
 local Identity = require('weread.lib.book_file_identity')
 local Source = require('weread.lib.position_source')
 local WorkerTask = require('weread.lib.source_position_worker')
+local Candidate = require('weread.lib.source_upload_candidate')
 local Service = {}
 Service.__index = Service
 local function clone(value)
@@ -21,6 +22,7 @@ function Service:new(options)
         end, can_prepare=options.can_prepare or function() return true end,
         is_busy=options.is_busy or function() return false end, on_change=options.on_change,
         get_retained=options.get_retained,
+        get_upload_context=options.get_upload_context,
         get_viewport_height=options.get_viewport_height,
         now=options.now or os.time, generation=0, sequence=0, state='idle', pauses={} },self)
 end
@@ -55,8 +57,57 @@ function Service:_invalidate(state)
     self.generation=self.generation+1
     if self.task then self.scheduler:unschedule(self.task); self.task=nil end
     if self.worker then self.worker:cancel() end
+    self:cancel_upload_preview()
     self.job,self.scope,self.result=nil,nil,nil
     self:_set(state or 'idle')
+end
+function Service:cancel_upload_preview()
+    self.preview_job,self.preview_token=nil,nil
+    if self.preview_worker then self.preview_worker:cancel() end
+end
+
+-- No network or persistence. The caller receives an immutable, unverified
+-- candidate only while the original native point and catalog still match.
+function Service:prepare_upload_preview(callback)
+    assert(type(callback)=='function')
+    self:cancel_upload_preview()
+    if not self.get_upload_context then callback(nil,'context_unavailable');return false end
+    local token={};self.preview_token=token
+    return self:check(function(point,reason)
+        if self.preview_token~=token then return end
+        if not point then callback(nil,reason);return end
+        if point.basis~='filtered_xhtml_utf16' then callback(nil,'source_unsupported');return end
+        if self.is_busy() or not self.can_prepare() then callback(nil,'resources_unavailable');return end
+        local context=self.get_upload_context()
+        local snapshot=Source.document_metadata(self.get_document(),point.book_id,point.chapter_uid,point.render_path)
+        local scope=self:_live()
+        if not context or context.book_id~=point.book_id or not snapshot or not scope then callback(nil,'context_unavailable');return end
+        scope.metadata,scope.render_path=snapshot.metadata,point.render_path
+        local input={file=scope.file,book_id=point.book_id,chapter_uid=point.chapter_uid,identity=snapshot.identity,
+            metadata=snapshot.metadata,render_path=point.render_path,target=clone(point),
+            chapters=clone(context.chapters),percent=context.percent}
+        self.sequence=self.sequence+1;input.request_id=self.sequence
+        local job={scope=scope,point=clone(point),request_id=input.request_id}
+        self.preview_job=job
+        self.preview_worker=self.preview_worker or self.make_worker()
+        local started=self.preview_worker:start(function() return WorkerTask.prepare_upload(input) end,function(result)
+            if self.preview_job~=job or self.preview_token~=token then return end
+            self.preview_job=nil
+            if not self:_current(scope) or self.is_busy() then return end
+            local current=self:current()
+            for _i,key in ipairs({'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}) do
+                if not current or current[key]~=job.point[key] then return end
+            end
+            local live=self.get_upload_context()
+            local candidate=type(result)=='table' and result.candidate
+            local expected=live and live.book_id==point.book_id and type(candidate)=='table'
+                and Candidate.project(current,candidate.summary,live.chapters,live.percent)
+            if type(result)=='table' and result.request_id==job.request_id and Candidate.same(expected,candidate) then
+                callback(clone(candidate))
+            else callback(nil,'candidate_unavailable') end
+        end)
+        if not started and self.preview_job==job then self.preview_job=nil;callback(nil,'worker_unavailable') end
+    end)
 end
 function Service:stop() self:_invalidate('idle') end
 function Service:pause(reason)
