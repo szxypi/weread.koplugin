@@ -3,6 +3,7 @@ from contextlib import redirect_stdout, redirect_stderr
 import copy
 import io
 import json
+from types import SimpleNamespace
 import unittest
 from unittest.mock import MagicMock, patch
 
@@ -58,6 +59,39 @@ class PositionRoundTripTests(unittest.TestCase):
                      ['--saved-session','--apply','--mode','probe'],
                      ['--saved-session','--apply','--mode','probe','--book-id','900001']):
             with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):task.main(args)
+        with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):task.main(['--lua-command','synthetic'])
+
+    def test_private_lua_model_compares_all_fields_without_any_http(self):
+        output=dict(stages=[dict(stage=stage,matches=True,mismatched_fields=[]) for stage in task.WRITE_ORDER],http_requests=0)
+        result=SimpleNamespace(returncode=0,stdout=b'\nWEREAD_POSITION_PAYLOAD_RESULT='+json.dumps(output).encode())
+        with patch.object(task.subprocess,'run',return_value=result) as child:
+            public=task.verify_lua_payloads(plan(),['synthetic'])
+        self.assertEqual(public,dict(lua_payload_model_verified=True,lua_payloads_compared=4,lua_http_requests=0))
+        private=json.loads(child.call_args.kwargs['input'])
+        self.assertEqual(len(private['samples']),4)
+        self.assertNotIn('cookies',private)
+        for sample in private['samples']:
+            self.assertIn('synthetic-ps',sample['options']['psvts'])
+            if sample['stage']!='write_enter':self.assertEqual(sample['expected']['rt'],0)
+        self.assertNotIn('synthetic-ps',json.dumps(public))
+
+    def test_lua_model_refuses_incomplete_or_mutated_contracts(self):
+        clean=dict(stages=[dict(stage=stage,matches=True,mismatched_fields=[]) for stage in task.WRITE_ORDER],http_requests=0)
+        invalid=[]
+        for key,value in [('http_requests',1),('http_requests',False),('stages',[]),('private','private-content')]:
+            item=copy.deepcopy(clean);item[key]=value;invalid.append(item)
+        item=copy.deepcopy(clean);item['stages'][1]['mismatched_fields']=['co'];invalid.append(item)
+        item=copy.deepcopy(clean);item['stages'][0]['matches']=1;invalid.append(item)
+        for output in invalid:
+            result=SimpleNamespace(returncode=0,stdout=b'\nWEREAD_POSITION_PAYLOAD_RESULT='+json.dumps(output).encode())
+            with self.subTest(kind=type(output)),patch.object(task.subprocess,'run',return_value=result),self.assertRaises(task.RoundTripError):
+                task.verify_lua_payloads(plan(),['synthetic'])
+
+    def test_lua_model_private_failure_output_is_not_in_diagnostics(self):
+        result=SimpleNamespace(returncode=1,stdout=b'private session value')
+        with patch.object(task.subprocess,'run',return_value=result),self.assertRaises(task.RoundTripError) as caught:
+            task.verify_lua_payloads(plan(),['synthetic'])
+        self.assertEqual(str(caught.exception),'roundtrip_lua_model_failed')
 
     def test_long_or_missing_summary_has_an_explicit_preview_change(self):
         value=plan(summary='a'*30)

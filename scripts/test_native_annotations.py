@@ -114,6 +114,34 @@ class NativeAnnotationsTests(unittest.TestCase):
         for value in (BOOK,'private thought','private source quote'):
             self.assertNotIn(value,json.dumps(result))
 
+    def test_all_batches_cover_every_range_once_and_keep_first_page_scope_explicit(self):
+        probe=native.AnnotationProbe()
+        rows=[dict(range=f'{index}-{index+1}') for index in range(61)]
+        catalog=dict(data=[dict(bookId=BOOK,book=dict(bookId=BOOK,format='epub'),updated=[dict(chapterUid=2,wordCount=500)])])
+        requests=[dict(books=[dict(bookId=BOOK)]),dict(bookId=BOOK),catalog,dict(underlines=rows)]
+        for start in (0,30,60):
+            requests.append(dict(reviews=[dict(range=row['range'],hasMore=1,pageReviews=[]) for row in rows[start:start+30]]))
+        with patch.object(probe,'request',side_effect=requests) as request,patch.object(native.time,'sleep') as pause:
+            report=probe.inspect({},all_batches=True)
+        self.assertEqual((request.call_count,pause.call_count),(7,3))
+        self.assertEqual((report['underlines'],report['requested_ranges'],report['thought_batches'],report['additional_range_pages']),(61,61,3,61))
+        self.assertTrue(report['range_page_status_known'])
+        self.assertFalse(report['all_requested_range_pages_complete'])
+        requested=[item['range'] for sample in probe.samples if sample['kind']=='thoughts' for item in sample['requested']]
+        self.assertEqual(requested,[row['range'] for row in rows])
+
+    def test_complete_page_claim_requires_explicit_flags_and_total_counts(self):
+        probe=native.AnnotationProbe()
+        source=thoughts()
+        source['reviews'][0].update(hasMore=0,totalCount=1)
+        probe.samples=[dict(kind='underlines',expected=dict(underlines=[underline()])),
+                       dict(kind='thoughts',expected=source,requested=native.batch_for([underline()]))]
+        self.assertTrue(probe.summary(1)['all_requested_range_pages_complete'])
+        source['reviews'][0].pop('hasMore')
+        self.assertFalse(probe.summary(1)['all_requested_range_pages_complete'])
+        source['reviews'][0].update(hasMore=0,totalCount=2)
+        self.assertFalse(probe.summary(1)['all_requested_range_pages_complete'])
+
     def test_child_failure_discards_private_data_and_preserves_saved_grant(self):
         credentials=dict(vid='88008800',accessToken='private-access-token')
         probe=SimpleNamespace(inspect=lambda *_:dict(underlines=1),samples=[dict(private='private-source')],report=dict(stages=[]))

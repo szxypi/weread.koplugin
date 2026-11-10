@@ -10,7 +10,7 @@ local input = io.stdin:read(12 * 1024 * 1024 + 1)
 local ok, result = pcall(function()
     assert(#input <= 12 * 1024 * 1024)
     local payload = Json.decode(input); input = nil
-    assert(type(payload.samples) == "table" and #payload.samples >= 1 and #payload.samples <= 12)
+    assert(type(payload.samples) == "table" and #payload.samples >= 1 and #payload.samples <= (payload.all_batches and 138 or 12))
     local Data = require("weread.lib.native_annotation_data")
     local Source = require("weread.lib.annotation_access")
     local scope = { vid = payload.native_credentials and payload.native_credentials.vid or "900000", epoch = 1 }

@@ -15,6 +15,7 @@ import json
 import math
 import re
 import subprocess
+import time
 from urllib.parse import parse_qs, urlencode, urlsplit
 
 from secure_native_session import NativeSessionStore
@@ -185,7 +186,7 @@ class AnnotationProbe(NativeProbe):
         self.guard(stage, url, body)
         return super().request(stage, url, body, credentials, timeout)
 
-    def inspect(self, credentials):
+    def inspect(self, credentials, all_batches=False):
         shelf = self.request('shelf', BASE + '/shelf/sync', credentials=credentials)
         books = shelf.get('books')
         if not isinstance(books, list) or not 1 <= len(books) <= 5000:
@@ -212,13 +213,19 @@ class AnnotationProbe(NativeProbe):
                     dict(bookId=key, chapterUid=self.chapter_uid, synckey=0)), credentials=credentials)
                 expected = project('underlines', raw, key, self.chapter_uid)
                 self.samples.append(dict(kind='underlines', book_id=key, chapter_uid=self.chapter_uid, source=raw, expected=expected))
-                self.batch = batch_for(expected['underlines'])
-                if self.batch:
-                    raw = self.request('thoughts', BASE + '/book/readreviews', dict(
-                        bookId=key, chapterUid=int(self.chapter_uid), cht2sMode='', reviews=self.batch), credentials)
-                    expected = project('thoughts', raw, key, self.chapter_uid, self.batch)
-                    self.samples.append(dict(kind='thoughts', book_id=key, chapter_uid=self.chapter_uid,
-                                             requested=self.batch, source=raw, expected=expected))
+                ranges=expected['underlines']
+                if ranges:
+                    private_bytes=0
+                    for start in range(0,len(ranges) if all_batches else min(30,len(ranges)),30):
+                        self.batch = batch_for(ranges[start:start+30])
+                        if all_batches:time.sleep(1)
+                        raw = self.request('thoughts', BASE + '/book/readreviews', dict(
+                            bookId=key, chapterUid=int(self.chapter_uid), cht2sMode='', reviews=self.batch), credentials)
+                        expected = project('thoughts', raw, key, self.chapter_uid, self.batch)
+                        private_bytes+=len(json.dumps(raw,ensure_ascii=False).encode())
+                        if private_bytes>5*1024*1024:raise AnnotationError('annotations/private_response_limit')
+                        self.samples.append(dict(kind='thoughts', book_id=key, chapter_uid=self.chapter_uid,
+                                                 requested=self.batch, source=raw, expected=expected))
                     return self.summary(len(books))
         if not self.samples:
             raise AnnotationError('annotations/no_eligible_chapter')
@@ -227,8 +234,19 @@ class AnnotationProbe(NativeProbe):
     def summary(self, shelf_count):
         underlines = [row for sample in self.samples if sample['kind'] == 'underlines' for row in sample['expected']['underlines']]
         thoughts = [row for sample in self.samples if sample['kind'] == 'thoughts' for row in sample['expected']['reviews']]
+        def known_page(row):
+            value=row.get('hasMore')
+            return type(value) is bool or type(value) is int and value in (0,1) or isinstance(value,str) and value in ('0','1')
+        page_status_known=bool(thoughts) and all(known_page(row) for row in thoughts)
+        complete_totals=bool(thoughts) and all(type(row.get('totalCount')) is int and row['totalCount']==len(row['pageReviews']) for row in thoughts)
+        requested=sum(len(sample['requested']) for sample in self.samples if sample['kind']=='thoughts')
+        more=sum(row.get('hasMore') in (True,1,'1') for row in thoughts)
         return dict(shelf_book_count=shelf_count, sampled_chapters=sum(sample['kind'] == 'underlines' for sample in self.samples),
                     underlines=len(underlines), thought_ranges=len(thoughts), thought_items=sum(len(row['pageReviews']) for row in thoughts),
+                    thought_batches=sum(sample['kind']=='thoughts' for sample in self.samples),
+                    requested_ranges=requested,additional_range_pages=more,range_page_status_known=page_status_known,
+                    returned_items_match_reported_totals=complete_totals,
+                    all_requested_range_pages_complete=page_status_known and not more and complete_totals and len(thoughts)==requested,
                     nonempty_underlines_verified=bool(underlines), nonempty_thoughts_verified=any(row['pageReviews'] for row in thoughts))
 
 
@@ -236,6 +254,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--native-http', action='store_true')
+    parser.add_argument('--all-batches', action='store_true', help='Read the first thought page for every underline range of the selected chapter')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if args.lua_command and not args.saved_session or args.native_http and not (args.saved_session and args.lua_command):
@@ -248,9 +267,13 @@ def main(argv=None):
             owner = SessionStore().load()['vid']
             credentials = NativeSessionStore().load(owner)
             probe = AnnotationProbe()
-            report.update(probe.inspect(credentials))
+            report.update(probe.inspect(credentials,all_batches=True) if args.all_batches else probe.inspect(credentials))
+            report['all_batches_requested']=args.all_batches
+            if args.all_batches:
+                if report['requested_ranges']!=report['underlines']:raise AnnotationError('annotations/incomplete_range_batches')
+                report['all_underline_ranges_requested']=True
             if args.lua_command:
-                payload = dict(samples=probe.samples)
+                payload = dict(samples=probe.samples,all_batches=args.all_batches)
                 if args.native_http:
                     payload['native_credentials'] = credentials
                 encoded = json.dumps(payload, ensure_ascii=False).encode()

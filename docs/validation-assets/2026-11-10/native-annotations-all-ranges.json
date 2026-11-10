@@ -1,0 +1,85 @@
+{
+  "result": "PASS",
+  "accepted_scope": "all_underlined_ranges_of_one_real_chapter_python_lua_and_native_https",
+  "production_commit": "dbb09d775cd43ef1ecee15c905797370339b3f56",
+  "production_manifest_sha256": "a7b250f46548c6100b05f4cde59b109d8b4763849835f49e75a6e034bb2e8128",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "probe_sha256": {
+    "scripts/verify_native_annotations.py": "564ac16c4d26b3015711f559fe1e643e295948dba6937dc3f1f1acec0ce86e93",
+    "scripts/test_native_annotations.py": "e804644125389f6b019c36bdfdceec3f3194d9b54eb43fe48d96b4cb32981810",
+    "spec/koreader/native_annotations_probe.lua": "3e95e4ee96268b7ca4dc93e7ac0141998e375b72dec6e8996b1c3398545ec41f"
+  },
+  "real_read_contract": {
+    "result": "NATIVE_ANNOTATION_CONTRACT_VERIFIED",
+    "checked_at": "2026-11-10T00:42:22.908184+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 0,
+    "private_annotations_saved": false,
+    "credentials_written_to_files": false,
+    "shelf_book_count": 139,
+    "sampled_chapters": 1,
+    "underlines": 124,
+    "thought_ranges": 124,
+    "thought_items": 340,
+    "thought_batches": 5,
+    "requested_ranges": 124,
+    "additional_range_pages": 0,
+    "range_page_status_known": true,
+    "returned_items_match_reported_totals": true,
+    "all_requested_range_pages_complete": true,
+    "nonempty_underlines_verified": true,
+    "nonempty_thoughts_verified": true,
+    "all_batches_requested": true,
+    "all_underline_ranges_requested": true,
+    "lua_model_matches": true,
+    "native_https_matches": true,
+    "same_owner_verified": true,
+    "stages": [
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "metadata",
+        "status": 200
+      },
+      {
+        "stage": "catalog",
+        "status": 200
+      },
+      {
+        "stage": "underlines",
+        "status": 200
+      },
+      {
+        "stage": "thoughts",
+        "status": 200
+      },
+      {
+        "stage": "thoughts",
+        "status": 200
+      },
+      {
+        "stage": "thoughts",
+        "status": 200
+      },
+      {
+        "stage": "thoughts",
+        "status": 200
+      },
+      {
+        "stage": "thoughts",
+        "status": 200
+      }
+    ]
+  },
+  "real_source_matching_or_popup_verified": false,
+  "physical_device": false,
+  "pending": [
+    "real_chapter_source_matching_overlay_popup_and_offline_reopening",
+    "other_real_formats_and_complex_ranges",
+    "automatic_parent_renewal_during_annotation_job",
+    "cloud_annotation_writes",
+    "physical_ko2"
+  ]
+}

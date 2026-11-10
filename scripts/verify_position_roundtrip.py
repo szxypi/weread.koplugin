@@ -10,6 +10,7 @@ import argparse
 from datetime import datetime, timezone
 import hashlib
 import json
+import subprocess
 import time
 import unicodedata
 
@@ -137,6 +138,37 @@ def acknowledged(value):
     return value.get('succ') in (True, 1, '1')
 
 
+def verify_lua_payloads(plan, command):
+    """Compare real-context payloads without giving the Lua process a client."""
+    samples=[]
+    for stage in WRITE_ORDER:
+        if stage=='write_probe' and plan['target'] is None:continue
+        expected=payload(plan,stage)
+        validate_payload(plan,stage,expected)
+        point=plan['target'] if stage=='write_probe' else plan['baseline']
+        options=dict(book_id=plan['book_id'],chapter_uid=point['chapter_uid'],chapter_idx=point['chapter_idx'],
+                     chapter_offset=point['chapter_offset'],progress=point['raw_percent'],summary=point['summary'],
+                     psvts=plan['context']['psvts'],pclts=plan['pclts'],token=plan['context'].get('token') or DEFAULT_TOKEN,
+                     now=expected['ct'],elapsed_seconds=0)
+        if stage!='write_enter':options.update(ts=expected['ts'],rn=expected['rn'])
+        samples.append(dict(stage=stage,options=options,expected=expected))
+    encoded=json.dumps(dict(samples=samples),ensure_ascii=False).encode()
+    if len(encoded)>65536:raise RoundTripError('roundtrip_model_input_limit')
+    child=subprocess.run(command,input=encoded,capture_output=True,timeout=45)
+    marker=b'\nWEREAD_POSITION_PAYLOAD_RESULT='
+    if child.returncode or len(child.stdout)>65536 or child.stdout.count(marker)!=1:
+        raise RoundTripError('roundtrip_lua_model_failed')
+    result=json.loads(child.stdout.split(marker)[1])
+    if (not isinstance(result,dict) or set(result)!={'stages','http_requests'} or type(result['http_requests']) is not int
+            or result['http_requests']!=0 or not isinstance(result['stages'],list) or len(result['stages'])!=len(samples)):
+        raise RoundTripError('roundtrip_lua_model_failed')
+    for actual,sample in zip(result['stages'],samples):
+        if (not isinstance(actual,dict) or set(actual)!={'stage','matches','mismatched_fields'}
+                or actual['stage']!=sample['stage'] or actual['matches'] is not True or actual['mismatched_fields']!=[]):
+            raise RoundTripError('roundtrip_lua_payload_mismatch')
+    return dict(lua_payload_model_verified=True,lua_payloads_compared=len(samples),lua_http_requests=0)
+
+
 class RoundTripProbe(WebSourceProbe):
     def __init__(self):
         super().__init__()
@@ -255,8 +287,9 @@ def main(argv=None):
     parser.add_argument('--expected-owner')
     parser.add_argument('--apply', action='store_true')
     parser.add_argument('--mode', choices=('same', 'probe'))
+    parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
-    if (args.book_id or args.expected_owner or args.apply or args.mode) and not args.saved_session:
+    if (args.book_id or args.expected_owner or args.apply or args.mode or args.lua_command) and not args.saved_session:
         parser.error('online options require --saved-session')
     if args.apply and not (args.mode and args.book_id and args.expected_owner):
         parser.error('--apply requires explicit --mode, --book-id and --expected-owner')
@@ -284,6 +317,8 @@ def main(argv=None):
                           probe_utf16_delta=1 if plan['target'] else 0, no_post_retry=True, no_authentication_posts=True,
                           same_position_summary_preserved=plan['same_position_summary_preserved'],
                           recent_read_metadata_may_update=True)
+            if args.lua_command:
+                report.update(verify_lua_payloads(plan,args.lua_command))
             if args.apply:
                 try:
                     report['result'] = web.execute(args.mode, report)

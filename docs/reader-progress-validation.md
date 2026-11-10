@@ -75,5 +75,7 @@ xvfb-run -a python3 scripts/test_discovery_runtime.py --reading-flow \
 固定字段证据见[运行报告](validation-assets/2026-11-09/reader-progress-validation.json)。
 两种尺寸的中文原生提示已目视核对：[600×800](validation-assets/2026-11-09/reader-progress-rejected-600.png)、
 [KO2 尺寸](validation-assets/2026-11-09/reader-progress-rejected-ko2.png)，截图仅含合成书籍与正文。
-真实云端写后回读、多设备、更多书籍类型及 KO2 实体按键／休眠／网络仍待验收；
+后续本人授权的一次 Python 同章一字前进实验已通过写后回读与原位置恢复，
+Lua 四种真实上下文载荷仅作零 HTTP 的逐字段比较，见[实验说明](position-roundtrip-validation.md)。
+实际插件云端写后回读、多设备、更多书籍类型及 KO2 实体按键／休眠／网络仍待验收；
 完整功能验收后的性能优化阶段尚未开始。

@@ -72,13 +72,17 @@ KO2 1264×1680／300 DPI，安装后的候选插件通过：
 159 组 Lua、477 项 Python、420 个静态文件零警告／错误，422 个 Lua 语法文件、
 命名空间、四时区及 Python 编译通过。协议、运行范围和独立续期见[固定字段结果](validation-assets/2026-11-10/native-annotations.json)。
 
-真实账号目前只核对一章划线和首批想法的模型／HTTPS；整章全部批次的真实原文匹配、
+真实账号后续已核对同章全部 124 个范围：5 批共 340 条想法，Python／Lua 同响应模型与插件 HTTPS 一致。
+每个范围均返回明确的无后续页标记，`totalCount` 与实际条数一致；全部范围恰好请求一次。
+验证工具新增 `--all-batches`，每批之间间隔一秒，并限制私有响应总量；不自动请求范围内后续页。
+该样本没有后续页，不证明存在后续页时已支持完整分页，见[独立结果](validation-assets/2026-11-10/native-annotations-all-ranges.json)。
+整章全部批次的真实原文匹配、覆盖层点击及离线重开，
 更多格式、任务内自动续期、云端批注写入及实体 KO2 仍待验收。集中性能优化未开始。
 
 ```sh
 python3 scripts/verify_native_annotations.py
 python3 scripts/test_native_annotations.py
-python3 scripts/verify_native_annotations.py --saved-session --native-http --lua-command \
+python3 scripts/verify_native_annotations.py --saved-session --all-batches --native-http --lua-command \
   docker exec -i -e XDG_RUNTIME_DIR=/validation/source-binding-xdg \
   -w /validation/runtime/lib/koreader weread-validation xvfb-run -a \
   ./luajit /source/spec/koreader/native_annotations_probe.lua /source
