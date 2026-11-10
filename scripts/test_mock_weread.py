@@ -76,7 +76,24 @@ class MockTests(unittest.TestCase):
     def setUp(self):
         self.request("/__control", dict(delay=0, match="", status=503, times=0,skip=0,native_annotation_many=False,
                                         empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
-                                        progress_response="plain"))
+                                        progress_response="plain",progress_confirmation="plain"))
+
+    def test_progress_confirmation_faults_apply_only_after_report_and_only_on_web(self):
+        wire=dict(b=weread_e(BOOK_ID),c=weread_e(2),ci=2,co=10,pr=25)
+        for mode in ('delayed','stale','noack'):
+            self.request('/__control',dict(progress_confirmation=mode))
+            self.server.route('POST','https://weread.qq.com/web/book/read',wire)
+            body=self.server.route('POST','https://weread.qq.com/web/book/read',dict(wire,rt=0))[1]
+            self.assertEqual(body,{} if mode=='noack' else dict(succ=1))
+            offsets=[self.server.route('GET','https://weread.qq.com/web/book/getProgress?bookId='+BOOK_ID,{})[1]['book']['chapterOffset'] for _ in range(3)]
+            self.assertEqual(offsets,[11,11,10] if mode=='delayed' else [11,11,11] if mode=='stale' else [10,10,10])
+            self.assertEqual(self.server.get_progress(BOOK_ID)['book']['chapterOffset'],10)
+
+    def test_progress_confirmation_control_is_bounded_and_resettable(self):
+        self.assertEqual(self.request('/__control',dict(progress_confirmation='unknown'))[0],400)
+        self.assertEqual(self.request('/__control',dict(progress_confirmation=True))[0],400)
+        self.request('/__control',dict(progress_confirmation='plain'))
+        self.assertEqual(self.request('/__state')[1]['confirmation_reads'],0)
 
     def test_progress_faults_are_identical_on_web_and_gateway(self):
         for mode in ("foreign", "aliases", "range", "offset", "ambiguous", "rejected", "plain"):

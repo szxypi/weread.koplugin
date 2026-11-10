@@ -1,6 +1,7 @@
 local Content = require("weread.lib.content")
 local WeRead = require("weread.lib.protocol")
 local RemoteProgress = require("weread.lib.remote_progress")
+local ProgressReadback = require("weread.lib.progress_readback")
 local _ = require("weread.lib.i18n").tr
 
 local logger = require("weread.lib.logger").scoped("ReadReport")
@@ -120,6 +121,19 @@ local function response_accepted(result, http_code)
         return false, body
     end
     return false, body
+end
+
+local function position_acknowledged(result, code)
+    if tonumber(code) ~= 200 or type(result) ~= "table" then return false end
+    local body = response_body(result)
+    if type(body) ~= "table" then return false end
+    for _i, node in ipairs({ result, body }) do
+        for _j, key in ipairs({ "errcode", "errCode", "errorCode" }) do
+            if node[key] ~= nil and node[key] ~= 0 and node[key] ~= "0" then return false end
+        end
+        if node.succ ~= nil and node.succ ~= true and node.succ ~= 1 and node.succ ~= "1" then return false end
+    end
+    return body.succ == true or body.succ == 1 or body.succ == "1"
 end
 
 local function full_response_body(client, result)
@@ -1089,7 +1103,7 @@ function ReadReport:build_payload(book_id, elapsed_seconds, book, position)
     }
 end
 
-function ReadReport:_send(book_id, book, position, elapsed_seconds)
+function ReadReport:_send(book_id, book, position, elapsed_seconds, attempt)
     apply_position(book, position)
     if book.pclts == nil or book.pclts == "" or tonumber(book.pclts) == 0 then
         book.pclts = WeRead.e(self.now())
@@ -1110,10 +1124,15 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds)
             psvts = book.psvts,
             pclts = book.pclts,
         }
-        self.client:report_read(
+        if attempt then attempt.enter_attempted = true end
+        local entered, enter_code = self.client:report_read(
             enter_payload,
-            book.reader_url or WeRead.reader_url(book_id)
+            book.reader_url or WeRead.reader_url(book_id),
+            attempt and { sensitive = true } or nil
         )
+        if attempt and not position_acknowledged(entered, enter_code) then
+            error("upload_enter_unconfirmed", 0)
+        end
         book.read_session_entered_at = self.now()
         book.read_session_id = self.session_id
     end
@@ -1134,26 +1153,67 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds)
         local saved = self.coverage:reserve(account, payload.ct, payload.rt)
         if not saved then error(_("Could not save reading-time coverage; report was not sent."), 0) end
     end
-    return self.client:report_read(payload, book.reader_url or WeRead.reader_url(book_id))
+    if attempt then attempt.report_attempted = true end
+    return self.client:report_read(payload, book.reader_url or WeRead.reader_url(book_id), attempt and { sensitive = true } or nil)
+end
+
+-- This is a separate path from periodic time reports. An uncertain position
+-- write is never refreshed/reposted or followed by an authorization renewal.
+-- The opaque receipt grants only two additional GETs for this exact attempt.
+function ReadReport:confirm_position(receipt)
+    local state = self._position_confirmation
+    local outcome = { accepted = false, acknowledged = true, position_confirmed = false,
+        error_kind = "confirmation_pending", error = "upload_readback_unconfirmed", confirmation = receipt }
+    if not state or state.receipt ~= receipt or state.reads >= 3 or state.auth ~= self:_auth_fingerprint() then
+        outcome.error_kind, outcome.error = "unconfirmed", "upload_readback_unavailable"
+        return false, outcome
+    end
+    state.reads = state.reads + 1
+    local ok, data = pcall(self.client.get_web_progress, self.client, state.target.book_id, { sensitive = true })
+    local checked, remote
+    if ok and state.auth == self:_auth_fingerprint() then checked, remote = ProgressReadback.check(data, state.target) end
+    outcome.confirmation_reads = state.reads
+    if checked and checked.matches then
+        self._position_confirmation = nil
+        outcome.accepted, outcome.position_confirmed, outcome.remote = true, true, remote
+        outcome.error, outcome.error_kind, outcome.confirmation = nil, nil, nil
+        return true, outcome
+    end
+    if state.reads == 3 or state.auth ~= self:_auth_fingerprint() then
+        self._position_confirmation = nil
+        outcome.error_kind, outcome.confirmation = "unconfirmed", nil
+    end
+    return false, outcome
 end
 
 function ReadReport:upload_position(book_id, position, elapsed_seconds)
     if self.job then
         return false, { error = "read_report_busy", error_kind = "busy" }
     end
-    local outcome = self:_run_pipeline(tostring(book_id), {
-        allow_renewal = self:_renewal_allowed(),
-        position = position,
-        elapsed_seconds = elapsed_seconds or 0,
-    })
-    if outcome.renew_attempted then
-        self.last_renew_attempt = self.now()
+    local target, reason = ProgressReadback.expected(book_id, position)
+    if not target or elapsed_seconds ~= nil and elapsed_seconds ~= 0 then
+        return false, { error = reason or "upload_position_invalid", error_kind = "position" }
+    end
+    self._position_confirmation = nil
+    local context_ok, book = pcall(self.ensure_context, self, tostring(book_id), false)
+    if not context_ok then return false, { error = "upload_context_unavailable", error_kind = "context" } end
+    local attempt = {}
+    local ok, result, code = pcall(self._send, self, tostring(book_id), book, position, 0, attempt)
+    local outcome = { accepted = false, acknowledged = false, position_confirmed = false,
+        error = "upload_write_unconfirmed", error_kind = "unconfirmed", enter_attempted = attempt.enter_attempted == true,
+        report_attempted = attempt.report_attempted == true, book = self:_context_snapshot(book) }
+    if ok and position_acknowledged(result, code) then
+        local receipt = {}
+        self._position_confirmation = { receipt = receipt, reads = 0, target = target, auth = self:_auth_fingerprint() }
+        local confirmed = select(2, self:confirm_position(receipt))
+        for key, value in pairs(confirmed) do outcome[key] = value end
+        if confirmed.accepted then outcome.error, outcome.error_kind = nil, nil end
     end
     if type(outcome.book) == "table" then
-        local ok, err = pcall(function()
+        local persist_ok, err = pcall(function()
             self:_persist_context(tostring(book_id), outcome.book)
         end)
-        if not ok then
+        if not persist_ok then
             log("warn", "persist progress upload context failed:", tostring(err))
         end
     end

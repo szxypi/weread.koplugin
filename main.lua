@@ -235,6 +235,9 @@ function WeReadPlugin:init()
             return self.read_report:upload_position(
                 book_id, position, elapsed_seconds)
         end,
+        confirm_position = function(receipt)
+            return self.read_report:confirm_position(receipt)
+        end,
         goto_fraction = function(fraction)
             return ReaderPosition.goto_fraction(self.ui, fraction)
         end,

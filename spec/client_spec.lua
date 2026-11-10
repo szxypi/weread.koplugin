@@ -609,6 +609,15 @@ for _,reader_code in ipairs({302,403}) do
 end
 expect(not table.concat(logs,'\n'):find('private-',1,true),'Reader diagnostics exposed private body')
 
+logs={}
+responses[#responses+1]={code=403,body='private-position-upload'}
+ok,err=pcall(client.report_read,client,{},nil,{sensitive=true})
+expect(not ok and err=='sensitive_http_unavailable','position upload exposed private HTTP body')
+responses[#responses+1]={code=200,body='private-position-readback'}
+ok,err=pcall(client.get_web_progress,client,'900001',{sensitive=true})
+expect(not ok and err=='sensitive_json_invalid','position readback exposed private parser input')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'position diagnostics exposed private payload')
+
 responses[#responses+1]={code=200,chunks={'\0abc','def\255'}}
 local binary, binary_code=client:get_binary('https://cdn.example/cover',{max_bytes=8,skip_cookie=true})
 expect(binary=='\0abcdef\255' and binary_code==200,'bounded binary response changed bytes at exact limit')

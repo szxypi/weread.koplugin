@@ -179,7 +179,9 @@ class MockServer(ThreadingHTTPServer):
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
-                            progress_response="plain")
+                            progress_response="plain", progress_confirmation="plain")
+        self.progress_confirmation_book = None
+        self.progress_confirmation_reads = 0
         self.web_renewal_posts = 0
         self.content_format = 'epub'
 
@@ -464,13 +466,22 @@ class MockServer(ThreadingHTTPServer):
                 dict(commentId=f"mock-comment-{i}", content=f"合成回复 {i}", author={"nick": "测试读者"}, createTime=1700000000)
                 for i in range(1, 3)], commentsHasMore=0)
         if path == "/web/book/getProgress" and method == "GET":
-            return 200, self.get_progress(book_id)
+            result = self.get_progress(book_id)
+            with self.lock:
+                if self.progress_confirmation_book == book_id:
+                    self.progress_confirmation_reads += 1
+                    if control['progress_confirmation'] == 'stale' or control['progress_confirmation'] == 'delayed' and self.progress_confirmation_reads < 3:
+                        result['book']['chapterOffset'] += 1
+            return 200, result
         if path == "/web/book/read" and method == "POST":
             book_id = next(b["bookId"] for b in BOOKS if weread_e(b["bookId"]) == data["b"])
             uid = next(c["chapterUid"] for c in CHAPTERS if weread_e(c["chapterUid"]) == data["c"])
             with self.lock:
                 self.progress[book_id] = dict(chapterUid=uid, chapterIdx=data["ci"],
                                               chapterOffset=data["co"], progress=data["pr"], summary=data.get("sm", ""))
+                if 'rt' in data and control['progress_confirmation'] != 'plain':
+                    self.progress_confirmation_book, self.progress_confirmation_reads = book_id, 0
+            if 'rt' in data and control['progress_confirmation'] == 'noack': return 200, {}
             return 200, dict(succ=1)
         if path in {"/mock/cover.png", "/mock/illustration.png"} and method == "GET":
             return 200, png()
@@ -521,7 +532,7 @@ class Handler(BaseHTTPRequestHandler):
                     totals = [dict(path=path, api=api, count=count) for (path, api), count in self.server.request_totals.items()]
                     status, result = 200, dict(control=self.server.control.copy(), requests=list(self.server.events),
                                               totals=totals, active_requests=dict(self.server.active_requests),
-                                              progress=self.server.progress.copy())
+                                              progress=self.server.progress.copy(), confirmation_reads=self.server.progress_confirmation_reads)
             elif path.path == "/__control" and self.command == "POST":
                 self.set_control(data)
                 status, result = 200, dict(ok=True)
@@ -591,12 +602,16 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("invalid Web renewal mode")
             if candidate["progress_response"] not in {"plain", "foreign", "aliases", "range", "offset", "ambiguous", "rejected"}:
                 raise ValueError("invalid progress response mode")
+            if candidate['progress_confirmation'] not in {'plain','delayed','stale','noack'}:
+                raise ValueError('invalid progress confirmation mode')
             if type(candidate["mp_article_version"]) is not int or not 1 <= candidate["mp_article_version"] <= 100:
                 raise ValueError("invalid MP article version")
             for key in ("empty_shelf", "empty_annotations", "native_annotation_many"):
                 if type(candidate[key]) is not bool:
                     raise ValueError(key + " must be boolean")
             self.server.control = candidate
+            if 'progress_confirmation' in data:
+                self.server.progress_confirmation_book, self.server.progress_confirmation_reads = None, 0
 
 
 def prepare(run_dir, runtime, port, width=600, height=800, dpi=167):

@@ -879,19 +879,23 @@ function Client:get_display_book_metadata(book_id, access)
         { sensitive = true, api_name = "book_metadata", code = code, headers = headers }), book_id)
 end
 
-function Client:get_web_progress(book_id)
+function Client:get_web_progress(book_id, opts)
+    opts = opts or {}
     local url = "https://weread.qq.com/web/book/getProgress?bookId="
         .. WeRead.urlencode(book_id)
         .. "&_=" .. tostring(os.time() * 1000)
     local text, code, headers = self:get_text(url, {
         accept = "application/json, text/plain, */*",
         referer = WeRead.reader_url(book_id),
+        sensitive = opts.sensitive == true,
     })
     return self:decode_http_json(text, {
         method = "GET",
         url = url,
         code = code,
         headers = headers,
+        sensitive = opts.sensitive == true,
+        api_name = opts.sensitive and "position_readback" or nil,
     })
 end
 
@@ -1004,9 +1008,12 @@ function Client:get_mp_content(review_id, opts)
     error("mp_read/unavailable", 0)
 end
 
-function Client:report_read(payload, referer)
+function Client:report_read(payload, referer, opts)
+    opts = opts or {}
     return self:post_json("https://weread.qq.com/web/book/read", payload, {
         referer = referer or "https://weread.qq.com/",
+        sensitive = opts.sensitive == true,
+        diagnostic_api = opts.sensitive and "position_upload" or nil,
     })
 end
 

@@ -55,8 +55,9 @@ function PositionMapper.catalog(chapters)
 end
 
 function PositionMapper.normalize_remote(value, book_id, source, chapters)
-    local remote, reason = RemoteProgress.project(value, book_id, source)
+    local remote, reason, provided = RemoteProgress.project(value, book_id, source)
     if not remote then return nil, reason end
+    remote.has_chapter_index = provided.chapter_idx == true
 
     local map = catalog(chapters)
     local item = remote.chapter_uid ~= nil

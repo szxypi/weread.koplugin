@@ -4,6 +4,7 @@ local ReaderPosition = require("weread.lib.reader_position")
 local Source = require("weread.lib.position_source")
 local SourceDom = require("weread.lib.source_dom")
 local FileIdentity = require("weread.lib.book_file_identity")
+local ProgressReadback = require("weread.lib.progress_readback")
 
 local logger = require("weread.lib.logger").scoped("ProgressSync")
 
@@ -75,6 +76,7 @@ function ProgressSync:new(options)
         get_file_context = options.get_file_context,
         run_online = options.run_online,
         upload_position = options.upload_position,
+        confirm_position = options.confirm_position,
         goto_fraction = options.goto_fraction,
         open_chapter = options.open_chapter,
         is_online = options.is_online or function() return true end,
@@ -728,16 +730,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
         return false
     end
     local attempts = 0
-    local attempt
-    attempt = function()
-        if not current() then return end
-        attempts = attempts + 1
-        local ok, accepted, outcome = pcall(
-            self.upload_position,
-            book_id,
-            copy(position),
-            0
-        )
+    local attempt, finish
+    finish = function(ok, accepted, outcome)
         if not current() then return end
         if ok and not accepted and type(outcome) == "table"
             and outcome.error_kind == "busy"
@@ -745,15 +739,33 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
             self.scheduler:scheduleIn(BUSY_RETRY_SECONDS, attempt)
             return
         end
+        if ok and not accepted and type(outcome) == "table" and outcome.acknowledged == true
+            and outcome.error_kind == "confirmation_pending" and outcome.confirmation
+            and type(self.confirm_position) == "function" and (job.confirmation_polls or 0) < 2 then
+            local receipt = outcome.confirmation
+            job.confirmation_polls = (job.confirmation_polls or 0) + 1
+            self.scheduler:scheduleIn(1, function()
+                if not current() then return end
+                local started = self.run_online("progress_confirmation", function()
+                    if not current() then return end
+                    finish(pcall(self.confirm_position, receipt))
+                end, { silent_offline = true })
+                if not started and current() then finish(true, false, { error_kind = "unconfirmed" }) end
+            end)
+            return
+        end
         self.upload_job, self.uploading = nil, false
-        if ok and accepted then
+        local confirmed = ok and accepted and type(outcome) == "table" and outcome.position_confirmed == true
+            and outcome.acknowledged == true
+        if confirmed then
             local book = self.get_book(book_id) or {}
             local clear_pending = book.pending_upload_account == scope.account
-                and PositionMapper.same_position(book.pending_upload_position, position)
+                and ProgressReadback.same_intent(book.pending_upload_position, position)
             local patch = {
                 last_uploaded_position = position,
                 last_upload_at = self.now(),
                 last_sync_error = false,
+                last_remote_position = outcome.remote,
             }
             if clear_pending then
                 patch.pending_upload_position, patch.pending_upload_reason, patch.pending_upload_account = false, false, false
@@ -762,7 +774,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
             local active = self:_session_current(scope)
             if active then
                 local live = self:capture_local() or self.local_position
-                self.dirty = not PositionMapper.same_position(live, position) or not clear_pending
+                self.dirty = not ProgressReadback.same_wire_position(live, position) or not clear_pending
                 self.last_uploaded_position = copy(position)
                 if not self.pulling and self.state ~= "awaiting_choice" then
                     self.state = self.verified and "verified" or "unverified"
@@ -780,16 +792,30 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
         local error_message = ok and type(outcome) == "table"
             and outcome.error or outcome
         local active = self:_session_current(scope)
-        if active then self.state = "error" end
-        self:_persist(book_id, {
-            last_sync_error = tostring(error_message or "upload_failed"),
-        })
+        local unconfirmed = accepted or type(outcome) == "table"
+            and (outcome.error_kind == "unconfirmed" or outcome.error_kind == "confirmation_pending")
+        if unconfirmed then error_message = "upload_readback_unconfirmed" end
+        if active then
+            if unconfirmed then self:_clear_verified("upload_readback_unconfirmed") end
+            self.state = "error"
+        end
+        local patch = { last_sync_error = tostring(error_message or "upload_failed") }
+        local saved = self.get_book(book_id) or {}
+        if unconfirmed and saved.pending_upload_account == scope.account and saved.pending_upload_position then
+            patch.pending_upload_reason = "upload_readback_unconfirmed"
+        end
+        self:_persist(book_id, patch)
         log("warn", "upload failed:", tostring(error_message))
         if show_result and active then
-            self.notify("upload_failed", {
+            self.notify(unconfirmed and "upload_unconfirmed" or "upload_failed", {
                 error = tostring(error_message or "upload_failed"),
             })
         end
+    end
+    attempt = function()
+        if not current() then return end
+        attempts = attempts + 1
+        finish(pcall(self.upload_position, book_id, copy(position), 0))
     end
     local started = self.run_online("progress_upload", attempt)
     if not started and self.upload_job == job then
@@ -824,8 +850,12 @@ function ProgressSync:_resolve(local_position, remote, context, options)
         remote,
         SAME_THRESHOLD_PERCENT
     )
+    local saved = self.get_book(context.book_id) or {}
+    local uncertain = saved.pending_upload_reason == "upload_readback_unconfirmed"
+        and saved.pending_upload_account == self:_account_key() and saved.pending_upload_position ~= nil
+    local needs_choice = uncertain and not ProgressReadback.matches_normalized(local_position, remote)
 
-    if comparison == "same" and not remote.conflict then
+    if comparison == "same" and not remote.conflict and not needs_choice then
         self:_discard_pending_upload(context.book_id)
         self.dirty = false
         self:_mark_verified(
@@ -841,7 +871,7 @@ function ProgressSync:_resolve(local_position, remote, context, options)
     end
 
     local ask = self:_config().ask_on_conflict ~= false
-    if remote.conflict or ask then
+    if remote.conflict or ask or needs_choice then
         self.state = "awaiting_choice"
         local scope, decided = self:_scope(), false
         local function choice_is_current()
@@ -1195,8 +1225,11 @@ function ProgressSync:checkpoint_local(reason, source_position)
     if self.local_position and not PositionMapper.same_position(position, self.local_position) then self.dirty = true end
     local patch = { last_local_position = position }
     if self.dirty then
+        local saved = self.get_book(position.book_id) or {}
         patch.pending_upload_position = position
-        patch.pending_upload_reason = reason or "local_checkpoint"
+        patch.pending_upload_reason = saved.pending_upload_account == account
+            and saved.pending_upload_reason == "upload_readback_unconfirmed" and "upload_readback_unconfirmed"
+            or reason or "local_checkpoint"
         patch.pending_upload_account = account
     end
     self:_persist(position.book_id, patch)
@@ -1289,6 +1322,7 @@ function ProgressSync:position_for_report(book_id)
         or is_mp_book(book_id) then
         return nil, nil, false
     end
+    if self.uploading then return nil, "progress_confirmation_pending", true end
     if not self.verified then
         return nil, "progress_unverified", true
     end

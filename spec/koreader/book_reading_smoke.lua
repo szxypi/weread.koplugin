@@ -323,6 +323,10 @@ assert(saved.last_uploaded_position and not saved.pending_upload_position, "sync
 local remote = current.client:get_progress(book_id)
 assert(remote.book.progress == saved.last_uploaded_position.percent, "synthetic cloud readback differs")
 shot("reading-sync-result")
+if os.getenv("WEREAD_TEST_PROGRESS_CONFIRMATION") == "1" then
+    dofile(debug.getinfo(1, "S").source:match("^@(.*/)") .. "progress_confirmation_smoke.lua")(
+        reader, current, pump, shot, clean_popups)
+end
 local checkpoint = { book_id = book_id, path = reader.document.file,
     xpointer = reader.document:getXPointer(), chapter_uid = saved.last_uploaded_position.chapter_uid,
     synthetic_only = true, native_reader = true, page = reader:getCurrentPage() }

@@ -570,6 +570,7 @@ local zh = {
     ["Reading progress differs for \"%1\".\n\nKOReader: %2%\nWeRead: %3%\n\nChoose which position to keep."] = "《%1》的阅读进度不一致。\n\nKOReader：%2%\n微信读书：%3%\n\n请选择要保留的位置。",
     ["Progress uploaded to WeRead: %1%"] = "进度已上传到微信读书：%1%",
     ["Progress upload failed:\n%1"] = "进度上传失败：\n%1",
+    ["The cloud position could not be confirmed.\nYour local position is kept. This upload will not be sent again automatically. Please sync again later to compare positions."] = "暂时无法确认云端位置。\n已保留本机位置，本次上传不会自动重发。请稍后重新同步以核对位置。",
     ["KOReader and WeRead are already at the same position."] = "KOReader 与微信读书已经处于同一位置。",
     ["Jumped to WeRead progress: %1%"] = "已跳转到微信读书进度：%1%",
     ["Kept the current KOReader position."] = "已保留当前 KOReader 位置。",

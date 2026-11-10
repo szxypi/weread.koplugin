@@ -112,7 +112,7 @@ local function fixture(remote, options)
         upload_position = function(_book_id, position, elapsed)
             uploads[#uploads + 1] = position
             eq(elapsed, 0, "progress upload has zero reading time")
-            return true, { accepted = true }
+            return true, { accepted = true, position_confirmed = true, acknowledged = true }
         end,
         goto_fraction = function(fraction)
             jumps[#jumps + 1] = fraction
@@ -389,7 +389,7 @@ test("busy read report is retried with the immutable snapshot", function()
             return false, { error = "busy", error_kind = "busy" }
         end
         uploaded = position
-        return true, { accepted = true }
+        return true, { accepted = true, position_confirmed = true, acknowledged = true }
     end
     f.sync:on_reader_ready()
     f.drain()
@@ -1627,6 +1627,134 @@ test('file resume departure revokes queued writes and stale frames cannot finish
     local frame=assert(f.sync:begin_file_resume())
     f.sync:on_account_changed()
     eq(f.sync:finish_file_resume(frame,true),false,'old account file-resume result committed')
+end)
+
+test("an acknowledgement without exact readback retains intent and stops automatic replay", function()
+    for _i, result in ipairs({ { accepted = true }, { accepted = true, position_confirmed = true, acknowledged = false } }) do
+        local f = fixture({ progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+        f.sync:on_reader_ready(); f.drain()
+        local calls = 0
+        f.sync.upload_position = function() calls = calls + 1; return true, result end
+        local point = f.sync:capture_local()
+        f.sync:_upload_snapshot(point, "test_unconfirmed", true)
+        eq(f.sync.verified, false, "unconfirmed write revokes reporting permission")
+        eq(f.values.books.book.last_uploaded_position, nil, "acknowledgement was recorded as confirmed")
+        eq(f.values.books.book.pending_upload_position.chapter_offset, point.chapter_offset, "unconfirmed intent lost")
+        eq(f.notifications[#f.notifications].code, "upload_unconfirmed", "clear unconfirmed message missing")
+        f.document.page = 50; f.sync:on_page_update(); f.sync:on_close_document(); f.drain()
+        eq(calls, 1, "close replayed unconfirmed write")
+        eq(f.values.books.book.pending_upload_reason, "upload_readback_unconfirmed", "close discarded uncertain status")
+    end
+end)
+
+test("delayed confirmation polls only reads and retains a newer page", function()
+    local f = fixture({ progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+    f.sync:on_reader_ready(); f.drain()
+    local writes, reads, receipt = 0, 0, {}
+    f.sync.upload_position = function()
+        writes = writes + 1
+        return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt }
+    end
+    f.sync.confirm_position = function(value)
+        eq(value, receipt, "confirmation belongs to initial write")
+        reads = reads + 1
+        if reads == 1 then return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt } end
+        return true, { acknowledged = true, position_confirmed = true }
+    end
+    local point = f.sync:capture_local()
+    f.sync:_upload_snapshot(point, "test_delayed", true)
+    local available, why = f.sync:position_for_report("book")
+    eq(available, nil, "periodic reporter crossed pending confirmation")
+    eq(why, "progress_confirmation_pending", "pending reporting reason")
+    f.step()
+    f.document.page = 75; f.sync:on_page_update(); f.sync:checkpoint_local("newer_page")
+    f.drain()
+    eq(writes, 1, "confirmation resent a write")
+    eq(reads, 2, "bounded read count")
+    eq(f.values.books.book.last_uploaded_position.percent, point.percent, "receipt bound to newer page")
+    eq(f.values.books.book.pending_upload_position.percent, 75, "old confirmation erased newer page")
+    eq(f.sync.dirty, true, "new movement is no longer dirty")
+end)
+
+test("confirmation exhaustion and cancellation never dispatch another write", function()
+    for _i, change in ipairs({ "exhaust", "suspend", "account", "recheck", "source" }) do
+        local f = fixture({ progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = 150 })
+        f.sync:on_reader_ready(); f.drain()
+        local writes, reads, receipt = 0, 0, {}
+        f.sync.upload_position = function()
+            writes = writes + 1
+            return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt }
+        end
+        f.sync.confirm_position = function()
+            reads = reads + 1
+            return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt }
+        end
+        f.sync:_upload_snapshot(f.sync:capture_local(), "test_pending", true)
+        if change == "suspend" then f.sync:on_suspend()
+        elseif change == "account" then f.sync:on_account_changed()
+        elseif change == "recheck" then f.sync:sync_now()
+        elseif change == "source" then f.sync:begin_cloud_source_navigation() end
+        f.drain()
+        eq(writes, 1, "pending write replayed")
+        eq(reads, change == "exhaust" and 2 or 0, "stale or unbounded confirmation read")
+        eq(f.values.books.book.last_uploaded_position, nil, "unconfirmed callback committed")
+    end
+end)
+
+test("an adjacent newer pending coordinate is not cleared by a tolerant receipt", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback) callbacks[#callbacks + 1] = callback; return true end })
+    local point = f.sync:capture_local()
+    f.sync:_upload_snapshot(point, "old", false)
+    local pending = f.values.books.book.pending_upload_position
+    pending.chapter_offset = pending.chapter_offset + 1
+    callbacks[1]()
+    eq(f.values.books.book.pending_upload_position, pending, "adjacent pending intent cleared")
+    eq(f.values.books.book.last_uploaded_position.chapter_offset, point.chapter_offset, "receipt snapshot was mutated")
+end)
+
+test("fresh comparisons require exact coordinates for a prior unconfirmed write", function()
+    for _i, mode in ipairs({ "adjacent", "missing_index", "same" }) do
+        local remote = { progress = 25, chapterUid = 22, chapterIdx = 2, chapterOffset = mode == "adjacent" and 151 or 150 }
+        if mode == "missing_index" then remote.chapterIdx = nil end
+        local f = fixture(remote)
+        f.values.sync.ask_on_conflict = false
+        local point = f.sync:capture_local()
+        f.values.books.book.pending_upload_position = point
+        f.values.books.book.pending_upload_account = f.sync:_account_key()
+        f.values.books.book.pending_upload_reason = "upload_readback_unconfirmed"
+        f.sync:on_reader_ready(); f.drain()
+        if mode == "same" then
+            eq(#f.choices, 0, "matching exact readback needs no new decision")
+            eq(f.values.books.book.pending_upload_position, nil, "matching cloud coordinate did not resolve pending intent")
+        else
+            eq(#f.choices, 1, "approximate comparison silently resolved unknown write")
+            eq(f.values.books.book.pending_upload_position, point, "uncertain intent lost before explicit decision")
+            eq(f.sync.verified, false, "uncertain comparison granted reporting permission")
+        end
+        eq(#f.uploads, 0, "read-only recheck replayed unknown write")
+    end
+end)
+
+test("source snapshot becoming ready during confirmation does not resend an unchanged wire position", function()
+    local source
+    local f = fixture({}, { get_source_position = function() return source end })
+    local point = f.sync:capture_local()
+    f.sync:_mark_verified("book", "fixture", point, {})
+    local writes, receipt = 0, {}
+    f.sync.upload_position = function()
+        writes = writes + 1
+        return false, { acknowledged = true, error_kind = "confirmation_pending", confirmation = receipt }
+    end
+    f.sync.confirm_position = function()
+        return true, { acknowledged = true, position_confirmed = true }
+    end
+    f.sync:_upload_snapshot(point, "unchanged", false)
+    source = { book_id = "book", chapter_uid = "22", chapter_offset = 12345, upload_verified = false }
+    f.drain()
+    eq(f.sync.dirty, false, "new read-only metadata became a new cloud intent")
+    f.sync:on_close_document(); f.drain()
+    eq(writes, 1, "close resent the same wire position after source preparation")
 end)
 
 print(string.format(

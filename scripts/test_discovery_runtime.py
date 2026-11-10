@@ -28,6 +28,7 @@ def main():
     parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
     parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
     parser.add_argument("--progress-response", action="store_true", help="Reject foreign/malformed sync responses in the reading flow")
+    parser.add_argument('--progress-confirmation', action='store_true', help='Exercise delayed and unconfirmed position write receipts')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
@@ -37,6 +38,8 @@ def main():
         parser.error("--offline-progress requires --reading-flow")
     if args.progress_response and not args.reading_flow:
         parser.error("--progress-response requires --reading-flow")
+    if args.progress_confirmation and not args.reading_flow:
+        parser.error('--progress-confirmation requires --reading-flow')
     if args.footnotes and args.reading_flow:
         parser.error("--footnotes and --reading-flow use separate fixtures")
     if args.cached_resume and (args.footnotes or args.reading_flow):
@@ -78,6 +81,7 @@ def main():
         environment["WEREAD_TEST_OFFLINE_PROGRESS"] = "1"
     if args.progress_response:
         environment["WEREAD_TEST_PROGRESS_RESPONSE"] = "1"
+    if args.progress_confirmation: environment['WEREAD_TEST_PROGRESS_CONFIRMATION'] = '1'
     try:
         with (root / "evidence/runtime.log").open("w") as log:
             fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"
