@@ -267,6 +267,89 @@ test("source coordinates cannot enter the current reading-report protocol", func
     eq(last_read_options.viewport_fraction, nil, "native viewport metadata does not enter protocol")
 end)
 
+test('source upload guards each dispatch and never persists its source summary',function()
+    for _i,mode in ipairs({'plain','before_context','after_context','after_enter'}) do
+        local report=fixture()
+        local valid,posts,persisted=true,0,nil
+        report._auth_fingerprint=function() return 'synthetic-auth' end
+        local book={book_id='book',psvts='ps',pclts='pc',token='token',summary='original context'}
+        report.ensure_context=function()
+            if mode=='after_context' then valid=false end
+            return book
+        end
+        report._persist_context=function(_self,_id,snapshot) persisted=snapshot end
+        report.client.report_read=function()
+            posts=posts+1
+            if mode=='after_enter' then valid=false end
+            return {succ=1},200
+        end
+        report.client.get_web_progress=function() return {bookId='book',chapterUid=22,chapterIdx=2,chapterOffset=10000,progress=25} end
+        local position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=25,summary='SOURCE_SUMMARY_CANARY'}
+        local plan={position=position,basis='filtered_xhtml_utf16',is_current=function() return valid end}
+        if mode=='before_context' then valid=false end
+        local accepted,outcome=report:upload_position('book',position,0,plan)
+        eq(accepted,mode=='plain','source upload outcome')
+        eq(posts,mode=='plain' and 2 or mode=='after_enter' and 1 or 0,'stale source dispatched or retried')
+        eq(book.summary,'original context','source summary mutated settings-owned book')
+        if persisted then eq(persisted.summary,'original context','source summary entered persisted context') end
+        if mode=='plain' then
+            eq(last_read_options.chapter_offset,10000,'source co was changed at wire boundary')
+            eq(last_read_options.summary,'SOURCE_SUMMARY_CANARY','actual source summary was not sent')
+            eq(outcome.position_confirmed,true,'exact source readback was not confirmed')
+        elseif mode=='after_enter' then eq(outcome.error_kind,'unconfirmed','partial dispatch was declared safe to repeat')
+        else eq(outcome.error_kind,'position','zero sends were declared an unknown write') end
+    end
+end)
+
+test('periodic source reports use only scalar child guards and never retry an uncertain send',function()
+    for _i,mode in ipairs({'plain','expired','backwards','rotated','noack','transport'}) do
+        local report=fixture()
+        if mode=='backwards' then report.now=function() return 90 end end
+        local posts,contexts,auth=0,0,'A'
+        local book={book_id='book',psvts='ps',pclts='pc',token='token',summary='original context'}
+        report._auth_fingerprint=function() return auth end
+        report.ensure_context=function()
+            contexts=contexts+1
+            if mode=='rotated' then auth='B' end
+            return book
+        end
+        report.client.report_read=function()
+            posts=posts+1
+            if mode=='transport' then error('synthetic transport') end
+            return mode=='noack' and {} or {succ=1},200
+        end
+        local position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=25,summary='SOURCE_SUMMARY_CANARY'}
+        local outcome=report:_run_pipeline('book',{position=position,source_deadline=mode=='expired' and 99 or 130,allow_renewal=true})
+        eq(outcome.accepted,mode=='plain','periodic source outcome')
+        eq(contexts,1,'source report refreshed or retried context')
+        eq(posts,mode=='plain' and 2 or (mode=='noack' or mode=='transport') and 1 or 0,'source report retried a send')
+        eq(book.summary,'original context','child source summary mutated settings context')
+        eq(outcome.book.summary,'original context','child source summary entered parent outcome')
+        eq(outcome.renew_attempted,false,'source report tried authorization renewal')
+        if mode=='plain' then eq(last_read_options.elapsed_seconds,30,'source report lost periodic reading duration') end
+        local uncertain=0
+        report.on_source_unconfirmed=function() uncertain=uncertain+1 end
+        report:_apply_outcome(outcome)
+        eq(uncertain,(mode=='noack' or mode=='transport') and 1 or 0,'parent did not revoke unknown source write authority')
+    end
+end)
+
+test('periodic preparation waits asynchronously and ignores a result after stop',function()
+    local report=fixture(function() return {book_id='book',chapter_uid=22,chapter_offset=7,percent=25},nil,true end)
+    local ready,dispatched
+    report.position_preparer=function(_intent,callback) ready=callback end
+    report._dispatch_tick=function(_self,_generation,_task,_book,position,deadline) dispatched={position=position,deadline=deadline} end
+    report:start('fixture');report:_tick(report.generation,report.task)
+    eq(dispatched,nil,'preparation dispatched synchronously')
+    local plan={position={book_id='book',chapter_uid='22',chapter_offset=10000},deadline=130,is_current=function() return true end}
+    ready(plan)
+    eq(dispatched.position.chapter_offset,10000,'prepared periodic result used estimate')
+    eq(dispatched.deadline,130,'worker source expiry was discarded')
+    dispatched=nil;report:_tick(report.generation,report.task)
+    report:stop('document_close');ready(plan)
+    eq(dispatched,nil,'closed preparation dispatched a report')
+end)
+
 print(string.format(
     "read_report_progress_spec: %d checks, %d failure(s)", checks, failures))
 os.exit(failures == 0 and 0 or 1)

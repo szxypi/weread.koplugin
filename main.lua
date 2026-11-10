@@ -132,6 +132,14 @@ function WeReadPlugin:init()
             end
             return self.progress_sync:position_for_report(book_id)
         end,
+        position_preparer = function(position,callback) return self.source_upload:prepare(position,callback) end,
+        on_source_unconfirmed = function()
+            if self.progress_sync then
+                self.progress_sync.dirty=true
+                self.progress_sync:checkpoint_local("upload_readback_unconfirmed")
+                self.progress_sync:_clear_verified("upload_readback_unconfirmed")
+            end
+        end,
         -- The report tick runs on the UI loop; use the link-state check here
         -- because NetworkMgr:isOnline() does a blocking DNS lookup.
         is_online = function()
@@ -174,6 +182,7 @@ function WeReadPlugin:init()
             if self.progress_sync then self.progress_sync:on_source_position_changed(state, position) end
         end,
     }
+    self.source_upload = require("weread.lib.source_upload"):new{source=self.source_position,scheduler=UIManager}
     self.progress_sync = ProgressSync:new{
         settings = self.settings,
         client = self.client,
@@ -244,9 +253,11 @@ function WeReadPlugin:init()
             return self:runOnlineTask(
                 _("Sync progress"), callback, nil, run_options)
         end,
-        upload_position = function(book_id, position, elapsed_seconds)
+        prepare_upload = function(position,callback) return self.source_upload:prepare(position,callback) end,
+        apply_source_remote = function() return self:showCloudSourcePosition(true) end,
+        upload_position = function(book_id, position, elapsed_seconds, plan)
             return self.read_report:upload_position(
-                book_id, position, elapsed_seconds)
+                book_id, position, elapsed_seconds, plan)
         end,
         confirm_position = function(receipt)
             return self.read_report:confirm_position(receipt)

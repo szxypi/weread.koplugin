@@ -72,19 +72,20 @@ return function(input)
             assert(candidate.chapter_offset==point.chapter_offset and candidate.percent==legacy.percent
                 and candidate.book_id==input.book_id and candidate.chapter_uid==input.chapter_uid and candidate.upload_verified==false)
             if label=='page' then
-                local fresh,why,receipt,completed
-                service:prepare_current_upload_preview(function(value,problem,checked) fresh,why,receipt,completed=value,problem,checked,true end)
+                local plan,why,completed
+                plugin.source_upload:prepare(legacy,function(value,problem) plan,why,completed=value,problem,true end)
                 pump(function() return completed end)
                 if plugin:isNetworkConnected() then
-                    assert(require('weread.lib.source_upload_candidate').same(fresh,candidate)
-                        and service:is_current_upload_preview(receipt,fresh),'candidate_current_source_unverified')
+                    local wire={};for _i,key in ipairs({'book_id','chapter_uid','chapter_idx','chapter_offset','percent','summary'}) do wire[key]=candidate[key] end
+                    assert(plan and require('weread.lib.source_upload_candidate').same(plan.position,wire)
+                        and plan.is_current(),'candidate_current_source_unverified')
                     self.report.currentness_checks=1
-                    self.checked_receipt,self.checked_candidate=receipt,fresh
-                else assert(not fresh and not receipt and why=='offline','candidate_offline_currentness_dispatched') end
+                    self.checked_plan=plan
+                else assert(not plan and why=='offline','candidate_offline_currentness_dispatched') end
                 self.report.currentness_policy_verified=true
             elseif label=='turned' then
-                assert(not service:is_current_upload_preview(self.checked_receipt,self.checked_candidate),'candidate_movement_retained_receipt')
-                self.checked_receipt,self.checked_candidate=nil,nil
+                assert(not self.checked_plan or not self.checked_plan.is_current(),'candidate_movement_retained_receipt')
+                self.checked_plan=nil
                 self.report.currentness_receipt_invalidated=true
             end
             local target=assert(index:locate(point.chapter_offset))

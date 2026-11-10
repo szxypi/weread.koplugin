@@ -131,7 +131,12 @@ if offline then
         choice.cancel_callback(); UI:close(choice)
         pump(function() return not current.progress_sync.uploading end)
         saved = current.settings:get_book(expected.book_id)
-        assert(not saved.pending_upload_position and Mapper.same_position(saved.last_uploaded_position, expected.position),
+        local uploaded=assert(saved.last_uploaded_position)
+        local source=assert(current.source_position:current())
+        assert(not saved.pending_upload_position and Mapper.same_position(saved.last_local_position,expected.position)
+            and uploaded.wire_basis=='filtered_xhtml_utf16' and uploaded.chapter_uid==source.chapter_uid
+            and uploaded.chapter_offset==source.chapter_offset and not uploaded.summary
+            and uploaded.source_position.raw_sha256==source.raw_sha256,
             "chosen offline position was not acknowledged")
         local remote = current.client:get_progress(expected.book_id)
         assert(remote.book.progress == expected.position.percent, "reconnected synthetic cloud readback differs")
@@ -150,7 +155,14 @@ if offline then
         shot("reading-reconnect-remote-choice")
         assert(wire_posts() == before + 2, "second comparison uploaded the unchecked page")
         choice.ok_callback(); UI:close(choice)
-        pump(function() return current.progress_sync.verified and reader:getCurrentPage() == reader.document:getPageCount() end)
+        pump(function() return current.progress_sync.verified and not current.cloud_source_request
+            and not current.source_navigation.job end)
+        local held=assert(current.progress_sync:current_source_target())
+        assert(held.chapter_offset==uploaded.chapter_offset and held.chapter_uid==uploaded.chapter_uid,
+            'cloud choice restored word fraction instead of exact source point')
+        local index=assert(require('weread.lib.source_dom').open(reader.document,held.book_id,held.chapter_uid))
+        assert(reader.document:isXPointerInCurrentPage(assert(index:locate(held.chapter_offset)).xpointer),
+            'exact cloud target is not visible after native navigation')
         assert(not current.settings:get_book(expected.book_id).pending_upload_position,
             "chosen cloud position kept the superseded local intent")
         current:onFlushSettings()
@@ -285,7 +297,8 @@ if os.getenv("WEREAD_TEST_PROGRESS_RESPONSE") == "1" then
         assert(not current.read_report:_merge_remote_progress(id,context_book),"report context accepted invalid Gateway data")
         for _j,key in ipairs(context_keys) do assert(context_book[key]==original[key],"report context changed after rejection") end
         assert(current:onWeReadSyncProgress())
-        pump(function() return not current.progress_sync.pulling end)
+        pump(function() return not current.progress_sync.pulling and not current.cloud_source_request
+            and not current.source_navigation.job end)
         assert(current.progress_sync.state=="error" and not current.progress_sync.verified,"invalid cloud progress was accepted")
         assert(reader.document:getXPointer()==xpointer,"invalid response moved the reader")
         assert(Mapper.same_position(current.settings:get_book(id).pending_upload_position,pending),"invalid response erased local intent")
@@ -327,6 +340,9 @@ assert(saved.last_uploaded_position and not saved.pending_upload_position, "sync
 local remote = current.client:get_progress(book_id)
 assert(remote.book.progress == saved.last_uploaded_position.percent, "synthetic cloud readback differs")
 shot("reading-sync-result")
+if os.getenv('WEREAD_TEST_SOURCE_UPLOAD')=='1' then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'source_upload_smoke.lua')(reader,current,pump,clean_popups)
+end
 if os.getenv("WEREAD_TEST_PROGRESS_CONFIRMATION") == "1" then
     dofile(debug.getinfo(1, "S").source:match("^@(.*/)") .. "progress_confirmation_smoke.lua")(
         reader, current, pump, shot, clean_popups)

@@ -128,6 +128,10 @@ function Service:is_current_upload_preview(receipt,candidate)
     local age=self.now()-job.started
     return age>=0 and age<=30 and Currentness.matches(self.client.settings,job.access) and self:_preview_current(job,candidate) or false
 end
+function Service:upload_preview_deadline(receipt,candidate)
+    if not self:is_current_upload_preview(receipt,candidate) then return nil end
+    return self.checked_previews[receipt].started+30
+end
 
 -- No network or persistence. The caller receives an immutable, unverified
 -- candidate only while the original native point and catalog still match.

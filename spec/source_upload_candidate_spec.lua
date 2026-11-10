@@ -126,11 +126,13 @@ local function finish() worker.callback(worker.task()) end
 fresh();finish()
 expect(received and value and receipt and next(receipt)==nil and reads==1,'fresh checked candidate was not delivered')
 expect(service:is_current_upload_preview(receipt,value),'owned fresh receipt was rejected')
+expect(service:upload_preview_deadline(receipt,value)==130,'owned source expiry was extended or lost')
 expect(not service:is_current_upload_preview({},value),'forged receipt was accepted')
 local changed_candidate=copy(value);changed_candidate.summary='changed'
 expect(not service:is_current_upload_preview(receipt,changed_candidate),'receipt granted a different summary')
 expect(not service:current().summary and not service:current().receipt,'fresh source content entered public state')
 clock=131;expect(not service:is_current_upload_preview(receipt,value),'expired receipt remained current')
+expect(not service:upload_preview_deadline(receipt,value),'expired receipt exported a dispatch deadline')
 clock=99;expect(not service:is_current_upload_preview(receipt,value),'backwards clock accepted receipt')
 clock=100;context.percent=38;expect(not service:is_current_upload_preview(receipt,value),'changed percent accepted receipt')
 context.percent=37;chapters[1].chapterIdx=1;expect(not service:is_current_upload_preview(receipt,value),'changed chapter index accepted receipt')

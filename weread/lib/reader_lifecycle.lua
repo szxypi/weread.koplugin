@@ -190,6 +190,7 @@ function M:onPageUpdate()
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
+    if self.source_upload then self.source_upload:on_view_changed() end
     if self.source_position then self.source_position:on_view_changed() end
     self.progress_sync:on_page_update()
     if self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end
@@ -199,6 +200,7 @@ function M:onPosUpdate()
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
+    if self.source_upload then self.source_upload:on_view_changed() end
     if self.source_position then self.source_position:on_view_changed() end
     self.progress_sync:on_page_update()
     if self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end

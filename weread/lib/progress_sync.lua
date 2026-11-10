@@ -5,6 +5,8 @@ local Source = require("weread.lib.position_source")
 local SourceDom = require("weread.lib.source_dom")
 local FileIdentity = require("weread.lib.book_file_identity")
 local ProgressReadback = require("weread.lib.progress_readback")
+local RemoteProgress = require("weread.lib.remote_progress")
+local SourceCandidate = require("weread.lib.source_upload_candidate")
 
 local logger = require("weread.lib.logger").scoped("ProgressSync")
 
@@ -76,6 +78,8 @@ function ProgressSync:new(options)
         get_file_context = options.get_file_context,
         run_online = options.run_online,
         upload_position = options.upload_position,
+        prepare_upload = options.prepare_upload,
+        apply_source_remote = options.apply_source_remote,
         confirm_position = options.confirm_position,
         goto_fraction = options.goto_fraction,
         open_chapter = options.open_chapter,
@@ -209,7 +213,7 @@ function ProgressSync:_begin_source_transition(reason)
     self.dirty,self.state=false,'unverified'
 end
 
-function ProgressSync:accept_cloud_source_target(position)
+function ProgressSync:accept_cloud_source_target(position,sync_choice)
     if type(position)~='table' or position.basis~='filtered_xhtml_utf16' or position.upload_verified~=false
         or position.book_id~=tostring(self.detect_book() or '') then return false end
     local held=self:current_source_target()
@@ -220,6 +224,14 @@ function ProgressSync:accept_cloud_source_target(position)
     self:_clear_verified('cloud_source_selected')
     self:_discard_pending_upload(position.book_id)
     self.dirty,self.state=false,'unverified'
+    if self.prepare_upload and sync_choice==true then
+        local local_position=self:capture_local()
+        if local_position then
+            local_position.source_position=copy(held)
+            self.source_local_anchor=copy(held)
+            self:_mark_verified(position.book_id,'cloud_source_selected',local_position,self.remote_position)
+        end
+    end
     return true
 end
 
@@ -514,6 +526,7 @@ function ProgressSync:capture_local()
     -- Keep source units separate from the existing word/percent contract.
     -- The local source snapshot is read-only until wire write/readback validation.
     if self.get_source_position then position.source_position = copy(self.get_source_position()) end
+    if self.prepare_upload then position.summary=nil end
     position.book_id = book_id
     position.captured_at = self.now()
     position.current_chapter_uid = current_chapter
@@ -536,6 +549,7 @@ function ProgressSync:_mark_verified(book_id, reason, local_position, remote)
     self.verified_at = self.now()
     self.verified_reason = reason
     self.local_position = copy(local_position)
+    if self.prepare_upload and local_position and local_position.source_position then self.source_local_anchor=copy(local_position.source_position) end
     self.remote_position = copy(remote)
     self.state = "verified"
     self:_persist(book_id, {
@@ -569,11 +583,16 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
     local web
     local gateway_error
     local web_error
+    local function normalize(value,kind)
+        if not self.prepare_upload then return PositionMapper.normalize_remote(value,book_id,kind,chapters) end
+        local position,reason,provided=RemoteProgress.project(value,book_id,kind)
+        if position then position.has_chapter_index=provided.chapter_idx==true;position.summary=nil end
+        return position,reason
+    end
     if self.settings:is_api_configured() then
         local ok, result = pcall(self.client.get_progress, self.client, book_id)
         if ok then
-            gateway, gateway_error = PositionMapper.normalize_remote(
-                result, book_id, "gateway", chapters)
+            gateway, gateway_error = normalize(result,"gateway")
         else
             gateway_error = tostring(result)
         end
@@ -583,8 +602,7 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
         local ok, result = pcall(
             self.client.get_web_progress, self.client, book_id)
         if ok then
-            web, web_error = PositionMapper.normalize_remote(
-                result, book_id, "web", chapters)
+            web, web_error = normalize(result,"web")
         else
             web_error = tostring(result)
         end
@@ -623,6 +641,7 @@ function ProgressSync:_apply_remote(remote, context, options)
     end
     self:_clear_verified("cloud_navigation")
     self.dirty = false
+    if self.apply_source_remote then return self.apply_source_remote(copy(remote),options) end
     local target, reason = PositionMapper.remote_to_local(
         context.chapters,
         remote,
@@ -761,12 +780,21 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
             local book = self.get_book(book_id) or {}
             local clear_pending = book.pending_upload_account == scope.account
                 and ProgressReadback.same_intent(book.pending_upload_position, position)
+            local uploaded=copy(job.plan and job.plan.position or position)
+            if job.plan then
+                uploaded.summary=nil
+                uploaded.source_position=copy(position.source_position)
+                uploaded.wire_basis=job.plan.basis
+            end
             local patch = {
-                last_uploaded_position = position,
+                last_uploaded_position = uploaded,
                 last_upload_at = self.now(),
                 last_sync_error = false,
                 last_remote_position = outcome.remote,
             }
+            if job.plan and type(patch.last_remote_position)=='table' then
+                patch.last_remote_position=copy(patch.last_remote_position);patch.last_remote_position.summary=nil
+            end
             if clear_pending then
                 patch.pending_upload_position, patch.pending_upload_reason, patch.pending_upload_account = false, false, false
             end
@@ -774,7 +802,9 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
             local active = self:_session_current(scope)
             if active then
                 local live = self:capture_local() or self.local_position
-                self.dirty = not ProgressReadback.same_wire_position(live, position) or not clear_pending
+                local unchanged=job.plan and ProgressReadback.same_intent(live,position)
+                    or not job.plan and ProgressReadback.same_wire_position(live,position)
+                self.dirty = not unchanged or not clear_pending
                 self.last_uploaded_position = copy(position)
                 if not self.pulling and self.state ~= "awaiting_choice" then
                     self.state = self.verified and "verified" or "unverified"
@@ -814,8 +844,33 @@ function ProgressSync:_upload_snapshot(position, reason, show_result)
     end
     attempt = function()
         if not current() then return end
+        if self.prepare_upload and (not self:_session_current(scope) or scope.navigation_generation~=self.navigation_generation) then
+            self.upload_job,self.uploading=nil,false;return
+        end
+        if self.prepare_upload and not job.plan then
+            if job.preparing then return end
+            job.preparing=true
+            self.prepare_upload(copy(position),function(plan,error_reason)
+                if not current() then return end
+                job.preparing=false
+                if type(plan)~='table' or type(plan.is_current)~='function' or not plan.is_current() then
+                    finish(true,false,{error=error_reason or 'source_position_changed',error_kind='position'});return
+                end
+                if not position.source_position and plan.source_position then
+                    local saved=self.get_book(book_id) or {}
+                    local own=ProgressReadback.same_intent(saved.pending_upload_position,position)
+                    position.source_position=copy(plan.source_position)
+                    if own then self:_persist(book_id,{pending_upload_position=position,last_local_position=position}) end
+                end
+                job.plan=plan;attempt()
+            end)
+            return
+        end
+        if job.plan and not job.plan.is_current() then
+            finish(true,false,{error='source_position_changed',error_kind='position'});return
+        end
         attempts = attempts + 1
-        finish(pcall(self.upload_position, book_id, copy(position), 0))
+        finish(pcall(self.upload_position, book_id, copy(job.plan and job.plan.position or position), 0, job.plan))
     end
     local started = self.run_online("progress_upload", attempt)
     if not started and self.upload_job == job then
@@ -827,7 +882,10 @@ end
 
 function ProgressSync:_keep_local(local_position, remote, options)
     options = options or {}
-    self.dirty = not PositionMapper.same_position(local_position, remote)
+    if self.prepare_upload then
+        local chapters=self.get_chapters(self.get_book(local_position.book_id) or {})
+        self.dirty=self:_compare_source(local_position,remote,chapters)~='same'
+    else self.dirty = not PositionMapper.same_position(local_position, remote) end
     self:_mark_verified(
         local_position.book_id,
         "local_selected",
@@ -839,6 +897,22 @@ function ProgressSync:_keep_local(local_position, remote, options)
     elseif options.manual then
         self.notify("local_kept", { position = local_position })
     end
+end
+
+function ProgressSync:_compare_source(local_position,remote,chapters)
+    local source=type(local_position)=='table' and local_position.source_position
+    if type(source)~='table' or source.basis~='filtered_xhtml_utf16' or source.upload_verified~=false
+        or source.book_id~=local_position.book_id or type(source.chapter_offset)~='number'
+        or source.chapter_offset%1~=0 or source.chapter_offset<0 or source.chapter_offset>2147483647
+        or type(remote)~='table' or remote.book_id~=local_position.book_id or not remote.has_chapter_offset
+        or not remote.has_chapter_index then return nil end
+    local local_index=SourceCandidate.chapter_index(chapters,tostring(source.chapter_uid))
+    local remote_index=SourceCandidate.chapter_index(chapters,tostring(remote.chapter_uid))
+    if not local_index or remote_index~=remote.chapter_idx or not remote_index then return nil end
+    if local_index~=remote_index then return remote_index>local_index and 'remote_ahead' or 'local_ahead' end
+    if tostring(source.chapter_uid)~=tostring(remote.chapter_uid) then return nil end
+    if source.chapter_offset==remote.chapter_offset then return 'same' end
+    return remote.chapter_offset>source.chapter_offset and 'remote_ahead' or 'local_ahead'
 end
 
 function ProgressSync:_resolve(local_position, remote, context, options)
@@ -854,6 +928,11 @@ function ProgressSync:_resolve(local_position, remote, context, options)
     local uncertain = saved.pending_upload_reason == "upload_readback_unconfirmed"
         and saved.pending_upload_account == self:_account_key() and saved.pending_upload_position ~= nil
     local needs_choice = uncertain and not ProgressReadback.matches_normalized(local_position, remote)
+    if self.prepare_upload then
+        local source_comparison=self:_compare_source(local_position,remote,context.chapters)
+        comparison=source_comparison or 'different'
+        needs_choice=not source_comparison or uncertain and source_comparison~='same'
+    end
 
     if comparison == "same" and not remote.conflict and not needs_choice then
         self:_discard_pending_upload(context.book_id)
@@ -1139,6 +1218,7 @@ function ProgressSync:cancel_pending_jump(reason)
 end
 
 function ProgressSync:on_reader_ready()
+    self.source_local_anchor=nil
     self.file_resume=nil
     self.remote_anchor, self.source_anchor = nil, nil
     self.generation = self.generation + 1
@@ -1340,6 +1420,12 @@ end
 
 function ProgressSync:on_source_position_changed(state, position)
     self.source_state = state
+    if self.prepare_upload and position and position.book_id==self.current_book_id then
+        if self.source_local_anchor and (self.source_local_anchor.chapter_uid~=position.chapter_uid
+            or self.source_local_anchor.chapter_offset~=position.chapter_offset
+            or self.source_local_anchor.raw_sha256~=position.raw_sha256) then self.dirty=true end
+        self.source_local_anchor=copy(position)
+    end
     if self.local_position then
         self.local_position.source_position = position and tostring(position.book_id) == tostring(self.current_book_id)
             and copy(position) or nil

@@ -50,7 +50,7 @@ function M.navigation_cancelled(host,navigation)
     local job=host.cloud_source_request
     if job and job.navigation==navigation then M.cancel(host) end
 end
-local function receive(host,remote,file_id,access)
+local function receive(host,remote,file_id,access,sync_choice)
     M.cancel(host)
     local document=host.ui and host.ui.document
     local incoming={document=document,location=document and location(host,document),session=host._reader_session_gen,started=os.time()}
@@ -62,14 +62,14 @@ local function receive(host,remote,file_id,access)
             or host.progress_sync.navigation_generation~=0 or not Cloud.matches(host.settings,access)
             or Identity.read_document(document,remote.book_id).file_id~=file_id
             or not Context.same_location(incoming.location,location(host,document)) then return end
-        M.start(host,{remote=remote,file_id=file_id,access=access})
+        M.start(host,{remote=remote,file_id=file_id,access=access},{sync_choice=sync_choice==true})
     end
     host.cloud_source_incoming=incoming
     -- ReaderUI's after-open callback precedes installation of its new instance.
     UIManager:scheduleIn(0.1,incoming.task)
     return true
 end
-function M.start(host,resume)
+function M.start(host,resume,options)
     M.cancel(host)
     local id=tostring(host:detectWeReadBook() or '')
     local document=host.ui and host.ui.document
@@ -102,7 +102,8 @@ function M.start(host,resume)
     host.cloud_source_sequence=(host.cloud_source_sequence or 0)+1
     local job={document=document,file=document.file,identity=identity,book_id=id,access=access,location=at,
         session=host._reader_session_gen,started=os.time(),sequence=host.cloud_source_sequence,
-        navigation_generation=host.progress_sync and host.progress_sync.navigation_generation}
+        navigation_generation=host.progress_sync and host.progress_sync.navigation_generation,
+        sync_choice=options and options.sync_choice==true or false}
     host.cloud_source_request=job
     if host.source_position then host.source_position:pause('cloud_source') end
     local function busy()
@@ -198,7 +199,9 @@ function M.start(host,resume)
         if type(result)~='table' or result.request_id~=job.sequence then finish('target_unavailable');return end
         local position=result.position
         if position and result.file and result.file~=job.file and not resume then
-            local transfer=Handoff.prepare(host,job,result.file,result.identity,result.remote,receive)
+            local transfer=Handoff.prepare(host,job,result.file,result.identity,result.remote,function(next_host,selected_remote,file_id,selected_access)
+                return receive(next_host,selected_remote,file_id,selected_access,job.sync_choice)
+            end)
             if not transfer then finish('source_changed');return end
             job.switching=true
             M.cancel(host)
@@ -216,7 +219,7 @@ function M.start(host,resume)
         local called,opened=pcall(host.openSourcePosition,host,position,function(applied,reason)
             if not current(host,job,true) then if host.cloud_source_request==job then M.cancel(host) end return end
             if applied and host.progress_sync then
-                local saved,accepted=pcall(host.progress_sync.accept_cloud_source_target,host.progress_sync,applied)
+                local saved,accepted=pcall(host.progress_sync.accept_cloud_source_target,host.progress_sync,applied,job.sync_choice)
                 if not saved or accepted~=true then
                     job.navigation=nil;M.cancel(host)
                     host:showInfo(_('Cloud position opened, but sync state could not be saved. Check storage before syncing.'));return

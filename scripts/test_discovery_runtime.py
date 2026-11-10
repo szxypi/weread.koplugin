@@ -29,6 +29,7 @@ def main():
     parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
     parser.add_argument("--progress-response", action="store_true", help="Reject foreign/malformed sync responses in the reading flow")
     parser.add_argument('--progress-confirmation', action='store_true', help='Exercise delayed and unconfirmed position write receipts')
+    parser.add_argument('--source-upload',action='store_true',help='Verify native source wire coordinates and periodic preparation')
     parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
@@ -42,6 +43,7 @@ def main():
     if args.progress_confirmation and not args.reading_flow:
         parser.error('--progress-confirmation requires --reading-flow')
     if args.owner_roundtrip and not args.reading_flow:parser.error('--owner-roundtrip requires --reading-flow')
+    if args.source_upload and not args.reading_flow:parser.error('--source-upload requires --reading-flow')
     if args.footnotes and args.reading_flow:
         parser.error("--footnotes and --reading-flow use separate fixtures")
     if args.cached_resume and (args.footnotes or args.reading_flow):
@@ -84,6 +86,7 @@ def main():
     if args.progress_response:
         environment["WEREAD_TEST_PROGRESS_RESPONSE"] = "1"
     if args.progress_confirmation: environment['WEREAD_TEST_PROGRESS_CONFIRMATION'] = '1'
+    if args.source_upload:environment['WEREAD_TEST_SOURCE_UPLOAD']='1'
     if args.owner_roundtrip:
         from mock_weread import chapter_html
         from verify_source_coordinates import FilteredSource

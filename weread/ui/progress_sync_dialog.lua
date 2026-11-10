@@ -52,7 +52,15 @@ function ProgressSyncDialog.notify(code, data)
     elseif code == "upload_unconfirmed" then
         text = _("The cloud position could not be confirmed.\nYour local position is kept. This upload will not be sent again automatically. Please sync again later to compare positions.")
     elseif code == "upload_failed" then
-        text = T(_("Progress upload failed:\n%1"), tostring(data.error or ""))
+        if data.error=='source_format_unsupported' then
+            text=_("Cloud position sync is not available for this file format yet. Your local position is kept.")
+        elseif data.error=='source_no_visible_text' then
+            text=_("This page has no text position to check.")
+        elseif data.error=='source_data_unavailable' then
+            text=_("This file has no original position data. Download the chapter again to check its position.")
+        elseif type(data.error)=='string' and data.error:match('^source_') then
+            text=_("The original reading position is not ready to sync. Your local position is kept. Please try again shortly.")
+        else text = T(_("Progress upload failed:\n%1"), tostring(data.error or "")) end
     elseif code == "already_synced" then
         text = _("KOReader and WeRead are already at the same position.")
     elseif code == "remote_applied" then

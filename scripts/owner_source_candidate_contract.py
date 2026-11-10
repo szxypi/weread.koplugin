@@ -1,4 +1,4 @@
-"""Private native-capture candidates; no transport or write authorization."""
+"""Private native captures and read-only wire plans; no write dispatcher."""
 import hashlib
 import json
 import re

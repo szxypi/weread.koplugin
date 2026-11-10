@@ -10,8 +10,8 @@ function M:openSourcePosition(position, callback)
     if not self.source_navigation then return false,'target_unavailable' end
     return self.source_navigation:jump(position,callback)
 end
-function M:showCloudSourcePosition()
-    return require('weread.ui.cloud_source').start(self)
+function M:showCloudSourcePosition(sync_choice)
+    return require('weread.ui.cloud_source').start(self,nil,{sync_choice=sync_choice==true})
 end
 function M:cancelCloudSourcePosition()
     return require('weread.ui.cloud_source').cancel(self)

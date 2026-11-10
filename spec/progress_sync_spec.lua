@@ -1757,6 +1757,107 @@ test("source snapshot becoming ready during confirmation does not resend an unch
     eq(writes, 1, "close resent the same wire position after source preparation")
 end)
 
+test('prepared source wire coordinates preserve local units and clear only their own intent',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end})
+    local callback
+    f.sync.prepare_upload=function(_position,ready) callback=ready;return true end
+    local position=assert(f.sync:capture_local())
+    f.sync:_mark_verified('book','fixture',position,{})
+    local wire={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=position.percent,summary='SOURCE_SUMMARY_CANARY'}
+    local plan={position=wire,basis='filtered_xhtml_utf16',is_current=function() return true end}
+    f.sync.upload_position=function(_book,sent,elapsed,grant)
+        eq(sent.chapter_offset,10000,'dispatch uses source coordinate')
+        eq(elapsed,0,'source position upload does not add duration')
+        eq(grant,plan,'dispatch owns its fresh plan')
+        return true,{acknowledged=true,position_confirmed=true}
+    end
+    f.sync:_upload_snapshot(position,'explicit_local_choice',true)
+    eq(f.sync.uploading,true,'asynchronous preparation owns upload slot')
+    eq(f.values.books.book.pending_upload_position.chapter_offset,position.chapter_offset,'pending keeps local projection')
+    callback(plan)
+    local saved=f.values.books.book
+    eq(saved.last_uploaded_position.chapter_offset,10000,'uploaded record has actual wire coordinate')
+    eq(saved.last_uploaded_position.wire_basis,'filtered_xhtml_utf16','persisted wire coordinate is labelled')
+    eq(saved.last_uploaded_position.summary,nil,'source summary was persisted')
+    eq(saved.pending_upload_position,nil,'matching original intent was not cleared')
+    eq(f.sync.dirty,false,'unchanged source became dirty after upload')
+    f.sync:_upload_snapshot(position,'explicit_local_choice',true)
+    source.chapter_offset=10001
+    f.sync:on_source_position_changed('ready',source)
+    f.sync:checkpoint_local('new_source_point')
+    callback(plan)
+    eq(f.sync.dirty,true,'new same-page source point was lost')
+    eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,10001,'old confirmation cleared later source intent')
+end)
+
+test('failed and closed source preparations never fall back to estimated uploads',function()
+    for _i,mode in ipairs({'failed','closed','expired'}) do
+        local f=fixture({})
+        local callback
+        f.sync.prepare_upload=function(_position,ready) callback=ready;return true end
+        local position=assert(f.sync:capture_local())
+        f.sync:_upload_snapshot(position,'source_test',false)
+        if mode=='closed' then f.sync:on_close_document() end
+        local plan
+        if mode~='failed' then plan={position=position,is_current=function() return mode~='expired' end} end
+        callback(plan,'source_position_unavailable')
+        eq(#f.uploads,0,'source failure used old word-coordinate writer')
+        eq(f.sync.uploading,false,'source failure retained upload ownership')
+        eq(f.values.books.book.pending_upload_position~=nil,true,'source failure lost durable intent')
+    end
+end)
+
+test('source comparison distinguishes one unit at identical percentages',function()
+    local f=fixture({})
+    f.sync.prepare_upload=function() end
+    local position=assert(f.sync:capture_local())
+    position.source_position={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false}
+    local remote={book_id='book',chapter_uid=22,chapter_idx=2,chapter_offset=10001,percent=position.percent,
+        has_chapter_offset=true,has_chapter_index=true}
+    eq(f.sync:_compare_source(position,remote,chapters),'remote_ahead','one source unit was swallowed by percent tolerance')
+    remote.chapter_offset=9999;eq(f.sync:_compare_source(position,remote,chapters),'local_ahead','source ordering was inverted')
+    remote.chapter_offset=10000;eq(f.sync:_compare_source(position,remote,chapters),'same','equal source point differs')
+    remote.chapter_idx=3;eq(f.sync:_compare_source(position,remote,chapters),nil,'conflicting chapter index accepted')
+    remote.chapter_idx=2;remote.book_id='other';eq(f.sync:_compare_source(position,remote,chapters),nil,'foreign source position accepted')
+    remote.book_id='book';position.source_position.basis='raw_txt_utf16'
+    eq(f.sync:_compare_source(position,remote,chapters),nil,'TXT borrowed XHTML cloud semantics')
+end)
+
+test('source progress keeps server percentages and compares exact coordinates',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false}
+    local f=fixture({bookId='book',progress=37,chapterUid=22,chapterIdx=2,chapterOffset=10001,summary='SOURCE_SUMMARY_CANARY'},
+        {get_source_position=function() return source end})
+    f.sync.prepare_upload=function() end
+    local remote=f.sync:_fetch_remote('book',chapters)
+    eq(remote.percent,37,'source offset was divided by catalog words to invent a percent')
+    eq(remote.chapter_offset,10001,'remote source offset was clamped to word count')
+    eq(remote.summary,nil,'remote source text entered position checkpoint')
+    local position=assert(f.sync:capture_local());position.percent=37
+    f.sync:_resolve(position,remote,{book_id='book',book=f.values.books.book,chapters=chapters},{manual=true})
+    eq(f.sync.state,'awaiting_choice','same percent swallowed a one-unit source difference')
+    eq(#f.choices,1,'source difference did not reach the normal choice dialog')
+    local applied
+    f.sync.apply_source_remote=function(value) applied=value;return true end
+    f.choices[1].use_remote()
+    eq(applied.chapter_offset,10001,'cloud choice did not use original source offset')
+    eq(#f.jumps,0,'cloud choice fell back to a word fraction')
+end)
+
+test('read-only source navigation and normal sync choices keep separate reporting gates',function()
+    local f=fixture({})
+    f.sync.prepare_upload=function() end
+    local point={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false}
+    f.sync.current_source_target=function() return point end
+    f.sync.verified=true
+    eq(f.sync:accept_cloud_source_target(point),true,'read-only source target was rejected')
+    eq(f.sync.verified,false,'read-only location tool granted reporting authority')
+    eq(f.sync:accept_cloud_source_target(point,true),true,'normal cloud sync choice was rejected')
+    eq(f.sync.verified,true,'normal source choice did not finish its sync decision')
+    eq(f.sync.local_position.source_position.upload_verified,false,'sync choice flipped source metadata upload flag')
+end)
+
 print(string.format(
     "progress_sync_spec: %d checks, %d failure(s)", checks, failures))
 os.exit(failures == 0 and 0 or 1)
