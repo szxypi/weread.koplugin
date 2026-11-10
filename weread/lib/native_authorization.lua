@@ -224,6 +224,16 @@ function Auth:read_annotations(credentials, kind, book_id, chapter_uid, batch)
     fail("annotations", "invalid_kind")
 end
 
+-- Own marks GET verified by verify_my_cloud_marks.py before Lua integration.
+function Auth:read_my_cloud_marks(credentials, book_id)
+    if not require('weread.lib.my_cloud_marks').id(book_id) then fail('my_marks','invalid_book') end
+    if type(credentials)~='table' or not vid(credentials.vid) or not text(credentials.accessToken,8192) then
+        fail('my_marks','invalid_credentials')
+    end
+    if self.expected_vid and vid(credentials.vid)~=self.expected_vid then fail('my_marks','account_mismatch') end
+    return self:_request('my_marks',BASE..'/book/bookmarklist?bookId='..book_id..'&synckey=0',nil,credentials)
+end
+
 -- Four statistics modes and historical month verified by the Python prototype.
 function Auth:read_statistics(credentials, mode, base_time)
     local Data = require("weread.lib.statistics_data")

@@ -114,6 +114,7 @@ function M:onReaderReady()
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
+    if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     self._reader_session_gen = (self._reader_session_gen or 0) + 1
     local perf = PluginUtil.reader_open_perf
@@ -221,6 +222,7 @@ function M:onCloseDocument()
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.closeReadingLanguageDocument then self:closeReadingLanguageDocument() end
+    if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
@@ -413,6 +415,7 @@ function M:onSuspend()
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
+    if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     if self.closeReaderLinkUI then self:closeReaderLinkUI() end
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end

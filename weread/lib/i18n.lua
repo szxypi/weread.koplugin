@@ -1,6 +1,22 @@
 local I18n = {}
 
 local zh = {
+    ["My cloud highlights"] = "我的云端划线",
+    ["Highlight"] = "划线",
+    ["Bookmark"] = "书签",
+    ["Cloud mark"] = "云端标记",
+    ["Chapter unavailable"] = "章节信息不可用",
+    ["Refresh my cloud marks"] = "刷新我的云端标记",
+    ["All cloud marks"] = "全部标记",
+    ["Highlights only"] = "仅划线",
+    ["Bookmarks only"] = "仅书签",
+    ["Saved cloud marks"] = "云端标记缓存",
+    ["No saved quote text."] = "未返回引用原文。",
+    ["No cloud marks in this view."] = "当前筛选下没有云端标记。",
+    ["No saved cloud marks. Refresh while online."] = "尚无云端标记缓存，请联网刷新。",
+    ["Could not update my cloud marks. Saved marks are kept."] = "未能更新我的云端标记，已保留原缓存。",
+    ["Loading my cloud marks…\nTap or press a key to cancel."] = "正在读取我的云端标记…\n点击或按键取消。",
+    ["Could not save my cloud marks. The previous saved copy is kept."] = "无法保存我的云端标记，已保留原缓存。",
     ["Open this file?"] = "打开这个文件？",
     ["Open"] = "打开",
     ["Change cloud membership"] = "加入／移出云端书架",

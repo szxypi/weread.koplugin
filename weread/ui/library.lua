@@ -119,6 +119,7 @@ function M:closeWeReadUI()
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelMPArticleActions then self:cancelMPArticleActions() end
+    if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
@@ -1118,6 +1119,16 @@ function M:showBookMenu(book)
         }
     end
     if shelf_state_action then actions[#actions+1]=shelf_state_action end
+    if self.showMyCloudMarks and require('weread.lib.my_cloud_marks').id(tostring(book_id)) then
+        local account=self.library_db and self.library_db:accountKey()
+        local session,document=self._reader_session_gen,self.ui and self.ui.document
+        actions[#actions+1]={text=_('My cloud highlights'),callback=self:safeCallback(_('My cloud highlights'),function()
+            if self._book_detail_view==view and account==self.library_db:accountKey()
+                and session==self._reader_session_gen and document==(self.ui and self.ui.document) then
+                self:showMyCloudMarks(tostring(book_id))
+            end
+        end)}
+    end
     if has_cache then
         actions[#actions + 1] = {
             text = _("Clear book cache"),
@@ -1167,6 +1178,7 @@ function M:showBookMenu(book)
         end),
         on_close = function()
             if self._book_detail_view == view then
+                if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
                 if self.cancelShelfState then self:cancelShelfState() end
                 self:cancelBookMetadata()
                 self:cancelBookReading()
@@ -2074,6 +2086,14 @@ end
 
 function M:cancelMPArticleExport()
     return require('weread.ui.mp_export').cancel(self)
+end
+
+function M:showMyCloudMarks(book_id)
+    return require('weread.ui.my_cloud_marks').show(self,book_id)
+end
+
+function M:cancelMyCloudMarks()
+    return require('weread.ui.my_cloud_marks').cancel(self)
 end
 
 function M:showShelfState(book_id)
