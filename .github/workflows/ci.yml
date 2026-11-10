@@ -135,6 +135,7 @@ jobs:
           python3 scripts/test_source_upload_candidate.py
           python3 scripts/test_source_currentness.py
           python3 scripts/test_owner_source_candidate.py
+          python3 scripts/test_owner_shelf_membership.py
           python3 scripts/test_annotation_source_quotes.py
           python3 scripts/test_txt_reading.py
 
