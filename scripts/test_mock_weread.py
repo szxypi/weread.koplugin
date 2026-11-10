@@ -348,6 +348,25 @@ class MockTests(unittest.TestCase):
         self.assertNotIn(identity,{row['bookId'] for row in shelf['books']})
         with self.assertRaises(ValueError):self.server.route('POST','https://weread.qq.com/web/book/chapterInfos',dict(bookIds=[identity]))
 
+    def test_cb_reading_fixture_requires_explicit_opt_in_and_never_expands_native_membership(self):
+        from mock_weread import CB_READING_ID
+        identity=CB_READING_ID
+        with self.assertRaises(ValueError):self.server.route('POST','https://weread.qq.com/web/book/chapterInfos',dict(bookIds=[identity]))
+        self.server.cb_reading=True
+        _,shelf=self.server.route('GET','https://weread.qq.com/web/shelf/sync',{})
+        self.assertEqual(sum(row['bookId']==identity for row in shelf['books']),1)
+        _,catalog=self.server.route('POST','https://weread.qq.com/web/book/chapterInfos',dict(bookIds=[identity]))
+        self.assertEqual(len(catalog['data'][0]['updated']),6)
+        _,page=self.server.route('GET','https://weread.qq.com/web/reader/'+weread_e(identity),{})
+        self.assertIn(identity,page)
+        for part in ('e_0','e_1','e_2','e_3'):
+            status,value=self.server.route('POST','https://weread.qq.com/web/book/chapter/'+part,dict(b=weread_e(identity),c=weread_e('2')))
+            self.assertEqual(status,200);self.assertIsInstance(value,str)
+        with self.assertRaises(ValueError):self.server.route('POST','https://i.weread.qq.com/shelf/add',dict(bookIds=[identity]))
+        self.server.cb_reading=False
+        _,shelf=self.server.route('GET','https://weread.qq.com/web/shelf/sync',{})
+        self.assertNotIn(identity,{row['bookId'] for row in shelf['books']})
+
     def test_annotations_and_progress_write_read(self):
         _, result = self.gateway("/book/underlines", bookId=BOOK_ID, chapterUid=2)
         mark = result["underlines"][0]

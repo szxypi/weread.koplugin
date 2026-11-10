@@ -107,6 +107,9 @@ class CbReadingProbe(CbMetadataWebProbe):
         self.last_checks = {}
         self.source_shape = {}
 
+    def read_key(self, stage):
+        return (self.book_id if stage not in {'account', 'shelf'} else '', stage)
+
     def guard(self, stage, url, body):
         reads = {'account', 'shelf', 'progress_before', 'progress_after', 'reader', 'catalog_before', 'catalog_after'}
         content = {'e_0', 'e_1', 'e_2', 'e_3', 't_0', 't_1'}
@@ -127,7 +130,7 @@ class CbReadingProbe(CbMetadataWebProbe):
                 raise CbReadingError('cb_content_scope')
         else:
             WebSourceProbe.guard(self, stage, url, body)
-        key = (self.book_id if stage not in {'account', 'shelf'} else '', stage)
+        key = self.read_key(stage)
         maximum = 2 if stage == 'account' else 1
         if self.used.get(key, 0) >= maximum:
             raise CbReadingError('cb_read_repeated')

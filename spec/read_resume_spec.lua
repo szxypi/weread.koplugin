@@ -71,12 +71,12 @@ expect(not Resume.from_book(invalid,'owner'),'contradictory local/source chapter
 invalid=copy(book);invalid.pending_upload_position.book_id='900002';invalid.last_local_position.source_position.chapter_offset=21
 expect(Resume.from_book(invalid,'owner').chapter_offset==21,'foreign book pending point accepted')
 
-local function hosts(live)
+local function hosts(live,selected_book)
     local new,doc=fixture('web_xhtml',8,'new')
     local state={owner='owner',epoch=1,clock=10,opens=0,finished=0,started=0,departures=0,checkpoints=0}
     local settings={get_auth_scope=function() return {vid='900000',epoch=state.epoch} end,
         auth_scope_matches=function(_self,auth) return auth.epoch==state.epoch end,
-        get_book=function() return copy(book) end}
+        get_book=function() return copy(selected_book or book) end}
     local parent={settings=settings,library_db={accountKey=function() return state.owner end},ui={},_reader_session_gen=0}
     local child={settings=settings,library_db=parent.library_db,ui={document=doc},_reader_session_gen=1,source_navigation={job={}}}
     child.progress_sync={navigation_generation=0,verified=false,begin_file_resume=function()
@@ -153,4 +153,36 @@ function child:showInfo() state.save_message=true end
 child.progress_sync.finish_file_resume=function() error('synthetic flush failure') end
 assert(state.callback(reader));state.finish(state.target)
 expect(state.save_message and not child._read_resume_active,'successful jump with a save failure was silently reported')
+local numeric_id=id
+id='CB_SyntheticResume'
+for _i,format in ipairs({'web_xhtml','web_txt'}) do
+    local old=fixture(format,7,'cb-old')
+    local target_doc=select(2,fixture(format,8,'cb-new'))
+    local target=assert(Resume.bind(target_doc,old))
+    expect(target.book_id==id and target.chapter_offset==old.chapter_offset and target.raw_sha256==old.raw_sha256
+        and target.basis==old.basis and target.upload_verified==false,'CB binding changed local units or upload rights')
+    local cb_book={book_id=id,last_local_position={book_id=id,chapter_uid=uid,source_position=old},recent_read_account='owner'}
+    expect(Resume.from_book(cb_book,'owner').raw_sha256==old.raw_sha256,'CB saved source position was skipped')
+    if format=='web_xhtml' then
+        parent,child,state,dispatch,reader=hosts(false,cb_book)
+        expect(Resume.open(parent,'/new.epub',cb_book,dispatch) and state.callback,'CB stored handoff bypassed preparation')
+        expect(state.callback(reader) and state.target.book_id==id,'CB new reader did not bind its own source')
+        state.finish(state.target)
+        expect(state.applied and state.finished==1 and not child._read_resume_active,'CB stored handoff did not finalize')
+        parent,child,state,dispatch,reader=hosts(true,cb_book)
+        Resume.open(parent,'/new.epub',cb_book,dispatch);state.prepared(copy(old));parent._reader_session_gen=2
+        expect(state.callback(reader) and state.checkpoints==1 and state.departures==1,'CB live point was not transferred after closing')
+        state.finish(state.target)
+        expect(not child._read_resume_active,'CB live transition retained its active frame')
+        local cancelled={hosts(true,cb_book)};parent,state,dispatch=cancelled[1],cancelled[3],cancelled[4]
+        Resume.open(parent,'/new.epub',cb_book,dispatch);state.owner='other';state.prepared(copy(old))
+        expect(state.opens==0,'CB account replacement opened a stale handoff')
+    end
+end
+for _i,bad_id in ipairs({'CB_','CB_'..string.rep('a',65),'CB_a/b','CB_a?x=1','CB_a_b','MP_WXS_synthetic'}) do
+    local candidate=fixture('web_xhtml',7,'bad');candidate.book_id=bad_id
+    expect(not Resume.position(candidate,bad_id) and not Resume.from_book({book_id=bad_id},'owner'),
+        'invalid CB local handoff identity accepted')
+end
+id=numeric_id
 print(('read_resume_spec: %d checks'):format(checks))

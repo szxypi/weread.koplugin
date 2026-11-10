@@ -17,7 +17,7 @@ local function hash(value) return type(value)=='string' and #value==64 and value
 local function mode(host) return host.ui and host.ui.view and host.ui.view.view_mode or 'page' end
 local function marker(host) return host.ui and host.ui.rolling and host.ui.rolling.xpointer end
 function M.position(value,id)
-    if type(id)~='string' or Access.book_id(id)~=id or type(value)~='table' or value.book_id~=id or not Source.is_coordinate_basis(value.basis) or value.upload_verified~=false
+    if type(id)~='string' or Access.display_book_id(id)~=id or type(value)~='table' or value.book_id~=id or not Source.is_coordinate_basis(value.basis) or value.upload_verified~=false
         or type(value.chapter_uid)~='string' or #value.chapter_uid==0 or #value.chapter_uid>256 or value.chapter_uid:find('[%z%c]')
         or type(value.chapter_offset)~='number' or value.chapter_offset<0 or value.chapter_offset%1~=0 or value.chapter_offset>Source.MAX_BYTES*8
         or not hash(value.file_id) or not hash(value.raw_sha256) or type(value.book_version)~='number'
@@ -27,7 +27,7 @@ function M.position(value,id)
     return result
 end
 function M.from_book(book,owner)
-    local id=type(book)=='table' and Access.book_id(book.book_id or book.bookId)
+    local id=type(book)=='table' and Access.display_book_id(book.book_id or book.bookId)
     if not id then return nil end
     for _i,position in ipairs(Reading.local_positions(book,owner)) do
         if next(position) then
@@ -82,7 +82,9 @@ local function finish(host,frame,applied)
 end
 function M.open(host,path,book,dispatch)
     M.cancel(host)
-    local id=type(book)=='table' and Access.book_id(book.book_id or book.bookId)
+    -- CB_ uses the same archive-bound local receipts; this does not authorize
+    -- cloud positions or change the separate upload identity checks.
+    local id=type(book)=='table' and Access.display_book_id(book.book_id or book.bookId)
     local owner=account(host)
     local auth=host.settings and host.settings.get_auth_scope and host.settings:get_auth_scope()
     if not id or not owner or not auth or not host.settings:auth_scope_matches(auth) then dispatch();return true end

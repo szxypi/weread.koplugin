@@ -27,10 +27,14 @@ local ok,reason=pcall(function()
     local input=json.decode(raw)
     assert(type(input.vid)=='string' and input.vid:match('^[1-9]%d*$'))
     local cb_reading=input.cb_reading==true
+    local cb_full=input.cb_full_book==true
+    assert(not cb_full or cb_reading and type(input.full_manifest)=='table')
     if cb_reading then report.source_match_reason='none' end
+    if cb_full then report.cb_handoff={full_to_single=false,single_to_full=false,different_files=false,
+        same_source=false,position_preserved=false,cloud_unverified=false} end
     assert(type(input.book_id)=='string' and (cb_reading and #input.book_id<=67 and input.book_id:match('^CB_[A-Za-z0-9]+$')
         or not cb_reading and input.book_id:match('^[1-9]%d*$')))
-    assert(not cb_reading or not (input.full_manifest or input.annotations or input.progress_preview
+    assert(not cb_reading or not ((input.full_manifest and not cb_full) or input.annotations or input.progress_preview
         or input.progress_roundtrip or input.source_upload_preview))
     assert(type(input.chapter_uid)=='string' and input.chapter_uid:match('^[1-9]%d*$'))
     assert(type(input.source_text)=='string' and #input.source_text>=32 and #input.source_text<=128)
@@ -47,7 +51,7 @@ local ok,reason=pcall(function()
         report.reader_identity_shape={field='none',kind='none',zero=false,null=false}
         report.reader_python_projection={checked=false,valid=false,reason='none'}
         report.reader_cookie_snapshot={checked=false,same_login=false,same_header=false}
-        assert(#input.full_manifest>=2 and #input.full_manifest<=32 and input.source_format=='web_xhtml')
+        assert(#input.full_manifest>=2 and #input.full_manifest<=(cb_full and 128 or 32) and input.source_format=='web_xhtml')
         for _i,item in ipairs(input.full_manifest) do
             assert(type(item.chapter_uid)=='string' and item.chapter_uid:match('^[1-9]%d*$') and not chapter_ids[item.chapter_uid])
             chapter_ids[item.chapter_uid]=true
@@ -149,7 +153,7 @@ local ok,reason=pcall(function()
         return parts.scheme=='https' and parts.authority=='res.weread.qq.com'
     end
     if full then
-        assert(type(input.protected_resource_urls)=='table' and #input.protected_resource_urls<=32)
+        assert(type(input.protected_resource_urls)=='table' and #input.protected_resource_urls<=(cb_full and 128 or 32))
         for _i,url in ipairs(input.protected_resource_urls) do
             assert(protected_resource(url));protected_resources[url]=true
         end
@@ -580,6 +584,11 @@ local ok,reason=pcall(function()
     report.legacy_progress_units_preserved=true
     if progress_case then progress_case:run(plugin,reader,pump,source_index,position) end
     if candidate_case then candidate_case:run(plugin,reader,pump,source_index,position) end
+    if cb_full then
+        local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+        plugin,reader=dofile(fixtures..'cb_full_handoff_case.lua')(input,report.cb_handoff,plugin,reader,pump,tick,position)
+        document=reader.document
+    end
     local checkpoint={file=document.file,xpointer=document:getXPointer(),page=reader:getCurrentPage()}
     local file=assert(io.open(checkpoint_path,'wb'));assert(file:write(json.encode(checkpoint)));file:close()
     report.phase='close'

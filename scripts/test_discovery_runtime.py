@@ -12,7 +12,7 @@ from pathlib import Path
 import subprocess
 import threading
 
-from mock_weread import BOOK_ID, MockServer
+from mock_weread import BOOK_ID, CB_READING_ID, MockServer
 import zipfile
 
 REPO = Path(__file__).resolve().parent.parent
@@ -37,6 +37,7 @@ def main():
     parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
+    parser.add_argument('--cb-resume',action='store_true',help='Use the opt-in synthetic CB_ shelf book for cached reading')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
     parser.add_argument('--process-loss', choices=('before-dispatch','after-apply','before-readback'),
@@ -61,6 +62,7 @@ def main():
         parser.error("--footnotes and --reading-flow use separate fixtures")
     if args.cached_resume and (args.footnotes or args.reading_flow):
         parser.error('--cached-resume uses a separate fixture')
+    if args.cb_resume and not args.cached_resume:parser.error('--cb-resume requires --cached-resume')
     if args.content_format!='epub' and not args.cached_resume:
         parser.error('--content-format txt requires --cached-resume')
     if args.resume_handoff and not args.cached_resume:
@@ -99,10 +101,13 @@ def main():
     else:
         server = MockServer(0, root / "evidence/requests.jsonl")
     server.content_format=args.content_format
+    server.cb_reading=args.cb_resume
+    if args.cb_resume:environment['WEREAD_TEST_CB_RESUME']='1'
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
     if args.resume_handoff:
         environment['WEREAD_TEST_RESUME_HANDOFF']='1'
     server.progress[BOOK_ID] = dict(chapterUid=2, chapterIdx=2, chapterOffset=120, progress=37, summary="合成进度")
+    if args.cb_resume:server.progress[CB_READING_ID]=server.progress[BOOK_ID].copy()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment["WEREAD_MOCK_PORT"] = str(server.server_port)

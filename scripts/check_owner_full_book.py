@@ -195,7 +195,9 @@ def inspect_full_book(profile, payload):
     if path.is_symlink() or not path.resolve().is_relative_to(profile) or not 1 <= path.stat().st_size <= 64*1024*1024:
         raise ValueError('full_private_path')
     expected = payload['full_manifest']
-    if not isinstance(expected, list) or not 2 <= len(expected) <= 32:
+    cb_full=payload.get('cb_full_book') is True
+    if cb_full and not re.fullmatch(r'CB_[A-Za-z0-9]{1,64}',payload.get('book_id','')): raise ValueError('full_chapter_scope')
+    if not isinstance(expected, list) or not 2 <= len(expected) <= (128 if cb_full else 32):
         raise ValueError('full_chapter_scope')
     book_id = payload['book_id']
     rendered = []

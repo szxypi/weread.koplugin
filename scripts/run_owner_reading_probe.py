@@ -24,6 +24,7 @@ def main(argv=None):
     parser.add_argument('--dpi', type=int, default=167)
     addons = parser.add_mutually_exclusive_group()
     addons.add_argument('--cb-reading', action='store_true')
+    addons.add_argument('--cb-full-book', action='store_true')
     addons.add_argument('--annotations', action='store_true')
     addons.add_argument('--annotation-recovery', action='store_true')
     addons.add_argument('--progress-preview', action='store_true')
@@ -45,7 +46,10 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
-        if args.cb_reading != (payload.get('cb_reading') is True) or args.cb_reading and 'full_manifest' in payload:
+        cb_reading=args.cb_reading or args.cb_full_book
+        if (cb_reading != (payload.get('cb_reading') is True) or args.cb_reading and 'full_manifest' in payload
+                or args.cb_full_book != (payload.get('cb_full_book') is True)
+                or args.cb_full_book and 'full_manifest' not in payload):
             raise ValueError('input_limit')
         decoder = decode_envelope
         if args.annotations:
@@ -73,7 +77,7 @@ def main(argv=None):
         if args.source_upload_preview != ('source_upload_preview' in payload) or args.source_upload_preview and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         full_chapters = len(payload['full_manifest']) if 'full_manifest' in payload else 1
-        if not 1 <= full_chapters <= 32:
+        if not 1 <= full_chapters <= (128 if args.cb_full_book else 32) or args.cb_full_book and full_chapters < 2:
             raise ValueError('input_limit')
         if full_chapters > 1:
             report['full_book'] = None
@@ -105,9 +109,9 @@ def main(argv=None):
                     command.append(str(probe.with_name('owner_source_candidate_case.lua')))
                 code, out, repaint = run_child(command, env,
                                                json.dumps(payload, ensure_ascii=False).encode(), runtime,
-                                               timeout=600 if full_chapters > 1 and mode == 'live' else 150)
+                                               timeout=900 if args.cb_full_book and mode=='live' else 600 if full_chapters > 1 and mode == 'live' else 150)
                 envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters,
-                                   **({'cb_reading': True} if args.cb_reading else {}))
+                                   **({'cb_reading': True,'cb_full_book':args.cb_full_book} if cb_reading else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview: candidate_private.append(envelope['candidate_private'])

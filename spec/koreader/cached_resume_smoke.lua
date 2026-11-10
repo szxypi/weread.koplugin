@@ -11,6 +11,7 @@ package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
 local Device=require('device');require('document/canvascontext'):init(Device)
 assert(require('weread.lib.mock_environment').save{enabled=true,host='127.0.0.1',port=tonumber(os.getenv('WEREAD_MOCK_PORT'))})
 local settings=require('weread.lib.settings'):new();assert(settings.mock_endpoint)
+local cb_resume=os.getenv('WEREAD_TEST_CB_RESUME')=='1'
 local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
 local cache=settings:get('cache');cache.auto_prefetch_next_chapter=false;cache.download_book_images=false;cache.download_underlines_and_thoughts=false;settings:set('cache',cache)
 local config=settings:get('read_report');config.enabled=false;settings:set('read_report',config);settings:flush()
@@ -28,7 +29,7 @@ local socket,json=require('socket'),require('json')
 local FM,Reader=require('apps/filemanager/filemanager'),require('apps/reader/readerui')
 local Source,Dom=require('weread.lib.position_source'),require('weread.lib.source_dom')
 local tr=require('weread.lib.plugin_util').tr
-local id='900001'
+local id=cb_resume and 'CB_SyntheticResume' or '900001'
 local format=os.getenv('WEREAD_TEST_CONTENT_FORMAT')=='txt' and 'web_txt' or 'web_xhtml'
 local function tick()
     UI:setInputTimeout(0);UI:handleInput()
@@ -69,6 +70,15 @@ local function detail()
     local host=assert(FM.instance.weread)
     host:closeWeReadUI();host:showBookshelf()
     local view=assert(host.shelf_view);local selected
+    if cb_resume then
+        for index,row in ipairs(view.books) do
+            if tostring(row.bookId or row.book_id)==id then
+                local page=math.floor((index-1)/view.page_size)+1
+                if view.page~=page then host:showShelfView('books',nil,nil,{page=page});view=assert(host.shelf_view) end
+                break
+            end
+        end
+    end
     for _i,row in ipairs(view:getVisibleBooks()) do if tostring(row.bookId or row.book_id)==id then selected=row end end
     assert(selected);UI:forceRePaint();view.on_select(selected,'books')
     pump(function() return host._book_detail_view and not host.book_metadata_context end)
@@ -126,6 +136,7 @@ local report={result='PASS',synthetic_only=true,content_format=format,chapter_fi
     pending_priority=false,last_local_priority=false,foreign_owner_ignored=false,native_position_restored=false,
     missing_catalog_uid=false,
     full_download=false,full_source_records=false,full_native_navigation=false}
+if cb_resume then report.cb_reading=true end
 for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog'}) do
     host=assert(FM.instance.weread)
     local values={chapter_uid=4,chapter_idx=4,progress=70,pending_upload_position=local_pending,

@@ -56,17 +56,25 @@ CB_SOURCE_REASONS = {'none', 'walk_diverged', 'anchor_ambiguous', 'anchor_missin
                      'sample_start_mismatch', 'source_anchor_missing', 'source_anchor_unavailable'}
 
 
-def validate_stage(value, mode, *, full_chapters=1, cb_reading=False):
-    if type(full_chapters) is not int or not 1 <= full_chapters <= 32 or cb_reading and full_chapters != 1:
+def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False):
+    if (type(cb_reading) is not bool or type(cb_full_book) is not bool
+            or type(full_chapters) is not int or not 1 <= full_chapters <= (128 if cb_full_book else 32)
+            or cb_full_book and (not cb_reading or full_chapters < 2) or cb_reading and not cb_full_book and full_chapters != 1):
         raise ValueError('reading_scope')
     expected = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'requests'}
     if cb_reading: expected.add('source_match_reason')
+    if cb_full_book: expected.add('cb_handoff')
     if full_chapters > 1:
         expected |= {'native_images_decoded', 'download_error', 'download_error_module', 'download_error_line',
                      'download_error_chapter', 'reader_context_failure', 'reader_identity_shape',
                      'reader_python_projection', 'reader_cookie_snapshot'}
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError('reading_schema')
+    if cb_full_book:
+        flags={'full_to_single','single_to_full','different_files','same_source','position_preserved','cloud_unverified'}
+        handoff=value['cb_handoff']
+        if (not isinstance(handoff,dict) or set(handoff)!=flags or any(type(v) is not bool for v in handoff.values())
+                or value['result']=='PASS' and not all(handoff.values())): raise ValueError('reading_schema')
     if cb_reading and (type(value['source_match_reason']) is not str or value['source_match_reason'] not in CB_SOURCE_REASONS
                        or value['result'] == 'PASS' and value['source_match_reason'] != 'none'):
         raise ValueError('reading_schema')
@@ -138,12 +146,13 @@ FULL_FLAGS = {'source_hashes_verified', 'image_references_verified', 'spine_orde
               'zip_crc_verified', 'fresh_offline_package_identical','text_runs_verified'}
 
 
-def validate_full_book(value, chapters, *, complete=True):
-    if type(chapters) is not int or not 2 <= chapters <= 32:
+def validate_full_book(value, chapters, *, complete=True, cb_full_book=False):
+    if type(cb_full_book) is not bool or type(chapters) is not int or not 2 <= chapters <= (128 if cb_full_book else 32):
         raise ValueError('full_report_scope')
     if not isinstance(value, dict) or set(value) != set(FULL_COUNTS) | FULL_FLAGS:
         raise ValueError('full_report_schema')
-    if (any(type(value[key]) is not int or not 0 <= value[key] <= limit for key, limit in FULL_COUNTS.items())
+    limits=dict(FULL_COUNTS,chapters=128) if cb_full_book else FULL_COUNTS
+    if (any(type(value[key]) is not int or not 0 <= value[key] <= limit for key, limit in limits.items())
             or any(type(value[key]) is not bool or complete and not value[key] for key in FULL_FLAGS)
             or value['chapters'] != chapters
             or complete and (value['unexplained_image_references'] or value['unexplained_text_runs']
@@ -154,7 +163,7 @@ def validate_full_book(value, chapters, *, complete=True):
     return value
 
 
-def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False):
+def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False):
     """The private cookie envelope is consumed here; never print this value."""
     if not isinstance(raw, bytes) or len(raw) > (8 if full_chapters>1 else 2) * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('reading_frame')
@@ -170,7 +179,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False)
         raise ValueError('reading_envelope')
     validate_cookies(value['cookies'], owner)
     if mode is not None:
-        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading)
+        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book)
     else:
         report = value['report']
         fields = {'result', 'tmpfs_profile', 'profile_removed', 'stages', 'runner_error'}
@@ -183,14 +192,14 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False)
                 or not isinstance(report['stages'], list) or len(report['stages']) > 2):
             raise ValueError('reading_runner')
         for phase, stage in zip(('live', 'reopen'), report['stages']):
-            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading)
+            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book)
         if report['result'] == 'PASS' and (not report['tmpfs_profile'] or not report['profile_removed']
                 or report['runner_error'] != 'none' or len(report['stages']) != 2
                 or any(stage['result'] != 'PASS' for stage in report['stages'])
                 or any(report['stages'][0][k] != report['stages'][1][k] for k in ('pages', 'shelf_books'))):
             raise ValueError('reading_runner_incomplete')
         if full_chapters > 1 and (report['result']=='PASS' or report['full_book'] is not None):
-            validate_full_book(report['full_book'], full_chapters,complete=report['result']=='PASS')
+            validate_full_book(report['full_book'], full_chapters,complete=report['result']=='PASS',cb_full_book=cb_full_book)
         if full_chapters > 1 and report['result'] == 'PASS':
             if any(stage['native_images_decoded'] != report['full_book']['packaged_images'] for stage in report['stages']):
                 raise ValueError('full_native_images_unverified')

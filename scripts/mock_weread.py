@@ -45,6 +45,8 @@ BOOKS[1].update(isTop=False,secret=0,finishReading=True,finished=0)
 BOOKS[2].update(secret=2,finishReading=0,finished=1)
 BOOKS[3].update(secret=False,finishReading=False,finished=1)
 METADATA_BOOKS=[dict(BOOKS[0],bookId='CB_SyntheticMetadata',title='CB 编号合成详情')]
+CB_READING_ID='CB_SyntheticResume'
+CB_READING_BOOKS=[dict(BOOKS[0],bookId=CB_READING_ID,title='CB 合成缓存续读')]
 
 
 def book_metadata(book):
@@ -189,6 +191,7 @@ class MockServer(ThreadingHTTPServer):
         self.roundtrip_posts = 0
         self.web_renewal_posts = 0
         self.content_format = 'epub'
+        self.cb_reading = False
         self.shelf_removed = set()
         self.shelf_added = {}
 
@@ -204,6 +207,7 @@ class MockServer(ThreadingHTTPServer):
                     out.write(json.dumps(event, ensure_ascii=False) + "\n")
 
     def route(self, method, target, data):
+        readable_books=BOOKS+(CB_READING_BOOKS if self.cb_reading else [])
         url = urlsplit(target)
         path = url.path
         query = parse_qs(url.query)
@@ -281,7 +285,7 @@ class MockServer(ThreadingHTTPServer):
             return 200, {}
         if path == "/web/shelf/sync" and method == "GET":
             books = [{key: value for key, value in dict(book, version=800).items() if key != "bookVersion"}
-                     for book in ([] if control["empty_shelf"] else BOOKS)]
+                     for book in ([] if control["empty_shelf"] else readable_books)]
             return 200, dict(books=books, archive=[
                 dict(archiveId=1, name="旅途", bookIds=[b["bookId"] for b in BOOKS[:15]]),
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
@@ -324,9 +328,9 @@ class MockServer(ThreadingHTTPServer):
                     raise ValueError("invalid native statistics period")
                 return 200, reading_statistics(query["mode"][0],int(base))
             if path == "/book/info" and method == "GET":
-                if set(query) != {"bookId"} or len(query["bookId"]) != 1 or not any(b["bookId"] == book_id for b in BOOKS+METADATA_BOOKS):
+                if set(query) != {"bookId"} or len(query["bookId"]) != 1 or not any(b["bookId"] == book_id for b in readable_books+METADATA_BOOKS):
                     raise ValueError("invalid native metadata query")
-                source = book_metadata(next(b for b in BOOKS+METADATA_BOOKS if b["bookId"] == book_id))
+                source = book_metadata(next(b for b in readable_books+METADATA_BOOKS if b["bookId"] == book_id))
                 source["totalWords"] = source.pop("wordCount")
                 source.pop("bookVersion", None)
                 source.update(version=700,progress=99,chapterOffset=321,finishReading=1)
@@ -379,7 +383,7 @@ class MockServer(ThreadingHTTPServer):
                 return 200, dict(vid=900000, accessToken="mock-native-access", refreshToken="mock-native-refresh")
             if path == "/shelf/sync" and method == "GET":
                 books = [{key: value for key, value in dict(book, version=700).items() if key != "bookVersion"}
-                         for book in ([] if control["empty_shelf"] else BOOKS) if str(book['bookId']) not in self.shelf_removed]
+                         for book in ([] if control["empty_shelf"] else readable_books) if str(book['bookId']) not in self.shelf_removed]
                 if not control['empty_shelf']:books.extend(self.shelf_added.values())
                 return 200, dict(books=books, archive=[
                     dict(archiveId=1, name="旅途", bookIds=[b["bookId"] for b in BOOKS[:15]]),
@@ -392,7 +396,7 @@ class MockServer(ThreadingHTTPServer):
                 if "bookId" not in data or not any(b["bookId"] == book_id for b in BOOKS):
                     raise ValueError("missing or unknown bookId")
             if api == "/shelf/sync":
-                return 200, dict(books=[] if control["empty_shelf"] else BOOKS, archive=[
+                return 200, dict(books=[] if control["empty_shelf"] else readable_books, archive=[
                     dict(archiveId=1, name="旅途", bookIds=[b["bookId"] for b in BOOKS[:15]]),
                     dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                     dict(archiveId=3, name="空分组", bookIds=[])])
@@ -450,7 +454,7 @@ class MockServer(ThreadingHTTPServer):
                              hasMore=int(start + len(batch) < len(candidates)))
         if path.startswith("/web/reader/") and method == "GET":
             encoded = path.rsplit("/", 1)[1].split("k")
-            book = next(b for b in BOOKS+METADATA_BOOKS if weread_e(b["bookId"]) == encoded[0])
+            book = next(b for b in readable_books+METADATA_BOOKS if weread_e(b["bookId"]) == encoded[0])
             chapter = next((c for c in CHAPTERS if len(encoded) > 1 and weread_e(c["chapterUid"]) == encoded[1]), CHAPTERS[0])
             state = dict(reader=dict(bookInfo=book_metadata(book), psvts="mock-session", pclts="mock-clock",
                                      currentChapter=chapter, progress=self.get_progress(book["bookId"])))
@@ -459,12 +463,12 @@ class MockServer(ThreadingHTTPServer):
             return 200, "<script>window.__INITIAL_STATE__=" + json.dumps(state, ensure_ascii=False) + ";(function(){})();</script>"
         if path == "/web/book/chapterInfos" and method == "POST":
             if not isinstance(data.get("bookIds"), list) or not data["bookIds"] or any(
-                not any(b["bookId"] == str(book_id) for b in BOOKS) for book_id in data["bookIds"]
+                not any(b["bookId"] == str(book_id) for b in readable_books) for book_id in data["bookIds"]
             ):
                 raise ValueError("missing or unknown bookIds")
             return 200, dict(data=[dict(bookId=str(b), updated=CHAPTERS) for b in data["bookIds"]])
         if path.startswith("/web/book/chapter/") and method == "POST":
-            content_book = next((b['bookId'] for b in BOOKS if weread_e(b['bookId']) == data.get('b')), None)
+            content_book = next((b['bookId'] for b in readable_books if weread_e(b['bookId']) == data.get('b')), None)
             if content_book is None:
                 raise ValueError("unknown encoded book")
             uid = next(c["chapterUid"] for c in CHAPTERS if weread_e(c["chapterUid"]) == data["c"])
