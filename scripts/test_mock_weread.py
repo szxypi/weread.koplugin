@@ -14,6 +14,16 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_offset_delta_simulates_another_client_without_changing_stored_progress(self):
+        self.server.progress[BOOK_ID]=dict(chapterUid=2,chapterIdx=2,chapterOffset=100,progress=25)
+        self.assertEqual(self.request('/__control',dict(progress_offset_delta=1))[0],200)
+        self.assertEqual(self.server.get_progress(BOOK_ID)['book']['chapterOffset'],101)
+        self.assertEqual(self.server.progress[BOOK_ID]['chapterOffset'],100)
+        self.assertEqual(self.request('/__control',dict(progress_offset_delta=0))[0],200)
+        self.assertEqual(self.server.get_progress(BOOK_ID)['book']['chapterOffset'],100)
+        for value in (-1,1000001,True,'1',1.5):
+            self.assertEqual(self.request('/__control',dict(progress_offset_delta=value))[0],400)
+
     def test_native_multi_batch_fixture_expires_only_the_second_request(self):
         self.assertEqual(self.request('/__control',dict(native_annotation_many=True,match='/book/readreviews',skip=1,times=1,status=401))[0],200)
         target='https://i.weread.qq.com'

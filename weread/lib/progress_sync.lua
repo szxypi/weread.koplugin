@@ -100,7 +100,10 @@ function ProgressSync:new(options)
         dirty = false,
         verified = false,
     }
-    return setmetatable(object, self)
+    setmetatable(object,self)
+    object.interval=require('weread.lib.progress_interval'):new{sync=object,scheduler=options.scheduler,
+        now=object.now,is_report_busy=options.is_report_busy,cancel_preparation=options.cancel_upload_preparation}
+    return object
 end
 
 function ProgressSync:_config()
@@ -141,6 +144,7 @@ end
 -- A local source request supersedes older cloud comparisons and decisions,
 -- without changing the reading session or granting upload verification.
 function ProgressSync:begin_local_navigation()
+    self.interval:halt()
     self.navigation_generation = self.navigation_generation + 1
     self:_invalidate_pull()
     self.pending_jump = nil
@@ -282,6 +286,7 @@ end
 -- session explicitly, so old dialogs, tasks and chapter downloads cannot act
 -- with the newly installed credentials.
 function ProgressSync:on_account_changed()
+    self.interval:halt()
     self.file_resume=nil
     self.account_generation = self.account_generation + 1
     self.generation = self.generation + 1
@@ -572,9 +577,11 @@ function ProgressSync:_mark_verified(book_id, reason, local_position, remote)
         "reason=", tostring(reason),
         "local=", tostring(local_position and local_position.percent or "-"),
         "remote=", tostring(remote and remote.percent or "-"))
+    self.interval:refresh()
 end
 
 function ProgressSync:_clear_verified(reason)
+    self.interval:halt()
     self.verified = false
     self.verified_at = nil
     self.verified_reason = reason
@@ -724,7 +731,7 @@ function ProgressSync:_apply_remote(remote, context, options)
     return true
 end
 
-function ProgressSync:_upload_snapshot(position, reason, show_result, close_token)
+function ProgressSync:_upload_snapshot(position, reason, show_result, close_token, interval_cycle)
     if type(position) ~= "table" then return false end
     local book_id = tostring(position.book_id or self.current_book_id or "")
     if book_id == "" then return false end
@@ -750,11 +757,11 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
     end
     self.uploading = true
     if self:_session_current(scope) then self.state = "uploading" end
-    local job = { scope = scope, book_id = book_id }
+    local job = { scope = scope, book_id = book_id, interval_cycle=interval_cycle }
     self.upload_job = job
     local function current()
         if self.upload_job ~= job then return false end
-        if self:_account_current(scope) then return true end
+        if self:_account_current(scope) and (not interval_cycle or self.interval:current(interval_cycle)) then return true end
         if job.plan and job.plan.release then job.plan.release() end
         self.upload_job, self.uploading = nil, false
         return false
@@ -789,6 +796,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         if job.plan and job.plan.release then job.plan.release() end
         if not owned then
             if self:_session_current(scope) then self.verified,self.dirty,self.state=false,true,'unverified' end
+            if interval_cycle then self.interval:finish(interval_cycle) else self.interval:refresh() end
             return
         end
         local confirmed = ok and accepted and type(outcome) == "table" and outcome.position_confirmed == true
@@ -823,6 +831,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                     or not job.plan and ProgressReadback.same_wire_position(live,position)
                 self.dirty = not unchanged or not clear_pending
                 self.last_uploaded_position = copy(position)
+                if type(patch.last_remote_position)=='table' then self.remote_position=copy(patch.last_remote_position) end
                 if not self.pulling and self.state ~= "awaiting_choice" then
                     self.state = self.verified and "verified" or "unverified"
                 end
@@ -834,6 +843,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             if show_result and active then
                 self.notify("upload_success", { position = position })
             end
+            if interval_cycle then self.interval:finish(interval_cycle) else self.interval:refresh() end
             return
         end
         local error_message = ok and type(outcome) == "table"
@@ -853,11 +863,12 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         end
         self:_persist(book_id, patch)
         log("warn", "upload failed:", tostring(error_message))
-        if show_result and active then
+        if (show_result or interval_cycle and unconfirmed) and active then
             self.notify(unconfirmed and "upload_unconfirmed" or "upload_failed", {
                 error = tostring(error_message or "upload_failed"),
             })
         end
+        if interval_cycle then self.interval:finish(interval_cycle) else self.interval:refresh() end
     end
     attempt = function()
         if not current() then return end
@@ -904,7 +915,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         attempts = attempts + 1
         finish(pcall(self.upload_position, book_id, copy(job.plan and job.plan.position or position), 0, job.plan))
     end
-    local started = self.run_online("progress_upload", attempt)
+    local started = self.run_online("progress_upload", attempt,interval_cycle and {silent_offline=true} or nil)
     if not started and self.upload_job == job then
         self.upload_job, self.uploading = nil, false
         self.state = "offline"
@@ -984,7 +995,7 @@ function ProgressSync:_resolve(local_position, remote, context, options)
     end
 
     local ask = self:_config().ask_on_conflict ~= false
-    if remote.conflict or ask or needs_choice then
+    if remote.conflict or ask or needs_choice or options.force_choice then
         self.state = "awaiting_choice"
         local scope, decided = self:_scope(), false
         local function choice_is_current()
@@ -1252,6 +1263,7 @@ function ProgressSync:cancel_pending_jump(reason)
 end
 
 function ProgressSync:on_reader_ready()
+    self.interval:halt()
     self.source_local_anchor=nil
     self.file_resume=nil
     self.remote_anchor, self.source_anchor = nil, nil
@@ -1320,6 +1332,7 @@ function ProgressSync:on_page_update()
         self.dirty = true
     end
     self.local_position = position
+    self.interval:refresh()
 end
 
 -- Durable local movement is independent of cloud verification and automatic
@@ -1352,6 +1365,7 @@ function ProgressSync:checkpoint_local(reason, source_position)
 end
 
 function ProgressSync:prepare_close(source_position)
+    self.interval:halt()
     local position = self:checkpoint_local("document_close", source_position)
     if position and self.verified and self.dirty and not self.uploading and self.freeze_close
         and not (self.source_dispatch and self.source_dispatch:pending(position.book_id))
@@ -1362,6 +1376,7 @@ function ProgressSync:prepare_close(source_position)
 end
 
 function ProgressSync:on_close_document(source_position, close_token, close_position)
+    self.interval:halt()
     local position = close_position or self:checkpoint_local("document_close", source_position)
         or self:capture_local() or self.local_position
     if position and self.verified
@@ -1387,6 +1402,7 @@ function ProgressSync:on_close_document(source_position, close_token, close_posi
 end
 
 function ProgressSync:on_suspend(source_position)
+    self.interval:halt()
     local position = self:checkpoint_local("suspend", source_position)
     self.generation = self.generation + 1
     if self.file_resume then self.file_resume.scope.generation=self.generation end
@@ -1432,6 +1448,7 @@ function ProgressSync:on_resume()
         self:_clear_verified("resume_recheck")
         if automatic then self:_pull({ manual = false }) end
     end
+    self.interval:refresh()
 end
 
 function ProgressSync:sync_now()
@@ -1447,6 +1464,7 @@ function ProgressSync:position_for_report(book_id)
         return nil, nil, false
     end
     if self.uploading then return nil, "progress_confirmation_pending", true end
+    if self.interval.cycle then return nil,"progress_confirmation_pending",true end
     if self.source_dispatch and self.source_dispatch:pending(tostring(book_id)) then
         return nil,"progress_confirmation_pending",true
     end
@@ -1465,6 +1483,18 @@ function ProgressSync:position_for_report(book_id)
     return position, nil, true
 end
 
+-- A confirmed report advances only the known cloud baseline. It must not
+-- erase movement that happened while the report child was running.
+function ProgressSync:accept_report_confirmation(remote)
+    if not self.verified or type(remote)~='table' or remote.book_id~=self.current_book_id
+        or remote.has_chapter_index~=true or remote.has_chapter_offset~=true
+        or not ProgressReadback.expected(self.current_book_id,remote) then return false end
+    local position=copy(remote);position.summary=nil
+    self.remote_position=position
+    self:_persist(self.current_book_id,{last_remote_position=position})
+    return true
+end
+
 function ProgressSync:on_source_position_changed(state, position)
     self.source_state = state
     if self.prepare_upload and position and position.book_id==self.current_book_id then
@@ -1477,6 +1507,7 @@ function ProgressSync:on_source_position_changed(state, position)
         self.local_position.source_position = position and tostring(position.book_id) == tostring(self.current_book_id)
             and copy(position) or nil
     end
+    self.interval:refresh()
 end
 
 function ProgressSync:status()

@@ -135,6 +135,9 @@ function WeReadPlugin:init()
             return self.progress_sync:position_for_report(book_id)
         end,
         position_preparer = function(position,callback) return self.source_upload:prepare(position,callback) end,
+        on_source_confirmed = function(remote)
+            if self.progress_sync then self.progress_sync:accept_report_confirmation(remote) end
+        end,
         on_source_unconfirmed = function()
             if self.progress_sync then
                 self.progress_sync.dirty=true
@@ -263,6 +266,8 @@ function WeReadPlugin:init()
                 _("Sync progress"), callback, nil, run_options)
         end,
         prepare_upload = function(position,callback) return self.source_upload:prepare(position,callback) end,
+        cancel_upload_preparation = function() return self.source_upload:cancel() end,
+        is_report_busy = function() return self.read_report.job~=nil or self.read_report.preparation~=nil end,
         freeze_close = function(position) return self.source_close:freeze(position) end,
         prepare_closed = function(token,position,callback) return self.source_close:prepare(token,position,callback) end,
         apply_source_remote = function() return self:showCloudSourcePosition(true) end,

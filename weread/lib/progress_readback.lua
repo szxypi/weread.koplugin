@@ -30,6 +30,7 @@ function M.check(data, target)
     if not supplied.chapter_uid or not supplied.chapter_idx or not supplied.chapter_offset then
         return { matches = false, reason = "upload_readback_incomplete" }
     end
+    remote.has_chapter_index = true
     local matches = id(remote.chapter_uid) == target.chapter_uid and remote.chapter_idx == target.chapter_idx
         and remote.chapter_offset == target.chapter_offset
     return { matches = matches, reason = matches and "confirmed_coordinate" or "upload_readback_differs" }, remote

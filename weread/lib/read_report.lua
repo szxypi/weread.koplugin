@@ -199,6 +199,7 @@ function ReadReport:new(options)
         position_preparer = options.position_preparer,
         source_dispatch = options.source_dispatch,
         on_source_unconfirmed = options.on_source_unconfirmed,
+        on_source_confirmed = options.on_source_confirmed,
         is_online = options.is_online or function() return true end,
         now = options.now or os.time,
         session_id = tostring({}) .. ":" .. tostring((options.now or os.time)()),
@@ -775,6 +776,9 @@ function ReadReport:_apply_outcome(outcome)
         self.last_renew_attempt = self.now()
     end
     if outcome.source_unconfirmed and self.on_source_unconfirmed then self.on_source_unconfirmed() end
+    if outcome.source_confirmed and outcome.position_confirmed and outcome.acknowledged and self.on_source_confirmed then
+        self.on_source_confirmed(outcome.remote)
+    end
     if outcome.accepted then
         self:_record_success({ synckey = outcome.has_synckey and true or nil })
         return true
@@ -916,6 +920,7 @@ function ReadReport:_run_pipeline(book_id, opts)
             end
             outcome.accepted=confirmed.position_confirmed==true
             outcome.position_confirmed,outcome.confirmation_reads=confirmed.position_confirmed,confirmed.confirmation_reads
+            if outcome.position_confirmed then outcome.source_confirmed,outcome.remote=true,confirmed.remote end
         end
         if not outcome.accepted then
             outcome.source_unconfirmed=attempt.enter_attempted==true or attempt.report_attempted==true

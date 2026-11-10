@@ -30,6 +30,10 @@ function M:on_view_changed()
         self.source:cancel_upload_preview();self:_finish(job,nil,'source_position_changed')
     end
 end
+function M:cancel()
+    if not self.job then return false end
+    self.source:cancel_upload_preview();self:_finish(self.job,nil,'source_cancelled');return true
+end
 function M:prepare(intent,callback)
     assert(type(callback)=='function')
     if self.job then

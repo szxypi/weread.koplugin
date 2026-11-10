@@ -333,9 +333,15 @@ test('periodic source reports use only scalar child guards and never retry an un
         eq(outcome.book.summary,'original context','child source summary entered parent outcome')
         eq(outcome.renew_attempted,false,'source report tried authorization renewal')
         if mode=='plain' then eq(last_read_options.elapsed_seconds,30,'source report lost periodic reading duration') end
-        local uncertain=0
+        local uncertain,confirmed=0,0
         report.on_source_unconfirmed=function() uncertain=uncertain+1 end
+        report.on_source_confirmed=function(remote)
+            confirmed=confirmed+1
+            eq(remote.chapter_offset,10000,'confirmed periodic baseline used a different position')
+            eq(remote.has_chapter_index,true,'confirmed baseline lost explicit chapter-index validation')
+        end
         report:_apply_outcome(outcome)
+        eq(confirmed,mode=='plain' and 1 or 0,'unconfirmed periodic report advanced the known cloud baseline')
         eq(uncertain,(mode=='noack' or mode=='transport' or mode=='readback') and 1 or 0,'parent did not revoke unknown source write authority')
     end
 end)

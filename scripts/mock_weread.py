@@ -179,7 +179,7 @@ class MockServer(ThreadingHTTPServer):
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
-                            progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain")
+                            progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0)
         self.progress_confirmation_book = None
         self.progress_confirmation_reads = 0
         self.roundtrip_seed = None
@@ -502,6 +502,7 @@ class MockServer(ThreadingHTTPServer):
             book = self.progress.get(book_id, dict(chapterUid=1, chapterIdx=1,
                                                   chapterOffset=0, progress=0, summary="")).copy()
             mode = self.control["progress_response"]
+            book['chapterOffset'] += self.control['progress_offset_delta']
         normal = dict(book=book)
         if mode == "foreign": return dict(bookId="900099", data=normal)
         if mode == "aliases": return dict(book=dict(book, bookId=book_id, book_id="900099"))
@@ -612,6 +613,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("invalid Web renewal mode")
             if candidate["progress_response"] not in {"plain", "foreign", "aliases", "range", "offset", "ambiguous", "rejected"}:
                 raise ValueError("invalid progress response mode")
+            if type(candidate['progress_offset_delta']) is not int or not 0 <= candidate['progress_offset_delta'] <= 1000000:
+                raise ValueError('invalid progress offset delta')
             if candidate['progress_confirmation'] not in {'plain','delayed','stale','noack'}:
                 raise ValueError('invalid progress confirmation mode')
             if candidate['progress_roundtrip_mode'] not in {'plain','probe-noack','restore-noack','concurrent'}:

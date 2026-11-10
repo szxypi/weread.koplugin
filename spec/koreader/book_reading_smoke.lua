@@ -342,6 +342,7 @@ assert(remote.book.progress == saved.last_uploaded_position.percent, "synthetic 
 shot("reading-sync-result")
 if os.getenv('WEREAD_TEST_SOURCE_UPLOAD')=='1' then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'source_upload_smoke.lua')(reader,current,pump,clean_popups)
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'progress_interval_smoke.lua')(reader,current,pump,shot,clean_popups)
 end
 if os.getenv("WEREAD_TEST_PROGRESS_CONFIRMATION") == "1" then
     dofile(debug.getinfo(1, "S").source:match("^@(.*/)") .. "progress_confirmation_smoke.lua")(

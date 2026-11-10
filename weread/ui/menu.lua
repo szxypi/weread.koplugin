@@ -8,6 +8,7 @@ local logger = require("weread.lib.logger")
 local UIManager = require("ui/uimanager")
 local ThoughtPopup = require("weread.ui.thought_popup")
 local WeRead = require("weread.lib.protocol")
+local ProgressInterval = require("weread.lib.progress_interval")
 
 local PluginUtil = require("weread.lib.plugin_util")
 local _ = PluginUtil.tr
@@ -436,6 +437,14 @@ function M:getSettingsMenuItems()
                                     touchmenu_instance:updateItems()
                                 end
                             end),
+                    },
+                    {
+                        text_func = function()
+                            local minutes=ProgressInterval.minutes(self.settings:get("sync").upload_interval_minutes)
+                            return T(_("Timed progress sync: %1"),minutes==0 and _("Off") or T(_("Every %1 minutes"),minutes))
+                        end,
+                        help_text = _("Synchronize changed reading positions after checking the cloud. Sync once first, or enable progress pull on open. Reading time is controlled separately."),
+                        sub_item_table_func = function() return self:getProgressIntervalMenuItems() end,
                     },
                 }
             end,
@@ -1278,6 +1287,26 @@ function M:showEdgeTapRatioPicker(touchmenu_instance)
         buttons = buttons,
     }
     UIManager:show(self._edge_ratio_dialog)
+end
+
+function M:getProgressIntervalMenuItems()
+    local items={}
+    for _i,minutes in ipairs({0,1,5,10,15,30,60}) do
+        local label=minutes==0 and _("Off") or T(_("Every %1 minutes"),minutes)
+        items[#items+1]={text=label,keep_menu_open=true,check_callback_updates_menu=true,
+            checked_func=function()
+                return ProgressInterval.minutes(self.settings:get("sync").upload_interval_minutes)==minutes
+            end,
+            callback=self:safeCallback(label,function(menu)
+                local config=self.settings:get("sync")
+                if ProgressInterval.minutes(config.upload_interval_minutes)==minutes then return end
+                config.upload_interval_minutes=minutes
+                self.settings:set("sync",config);self.settings:flush()
+                if self.progress_sync then self.progress_sync.interval:reschedule() end
+                if menu then menu:updateItems() end
+            end)}
+    end
+    return items
 end
 
 return M
