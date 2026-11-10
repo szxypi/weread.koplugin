@@ -43,6 +43,8 @@ local cover = plugin.client:get_binary("https://weread.qq.com/mock/cover.png", {
     skip_cookie = true, max_bytes = plugin:getShelfCoverCache().MAX_IMAGE_BYTES,
 })
 assert(plugin:getShelfCoverCache():store(response.books[1], cover))
+local popup_fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+dofile(popup_fixtures..'shelf_popup_background_case.lua')(plugin,response,cover,evidence)
 local function paint(name)
     UIManager:forceRePaint()
     Screen:shot(evidence .. "/" .. name .. ".png")

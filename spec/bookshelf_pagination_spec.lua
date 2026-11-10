@@ -6,11 +6,11 @@ local function expect(condition, message)
     if not condition then error(message or ("check " .. checks .. " failed")) end
 end
 
-local dialogs = {}
+local dialogs,closed_views = {},{}
 package.preload["ui/uimanager"] = function()
     return {
         show = function(_self, dialog) dialogs[#dialogs + 1] = dialog end,
-        close = function() end,
+        close = function(_self,view) closed_views[#closed_views+1]=view end,
         nextTick = function(_self, callback) callback() end,
         scheduleIn = function(_self, _delay, callback) callback() end,
     }
@@ -451,4 +451,33 @@ local late_renewal = renewal_callback
 host:closeWeReadUI()
 late_renewal(true)
 expect(renewal_cancels > 0 and not home_reopened and #jobs == 0, "cancelled renewal reopened closed shelf")
+-- A dismissed shelf must not be revived by its still-queued group callback.
+host:applyShelfSnapshot(grouped_books,archives)
+host:showShelfView('books')
+local replaced=host.shelf_view
+host:showShelfView('books')
+expect(closed_views[#closed_views]==replaced,'reopening the shelf left the old parent and its popup alive')
+local stale_group=shown[#shown].callbacks.on_select_group
+host:closeWeReadUI()
+local before_stale=#shown
+stale_group(nil)
+expect(#shown==before_stale and not host.shelf_view,'a group callback revived a closed shelf')
+local queued_actions={'on_select_group','on_page_changed','on_switch','on_display_change','on_search','on_refresh','on_sort','on_filter','on_select'}
+for _change_index,change in ipairs({'account','epoch','session','document','snapshot','source','auth'}) do
+    host.ui={};host.settings.get_auth_scope=nil
+    shelf_settings.source='auto'
+    host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+    local callbacks=shown[#shown].callbacks
+    if change=='account' then account=account..'-new'
+    elseif change=='epoch' then host.discovery_epoch=(host.discovery_epoch or 0)+1
+    elseif change=='session' then host._reader_session_gen=(host._reader_session_gen or 0)+1
+    elseif change=='document' then host.ui.document={file='/synthetic.epub'}
+    elseif change=='snapshot' then host:applyShelfSnapshot(grouped_books,archives)
+    elseif change=='source' then shelf_settings.source='native'
+    else host.settings.get_auth_scope=function() return {vid='900000',epoch=2} end end
+    local count=#shown
+    for _action_index,name in ipairs(queued_actions) do callbacks[name](nil) end
+    expect(#shown==count and host.shelf_group_key==nil,'stale shelf actions crossed '..change)
+end
+host.settings.get_auth_scope=nil
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

@@ -112,6 +112,7 @@ jobs:
         run: |
           python3 scripts/test_web_shelf_contract.py
           python3 scripts/test_shelf_flags.py
+          python3 scripts/test_shelf_groups.py
 
       - name: Display progress prototype checks
         run: |

@@ -25,6 +25,9 @@ local ok,reason=pcall(function()
     local input=json.decode(raw)
     local all_pages=input.all_shelf_pages==true
     local cb_metadata=input.cb_metadata==true
+    local all_groups=input.all_groups==true
+    assert(input.all_groups==nil or type(input.all_groups)=='boolean')
+    assert(not all_groups or all_pages)
     assert(input.cb_metadata==nil or type(input.cb_metadata)=='boolean')
     assert(not cb_metadata or all_pages)
     if cb_metadata then report.cb_metadata_books=0 end
@@ -239,8 +242,16 @@ local ok,reason=pcall(function()
         counters[6]=value.stale and 1 or value.web_expired and 2 or value.failed and 3 or 4
         return value
     end
-    local Plugin=dofile(source..'/main.lua')
-    plugin=Plugin:new{ui={menu={registerToMainMenu=function() end}}}
+    G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
+    local Loader=require('pluginloader')
+    Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
+    for _entry_index,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
+    assert(#Loader.enabled_plugins==1)
+    local FileManager=require('apps/filemanager/filemanager')
+    FileManager:showFiles(home)
+    plugin=assert(FileManager.instance.weread)
+    assert(plugin.ui==FileManager.instance)
+
     plugin.isNetworkOnline,plugin.isNetworkConnected=function() return mode=='live' end,function() return mode=='live' end
     assert(plugin.settings:auth_scope_matches(plugin.settings:get_auth_scope()))
     assert(Credentials:new(plugin.settings):read().vid==grant.vid)
@@ -305,15 +316,15 @@ local ok,reason=pcall(function()
         return not plugin.shelf_cover_job and not plugin.shelf_cover_pending
             and (not context or not context.request and not context.renewing)
     end
-    local function paint(tag,reverse)
+    local function paint(tag,reverse,group_page)
         pump(settled)
         local view=assert(plugin.shelf_view);assert(view.cover_mode)
         local visible=view:getVisibleBooks();local ids={}
         for _i,book in ipairs(visible) do ids[#ids+1]=tostring(book.bookId) end
         local progress=plugin.library_db:getShelfProgress(ids)
         local entries={}
-        assert(#view._item_rows==#visible)
-        for _i,row in ipairs(view._item_rows) do
+        assert(#(view._item_rows or {})==#visible)
+        for _i,row in ipairs(view._item_rows or {}) do
             local book=row.book;local id=tostring(book.bookId)
             assert(tostring(visible[_i].bookId)==id)
             if allowed['https://weread.qq.com/web/book/getProgress?bookId='..id] then
@@ -326,7 +337,7 @@ local ok,reason=pcall(function()
             if all_pages and tag then
                 local expected=assert(input.expected_shelf[id])
                 assert(book.title==expected.title and (book.author or '')==expected.author and (book.cover or '')==expected.cover)
-                if not reverse then assert(not seen_cells[id]);seen_cells[id]=true end
+                if not reverse then if not group_page then assert(not seen_cells[id]) end;seen_cells[id]=true end
                 local cover_path=plugin:getShelfCoverCache():pathFor(book)
                 local hash=''
                 if cover_path then
@@ -380,6 +391,14 @@ local ok,reason=pcall(function()
         plugin:showShelfView('books',nil,nil,{page=1});paint()
         if plugin.shelf_view.page_count>1 then
             plugin:showShelfView('books',nil,nil,{page=2});paint();report.paged_shelf=true
+        end
+    end
+    if all_groups then
+        report.phase='groups'
+        local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+        dofile(fixtures..'shelf_groups_ui_case.lua')(plugin,input,mode,report,pump,paint,manifest)
+        if mode=='live' then
+            local handle=assert(io.open(manifest_path,'wb'));assert(handle:write(json.encode(manifest)));assert(handle:close())
         end
     end
     report.phase='home';plugin:closeWeReadUI();plugin:showHome();paint()

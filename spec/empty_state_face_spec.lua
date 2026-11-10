@@ -518,12 +518,16 @@ expect(selector.selected.y == 3 and selector.layout[1][1] == selector.custom_tit
     "content tabs are not reachable using vertical five-way navigation")
 selector.item_table[2].callback()
 expect(chosen_group == "archive:1", "group picker used position instead of stable server ID")
+selector_view:showSourceMenu()
+selector=shown[#shown]
 selector.custom_title_bar[2].callback()
 expect(changed_type == "public_account", "content picker lost the public-account action")
 selector_view:showOptions()
 local options_dialog = shown[#shown]
 options_dialog.buttons[3][2].callback()
 expect(display_key == "view_mode" and display_value == "cover", "cover option is missing from the shelf menu")
+selector_view:showOptions()
+options_dialog=shown[#shown]
 options_dialog.buttons[4][2].callback()
 expect(display_key == "paginated" and display_value == false, "continuous-list option is missing")
 selector_view.groups = {}
@@ -538,6 +542,16 @@ local long_selector = shown[#shown]
 expect(long_selector.items_per_page < #long_selector.item_table and long_selector.height <= 800
         and long_selector.page_info.handleEvent == nil,
     "overflowing picker lost pagination or exceeded the screen")
+local before_type=changed_type
+selector.custom_title_bar[2].callback()
+expect(changed_type==before_type,'dismissed source popup still handled a queued tab')
+local old_choice=long_selector.item_table[2].callback
+selector_view:onCloseWidget()
+chosen_group=nil;old_choice()
+expect(chosen_group==nil and not selector_view._shelf_popup,'closed shelf retained or dispatched its popup')
+local before_closed=#shown
+selector_view:showSourceMenu();selector_view:showOptions()
+expect(#shown==before_closed,'closed shelf opened another popup')
 if native_widgets then
     local layout = LibraryView.getLayout(true, 100)
     expect(layout.rows == 3 and layout.page_size == 9, "compact 600x800 shelf did not reclaim a third cover row")

@@ -882,13 +882,16 @@ function LibraryView:getVisibleBooks()
 end
 
 function LibraryView:showSourceMenu(menu_mode)
+    if self._shelf_closed then return end
+    local Popup=require('weread.ui.shelf_popup')
     local Menu = require("ui/widget/menu")
     menu_mode = menu_mode or self.mode
     local width = math.floor(self.screen_w * 0.9)
     local dialog
     local function select(callback)
         return after_tap(function()
-            UIManager:close(dialog)
+            if not Popup.current(self,dialog) then return end
+            Popup.close(self)
             callback()
         end)
     end
@@ -974,14 +977,19 @@ function LibraryView:showSourceMenu(menu_mode)
     end
     -- Keep popout dismissal, but use square corners like the bookshelf.
     dialog[1].radius = 0
-    UIManager:show(dialog)
+    Popup.show(self,dialog)
 end
 
 function LibraryView:showOptions()
+    if self._shelf_closed then return end
+    local Popup=require('weread.ui.shelf_popup')
     local ButtonDialog = require("ui/widget/buttondialog")
     local dialog
     local function action(callback)
-        return after_tap(function() UIManager:close(dialog) callback() end)
+        return after_tap(function()
+            if not Popup.current(self,dialog) then return end
+            Popup.close(self);callback()
+        end)
     end
     local buttons = {{ {
         text = T(_("Sort: %1"), self.sort_label or ""),
@@ -1013,7 +1021,7 @@ function LibraryView:showOptions()
     end
     dialog = ButtonDialog:new{ title = _("Bookshelf"), buttons = buttons }
     dialog.movable[1].radius = 0
-    UIManager:show(dialog)
+    Popup.show(self,dialog)
 end
 
 function LibraryView:itemStatus(book)
@@ -1329,6 +1337,8 @@ function LibraryView:onShow()
 end
 
 function LibraryView:onCloseWidget()
+    self._shelf_closed=true
+    require('weread.ui.shelf_popup').close(self)
     if self._visible_task then UIManager:unschedule(self._visible_task) self._visible_task = nil end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end

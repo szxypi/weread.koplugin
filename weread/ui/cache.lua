@@ -289,8 +289,12 @@ function M:bookMatchesFilters(book, saved_books, downloaded_cache)
     return true
 end
 
-function M:showShelfSortOptions(on_sorted)
+function M:showShelfSortOptions(on_sorted, origin)
+    local Popup=require('weread.ui.shelf_popup')
     local dialog
+    local function current()
+        return not origin or origin.is_current() and Popup.current(origin.owner,dialog)
+    end
     local current_sort = self.settings:get("shelf").sort_order or "default"
     local buttons = {}
     for _i, opt in ipairs(SHELF_SORT_OPTIONS) do
@@ -304,7 +308,8 @@ function M:showShelfSortOptions(on_sorted)
                 -- against the still-shown dialog (avoids a ghost label on close).
                 callback = function()
                     UIManager:nextTick(function()
-                        UIManager:close(dialog)
+                        if not current() then return end
+                        if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         local shelf = self.settings:get("shelf")
                         shelf.sort_order = opt.key
                         self.settings:set("shelf", shelf)
@@ -320,11 +325,15 @@ function M:showShelfSortOptions(on_sorted)
         title_align = "center",
         buttons = buttons,
     }
-    UIManager:show(dialog)
+    if origin then Popup.show(origin.owner,dialog) else UIManager:show(dialog) end
 end
 
-function M:showShelfFilterOptions(on_changed)
+function M:showShelfFilterOptions(on_changed, origin)
+    local Popup=require('weread.ui.shelf_popup')
     local dialog
+    local function current()
+        return not origin or origin.is_current() and Popup.current(origin.owner,dialog)
+    end
     local filters = self.shelf_filters
     local buttons = {
         {
@@ -335,7 +344,8 @@ function M:showShelfFilterOptions(on_changed)
                 end,
                 callback = function()
                     UIManager:nextTick(function()
-                        UIManager:close(dialog)
+                        if not current() then return end
+                        if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         filters.reading = nil
                         filters.download = nil
                         self:saveShelfFilters()
@@ -354,7 +364,8 @@ function M:showShelfFilterOptions(on_changed)
                 end,
                 callback = function()
                     UIManager:nextTick(function()
-                        UIManager:close(dialog)
+                        if not current() then return end
+                        if origin then Popup.close(origin.owner) else UIManager:close(dialog) end
                         -- Toggle within the dimension: re-tapping clears it, else select.
                         filters[opt.dim] = (filters[opt.dim] == opt.value) and nil or opt.value
                         self:saveShelfFilters()
@@ -369,7 +380,7 @@ function M:showShelfFilterOptions(on_changed)
         title_align = "center",
         buttons = buttons,
     }
-    UIManager:show(dialog)
+    if origin then Popup.show(origin.owner,dialog) else UIManager:show(dialog) end
 end
 
 function M:bookRecordHasDownload(record)

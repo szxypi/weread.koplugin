@@ -20,13 +20,16 @@ from verify_eink_login import ProbeError
 from verify_web_source_progress import WebSourceProbe
 from verify_translation_preflight import save_refreshed_web_session
 from verify_eink_renewal import book_id, safe_text
+from shelf_groups_contract import project as group_reference
+from shelf_groups_ui_contract import validate as validate_groups
 
 FRAME = b'\nWEREAD_PERSISTENT_UI_RESULT='
 RUNNER_ERRORS = {'none', 'child_timeout', 'runner_exception', 'candidate_layout', 'input_limit', 'stage_unverified',
                  'persistent_ui_schema', 'persistent_ui_status', 'persistent_ui_flags', 'persistent_ui_counts',
                  'persistent_ui_requests', 'persistent_ui_offline_network', 'persistent_ui_progress',
                  'persistent_ui_incomplete', 'persistent_ui_frame'}
-PHASES = {'init', 'shelf', 'home', 'book', 'audit', 'complete'}
+PHASES = {'init', 'shelf', 'groups', 'home', 'book', 'audit', 'complete'}
+RUNNER_ERRORS |= {'persistent_ui_group_scope','persistent_ui_group_schema','persistent_ui_group_counts','persistent_ui_group_incomplete'}
 FLAGS = {'anonymous_credentials', 'credential_file_audit', 'file_backed_sqlite',
          'bookstore_readback', 'transport_guard_selftest', 'progress_display_matches',
          'covers_visible', 'workers_reaped', 'preferences_readback'}
@@ -72,7 +75,12 @@ def shelf_reference(value):
 class FullShelfMetadataProbe(NativeMetadataProbe):
     def request(self,stage,*args,**kwargs):
         value=super().request(stage,*args,**kwargs)
-        if stage=='metadata_shelf':self.shelf_reference=shelf_reference(value)
+        if stage=='metadata_shelf':
+            self.shelf_reference=shelf_reference(value)
+            if getattr(self,'include_groups',False):
+                self.group_reference=group_reference(value,'未命名分组','未分组')
+                if len(self.group_reference)>32 or sum(len(group['members']) for group in self.group_reference)>1600:
+                    raise ValueError('persistent_ui_group_scope')
         return value
 
 
@@ -88,11 +96,13 @@ class CbShelfMetadataProbe(FullShelfMetadataProbe):
         return dict(shelf_book_count=len(shelf['books']))
 
 
-def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1):
+def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False):
+    if all_groups and not all_shelf_pages:raise ValueError('persistent_ui_group_scope')
     if cb_metadata and (not all_shelf_pages or type(metadata_books) is not int or not 1<=metadata_books<=8):
         raise ValueError('persistent_ui_cb_scope')
     keys = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'request_counts', 'paged_shelf'}
     if all_shelf_pages:keys |= {'shelf_coverage'}
+    if all_groups:keys |= {'group_coverage'}
     if cb_metadata:keys |= {'cb_metadata_books'}
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError('persistent_ui_schema')
@@ -104,6 +114,7 @@ def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metad
         raise ValueError('persistent_ui_flags')
     limits=dict(FULL_COUNTS if all_shelf_pages else COUNTS)
     if cb_metadata:limits['painted_views']=328
+    if all_groups:limits['painted_views']=3600
     for key, maximum in limits.items():
         if type(value[key]) is not int or not 0 <= value[key] <= maximum:
             raise ValueError('persistent_ui_count_' + key)
@@ -141,6 +152,7 @@ def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metad
                 or mode=='live' and value['progress_gets']!=coverage['progress_eligible']):
             raise ValueError('persistent_ui_coverage_incomplete')
     if cb_metadata:expected_views+=metadata_books-1
+    if all_groups:expected_views+=validate_groups(value['group_coverage'],mode,value['shelf_groups'],value['result']=='PASS')
     if value['result'] == 'PASS' and (value['phase'] != 'complete' or not all(value[k] for k in FLAGS)
             or value['forbidden_requests'] or value['screenshots'] or value['failed_line'] or not value['shelf_books'] or not value['profile_files_audited']
             or value['painted_views'] != expected_views or not value['cover_cells']
@@ -150,14 +162,14 @@ def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metad
     return value
 
 
-def decode_stage(raw, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1):
+def decode_stage(raw, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False):
     if not isinstance(raw, bytes) or len(raw) > 2 * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('persistent_ui_frame')
     return validate_stage(json.loads(raw.split(FRAME)[1]), mode,all_shelf_pages=all_shelf_pages,
-                          cb_metadata=cb_metadata,metadata_books=metadata_books)
+                          cb_metadata=cb_metadata,metadata_books=metadata_books,all_groups=all_groups)
 
 
-def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1):
+def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False):
     if not isinstance(raw, bytes) or len(raw) > 65536 or raw.count(FRAME) != 1:
         raise ValueError('persistent_ui_frame')
     value = json.loads(raw.split(FRAME)[1])
@@ -167,7 +179,7 @@ def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books
             or len(value['stages']) > 2 or type(value['runner_error']) is not str or value['runner_error'] not in RUNNER_ERRORS):
         raise ValueError('persistent_ui_runner_schema')
     for mode, stage in zip(('live', 'reopen'), value['stages']):
-        validate_stage(stage, mode,all_shelf_pages=all_shelf_pages,cb_metadata=cb_metadata,metadata_books=metadata_books)
+        validate_stage(stage, mode,all_shelf_pages=all_shelf_pages,cb_metadata=cb_metadata,metadata_books=metadata_books,all_groups=all_groups)
     if value['result'] == 'PASS' and (value['runner_error'] != 'none' or not value['tmpfs_profile'] or not value['profile_removed']
             or len(value['stages']) != 2 or any(s['result'] != 'PASS' for s in value['stages'])
             or any(value['stages'][0][k] != value['stages'][1][k]
@@ -177,6 +189,10 @@ def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books
         for key in COVERAGE_COUNTS-{'reverse_pages'}:
             if value['stages'][0]['shelf_coverage'][key]!=value['stages'][1]['shelf_coverage'][key]:
                 raise ValueError('persistent_ui_coverage_incomplete')
+    if value['result']=='PASS' and all_groups:
+        for key in ('groups','memberships','selected_groups','forward_pages','selector_views','checked_memberships','empty_groups'):
+            if value['stages'][0]['group_coverage'][key]!=value['stages'][1]['group_coverage'][key]:
+                raise ValueError('persistent_ui_group_incomplete')
     return value
 
 
@@ -197,12 +213,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--all-shelf-pages', action='store_true',help='opt-in full shelf up to 160 entries and reverse offline paging')
+    parser.add_argument('--all-groups',action='store_true',help='select and verify every bounded group and its offline pages')
     parser.add_argument('--cb-metadata',action='store_true',help='also verify every selected CB detail and its offline file cache')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if bool(args.saved_session) != bool(args.lua_command):
         parser.error('pair --saved-session and --lua-command; put --lua-command last')
     if args.all_shelf_pages and not args.saved_session:parser.error('--all-shelf-pages requires --saved-session')
+    if args.all_groups and not args.all_shelf_pages:parser.error('--all-groups requires --all-shelf-pages')
     if args.cb_metadata and not args.all_shelf_pages:parser.error('--cb-metadata requires --all-shelf-pages')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   credentials_written_to_persistent_files=False, private_data_on_regular_disk=False,
@@ -214,6 +232,7 @@ def main(argv=None):
             saved = store.load()
             credentials = NativeSessionStore().load(saved['vid'])
             probe = CbShelfMetadataProbe() if args.cb_metadata else FullShelfMetadataProbe() if args.all_shelf_pages else NativeMetadataProbe()
+            probe.include_groups=args.all_groups
             baseline = probe.inspect(credentials, 8 if args.cb_metadata else 1)
             sample = probe.samples[0]
             cookies, rotated = verified_web_snapshot(store, saved)
@@ -223,6 +242,7 @@ def main(argv=None):
                            shelf_books=baseline['shelf_book_count'])
             if args.all_shelf_pages:
                 payload.update(all_shelf_pages=True,expected_shelf=probe.shelf_reference)
+            if args.all_groups:payload.update(all_groups=True,expected_groups=probe.group_reference)
             if args.cb_metadata:
                 payload.update(cb_metadata=True,metadata_samples=[dict(book_id=row['book_id'],expected_metadata=row['expected']) for row in probe.samples])
             encoded = json.dumps(payload, ensure_ascii=False).encode()
@@ -232,7 +252,7 @@ def main(argv=None):
             domains = re.findall(rb'(?m)^WEREAD_PUBLIC_COVER_DOMAIN=([a-z-]{1,63}\.[a-z]{2,12})$', child.stderr)
             if domains:
                 report['blocked_image_domains'] = sorted({d.decode('ascii') for d in domains})
-            value = decode_result(child.stdout,all_shelf_pages=args.all_shelf_pages,cb_metadata=args.cb_metadata,metadata_books=len(probe.samples))
+            value = decode_result(child.stdout,all_shelf_pages=args.all_shelf_pages,cb_metadata=args.cb_metadata,metadata_books=len(probe.samples),all_groups=args.all_groups)
             report.update(ui=value, python_preflight_gets=2+len(probe.samples), same_owner_verified=True)
             if child.returncode or value['result'] != 'PASS':
                 raise ValueError('persistent_ui_unverified')
@@ -257,6 +277,7 @@ def main(argv=None):
         if probe:
             probe.samples.clear()
             if hasattr(probe,'shelf_reference'):probe.shelf_reference.clear()
+            if hasattr(probe,'group_reference'):probe.group_reference.clear()
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report['result'] in ('OFFLINE_ONLY', 'OWNER_FILE_BACKED_UI_READ_VERIFIED') else 1
 

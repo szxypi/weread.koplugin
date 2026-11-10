@@ -28,8 +28,10 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
         local ids = type(archive.bookIds) == "table" and archive.bookIds or {}
         local label = text(archive.name, unnamed_label or "Unnamed group")
         local members, seen = {}, {}
+        local mp_only = #ids > 0
         for _, id in ipairs(ids) do
             id = tostring(id)
+            if id:sub(1,7) ~= 'MP_WXS_' then mp_only = false end
             local book = by_id[id]
             if book and not seen[id] then
                 members[#members + 1] = book
@@ -40,7 +42,7 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
         -- Public-account archives contain no regular books. The original
         -- bookshelf already exposes those separately, so do not add a ghost
         -- group for them. Empty user-created groups stay visible.
-        if #members > 0 or #ids == 0 then
+        if #members > 0 or not mp_only then
             groups[#groups + 1] = {
                 key = group_key(archive, label),
                 label = label,

@@ -499,11 +499,11 @@ function M:fetchVisibleShelfCovers(view, items, options)
             }
             next_options.page = view.page
             next_options.skip_cover_fetch_once = true
-            if options.on_redraw then
-                options.on_redraw(view.page)
-            else
-                self:showShelfView(options.mode or "books", options.keyword, view, next_options)
-            end
+            require('weread.ui.shelf_popup').redraw(view,function()
+                if generation~=self.shelf_cover_generation or self.shelf_view~=view then return end
+                if options.on_redraw then options.on_redraw(view.page)
+                else self:showShelfView(options.mode or "books", options.keyword, view, next_options) end
+            end)
         end
         local pending = self.shelf_cover_pending
         self.shelf_cover_pending = nil
@@ -587,6 +587,7 @@ end
 function M:showShelfView(mode, keyword, old_view, options)
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     local LibraryView = require("weread.ui.library_view")
+    old_view = old_view or self.shelf_view
     options = options or {}
     mode = mode or "books"
     options.mode = mode
@@ -651,6 +652,25 @@ function M:showShelfView(mode, keyword, old_view, options)
     end
     if old_view then UIManager:close(old_view) end
     local view, update_progress
+    local owner={account=self.library_db and self.library_db.accountKey and self.library_db:accountKey() or false,
+        epoch=self.discovery_epoch or 0,session=self._reader_session_gen or false,
+        document=self.ui and self.ui.document or false,books=self.shelf_regular,groups=self.shelf_groups,
+        source=shelf_settings.source or 'auto',auth=self.settings.get_auth_scope and self.settings:get_auth_scope()}
+    local function current()
+        if self.shelf_view~=view or not view or view._shelf_closed
+            or owner.account~=(self.library_db and self.library_db.accountKey and self.library_db:accountKey() or false)
+            or owner.epoch~=(self.discovery_epoch or 0) or owner.session~=(self._reader_session_gen or false)
+            or owner.document~=(self.ui and self.ui.document or false)
+            or owner.books~=self.shelf_regular or owner.groups~=self.shelf_groups
+            or owner.source~=(self.settings:get('shelf').source or 'auto') then return false end
+        if self.settings.get_auth_scope then
+            local auth=self.settings:get_auth_scope()
+            if not owner.auth then return auth==nil end
+            return auth and auth.vid==owner.auth.vid and auth.epoch==owner.auth.epoch
+                and self.settings:auth_scope_matches(owner.auth)
+        end
+        return true
+    end
     view = LibraryView.show({
         mode = mode,
         navigation = navigation,
@@ -677,7 +697,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         cover_loading = cover_loading,
     }, {
         on_visible_changed = function()
-            if self.shelf_view == view and update_progress then update_progress() end
+            if current() and update_progress then update_progress() end
         end,
         on_close = function()
             if self.shelf_view == view then
@@ -686,6 +706,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             end
         end,
         on_switch = function(new_mode)
+            if not current() then return end
             local next_options = {}
             for key, value in pairs(options) do next_options[key] = value end
             next_options.prepared_shelf = { books = books, accounts = accounts }
@@ -694,6 +715,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:showShelfView(new_mode, keyword, view, next_options)
         end,
         on_select_group = function(key)
+            if not current() then return end
             if key and not ShelfGroups.find(self.shelf_groups, key) then return end
             self.shelf_group_key = key
             local next_options = {}
@@ -703,6 +725,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:showShelfView("books", keyword, view, next_options)
         end,
         on_display_change = function(key, value)
+            if not current() then return end
             local shelf = self.settings:get("shelf")
             shelf[key] = value
             self.settings:set("shelf", shelf)
@@ -711,9 +734,11 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:showShelfView(mode, keyword, view, options)
         end,
         on_search = function()
-            self:showShelfSearchDialog(view, mode, keyword, options)
+            if not current() then return end
+            self:showShelfSearchDialog(view, mode, keyword, options, current)
         end,
         on_refresh = function()
+            if not current() then return end
             local refresh_options = {}
             for key, value in pairs(options) do refresh_options[key] = value end
             refresh_options.prepared_shelf = nil
@@ -722,22 +747,27 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:refreshBookshelf(view, refresh_options)
         end,
         on_sort = function()
+            if not current() then return end
             self:showShelfSortOptions(function()
+                if not current() then return end
                 self.shelf_view_pages = { books = 1, public_account = 1 }
                 options.prepared_shelf = nil
                 options.page, options.scroll_offset = 1, nil
                 self:showShelfView(mode, keyword, view, options)
-            end)
+            end,{owner=view,is_current=current})
         end,
         on_filter = function()
+            if not current() then return end
             self:showShelfFilterOptions(function()
+                if not current() then return end
                 self.shelf_view_pages = { books = 1, public_account = 1 }
                 options.prepared_shelf = nil
                 options.page, options.scroll_offset = 1, nil
                 self:showShelfView(mode, keyword, view, options)
-            end)
+            end,{owner=view,is_current=current})
         end,
         on_select = function(book, selected_mode)
+            if not current() then return end
             if options.on_select then
                 options.on_select(book, selected_mode, view)
             elseif selected_mode == "public_account" then
@@ -747,6 +777,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             end
         end,
         on_page_changed = function(new_page)
+            if not current() then return end
             self.shelf_view_pages[mode] = new_page
             local next_options = {}
             for key, value in pairs(options) do next_options[key] = value end
@@ -764,12 +795,15 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:refreshVisibleShelfProgress(view, paged and progress_books or view:getVisibleBooks(), progress_snapshots, {
                 force = refresh,
                 on_redraw = function()
-                    local next_options = {}
-                    for key, value in pairs(options) do next_options[key] = value end
-                    next_options.prepared_shelf = { books = books, accounts = accounts }
-                    next_options.page = self.shelf_view and self.shelf_view.page or page
-                    next_options.scroll_offset = self.shelf_view and self.shelf_view:getScrollOffset()
-                    self:showShelfView(mode, keyword, self.shelf_view, next_options)
+                    require('weread.ui.shelf_popup').redraw(view,function()
+                        if not current() then return end
+                        local next_options = {}
+                        for key, value in pairs(options) do next_options[key] = value end
+                        next_options.prepared_shelf = { books = books, accounts = accounts }
+                        next_options.page = view.page
+                        next_options.scroll_offset = view:getScrollOffset()
+                        self:showShelfView(mode, keyword, view, next_options)
+                    end)
                 end,
             })
         end
@@ -784,8 +818,12 @@ function M:showShelfView(mode, keyword, old_view, options)
     end
 end
 
-function M:showShelfSearchDialog(view, mode, keyword, options)
+function M:showShelfSearchDialog(view, mode, keyword, options, is_current)
+    local Popup=require('weread.ui.shelf_popup')
     local dialog
+    local function current()
+        return self.shelf_view==view and Popup.current(view,dialog) and (not is_current or is_current())
+    end
     dialog = InputDialog:new{
         title = _("Search shelf"),
         input = keyword or "",
@@ -794,7 +832,8 @@ function M:showShelfSearchDialog(view, mode, keyword, options)
             {
                 text = _("Clear"),
                 callback = self:safeCallback(_("Clear"), function()
-                    UIManager:close(dialog)
+                    if not current() then return end
+                    Popup.close(view)
                     self.shelf_view_pages = { books = 1, public_account = 1 }
                     options.prepared_shelf = nil
                     options.page, options.scroll_offset = 1, nil
@@ -805,8 +844,9 @@ function M:showShelfSearchDialog(view, mode, keyword, options)
                 text = _("Search"),
                 is_enter_default = true,
                 callback = self:safeCallback(_("Search"), function()
+                    if not current() then return end
                     local value = dialog:getInputText()
-                    UIManager:close(dialog)
+                    Popup.close(view)
                     self.shelf_view_pages = { books = 1, public_account = 1 }
                     options.prepared_shelf = nil
                     options.page = 1
@@ -817,7 +857,7 @@ function M:showShelfSearchDialog(view, mode, keyword, options)
             },
         }},
     }
-    self:showInputDialog(dialog)
+    Popup.show(view,dialog,function(widget) self:showInputDialog(widget) end)
 end
 
 sortBooks = function(books, sort_order)

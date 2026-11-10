@@ -49,5 +49,12 @@ expect(Groups.find(reordered, "archive:7").label == "Reading",
 
 expect(#Groups.list({}, books, "Unnamed group", "Uncategorized") == 0,
     "an ungrouped shelf added a duplicate all-books choice")
+local unavailable = Groups.list({
+    {archiveId=11,name='Unavailable books',bookIds={'missing'}},
+    {archiveId=12,name='Mixed',bookIds={'MP_WXS_123','missing'}},
+    {archiveId=13,name='Accounts',bookIds={'MP_WXS_123'}},
+},books)
+expect(#unavailable==3 and #unavailable[1].books==0 and #unavailable[2].books==0
+    and unavailable[3].key=='__ungrouped__','unavailable regular references hid user groups')
 
 print(("shelf_groups_spec: %d checks"):format(checks))
