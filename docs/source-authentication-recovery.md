@@ -1,4 +1,4 @@
-# 原文来源核对的登录恢复
+# 进度与原文来源核对的登录恢复
 
 正常阅读的位置准备和关书后的独立来源准备现支持一次 Web 登录恢复。
 只有固定来源读取任务得到明确的数值 HTTP 401，且账号与任务仍有效，才向主进程申请恢复。
@@ -35,15 +35,38 @@
 
 固定字段、代码及包字节见[来源恢复证据](validation-assets/2026-11-10/source-recovery.json)。
 
+## 进度拉取阶段
+
+打开书籍、手动同步及定时位置核对现已接入同一恢复服务。复用已验证的有界进度读取，
+固定本次 Web Cookie 与官方密钥，不保存读取响应中的 Cookie；HTTP 401 以固定返回标记传递，
+不从异常文本猜测登录状态。仅配置官方通道的旧读取方式保持可用。
+
+Web 返回明确 401 时，即使官方通道先取得位置，也不直接采用该旧比较结果。
+先保存当前本机意图，在同账号／登录代次及同一原生视口内最多续期一次，再通过正常在线任务重新读取两个通道。
+恢复后的读取还须与已核对回执产生的访问修订一致。续期失败或第二次 401 保留本机进度，
+撤销自动报告门槛并提示重新检查登录；403／429 和普通传输失败不触发续期。
+
+恢复窗口为三十五秒。翻页、关书、休眠、换账号、任务替换及关闭定时同步都会撤销对应消费者，
+取消它所拥有的续期并回收工作进程；已可能发出的持久续期记录仍按既有规则保留。
+翻页监听直接读取正文引擎的位置，避免 KOReader 尚未更新的缓存位置使旧比较晚一步取消。
+所选书有进度发送待确认记录时仍拒绝续期，可通过后续明确的只读比较恢复。
+本路径只处理发送前的进度读取，不改变位置 POST 之后的回读策略，不续期或重放已可能发送的位置／时长。
+
+两尺寸原生模拟已覆盖打开／手动／定时三种入口、无官方密钥、两个通道重新读取、
+403／429、第二次 401、待确认进度阻止续期及只读恢复、不明确续期回执与服务重建防重放、
+原生翻页立即取消和工作进程回收。上述前置恢复用例没有发送阅读位置数据。
+固定字段、候选包及代码哈希见[进度拉取恢复证据](validation-assets/2026-11-10/progress-fetch-recovery.json)。
+
 ```sh
 luajit spec/source_recovery_spec.lua
+luajit spec/progress_fetch_recovery_spec.lua
 luajit spec/source_currentness_spec.lua
 xvfb-run -a python3 scripts/test_discovery_runtime.py \
   --koreader /path/to/runtime --run-dir /path/to/new-profile \
-  --reading-flow --offline-progress --progress-confirmation --source-upload --source-recovery
+  --reading-flow --offline-progress --progress-confirmation --source-upload --source-recovery --progress-recovery
 ```
 
 本轮没有请求真实账号，所有凭据维护和位置写入只发往本地模拟服务，旧一字往返许可未复用。
-仍待完成：来源核对之前的进度拉取阶段登录恢复、HTTP 200 业务码及更多自然失效样本、
+仍待完成：HTTP 200 业务码及更多自然失效样本、
 本组合的保存失败／仅重试保存验收、新组合真实写后回读、更多书籍／格式、多设备并发、
 整机断电／完整进程强杀及实体 KO2；集中性能优化留在完整功能验收之后。

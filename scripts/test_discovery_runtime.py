@@ -31,6 +31,7 @@ def main():
     parser.add_argument('--progress-confirmation', action='store_true', help='Exercise delayed and unconfirmed position write receipts')
     parser.add_argument('--source-upload',action='store_true',help='Verify native source wire coordinates and periodic preparation')
     parser.add_argument('--source-recovery',action='store_true',help='Verify source HTTP 401 recovery against mock credential maintenance')
+    parser.add_argument('--progress-recovery',action='store_true',help='Verify progress preflight HTTP 401 recovery against mock credential maintenance')
     parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
@@ -46,6 +47,7 @@ def main():
     if args.owner_roundtrip and not args.reading_flow:parser.error('--owner-roundtrip requires --reading-flow')
     if args.source_upload and not args.reading_flow:parser.error('--source-upload requires --reading-flow')
     if args.source_recovery and not args.reading_flow:parser.error('--source-recovery requires --reading-flow')
+    if args.progress_recovery and not args.reading_flow:parser.error('--progress-recovery requires --reading-flow')
     if args.footnotes and args.reading_flow:
         parser.error("--footnotes and --reading-flow use separate fixtures")
     if args.cached_resume and (args.footnotes or args.reading_flow):
@@ -90,6 +92,7 @@ def main():
     if args.progress_confirmation: environment['WEREAD_TEST_PROGRESS_CONFIRMATION'] = '1'
     if args.source_upload:environment['WEREAD_TEST_SOURCE_UPLOAD']='1'
     if args.source_recovery:environment['WEREAD_TEST_SOURCE_RECOVERY']='1'
+    if args.progress_recovery:environment['WEREAD_TEST_PROGRESS_RECOVERY']='1'
     if args.owner_roundtrip:
         from mock_weread import chapter_html
         from verify_source_coordinates import FilteredSource

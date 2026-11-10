@@ -71,7 +71,9 @@ function ProgressSyncDialog.notify(code, data)
     elseif code == "local_kept" then
         text = _("Kept the current KOReader position.")
     elseif code == "pull_failed" then
-        if data.error == "progress_book_mismatch" then
+        if data.error=='progress_authentication_unavailable' then
+            text=_("Could not restore login for checking this position. Your local position is kept. Please check login and sync again.")
+        elseif data.error == "progress_book_mismatch" then
             text = _("WeRead returned a position that does not match this book.\nYour current position is kept. Please try syncing again later.")
         elseif data.error == "progress_invalid" or data.error == "progress_ambiguous"
             or data.error == "progress_rejected" or data.error == "progress_not_found" then

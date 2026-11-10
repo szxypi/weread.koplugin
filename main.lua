@@ -206,6 +206,7 @@ function WeReadPlugin:init()
             return book and book.chapters
         end}
     self.progress_sync = ProgressSync:new{
+        recovery = self.source_recovery,
         source_dispatch = self.source_dispatch,
         settings = self.settings,
         client = self.client,

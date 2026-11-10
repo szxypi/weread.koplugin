@@ -351,6 +351,9 @@ end
 if os.getenv('WEREAD_TEST_SOURCE_RECOVERY')=='1' then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'source_recovery_smoke.lua')(reader,current,pump,clean_popups)
 end
+if os.getenv('WEREAD_TEST_PROGRESS_RECOVERY')=='1' then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'progress_fetch_recovery_smoke.lua')(reader,current,pump,clean_popups)
+end
 local checkpoint = { book_id = book_id, path = reader.document.file,
     xpointer = reader.document:getXPointer(), chapter_uid = saved.last_uploaded_position.chapter_uid,
     synthetic_only = true, native_reader = true, page = reader:getCurrentPage() }

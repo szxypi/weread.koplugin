@@ -7,6 +7,7 @@ local FileIdentity = require("weread.lib.book_file_identity")
 local ProgressReadback = require("weread.lib.progress_readback")
 local RemoteProgress = require("weread.lib.remote_progress")
 local SourceCandidate = require("weread.lib.source_upload_candidate")
+local ReadAccess = require("weread.lib.read_access")
 
 local logger = require("weread.lib.logger").scoped("ProgressSync")
 
@@ -82,6 +83,7 @@ function ProgressSync:new(options)
         freeze_close = options.freeze_close,
         prepare_closed = options.prepare_closed,
         source_dispatch = options.source_dispatch,
+        recovery = options.recovery,
         apply_source_remote = options.apply_source_remote,
         confirm_position = options.confirm_position,
         goto_fraction = options.goto_fraction,
@@ -137,6 +139,7 @@ function ProgressSync:_session_current(scope)
 end
 
 function ProgressSync:_invalidate_pull()
+    self:cancel_remote_fetch(self.pull_job)
     self.pull_retry_token = self.pull_retry_token + 1
     self.pull_job, self.pulling = nil, false
 end
@@ -594,6 +597,12 @@ function ProgressSync:_clear_verified(reason)
 end
 
 function ProgressSync:_fetch_remote(book_id, chapters, is_current)
+    local recoverable=self.recovery and self.settings:is_cookie_configured()
+    local access=recoverable and ReadAccess.capture(self.settings)
+    if recoverable and (not access or not access.web) then return nil,'progress_access_unavailable' end
+    local function access_current()
+        return (not is_current or is_current()) and (not access or ReadAccess.matches(self.settings,access))
+    end
     local gateway
     local web
     local gateway_error
@@ -605,21 +614,27 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
         return position,reason
     end
     if self.settings:is_api_configured() then
-        local ok, result = pcall(self.client.get_progress, self.client, book_id)
+        local ok,result
+        if access then ok,result=pcall(self.client.get_progress_snapshot,self.client,book_id,access.gateway,{classify_auth=true,fresh=true})
+        else ok,result=pcall(self.client.get_progress,self.client,book_id) end
+        if not access_current() then return nil,'session_changed' end
         if ok then
             gateway, gateway_error = normalize(result,"gateway")
         else
-            gateway_error = tostring(result)
+            gateway_error = access and 'progress_unavailable' or tostring(result)
         end
     end
-    if is_current and not is_current() then return nil, "session_changed" end
+    if not access_current() then return nil, "session_changed" end
     if self.settings:is_cookie_configured() then
-        local ok, result = pcall(
-            self.client.get_web_progress, self.client, book_id)
+        local ok,result,kind
+        if access then ok,result,kind=pcall(self.client.get_progress_snapshot,self.client,book_id,access.web,{classify_auth=true,fresh=true})
+        else ok,result=pcall(self.client.get_web_progress,self.client,book_id) end
+        if not access_current() then return nil,'session_changed' end
+        if access and ok and not result and kind=='web_expired' then return nil,'progress_web_expired',access end
         if ok then
             web, web_error = normalize(result,"web")
         else
-            web_error = tostring(result)
+            web_error = access and 'progress_unavailable' or tostring(result)
         end
     end
     local selected = PositionMapper.choose_remote(
@@ -631,6 +646,83 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
         return nil, gateway_error or web_error or "remote_unavailable"
     end
     return selected
+end
+
+function ProgressSync:cancel_remote_fetch(owner)
+    if not owner then return end
+    owner.remote_fetch_token,owner.recovery_marker,owner.recovery_deadline,owner.recovery_access=nil,nil,nil,nil
+    if owner.recovery_timeout and self.scheduler.unschedule then self.scheduler:unschedule(owner.recovery_timeout) end
+    owner.recovery_timeout=nil
+    if owner.recovery and self.recovery then self.recovery:cancel(owner.recovery) end
+    owner.recovery=nil
+end
+
+function ProgressSync:_recovery_marker()
+    -- PageUpdate reaches listeners before ReaderRolling refreshes its cached
+    -- xpointer. Read the live engine so that a page turn cancels immediately.
+    local document=self.get_document()
+    if document and type(document.getXPointer)=='function' then
+        local ok,marker=pcall(document.getXPointer,document)
+        if ok and type(marker)=='string' and marker~='' and #marker<=4096 then return marker end
+        return nil
+    end
+    return self:_navigation_marker()
+end
+
+-- A preflight may recover its Web read once, then reread both progress sources.
+-- This path never renews or repeats an already-dispatched position write.
+function ProgressSync:fetch_remote_checked(book_id,chapters,owner,is_current,callback)
+    local token={};owner.remote_fetch_token=token
+    local function current()
+        if owner.remote_fetch_token~=token then return false end
+        local valid=is_current() and self.is_online()
+            and (not owner.recovery_deadline or self.now()<=owner.recovery_deadline)
+            and (not owner.recovery_access or ReadAccess.matches(self.settings,owner.recovery_access))
+            and (not owner.recovery_marker or owner.recovery_marker==self:_recovery_marker())
+        if not valid then
+            self:cancel_remote_fetch(owner)
+            if self.pull_job==owner then self.pull_job,self.pulling,self.state=nil,false,'unverified' end
+            if self.interval.cycle==owner then self.interval:halt();self:_clear_verified('progress_recovery_cancelled') end
+        end
+        return valid
+    end
+    local function finish(remote,reason)
+        if not current() then return end
+        self:cancel_remote_fetch(owner);callback(remote,reason)
+    end
+    local read
+    read=function(recovered)
+        if not current() then return end
+        local remote,reason,access=self:_fetch_remote(book_id,chapters,current)
+        if not current() then return end
+        if reason~='progress_web_expired' then finish(remote,reason);return end
+        if recovered or not self.recovery then finish(nil,'progress_authentication_unavailable');return end
+        owner.recovery_marker=self:_recovery_marker()
+        if not owner.recovery_marker then finish(nil,'progress_authentication_unavailable');return end
+        self:checkpoint_local('progress_recovery')
+        local deadline=self.now()+35
+        owner.recovery_deadline=deadline
+        owner.recovery_timeout=function()
+            if not current() then return end
+            if self.now()<deadline then self.scheduler:scheduleIn(deadline-self.now(),owner.recovery_timeout);return end
+            finish(nil,'progress_authentication_unavailable')
+        end
+        self.scheduler:scheduleIn(35,owner.recovery_timeout)
+        local started,handle=self.recovery:start(book_id,access,current,function(fresh)
+            if not current() then return end
+            if not fresh then finish(nil,'progress_authentication_unavailable');return end
+            owner.recovery=nil
+            owner.recovery_access=fresh
+            if owner.recovery_timeout and self.scheduler.unschedule then self.scheduler:unschedule(owner.recovery_timeout) end
+            owner.recovery_timeout=nil
+            local resumed=self.run_online('progress_pull_recovered',function() if current() then read(true) end end,{silent_offline=true})
+            if not resumed and current() then finish(nil,'progress_unavailable') end
+        end)
+        if owner.remote_fetch_token==token then
+            if started then owner.recovery=handle else finish(nil,'progress_authentication_unavailable') end
+        end
+    end
+    read(false)
 end
 
 function ProgressSync:_discard_pending_upload(book_id)
@@ -1127,7 +1219,7 @@ function ProgressSync:_pull(options)
     local function current()
         if self.pull_job ~= job then return false end
         if self:_session_current(scope) and scope.navigation_generation == self.navigation_generation then return true end
-        self.pull_job, self.pulling = nil, false
+        self:cancel_remote_fetch(job);self.pull_job, self.pulling = nil, false
         return false
     end
     self.pulling = true
@@ -1157,39 +1249,36 @@ function ProgressSync:_pull(options)
                 log("warn", "catalog refresh returned no chapters for:", book_id)
             end
         end
-        local remote, pull_error = self:_fetch_remote(
-            context.book_id,
-            context.chapters,
-            current
-        )
-        if not current() then return end
-        self.pull_job, self.pulling = nil, false
-        if not remote then
-            self.state = "error"
-            self:_persist(context.book_id, {
-                last_pull_at = self.now(),
-                last_sync_error = tostring(pull_error),
-            })
-            if options.manual then
-                self.notify("pull_failed", { error = tostring(pull_error) })
+        self:fetch_remote_checked(context.book_id,context.chapters,job,current,function(remote,pull_error)
+            if not current() then return end
+            self.pull_job, self.pulling = nil, false
+            if not remote then
+                self.state = "error"
+                self:_persist(context.book_id, {
+                    last_pull_at = self.now(),
+                    last_sync_error = tostring(pull_error),
+                })
+                if options.manual or pull_error=='progress_authentication_unavailable' then
+                    self.notify("pull_failed", { error = tostring(pull_error) })
+                end
+                return
             end
-            return
-        end
-        -- The user may have turned pages while the online task was queued.
-        -- Compare the cloud result with the live page, not the opening page.
-        local_position, reason, context = self:capture_local()
-        if not local_position then
-            self.state = "unsafe"
-            if options.manual then self.notify("local_unavailable", { error = reason }) end
-            return
-        end
-        self:_persist(context.book_id, {
-            last_remote_position = remote,
-            last_local_position = local_position,
-            last_pull_at = self.now(),
-            last_sync_error = false,
-        })
-        self:_resolve(local_position, remote, context, options)
+            -- The user may have turned pages while the online task was queued.
+            -- Compare the cloud result with the live page, not the opening page.
+            local_position, reason, context = self:capture_local()
+            if not local_position then
+                self.state = "unsafe"
+                if options.manual then self.notify("local_unavailable", { error = reason }) end
+                return
+            end
+            self:_persist(context.book_id, {
+                last_remote_position = remote,
+                last_local_position = local_position,
+                last_pull_at = self.now(),
+                last_sync_error = false,
+            })
+            self:_resolve(local_position, remote, context, options)
+        end)
     end, { silent_offline = true })
     if not started and self.pull_job == job then
         self.pull_job, self.pulling = nil, false
@@ -1322,6 +1411,14 @@ end
 
 function ProgressSync:on_page_update()
     if not self.current_book_id then return end
+    local marker=self:_recovery_marker()
+    if self.pull_job and self.pull_job.recovery_marker and self.pull_job.recovery_marker~=marker then
+        self:_invalidate_pull();self.state='unverified'
+    end
+    local cycle=self.interval.cycle
+    if cycle and cycle.recovery_marker and cycle.recovery_marker~=marker then
+        self.interval:halt();self:_clear_verified('progress_recovery_cancelled')
+    end
     if self.file_resume then
         if not self.file_resume.failed or self:_file_resume_unchanged(self.file_resume) then return end
         self.file_resume=nil

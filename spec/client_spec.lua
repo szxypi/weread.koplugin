@@ -517,6 +517,18 @@ expect(not ok and err=='display_progress/unavailable','gateway failure could tri
 responses[#responses+1]={code=401,body=string.rep('x',65537)}
 ok,err=pcall(client.get_shelf_display_progress,client,'900001',{kind='web',cookies={}})
 expect(not ok and err=='display_progress/unavailable','oversized reply could trigger credential maintenance')
+responses[#responses+1]={code=401,body='private-progress'}
+local data,kind=client:get_progress_snapshot('900001',{kind='web',cookies={}},{classify_auth=true})
+expect(not data and kind=='web_expired','preflight lost the confirmed numeric HTTP 401')
+responses[#responses+1]={code=200,body='progress'}
+client:get_progress_snapshot('900001',{kind='web',cookies={}},{classify_auth=true,fresh=true})
+expect(requests[#requests].url:match('bookId=900001&_=%d+$'),'synchronization lost its cache-busting query')
+for _i,response in ipairs({{code=403,body='private-progress'},{code=429,body='private-progress'},
+    {code=401,body=string.rep('x',65537)},{raise='web_expired'}}) do
+    responses[#responses+1]=response
+    local called,value,classified=pcall(client.get_progress_snapshot,client,'900001',{kind='web',cookies={}},{classify_auth=true})
+    expect(not called and classified==nil and not tostring(value):find('private-',1,true),'non-401 or transport text forged preflight recovery')
+end
 local metadata_response={bookId="900001",title="Synthetic metadata",intro="<p>Synthetic introduction</p>",
     publisher="Synthetic publisher",bookVersion=99,progress=99,psvts="private-clock"}
 local metadata_state='{"reader":{"bookInfo":{"bookId":"900001","title":"Synthetic"}}}'

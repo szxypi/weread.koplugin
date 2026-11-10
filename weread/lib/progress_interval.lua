@@ -16,6 +16,7 @@ function M:new(options)
 end
 function M:halt()
     local cycle=self.cycle
+    self.sync:cancel_remote_fetch(cycle)
     self.cycle,self.task,self.started,self.due,self.minutes_value=nil,nil,nil,nil,nil
     if self.scheduled and self.scheduler.unschedule then self.scheduler:unschedule(self.scheduled) end
     self.scheduled=nil
@@ -92,25 +93,29 @@ function M:_begin(minutes)
         local ok=pcall(function()
             local position,reason,context=sync:capture_local()
             if not position or reason or not context then self:_failed(cycle);return end
-            local remote=sync:_fetch_remote(context.book_id,context.chapters,function() return self:current(cycle) end)
-            if not self:current(cycle) then return end
-            if not remote then self:_failed(cycle);return end
-            position=sync:capture_local()
-            if not position then self:_failed(cycle);return end
-            if not remote.conflict and sync:_compare_source(position,remote,context.chapters)=='same' then
-                self.cycle=nil;sync.dirty=false;sync:_discard_pending_upload(context.book_id)
-                sync:_mark_verified(context.book_id,'interval_positions_match',position,remote);return
-            end
-            if not remote.conflict and Readback.matches_normalized(cycle.baseline,remote) then
-                sync.remote_position=copy(remote)
-                local dispatched=sync:_upload_snapshot(position,'interval',false,nil,cycle)
-                if not dispatched and not sync.uploading then self:finish(cycle) end
-                return
-            end
-            -- Another client changed the cloud since the last decision. The
-            -- timer cannot silently choose or navigate, even with ask=false.
-            self.cycle=nil;sync:_clear_verified('interval_remote_changed')
-            sync:_resolve(position,remote,context,{force_choice=true})
+            sync:fetch_remote_checked(context.book_id,context.chapters,cycle,function() return self:current(cycle) end,function(remote,reason_)
+                if not self:current(cycle) then return end
+                if not remote then
+                    if reason_=='progress_authentication_unavailable' then sync.notify('pull_failed',{error=reason_}) end
+                    self:_failed(cycle);return
+                end
+                position=sync:capture_local()
+                if not position then self:_failed(cycle);return end
+                if not remote.conflict and sync:_compare_source(position,remote,context.chapters)=='same' then
+                    self.cycle=nil;sync.dirty=false;sync:_discard_pending_upload(context.book_id)
+                    sync:_mark_verified(context.book_id,'interval_positions_match',position,remote);return
+                end
+                if not remote.conflict and Readback.matches_normalized(cycle.baseline,remote) then
+                    sync.remote_position=copy(remote)
+                    local dispatched=sync:_upload_snapshot(position,'interval',false,nil,cycle)
+                    if not dispatched and not sync.uploading then self:finish(cycle) end
+                    return
+                end
+                -- Another client changed the cloud since the last decision. The
+                -- timer cannot silently choose or navigate, even with ask=false.
+                self.cycle=nil;sync:_clear_verified('interval_remote_changed')
+                sync:_resolve(position,remote,context,{force_choice=true})
+            end)
         end)
         if not ok then self:_failed(cycle) end
     end,{silent_offline=true})
