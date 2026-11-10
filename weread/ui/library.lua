@@ -163,6 +163,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
     if self.source_navigation then self.source_navigation:cancel() end
     if self.source_close then self.source_close:cancel() end

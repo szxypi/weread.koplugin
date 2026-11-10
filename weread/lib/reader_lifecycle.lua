@@ -208,6 +208,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').on_close(self) end
     if self.cancelShelfCovers then self:cancelShelfCovers() end
     if self.cancelShelfProgress then self:cancelShelfProgress() end
@@ -262,11 +263,13 @@ end
 function M:onShowingReader()
     if self.cancelBookReading then self:cancelBookReading() end
     require('weread.ui.mp_file_open').cancel(self)
+    require('weread.ui.mp_reader_open').cancel(self)
 end
 
 function M:onCloseWidget()
     if self.cancelBookReading then self:cancelBookReading() end
     require('weread.ui.mp_file_open').detach(self)
+    require('weread.ui.mp_reader_open').detach(self)
 end
 
 function M:showPrefetchNotice(text, timeout)
@@ -396,6 +399,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
     if self.cancelShelfCovers then self:cancelShelfCovers(true) end
     if self.cancelShelfProgress then self:cancelShelfProgress() end

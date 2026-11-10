@@ -1,6 +1,8 @@
 local I18n = {}
 
 local zh = {
+    ["Open this file?"] = "打开这个文件？",
+    ["Open"] = "打开",
     ["Change cloud membership"] = "加入／移出云端书架",
     ["Check pending bookshelf change"] = "核对待确认的书架修改",
     ["Authorize or renew E-Ink login in settings, then try again."] = "请在设置中完成墨水屏登录授权或续期后重试。",
