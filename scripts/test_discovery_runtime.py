@@ -33,6 +33,7 @@ def main():
     parser.add_argument('--source-recovery',action='store_true',help='Verify source HTTP 401 recovery against mock credential maintenance')
     parser.add_argument('--progress-recovery',action='store_true',help='Verify progress preflight HTTP 401 recovery against mock credential maintenance')
     parser.add_argument('--recovery-save-retry',action='store_true',help='Verify native save-only retry during progress and source recovery')
+    parser.add_argument('--shelf-membership-write',action='store_true',help='Verify native single-book membership changes against the mock service')
     parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
@@ -49,6 +50,7 @@ def main():
     if args.source_upload and not args.reading_flow:parser.error('--source-upload requires --reading-flow')
     if args.source_recovery and not args.reading_flow:parser.error('--source-recovery requires --reading-flow')
     if args.progress_recovery and not args.reading_flow:parser.error('--progress-recovery requires --reading-flow')
+    if args.shelf_membership_write and not args.reading_flow:parser.error('--shelf-membership-write requires --reading-flow')
     if args.recovery_save_retry and not (args.reading_flow and args.source_upload and args.source_recovery and args.progress_recovery):
         parser.error('--recovery-save-retry requires --reading-flow --source-upload --source-recovery --progress-recovery')
     if args.footnotes and args.reading_flow:
@@ -97,6 +99,7 @@ def main():
     if args.source_recovery:environment['WEREAD_TEST_SOURCE_RECOVERY']='1'
     if args.progress_recovery:environment['WEREAD_TEST_PROGRESS_RECOVERY']='1'
     if args.recovery_save_retry:environment['WEREAD_TEST_RECOVERY_SAVE_RETRY']='1'
+    if args.shelf_membership_write:environment['WEREAD_TEST_SHELF_MEMBERSHIP_WRITE']='1'
     if args.owner_roundtrip:
         from mock_weread import chapter_html
         from verify_source_coordinates import FilteredSource

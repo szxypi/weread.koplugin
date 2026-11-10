@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shlex
 import shutil
 import struct
@@ -179,13 +180,16 @@ class MockServer(ThreadingHTTPServer):
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
-                            progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0)
+                            progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0,
+                            shelf_membership_mode='plain')
         self.progress_confirmation_book = None
         self.progress_confirmation_reads = 0
         self.roundtrip_seed = None
         self.roundtrip_posts = 0
         self.web_renewal_posts = 0
         self.content_format = 'epub'
+        self.shelf_removed = set()
+        self.shelf_added = {}
 
     def record(self, event):
         with self.lock:
@@ -282,6 +286,17 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
+            if path in {'/shelf/add','/shelf/delete'} and method=='POST':
+                if set(data)!={'bookIds'} or not isinstance(data['bookIds'],list) or len(data['bookIds'])!=1 or not re.fullmatch(r'[1-9][0-9]{0,19}',str(data['bookIds'][0])):
+                    raise ValueError('invalid single-book membership request')
+                identity=str(data['bookIds'][0])
+                if path=='/shelf/add':
+                    self.shelf_removed.discard(identity)
+                    if not any(str(book['bookId'])==identity for book in BOOKS):
+                        self.shelf_added[identity]=dict(bookId=identity,title='合成新增书籍',author='合成作者',version=700)
+                else:
+                    self.shelf_removed.add(identity);self.shelf_added.pop(identity,None)
+                return 200,{} if control['shelf_membership_mode']=='noack' else dict(succ=1)
             if path == "/book/underlines" and method == "GET":
                 if (set(query)!={"bookId","chapterUid","synckey"} or any(len(value)!=1 for value in query.values())
                         or query["synckey"]!=["0"] or not any(book["bookId"]==book_id for book in BOOKS)
@@ -363,7 +378,8 @@ class MockServer(ThreadingHTTPServer):
                 return 200, dict(vid=900000, accessToken="mock-native-access", refreshToken="mock-native-refresh")
             if path == "/shelf/sync" and method == "GET":
                 books = [{key: value for key, value in dict(book, version=700).items() if key != "bookVersion"}
-                         for book in ([] if control["empty_shelf"] else BOOKS)]
+                         for book in ([] if control["empty_shelf"] else BOOKS) if str(book['bookId']) not in self.shelf_removed]
+                if not control['empty_shelf']:books.extend(self.shelf_added.values())
                 return 200, dict(books=books, archive=[
                     dict(archiveId=1, name="旅途", bookIds=[b["bookId"] for b in BOOKS[:15]]),
                     dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
@@ -611,6 +627,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("match must be a string")
             if candidate["web_renewal_mode"] not in {"plain", "rotate", "reject", "empty", "foreign", "verify-fail"}:
                 raise ValueError("invalid Web renewal mode")
+            if candidate['shelf_membership_mode'] not in {'plain','noack'}:
+                raise ValueError('invalid membership mode')
             if candidate["progress_response"] not in {"plain", "foreign", "aliases", "range", "offset", "ambiguous", "rejected"}:
                 raise ValueError("invalid progress response mode")
             if type(candidate['progress_offset_delta']) is not int or not 0 <= candidate['progress_offset_delta'] <= 1000000:

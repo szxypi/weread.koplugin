@@ -114,6 +114,8 @@ function WeReadPlugin:init()
     self.qr_login = QRLogin:new(self, self.client, self.settings)
     self.native_renewal = NativeRenewal:new{ settings = self.settings, client = self.client, scheduler = UIManager }
     self.native_authorization = NativeAuthorization:new(self, self.client, self.settings)
+    self.shelf_membership = require('weread.lib.shelf_membership_service'):new{
+        settings=self.settings,client=self.client,scheduler=UIManager}
     self.source_dispatch = require("weread.lib.source_dispatch"):new{settings=self.settings}
     self.read_report = ReadReport:new{
         source_dispatch = self.source_dispatch,

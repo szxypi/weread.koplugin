@@ -65,4 +65,10 @@ expect(row(host._shelf_state_menu,'In cloud bookshelf').mandatory=='Unknown','da
 host,value=fixture();value.entry={present=true,cached_at=0};State.show(host,'42');menu=host._shelf_state_menu
 expect(row(menu,'In cloud bookshelf').mandatory=='Yes','positive membership lost')
 expect(row(menu,'Saved shelf snapshot').mandatory=='Time unavailable' and row(menu,'Saved status fields are unavailable for this book.'),'unreadable fields or clock became false absence')
+host,value=fixture();State.show(host,'42');menu=host._shelf_state_menu
+host._shelf_membership_ui={}
+local cancelled=0
+package.loaded['weread.ui.shelf_membership_write']={cancel=function(target) cancelled=cancelled+1;target._shelf_membership_ui=nil end}
+menu:onCloseWidget()
+expect(cancelled==1 and not host._shelf_membership_ui and not host._shelf_state_menu,'native menu dismissal retained its membership task')
 print('PASS: shelf status native menu coordination ('..checks..' checks)')

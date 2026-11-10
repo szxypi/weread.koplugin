@@ -14,6 +14,24 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_single_book_native_membership_and_unknown_ack(self):
+        base='https://i.weread.qq.com'
+        members=lambda:{str(row['bookId']) for row in self.server.route('GET',base+'/shelf/sync',{})[1]['books']}
+        original=members()
+        try:
+            self.assertEqual(self.server.route('POST',base+'/shelf/delete',dict(bookIds=[BOOK_ID])),(200,dict(succ=1)))
+            self.assertEqual(members(),original-{BOOK_ID})
+            self.assertEqual(self.server.route('POST',base+'/shelf/add',dict(bookIds=[BOOK_ID])),(200,dict(succ=1)))
+            self.assertEqual(members(),original)
+            self.request('/__control',dict(shelf_membership_mode='noack'))
+            self.assertEqual(self.server.route('POST',base+'/shelf/add',dict(bookIds=['999999999'])),(200,{}))
+            self.assertIn('999999999',members())
+            for body in (dict(bookIds=[]),dict(bookIds=[BOOK_ID,'2']),dict(bookIds=['MP_1']),dict(bookIds=[True]),dict(bookId=BOOK_ID)):
+                with self.assertRaises(ValueError):self.server.route('POST',base+'/shelf/add',body)
+        finally:
+            self.server.shelf_removed.clear();self.server.shelf_added.clear()
+            self.request('/__control',dict(shelf_membership_mode='plain'))
+
     def test_offset_delta_simulates_another_client_without_changing_stored_progress(self):
         self.server.progress[BOOK_ID]=dict(chapterUid=2,chapterIdx=2,chapterOffset=100,progress=25)
         self.assertEqual(self.request('/__control',dict(progress_offset_delta=1))[0],200)

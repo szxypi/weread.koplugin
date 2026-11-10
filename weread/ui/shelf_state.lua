@@ -14,6 +14,7 @@ local function current(host,owner)
         and owner.parent==host._book_detail_view
 end
 function M.cancel(host)
+    if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
     local menu=host._shelf_state_menu;host._shelf_state_menu=nil
     if menu then UIManager:close(menu) end
 end
@@ -49,6 +50,17 @@ function M.show(host,id)
         items[#items+1]={text=_('No saved shelf snapshot for this book.'),select_enabled=false}
     end
     local menu
+    if host.shelf_membership and id:match('^[1-9]%d*$') and #id<=20 then
+        items[#items+1]={text=_('Change cloud membership'),callback=function()
+            if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_membership_write').open(host,id) end
+        end}
+        local pending=host.shelf_membership:pending()
+        if pending then
+            items[#items+1]={text=_('Check pending bookshelf change'),callback=function()
+                if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_membership_write').open(host,id,true) end
+            end}
+        end
+    end
     items[#items+1]={text=_('Refresh shelf status'),callback=function()
         if host._shelf_state_menu~=menu or not current(host,owner) then return end
         if host.shelf_refreshing then host:showInfo(_('The bookshelf is already refreshing. Please wait.'));return end
@@ -71,7 +83,10 @@ function M.show(host,id)
     if menu then
         local on_close=menu.onCloseWidget
         menu.onCloseWidget=function(instance,...)
-            if host._shelf_state_menu==instance then host._shelf_state_menu=nil end
+            if host._shelf_state_menu==instance then
+                if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
+                host._shelf_state_menu=nil
+            end
             if on_close then return on_close(instance,...) end
         end
     end
