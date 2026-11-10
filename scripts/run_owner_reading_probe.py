@@ -25,12 +25,15 @@ def main(argv=None):
     addons = parser.add_mutually_exclusive_group()
     addons.add_argument('--cb-reading', action='store_true')
     addons.add_argument('--cb-full-book', action='store_true')
+    parser.add_argument('--diagnostic-read-pacing', action='store_true')
     addons.add_argument('--annotations', action='store_true')
     addons.add_argument('--annotation-recovery', action='store_true')
     addons.add_argument('--progress-preview', action='store_true')
     addons.add_argument('--progress-roundtrip', action='store_true')
     addons.add_argument('--source-upload-preview', action='store_true')
     args = parser.parse_args(argv)
+    if args.diagnostic_read_pacing and not args.cb_full_book:
+        parser.error('--diagnostic-read-pacing requires --cb-full-book')
     runtime = args.koreader.resolve()
     if sys.platform != 'linux' or not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
         parser.error('requires Linux, a built runtime and positive display dimensions')
@@ -46,6 +49,8 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        if args.diagnostic_read_pacing != (payload.get('diagnostic_read_pacing') is True):
+            raise ValueError('input_limit')
         cb_reading=args.cb_reading or args.cb_full_book
         if (cb_reading != (payload.get('cb_reading') is True) or args.cb_reading and 'full_manifest' in payload
                 or args.cb_full_book != (payload.get('cb_full_book') is True)

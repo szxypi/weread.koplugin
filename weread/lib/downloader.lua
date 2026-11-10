@@ -25,6 +25,7 @@ local I18n = require("weread.lib.i18n")
 local StandbyGuard = require("weread.lib.standby_guard")
 local WeRead = require("weread.lib.protocol")
 local WorkerSettings = require("weread.lib.worker_settings")
+local DownloadReadClient = require("weread.lib.download_read_client")
 
 local function _(text)
     return I18n.tr(text)
@@ -483,12 +484,17 @@ end
 -- KOReader's pipe transport and cancellation/reaping.
 function Downloader:_runInterruptible(dl, task)
     if dl.cancelled then return nil end
-    if not dl.trapper then return task() end
+    if not dl.trapper then return task(self.client) end
     local dialog = dl.progress_dialog
     local fingerprint = WorkerSettings.fingerprint(self.settings)
     local completed, result = dl.trapper:dismissableRunInSubprocess(function()
         local auth_result = WorkerSettings.capture(self.settings)
-        local ok, value = xpcall(task, debug.traceback)
+        -- Match the independently verified read cadence for batches. The
+        -- wrapper and its waits exist only in this disposable child, so the
+        -- UI remains responsive and cancellation can terminate a waiting read.
+        local client = (tonumber(dl.total) or 0) > 1
+            and DownloadReadClient.wrap(self.client) or self.client
+        local ok, value = xpcall(function() return task(client) end, debug.traceback)
         return { ok = ok, value = value, auth = auth_result() }
     end, dialog)
     if dialog then dialog.dismiss_callback = nil end
@@ -678,8 +684,8 @@ function Downloader:start(book, chapters, suffix, options)
         end
         local ok_init, err_init = pcall(function()
             self:_setStage(dl, _("Connecting to WeRead..."))
-            local updated = self:_runInterruptible(dl, function()
-                Content.ensure_reader_state(self.client, book)
+            local updated = self:_runInterruptible(dl, function(client)
+                Content.ensure_reader_state(client, book)
                 return reader_book(book)
             end)
             if dl.cancelled then return end
@@ -990,9 +996,9 @@ function Downloader:_finishChapter(dl)
         stage_text, dl.index - 0.1)
     local started = time.now()
     local ok, result = pcall(function()
-        local function finalize()
+        local function finalize(client)
             local xhtml, assets = Content.finalize_single_chapter_content(
-                self.client, self.settings, dl.book, chapter, dl.current.xhtml, dl.state)
+                client or self.client, self.settings, dl.book, chapter, dl.current.xhtml, dl.state)
             return { xhtml = xhtml, assets = assets, state = dl.state }
         end
         if cache.download_book_images then return self:_runInterruptible(dl, finalize) end
@@ -1368,9 +1374,9 @@ function Downloader:_step(dl)
         dl.index - 1)
     local started = time.now()
     local ok, result = pcall(function()
-        return self:_runInterruptible(dl, function()
+        return self:_runInterruptible(dl, function(client)
             local xhtml, source = Content.fetch_single_chapter_source(
-                self.client, self.settings, dl.book, chapter, dl.state)
+                client, self.settings, dl.book, chapter, dl.state)
             local receipt = source and Content.store_position_source(dl.workspace, dl.book, chapter, source)
             FileIdentity.check(dl.source_identity, dl.book)
             return { xhtml = xhtml, position_receipt = receipt, state = dl.state, book = reader_book(dl.book),

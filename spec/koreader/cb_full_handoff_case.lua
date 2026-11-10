@@ -37,7 +37,9 @@ return function(input,report,plugin,reader,pump,tick,position)
         and target.file_id==full_source.file_id and target.raw_sha256==single_source.raw_sha256)
     assert(plugin.progress_sync.verified==false and target.upload_verified==false)
     local index=assert(require('weread.lib.source_dom').open(reader.document,input.book_id,input.chapter_uid))
-    assert(assert(index:capture(reader.document:getXPointer())).co==original_co)
+    local applied=assert(plugin.progress_sync.source_anchor)
+    assert(applied.document==reader.document and reader.document:isXPointerInCurrentPage(applied.xpointer))
+    assert(assert(index:capture(applied.xpointer)).co==original_co)
     report.single_to_full=true;report.position_preserved=true;report.cloud_unverified=true
     tick();UI:forceRePaint()
     return plugin,reader

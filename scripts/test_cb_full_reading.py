@@ -161,7 +161,7 @@ class CbFullReadingTests(unittest.TestCase):
         from test_cb_reading import ready as single_ready
         from verify_owner_reading import FULL_FLAGS
         import verify_cb_native_reading as host
-        for wrong_images in (False,True):
+        for wrong_images,diagnostic in ((False,False),(True,False),(False,True)):
             web,_opener,_progress=ready()
             after,after_opener=single_ready([point()])
             stages=[stage(full=True),stage('reopen',full=True)]
@@ -179,14 +179,28 @@ class CbFullReadingTests(unittest.TestCase):
                  patch.object(host,'CbReadingProbe',return_value=after),patch.object(web,'verify_account'),patch.object(after,'verify_account'), \
                  patch.object(host,'save_refreshed_web_session',return_value=False),patch.object(host.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=frame(value))) as run,redirect_stdout(io.StringIO()) as out:
                 store.return_value.load.side_effect=[saved,fresh]
-                code=host.main(['--saved-session','--book-index','1','--full-book','--lua-command','synthetic'])
+                code=host.main(['--saved-session','--book-index','1','--full-book',
+                                *(['--diagnostic-read-pacing'] if diagnostic else []),'--lua-command','synthetic'])
             report=json.loads(out.getvalue())
             self.assertEqual(code,int(wrong_images));self.assertEqual(len(after_opener.calls),0 if wrong_images else 1)
             self.assertEqual(report['account_data_posts'],0);self.assertEqual(saved,{});self.assertEqual(fresh,{})
             payload=json.loads(run.call_args.kwargs['input'])
             self.assertTrue(payload['cb_full_book']);self.assertEqual(len(payload['full_manifest']),2)
+            if diagnostic:
+                self.assertTrue(payload['diagnostic_read_pacing']);self.assertTrue(report['diagnostic_only'])
+                self.assertFalse(report['full_book_verified']);self.assertEqual(report['result'],'CB_PACED_DIAGNOSTIC_VERIFIED')
+            else:self.assertNotIn('diagnostic_read_pacing',payload)
             for private in (FIRST,HTML,'private-cookie','900000'):self.assertNotIn(private,out.getvalue())
             store.return_value.delete.assert_not_called()
+
+    def test_diagnostic_pacing_requires_explicit_saved_full_scope_before_opening_credentials(self):
+        import verify_cb_native_reading as host
+        from run_owner_reading_probe import main
+        for args in (['--diagnostic-read-pacing'],['--saved-session','--book-index','1','--diagnostic-read-pacing','--lua-command','synthetic']):
+            with patch.object(host,'SessionStore') as store,redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):host.main(args)
+            store.assert_not_called()
+        for mode in ([],['--cb-reading'],['--progress-roundtrip'],['--annotations']):
+            with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(['--koreader','/synthetic','--candidate','/synthetic.zip','--diagnostic-read-pacing',*mode])
 
 
 if __name__ == '__main__':

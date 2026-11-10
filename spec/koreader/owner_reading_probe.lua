@@ -29,6 +29,8 @@ local ok,reason=pcall(function()
     local cb_reading=input.cb_reading==true
     local cb_full=input.cb_full_book==true
     assert(not cb_full or cb_reading and type(input.full_manifest)=='table')
+    assert(input.diagnostic_read_pacing==nil or input.diagnostic_read_pacing==true and cb_full)
+    local diagnostic_pacing=input.diagnostic_read_pacing==true
     if cb_reading then report.source_match_reason='none' end
     if cb_full then report.cb_handoff={full_to_single=false,single_to_full=false,different_files=false,
         same_source=false,position_preserved=false,cloud_unverified=false} end
@@ -288,6 +290,12 @@ local ok,reason=pcall(function()
             counters[6]=counters[6]+1;counters[8]=kind or 7;error('reading scope rejected',0)
         end
         counters[kind-1]=counters[kind-1]+1
+        -- Controlled diagnostic only. The host labels this separately from
+        -- normal production acceptance; no response or receipt is fabricated.
+        if diagnostic_pacing and (kind==3 or kind==5) then
+            require('socket').sleep(1)
+            counters[19]=counters[19]+1
+        end
         local response,code,headers,status=request(self,options)
         counters[7]=tonumber(code) or 0
         if full and kind==3 and code==200 and not options.sink then
@@ -552,7 +560,14 @@ local ok,reason=pcall(function()
     local basis=require('weread.lib.position_source').coordinate_basis(input.source_format)
     assert(position.basis==basis and position.upload_verified==false and position.raw_sha256==input.source_raw_sha256)
     local location=assert(require('weread.lib.source_context').location(document,reader.view.view_mode))
-    local current,current_reason=source_index:capture(location.xpointer)
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    local native_point=dofile(fixtures..'owner_viewport_point.lua')(document,location,Device.screen:getHeight())
+    local current,current_reason=source_index:capture(native_point)
+    if not current and cb_reading then
+        local reason_name=type(current_reason)=='string' and current_reason:match('^source_dom/([a-z_]+)$')
+        report.source_match_reason=({walk_diverged=true,anchor_ambiguous=true,anchor_missing=true,source_point_unavailable=true,
+            invalid_point=true,source_unsupported=true,source_unavailable=true,cancelled=true})[reason_name] and reason_name or 'other'
+    end
     assert(current,current_reason);assert(current.co==position.chapter_offset)
     report.local_source_position_verified=true
     plugin:showReadingPosition()
@@ -575,7 +590,9 @@ local ok,reason=pcall(function()
     assert(applied and applied.basis==basis and applied.chapter_offset==position.chapter_offset)
     local retained=assert(plugin.progress_sync:current_source_target())
     assert(retained.basis==basis and retained.chapter_offset==position.chapter_offset and retained.upload_verified==false)
-    local roundtrip=assert(source_index:capture(document:getXPointer()))
+    local applied_anchor=assert(plugin.progress_sync.source_anchor)
+    assert(applied_anchor.document==document and document:isXPointerInCurrentPage(applied_anchor.xpointer))
+    local roundtrip=assert(source_index:capture(applied_anchor.xpointer))
     assert(roundtrip.co==position.chapter_offset)
     report.source_navigation_roundtrip=true
     local after=assert(plugin.progress_sync:capture_local())
@@ -585,7 +602,6 @@ local ok,reason=pcall(function()
     if progress_case then progress_case:run(plugin,reader,pump,source_index,position) end
     if candidate_case then candidate_case:run(plugin,reader,pump,source_index,position) end
     if cb_full then
-        local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
         plugin,reader=dofile(fixtures..'cb_full_handoff_case.lua')(input,report.cb_handoff,plugin,reader,pump,tick,position)
         document=reader.document
     end
@@ -633,6 +649,9 @@ local ok,reason=pcall(function()
     end
     audit(home);report.credential_file_audit=true
     assert(counters[6]==0)
+    if diagnostic_pacing and mode=='live' then
+        assert(counters[19]==counters[2]+counters[4] and counters[19]>=#input.full_manifest*4)
+    else assert(counters[19]==0) end
     report.phase,report.result='complete','PASS'
 end)
 if counters then

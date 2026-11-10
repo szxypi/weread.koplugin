@@ -23,15 +23,20 @@ def main(argv=None):
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-index', type=int, choices=range(1, 9))
     parser.add_argument('--full-book', action='store_true')
+    parser.add_argument('--diagnostic-read-pacing', action='store_true',
+                        help='Full-book diagnostic only: delay each native Reader/content read by one second')
     parser.add_argument('--progress-file', type=Path)
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if args.diagnostic_read_pacing and not (args.saved_session and args.full_book):
+        parser.error('--diagnostic-read-pacing requires --saved-session --full-book')
     if args.progress_file and not (args.saved_session and args.full_book): parser.error('--progress-file requires --saved-session --full-book')
     if (bool(args.saved_session) != bool(args.lua_command)
             or args.saved_session and args.book_index is None or not args.saved_session and (args.book_index is not None or args.full_book)):
         parser.error('pair --saved-session, --book-index and --lua-command last')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   account_data_posts=0, authentication_posts=0, private_data_on_regular_disk=False, screenshots=0)
+    if args.diagnostic_read_pacing: report.update(diagnostic_only=True, native_read_delay_seconds=1)
     saved = web = after = payload = envelope = None
     try:
         if args.saved_session:
@@ -54,6 +59,7 @@ def main(argv=None):
             chapters=1
             if args.full_book:
                 payload.update(cb_full_book=True,full_manifest=sample['full_manifest'],protected_resource_urls=sample['protected_resource_urls'])
+                if args.diagnostic_read_pacing: payload['diagnostic_read_pacing']=True
                 chapters=len(sample['full_manifest'])
             encoded = json.dumps(payload, ensure_ascii=False).encode()
             if len(encoded) > 256 * 1024: raise ValueError('input_limit')
@@ -79,6 +85,8 @@ def main(argv=None):
                           fresh_offline_process=True, source_format=sample['source_format'], source_shape=web.source_shape,
                           selected_ordinal=args.book_index)
             if args.full_book:report.update(full_book_verified=True,chapters=chapters)
+            if args.diagnostic_read_pacing:
+                report.update(result='CB_PACED_DIAGNOSTIC_VERIFIED',full_book_verified=False)
     except Exception:
         report.update(result='UNVERIFIED', reason='cb_native_reading_unverified')
     finally:
@@ -89,7 +97,7 @@ def main(argv=None):
         for private in (saved, payload, envelope):
             if private: private.clear()
     print(json.dumps(report, indent=2))
-    return 0 if report['result'] in {'OFFLINE_ONLY', 'CB_NATIVE_READING_VERIFIED'} else 1
+    return 0 if report['result'] in {'OFFLINE_ONLY', 'CB_NATIVE_READING_VERIFIED', 'CB_PACED_DIAGNOSTIC_VERIFIED'} else 1
 
 
 if __name__ == '__main__':

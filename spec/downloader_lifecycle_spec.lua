@@ -373,4 +373,30 @@ local owned_job = { on_complete = owned }
 downloader._active_job = owned_job
 expect(downloader:cancelRequest(owned) and owned_job.cancelled, "active reading survived cancellation")
 expect(not downloader:cancelRequest(other), "unknown request cancelled another job")
+local ReadClient = require('weread.lib.download_read_client')
+local original_wrap, wrapped, wraps = ReadClient.wrap, {}, 0
+ReadClient.wrap = function(client)
+    expect(client == downloader.client, 'batch worker received an unrelated transport')
+    wraps = wraps + 1
+    return wrapped
+end
+local worker = { dismissableRunInSubprocess = function(_self, callback) return true, callback() end }
+local before_client = downloader.client
+local value = downloader:_runInterruptible({ trapper = worker, total = 2 }, function(client)
+    expect(client == wrapped, 'batch source task bypassed pacing')
+    return 'batch result'
+end)
+expect(value == 'batch result' and wraps == 1 and downloader.client == before_client, 'batch worker changed the shared UI client')
+downloader:_runInterruptible({ trapper = worker, total = 1 }, function(client)
+    expect(client == before_client and wraps == 1, 'single-chapter task was unnecessarily paced')
+end)
+downloader:_runInterruptible({ total = 2 }, function(client)
+    expect(client == before_client and wraps == 1, 'legacy foreground fallback acquired a sleeping client')
+end)
+expect(not pcall(downloader._runInterruptible, downloader, { trapper = worker, total = 2 }, function(client)
+    expect(client == wrapped, 'failed batch task bypassed pacing')
+    error('synthetic batch failure', 0)
+end), 'batch worker failure was hidden')
+expect(downloader.client == before_client, 'failed worker changed the UI transport')
+ReadClient.wrap = original_wrap
 print(("downloader_lifecycle_spec: %d checks"):format(checks))

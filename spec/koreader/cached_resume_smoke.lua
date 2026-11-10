@@ -268,6 +268,10 @@ local bound=assert(current.progress_sync.source_anchor)
 assert(assert(index:capture(bound.xpointer)).co==point.co and reader.document:isXPointerInCurrentPage(bound.xpointer))
 assert(assert(current.source_position:current()).chapter_offset==point.co)
 report.full_native_navigation=true
+if os.getenv('WEREAD_TEST_DOWNLOAD_PACING')=='1' then
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    dofile(fixtures..'download_pacing_case.lua')(current,reader,id,report,pump,tick,press,evidence)
+end
 UI:forceRePaint();Device.screen:shot(evidence..'/cached-resume-full.png')
 local checkpoint={file=full,page=reader:getCurrentPage(),xpointer=bound.xpointer,chapter_uid='4'}
 local file=assert(io.open(evidence..'/cached-resume-checkpoint.json','wb'));assert(file:write(json.encode(checkpoint)));file:close()
