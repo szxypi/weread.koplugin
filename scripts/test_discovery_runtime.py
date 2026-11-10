@@ -39,6 +39,10 @@ def main():
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
+    parser.add_argument('--process-loss', choices=('before-dispatch','after-apply','before-readback'),
+                        help='SIGKILL the entire isolated reader at an upload boundary, then reopen twice')
+    parser.add_argument('--process-loss-kind', choices=('periodic','manual','close'), default='periodic',
+                        help='Select periodic reading time, manual progress, or close-time progress')
     args = parser.parse_args()
     if args.offline_progress and not args.reading_flow:
         parser.error("--offline-progress requires --reading-flow")
@@ -61,6 +65,12 @@ def main():
         parser.error('--content-format txt requires --cached-resume')
     if args.resume_handoff and not args.cached_resume:
         parser.error('--resume-handoff requires --cached-resume')
+    if args.process_loss and (not args.reading_flow or any((args.offline_progress, args.progress_response,
+            args.progress_confirmation, args.source_upload, args.source_recovery, args.progress_recovery,
+            args.recovery_save_retry, args.shelf_membership_write, args.owner_roundtrip))):
+        parser.error('--process-loss requires --reading-flow without other reading-flow extensions')
+    if not args.process_loss and args.process_loss_kind != 'periodic':
+        parser.error('--process-loss-kind requires --process-loss')
     runtime, root = args.koreader.resolve(), args.run_dir.resolve()
     if not (runtime / "luajit").is_file() or not (runtime / "reader.lua").is_file():
         parser.error("--koreader must contain a built runtime")
@@ -81,7 +91,13 @@ def main():
                        EMULATE_READER="1", EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8",
                        EMULATE_READER_W=str(args.width),
                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
-    server = MockServer(0, root / "evidence/requests.jsonl")
+    if args.process_loss:
+        from process_loss_runtime import ProcessLossServer
+        server = ProcessLossServer(0, root / 'evidence/requests.jsonl', args.process_loss, args.process_loss_kind)
+        environment['WEREAD_TEST_PROCESS_LOSS'] = args.process_loss
+        environment['WEREAD_TEST_PROCESS_LOSS_KIND'] = args.process_loss_kind
+    else:
+        server = MockServer(0, root / "evidence/requests.jsonl")
     server.content_format=args.content_format
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
     if args.resume_handoff:
@@ -123,10 +139,14 @@ def main():
             if args.footnotes:
                 fixture = "book_footnotes_render.lua"
                 fixture_args = [str(root / "profile/plugins/weread.koplugin"), str(root / "evidence")]
-            result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
-                                    cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
-                                    timeout=120)
-            if (args.reading_flow or args.cached_resume) and result.returncode == 0:
+            if args.process_loss:
+                from process_loss_runtime import run_process_loss
+                result = run_process_loss(runtime, REPO / 'spec/koreader' / fixture, environment, log, server, root)
+            else:
+                result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
+                                        cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
+                                        timeout=120)
+            if (args.reading_flow or args.cached_resume) and result.returncode == 0 and not args.process_loss:
                 if args.cached_resume:
                     assert server.request_totals[('/web/book/read','')]==0,'cached reading wrote progress/time'
                 before = server.request_totals.copy()

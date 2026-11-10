@@ -47,6 +47,10 @@ end
 FM:showFiles(home)
 local fm = assert(FM.instance)
 local plugin = assert(fm.weread)
+if os.getenv('WEREAD_PROCESS_LOSS_REOPEN') then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)') .. 'process_loss_smoke.lua').reopen(plugin, Reader, clean_popups)
+    os.exit(0)
+end
 local reopen = os.getenv("WEREAD_READING_REOPEN") == "1"
 local reconnect = os.getenv("WEREAD_READING_RECONNECT") == "1"
 local offline_progress = os.getenv("WEREAD_TEST_OFFLINE_PROGRESS") == "1"
@@ -340,6 +344,10 @@ assert(saved.last_uploaded_position and not saved.pending_upload_position, "sync
 local remote = current.client:get_progress(book_id)
 assert(remote.book.progress == saved.last_uploaded_position.percent, "synthetic cloud readback differs")
 shot("reading-sync-result")
+if os.getenv('WEREAD_TEST_PROCESS_LOSS') then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)') .. 'process_loss_smoke.lua').prepare(reader, current)
+    error('whole-reader crash fixture unexpectedly returned')
+end
 if os.getenv('WEREAD_TEST_SOURCE_UPLOAD')=='1' then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'source_upload_smoke.lua')(reader,current,pump,clean_popups)
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'progress_interval_smoke.lua')(reader,current,pump,shot,clean_popups)
