@@ -10,8 +10,25 @@ from source_upload_candidate import chapter_index
 from verify_annotation_experiment import AnnotationProbe
 from verify_eink_login import BASE as NATIVE,NativeProbe,ProbeError
 from verify_owner_selection_preview import Preflight
-from verify_owner_reading import reading_position
+from verify_owner_reading import reading_position,validate_cookies
 from verify_web_source_progress import BASE,identifier
+
+
+def prepare_web_handoff(store,saved,source):
+    """Verify and persist a rotated Web grant before passing it to native UI.
+
+    Account/source plans stay bound; an unrelated saved-session replacement
+    cannot be silently adopted. Nothing is reserved or dispatched here.
+    """
+    from secure_weread_session import COOKIE_NAMES
+    from verify_translation_preflight import save_refreshed_web_session
+    source.current();source.web.verify_account();owner=source.plan.bound['owner']
+    current={cookie.name:cookie.value for cookie in source.web.cookies if cookie.name in COOKIE_NAMES
+        and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
+    validate_cookies(current,owner)
+    changed=save_refreshed_web_session(store,saved,source.web);fresh=store.load()
+    if (fresh['vid']!=owner or fresh['cookies']!=current or not changed and fresh!=saved):raise ValueError('selection_trial/session_changed')
+    source.payload['cookies']=dict(current);source.current();return fresh
 
 
 @dataclass(frozen=True,repr=False)

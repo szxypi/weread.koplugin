@@ -1,7 +1,7 @@
 """Rebuild a pending bookmark plan without persisting source or quotations."""
 from copy import deepcopy
 from annotation_experiment_model import digest,marks_state
-from bookmark_point import point_range,from_mark
+from bookmark_point import point_range,from_mark,first_position
 from bookmark_trial_model import bind,request
 from fetch_weread_epub import decode_content_shards
 from selection_trial_probe import SelectionProbe
@@ -93,13 +93,13 @@ def resume_delete(probe,credentials,on_final=None):
 def reconcile_deleted(saved,credentials,store,expected,source=None):
     """An ambiguous deletion can only be checked; it cannot consume a new slot."""
     state,receipt=store.read()
-    if (store.native or state is None or state['phase'] not in ('delete_pending','verified') or digest(state['plan'])!=expected
+    if (state is None or state['phase'] not in ('delete_pending','verified') or digest(state['plan'])!=expected
             or state['plan']['selection']['owner']!=saved['vid'] or credentials['vid']!=saved['vid']):raise ValueError('bookmark_recovery/intent')
     selection=state['plan']['selection'];source=source or SelectionProbe()
     plan=source.prepare(saved,credentials,existing=selection)
     raw=decode_content_shards(*(source.web.shards[k] for k in ('e_0','e_1','e_3')))
-    first=source.payload['selection_preview']['first'];body=request(plan.context,raw,first)
-    if bind(plan.bound,body)!=state['plan'] or state['target']['id'] in plan.baseline['marks']['updated']:raise ValueError('bookmark_recovery/plan')
+    first=first_position(raw) if store.native else source.payload['selection_preview']['first'];body=request(plan.context,raw,first)
+    if bind(plan.bound,body,native=store.native)!=state['plan'] or state['target']['id'] in plan.baseline['marks']['updated']:raise ValueError('bookmark_recovery/plan')
     probe=BookmarkProbe(source,store);probe.raw=raw;probe.first=first;probe.bound=state['plan'];probe.body=body
     probe.target=state['target'];probe.receipt=receipt;probe.posts=2
     probe.read(credentials,deleted=True)

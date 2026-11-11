@@ -120,10 +120,11 @@ def run(probe,credentials,store,receipt,command,*,armed=False,expected=None,mock
         payload.clear()
 
 
-def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False):
+def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclude_native_bookmark=False):
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
             or any(MarkStyleTrialStore(native=kind).read()[0] is not None for kind in (False,True))
-            or any(BookmarkTrialStore(native=kind).read()[0] is not None for kind in ((True,) if exclude_bookmark else (False,True)))
+            or any(BookmarkTrialStore(native=kind).read()[0] is not None for kind in (False,True)
+                if not (exclude_native_bookmark if kind else exclude_bookmark))
             or any(HighlightTrialStore(native=kind).read()[0] is not None for kind in ((False,) if exclude_native_highlight else (False,True))))
 
 

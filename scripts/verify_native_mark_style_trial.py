@@ -24,6 +24,7 @@ from verify_native_thought_trial import other_pending
 from verify_owner_reading import reading_position,validate_cookies
 from verify_translation_preflight import save_refreshed_web_session
 from verify_web_source_progress import BASE
+from selection_trial_probe import prepare_web_handoff
 
 
 class NativeStyleProbe(StyleProbe):
@@ -119,13 +120,14 @@ def main(argv=None):
                 if other_pending() or NativeThoughtTrialStore().pending() or SelectionTrialStore().pending():raise ValueError('native_style/other_pending')
                 phase='load_session';session=SessionStore();saved=session.load();credentials=NativeSessionStore().load(saved['vid'])
                 probe=NativeStyleProbe(store=store);phase='prepare';probe.prepare(saved,credentials)
+                phase='web_handoff';saved=prepare_web_handoff(session,saved,probe.highlight.source)
                 if not args.native_ui_command or not (args.apply or args.dry_run):raise ValueError('native_style/command')
                 phase='apply' if args.apply else 'dry_run'
                 report=run(probe,credentials,args.native_ui_command,armed=args.apply,
                     on_final=lambda:save_refreshed_web_session(session,saved,probe.highlight.source.web))
         elif args.native_ui_command or args.apply or args.dry_run or args.status:raise ValueError('native_style/offline')
     except (Exception,KeyboardInterrupt) as error:
-        report=dict(result='UNVERIFIED',phase=phase,account_data_posts=0 if phase in ('init','load_session','prepare') else None,
+        report=dict(result='UNVERIFIED',phase=phase,account_data_posts=0 if phase in ('init','load_session','prepare','web_handoff') else None,
             authentication_posts=0,no_automatic_replay=True)
         if isinstance(error,TrialFailure):report['native_ui']=error.runner
         if args.saved_session:

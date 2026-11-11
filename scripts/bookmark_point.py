@@ -16,6 +16,12 @@ def point_range(value):
     return at
 
 
+def first_position(raw):
+    model=Selection(raw)
+    if not model.visible:raise ValueError('bookmark_point/empty')
+    return model.filtered.starts[model.visible[0]]
+
+
 def project(raw,co):
     model=Selection(raw);index=model.boundary(co)
     if index>=len(model.spans):raise ValueError('bookmark_point/end')

@@ -11,12 +11,14 @@ jobs:
     name: Basic checks
     # Match the Ubuntu LTS used by native runtime validation.
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
       - name: Install Lua tooling
+        timeout-minutes: 5
         run: |
           sudo apt-get update
           sudo apt-get install -y luajit luarocks ripgrep libsqlite3-0
@@ -89,6 +91,8 @@ jobs:
           python3 scripts/test_bookmark_trial.py
           python3 scripts/test_bookmark_recovery.py
           python3 scripts/test_bookmark_contract.py
+          python3 scripts/test_native_bookmark_trial.py
+          python3 scripts/test_native_web_handoff.py
 
       - name: Web source-position read-only preflight checks
         run: |

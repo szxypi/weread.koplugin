@@ -14,8 +14,9 @@ local function same(a,b)
     for k in pairs(b) do if a[k]==nil then return false end end;return true
 end
 function M:new(input,library,codec,root)
-    assert(Contract.validate_body('create',input.create_body))
-    local value=setmetatable({input=input,library=library,codec=codec,path=root..'/highlight-trial-gate.db'},self)
+    assert(not input.bookmarks or input.bookmarks==true and not input.styles)
+    assert(Contract.validate_body(input.bookmarks and 'bookmark_create' or 'create',input.create_body))
+    local value=setmetatable({input=input,library=library,codec=codec,path=root..(input.bookmarks and '/bookmark-trial-gate.db' or '/highlight-trial-gate.db')},self)
     local db=require('lua-ljsqlite3/init').open(value.path);db:exec('PRAGMA synchronous=FULL')
     db:exec('CREATE TABLE trial(id INTEGER PRIMARY KEY,phase TEXT,posts INTEGER,target TEXT,preview TEXT)')
     statement(db,'INSERT INTO trial VALUES(1,?,0,?,?)','create','','');db:close();return value
@@ -50,16 +51,20 @@ function M:advance_style(target,style)
 end
 function M:claim(operation,body)
     assert(Contract.validate_body(operation,body))
+    local action=operation
+    if self.input.bookmarks then
+        assert(operation=='bookmark_create' or operation=='bookmark_delete');action=operation=='bookmark_create' and 'create' or 'delete'
+    else assert(operation=='create' or operation=='delete' or operation=='style') end
     return self:_run(function(db)
         db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
         local expected=self.input.create_body
-        local phase=operation;local posts=operation=='create' and 0 or self.input.styles and 3 or 1
+        local phase=action;local posts=action=='create' and 0 or self.input.styles and 3 or 1
         if operation=='style' then
             assert(self.input.styles and Key(row[3]) and (row[1]=='style0' or row[1]=='style2'))
             local style=row[1]=='style0' and 0 or 2;phase=row[1];posts=style==0 and 1 or 2
             expected={bookmarkId=row[3],style=style,colorStyle=self.input.create_body.colorStyle}
         end
-        if operation=='delete' then
+        if action=='delete' then
             assert(Key(row[3]));expected={bookmarkIds={row[3]}}
             for _i,id in ipairs(self.input.original_ids) do assert(id~=row[3]) end
         end
@@ -68,7 +73,7 @@ function M:claim(operation,body)
         assert(journal and journal.phase=='pending' and journal.metadata.operation==operation
             and journal.metadata.book_id==self.input.book_id and journal.metadata.request_hash==Contract.body_hash(body))
         if not self.input.permit_writes then
-            assert(operation=='create' and tonumber(row[2])==0)
+            assert(action=='create' and tonumber(row[2])==0)
             statement(db,'UPDATE trial SET phase=?,preview=? WHERE id=1','blocked',self.codec:json_encode(body));db:exec('COMMIT');return false
         end
         statement(db,'UPDATE trial SET phase=?,posts=posts+1 WHERE id=1',phase..'_pending');db:exec('COMMIT');return true

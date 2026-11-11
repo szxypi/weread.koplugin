@@ -26,7 +26,7 @@ from verify_native_thought_trial import other_pending
 from verify_owner_reading import reading_position,validate_cookies
 from verify_translation_preflight import save_refreshed_web_session
 from verify_web_source_progress import BASE
-from selection_trial_probe import SelectionProbe
+from selection_trial_probe import SelectionProbe,prepare_web_handoff
 
 
 class TrialFailure(ValueError):
@@ -160,12 +160,13 @@ def main(argv=None):
                     raise ValueError('native_highlight/pending')
                 phase='load_session';session=SessionStore();saved=session.load();credentials=NativeSessionStore().load(saved['vid'])
                 probe=HighlightProbe();phase='prepare';probe.prepare(saved,credentials)
+                phase='web_handoff';saved=prepare_web_handoff(session,saved,probe.source)
                 phase='native_ui';report=run(probe,credentials,store,args.native_ui_command,armed=args.apply,
                     on_final=lambda:save_refreshed_web_session(session,saved,probe.source.web))
         elif args.apply or args.dry_run or args.status or args.resolve or args.expected_intent or args.native_ui_command:raise ValueError('native_highlight/offline')
     except (Exception,KeyboardInterrupt) as exc:
         report=dict(result='UNVERIFIED',phase=phase,authentication_posts=0,no_automatic_replay=True)
-        if not args.apply:report['account_data_posts']=0
+        if not args.apply or phase in ('init','load_session','prepare','web_handoff'):report['account_data_posts']=0
         if isinstance(exc,TrialFailure):report['native_ui']=exc.runner
         if args.saved_session:
             try:

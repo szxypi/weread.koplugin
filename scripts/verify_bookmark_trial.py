@@ -32,7 +32,7 @@ class BookmarkProbe:
         self.raw=None;self.first=None;self.bound=None;self.body=None;self.receipt=None;self.target=None;self.posts=0
 
     def prepare(self,saved,credentials):
-        if self.bound is not None or self.store.read()[0] is not None:raise ValueError('bookmark_trial/pending')
+        if self.store.native or self.bound is not None or self.store.read()[0] is not None:raise ValueError('bookmark_trial/pending')
         p=self.source.prepare(saved,credentials)
         self.raw=decode_content_shards(*(self.source.web.shards[k] for k in ('e_0','e_1','e_3')))
         self.first=self.source.payload['selection_preview']['first'];self.body=request(p.context,self.raw,self.first)
@@ -43,7 +43,7 @@ class BookmarkProbe:
     def current(self):
         self.source.current()
         if (hashlib.sha256(self.raw.encode()).hexdigest()!=self.source.payload['source_raw_sha256']
-                or self.body!=request(self.source.plan.context,self.raw,self.first) or self.bound!=bind(self.source.plan.bound,self.body)):
+                or self.body!=request(self.source.plan.context,self.raw,self.first) or self.bound!=bind(self.source.plan.bound,self.body,native=self.store.native)):
             raise ValueError('bookmark_trial/changed')
 
     def read(self,credentials,*,deleted=False):
@@ -61,6 +61,7 @@ class BookmarkProbe:
         raise ValueError('bookmark_trial/readback')
 
     def post(self,credentials,phase,path,body):
+        if self.store.native:raise ValueError('bookmark_trial/native_readonly')
         self.current();state,receipt=self.store.read()
         expected=('/book/addBookmark',self.body) if phase=='create_pending' else ('/book/removeBookmark',dict(bookmarkIds=[self.target['id']])) if self.target else None
         if (phase not in ('create_pending','delete_pending') or self.posts!=int(phase=='delete_pending') or receipt!=self.receipt
@@ -71,6 +72,7 @@ class BookmarkProbe:
         except ProbeError:pass
 
     def run(self,credentials,*,apply=False):
+        if self.store.native:raise ValueError('bookmark_trial/native_readonly')
         self.current();self.source.baseline(credentials,'bookmark_trial_before');p=self.source.plan
         text_returned=None;position_roundtrip=False
         if apply:
