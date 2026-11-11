@@ -44,7 +44,7 @@ def main():
     parser.add_argument('--download-pacing',action='store_true',help='Cancel a paced source worker and preserve the existing full book')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
-    parser.add_argument('--process-loss', choices=('before-dispatch','after-apply','before-readback'),
+    parser.add_argument('--process-loss', choices=('before-state-commit','before-dispatch','after-apply','before-readback'),
                         help='SIGKILL the entire isolated reader at an upload boundary, then reopen twice')
     parser.add_argument('--process-loss-kind', choices=('periodic','manual','close'), default='periodic',
                         help='Select periodic reading time, manual progress, or close-time progress')

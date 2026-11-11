@@ -114,10 +114,12 @@ local function write_json(path, value)
     local file, err = io.open(tmp_path, "wb")
     if not file then return false, err end
     local write_ok, write_err = file:write(content)
-    file:close()
-    if not write_ok then
+    -- Buffered writes may succeed while fclose reports the actual I/O error.
+    -- Never publish that incomplete state or grant a dispatch receipt for it.
+    local close_ok, close_err = file:close()
+    if not write_ok or not close_ok then
         os.remove(tmp_path)
-        return false, write_err
+        return false, write_err or close_err
     end
     local rename_ok, rename_err = os.rename(tmp_path, path)
     if not rename_ok then

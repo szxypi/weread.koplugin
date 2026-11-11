@@ -15,7 +15,7 @@ from mock_weread import BOOK_ID, CHAPTERS, MockServer, chapter_html
 from source_upload_candidate import project
 from verify_source_coordinates import FilteredSource
 
-CASES = ('before-dispatch', 'after-apply', 'before-readback')
+CASES = ('before-state-commit', 'before-dispatch', 'after-apply', 'before-readback')
 KINDS = ('periodic', 'manual', 'close')
 
 
@@ -139,7 +139,7 @@ def wait_boundary(process, root, server, timeout=120):
             ready = json.loads(ready_path.read_text())
             if ready['parent_pid'] != process.pid or ready['case'] != server.case or ready['kind'] != server.kind:
                 raise RuntimeError('crash boundary belongs to another reader')
-            if server.case == 'before-dispatch':
+            if server.case in ('before-state-commit', 'before-dispatch'):
                 return ready, None
             if server.blocked.is_set() and server.kind != 'periodic':
                 return ready, None
@@ -166,11 +166,18 @@ def run_process_loss(runtime, fixture, environment, log, server, root):
         server.release.set()
     if worker is not None:
         assert worker in killed, 'report worker was not included in the actual kill'
-    records = [json.loads(path.read_text()) for path in (root / 'profile').rglob('reading_state.json')]
-    saved = [row for row in records if isinstance(row.get('source_dispatch'), dict)
+    committed = server.case != 'before-state-commit'
+    paths = list((root / 'profile').rglob('reading_state.json' if committed else 'reading_state.json.tmp'))
+    saved = [json.loads(path.read_text()) for path in paths]
+    saved = [row for row in saved if isinstance(row.get('source_dispatch'), dict)
              and row['source_dispatch']['id'] == ready['dispatch_id']]
-    assert len(saved) == 1, 'whole-process loss did not retain exactly one dispatch journal'
+    assert len(saved) == 1, 'whole-process loss did not retain exactly one expected state file'
     saved = saved[0]
+    if not committed:
+        checkpoint = json.loads((root / 'evidence/process-loss-checkpoint.json').read_text())
+        old = json.loads((Path(checkpoint['path']).parent / 'reading_state.json').read_text())
+        assert not old.get('source_dispatch') and old['pending_upload_position'] == saved['pending_upload_position']
+        assert server.armed and not server.applied, 'uncommitted journal allowed an HTTP write'
     assert saved['source_dispatch']['kind'] == ('time' if server.kind == 'periodic' else 'position')
     assert saved['pending_upload_position']
     target = saved['source_dispatch']['position']
@@ -182,7 +189,7 @@ def run_process_loss(runtime, fixture, environment, log, server, root):
     independent = project(raw, source, CHAPTERS, target['percent'])
     sent = server.read_bodies[server.arm_index:]
     updates = [body for body in sent if 'rt' in body]
-    expected_updates = int(server.case != 'before-dispatch')
+    expected_updates = int(server.case not in ('before-state-commit', 'before-dispatch'))
     assert len(updates) == expected_updates, 'unexpected report attempts at crash boundary'
     remote = server.get_progress(BOOK_ID)['book']
     if updates:
@@ -212,7 +219,8 @@ def run_process_loss(runtime, fixture, environment, log, server, root):
                    whole_reader_sigkill=True, report_worker_sigkill=worker is not None,
                    killed_processes=len(killed), reader_exit_code=process.returncode,
                    all_reader_processes_reaped=not session_members(process.pid),
-                   dispatch_survived_process_loss=True, mock_position_updates=expected_updates,
+                   dispatch_survived_process_loss=committed, uncommitted_state_ignored=not committed,
+                   prior_checkpoint_preserved=True, mock_position_updates=expected_updates,
                    independent_python_source_coordinate_verified=True,
                    duration_per_mock_update=30 if updates and server.kind == 'periodic' else 0,
                    reopened_data_posts=0, final_offline_http_requests=0,

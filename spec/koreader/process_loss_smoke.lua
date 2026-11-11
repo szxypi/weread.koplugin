@@ -50,6 +50,26 @@ function M.prepare(reader, plugin)
     write('process-loss-checkpoint', {book_id=id,path=reader.document.file,xpointer=reader.document:getXPointer(),
         page=reader:getCurrentPage(),position=position,source=point})
     local_request(plugin, '/__process_loss_arm', {case=case,kind=kind})
+    if case=='before-state-commit' then
+        local patch=plugin.settings.patch_reading_state
+        local rename=os.rename
+        local journal
+        function plugin.settings:patch_reading_state(book_id,changes)
+            journal=type(changes.source_dispatch)=='table' and changes.source_dispatch or nil
+            local result,err=patch(self,book_id,changes)
+            journal=nil
+            return result,err
+        end
+        rawset(os,'rename',function(from,to)
+            if journal and from==to..'.tmp' and to==plugin.settings:get_book(id).cache_dir..'/reading_state.json' then
+                -- The actual production file has been fully written/closed;
+                -- hold before publishing it, without inventing a receipt.
+                write('process-loss-ready',{case=case,kind=kind,dispatch_id=journal.id,parent_pid=tonumber(require('ffi').C.getpid())})
+                while true do Socket.sleep(.05) end
+            end
+            return rename(from,to)
+        end)
+    end
     local begin = plugin.source_dispatch.begin
     function plugin.source_dispatch:begin(...)
         local receipt = assert(begin(self, ...), 'production dispatch journal was not saved')
@@ -85,7 +105,8 @@ function M.reopen(plugin, Reader, clean_popups)
     local expected = read('process-loss-checkpoint')
     local ready = read('process-loss-ready')
     local final = os.getenv('WEREAD_PROCESS_LOSS_REOPEN') == 'final'
-    local resolved = case ~= 'before-dispatch'
+    local committed = case ~= 'before-state-commit'
+    local resolved = case ~= 'before-dispatch' and committed
     local online = false
     plugin.isNetworkOnline, plugin.isNetworkConnected = function() return online end, function() return online end
     local initial = plugin.settings:get_book(expected.book_id)
@@ -93,7 +114,7 @@ function M.reopen(plugin, Reader, clean_popups)
     -- reader; an enabled close policy must not add a new test write.
     local config_sync = plugin.settings:get('sync')
     config_sync.upload_on_close = false; plugin.settings:set('sync', config_sync)
-    local must_pending = not final or not resolved
+    local must_pending = committed and (not final or not resolved)
     assert((initial.source_dispatch ~= nil and initial.source_dispatch ~= false) == must_pending,
         'fresh process lost or recreated the dispatch journal')
     if must_pending then assert(initial.source_dispatch.id == ready.dispatch_id) end
@@ -114,22 +135,23 @@ function M.reopen(plugin, Reader, clean_popups)
     assert(point.chapter_uid == expected.source.chapter_uid and point.chapter_offset == expected.source.chapter_offset
         and point.raw_sha256 == expected.source.raw_sha256, 'reopen changed the frozen original source point')
     local saved = current.settings:get_book(expected.book_id)
-    if must_pending then
-        assert(current.source_dispatch:pending(expected.book_id)
-            and saved.source_dispatch.id == ready.dispatch_id
-            and Mapper.same_position(saved.pending_upload_position, expected.position), 'reopen erased interrupted local intent')
+    if must_pending or not committed then
+        assert(Mapper.same_position(saved.pending_upload_position, expected.position), 'reopen erased interrupted local intent')
+        if committed then
+            assert(current.source_dispatch:pending(expected.book_id) and saved.source_dispatch.id == ready.dispatch_id)
+        else assert(not current.source_dispatch:pending(expected.book_id), 'temporary journal was loaded as committed state') end
         local position, why = current.progress_sync:position_for_report(expected.book_id)
-        assert(not position and why == 'progress_confirmation_pending', 'reopen granted reporting before read-only comparison')
+        assert(not position and (not committed or why == 'progress_confirmation_pending'), 'reopen granted reporting before read-only comparison')
     else
         assert(not saved.pending_upload_position and not current.source_dispatch:pending(expected.book_id))
     end
     if not final then
         online = true
-        -- Exercise scheduled reports while the interrupted journal still owns
-        -- the book, before giving reconnection permission to compare remotely.
+        -- Exercise scheduled reports before giving reconnection permission to
+        -- compare remotely, including when the journal was not yet committed.
         assert(current.read_report:maybe_start('process_loss_reopen'))
         for _i=1,4 do assert(current.read_report.task); current.read_report.task() end
-        assert(not current.read_report.job and current.source_dispatch:pending(expected.book_id))
+        assert(not current.read_report.job and current.source_dispatch:pending(expected.book_id)==committed)
         current:onNetworkConnected()
         pump(function() return not current.progress_sync.pulling
             and (current.progress_sync.verified or current.progress_sync.state == 'awaiting_choice') end)
@@ -139,7 +161,7 @@ function M.reopen(plugin, Reader, clean_popups)
                 and not current.source_dispatch:pending(expected.book_id), 'exact cloud comparison did not resolve accepted report')
         else
             assert(current.progress_sync.state == 'awaiting_choice' and not current.progress_sync.verified
-                and saved.source_dispatch.id == ready.dispatch_id
+                and (not committed or saved.source_dispatch.id == ready.dispatch_id)
                 and Mapper.same_position(saved.pending_upload_position, expected.position), 'unsent intent was silently discarded')
             local choice = assert(UI:getTopmostVisibleWidget())
             assert(choice.cancel_text == require('weread.lib.plugin_util').tr('Keep KOReader progress'))
@@ -147,9 +169,11 @@ function M.reopen(plugin, Reader, clean_popups)
             assert(not current.read_report.job, 'unresolved choice started another report')
         end
         write('process-loss-reopen', {native_page_restored=true,source_point_restored=true,
-            pending_preserved_before_comparison=true,scheduled_reports_blocked_by_journal=true,
+            pending_preserved_before_comparison=true,scheduled_reports_blocked_by_journal=committed,
+            scheduled_reports_blocked_before_comparison=true,
             fresh_readonly_comparison=true,accepted_report_resolved=resolved,
-            unsent_report_requires_choice=not resolved,original_dispatch_id_preserved=not resolved})
+            unsent_report_requires_choice=not resolved,original_dispatch_id_preserved=committed and not resolved,
+            uncommitted_state_ignored=not committed})
     end
     -- Prevent a new, legitimate reporting interval after the case has finished.
     local config_report = current.settings:get('read_report')

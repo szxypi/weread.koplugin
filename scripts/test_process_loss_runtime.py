@@ -78,6 +78,21 @@ class BarrierTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             ProcessLossServer(0, None, 'after-apply', 'unknown')
 
+    def test_uncommitted_state_boundary_needs_no_dispatched_request(self):
+        self.server.case='before-state-commit'
+        self.arm()
+        with tempfile.TemporaryDirectory() as temporary:
+            root=Path(temporary);(root/'evidence').mkdir()
+            ready=dict(parent_pid=12345,case=self.server.case,kind=self.server.kind,dispatch_id='synthetic')
+            (root/'evidence/process-loss-ready.json').write_text(json.dumps(ready))
+            process=type('Reader',(),{'pid':12345,'poll':lambda _self:None})()
+            observed,worker=wait_boundary(process,root,self.server,timeout=1)
+            self.assertEqual(observed,ready)
+            self.assertIsNone(worker)
+            self.assertEqual(self.server.read_bodies,[])
+            self.assertTrue(self.server.armed)
+            self.assertFalse(self.server.applied)
+
 
 @unittest.skipUnless(sys.platform == 'linux', 'requires Linux /proc and child subreaping')
 class SupervisorTests(unittest.TestCase):
