@@ -9,7 +9,8 @@ on:
 jobs:
   checks:
     name: Basic checks
-    runs-on: ubuntu-latest
+    # Match the Ubuntu LTS used by native runtime validation.
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout
