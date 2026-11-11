@@ -53,7 +53,8 @@ Linux ARM64 的实际 KOReader LuaJIT／JSON 下，监督器把独立子进程�
 
 这里验证了提交前进程丢失及特定延迟写入错误；不保证多个 JSON 文件作为一个事务提交，也没有新增 `fsync` 或断电恢复承诺。
 未保存的最后一次翻页、落盘其他阶段、整机断电、Kindle 文件系统和实体 KO2 仍待验收。
-此前[新选区测试准备](selection-trial-readiness.md)的真实预演证据属于其固定候选；本次未运行真实写入，新的最多四次许可仍待确认。
+此前[新选区测试准备](selection-trial-readiness.md)的真实预演证据属于其固定候选；本次保存修复未运行真实写入。
+后续按用户继续执行授权完成的[新选区实际三步](selection-trial-validation.md)单独记录。
 
 默认离线核对与可选内核复验：
 
