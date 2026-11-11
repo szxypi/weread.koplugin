@@ -41,5 +41,6 @@
 授权维护计作一次授权 POST，和账号数据修改分别记录；没有对旧划线请求续期重发。
 
 初轮失败、只读恢复、真实诊断、修复后逐项回归与候选摘要见[固定证据](validation-assets/2026-11-11/native-highlight-last-mark-fix.json)。
-修复后的原生真实两步另行验收；本说明不把这次准备当成实体 KO2 或完整功能验收。
+后续修复候选已完成[原生真实两步](native-highlight-trial.md)，实际观察并正确确认了所选索引随最后一条划线消失。
+本说明与该单章结果均不替代实体 KO2 或完整功能验收。
 最初执行器的准备阶段见[原记录](native-highlight-trial-readiness.md)，后续仍按[开发清单](development-roadmap.md)推进。
