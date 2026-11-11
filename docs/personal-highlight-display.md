@@ -58,3 +58,5 @@
 ![KO2 分辨率的合成个人划线](validation-assets/2026-11-11/personal-highlight-saved-ko2.png)
 
 ![600×800 全新进程离线恢复](validation-assets/2026-11-11/personal-highlight-offline-600.png)
+
+后续已新增[个人划线样式](highlight-styles.md)，支持直线／荧光笔／波浪线的原生修改、正文显示和离线恢复；本文保留原候选的历史验证范围。
