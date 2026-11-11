@@ -66,7 +66,7 @@ function M.validate_body(operation,body)
         if operation=='bookmark_create' then
             allowed.colorStyle=nil
             if body.type~=0 or body.style~=0 or Point.point(body.range)==nil or not preview(body.markText) then return false end
-        elseif body.type~=1 or body.style~=1 or body.colorStyle~=0
+        elseif body.type~=1 or not Style.valid(body.style) or body.colorStyle~=0
             or not Base.valid_content(body.markText) or #body.markText>4096 or not range(body) then return false end
     elseif deleting(operation) then
         allowed={bookmarkIds=true}
@@ -100,7 +100,7 @@ function M.make(client,snapshot,operation,reference,metadata,style)
         row=reference
         if type(metadata)~='table' or tostring(metadata.bookId)~=book then fail('metadata') end
         body={bookId=book,chapterUid=row.chapterUid,bookVersion=metadata.bookVersion or metadata.version,
-            type=1,style=1,colorStyle=0,range=row.range,markText=row.markText}
+            type=1,style=style==nil and 1 or style,colorStyle=0,range=row.range,markText=row.markText}
         if operation=='bookmark_create' then body.type=0;body.style=0;body.colorStyle=nil end
     else
         for _i,v in ipairs(snapshot.marks.updated) do if v.bookmarkId==reference.bookmarkId then row=v end end

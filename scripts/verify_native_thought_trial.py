@@ -22,6 +22,7 @@ from secure_weread_session import SessionStore
 from secure_annotation_experiment import AnnotationExperimentStore
 from secure_highlight_trial import HighlightTrialStore
 from secure_mark_style_trial import MarkStyleTrialStore
+from secure_initial_mark_style import InitialMarkStyleStore
 from secure_bookmark_trial import BookmarkTrialStore
 from secure_finish_experiment import FinishExperimentStore
 from secure_shelf_experiment import ShelfExperimentStore
@@ -126,6 +127,7 @@ def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclud
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
             or not exclude_native_shelf and NativeShelfTrialStore().pending()
             or not exclude_native_finish and NativeFinishTrialStore().pending()
+            or InitialMarkStyleStore().read()[0] is not None
             or any(MarkStyleTrialStore(native=kind).read()[0] is not None for kind in (False,True))
             or any(BookmarkTrialStore(native=kind).read()[0] is not None for kind in (False,True)
                 if not (exclude_native_bookmark if kind else exclude_bookmark))

@@ -4,7 +4,25 @@ return function(reader,plugin,pump,clean_popups)
     local Json=require('json')
     local id=assert(plugin:detectWeReadBook())
     clean_popups(reader)
-    assert(plugin.progress_sync.verified and not plugin.source_dispatch:pending(id))
+    local preclose_comparison,preclose_local_choice=false,false
+    -- Bookmark navigation and native font reflow correctly revoke a previous
+    -- upload grant. Use the public comparison action before this independent
+    -- close-upload case; never restore the gate by assigning test state.
+    if not plugin.progress_sync.verified then
+        preclose_comparison=true
+        assert(plugin:onWeReadSyncProgress())
+        pump(function() return not plugin.progress_sync.pulling end)
+        if plugin.progress_sync.state=='awaiting_choice' then
+            local UI=require('ui/uimanager');local choice=assert(UI:getTopmostVisibleWidget())
+            assert(choice.cancel_text==require('weread.lib.plugin_util').tr('Keep KOReader progress'))
+            preclose_local_choice=true;choice.cancel_callback();UI:close(choice)
+            pump(function() return plugin.progress_sync.verified and not plugin.progress_sync.uploading end)
+        end
+        clean_popups(reader)
+    end
+    assert(plugin.progress_sync.verified and not plugin.source_dispatch:pending(id),
+        'close precondition: '..tostring(plugin.progress_sync.verified_reason)..' / '..tostring(plugin.progress_sync.state)
+            ..' / pending='..tostring(not not plugin.source_dispatch:pending(id)))
     local config=plugin.settings:get('sync');config.upload_on_close=true;plugin.settings:set('sync',config)
     reader.rolling:onGotoPage(reader:getCurrentPage()==1 and 2 or 1)
     pump(function() return plugin.source_position:current()~=nil end)
@@ -83,6 +101,7 @@ return function(reader,plugin,pump,clean_popups)
     plugin.client.request=original
     local file=assert(io.open(assert(os.getenv('WEREAD_EVIDENCE'))..'/source-close-result.json','wb'))
     file:write(Json.encode{result='PASS',synthetic_only=true,actual_native_document_closed=true,
+        preclose_explicit_comparison=preclose_comparison,preclose_explicit_local_choice=preclose_local_choice,
         independent_source_preparation=true,no_closed_native_document_calls=true,source_wire_and_summary=true,
         durable_dispatch_before_http=true,report_posts=posts,position_readback_gets=reads,elapsed_seconds=0,
         closed_401_recovered=recover,mock_authentication_posts=recover and 1 or 0,

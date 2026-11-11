@@ -19,6 +19,16 @@ def fixture():
 
 
 class ContractTests(unittest.TestCase):
+    def test_initial_style_is_in_request_match_hash_and_readback(self):
+        old,ref,new=fixture();hashes=set()
+        for style in (0,1,2):
+            plan=make(old,'create',ref,dict(bookId='41',version=77),style=style);hashes.add(plan['metadata']['request_hash'])
+            new['marks']['updated'][1]['style']=style
+            self.assertEqual(plan['body']['style'],style);self.assertEqual(check(new,plan['metadata']),(True,'new'))
+            new['marks']['updated'][1]['style']=(style+1)%3;self.assertFalse(check(new,plan['metadata'])[0])
+        self.assertEqual(len(hashes),3)
+        for style in (-1,3,True,'2',1.5):
+            with self.subTest(style=style),self.assertRaises(ValueError):make(old,'create',ref,dict(bookId='41',version=77),style=style)
     def test_style_changes_only_target_style_and_preserves_linked_thought(self):
         _old,_ref,snapshot=fixture();row=snapshot['marks']['updated'][1]
         snapshot['thoughts']['reviews']=[dict(reviewId='linked',content='Keep this',chapterUid=2,range=row['range'])]

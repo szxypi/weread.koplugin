@@ -1,7 +1,7 @@
 """Independent highlight postconditions; no transport or account persistence."""
 from copy import deepcopy
 from thought_edit_contract import digest,snapshot_hash as thoughts_hash
-from highlight_trial_model import request
+from initial_mark_style_model import create_body
 from bookmark_reference import validate as bookmark_reference
 from bookmark_point import point_range
 from my_cloud_marks_model import integer
@@ -66,7 +66,7 @@ def make(snapshot,operation,reference,metadata=None,*,style=None):
         if operation=='bookmark_create':
             if not integer(version,2147483647) or version==0:raise ValueError('mark_edit/metadata')
             body=dict(bookId=book,chapterUid=row['chapterUid'],bookVersion=version,type=0,style=0,range=row['range'],markText=row['markText'])
-        else:body=request(dict(bookId=book,chapterUid=row['chapterUid'],bookVersion=version,range=row['range'],abstract=row['markText']))
+        else:body=create_body(dict(bookId=book,chapterUid=row['chapterUid'],bookVersion=version,range=row['range'],abstract=row['markText']),1 if style is None else style)
     elif operation in DELETING or operation=='style':
         row=next((r for r in marks['updated'] if r['bookmarkId']==reference['bookmarkId']),None)
         if row is None or row_hash(row)!=row_hash(reference):raise ValueError('mark_edit/changed')

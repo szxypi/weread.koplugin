@@ -23,6 +23,7 @@ local zh = {
     ["Marker highlight"] = "荧光笔",
     ["Wavy underline"] = "波浪线",
     ["Change highlight style"] = "修改划线样式",
+    ["Default highlight style"] = "默认划线样式",
     ["Change this highlight style?"] = "修改这条划线的样式？",
     ["Change the style while keeping its saved color setting and quoted text."] = "修改划线样式，保留原有颜色设置和引用。",
     ["WeRead highlight or thought"] = "微信读书划线／想法",

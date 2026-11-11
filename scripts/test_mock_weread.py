@@ -14,6 +14,20 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_direct_initial_styles_match_the_independently_verified_enum(self):
+        base='https://i.weread.qq.com';raw=chapter_html(2);quote='这是第2章的第1段。我们沿着小路慢慢前行，'
+        first=raw.index(quote);body=dict(bookId=BOOK_ID,chapterUid=2,bookVersion=700,type=1,style=1,colorStyle=0,
+            range=f'{first}-{first+len(quote)}',markText=quote)
+        original=json.loads(json.dumps(self.server.selection_marks));self.server.selection_fixture=True
+        try:
+            for style in (True,-1,3,'2',1.5):
+                with self.subTest(style=style),self.assertRaises(ValueError):self.server.route('POST',base+'/book/addBookmark',dict(body,style=style))
+            for style in (0,1,2):
+                _,result=self.server.route('POST',base+'/book/addBookmark',dict(body,style=style));key=result['bookmarkId']
+                self.assertEqual(self.server.selection_marks[key]['style'],style)
+                self.server.route('POST',base+'/book/removeBookmark',dict(bookmarkIds=[key]))
+            self.assertEqual(self.server.selection_marks,original);self.assertEqual(self.server.highlight_posts,6)
+        finally:self.server.selection_fixture=False;self.server.selection_marks=original;self.server.highlight_posts=0
     def test_point_bookmark_fixture_rejects_guesses_and_only_removes_its_new_record(self):
         from bookmark_point import project
         from test_bookmark_point import coordinate

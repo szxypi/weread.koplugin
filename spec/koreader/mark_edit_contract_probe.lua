@@ -10,4 +10,7 @@ if input.styles then
     local snapshot=Json.decode(Json.encode(input.deletion_snapshot));local row=snapshot.marks.updated[#snapshot.marks.updated];row.style=0
     plans[#plans+1]=C.make(codec,snapshot,'style',row,nil,1)
 end
+if input.initial_styles then
+    for _i,style in ipairs({0,2}) do plans[#plans+1]=C.make(codec,input.snapshot,'create',input.reference,input.metadata,style) end
+end
 io.write('\nWEREAD_HIGHLIGHT_CONTRACT_RESULT='..Json.encode(plans)..'\n')

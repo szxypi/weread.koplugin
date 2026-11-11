@@ -8,6 +8,20 @@ expect(plan.body.chapterIdx==nil and type(plan.body.chapterUid)=='number','guess
 expect(not C.check(snapshot,plan.metadata),'baseline confirmed creation')
 local created=F.created(codec,snapshot);local yes,key=C.check(created,plan.metadata)
 expect(yes and key=='synthetic-new-highlight','exact creation not confirmed')
+local Style=require('weread.lib.mark_style')
+for _i,style in ipairs({0,1,2}) do
+    local initial=C.make(codec,snapshot,'create',ref,{bookId='900001',version=77},style)
+    local observed=F.clone(created);observed.marks.updated[2].style=style
+    expect(initial.body.style==style and C.check(observed,initial.metadata),'initial style was not bound to request and readback')
+    observed.marks.updated[2].style=(style+1)%3
+    expect(not C.check(observed,initial.metadata),'another initial style was confirmed')
+end
+for _i,invalid in ipairs({-1,3,'2',true,.5}) do
+    expect(not pcall(C.make,codec,snapshot,'create',ref,{bookId='900001',version=77},invalid),'invalid initial style accepted')
+    expect(Style.default({get=function() return invalid end})==1,'invalid default style did not fall back to marker')
+end
+expect(Style.default({get=function() return 0 end})==0,'straight default treated as absent')
+expect(Style.default({get=function() return nil end})==1,'missing default did not preserve marker')
 for _i,name in ipairs({'markText','range','chapterUid','type','style','colorStyle'}) do
     local changed=F.clone(created);changed.marks.updated[2][name]=name=='chapterUid' and 9 or 'changed'
     expect(not C.check(changed,plan.metadata),'changed new row confirmed: '..name)

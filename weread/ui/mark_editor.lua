@@ -58,6 +58,7 @@ function M.start(host,owner,operation,reference,current,redraw,style)
     if not current(host,owner) or operation~='create' and operation~='delete' and operation~='style'
         and operation~='bookmark_create' and operation~='bookmark_delete' then return false end
     local bookmark=operation=='bookmark_create' or operation=='bookmark_delete'
+    if operation=='create' then style=require('weread.lib.mark_style').default(host.settings) end
     if not host:isNetworkOnline() then host:showOffline(_(bookmark and 'Bookmark' or 'Highlight'));return false end
     local ctx=context(host,owner,current,redraw)
     busy(ctx,bookmark and 'Checking bookmark position…' or 'Checking this highlight…')
@@ -70,6 +71,7 @@ function M.start(host,owner,operation,reference,current,redraw,style)
         local text=_(operation=='create' and 'Save the quoted text as a WeRead highlight.' or
             'This deletes only the selected highlight from WeRead. Highlights linked to your thoughts cannot be deleted here.')
         if operation=='style' then text=_('Change the style while keeping its saved color setting and quoted text.')..'\n\n'.._(require('weread.lib.mark_style').labels[style]) end
+        if operation=='create' then text=text..'\n\n'.._(require('weread.lib.mark_style').labels[style]) end
         if bookmark then text=_(operation=='bookmark_create' and 'Save this original-page position as a WeRead bookmark.'
             or 'Delete only this cloud bookmark. Your highlights and thoughts are kept.') end
         text=text..'\n\n'..(type(reference.markText)=='string' and reference.markText or '')

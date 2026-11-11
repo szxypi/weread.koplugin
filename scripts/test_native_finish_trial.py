@@ -66,7 +66,8 @@ class ScopeTests(unittest.TestCase):
              patch.object(shared,'ShelfExperimentStore') as s,patch.object(shared,'PositionExperimentStore') as p,\
              patch.object(shared,'HighlightTrialStore') as h,patch.object(shared,'MarkStyleTrialStore') as style,\
              patch.object(shared,'BookmarkTrialStore') as book,patch.object(shared,'NativeShelfTrialStore') as shelf,\
-             patch.object(shared,'NativeFinishTrialStore') as finish:
+             patch.object(shared,'NativeFinishTrialStore') as finish,patch.object(shared,'InitialMarkStyleStore') as initial:
+            initial.return_value.read.return_value=(None,None)
             for factory in (a,f,s,p,shelf):factory.return_value.pending.return_value=False
             for factory in (h,style,book):factory.return_value.read.return_value=(None,None)
             finish.return_value.pending.return_value=True

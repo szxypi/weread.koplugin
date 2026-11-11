@@ -7,6 +7,7 @@ local Bookmark=require('weread.lib.bookmark_reference')
 local Editor=require('weread.ui.thought_editor')
 local Popup=require('weread.ui.shelf_popup')
 local Marks=require('weread.lib.my_cloud_marks')
+local Style=require('weread.lib.mark_style')
 local _=require('weread.lib.plugin_util').tr
 local M={KEY='04_weread_private_thought'}
 local function current(host,owner)
@@ -50,6 +51,22 @@ render=function(host,owner)
         if not owner.bookmarks then items[#items+1]={text=_('Write private thought'),callback=function()
             if current(host,owner) then Editor.start(host,owner,'create',owner.reference,current,render) end
         end} end
+        if not owner.bookmarks then
+            items[#items+1]={text=_('Default highlight style'),mandatory=_(Style.labels[Style.default(host.settings)]),callback=function()
+                if not current(host,owner) then return end
+                local choices,dialog={}
+                for _i,style in ipairs(Style.values) do
+                    choices[#choices+1]={{id='default_highlight_style_'..style,
+                        text=_(Style.labels[style])..(Style.default(host.settings)==style and ' ✓' or ''),callback=function()
+                        if not current(host,owner) or not Popup.current(owner.menu,dialog) then return end
+                        host.settings:set('cloud_highlight_style',style);host.settings:flush()
+                        Popup.close(owner.menu);render(host,owner)
+                    end}}
+                end
+                dialog=require('ui/widget/buttondialog'):new{title=_('Default highlight style'),buttons=choices}
+                Popup.show(owner.menu,dialog)
+            end}
+        end
     else items[#items+1]={text=_(owner.bookmarks and 'Checking bookmark position…' or 'Checking selected text…'),select_enabled=false} end
     if not owner.bookmarks then
     items[#items+1]={text=_('Local thought drafts'),callback=function()

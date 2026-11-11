@@ -29,12 +29,16 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         for key in pairs(b) do if a[key]==nil then return false end end;return true
     end
     if reopen then
+        assert(require('weread.lib.mark_style').default(plugin.settings)==2,'fresh process lost the chosen default style')
         pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)
         local own_display=plugin._personal_marks
         assert(#own_display.records==1 and own_display.records[1].bookmarkId=='synthetic-display-offline','fresh offline process lost cached highlight')
+        local origin=reader.document:getXPointer()
+        reader.rolling:onGotoXPointer(own_display.records[1].pos0)
         UI:forceRePaint();assert(#own_display.overlay.visible>0,'fresh offline underline has no native screen boxes')
         shot('personal-highlight-offline-reopen')
-        local origin=reader.document:getXPointer();local point
+        reader.rolling:onGotoXPointer(origin);UI:forceRePaint()
+        local point
         for _i,entry in ipairs(own_display.bookmarks) do if entry.bookmarkId=='synthetic-bookmark-offline' then point=entry end end
         assert(point,'fresh offline process lost cached bookmark point')
         reader.rolling:onGotoXPointer(point.pos0);UI:forceRePaint()
