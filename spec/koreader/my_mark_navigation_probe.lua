@@ -16,7 +16,7 @@ local ok,reason=pcall(function()
     local input=json.decode(raw);assert(type(input.chapters)=='table' and #input.chapters>0 and #input.chapters<=8)
     downloading=input.download_missing==true;assert(downloading==(os.getenv('WEREAD_NOTE_DOWNLOAD')=='1'))
     if downloading then
-        assert(type(input.cookies)=='table' and input.cookies.wr_vid==input.owner);latest_cookies=input.cookies
+        assert(type(input.cookies)=='table' and input.cookies.wr_vid == input.owner);latest_cookies=input.cookies
         for _i,key in ipairs({'missing_cache','download_confirmed','cancel_zero_requests','downloaded_source_verified','no_data_posts'}) do report[key]=false end
         for _i,key in ipairs({'confirmations','downloaded_chapters','http_gets','catalog_posts','content_posts','forbidden_requests','http_failures'}) do report[key]=0 end
     end

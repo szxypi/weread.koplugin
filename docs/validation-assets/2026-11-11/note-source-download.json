@@ -1954,5 +1954,12 @@
     "Paid/inaccessible chapters, download cancellation and power loss",
     "Physical KO2 and remaining roadmap",
     "Performance after full feature acceptance"
-  ]
+  ],
+  "post_validation_formatting": {
+    "spec/koreader/my_mark_navigation_probe.lua": {
+      "tested_sha256": "a642b675f9bc65833f0540ba109301b7bd74af988afa0f0c2f9410e895e32bd7",
+      "current_sha256": "576d26ba0e4ccf108a50aee658de21cfcd1fe19c118c3b36de38e4b882301fb0",
+      "change": "Spaces around equality comparison to avoid cookie-literal scanner false positive; executable behavior unchanged"
+    }
+  }
 }
