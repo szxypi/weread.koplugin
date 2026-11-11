@@ -14,6 +14,7 @@ local function current(host,owner)
         and owner.parent==host._book_detail_view
 end
 function M.cancel(host)
+    if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end
     if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
     local menu=host._shelf_state_menu;host._shelf_state_menu=nil
     if menu then UIManager:close(menu) end
@@ -61,6 +62,16 @@ function M.show(host,id)
             end}
         end
     end
+    if host.client and host.library_db.open and id:match('^[1-9]%d*$') and #id<=20 then
+        items[#items+1]={text=_('Change finished mark'),callback=function()
+            if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.finish_change').open(host,id) end
+        end}
+        if require('weread.ui.finish_change').pending(host) then
+            items[#items+1]={text=_('Check pending finished-mark change'),callback=function()
+                if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.finish_change').open(host,id,true) end
+            end}
+        end
+    end
     items[#items+1]={text=_('Refresh shelf status'),callback=function()
         if host._shelf_state_menu~=menu or not current(host,owner) then return end
         if host.shelf_refreshing then host:showInfo(_('The bookshelf is already refreshing. Please wait.'));return end
@@ -84,6 +95,7 @@ function M.show(host,id)
         local on_close=menu.onCloseWidget
         menu.onCloseWidget=function(instance,...)
             if host._shelf_state_menu==instance then
+                if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end
                 if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
                 host._shelf_state_menu=nil
             end

@@ -43,6 +43,14 @@ local function cache(host,snapshot)
 end
 function M.open(host,id,resolving)
     M.cancel(host)
+    if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end
+    local finish_pending,finish_error=require('weread.ui.finish_change').pending(host)
+    if finish_pending then
+        host:showInfo(_('A previous finished-mark change is unconfirmed. Check it before making another change.'));return false
+    end
+    if finish_error=='storage' then
+        host:showInfo(_('Could not prepare or save this finished-mark change. Check E-Ink login, network and storage, then try again.'));return false
+    end
     if not host:isNetworkConnected() then host:showOffline(_('Shelf status'));return false end
     local ctx={owner=scope(host)};host._shelf_membership_ui=ctx
     local function fail(reason)

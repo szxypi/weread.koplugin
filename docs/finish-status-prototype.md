@@ -1,7 +1,9 @@
 # 读完标记的协议准备
 
 目标入口为书籍详情 → 书架状态中的读完标记。现有展示已按 `finishReading` 判断，
-不以 `finished`、100% 进度或最近阅读时间代替。新的写入协议尚未实测通过，暂未加入 Lua 写入或菜单入口。
+不以 `finished`、100% 进度或最近阅读时间代替。本文保留原先严格回执往返的准备、停止和单次恢复记录。
+后续已加入独立的[原生单次操作入口](finished-mark.md)，它根据完整独立回读核对状态，不猜测成功回执，
+不自动执行恢复，也没有将下文原严格往返改写为通过。新策略与 Lua 实际写后回读仍待新的限定验收。
 
 请求参考 MiuRead `c1893562aa25a870b8dd076d7be062a3348f823e` 的
 `miuread/eink_client.lua:mark_book_finished`（AGPL-3.0-only）。
@@ -67,7 +69,7 @@ HTTP 200 后的独立书架／位置回读及额外最终回读确认：目标�
 首次停止的历史状态见[初次记录](validation-assets/2026-11-10/finish-status-attempt.json)，
 最新状态见[单次恢复证据](validation-assets/2026-11-10/finish-status-restoration.json)。
 上游[接口目录](https://github.com/teng-lin/weread-omni/blob/main/docs/endpoints.md)可核对请求字段，不能代替本次回执语义实测。
-标记与取消的实际效果已分别读回确认；成功回执语义及 Lua 协调器仍未验证完成，暂不接入 Lua 菜单。
+标记与取消的实际效果已分别读回确认；在该次实验结束时，成功回执语义及 Lua 协调器尚未验证完成，没有接入 Lua 菜单。
 
 ## 独立的 finishReading 回执假设
 
@@ -125,7 +127,7 @@ python3 scripts/verify_finish_receipts.py --saved-session
 
 该次准备未改变插件生产文件；当时 200 个文件与前一轮两尺寸原生验收的候选逐字节一致。
 保留此前 179 组 Lua、两尺寸原生模拟和真实成员只读证据，不将其当作本次新协议写入验收。
-该份早期报告不含此后的首次实际修改；Lua 协议、原生菜单、取消及持久记录协调器将在协议验证后接入，
+该份早期报告不含此后的首次实际修改；当时尚未接入 Lua 协议、原生菜单、取消及持久记录协调器，
 实体 KO2、服务端进度和其他元数据影响仍待验收。
 固定字段及代码哈希见[准备证据](validation-assets/2026-11-10/finish-status-preview.json)。
 
