@@ -82,6 +82,8 @@ jobs:
           python3 scripts/test_highlight_trial.py
           python3 scripts/test_native_highlight_trial.py
           python3 scripts/test_mark_edit_contract.py
+          python3 scripts/test_mark_style_trial.py
+          python3 scripts/test_native_mark_style_trial.py
 
       - name: Web source-position read-only preflight checks
         run: |

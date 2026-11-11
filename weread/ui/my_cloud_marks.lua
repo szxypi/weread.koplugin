@@ -110,6 +110,22 @@ render=function(host,owner)
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                 stop(host,owner);require('weread.ui.mark_editor').start(host,owner,'delete',row,current,render)
                             end}}
+                            local styles=require('weread.lib.mark_style')
+                            if styles.editable(row) then
+                                buttons[#buttons+1]={{id='change_highlight_style',text=_('Change highlight style'),callback=function()
+                                    if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
+                                    local choices={};local dialog
+                                    for _j,style in ipairs(styles.values) do
+                                        choices[#choices+1]={{id='highlight_style_'..style,text=_(styles.labels[style])..(row.style==style and ' ✓' or ''),
+                                            enabled=row.style~=style,callback=function()
+                                            if not current(host,owner) or not Popup.current(owner.menu,dialog) then return end
+                                            stop(host,owner);require('weread.ui.mark_editor').start(host,owner,'style',row,current,render,style)
+                                        end}}
+                                    end
+                                    dialog=require('ui/widget/buttondialog'):new{title=_('Change highlight style'),buttons=choices}
+                                    Popup.show(owner.menu,dialog)
+                                end}}
+                            end
                         end
                         local operations=owner.thoughts and editor.can_edit(row) and {'edit','delete'}
                             or not owner.thoughts and editor.can_create(row) and {'create'} or {}

@@ -69,10 +69,13 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',required=True,type=Path);parser.add_argument('--candidate',required=True,type=Path)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     parser.add_argument('--armed',action='store_true');parser.add_argument('--mock-port',type=int)
-    parser.add_argument('--highlights',action='store_true');args=parser.parse_args(argv)
+    parser.add_argument('--highlights',action='store_true');parser.add_argument('--highlight-styles',action='store_true');args=parser.parse_args(argv)
     check_payload,check_stage=validate_payload,validate_stage
-    if args.highlights:
+    if args.highlights or args.highlight_styles:
         from native_highlight_trial import validate_payload as check_payload,validate_stage as check_stage
+        if args.highlight_styles:
+            from functools import partial
+            check_payload,check_stage=partial(check_payload,styles=True),partial(check_stage,styles=True)
     runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or not 1<=min(args.width,args.height,args.dpi)<=max(args.width,args.height,args.dpi)<=4096:parser.error('bounded Linux runtime required')
     if args.mock_port is not None and not 1<=args.mock_port<=65535:parser.error('invalid loopback port')
@@ -90,7 +93,7 @@ def main(argv=None):
             extract_candidate(args.candidate,profile/'plugins')
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(root/'xdg'),EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_SELECTION_ARMED='1' if args.armed else '0')
-            case=Path(__file__).resolve().parent.parent/'spec/koreader'/('owner_highlight_trial_case.lua' if args.highlights else 'owner_selection_trial_case.lua')
+            case=Path(__file__).resolve().parent.parent/'spec/koreader'/('owner_highlight_trial_case.lua' if args.highlights or args.highlight_styles else 'owner_selection_trial_case.lua')
             child=subprocess.Popen([str(runtime/'luajit'),str(case.with_name('owner_reading_probe.lua')),'selection-trial',str(case)],cwd=runtime,
                 env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
             try:

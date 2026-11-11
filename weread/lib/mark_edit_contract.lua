@@ -4,6 +4,7 @@ local Base=require('weread.lib.thought_edit_contract')
 local Marks=require('weread.lib.my_cloud_marks')
 local Data=require('weread.lib.mark_edit_data')
 local Reference=require('weread.lib.selection_reference')
+local Style=require('weread.lib.mark_style')
 local M={}
 local ROW={'bookmarkId','markText','abstract','range','chapterUid','chapterIdx','type','style','colorStyle','createTime'}
 local MATCH={'markText','range','chapterUid','type','style','colorStyle'}
@@ -57,6 +58,9 @@ function M.validate_body(operation,body)
         allowed={bookmarkIds=true}
         if type(body.bookmarkIds)~='table' or #body.bookmarkIds~=1 or not Base.key(body.bookmarkIds[1]) then return false end
         for k in pairs(body.bookmarkIds) do if k~=1 then return false end end
+    elseif operation=='style' then
+        allowed={bookmarkId=true,style=true,colorStyle=true}
+        if not Base.key(body.bookmarkId) or not Style.valid(body.style) or not integer(body.colorStyle,5) then return false end
     else return false end
     for k in pairs(body) do if not allowed[k] then return false end end
     return true
@@ -65,10 +69,10 @@ function M.body_hash(body)
     if body.bookmarkIds then return Base.digest({'remove-mark-v1',body.bookmarkIds[1]}) end
     return Base.body_hash(body)
 end
-function M.make(client,snapshot,operation,reference,metadata)
+function M.make(client,snapshot,operation,reference,metadata,style)
     local book=type(snapshot)=='table' and snapshot.book_id
     snapshot=Data.validate(client,snapshot,book)
-    if not Marks.id(book) or operation~='create' and operation~='delete' or type(reference)~='table' then fail('operation') end
+    if not Marks.id(book) or operation~='create' and operation~='delete' and operation~='style' or type(reference)~='table' then fail('operation') end
     local row,body
     if operation=='create' then
         if not Reference.valid(reference,book) or not disjoint(snapshot.marks.updated,reference) then fail('selection') end
@@ -79,34 +83,49 @@ function M.make(client,snapshot,operation,reference,metadata)
     else
         for _i,v in ipairs(snapshot.marks.updated) do if v.bookmarkId==reference.bookmarkId then row=v end end
         if not row or row.type~=1 or not range(row) or M.row_hash(row)~=M.row_hash(reference) then fail('changed') end
-        body={bookmarkIds=client:json_decode('[]')};body.bookmarkIds[1]=row.bookmarkId
+        if operation=='delete' then
+            body={bookmarkIds=client:json_decode('[]')};body.bookmarkIds[1]=row.bookmarkId
+        else
+            if not Style.editable(row) or not Style.valid(style) or style==row.style then fail('style') end
+            body={bookmarkId=row.bookmarkId,style=style,colorStyle=row.colorStyle}
+        end
     end
-    if not disjoint(snapshot.thoughts.reviews,row) then fail('linked_thought') end
+    if operation~='style' and not disjoint(snapshot.thoughts.reviews,row) then fail('linked_thought') end
     if not M.validate_body(operation,body) then fail('body') end
     local uid=tostring(row.chapterUid);local present=0
     for _i,v in ipairs(snapshot.marks.chapters) do if tostring(v.chapterUid)==uid then present=1 end end
+    local after=''
+    if operation=='delete' then after=rows_hash(snapshot.marks.updated,row.bookmarkId)
+    elseif operation=='style' then
+        local rows={}
+        for _i,value in ipairs(snapshot.marks.updated) do
+            local copy={};for k,v in pairs(value) do copy[k]=v end
+            if value.bookmarkId==row.bookmarkId then copy.style=style end;rows[#rows+1]=copy
+        end
+        after=rows_hash(rows)
+    end
     return {snapshot=snapshot,body=body,metadata={book_id=book,operation=operation,target_id=row.bookmarkId,
-        before_hash=rows_hash(snapshot.marks.updated),after_hash=operation=='delete' and rows_hash(snapshot.marks.updated,row.bookmarkId) or '',
+        before_hash=rows_hash(snapshot.marks.updated),after_hash=after,
         reference_hash=M.row_hash(row),match_hash=operation=='create' and hash_fields(body,MATCH) or '',request_hash=M.body_hash(body),
         thoughts_hash=Base.snapshot_hash(snapshot.thoughts),chapters_hash=chapters_hash(snapshot.marks.chapters),
         chapter_without_hash=chapters_hash(snapshot.marks.chapters,uid),chapter_uid=uid,chapter_present=present}}
 end
 function M.validate_metadata(value)
     if type(value)~='table' or not Marks.id(value.book_id) or not Marks.id(value.chapter_uid) or not Base.key(value.target_id)
-        or value.operation~='create' and value.operation~='delete' or not integer(value.chapter_present,1) then return false end
+        or value.operation~='create' and value.operation~='delete' and value.operation~='style' or not integer(value.chapter_present,1) then return false end
     local allowed={};for _i,k in ipairs(META) do allowed[k]=true;if value[k]==nil then return false end end
     for k in pairs(value) do if not allowed[k] then return false end end
     for _i,k in ipairs({'before_hash','reference_hash','request_hash','thoughts_hash','chapters_hash','chapter_without_hash'}) do
         if not Base.hash(value[k]) then return false end
     end
     return value.operation=='create' and value.after_hash=='' and Base.hash(value.match_hash)
-        or value.operation=='delete' and Base.hash(value.after_hash) and value.match_hash==''
+        or (value.operation=='delete' or value.operation=='style') and Base.hash(value.after_hash) and value.match_hash==''
 end
 function M.check(snapshot,metadata)
     if not M.validate_metadata(metadata) or snapshot.book_id~=metadata.book_id then fail('metadata') end
     if Base.snapshot_hash(snapshot.thoughts)~=metadata.thoughts_hash then return false end
     local chapters=chapters_hash(snapshot.marks.chapters)
-    if metadata.operation=='delete' or metadata.chapter_present==1 then
+    if metadata.operation=='delete' or metadata.operation=='style' or metadata.chapter_present==1 then
         if chapters~=metadata.chapters_hash then
             -- Verified real last-mark lifecycle: the server may remove this
             -- chapter's derived descriptor too. No remaining mark may use it;
@@ -117,7 +136,7 @@ function M.check(snapshot,metadata)
             for _i,row in ipairs(snapshot.marks.updated) do if tostring(row.chapterUid)==metadata.chapter_uid then return false end end
         end
     elseif chapters_hash(snapshot.marks.chapters,metadata.chapter_uid)~=metadata.chapter_without_hash then return false end
-    if metadata.operation=='delete' then return rows_hash(snapshot.marks.updated)==metadata.after_hash end
+    if metadata.operation=='delete' or metadata.operation=='style' then return rows_hash(snapshot.marks.updated)==metadata.after_hash end
     local chosen,count=nil,0
     for _i,row in ipairs(snapshot.marks.updated) do
         if hash_fields(row,MATCH)==metadata.match_hash and rows_hash(snapshot.marks.updated,row.bookmarkId)==metadata.before_hash then

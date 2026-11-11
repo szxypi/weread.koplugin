@@ -41,21 +41,32 @@ def disjoint(rows,reference):
     return True
 
 
-def make(snapshot,operation,reference,metadata=None):
+def make(snapshot,operation,reference,metadata=None,*,style=None):
     book=snapshot['book_id'];marks=snapshot['marks'];notes=snapshot['thoughts']
     if operation=='create':
         if not reference.get('selection') or not disjoint(marks['updated'],reference):raise ValueError('mark_edit/selection')
         if str(metadata['bookId'])!=book:raise ValueError('mark_edit/metadata')
         row=reference;body=request(dict(bookId=book,chapterUid=row['chapterUid'],bookVersion=metadata.get('bookVersion',metadata.get('version')),range=row['range'],abstract=row['markText']))
-    elif operation=='delete':
+    elif operation in ('delete','style'):
         row=next((r for r in marks['updated'] if r['bookmarkId']==reference['bookmarkId']),None)
         if row is None or row.get('type')!=1 or row_hash(row)!=row_hash(reference):raise ValueError('mark_edit/changed')
-        body=dict(bookmarkIds=[row['bookmarkId']])
+        if operation=='delete':body=dict(bookmarkIds=[row['bookmarkId']])
+        else:
+            from mark_style_trial_model import style_body
+            body=style_body(row,style)
+            if style==row.get('style'):raise ValueError('mark_edit/unchanged')
     else:raise ValueError('mark_edit/operation')
-    if not disjoint(notes['reviews'],row):raise ValueError('mark_edit/linked_thought')
+    if operation!='style' and not disjoint(notes['reviews'],row):raise ValueError('mark_edit/linked_thought')
+    after=''
+    if operation=='delete':after=rows_hash(marks['updated'],row['bookmarkId'])
+    elif operation=='style':
+        rows=deepcopy(marks['updated'])
+        for value in rows:
+            if value['bookmarkId']==row['bookmarkId']:value['style']=style
+        after=rows_hash(rows)
     uid=str(row['chapterUid'])
     return dict(snapshot=deepcopy(snapshot),body=body,metadata=dict(book_id=book,operation=operation,target_id=row['bookmarkId'],
-        before_hash=rows_hash(marks['updated']),after_hash=rows_hash(marks['updated'],row['bookmarkId']) if operation=='delete' else '',
+        before_hash=rows_hash(marks['updated']),after_hash=after,
         reference_hash=row_hash(row),match_hash=fields_hash(body,MATCH) if operation=='create' else '',request_hash=body_hash(body),
         thoughts_hash=thoughts_hash(notes),chapters_hash=chapters_hash(marks['chapters']),
         chapter_without_hash=chapters_hash(marks['chapters'],uid),chapter_uid=uid,
@@ -66,7 +77,7 @@ def check(snapshot,metadata):
     if snapshot['book_id']!=metadata['book_id']:raise ValueError('mark_edit/book')
     marks=snapshot['marks']
     if thoughts_hash(snapshot['thoughts'])!=metadata['thoughts_hash']:return False,None
-    if metadata['operation']=='delete' or metadata['chapter_present']:
+    if metadata['operation'] in ('delete','style') or metadata['chapter_present']:
         if chapters_hash(marks['chapters'])!=metadata['chapters_hash']:
             # Real empty-book roundtrip: deleting the chapter's last mark also
             # removes its derived descriptor. Every other descriptor and every
@@ -77,7 +88,7 @@ def check(snapshot,metadata):
                 and not any(str(r.get('chapterUid'))==metadata['chapter_uid'] for r in marks['updated']))
             if not removed_empty:return False,None
     elif chapters_hash(marks['chapters'],metadata['chapter_uid'])!=metadata['chapter_without_hash']:return False,None
-    if metadata['operation']=='delete':return rows_hash(marks['updated'])==metadata['after_hash'],None
+    if metadata['operation'] in ('delete','style'):return rows_hash(marks['updated'])==metadata['after_hash'],None
     chosen=[r['bookmarkId'] for r in marks['updated'] if fields_hash(r,MATCH)==metadata['match_hash']
             and rows_hash(marks['updated'],r['bookmarkId'])==metadata['before_hash']]
     return (True,chosen[0]) if len(chosen)==1 else (False,None)

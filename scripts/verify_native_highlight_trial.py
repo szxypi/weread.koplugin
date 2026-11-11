@@ -33,12 +33,12 @@ class TrialFailure(ValueError):
     def __init__(self,runner):super().__init__('native_highlight/unverified');self.runner=runner
 
 
-def validate_runner(value,armed,complete=True):
+def validate_runner(value,armed,complete=True,*,styles=False):
     if (not isinstance(value,dict) or set(value)!={'result','profile_removed','installed_files','installed_bytes_match','stage','cookies'}
             or value['result'] not in ('PASS','UNVERIFIED') or type(value['profile_removed']) is not bool
             or type(value['installed_bytes_match']) is not bool or type(value['installed_files']) is not int or not 0<=value['installed_files']<=1000
             or not isinstance(value['cookies'],dict)):raise ValueError('native_highlight/runner')
-    if value['stage'] is not None:validate_stage(value['stage'],armed,complete)
+    if value['stage'] is not None:validate_stage(value['stage'],armed,complete,styles=styles)
     if complete and (value['result']!='PASS' or not value['profile_removed'] or not value['installed_bytes_match']
             or not value['installed_files'] or value['stage'] is None):raise ValueError('native_highlight/runner')
     return value

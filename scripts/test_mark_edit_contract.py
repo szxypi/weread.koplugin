@@ -19,6 +19,26 @@ def fixture():
 
 
 class ContractTests(unittest.TestCase):
+    def test_style_changes_only_target_style_and_preserves_linked_thought(self):
+        _old,_ref,snapshot=fixture();row=snapshot['marks']['updated'][1]
+        snapshot['thoughts']['reviews']=[dict(reviewId='linked',content='Keep this',chapterUid=2,range=row['range'])]
+        plan=make(snapshot,'style',row,style=2);after=deepcopy(snapshot);after['marks']['updated'][1]['style']=2
+        self.assertEqual(plan['body'],dict(bookmarkId='new',style=2,colorStyle=0))
+        self.assertEqual(check(after,plan['metadata']),(True,None));self.assertFalse(check(snapshot,plan['metadata'])[0])
+        for field,value in [('colorStyle',1),('markText','changed'),('range','1-10'),('createTime',10),('bookmarkId','changed')]:
+            bad=deepcopy(after);bad['marks']['updated'][1][field]=value
+            with self.subTest(field=field):self.assertFalse(check(bad,plan['metadata'])[0])
+        after['marks']['chapters']=[dict(chapterUid=2,title='new descriptor')]
+        self.assertFalse(check(after,plan['metadata'])[0])
+
+    def test_style_rejects_unchanged_unknown_values_stale_reference_and_bookmark(self):
+        _old,_ref,snapshot=fixture();row=snapshot['marks']['updated'][1]
+        for style in (1,3,-1,True,'2',None):
+            with self.subTest(style=style),self.assertRaises(ValueError):make(snapshot,'style',row,style=style)
+        with self.assertRaises(ValueError):make(snapshot,'style',dict(row,markText='stale'),style=2)
+        row['type']=0
+        with self.assertRaises(ValueError):make(snapshot,'style',row,style=2)
+
     def test_exact_source_create_and_exact_delete(self):
         old,ref,new=fixture();plan=make(old,'create',ref,dict(bookId='41',version=77))
         self.assertNotIn('chapterIdx',plan['body']);self.assertEqual(plan['body']['chapterUid'],2)

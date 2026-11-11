@@ -33,7 +33,7 @@ function M.preview(client,settings,selected,input)
         if not ok then error(value,0) end;metadata=value
     end
     if not current(settings,selected) then error('mark_edit/login',0) end
-    return Contract.make(client,snapshot,input.operation,input.reference,metadata)
+    return Contract.make(client,snapshot,input.operation,input.reference,metadata,input.style)
 end
 function M.expired(reason) return reason==Thoughts.EXPIRED or reason=='native_auth/my_marks/http_401' or reason=='native_auth/metadata/http_401' end
 function M.source_login(reason) return reason=='mark_edit/source_access' or reason=='source_currentness/web_expired' end

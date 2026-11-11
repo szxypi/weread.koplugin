@@ -8,6 +8,7 @@ return function(input,mode,counters)
     local mark=assert(input.highlight_trial);local grant=cfg.credentials;local base='https://i.weread.qq.com'
     case.report={permit_writes=trial.armed,source_reference=false,native_controls=false,exact_creation_body=false,cache_verified=false,
         local_pending_kept=false,dispatch_blocked=false,heartbeat=false,steps=0,native_gets=0,native_posts=0,blocked_posts=0,native_denied=0,failed_line=0,phase='init'}
+    if mark.styles then case.report.style_controls=false;case.report.style_displays=0 end
     local function same(a,b)
         if type(a)~=type(b) then return false end
         if type(a)~='table' then return a==b end
@@ -17,6 +18,7 @@ return function(input,mode,counters)
     local reads={[base..'/review/list?bookId='..input.book_id..'&listType=11&listMode=0&mine=1&synckey=0&count=20']=true,
         [base..'/book/bookmarklist?bookId='..input.book_id..'&synckey=0']=true,[base..'/book/info?bookId='..input.book_id]=true}
     local writes={[base..'/book/addBookmark']='create',[base..'/book/removeBookmark']='delete'}
+    if mark.styles then writes[base..'/book/updateBookmark']='style' end
     function case:request(client,options,dispatch)
         local h=options.headers or {}
         local common=self.enabled and tonumber(ffi.C.getpid())~=parent and options.skip_cookie==true
@@ -30,7 +32,7 @@ return function(input,mode,counters)
             if not self.gate:claim(operation,client:json_decode(options.body)) then
                 counters[36]=counters[36]+1;error('native_highlight/dry_run',0)
             end
-            counters[33]=counters[33]+1;assert(counters[33]<=2);return dispatch(client,options)
+            counters[33]=counters[33]+1;assert(counters[33]<=(mark.styles and 4 or 2));return dispatch(client,options)
         end
         counters[34]=counters[34]+1;error('native_highlight/native_scope',0)
     end
@@ -46,7 +48,7 @@ return function(input,mode,counters)
         local Selection=require('weread.ui.selection_thought');local tr=require('weread.lib.plugin_util').tr
         local Service=require('weread.lib.mark_edit_service');local journal=Service.new_journal(plugin.library_db,plugin.client)
         self.gate=dofile(path..'native_highlight_trial_gate.lua'):new({permit_writes=trial.armed,book_id=input.book_id,
-            original_ids=mark.original_ids,create_body=mark.create_body},plugin.library_db,plugin.client,assert(os.getenv('KO_HOME')))
+            original_ids=mark.original_ids,create_body=mark.create_body,styles=mark.styles},plugin.library_db,plugin.client,assert(os.getenv('KO_HOME')))
         local document=reader.document;local notes=plugin.client:json_encode(reader.annotation.annotations)
         local first,last=assert(index:locate(cfg.first)),assert(index:locate(cfg.last))
         assert(assert(index:capture(first.xpointer)).co==cfg.first and assert(index:capture(last.xpointer)).co==cfg.last)
@@ -86,11 +88,35 @@ return function(input,mode,counters)
                 if not original[item.bookmarkId] then assert(not target);target=item.bookmarkId end
             end
             assert(target);acknowledge(1,target);self.report.steps=1;self.gate:advance(target)
-            Selection.cancel(plugin);self.report.phase='delete';plugin:showMyCloudMarks(input.book_id);owner=assert(plugin._my_marks_owner)
+            Selection.cancel(plugin)
+            if mark.styles then
+                local function display(style)
+                    pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)
+                    UI:forceRePaint();local shown
+                    for _i,record in ipairs(plugin._personal_marks.records) do if record.bookmarkId==target then shown=record end end
+                    assert(shown and shown.style==style and #plugin._personal_marks.overlay.visible>0)
+                    assert(require('weread.lib.source_dom').normalize(document:getTextFromXPointers(shown.pos0,shown.pos1))
+                        ==require('weread.lib.source_dom').normalize(mark.create_body.markText));document:clearSelection()
+                    self.report.style_displays=self.report.style_displays+1
+                end
+                display(1)
+                for _i,style in ipairs({0,2}) do
+                    self.report.phase='style'..style;assert(plugin:showMyCloudMarks(input.book_id));owner=assert(plugin._my_marks_owner)
+                    local selected;for _j,item in ipairs(owner.menu.item_table) do if item.my_note_id==target then selected=item end end
+                    assert(selected);selected.callback();tap('change_highlight_style')
+                    UI:forceRePaint();owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_'..style):onTapSelectButton();submit()
+                    assert(self.gate:read().phase=='style'..style..'_pending' and journal:read().phase=='idle')
+                    acknowledge(_i+1,target);self.report.steps=_i+1;self.gate:advance_style(target,style)
+                    plugin:cancelMyCloudMarks();display(style)
+                end
+                self.report.style_controls=true
+            end
+            self.report.phase='delete';plugin:showMyCloudMarks(input.book_id);owner=assert(plugin._my_marks_owner)
             local selected
             for _i,item in ipairs(owner.menu.item_table) do if item.my_note_id==target then selected=item end end
             assert(selected);selected.callback();tap('delete_highlight');submit()
-            assert(self.gate:read().phase=='delete_pending' and journal:read().phase=='idle');acknowledge(2,target);self.report.steps=2
+            local last_step=mark.styles and 4 or 2
+            assert(self.gate:read().phase=='delete_pending' and journal:read().phase=='idle');acknowledge(last_step,target);self.report.steps=last_step
             local ids={};for _i,item in ipairs(assert(cache:read(input.book_id)).updated) do ids[item.bookmarkId]=true;assert(item.bookmarkId~=target) end
             local count=0;for _id in pairs(ids) do count=count+1 end;assert(count==#mark.original_ids)
             for _i,id in ipairs(mark.original_ids) do assert(ids[id]) end

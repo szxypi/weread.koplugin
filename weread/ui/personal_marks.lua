@@ -96,7 +96,8 @@ batch=function(host,s,job)
             for _i,row in ipairs(result.rows) do
                 local span=job.index:locate_span(row.first_anchor,row.last_anchor,Task.MAX_NATIVE_BYTES)
                 if span then
-                    pending[row.bookmarkId]={bookmarkId=row.bookmarkId,pos0=span.pos0,pos1=span.pos1,chapter_uid=job.uid,range=job.ranges[row.bookmarkId]}
+                    pending[row.bookmarkId]={bookmarkId=row.bookmarkId,pos0=span.pos0,pos1=span.pos1,chapter_uid=job.uid,
+                        range=job.ranges[row.bookmarkId],style=job.styles[row.bookmarkId]}
                     verify[#verify+1]={bookmarkId=row.bookmarkId,text=span.text,normalized_sha256=expected[row.bookmarkId].normalized_sha256}
                 end
                 if os.clock()-last_yield>=.02 then coroutine.yield();last_yield=os.clock() end
@@ -140,12 +141,14 @@ function M.update(host)
     if s.metadata==m.metadata and (s.job or s.complete) then return end
     cancel_work(s);s.metadata=m.metadata;s.complete=false;clear(host,s)
     if not s.snapshot then return end
-    local uid=m.chapter_uid;local rows,ranges={},{}
+    local uid=m.chapter_uid;local rows,ranges,styles={},{},{}
     for _i,row in ipairs(s.snapshot.updated) do
-        if row.type==1 and tostring(row.chapterUid)==uid then rows[#rows+1]=row;ranges[row.bookmarkId]=row.range end
+        if row.type==1 and tostring(row.chapterUid)==uid then
+            rows[#rows+1]=row;ranges[row.bookmarkId]=row.range;styles[row.bookmarkId]=row.style or 0
+        end
     end
     table.sort(rows,function(a,b) return a.bookmarkId<b.bookmarkId end)
-    local job={metadata=m.metadata,uid=uid,rows=rows,ranges=ranges,cursor=1};s.job=job
+    local job={metadata=m.metadata,uid=uid,rows=rows,ranges=ranges,styles=styles,cursor=1};s.job=job
     schedule(host,s,function() batch(host,s,job) end)
 end
 load=function(host,s,online)
@@ -177,7 +180,8 @@ function M.attach(host)
         or not document.info or document.info.has_pages or not host.ui.view or not host.ui.view.registerViewModule then return false end
     local s={book=book,document=document,file=document.file,scope=scope,account=account,session=host._reader_session_gen,generation=0,records={},loading=true}
     local screen=require('device').screen;local BB=require('ffi/blitbuffer')
-    local overlay=Overlay:new{records={},style={width=math.max(1,screen:scaleBySize(1)),dash=1000000,gap=0,color=BB.Color8(0)}}
+    local overlay=Overlay:new{records={},painter=require('weread.ui.personal_mark_painter').paint,
+        style={width=math.max(1,screen:scaleBySize(1)),wave_step=math.max(1,screen:scaleBySize(1)),color=BB.Color8(0)}}
     s.overlay=overlay;host._personal_marks=s
     local paint=overlay.paintTo
     function overlay:paintTo(...)

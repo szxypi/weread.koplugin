@@ -11,7 +11,7 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     local online=plugin.isNetworkOnline;local owner
     local transport=plugin.client.request;local parent=tonumber(require('ffi').C.getpid())
     function plugin.client:request(options)
-        local op=({['https://i.weread.qq.com/book/addBookmark']='create',['https://i.weread.qq.com/book/removeBookmark']='delete'})[options.url]
+        local op=({['https://i.weread.qq.com/book/addBookmark']='create',['https://i.weread.qq.com/book/removeBookmark']='delete',['https://i.weread.qq.com/book/updateBookmark']='style'})[options.url]
         if op then
             assert(tonumber(require('ffi').C.getpid())~=parent,'highlight write blocked native UI')
             local intent=assert(Journal:read());local body=Json.decode(options.body)
@@ -67,32 +67,55 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     -- Deleting a mark linked to an original thought is blocked before POST.
     select('synthetic-existing-highlight');tap(owner,'delete_highlight');notice()
     assert(request('/__state').highlight_posts==1 and Journal:read().phase=='idle')
+    for _i,style in ipairs({0,2}) do
+        select(created);tap(owner,'change_highlight_style')
+        local chooser=assert(owner.menu._shelf_popup);UI:forceRePaint()
+        assert(chooser.buttontable:getButtonById('highlight_style_'..style)):onTapSelectButton()
+        wait_preview();shot('highlight-style-confirmation-'..style)
+        if style==0 then request('/__control',{selection_thought_mode='empty'}) end
+        tap(owner,'confirm_highlight_change');notice();request('/__control',{selection_thought_mode='plain'})
+        local changed=request('/__state');local saved=assert(changed.selection_marks[created])
+        assert(saved.style==style and saved.colorStyle==0 and saved.range==created_row.range and saved.markText==created_row.markText)
+        assert(changed.highlight_posts==1+_i and Journal:read().phase=='idle')
+        plugin:cancelMyCloudMarks();clean_popups(reader)
+        pump(function() return plugin._personal_marks and plugin._personal_marks.complete end);UI:forceRePaint()
+        local active=false
+        for _j,record in ipairs(plugin._personal_marks.records) do if record.bookmarkId==created then active=record.style==style end end
+        assert(active and #plugin._personal_marks.overlay.visible>0,'confirmed style did not update native reader')
+        shot('personal-highlight-style-'..style)
+        assert(plugin:showMyCloudMarks(plugin:detectWeReadBook()));owner=assert(plugin._my_marks_owner)
+    end
     select(created);tap(owner,'delete_highlight');wait_preview();shot('highlight-native-delete')
     request('/__control',{selection_thought_mode='empty'});tap(owner,'confirm_highlight_change');notice()
-    state=request('/__state');assert(state.highlight_posts==2 and same(state.selection_marks,original) and Journal:read().phase=='idle')
+    state=request('/__state');assert(state.highlight_posts==4 and same(state.selection_marks,original) and Journal:read().phase=='idle')
     plugin:cancelMyCloudMarks();clean_popups(reader);request('/__control',{selection_thought_mode='plain'})
     pump(function() return plugin._personal_marks and plugin._personal_marks.complete end);UI:forceRePaint()
     for _i,item in ipairs(plugin._personal_marks.records) do assert(item.bookmarkId~=created,'deleted cloud mark remains in personal layer') end
     assert(#plugin._personal_marks.overlay.visible==0);shot('personal-highlight-deleted')
     owner=open(true);row(owner,'Save highlight');wait_preview()
     request('/__control',{selection_source_revision=2});tap(owner,'confirm_highlight_change');notice()
-    assert(request('/__state').highlight_posts==2 and Journal:read().phase=='idle','changed source sent a highlight')
+    assert(request('/__state').highlight_posts==4 and Journal:read().phase=='idle','changed source sent a highlight')
     request('/__control',{selection_source_revision=1});Selection.cancel(plugin);clean_popups(reader)
     owner=open(true);row(owner,'Save highlight');wait_preview()
     local service=owner.mark_editor.service;local preview=service.preview
     Selection.cancel(plugin);clean_popups(reader)
-    assert(not service:commit(preview,function() error('stale commit escaped') end) and request('/__state').highlight_posts==2)
+    assert(not service:commit(preview,function() error('stale commit escaped') end) and request('/__state').highlight_posts==4)
     owner=open(true);row(owner,'Save highlight');wait_preview()
     request('/__control',{selection_thought_mode='no_change'});tap(owner,'confirm_highlight_change');notice()
-    assert(request('/__state').highlight_posts==3 and Journal:read().phase=='pending')
-    row(owner,'Save highlight');assert(not owner.mark_editor and request('/__state').highlight_posts==3,'unknown result resent')
+    assert(request('/__state').highlight_posts==5 and Journal:read().phase=='pending')
+    row(owner,'Save highlight');assert(not owner.mark_editor and request('/__state').highlight_posts==5,'unknown result resent')
     notice();row(owner,'Check last highlight change');wait_preview()
     assert(not owner.mark_editor.service.preview.confirmed);tap(owner,'resolve_highlight_change');notice()
-    assert(request('/__state').highlight_posts==3 and Journal:read().phase=='idle','GET recovery dispatched')
-    -- Leave one unknown operation for an entirely fresh offline process.
-    row(owner,'Save highlight');wait_preview();tap(owner,'confirm_highlight_change');notice()
-    assert(request('/__state').highlight_posts==4 and Journal:read().phase=='pending')
-    Selection.cancel(plugin);clean_popups(reader);request('/__control',{selection_thought_mode='plain'})
+    assert(request('/__state').highlight_posts==5 and Journal:read().phase=='idle','GET recovery dispatched')
+    -- A failed style receipt must persist without replay in a fresh process.
+    -- The synthetic server leaves the original linked mark entirely unchanged.
+    Selection.cancel(plugin);clean_popups(reader)
+    assert(plugin:showMyCloudMarks(plugin:detectWeReadBook()));owner=assert(plugin._my_marks_owner)
+    select('synthetic-existing-highlight');tap(owner,'change_highlight_style')
+    owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_0'):onTapSelectButton()
+    wait_preview();request('/__control',{selection_thought_mode='no_change'});tap(owner,'confirm_highlight_change');notice()
+    assert(request('/__state').highlight_posts==6 and Journal:read().phase=='pending' and Journal:read().metadata.operation=='style')
+    plugin:cancelMyCloudMarks();clean_popups(reader);request('/__control',{selection_thought_mode='plain'})
     state=request('/__state');assert(same(state.selection_marks,original) and same(state.selection_thoughts,thoughts))
     assert(reader.document:getXPointer()==origin and same(reader.annotation.annotations,annotations))
     assert(bytes()==original_file,'cloud display rewrote the downloaded document')
@@ -102,7 +125,7 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     -- This record is never sent to the mock cloud or a real account.
     local cache=require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client)
     local cached=assert(cache:read(plugin:detectWeReadBook()))
-    created_row.bookmarkId='synthetic-display-offline';cached.updated[#cached.updated+1]=created_row
+    created_row.bookmarkId='synthetic-display-offline';created_row.style=2;cached.updated[#cached.updated+1]=created_row
     assert(cache:write(cached));display.changed(plugin,cached)
     pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)
     assert(#plugin._personal_marks.records==1,'offline cache fixture did not project')
@@ -114,5 +137,6 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
         readonly_recovery=true,cancel_refuses_commit=true,original_records_restored=true,reader_position_and_notes_preserved=true,
         personal_overlay_saved_and_deleted=true,personal_overlay_toggle_and_tap=true,downloaded_file_unchanged=true,
         personal_overlay_font_reflow=true,synthetic_offline_cache_seeded=true,
-        mock_data_posts=4,real_account_data_posts=0});file:close()
+        native_styles_changed=true,style_color_and_quote_preserved=true,style_lost_receipt_confirmed=true,style_unknown_pending=true,
+        mock_data_posts=6,real_account_data_posts=0});file:close()
 end

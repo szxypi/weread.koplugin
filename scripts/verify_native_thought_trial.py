@@ -21,6 +21,7 @@ from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
 from secure_annotation_experiment import AnnotationExperimentStore
 from secure_highlight_trial import HighlightTrialStore
+from secure_mark_style_trial import MarkStyleTrialStore
 from secure_finish_experiment import FinishExperimentStore
 from secure_shelf_experiment import ShelfExperimentStore
 from secure_position_experiment import ExperimentStore as PositionExperimentStore
@@ -120,6 +121,7 @@ def run(probe,credentials,store,receipt,command,*,armed=False,expected=None,mock
 
 def other_pending(*,exclude_native_highlight=False):
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
+            or any(MarkStyleTrialStore(native=kind).read()[0] is not None for kind in (False,True))
             or any(HighlightTrialStore(native=kind).read()[0] is not None for kind in ((False,) if exclude_native_highlight else (False,True))))
 
 

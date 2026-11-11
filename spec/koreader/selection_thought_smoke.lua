@@ -35,6 +35,7 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         UI:forceRePaint();assert(#own_display.overlay.visible>0,'fresh offline underline has no native screen boxes')
         shot('personal-highlight-offline-reopen')
         assert(require('weread.lib.mark_edit_service').new_journal(plugin.library_db,plugin.client):read().phase=='pending','fresh process lost pending highlight')
+        assert(require('weread.lib.mark_edit_service').new_journal(plugin.library_db,plugin.client):read().metadata.operation=='style','fresh process lost pending style operation')
         local journal=require('weread.lib.thought_edit_store'):new(plugin.library_db,plugin.client)
         assert(journal:read().phase=='pending' and #journal:drafts()==1,'fresh process lost selection draft or pending operation')
         plugin:showMyCloudThoughts(id);local own=assert(plugin._my_marks_owner)
@@ -48,7 +49,7 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         shot('selection-thought-offline-reopen');plugin:cancelMyCloudMarks();clean_popups(reader)
         local file=assert(io.open(os.getenv('WEREAD_EVIDENCE')..'/selection-thought-reopen-result.json','wb'))
         file:write(Json.encode{result='PASS',synthetic_only=true,fresh_process=true,offline_source_restore=true,
-            local_draft_and_pending_kept=true,cached_personal_highlight_displayed=true,offline_http_requests=0,automatic_replay=false});file:close();return
+            local_draft_and_pending_kept=true,pending_style_kept=true,cached_personal_highlight_displayed=true,offline_http_requests=0,automatic_replay=false});file:close();return
     end
     local original=copy(request('/__state').selection_thoughts)
     local auth_posts=counter('/login')+counter('/web/login/renewal')

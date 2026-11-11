@@ -318,7 +318,7 @@ class MockServer(ThreadingHTTPServer):
                 if query!={'bookId':[BOOK_ID],'synckey':['0']}:raise ValueError('invalid selection mark query')
                 with self.lock:rows=[row.copy() for row in self.selection_marks.values()]
                 return 200,dict(bookId=BOOK_ID,updated=rows,chapters=[],hasMore=0)
-            if self.selection_fixture and path in {'/book/addBookmark','/book/removeBookmark'} and method=='POST':
+            if self.selection_fixture and path in {'/book/addBookmark','/book/removeBookmark','/book/updateBookmark'} and method=='POST':
                 if query or self.highlight_posts>=8:raise ValueError('invalid highlight scope')
                 if path=='/book/addBookmark':
                     required={'bookId','chapterUid','bookVersion','type','style','colorStyle','range','markText'}
@@ -332,6 +332,14 @@ class MockServer(ThreadingHTTPServer):
                     with self.lock:
                         if control['selection_thought_mode']!='no_change':self.selection_marks[identity]=row
                     result=dict(bookmarkId=identity)
+                elif path=='/book/updateBookmark':
+                    identity=data.get('bookmarkId')
+                    if (set(data)!={'bookmarkId','style','colorStyle'} or type(data['style']) is not int or data['style'] not in (0,1,2)
+                            or type(data['colorStyle']) is not int or not 0<=data['colorStyle']<=5
+                            or not isinstance(identity,str) or identity not in self.selection_marks or self.selection_marks[identity]['type']!=1):raise ValueError('invalid style update')
+                    with self.lock:
+                        if control['selection_thought_mode']!='no_change':self.selection_marks[identity].update(style=data['style'],colorStyle=data['colorStyle'])
+                    result=dict(succ=1)
                 else:
                     ids=data.get('bookmarkIds')
                     if (set(data)!={'bookmarkIds'} or not isinstance(ids,list) or len(ids)!=1

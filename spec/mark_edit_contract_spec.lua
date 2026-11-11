@@ -25,6 +25,19 @@ expect(not C.check(altered,plan.metadata),'unrelated new descriptor accepted')
 altered=F.clone(created);altered.marks.updated[3]=F.clone(altered.marks.updated[2]);altered.marks.updated[3].bookmarkId='second-new'
 expect(not C.check(altered,plan.metadata),'duplicate creation accepted')
 local deletion=C.make(codec,created,'delete',created.marks.updated[2])
+local styling=C.make(codec,created,'style',created.marks.updated[2],nil,2)
+expect(C.validate_body('style',styling.body) and C.validate_metadata(styling.metadata),'valid style plan rejected')
+local styled=F.clone(created);styled.marks.updated[2].style=2
+expect(C.check(styled,styling.metadata) and not C.check(created,styling.metadata),'style-only readback failed')
+for _i,name in ipairs({'colorStyle','markText','range','createTime','bookmarkId'}) do
+    local changed=F.clone(styled);changed.marks.updated[2][name]=name=='colorStyle' and 3 or 'changed'
+    expect(not C.check(changed,styling.metadata),'style confirmation hid another changed field: '..name)
+end
+local style_linked=F.clone(created);style_linked.thoughts.reviews[1].chapterUid=2;style_linked.thoughts.reviews[1].range=ref.range
+expect(pcall(C.make,codec,style_linked,'style',style_linked.marks.updated[2],nil,0),'style change blocked by linked thought')
+for _i,invalid in ipairs({-1,3,'2',true}) do expect(not pcall(C.make,codec,created,'style',created.marks.updated[2],nil,invalid),'invalid style accepted') end
+expect(not pcall(C.make,codec,created,'style',created.marks.updated[2],nil,1),'unchanged style dispatched')
+expect(not C.validate_body('style',{bookmarkId='new',style=2,colorStyle=0,range='1-2'}),'style write added source fields')
 expect(C.validate_body('delete',deletion.body) and C.check(snapshot,deletion.metadata),'exact deletion failed')
 expect(not C.check(created,deletion.metadata),'remaining mark confirmed deletion')
 local with_chapter=F.clone(created);with_chapter.marks.chapters[1]={chapterUid=2,title='Selected chapter'}
@@ -54,4 +67,10 @@ local credentials={vid='900000',accessToken='synthetic-access'}
 expect(not pcall(auth.write_my_highlight,auth,credentials,'delete',deletion.body) and calls==0,'missing claim sent')
 auth:write_my_highlight(credentials,'delete',deletion.body,function() claimed=true end)
 expect(calls==1,'write replayed')
+codec.request=function(_self,options)
+    calls=calls+1;expect(claimed and options.url=='https://i.weread.qq.com/book/updateBookmark','style wrote to removal path')
+    return codec:json_encode({succ=1}),200
+end
+auth:write_my_highlight(credentials,'style',styling.body,function() claimed=true end)
+expect(calls==2,'style write replayed')
 print('mark_edit_contract_spec: '..checks..' checks')

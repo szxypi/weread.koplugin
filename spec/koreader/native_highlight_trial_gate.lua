@@ -37,7 +37,15 @@ function M:advance(target)
         db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
         assert(row[1]=='create_pending' and tonumber(row[2])==1 and row[3]=='')
         for _i,id in ipairs(self.input.original_ids) do assert(id~=target) end
-        statement(db,'UPDATE trial SET phase=?,target=? WHERE id=1','delete',target);db:exec('COMMIT')
+        statement(db,'UPDATE trial SET phase=?,target=? WHERE id=1',self.input.styles and 'style0' or 'delete',target);db:exec('COMMIT')
+    end)
+end
+function M:advance_style(target,style)
+    assert(self.input.styles and Key(target) and (style==0 or style==2))
+    self:_run(function(db)
+        db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
+        assert(row[1]=='style'..style..'_pending' and tonumber(row[2])==(style==0 and 2 or 3) and row[3]==target)
+        statement(db,'UPDATE trial SET phase=? WHERE id=1',style==0 and 'style2' or 'delete');db:exec('COMMIT')
     end)
 end
 function M:claim(operation,body)
@@ -45,11 +53,17 @@ function M:claim(operation,body)
     return self:_run(function(db)
         db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
         local expected=self.input.create_body
+        local phase=operation;local posts=operation=='create' and 0 or self.input.styles and 3 or 1
+        if operation=='style' then
+            assert(self.input.styles and Key(row[3]) and (row[1]=='style0' or row[1]=='style2'))
+            local style=row[1]=='style0' and 0 or 2;phase=row[1];posts=style==0 and 1 or 2
+            expected={bookmarkId=row[3],style=style,colorStyle=self.input.create_body.colorStyle}
+        end
         if operation=='delete' then
             assert(Key(row[3]));expected={bookmarkIds={row[3]}}
             for _i,id in ipairs(self.input.original_ids) do assert(id~=row[3]) end
         end
-        assert(row[1]==operation and tonumber(row[2])==(operation=='create' and 0 or 1) and same(body,expected))
+        assert(row[1]==phase and tonumber(row[2])==posts and same(body,expected))
         local journal=require('weread.lib.mark_edit_service').new_journal(self.library,self.codec):read()
         assert(journal and journal.phase=='pending' and journal.metadata.operation==operation
             and journal.metadata.book_id==self.input.book_id and journal.metadata.request_hash==Contract.body_hash(body))
@@ -57,7 +71,7 @@ function M:claim(operation,body)
             assert(operation=='create' and tonumber(row[2])==0)
             statement(db,'UPDATE trial SET phase=?,preview=? WHERE id=1','blocked',self.codec:json_encode(body));db:exec('COMMIT');return false
         end
-        statement(db,'UPDATE trial SET phase=?,posts=posts+1 WHERE id=1',operation..'_pending');db:exec('COMMIT');return true
+        statement(db,'UPDATE trial SET phase=?,posts=posts+1 WHERE id=1',phase..'_pending');db:exec('COMMIT');return true
     end)
 end
 return M
