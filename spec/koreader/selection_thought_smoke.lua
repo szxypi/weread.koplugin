@@ -30,8 +30,25 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
     end
     if reopen then
         assert(require('weread.lib.mark_style').default(plugin.settings)==2,'fresh process lost the chosen default style')
+        assert(require('weread.lib.mark_color').default(plugin.settings)==3,'fresh process lost the chosen default color')
         pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)
         local own_display=plugin._personal_marks
+        local saved_marks=assert(require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client):read(id))
+        local saved_color=false
+        for _i,mark in ipairs(saved_marks.updated) do if mark.bookmarkId=='synthetic-display-offline' then saved_color=mark.colorStyle==5 end end
+        assert(saved_color,'fresh process lost the saved mark color')
+        assert(plugin:showMyCloudMarks(id));local color_owner=assert(plugin._my_marks_owner);local color_row=false
+        for _i,item in ipairs(color_owner.menu.item_table) do
+            if item.my_note_id=='synthetic-display-offline' then item.callback();color_row=true;break end
+        end
+        assert(color_row);local color_action=false
+        for _i,buttons in ipairs(color_owner.menu._shelf_popup.buttons_table) do
+            for _j,button in ipairs(buttons) do if button.id=='change_highlight_color' then button.callback();color_action=true;break end end
+            if color_action then break end
+        end
+        assert(color_action);UI:forceRePaint()
+        assert(color_owner.menu._shelf_popup.buttontable:getButtonById('highlight_color_5').enabled==false)
+        shot('highlight-color-offline-reopen');plugin:cancelMyCloudMarks();clean_popups(reader)
         assert(#own_display.records==1 and own_display.records[1].bookmarkId=='synthetic-display-offline','fresh offline process lost cached highlight')
         local origin=reader.document:getXPointer()
         reader.rolling:onGotoXPointer(own_display.records[1].pos0)

@@ -55,6 +55,7 @@ local defaults = {
     },
     offline_time = { enabled = false },
     cloud_highlight_style = 1,
+    cloud_highlight_color = 0,
     thought_popup = {
         -- Thought popup height as a fraction of the screen height.
         height_ratio = 0.70,

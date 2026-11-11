@@ -15,6 +15,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--styles',action='store_true')
     parser.add_argument('--initial-styles',action='store_true')
+    parser.add_argument('--colors',action='store_true')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0);source=None;saved=credentials=None;phase='init'
     try:
@@ -38,8 +39,13 @@ def main(argv=None):
                 plans.append(make(straight,'style',straight['marks']['updated'][-1],style=1))
             if args.initial_styles:
                 plans.extend(make(snapshot,'create',reference,metadata,style=value) for value in (0,2))
+            if args.colors:
+                plans.extend(make(snapshot,'create',reference,metadata,style=2,color=value) for value in range(6))
+                plans.extend(make(deletion_snapshot,'color',target,color=value) for value in range(1,6))
+                colored=deepcopy(deletion_snapshot);colored['marks']['updated'][-1].update(style=2,colorStyle=3)
+                plans.append(make(colored,'color',colored['marks']['updated'][-1],color=0))
             if args.lua_command:
-                phase='lua';payload=dict(snapshot=snapshot,deletion_snapshot=deletion_snapshot,reference=reference,target=target,metadata=metadata,styles=args.styles,initial_styles=args.initial_styles)
+                phase='lua';payload=dict(snapshot=snapshot,deletion_snapshot=deletion_snapshot,reference=reference,target=target,metadata=metadata,styles=args.styles,initial_styles=args.initial_styles,colors=args.colors)
                 child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=60)
                 frame=b'\nWEREAD_HIGHLIGHT_CONTRACT_RESULT='
                 if child.returncode or len(child.stdout)>4*1024*1024 or child.stdout.count(frame)!=1:raise ValueError('mark_edit/lua')
@@ -48,7 +54,7 @@ def main(argv=None):
                 report['python_lua_match']=True
             phase='final';source.baseline(credentials,'highlight_contract_final');save_refreshed_web_session(session,saved,source.web)
             report.update(result='PASS',plans=len(plans),original_state_unchanged=True,no_intent_created=True,deletion_plan_uses_hypothetical_new_record=True,
-                style_plans_use_hypothetical_new_record=args.styles,initial_style_values=[1,0,2] if args.initial_styles else [1])
+                style_plans_use_hypothetical_new_record=args.styles,initial_style_values=[1,0,2] if args.initial_styles else [1],color_values=list(range(6)) if args.colors else [])
         elif args.lua_command:raise ValueError('mark_edit/offline')
     except Exception as exc:report.update(result='UNVERIFIED',phase=phase,error_type=type(exc).__name__)
     finally:

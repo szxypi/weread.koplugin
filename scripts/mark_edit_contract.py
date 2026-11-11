@@ -1,7 +1,7 @@
 """Independent highlight postconditions; no transport or account persistence."""
 from copy import deepcopy
 from thought_edit_contract import digest,snapshot_hash as thoughts_hash
-from initial_mark_style_model import create_body
+from mark_color_model import create_body,color_body
 from bookmark_reference import validate as bookmark_reference
 from bookmark_point import point_range
 from my_cloud_marks_model import integer
@@ -51,7 +51,7 @@ def disjoint(rows,reference,*,ignore_bookmarks=False):
     return True
 
 
-def make(snapshot,operation,reference,metadata=None,*,style=None):
+def make(snapshot,operation,reference,metadata=None,*,style=None,color=None):
     book=snapshot['book_id'];marks=snapshot['marks'];notes=snapshot['thoughts']
     if operation in CREATING:
         if operation=='bookmark_create':
@@ -66,8 +66,8 @@ def make(snapshot,operation,reference,metadata=None,*,style=None):
         if operation=='bookmark_create':
             if not integer(version,2147483647) or version==0:raise ValueError('mark_edit/metadata')
             body=dict(bookId=book,chapterUid=row['chapterUid'],bookVersion=version,type=0,style=0,range=row['range'],markText=row['markText'])
-        else:body=create_body(dict(bookId=book,chapterUid=row['chapterUid'],bookVersion=version,range=row['range'],abstract=row['markText']),1 if style is None else style)
-    elif operation in DELETING or operation=='style':
+        else:body=create_body(dict(bookId=book,chapterUid=row['chapterUid'],bookVersion=version,range=row['range'],abstract=row['markText']),1 if style is None else style,0 if color is None else color)
+    elif operation in DELETING or operation in ('style','color'):
         row=next((r for r in marks['updated'] if r['bookmarkId']==reference['bookmarkId']),None)
         if row is None or row_hash(row)!=row_hash(reference):raise ValueError('mark_edit/changed')
         if operation=='bookmark_delete':
@@ -75,18 +75,19 @@ def make(snapshot,operation,reference,metadata=None,*,style=None):
             point_range(row.get('range'))
         elif row.get('type')!=1:raise ValueError('mark_edit/changed')
         if operation in DELETING:body=dict(bookmarkIds=[row['bookmarkId']])
-        else:
+        elif operation=='style':
             from mark_style_trial_model import style_body
             body=style_body(row,style)
             if style==row.get('style'):raise ValueError('mark_edit/unchanged')
+        else:body=color_body(row,color)
     else:raise ValueError('mark_edit/operation')
     if operation in ('create','delete') and not disjoint(notes['reviews'],row):raise ValueError('mark_edit/linked_thought')
     after=''
     if operation in DELETING:after=rows_hash(marks['updated'],row['bookmarkId'])
-    elif operation=='style':
+    elif operation in ('style','color'):
         rows=deepcopy(marks['updated'])
         for value in rows:
-            if value['bookmarkId']==row['bookmarkId']:value['style']=style
+            if value['bookmarkId']==row['bookmarkId']:value['style' if operation=='style' else 'colorStyle']=style if operation=='style' else color
         after=rows_hash(rows)
     uid=str(row['chapterUid'])
     return dict(snapshot=deepcopy(snapshot),body=body,metadata=dict(book_id=book,operation=operation,target_id=row['bookmarkId'],
@@ -102,7 +103,7 @@ def check(snapshot,metadata):
     if snapshot['book_id']!=metadata['book_id']:raise ValueError('mark_edit/book')
     marks=snapshot['marks']
     if thoughts_hash(snapshot['thoughts'])!=metadata['thoughts_hash']:return False,None
-    if metadata['operation'] in DELETING or metadata['operation']=='style' or metadata['chapter_present']:
+    if metadata['operation'] in DELETING or metadata['operation'] in ('style','color') or metadata['chapter_present']:
         if chapters_hash(marks['chapters'])!=metadata['chapters_hash']:
             # Real empty-book roundtrip: deleting the chapter's last mark also
             # removes its derived descriptor. Every other descriptor and every
@@ -113,7 +114,7 @@ def check(snapshot,metadata):
                 and not any(str(r.get('chapterUid'))==metadata['chapter_uid'] for r in marks['updated']))
             if not removed_empty:return False,None
     elif chapters_hash(marks['chapters'],metadata['chapter_uid'])!=metadata['chapter_without_hash']:return False,None
-    if metadata['operation'] in DELETING or metadata['operation']=='style':return rows_hash(marks['updated'])==metadata['after_hash'],None
+    if metadata['operation'] in DELETING or metadata['operation'] in ('style','color'):return rows_hash(marks['updated'])==metadata['after_hash'],None
     bookmark=metadata['operation']=='bookmark_create'
     chosen=[r['bookmarkId'] for r in marks['updated'] if (not bookmark or
             (r.get('style') is None or type(r['style']) is int and r['style']==0)

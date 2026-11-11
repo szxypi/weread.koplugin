@@ -8,6 +8,7 @@ local Editor=require('weread.ui.thought_editor')
 local Popup=require('weread.ui.shelf_popup')
 local Marks=require('weread.lib.my_cloud_marks')
 local Style=require('weread.lib.mark_style')
+local Color=require('weread.lib.mark_color')
 local _=require('weread.lib.plugin_util').tr
 local M={KEY='04_weread_private_thought'}
 local function current(host,owner)
@@ -52,20 +53,26 @@ render=function(host,owner)
             if current(host,owner) then Editor.start(host,owner,'create',owner.reference,current,render) end
         end} end
         if not owner.bookmarks then
-            items[#items+1]={text=_('Default highlight style'),mandatory=_(Style.labels[Style.default(host.settings)]),callback=function()
-                if not current(host,owner) then return end
-                local choices,dialog={}
-                for _i,style in ipairs(Style.values) do
-                    choices[#choices+1]={{id='default_highlight_style_'..style,
-                        text=_(Style.labels[style])..(Style.default(host.settings)==style and ' ✓' or ''),callback=function()
-                        if not current(host,owner) or not Popup.current(owner.menu,dialog) then return end
-                        host.settings:set('cloud_highlight_style',style);host.settings:flush()
-                        Popup.close(owner.menu);render(host,owner)
-                    end}}
-                end
-                dialog=require('ui/widget/buttondialog'):new{title=_('Default highlight style'),buttons=choices}
-                Popup.show(owner.menu,dialog)
-            end}
+            for _i,preference in ipairs({
+                {model=Style,key='cloud_highlight_style',label='Default highlight style',prefix='default_highlight_style_'},
+                {model=Color,key='cloud_highlight_color',label='Default highlight color',prefix='default_highlight_color_'},
+            }) do
+                local choice=preference
+                items[#items+1]={text=_(choice.label),mandatory=_(choice.model.labels[choice.model.default(host.settings)]),callback=function()
+                    if not current(host,owner) then return end
+                    local choices,dialog={}
+                    for _j,value in ipairs(choice.model.values) do
+                        choices[#choices+1]={{id=choice.prefix..value,
+                            text=_(choice.model.labels[value])..(choice.model.default(host.settings)==value and ' ✓' or ''),callback=function()
+                            if not current(host,owner) or not Popup.current(owner.menu,dialog) then return end
+                            host.settings:set(choice.key,value);host.settings:flush()
+                            Popup.close(owner.menu);render(host,owner)
+                        end}}
+                    end
+                    dialog=require('ui/widget/buttondialog'):new{title=_(choice.label),buttons=choices}
+                    Popup.show(owner.menu,dialog)
+                end}
+            end
         end
     else items[#items+1]={text=_(owner.bookmarks and 'Checking bookmark position…' or 'Checking selected text…'),select_enabled=false} end
     if not owner.bookmarks then

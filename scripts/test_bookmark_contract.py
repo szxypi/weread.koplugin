@@ -73,8 +73,8 @@ class BookmarkContractTests(unittest.TestCase):
         import verify_native_thought_trial as task
         from unittest.mock import Mock
         for native in (False,True):
-            with patch.object(task,'AnnotationExperimentStore') as a,patch.object(task,'FinishExperimentStore') as f,patch.object(task,'ShelfExperimentStore') as s,patch.object(task,'PositionExperimentStore') as p,patch.object(task,'HighlightTrialStore') as h,patch.object(task,'MarkStyleTrialStore') as styles,patch.object(task,'BookmarkTrialStore') as bookmarks,patch.object(task,'NativeShelfTrialStore') as shelf_trial,patch.object(task,'NativeFinishTrialStore') as finish_trial,patch.object(task,'InitialMarkStyleStore') as initial:
-                initial.return_value.read.return_value=(None,None)
+            with patch.object(task,'AnnotationExperimentStore') as a,patch.object(task,'FinishExperimentStore') as f,patch.object(task,'ShelfExperimentStore') as s,patch.object(task,'PositionExperimentStore') as p,patch.object(task,'HighlightTrialStore') as h,patch.object(task,'MarkStyleTrialStore') as styles,patch.object(task,'BookmarkTrialStore') as bookmarks,patch.object(task,'NativeShelfTrialStore') as shelf_trial,patch.object(task,'NativeFinishTrialStore') as finish_trial,patch.object(task,'InitialMarkStyleStore') as initial,patch.object(task,'MarkColorStore') as colors:
+                initial.return_value.read.return_value=colors.return_value.read.return_value=(None,None)
                 finish_trial.return_value.pending.return_value=False
                 shelf_trial.return_value.pending.return_value=False
                 styles.return_value.read.return_value=h.return_value.read.return_value=(None,None)

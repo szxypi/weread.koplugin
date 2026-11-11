@@ -40,8 +40,10 @@ class Plan:
 
 
 class AnnotationProbe(NativeProbe):
-    def __init__(self,opener=None,sleep=time.sleep):
+    def __init__(self,opener=None,sleep=time.sleep,*,max_gets=80):
+        if type(max_gets) is not int or not 1<=max_gets<=280:raise ValueError('annotation_experiment_budget')
         super().__init__(opener);self.identity=None;self.grant=None;self.plan=None;self.original=None;self.gets=0;self.sleep=sleep;self.dispatch=None;self.store=None;self.receipt=None;self.created_id=None;self.confirmed=False;self.last_request=0;self.prior_posts=0
+        self.max_gets=max_gets
         self.report.update(data_writes_attempted=0,authentication_posts_attempted=0,steps_verified=[],receipt_shapes=[])
 
     def request(self,stage,url,body=None,credentials=None,timeout=15):
@@ -52,7 +54,7 @@ class AnnotationProbe(NativeProbe):
             allowed.update({query(self.identity),BASE+'/book/bookmarklist?'+urlencode(dict(bookId=self.identity,synckey=0)),
                             BASE+'/book/info?'+urlencode(dict(bookId=self.identity)),BASE+'/book/getProgress?'+urlencode(dict(bookId=self.identity))})
         if body is None:
-            if url not in allowed or self.gets>=80:raise ValueError('annotation_experiment_request')
+            if url not in allowed or self.gets>=self.max_gets:raise ValueError('annotation_experiment_request')
             self.gets+=1
         else:
             if (not self.confirmed or self.dispatch is None or (stage,url,digest(body))!=self.dispatch[:3]

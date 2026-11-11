@@ -19,6 +19,22 @@ def fixture():
 
 
 class ContractTests(unittest.TestCase):
+    def test_all_colors_preserve_style_source_and_independent_postconditions(self):
+        old,ref,new=fixture();target=new['marks']['updated'][1]
+        for color in range(6):
+            initial=make(old,'create',ref,dict(bookId='41',version=77),style=2,color=color)
+            after=deepcopy(new);after['marks']['updated'][1].update(style=2,colorStyle=color)
+            self.assertEqual(check(after,initial['metadata']),(True,'new'))
+            wanted=color or 1;changed=make(new,'color',target,color=wanted)
+            self.assertEqual(changed['body'],dict(bookmarkId='new',style=1,colorStyle=wanted))
+            after=deepcopy(new);after['marks']['updated'][1]['colorStyle']=wanted
+            self.assertEqual(check(after,changed['metadata']),(True,None))
+            for field,value in [('style',2),('range','1-90'),('markText','Changed'),('createTime',123)]:
+                bad=deepcopy(after);bad['marks']['updated'][1][field]=value
+                with self.subTest(field=field):self.assertFalse(check(bad,changed['metadata'])[0])
+        for color in (True,-1,6,'2',1.5):
+            with self.assertRaises(ValueError):make(new,'color',target,color=color)
+        with self.assertRaises(ValueError):make(new,'color',target,color=0)
     def test_initial_style_is_in_request_match_hash_and_readback(self):
         old,ref,new=fixture();hashes=set()
         for style in (0,1,2):

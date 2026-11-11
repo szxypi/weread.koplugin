@@ -54,30 +54,36 @@ local function context(host,owner,current,redraw)
     ctx.service=Service:new{settings=host.settings,client=host.client,scheduler=UI,journal=journal,cache=cache}
     owner.mark_editor=ctx;return ctx
 end
-function M.start(host,owner,operation,reference,current,redraw,style)
-    if not current(host,owner) or operation~='create' and operation~='delete' and operation~='style'
+function M.start(host,owner,operation,reference,current,redraw,style,color)
+    if not current(host,owner) or operation~='create' and operation~='delete' and operation~='style' and operation~='color'
         and operation~='bookmark_create' and operation~='bookmark_delete' then return false end
     local bookmark=operation=='bookmark_create' or operation=='bookmark_delete'
-    if operation=='create' then style=require('weread.lib.mark_style').default(host.settings) end
+    if operation=='create' then
+        style=require('weread.lib.mark_style').default(host.settings)
+        color=require('weread.lib.mark_color').default(host.settings)
+    end
     if not host:isNetworkOnline() then host:showOffline(_(bookmark and 'Bookmark' or 'Highlight'));return false end
     local ctx=context(host,owner,current,redraw)
     busy(ctx,bookmark and 'Checking bookmark position…' or 'Checking this highlight…')
-    local started,reason=ctx.service:prepare({book_id=owner.id,operation=operation,reference=reference,style=style,
+    local started,reason=ctx.service:prepare({book_id=owner.id,operation=operation,reference=reference,style=style,color=color,
         source_file=owner.source_file or host.ui and host.ui.document and host.ui.document.file},function() return alive(ctx) end,function(plan,why)
         if not alive(ctx) then return end
         if not plan then failure(ctx,why);return end
         local title=operation=='bookmark_create' and 'Save this cloud bookmark?' or operation=='bookmark_delete' and 'Delete this cloud bookmark?'
-            or operation=='create' and 'Save this highlight?' or operation=='style' and 'Change this highlight style?' or 'Delete this highlight?'
+            or operation=='create' and 'Save this highlight?' or operation=='style' and 'Change this highlight style?'
+            or operation=='color' and 'Change this highlight color?' or 'Delete this highlight?'
         local text=_(operation=='create' and 'Save the quoted text as a WeRead highlight.' or
             'This deletes only the selected highlight from WeRead. Highlights linked to your thoughts cannot be deleted here.')
         if operation=='style' then text=_('Change the style while keeping its saved color setting and quoted text.')..'\n\n'.._(require('weread.lib.mark_style').labels[style]) end
-        if operation=='create' then text=text..'\n\n'.._(require('weread.lib.mark_style').labels[style]) end
+        if operation=='color' then text=_('Change the color while keeping its saved style and quoted text.')..'\n\n'.._(require('weread.lib.mark_color').labels[color]) end
+        if operation=='create' then text=text..'\n\n'.._(require('weread.lib.mark_style').labels[style])..' · '.._(require('weread.lib.mark_color').labels[color]) end
         if bookmark then text=_(operation=='bookmark_create' and 'Save this original-page position as a WeRead bookmark.'
             or 'Delete only this cloud bookmark. Your highlights and thoughts are kept.') end
         text=text..'\n\n'..(type(reference.markText)=='string' and reference.markText or '')
         local dialog
         dialog=show(ctx,title,text,{{{id='confirm_highlight_change',text=_(operation=='bookmark_create' and 'Save cloud bookmark'
-            or operation=='bookmark_delete' and 'Delete cloud bookmark' or operation=='create' and 'Save highlight' or operation=='style' and 'Change highlight style' or 'Delete highlight'),callback=function()
+            or operation=='bookmark_delete' and 'Delete cloud bookmark' or operation=='create' and 'Save highlight' or operation=='style' and 'Change highlight style'
+            or operation=='color' and 'Change highlight color' or 'Delete highlight'),callback=function()
             if not alive(ctx) or not Popup.current(owner.menu,dialog) then return end
             busy(ctx,bookmark and 'Saving cloud bookmark…' or 'Saving this highlight…')
             local sent,err=ctx.service:commit(plan,function(result,finished)

@@ -349,13 +349,14 @@ class MockServer(ThreadingHTTPServer):
                     with self.lock:self.bookmark_posts+=1
                     return 200,'' if control['selection_thought_mode']=='empty' else result
                 # Two fresh initial-style roundtrips plus the original six
-                # composite dispatches. Specialized trial servers bound less.
-                if query or self.highlight_posts>=10:raise ValueError('invalid highlight scope')
+                # composite dispatches, six color updates and one unknown
+                # color receipt. Specialized trial servers bound less.
+                if query or self.highlight_posts>=17:raise ValueError('invalid highlight scope')
                 if path=='/book/addBookmark':
                     required={'bookId','chapterUid','bookVersion','type','style','colorStyle','range','markText'}
                     if (set(data)!=required or data['bookId']!=BOOK_ID or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style','colorStyle'))
                             or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=700
-                            or data['type']!=1 or data['style'] not in (0,1,2) or data['colorStyle']!=0):raise ValueError('invalid highlight body')
+                            or data['type']!=1 or data['style'] not in (0,1,2) or data['colorStyle'] not in (0,1,2,3,4,5)):raise ValueError('invalid highlight body')
                     from annotation_source_quotes import SourceQuotes
                     if SourceQuotes(self.chapter_source(data['chapterUid']),body_only=True).quote(data['range']).strip()!=data['markText']:raise ValueError('invalid highlight source')
                     identity='synthetic-new-highlight-'+str(self.highlight_posts+1)

@@ -23,7 +23,7 @@ package.preload['weread.lib.selection_reference']=function() return {
 package.preload['weread.lib.memory_worker']=function() return {new=function() return {
     start=function(_self,job,done) done(job());return true end,cancel=function() end,
 } end} end
-local Style=require('weread.lib.mark_style');local Selection=require('weread.ui.selection_thought')
+local Style=require('weread.lib.mark_style');local Color=require('weread.lib.mark_color');local Selection=require('weread.ui.selection_thought')
 local document={file='/synthetic.epub',location={page=1},getNormalizedXPointer=function() return '/text()' end}
 local account='account-a';local scope=true
 local host={ui={document=document,view={view_mode='page'}},_reader_session_gen=1,discovery_epoch=2,
@@ -39,14 +39,14 @@ local function open()
     local work=queued;queued={};for _i,callback in ipairs(work) do callback() end
     return assert(host._selection_thought_owner)
 end
-local function chooser(owner)
+local function chooser(owner,label)
     for _i,row in ipairs(owner.menu.item_table) do
-        if row.text=='Default highlight style' then row.callback();return owner.menu._shelf_popup,row end
+        if row.text==(label or 'Default highlight style') then row.callback();return owner.menu._shelf_popup,row end
     end
     error('missing default style row')
 end
-local function button(dialog,style)
-    for _i,row in ipairs(dialog.buttons) do if row[1].id=='default_highlight_style_'..style then return row[1] end end
+local function button(dialog,style,prefix)
+    for _i,row in ipairs(dialog.buttons) do if row[1].id==(prefix or 'default_highlight_style_')..style then return row[1] end end
     error('missing default style button')
 end
 local checks=0;local function expect(value,label) checks=checks+1;assert(value,label) end
@@ -58,8 +58,17 @@ for _i,style in ipairs({0,2,1}) do
     expect(preferences.cloud_highlight_style==style and writes==_i and flushes==_i,'default not saved once')
     expect(not owner.menu._shelf_popup,'style popup not dismissed')
 end
-for _i,kind in ipairs({'account','session','scope','mode','location','document','closed','popup'}) do
-    local owner=open();local dialog=chooser(owner);local callback=button(dialog,2).callback
+for index,color in ipairs(Color.values) do
+    local owner=open();local dialog,row=chooser(owner,'Default highlight color')
+    expect(row.mandatory==Color.labels[Color.default(host.settings)] and #dialog.buttons==6,'color palette/current value not displayed')
+    button(dialog,color,'default_highlight_color_').callback()
+    expect(preferences.cloud_highlight_color==color and writes==3+index and flushes==3+index,'color preference not saved once')
+end
+for _i,is_color in ipairs({false,true}) do
+for _j,kind in ipairs({'account','session','scope','mode','location','document','closed','popup'}) do
+    local owner=open()
+    local dialog=chooser(owner,is_color and 'Default highlight color' or nil)
+    local callback=button(dialog,2,is_color and 'default_highlight_color_' or nil).callback
     local before=writes
     if kind=='account' then account='account-b'
     elseif kind=='session' then host._reader_session_gen=2
@@ -72,7 +81,12 @@ for _i,kind in ipairs({'account','session','scope','mode','location','document',
     callback();expect(writes==before,'stale chooser changed preference after '..kind)
     account='account-a';host._reader_session_gen=1;scope=true;host.ui.view.view_mode='page';document.location={page=1};host.ui.document=document
 end
+end
 preferences.cloud_highlight_style='invalid'
 local owner=open();local _dialog,row=chooser(owner)
 expect(_dialog and row.mandatory==Style.labels[1],'invalid saved style was displayed')
+for _i,value in ipairs({-1,6,'3',true,.5}) do
+    preferences.cloud_highlight_color=value;expect(Color.default(host.settings)==0,'invalid color did not fall back')
+end
+expect(not Color.editable{type=1,style=99,colorStyle=1} and not Color.editable{type=0,style=0,colorStyle=0},'unknown style or point bookmark exposed color editing')
 print('default_highlight_style_spec: '..checks..' checks')

@@ -127,8 +127,8 @@ class NativeBookmarkTests(unittest.TestCase):
     def test_other_scope_still_blocks_when_native_bookmark_is_explicitly_excluded(self):
         import verify_native_thought_trial as shared
         for native in (False,True):
-            with patch.object(shared,'AnnotationExperimentStore') as a,patch.object(shared,'FinishExperimentStore') as f,patch.object(shared,'ShelfExperimentStore') as s,patch.object(shared,'PositionExperimentStore') as pos,patch.object(shared,'HighlightTrialStore') as h,patch.object(shared,'MarkStyleTrialStore') as styles,patch.object(shared,'BookmarkTrialStore') as bookmarks,patch.object(shared,'NativeShelfTrialStore') as shelf_trial,patch.object(shared,'NativeFinishTrialStore') as finish_trial,patch.object(shared,'InitialMarkStyleStore') as initial:
-                initial.return_value.read.return_value=(None,None)
+            with patch.object(shared,'AnnotationExperimentStore') as a,patch.object(shared,'FinishExperimentStore') as f,patch.object(shared,'ShelfExperimentStore') as s,patch.object(shared,'PositionExperimentStore') as pos,patch.object(shared,'HighlightTrialStore') as h,patch.object(shared,'MarkStyleTrialStore') as styles,patch.object(shared,'BookmarkTrialStore') as bookmarks,patch.object(shared,'NativeShelfTrialStore') as shelf_trial,patch.object(shared,'NativeFinishTrialStore') as finish_trial,patch.object(shared,'InitialMarkStyleStore') as initial,patch.object(shared,'MarkColorStore') as colors:
+                initial.return_value.read.return_value=colors.return_value.read.return_value=(None,None)
                 finish_trial.return_value.pending.return_value=False
                 shelf_trial.return_value.pending.return_value=False
                 for factory in (a,f,s,pos):factory.return_value.pending.return_value=False

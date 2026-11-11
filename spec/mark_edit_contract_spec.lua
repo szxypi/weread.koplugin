@@ -40,6 +40,21 @@ altered=F.clone(created);altered.marks.updated[3]=F.clone(altered.marks.updated[
 expect(not C.check(altered,plan.metadata),'duplicate creation accepted')
 local deletion=C.make(codec,created,'delete',created.marks.updated[2])
 local styling=C.make(codec,created,'style',created.marks.updated[2],nil,2)
+for color=0,5 do
+    local initial=C.make(codec,snapshot,'create',ref,{bookId='900001',version=77},2,color)
+    local observed=F.clone(created);observed.marks.updated[2].style=2;observed.marks.updated[2].colorStyle=color
+    expect(C.check(observed,initial.metadata),'initial palette value not bound to readback')
+    local changed=C.make(codec,created,'color',created.marks.updated[2],nil,nil,color==0 and 1 or color)
+    local expected=F.clone(created);expected.marks.updated[2].colorStyle=color==0 and 1 or color
+    expect(changed.body.style==1 and C.check(expected,changed.metadata),'color update did not preserve style')
+    expected.marks.updated[2].style=2
+    expect(not C.check(expected,changed.metadata),'color update hid a style change')
+end
+for _i,invalid in ipairs({-1,6,'2',true,.5}) do
+    expect(not pcall(C.make,codec,created,'color',created.marks.updated[2],nil,nil,invalid),'invalid color accepted')
+    expect(not pcall(C.make,codec,snapshot,'create',ref,{bookId='900001',version=77},1,invalid),'invalid initial color accepted')
+end
+expect(not pcall(C.make,codec,created,'color',created.marks.updated[2],nil,nil,0),'unchanged color dispatched')
 expect(C.validate_body('style',styling.body) and C.validate_metadata(styling.metadata),'valid style plan rejected')
 local styled=F.clone(created);styled.marks.updated[2].style=2
 expect(C.check(styled,styling.metadata) and not C.check(created,styling.metadata),'style-only readback failed')
@@ -87,4 +102,6 @@ codec.request=function(_self,options)
 end
 auth:write_my_highlight(credentials,'style',styling.body,function() claimed=true end)
 expect(calls==2,'style write replayed')
+auth:write_my_highlight(credentials,'color',{bookmarkId='new',style=1,colorStyle=3},function() claimed=true end)
+expect(calls==3,'color write replayed or used wrong path')
 print('mark_edit_contract_spec: '..checks..' checks')

@@ -8,6 +8,7 @@ local Bookmark=require('weread.lib.bookmark_reference')
 local Point=require('weread.lib.bookmark_point')
 local Protocol=require('weread.lib.protocol')
 local Style=require('weread.lib.mark_style')
+local Color=require('weread.lib.mark_color')
 local M={}
 local ROW={'bookmarkId','markText','abstract','range','chapterUid','chapterIdx','type','style','colorStyle','createTime'}
 local MATCH={'markText','range','chapterUid','type','style','colorStyle'}
@@ -52,6 +53,7 @@ local function disjoint(rows,reference,ignore_bookmarks)
 end
 local function creating(operation) return operation=='create' or operation=='bookmark_create' end
 local function deleting(operation) return operation=='delete' or operation=='bookmark_delete' end
+local function updating(operation) return operation=='style' or operation=='color' end
 local function preview(value)
     return type(value)=='string' and #value>0 and #value<=4096 and Protocol.utf8_substr(value,#value)==value
         and not value:find('[%z\1-\8\11\12\14-\31\127]') and require('weread.lib.source_dom').normalize(value)~=''
@@ -66,13 +68,13 @@ function M.validate_body(operation,body)
         if operation=='bookmark_create' then
             allowed.colorStyle=nil
             if body.type~=0 or body.style~=0 or Point.point(body.range)==nil or not preview(body.markText) then return false end
-        elseif body.type~=1 or not Style.valid(body.style) or body.colorStyle~=0
+        elseif body.type~=1 or not Style.valid(body.style) or not Color.valid(body.colorStyle)
             or not Base.valid_content(body.markText) or #body.markText>4096 or not range(body) then return false end
     elseif deleting(operation) then
         allowed={bookmarkIds=true}
         if type(body.bookmarkIds)~='table' or #body.bookmarkIds~=1 or not Base.key(body.bookmarkIds[1]) then return false end
         for k in pairs(body.bookmarkIds) do if k~=1 then return false end end
-    elseif operation=='style' then
+    elseif updating(operation) then
         allowed={bookmarkId=true,style=true,colorStyle=true}
         if not Base.key(body.bookmarkId) or not Style.valid(body.style) or not integer(body.colorStyle,5) then return false end
     else return false end
@@ -83,10 +85,10 @@ function M.body_hash(body)
     if body.bookmarkIds then return Base.digest({'remove-mark-v1',body.bookmarkIds[1]}) end
     return Base.body_hash(body)
 end
-function M.make(client,snapshot,operation,reference,metadata,style)
+function M.make(client,snapshot,operation,reference,metadata,style,color)
     local book=type(snapshot)=='table' and snapshot.book_id
     snapshot=Data.validate(client,snapshot,book)
-    if not Marks.id(book) or not creating(operation) and not deleting(operation) and operation~='style' or type(reference)~='table' then fail('operation') end
+    if not Marks.id(book) or not creating(operation) and not deleting(operation) and not updating(operation) or type(reference)~='table' then fail('operation') end
     local row,body
     if creating(operation) then
         if operation=='bookmark_create' then
@@ -100,7 +102,7 @@ function M.make(client,snapshot,operation,reference,metadata,style)
         row=reference
         if type(metadata)~='table' or tostring(metadata.bookId)~=book then fail('metadata') end
         body={bookId=book,chapterUid=row.chapterUid,bookVersion=metadata.bookVersion or metadata.version,
-            type=1,style=style==nil and 1 or style,colorStyle=0,range=row.range,markText=row.markText}
+            type=1,style=style==nil and 1 or style,colorStyle=color==nil and 0 or color,range=row.range,markText=row.markText}
         if operation=='bookmark_create' then body.type=0;body.style=0;body.colorStyle=nil end
     else
         for _i,v in ipairs(snapshot.marks.updated) do if v.bookmarkId==reference.bookmarkId then row=v end end
@@ -110,9 +112,12 @@ function M.make(client,snapshot,operation,reference,metadata,style)
         elseif row.type~=1 or not range(row) then fail('changed') end
         if deleting(operation) then
             body={bookmarkIds=client:json_decode('[]')};body.bookmarkIds[1]=row.bookmarkId
-        else
+        elseif operation=='style' then
             if not Style.editable(row) or not Style.valid(style) or style==row.style then fail('style') end
             body={bookmarkId=row.bookmarkId,style=style,colorStyle=row.colorStyle}
+        else
+            if not Color.editable(row) or not Color.valid(color) or color==row.colorStyle then fail('color') end
+            body={bookmarkId=row.bookmarkId,style=row.style,colorStyle=color}
         end
     end
     if (operation=='create' or operation=='delete') and not disjoint(snapshot.thoughts.reviews,row) then fail('linked_thought') end
@@ -121,11 +126,14 @@ function M.make(client,snapshot,operation,reference,metadata,style)
     for _i,v in ipairs(snapshot.marks.chapters) do if tostring(v.chapterUid)==uid then present=1 end end
     local after=''
     if deleting(operation) then after=rows_hash(snapshot.marks.updated,row.bookmarkId)
-    elseif operation=='style' then
+    elseif updating(operation) then
         local rows={}
         for _i,value in ipairs(snapshot.marks.updated) do
             local copy={};for k,v in pairs(value) do copy[k]=v end
-            if value.bookmarkId==row.bookmarkId then copy.style=style end;rows[#rows+1]=copy
+            if value.bookmarkId==row.bookmarkId then
+                if operation=='style' then copy.style=style else copy.colorStyle=color end
+            end
+            rows[#rows+1]=copy
         end
         after=rows_hash(rows)
     end
@@ -138,20 +146,20 @@ function M.make(client,snapshot,operation,reference,metadata,style)
 end
 function M.validate_metadata(value)
     if type(value)~='table' or not Marks.id(value.book_id) or not Marks.id(value.chapter_uid) or not Base.key(value.target_id)
-        or not creating(value.operation) and not deleting(value.operation) and value.operation~='style' or not integer(value.chapter_present,1) then return false end
+        or not creating(value.operation) and not deleting(value.operation) and not updating(value.operation) or not integer(value.chapter_present,1) then return false end
     local allowed={};for _i,k in ipairs(META) do allowed[k]=true;if value[k]==nil then return false end end
     for k in pairs(value) do if not allowed[k] then return false end end
     for _i,k in ipairs({'before_hash','reference_hash','request_hash','thoughts_hash','chapters_hash','chapter_without_hash'}) do
         if not Base.hash(value[k]) then return false end
     end
     return creating(value.operation) and value.after_hash=='' and Base.hash(value.match_hash)
-        or (deleting(value.operation) or value.operation=='style') and Base.hash(value.after_hash) and value.match_hash==''
+        or (deleting(value.operation) or updating(value.operation)) and Base.hash(value.after_hash) and value.match_hash==''
 end
 function M.check(snapshot,metadata)
     if not M.validate_metadata(metadata) or snapshot.book_id~=metadata.book_id then fail('metadata') end
     if Base.snapshot_hash(snapshot.thoughts)~=metadata.thoughts_hash then return false end
     local chapters=chapters_hash(snapshot.marks.chapters)
-    if deleting(metadata.operation) or metadata.operation=='style' or metadata.chapter_present==1 then
+    if deleting(metadata.operation) or updating(metadata.operation) or metadata.chapter_present==1 then
         if chapters~=metadata.chapters_hash then
             -- Verified real last-mark lifecycle: the server may remove this
             -- chapter's derived descriptor too. No remaining mark may use it;
@@ -162,7 +170,7 @@ function M.check(snapshot,metadata)
             for _i,row in ipairs(snapshot.marks.updated) do if tostring(row.chapterUid)==metadata.chapter_uid then return false end end
         end
     elseif chapters_hash(snapshot.marks.chapters,metadata.chapter_uid)~=metadata.chapter_without_hash then return false end
-    if deleting(metadata.operation) or metadata.operation=='style' then return rows_hash(snapshot.marks.updated)==metadata.after_hash end
+    if deleting(metadata.operation) or updating(metadata.operation) then return rows_hash(snapshot.marks.updated)==metadata.after_hash end
     local chosen,count=nil,0
     for _i,row in ipairs(snapshot.marks.updated) do
         local bookmark=metadata.operation=='bookmark_create'

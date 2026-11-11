@@ -15,7 +15,8 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
         if op then
             assert(tonumber(require('ffi').C.getpid())~=parent,'highlight write blocked native UI')
             local intent=assert(Journal:read());local body=Json.decode(options.body)
-            assert(intent.phase=='pending' and intent.metadata.operation==op and intent.metadata.request_hash==require('weread.lib.mark_edit_contract').body_hash(body))
+            local expected=op=='style' and (intent.metadata.operation=='style' or intent.metadata.operation=='color') or intent.metadata.operation==op
+            assert(intent.phase=='pending' and expected and intent.metadata.request_hash==require('weread.lib.mark_edit_contract').body_hash(body))
             assert(options.sensitive and options.skip_cookie and options.persist_response_cookies==false and not options.headers.Cookie)
         end
         return transport(self,options)
@@ -93,6 +94,8 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
         shot('personal-highlight-style-'..style)
         assert(plugin:showMyCloudMarks(plugin:detectWeReadBook()));owner=assert(plugin._my_marks_owner)
     end
+    extra=extra+dofile('/source/spec/koreader/mark_color_smoke.lua')(reader,plugin,pump,shot,clean_popups,tap,request,same,created)
+    assert(plugin:showMyCloudMarks(plugin:detectWeReadBook()));owner=assert(plugin._my_marks_owner)
     select(created);tap(owner,'delete_highlight');wait_preview();shot('highlight-native-delete')
     request('/__control',{selection_thought_mode='empty'});tap(owner,'confirm_highlight_change');notice()
     state=request('/__state');assert(state.highlight_posts==extra+4 and same(state.selection_marks,original) and Journal:read().phase=='idle')
@@ -130,11 +133,12 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)
     assert(display.available(plugin)==false,'unsupported synthetic saved mark was displayed')
     plugin.settings:set('cloud_highlight_style',2);plugin.settings:flush()
+    plugin.settings:set('cloud_highlight_color',3);plugin.settings:flush()
     -- Seed only the isolated local cache for a fresh offline display test.
     -- This record is never sent to the mock cloud or a real account.
     local cache=require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client)
     local cached=assert(cache:read(plugin:detectWeReadBook()))
-    created_row.bookmarkId='synthetic-display-offline';created_row.style=2;cached.updated[#cached.updated+1]=created_row
+    created_row.bookmarkId='synthetic-display-offline';created_row.style=2;created_row.colorStyle=5;cached.updated[#cached.updated+1]=created_row
     cached.updated[#cached.updated+1]=assert(plugin._bookmark_offline_fixture)
     assert(cache:write(cached));display.changed(plugin,cached)
     pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)

@@ -173,8 +173,8 @@ class RecoveryTests(unittest.TestCase):
         with patch.object(shared,'AnnotationExperimentStore') as a,patch.object(shared,'FinishExperimentStore') as f,\
              patch.object(shared,'ShelfExperimentStore') as s,patch.object(shared,'PositionExperimentStore') as p,\
              patch.object(shared,'HighlightTrialStore') as h,patch.object(shared,'MarkStyleTrialStore') as style,\
-             patch.object(shared,'BookmarkTrialStore') as bookmarks,patch.object(shared,'NativeShelfTrialStore') as native,patch.object(shared,'NativeFinishTrialStore') as finish,patch.object(shared,'InitialMarkStyleStore') as initial:
-            initial.return_value.read.return_value=(None,None)
+             patch.object(shared,'BookmarkTrialStore') as bookmarks,patch.object(shared,'NativeShelfTrialStore') as native,patch.object(shared,'NativeFinishTrialStore') as finish,patch.object(shared,'InitialMarkStyleStore') as initial,patch.object(shared,'MarkColorStore') as colors:
+            initial.return_value.read.return_value=colors.return_value.read.return_value=(None,None)
             finish.return_value.pending.return_value=False
             for factory in (a,f,s,p):factory.return_value.pending.return_value=False
             for factory in (h,style,bookmarks):factory.return_value.read.return_value=(None,None)
