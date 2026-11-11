@@ -19,6 +19,7 @@ local OverlapGroup = require("ui/widget/overlapgroup")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local Size = require("ui/size")
 local TextWidget = require("ui/widget/textwidget")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
@@ -267,9 +268,8 @@ local DownloadStatus = Widget:extend{
     size = 1,
 }
 
--- Keep this small container local: it gives shelf titles a fixed measured
--- width and an explicit left paint origin without adding a KOReader widget
--- dependency that is absent from the lightweight Lua test harness.
+-- Keep the first title line aligned across short and wrapped book names.
+-- The owner also releases its native text row when the card is closed.
 local LeftAlignedTitle = Widget:extend{
     width = 1,
     height = 1,
@@ -283,8 +283,7 @@ function LeftAlignedTitle:init()
 end
 
 function LeftAlignedTitle:paintTo(bb, x, y)
-    local content_size = self.content:getSize()
-    self.content:paintTo(bb, x, y + math.floor((self.height - content_size.h) / 2))
+    self.content:paintTo(bb, x, y)
 end
 
 function LeftAlignedTitle:free(...)
@@ -618,15 +617,23 @@ function CoverCell:init()
     local title_gap = math.max(1, Screen:scaleBySize(2))
     self._has_download_status = self.cached == true
     self._download_status_checked = self._has_download_status
-    local title_widget = TextWidget:new{
-        text = title,
+    local title_widget = TextBoxWidget:new{
+        text = tostring(title):gsub("[\r\n\t]", " "),
         face = Font:getFace("cfont", 15),
-        max_width = math.max(1, metrics.cover_width
+        width = math.max(1, metrics.cover_width
             - (self._has_download_status and status_size + title_gap or 0)),
+        height = metrics.title_height,
+        height_adjust = true,
+        height_overflow_show_ellipsis = true,
+        alignment = "left",
     }
-    local title_line = HorizontalGroup:new{}
+    self._title_widget = title_widget
+    local title_line = HorizontalGroup:new{ align = "top" }
     if self._has_download_status then
-        title_line[#title_line + 1] = DownloadStatus:new{ size = status_size }
+        title_line[#title_line + 1] = CenterContainer:new{
+            dimen = Geom:new{ w = status_size, h = math.floor(metrics.title_height / 2) },
+            DownloadStatus:new{ size = status_size },
+        }
         title_line[#title_line + 1] = HorizontalSpan:new{ width = title_gap }
     end
     title_line[#title_line + 1] = title_widget

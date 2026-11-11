@@ -49,6 +49,27 @@ local function paint(name)
     UIManager:forceRePaint()
     Screen:shot(evidence .. "/" .. name .. ".png")
     assert(plugin.shelf_view and plugin.shelf_view[1][1]:getSize().h == Screen:getHeight())
+    if plugin.shelf_view.cover_mode then
+        for _i,cell in ipairs(plugin.shelf_view._item_rows) do
+            local title=assert(cell._title_widget)
+            assert(title.lines_per_page==2,'cover title did not reserve two native text lines')
+            assert(title.dimen.y>=cell.dimen.y and title.dimen.y+title:getSize().h<=cell.dimen.y+cell.dimen.h,
+                'cover title escaped its card slot')
+            assert(title.dimen.x>=cell.dimen.x and title.dimen.x+title:getSize().w<=cell.dimen.x+cell.dimen.w,
+                'cover title escaped its column')
+            if #title.vertical_string_list>2 then assert(title.line_with_ellipsis==2,'long title lost its second-line ellipsis') end
+        end
+        local cell=plugin.shelf_view._item_rows[1]
+        if cell then
+            local callback,tapped=cell.callback,false
+            cell.callback=function() tapped=true end
+            local rect=cell._title_widget.dimen
+            cell:handleEvent(require('ui/event'):new('Gesture',{ges='tap',pos=require('ui/geometry'):new{
+                x=rect.x+math.floor(rect.w/2),y=rect.y+math.floor(rect.h/2)}}))
+            cell.callback=callback
+            assert(tapped,'tapping a native title no longer selects its cover')
+        end
+    end
 end
 local function flush_tasks()
     -- Native LibraryView buttons defer their callbacks, which then schedule HTTP.

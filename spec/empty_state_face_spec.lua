@@ -127,6 +127,7 @@ for _, name in ipairs({
     "ui/widget/horizontalgroup",
     "ui/widget/horizontalspan",
     "ui/widget/imagewidget",
+    "ui/widget/textboxwidget",
     "ui/widget/iconwidget",
     "ui/widget/linewidget",
     "ui/widget/overlapgroup",

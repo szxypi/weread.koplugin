@@ -76,9 +76,9 @@ expect(invalid.columns == 3 and invalid.rows == 2,
 local card = CoverLayout.card{ width = 200, height = 300, size_scale = 1 }
 expect(card.gutter == 6 and card.shadow == 3,
     "cover card should reserve a stable gutter and shadow")
-expect(card.cover_width == 179 and card.cover_height == 262,
+expect(card.cover_width == 165 and card.cover_height == 242,
     "cover card should use a portrait cover box")
-expect(card.card_width == 176 and card.card_height == 259,
+expect(card.card_width == 162 and card.card_height == 239,
     "cover shadow should remain inside its shelf slot")
 expect(card.radius == 5,
     "cover frame should use a stable e-ink-friendly corner radius")

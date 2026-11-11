@@ -64,7 +64,7 @@ function CoverLayout.card(options)
     local gutter = math.max(1, math.floor(6 * size_scale))
     local requested_shadow = math.max(1, math.floor(3 * size_scale))
     local title_gap = math.max(1, math.floor(4 * size_scale))
-    local title_height = math.max(1, math.floor(22 * size_scale))
+    local title_height = math.max(1, math.floor(42 * size_scale))
     local max_cover_width = math.max(1, width - 2 * gutter)
     local max_cover_height = math.max(1, height - 2 * gutter - title_gap - title_height)
     local shadow = math.min(requested_shadow,
