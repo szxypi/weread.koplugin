@@ -236,6 +236,11 @@ EPUB 恢复保留原成员、压缩数据与章节坐标，两尺寸 12 份副�
 
 ## 当前可用环境
 
+2026-11-12 已修复 CI 的软件源 DNS 安装阻塞：使用上游固定提交／版本和 SHA-256 校验，
+保留全部原有检查，并修复搜索工具报错时扫描误通过的问题。
+提交 `dce14b6` 的实际 GitHub x86_64 工作流和本地 ARM64 全部检查均通过，
+详见 [CI 工具与扫描说明](ci-toolchain.md)。这不改变功能清单或实体设备的验收状态。
+
 - macOS 主机：LuaJIT、Luacheck、Python 和 GitHub CLI。
 - OrbStack 容器 `weread-validation`：Ubuntu 24.04 ARM64。
 - 官方 KOReader Linux ARM64 v2026.07.1，使用 Xvfb 提供虚拟显示器。
