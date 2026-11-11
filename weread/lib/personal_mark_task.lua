@@ -7,6 +7,7 @@ local Identity=require('weread.lib.book_file_identity')
 local Crypto=require('weread.lib.crypto')
 local Dom=require('weread.lib.source_dom')
 local Span=require('weread.lib.my_mark_span')
+local Point=require('weread.lib.bookmark_point')
 local Contract=require('weread.lib.mark_edit_contract')
 local M={BATCH=8,MAX_NATIVE_BYTES=512*1024}
 function M.load(client,library,book,access,online)
@@ -32,10 +33,17 @@ function M.prepare(file,book,metadata,rows,read)
     if not verified then error('personal_marks/source',0) end
     local result={metadata=metadata,rows={}}
     for _i,row in ipairs(rows) do
-        local span=Span.prepare(verified.raw,book,record.chapter_uid,row)
-        if span then
-            result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
-                first_anchor=span.first_anchor,last_anchor=span.last_anchor,normalized_sha256=span.normalized_sha256}
+        if row.type==0 then
+            local point=Point.prepare(verified.raw,book,record.chapter_uid,row)
+            if point then
+                result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),bookmark=true,anchor=point.anchor}
+            end
+        else
+            local span=Span.prepare(verified.raw,book,record.chapter_uid,row)
+            if span then
+                result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
+                    first_anchor=span.first_anchor,last_anchor=span.last_anchor,normalized_sha256=span.normalized_sha256}
+            end
         end
     end
     return result

@@ -25,6 +25,9 @@ package.preload['weread.lib.source_dom']=function() return {member=function() re
         return {locate_span=function(_self,first,last)
             if not options.is_current() then return end
             return {pos0=first.point,pos1=last.point,text='verified'}
+        end,locate_anchor=function(_self,anchor)
+            if not options.is_current() or anchor.invalid then return end
+            return {xpointer=anchor.co,co=anchor.co}
         end}
     end}
 end
@@ -40,7 +43,8 @@ package.preload['weread.lib.personal_mark_task']=function() return {BATCH=8,MAX_
     prepare=function(_file,_book,metadata,rows)
         local result={metadata=metadata,rows={}}
         for i,row in ipairs(rows) do
-            result.rows[i]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),first_anchor={point=i},last_anchor={point=i+1}}
+            result.rows[i]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
+                bookmark=row.type==0 or nil,anchor=row.type==0 and {co=i} or nil,first_anchor={point=i},last_anchor={point=i+1}}
         end
         return result
     end,
@@ -100,4 +104,33 @@ expect(host.ui.annotation.annotations==notes and #notes==1 and loads==2,'unexpec
 store.fail=true;snapshot=value('fallback');expect(Display.attach(host));drain()
 expect(loads==4 and host._personal_marks.records[1].bookmarkId=='fallback','failed fresh cache save lost offline display')
 Display.detach(host)
+store.fail=false
+snapshot=value('synthetic-highlight')
+snapshot.updated[2]={bookmarkId='synthetic-point',type=0,chapterUid=7,range='15'}
+expect(Display.attach(host));drain()
+local s=host._personal_marks
+expect(#s.records==1 and #s.bookmarks==1 and s.bookmarks[1].bookmarkId=='synthetic-point','point mixed into underline records')
+expect(s.bookmarks[1].pos0==2 and s.bookmarks[1].pos1==nil,'point was changed into a native highlight')
+expect(host.ui.view.view_modules[Display.BOOKMARK_KEY]==s.indicator and Display.available(host))
+local clicked=false
+s.indicator.hitTest=function() return s.bookmarks[1] end
+host.showMyCloudBookmarks=function(_self,book)
+    expect(book==state.book);host._my_marks_owner={menu={item_table={{my_note_id='synthetic-point',callback=function() clicked=true end}}}}
+    return true
+end
+expect(Display.tap(host,{pos={x=1,y=1}}) and clicked,'corner did not open the matching bookmark')
+state.show=false;Display.update(host);expect(not s.indicator.enabled)
+state.show=true;Display.update(host);drain();expect(s.indicator.enabled and #s.bookmarks==1)
+host._translation_mode='translated';Display.update(host);expect(not s.indicator.enabled)
+host._translation_mode='original';Display.update(host);drain();expect(s.indicator.enabled and #s.bookmarks==1)
+Display.suspend(host);expect(not s.indicator.enabled);Display.wake(host);drain();expect(s.indicator.enabled)
+chapter='8';meta='bookmark-changed';Display.update(host);drain();expect(#s.bookmarks==0 and #s.records==0)
+chapter='7';meta='metadata-1';Display.update(host);expect(tick() and #jobs==1)
+local old=table.remove(jobs,1);Display.pause(host)
+local empty=value('only-highlight');Display.changed(host,empty);old.callback(old.value);drain()
+expect(#s.bookmarks==0,'cancelled point preparation repainted a removed bookmark')
+state.account='owner-b';Display.update(host);expect(not s.indicator.enabled)
+clicked=false;expect(not Display.tap(host,{pos={x=1,y=1}}) and not clicked,'old account corner remained actionable')
+state.account='owner-a';Display.detach(host)
+expect(host.ui.view.view_modules[Display.BOOKMARK_KEY]==nil and #s.indicator.visible==0,'detach retained corner layer')
 print('personal_marks_spec: '..checks..' checks passed')

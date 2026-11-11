@@ -110,7 +110,7 @@ function M:toggleAnnotationVisibility()
     self:applyAnnotationVisibility()
     local personal=package.loaded['weread.ui.personal_marks']
     if cache.show_annotations and personal and personal.available(self) then
-        self:showTransientInfo(_('Underlines and thoughts shown'),1);return true
+        self:showTransientInfo(_('Underlines, thoughts and bookmarks shown'),1);return true
     end
     if cache.show_annotations and self.ensureAnnotationDisplay then
         local context = self._annotation_context
@@ -121,8 +121,8 @@ function M:toggleAnnotationVisibility()
         end
     end
     self:showTransientInfo(cache.show_annotations
-        and _("Underlines and thoughts shown")
-        or _("Underlines and thoughts hidden"), 1)
+        and _("Underlines, thoughts and bookmarks shown")
+        or _("Underlines, thoughts and bookmarks hidden"), 1)
     return true
 end
 

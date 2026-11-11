@@ -34,6 +34,12 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         assert(#own_display.records==1 and own_display.records[1].bookmarkId=='synthetic-display-offline','fresh offline process lost cached highlight')
         UI:forceRePaint();assert(#own_display.overlay.visible>0,'fresh offline underline has no native screen boxes')
         shot('personal-highlight-offline-reopen')
+        local origin=reader.document:getXPointer();local point
+        for _i,entry in ipairs(own_display.bookmarks) do if entry.bookmarkId=='synthetic-bookmark-offline' then point=entry end end
+        assert(point,'fresh offline process lost cached bookmark point')
+        reader.rolling:onGotoXPointer(point.pos0);UI:forceRePaint()
+        assert(own_display.indicator.rect,'fresh offline native corner missing');shot('bookmark-indicator-offline')
+        reader.rolling:onGotoXPointer(origin);UI:forceRePaint()
         assert(plugin:showMyCloudBookmarks(id));local bookmarks=assert(plugin._my_marks_owner);local opened=false
         for _i,item in ipairs(bookmarks.menu.item_table) do
             if item.my_note_id=='synthetic-bookmark-offline' then item.callback();opened=true;break end

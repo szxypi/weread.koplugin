@@ -102,8 +102,8 @@ function M.show(opts, callbacks)
         },
         {
             text = opts.annotations_visible == false
-                and _("Show underlines and thoughts")
-                or _("Hide underlines and thoughts"),
+                and _("Show underlines, thoughts and bookmarks")
+                or _("Hide underlines, thoughts and bookmarks"),
             callback = function() dismiss_then(callbacks.on_toggle_annotations) end,
         },
     })

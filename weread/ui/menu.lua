@@ -71,7 +71,7 @@ function M:onDispatcherRegisterActions()
     Dispatcher:registerAction("weread_toggle_annotations", {
         category = "none",
         event = "ToggleWeReadAnnotations",
-        title = _("WeRead · Toggle underlines and thoughts"),
+        title = _("WeRead · Toggle underlines, thoughts and bookmarks"),
         reader = true,
     })
     Dispatcher:registerAction("weread_continue_annotation_matching", {
@@ -268,7 +268,7 @@ function M:getMainMenuItems()
             }
         end
         reader_items[#reader_items + 1] = {
-            text = _("Show underlines and thoughts"),
+            text = _("Show underlines, thoughts and bookmarks"),
             checked_func = function()
                 -- The checkbox reflects the user's display preference.  Annotation
                 -- data may still be downloading (or may be unavailable for this
@@ -278,7 +278,7 @@ function M:getMainMenuItems()
             end,
             keep_menu_open = true,
             check_callback_updates_menu = true,
-            callback = self:safeCallback(_("Show underlines and thoughts"), function(touchmenu_instance)
+            callback = self:safeCallback(_("Show underlines, thoughts and bookmarks"), function(touchmenu_instance)
                 self:toggleAnnotationVisibility()
                 if touchmenu_instance then touchmenu_instance:updateItems() end
             end),

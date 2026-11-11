@@ -1,4 +1,4 @@
--- Account-owned cloud highlights in a separate reader layer. No native note
+-- Account-owned cloud highlights/bookmarks in separate reader layers. No native note
 -- mutations, document rewriting, reader movement or progress uploads.
 local UI=require('ui/uimanager')
 local Marks=require('weread.lib.my_cloud_marks')
@@ -8,7 +8,7 @@ local Dom=require('weread.lib.source_dom')
 local Task=require('weread.lib.personal_mark_task')
 local Contract=require('weread.lib.mark_edit_contract')
 local Overlay=require('weread.ui.xpointer_overlay')
-local M={KEY='weread_personal_marks'}
+local M={KEY='weread_personal_marks',BOOKMARK_KEY='weread_cloud_bookmarks'}
 local function current(host,s)
     return host._personal_marks==s and host.ui and host.ui.document==s.document and s.document.file==s.file
         and host:detectWeReadBook()==s.book
@@ -25,7 +25,7 @@ local function cancel_work(s)
     if s.worker then s.worker:cancel() end
 end
 local function clear(host,s)
-    s.records={};s.overlay:setRecords({},true);dirty(host)
+    s.records={};s.bookmarks={};s.overlay:setRecords({},true);s.indicator:setRecords({});dirty(host)
 end
 local function metadata(host,s)
     local ok,value=pcall(function()
@@ -57,14 +57,14 @@ local function worker(host,s,task,callback)
     end)
     return ok and started
 end
-local function insert(s,row)
-    local low,high=1,#s.records+1
+local function insert(s,records,row)
+    local low,high=1,#records+1
     while low<high do
-        local mid=math.floor((low+high)/2);local other=s.records[mid]
+        local mid=math.floor((low+high)/2);local other=records[mid]
         local order=s.document:compareXPointers(row.pos0,other.pos0)
         if order==1 or order==0 and row.bookmarkId<other.bookmarkId then high=mid else low=mid+1 end
     end
-    table.insert(s.records,low,row)
+    table.insert(records,low,row)
 end
 local batch,load
 local function same_job(host,s,job)
@@ -80,25 +80,33 @@ batch=function(host,s,job)
     local started=worker(host,s,function() return Task.prepare(s.file,s.book,job.metadata,rows) end,function(result)
         if not same_job(host,s,job) then return end
         if type(result)~='table' or result.metadata~=job.metadata or type(result.rows)~='table' then s.job=nil;return end
-        local originals={};for _i,row in ipairs(rows) do originals[row.bookmarkId]=Contract.row_hash(row) end
+        local originals={};for _i,row in ipairs(rows) do originals[row.bookmarkId]={hash=Contract.row_hash(row),bookmark=row.type==0 or nil} end
         local expected={}
         if #result.rows>Task.BATCH then s.job=nil;return end
         for _i,row in ipairs(result.rows) do
-            if type(row)~='table' or expected[row.bookmarkId] or originals[row.bookmarkId]~=row.reference_hash then s.job=nil;return end
+            local original=type(row)=='table' and originals[row.bookmarkId]
+            if not original or expected[row.bookmarkId] or original.hash~=row.reference_hash or original.bookmark~=row.bookmark then s.job=nil;return end
             expected[row.bookmarkId]=row
         end
-        local pending,verify={},{}
+        local pending,points,verify={},{},{}
         local last_yield=os.clock()
         local thread=coroutine.create(function()
             job.index=job.index or Dom.open_prepared(s.document,s.book,job.metadata,{is_current=function() return same_job(host,s,job) end,
                 yield=function() if os.clock()-last_yield>=.02 then coroutine.yield();last_yield=os.clock() end end})
             if not job.index then return false end
             for _i,row in ipairs(result.rows) do
-                local span=job.index:locate_span(row.first_anchor,row.last_anchor,Task.MAX_NATIVE_BYTES)
-                if span then
-                    pending[row.bookmarkId]={bookmarkId=row.bookmarkId,pos0=span.pos0,pos1=span.pos1,chapter_uid=job.uid,
-                        range=job.ranges[row.bookmarkId],style=job.styles[row.bookmarkId]}
-                    verify[#verify+1]={bookmarkId=row.bookmarkId,text=span.text,normalized_sha256=expected[row.bookmarkId].normalized_sha256}
+                if row.bookmark then
+                    local point=job.index:locate_anchor(row.anchor)
+                    if point and point.co==row.anchor.co then
+                        points[#points+1]={bookmarkId=row.bookmarkId,pos0=point.xpointer,chapter_uid=job.uid,range=job.ranges[row.bookmarkId]}
+                    end
+                else
+                    local span=job.index:locate_span(row.first_anchor,row.last_anchor,Task.MAX_NATIVE_BYTES)
+                    if span then
+                        pending[row.bookmarkId]={bookmarkId=row.bookmarkId,pos0=span.pos0,pos1=span.pos1,chapter_uid=job.uid,
+                            range=job.ranges[row.bookmarkId],style=job.styles[row.bookmarkId]}
+                        verify[#verify+1]={bookmarkId=row.bookmarkId,text=span.text,normalized_sha256=expected[row.bookmarkId].normalized_sha256}
+                    end
                 end
                 if os.clock()-last_yield>=.02 then coroutine.yield();last_yield=os.clock() end
             end
@@ -115,8 +123,9 @@ batch=function(host,s,job)
                 if not same_job(host,s,job) then return end
                 if type(ids)~='table' then s.job=nil;return end
                 local seen={}
-                for _i,id in ipairs(ids) do if pending[id] and not seen[id] then insert(s,pending[id]);seen[id]=true end end
-                s.overlay:setRecords(s.records,true);dirty(host);schedule(host,s,function() batch(host,s,job) end)
+                for _i,id in ipairs(ids) do if pending[id] and not seen[id] then insert(s,s.records,pending[id]);seen[id]=true end end
+                for _i,row in ipairs(points) do insert(s,s.bookmarks,row) end
+                s.overlay:setRecords(s.records,true);s.indicator:setRecords(s.bookmarks);dirty(host);schedule(host,s,function() batch(host,s,job) end)
             end)
             if not verifying then s.job=nil end
         end
@@ -128,6 +137,7 @@ function M.update(host)
     local s=host._personal_marks;if not s then return end
     local show=enabled(host,s)
     if s.overlay.enabled~=show then s.overlay:setEnabled(show);dirty(host) end
+    if s.indicator.enabled~=show then s.indicator:setEnabled(show);dirty(host) end
     if not show then
         if s.job or s.task or s.loading then cancel_work(s);s.loading=false;s.metadata=nil;s.complete=false end
         return
@@ -143,7 +153,7 @@ function M.update(host)
     if not s.snapshot then return end
     local uid=m.chapter_uid;local rows,ranges,styles={},{},{}
     for _i,row in ipairs(s.snapshot.updated) do
-        if row.type==1 and tostring(row.chapterUid)==uid then
+        if (row.type==1 or row.type==0) and tostring(row.chapterUid)==uid then
             rows[#rows+1]=row;ranges[row.bookmarkId]=row.range;styles[row.bookmarkId]=row.style or 0
         end
     end
@@ -178,16 +188,21 @@ function M.attach(host)
     local scope=host.settings:get_auth_scope();local account=host.library_db and host.library_db:accountKey()
     if not document or not book or not account or not scope or not host.settings:auth_scope_matches(scope)
         or not document.info or document.info.has_pages or not host.ui.view or not host.ui.view.registerViewModule then return false end
-    local s={book=book,document=document,file=document.file,scope=scope,account=account,session=host._reader_session_gen,generation=0,records={},loading=true}
+    local s={book=book,document=document,file=document.file,scope=scope,account=account,session=host._reader_session_gen,generation=0,
+        records={},bookmarks={},loading=true}
     local screen=require('device').screen;local BB=require('ffi/blitbuffer')
     local overlay=Overlay:new{records={},painter=require('weread.ui.personal_mark_painter').paint,
         style={width=math.max(1,screen:scaleBySize(1)),wave_step=math.max(1,screen:scaleBySize(1)),color=BB.Color8(0)}}
-    s.overlay=overlay;host._personal_marks=s
-    local paint=overlay.paintTo
-    function overlay:paintTo(...)
-        local show=enabled(host,s);if self.enabled~=show then self:setEnabled(show) end;return paint(self,...)
+    local indicator=require('weread.ui.bookmark_indicator'):new{scale=function(n) return screen:scaleBySize(n) end,color=BB.Color8(0)}
+    s.overlay=overlay;s.indicator=indicator;host._personal_marks=s
+    for _i,layer in ipairs({overlay,indicator}) do
+        local paint=layer.paintTo
+        function layer:paintTo(...)
+            local show=enabled(host,s);if self.enabled~=show then self:setEnabled(show) end;return paint(self,...)
+        end
     end
     host.ui.view:registerViewModule(M.KEY,overlay)
+    host.ui.view:registerViewModule(M.BOOKMARK_KEY,indicator)
     schedule(host,s,function()
         load(host,s,enabled(host,s) and host.isNetworkOnline and host:isNetworkOnline() or false)
     end)
@@ -196,8 +211,10 @@ end
 function M.detach(host)
     local s=host._personal_marks;host._personal_marks=nil
     if not s then return end
-    cancel_work(s);s.overlay:setEnabled(false)
-    if host.ui and host.ui.view and host.ui.view.view_modules then host.ui.view.view_modules[M.KEY]=nil end
+    cancel_work(s);s.overlay:setEnabled(false);s.indicator:setEnabled(false)
+    if host.ui and host.ui.view and host.ui.view.view_modules then
+        host.ui.view.view_modules[M.KEY]=nil;host.ui.view.view_modules[M.BOOKMARK_KEY]=nil
+    end
     dirty(host)
 end
 function M.pause(host)
@@ -218,7 +235,7 @@ function M.resume(host)
 end
 function M.suspend(host)
     local s=host._personal_marks;if not s then return end
-    s.suspended=true;s.loading=false;cancel_work(s);s.overlay:setEnabled(false)
+    s.suspended=true;s.loading=false;cancel_work(s);s.overlay:setEnabled(false);s.indicator:setEnabled(false)
 end
 function M.wake(host)
     local s=host._personal_marks;if not s then return end
@@ -227,22 +244,26 @@ function M.wake(host)
 end
 function M.invalidate(host)
     local s=host._personal_marks;if not s then return end
-    s.overlay:invalidate();M.update(host)
+    s.overlay:invalidate();s.indicator:invalidate();M.update(host)
 end
 function M.available(host)
     local s=host._personal_marks;if not s or not current(host,s) then return false end
-    if #s.records>0 then return true end
+    if #s.records>0 or #s.bookmarks>0 then return true end
     if s.complete then return false end
     local m=metadata(host,s);if not m or not m.record or m.record.format~='web_xhtml' then return false end
     for _i,row in ipairs(s.snapshot and s.snapshot.updated or {}) do
-        if tostring(row.chapterUid)==m.chapter_uid and require('weread.lib.my_mark_target').can_locate(row) then return true end
+        if tostring(row.chapterUid)==m.chapter_uid and (require('weread.lib.my_mark_target').can_locate(row)
+            or require('weread.lib.bookmark_point').can_locate(row)) then return true end
     end
     return false
 end
-function M.tap(host,ges)
+function M.tap(host,ges,bookmarks_only)
     local s=host._personal_marks;if not s or not enabled(host,s) or not ges or not ges.pos then return false end
-    local record=s.overlay:hitTest(ges.pos);if not record then return false end
-    if not host:showMyCloudMarks(s.book) then return false end
+    local bookmark=s.indicator:hitTest(ges.pos)
+    local record=bookmark or not bookmarks_only and s.overlay:hitTest(ges.pos);if not record then return false end
+    if bookmark then
+        if not host:showMyCloudBookmarks(s.book) then return false end
+    elseif not host:showMyCloudMarks(s.book) then return false end
     local owner=host._my_marks_owner
     for _i,item in ipairs(owner and owner.menu.item_table or {}) do
         if item.my_note_id==record.bookmarkId then item.callback();return true end

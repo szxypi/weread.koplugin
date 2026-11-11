@@ -41,6 +41,8 @@ return function(reader,plugin,pump,shot,clean_popups,row,tap,request,same)
     assert(id and state.bookmark_posts==1 and Journal:read().phase=='idle')
     plugin._bookmark_offline_fixture=Json.decode(Json.encode(state.selection_marks[id]))
     plugin._bookmark_offline_fixture.bookmarkId='synthetic-bookmark-offline'
+    Selection.cancel(plugin);clean_popups(reader)
+    dofile('/source/spec/koreader/bookmark_indicator_smoke.lua')(reader,plugin,pump,shot,clean_popups,id)
     -- Duplicate point refusal happens before any second creation dispatch.
     Selection.cancel(plugin);clean_popups(reader);open();row(owner,'Save cloud bookmark');notice()
     assert(request('/__state').bookmark_posts==1 and Journal:read().phase=='idle')
@@ -67,6 +69,8 @@ return function(reader,plugin,pump,shot,clean_popups,row,tap,request,same)
     state=request('/__state')
     assert(state.bookmark_posts==2 and state.highlight_posts==before.highlight_posts and Journal:read().phase=='idle')
     assert(same(state.selection_marks,before.selection_marks) and same(state.selection_thoughts,before.selection_thoughts))
+    pump(function() return plugin._personal_marks and plugin._personal_marks.complete end);UI:forceRePaint()
+    for _i,point in ipairs(plugin._personal_marks.bookmarks) do assert(point.bookmarkId~=id,'deleted point retained corner record') end
     assert(reader.document:getXPointer()==origin and same(reader.annotation.annotations,notes))
     file=assert(io.open(reader.document.file,'rb'));assert(file:read('*a')==original_bytes);file:close()
     plugin.client.request=transport

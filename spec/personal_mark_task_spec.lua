@@ -65,4 +65,16 @@ local verified=Task.verify{{bookmarkId=row.bookmarkId,text='Unique & selected\nt
     {bookmarkId='too-large',text=string.rep('a',Task.MAX_NATIVE_BYTES+1),normalized_sha256=span.normalized_sha256}}
 expect(#verified==1 and verified[1]==row.bookmarkId,'native full-span verification accepted changed text')
 expect(#Task.verify(many)==0,'unbounded native verification accepted')
+local point={bookmarkId='synthetic-point',type=0,chapterUid=2,range='15',markText='Unique & selected text'}
+local mixed=Task.prepare('/cached.epub','41',metadata,{row,point},archive)
+expect(#mixed.rows==2 and mixed.rows[2].bookmark==true and mixed.rows[1].bookmark==nil)
+expect(mixed.rows[2].anchor.co==15 and mixed.rows[2].anchor.point_offset==0,'bookmark point shifted')
+expect(not mixed.rows[2].first_anchor and not mixed.rows[2].last_anchor and not mixed.rows[2].normalized_sha256,
+    'point bookmark was converted into a text range')
+for _i,field in ipairs({'range','markText','chapterUid'}) do
+    local bad=Fixture.clone(point);bad[field]=({range='15-48',markText='changed',chapterUid=3})[field]
+    expect(#Task.prepare('/cached.epub','41',metadata,{bad},archive).rows==0,'invalid bookmark received a DOM anchor')
+end
+local missing=Fixture.clone(point);missing.markText=nil
+expect(#Task.prepare('/cached.epub','41',metadata,{missing},archive).rows==1,'preview-less exact point unavailable')
 print('personal_mark_task_spec: '..checks..' checks passed')

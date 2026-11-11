@@ -43,7 +43,8 @@
 准备与实际两份证据分别保留，见[本次固定记录](validation-assets/2026-11-11/native-bookmark-trial.json)。
 
 本机仍未检测到 Kindle USB 设备，实体 KOReader 版本未知。
-页面书签角标、更多书籍／来源格式、非空真实集合专项、多设备和整机中断仍待验收，集中性能专项未开始。
+本次真实两步未包含角标；后续已完成[页面角标的两尺寸合成原生验证](bookmark-indicator.md)。
+更多书籍／来源格式、非空真实集合专项、多设备和整机中断仍待验收，集中性能专项未开始。
 代码提交 91023e3 的 GitHub CI 在安装工具阶段超时，日志出现八处 Azure 软件源 DNS 失败，代码检查尚未开始。
 后续工作流保留五分钟安装限制并直接使用 [Ubuntu 官方签名软件源](https://ubuntu.com/server/docs/how-to/software/package-management/)，
 是否解决故障须由新提交的实际 CI 确认；本地检查结果不代替云端最终提交的检查。

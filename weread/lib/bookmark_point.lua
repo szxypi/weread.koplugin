@@ -93,4 +93,15 @@ function M.from_mark(raw,book,chapter,row)
             raw_bytes=value.raw_bytes,basis='filtered_xhtml_utf16',upload_verified=false}
     end)
 end
+-- A reversible unique anchor is also used by the independent reader layer.
+-- No text range is invented for a point bookmark.
+function M.prepare(raw,book,chapter,row)
+    return guarded(function()
+        local point=M.from_mark(raw,book,chapter,row);if not point then fail('point') end
+        local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
+        local anchor=map:anchor(point.chapter_offset,{segment_only=true}) or map:anchor(point.chapter_offset)
+        if not anchor then fail('anchor') end
+        return {anchor=anchor}
+    end)
+end
 return M
