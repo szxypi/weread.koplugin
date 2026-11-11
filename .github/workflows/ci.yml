@@ -78,6 +78,7 @@ jobs:
         run: |
           python3 scripts/test_source_coordinates.py
           python3 scripts/test_owner_selection_preview.py
+          python3 scripts/test_selection_trial.py
 
       - name: Web source-position read-only preflight checks
         run: |

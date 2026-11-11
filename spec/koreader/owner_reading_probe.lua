@@ -5,7 +5,8 @@ require('ffi').log=function() end
 require('setupkoenv')
 local ffi=require('ffi');require('ffi/posix_h')
 local json=require('json')
-local mode=arg[1]
+local trial_mode=arg[1]=='selection-trial'
+local mode=trial_mode and 'live' or arg[1]
 local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_auth=false,transport_guard_selftest=false,
     plugin_selection=false,native_reader=false,source_text_visible=false,source_receipt_verified=false,page_turn=false,position_checkpoint=false,
     local_source_position_verified=false,source_navigation_roundtrip=false,source_dialog_verified=false,legacy_progress_units_preserved=false,
@@ -20,12 +21,25 @@ local recovery_private
 local progress_case,progress_private
 local candidate_case,candidate_private
 local selection_case,selection_private
+local trial_input
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
     assert(ffi.os=='Linux' and home:match('^/dev/shm/weread%-reading%-[%w_]+/profile$'))
-    local raw=assert(io.stdin:read(256*1024+1));assert(#raw<=256*1024)
+    local raw
+    if trial_mode then
+        local length=assert(io.stdin:read('*l'));assert(#length<=6 and length:match('^[1-9]%d*$') and tonumber(length)<=256*1024)
+        raw=assert(io.stdin:read(tonumber(length)));assert(#raw==tonumber(length))
+    else raw=assert(io.stdin:read(256*1024+1)) end
+    assert(#raw<=256*1024)
     local input=json.decode(raw)
+    assert((input.selection_trial~=nil)==trial_mode)
+    if trial_mode then
+        trial_input=input
+        assert(type(input.selection_trial.rpc_token)=='string' and #input.selection_trial.rpc_token==32
+            and input.selection_trial.rpc_token:match('^[a-f0-9]+$'))
+        assert(type(input.selection_trial.armed)=='boolean' and input.selection_trial.armed==(os.getenv('WEREAD_SELECTION_ARMED')=='1'))
+    end
     assert(type(input.vid)=='string' and input.vid:match('^[1-9]%d*$'))
     local cb_reading=input.cb_reading==true
     local cb_full=input.cb_full_book==true
@@ -132,9 +146,9 @@ local ok,reason=pcall(function()
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
     elseif input.selection_preview then
-        assert(arg[2] and arg[2]:match('/owner_selection_preview_case%.lua$'))
+        assert(arg[2] and arg[2]:match(trial_mode and '/owner_selection_trial_case%.lua$' or '/owner_selection_preview_case%.lua$'))
         selection_case=dofile(arg[2])(input,mode,counters)
-        report.selection_preview=selection_case.report
+        if trial_mode then report.selection_trial=selection_case.report else report.selection_preview=selection_case.report end
     else assert(not arg[2]) end
     local Protocol=require('weread.lib.protocol')
     local Cookie=require('weread.lib.cookie')
@@ -696,6 +710,11 @@ for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
     report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
 end
-io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {},rejected_html=rejected_html,
-    recovery_private=recovery_private,progress_private=progress_private,candidate_private=candidate_private,selection_private=selection_private}..'\n')
+if trial_input then
+    local value=json.encode{report=report,cookies=latest_cookies or {}};assert(#value<=16384)
+    io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..trial_input.selection_trial.rpc_token..'_RESULT='..value..'\n')
+else
+    io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {},rejected_html=rejected_html,
+        recovery_private=recovery_private,progress_private=progress_private,candidate_private=candidate_private,selection_private=selection_private}..'\n')
+end
 os.exit(ok and 0 or 1)
