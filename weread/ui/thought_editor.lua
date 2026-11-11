@@ -77,7 +77,7 @@ local function failure(ctx,reason)
     message(ctx,key)
 end
 local function viewer(ctx,title,text,buttons)
-    show(ctx,require('ui/widget/textviewer'):new{title=_(title),text=_(text),buttons_table=buttons,add_default_buttons=true})
+    show(ctx,require('weread.ui.thought_text').viewer{title=_(title),text=_(text),buttons_table=buttons,add_default_buttons=true})
 end
 local function busy(ctx,label)
     viewer(ctx,label,'Closing this window stops the check. Any submitted change will only be checked, never sent again.')
@@ -107,7 +107,7 @@ local function submit(ctx)
             text=text..'\n\n'..ctx.text
         end
         local dialog
-        dialog=require('ui/widget/textviewer'):new{title=_(title),text=text,add_default_buttons=true,
+        dialog=require('weread.ui.thought_text').viewer{title=_(title),text=text,add_default_buttons=true,
             buttons_table={{{id='confirm_thought_change',text=_(ctx.operation=='delete' and 'Delete this thought' or 'Save thought'),callback=function()
                 if not alive(ctx) or not Popup.current(ctx.owner.menu,dialog) then return end
                 busy(ctx,'Saving this thought…')
@@ -148,7 +148,7 @@ function M.start(host,owner,operation,reference,current,redraw,restore)
     end
     local input=draft and draft.content or operation=='edit' and reference.content or ''
     local dialog
-    dialog=require('ui/widget/inputdialog'):new{title=_(operation=='create' and 'Write private thought' or 'Edit this thought'),input=input,
+    dialog=require('weread.ui.thought_text').input{title=_(operation=='create' and 'Write private thought' or 'Edit this thought'),input=input,
         input_type='text',allow_newline=true,use_available_height=true,
         buttons={{{id='save_thought_draft',text=_('Save local draft'),callback=function()
             if alive(ctx) and Popup.current(owner.menu,dialog) then
@@ -177,7 +177,7 @@ function M.check(host,owner,current,redraw)
             return
         end
         local dialog
-        dialog=require('ui/widget/textviewer'):new{title=_('Thought change not confirmed'),
+        dialog=require('weread.ui.thought_text').viewer{title=_('Thought change not confirmed'),
             text=_('The cloud does not match the expected change. No request was sent again. You can keep checking, or accept the current cloud state. Accepting does not undo a change; a delayed change may still appear. Check your thoughts before creating another copy.'),
             add_default_buttons=true,buttons_table={{{id='accept_thought_state',text=_('Accept current thought state'),callback=function()
                 if not alive(ctx) or not Popup.current(owner.menu,dialog) then return end
@@ -246,7 +246,7 @@ function M.drafts(host,owner,current,redraw)
                     end}
                 end
             end
-            dialog=require('ui/widget/textviewer'):new{title=_('Local thought draft'),text=draft.content,buttons_table=buttons,add_default_buttons=true}
+            dialog=require('weread.ui.thought_text').viewer{title=_('Local thought draft'),text=draft.content,buttons_table=buttons,add_default_buttons=true}
             show(ctx,dialog)
         end}
     end

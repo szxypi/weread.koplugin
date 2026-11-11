@@ -108,7 +108,7 @@ render=function(host,owner)
                                     stop(host,owner);editor.start(host,owner,operation,row,current,render)
                                 end}}
                         end
-                        viewer=require('ui/widget/textviewer'):new{title=kind(row,owner),text=table.concat(parts,'\n\n'),
+                        viewer=require('weread.ui.thought_text').viewer{title=kind(row,owner),text=table.concat(parts,'\n\n'),
                             buttons_table=buttons,add_default_buttons=true}
                         Popup.show(owner.menu,viewer)
                     end}

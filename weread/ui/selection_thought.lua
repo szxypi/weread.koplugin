@@ -38,7 +38,7 @@ render=function(host,owner)
     local items={}
     if owner.reference then
         items[#items+1]={text=_('Quoted text'),callback=function()
-            if current(host,owner) then Popup.show(owner.menu,require('ui/widget/textviewer'):new{
+            if current(host,owner) then Popup.show(owner.menu,require('weread.ui.thought_text').viewer{
                 title=_('Quoted text'),text=owner.reference.markText,add_default_buttons=true}) end
         end}
         items[#items+1]={text=_('Write private thought'),callback=function()

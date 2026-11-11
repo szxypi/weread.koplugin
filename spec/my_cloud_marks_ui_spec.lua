@@ -4,7 +4,7 @@ local UI={close=function(_self,view) view.closed=true;if view.onCloseWidget then
 -- Capture popup ownership through the actual helper.
 package.preload['ui/uimanager']=function() return UI end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
-package.preload['ui/widget/textviewer']=function() return {new=function(_self,v) return v end} end
+package.preload['weread.ui.thought_text']=function() return {viewer=function(v) return v end} end
 local Data=require('weread.lib.my_cloud_marks');local Store=require('weread.lib.my_cloud_marks_store')
 local Marks=require('weread.ui.my_cloud_marks')
 local checks=0

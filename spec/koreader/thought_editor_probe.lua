@@ -115,6 +115,8 @@ local ok,reason=pcall(function()
     local function shot(name)
         UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_THOUGHT_SHOTS'))..'/'..mode..'-'..name..'.png');report.screenshots=report.screenshots+1
     end
+    local TextSmoke=assert(loadfile('/source/spec/koreader/thought_text_smoke.lua'))()
+    report.font=TextSmoke.run()
     local function open(thoughts)
         plugin:showBookMenu{book_id='900001',title='合成测试书籍',chapters={}}
         local detail=assert(plugin._book_detail_view)
@@ -141,7 +143,7 @@ local ok,reason=pcall(function()
     if mode=='live' then
         report.phase='draft'
         local owner=open(false);select(owner,'synthetic-mark');tap(owner,'thought_create')
-        owner.editor.input:setInputText('合成本机草稿 😀\n可在离线后继续。');shot('draft')
+        owner.editor.input:setInputText('合成本机草稿 😀\n可在离线后继续。');expect(TextSmoke.input(owner.editor.input,{['😀']=true})==1);shot('draft')
         tap(owner,'save_thought_draft');notice(owner);expect(#journal:drafts()==1 and state().posts==0)
         select(owner,'Local thought drafts');local list=owner.menu._shelf_popup;list:onMenuSelect(list.item_table[1]);tap(owner,'resume_thought_draft')
         expect(owner.editor.input:getInputText():find('合成本机草稿',1,true))
@@ -153,7 +155,7 @@ local ok,reason=pcall(function()
         expect(state().posts==1 and #state().snapshot.reviews==2 and journal:read().phase=='idle' and #journal:drafts()==0)
         report.phase='edit'
         owner=open(true);select(owner,'synthetic-created');tap(owner,'thought_edit');owner.editor.input:setInputText('合成编辑后想法 😀\n第二行仍完整。')
-        tap(owner,'submit_thought');wait(function() return owner.editor.service.preview end);shot('confirm-edit');fault('lost_ack')
+        tap(owner,'submit_thought');wait(function() return owner.editor.service.preview end);expect(TextSmoke.emoji(owner.editor.dialog.box_widget,{['😀']=true})==1);shot('confirm-edit');fault('lost_ack')
         confirm(owner);notice(owner)
         expect(state().posts==2 and state().snapshot.reviews[2].content=='合成编辑后想法 😀\n第二行仍完整。' and journal:read().phase=='idle')
         report.phase='delete'
