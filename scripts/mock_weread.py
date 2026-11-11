@@ -200,6 +200,9 @@ class MockServer(ThreadingHTTPServer):
         self.finished_held = False
         self.selection_fixture=False
         self.selection_posts=0
+        self.highlight_posts=0
+        self.selection_marks={'synthetic-existing-highlight':dict(bookmarkId='synthetic-existing-highlight',type=1,style=1,colorStyle=0,
+            chapterUid=2,range='99-100',markText='不应改动的原有引用',createTime=1700000000)}
         self.selection_thoughts={'synthetic-existing-thought':dict(reviewId='synthetic-existing-thought',content='原有合成想法',
             abstract='不应改动的原有引用',chapterUid=2,chapterIdx=2,type=1,range='99-100',isPrivate=1,createTime=1700000000)}
 
@@ -311,6 +314,33 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
+            if self.selection_fixture and path=='/book/bookmarklist' and method=='GET':
+                if query!={'bookId':[BOOK_ID],'synckey':['0']}:raise ValueError('invalid selection mark query')
+                with self.lock:rows=[row.copy() for row in self.selection_marks.values()]
+                return 200,dict(bookId=BOOK_ID,updated=rows,chapters=[],hasMore=0)
+            if self.selection_fixture and path in {'/book/addBookmark','/book/removeBookmark'} and method=='POST':
+                if query or self.highlight_posts>=8:raise ValueError('invalid highlight scope')
+                if path=='/book/addBookmark':
+                    required={'bookId','chapterUid','bookVersion','type','style','colorStyle','range','markText'}
+                    if (set(data)!=required or data['bookId']!=BOOK_ID or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style','colorStyle'))
+                            or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=700
+                            or data['type']!=1 or data['style']!=1 or data['colorStyle']!=0):raise ValueError('invalid highlight body')
+                    from annotation_source_quotes import SourceQuotes
+                    if SourceQuotes(self.chapter_source(data['chapterUid']),body_only=True).quote(data['range']).strip()!=data['markText']:raise ValueError('invalid highlight source')
+                    identity='synthetic-new-highlight-'+str(self.highlight_posts+1)
+                    row={k:v for k,v in data.items() if k not in {'bookId','bookVersion'}};row.update(bookmarkId=identity,createTime=1700000001+self.highlight_posts)
+                    with self.lock:
+                        if control['selection_thought_mode']!='no_change':self.selection_marks[identity]=row
+                    result=dict(bookmarkId=identity)
+                else:
+                    ids=data.get('bookmarkIds')
+                    if (set(data)!={'bookmarkIds'} or not isinstance(ids,list) or len(ids)!=1
+                            or not isinstance(ids[0],str) or not ids[0].startswith('synthetic-new-highlight-') or ids[0] not in self.selection_marks):raise ValueError('invalid highlight deletion')
+                    with self.lock:
+                        if control['selection_thought_mode']!='no_change':del self.selection_marks[ids[0]]
+                    result=dict(succ=1)
+                with self.lock:self.highlight_posts+=1
+                return 200,'' if control['selection_thought_mode']=='empty' else result
             if self.selection_fixture and path=='/review/list' and method=='GET':
                 if query!={'bookId':[BOOK_ID],'listType':['11'],'listMode':['0'],'mine':['1'],'synckey':['0'],'count':['20']}:
                     raise ValueError('invalid selection thought query')
@@ -646,6 +676,8 @@ class Handler(BaseHTTPRequestHandler):
                     result['finished_held']=self.server.finished_held
                     result['selection_thoughts']=self.server.selection_thoughts.copy()
                     result['selection_posts']=self.server.selection_posts
+                    result['highlight_posts']=self.server.highlight_posts
+                    result['selection_marks']=self.server.selection_marks.copy()
             elif path.path == "/__control" and self.command == "POST":
                 self.set_control(data)
                 status, result = 200, dict(ok=True)

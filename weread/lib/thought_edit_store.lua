@@ -21,7 +21,10 @@ local function statement(db,sql,...)
     stmt:close();if not ok then error('thought_store/statement',0) end;return row
 end
 function M:new(library,codec,options)
-    options=options or {};return setmetatable({library=library,codec=codec,nonce=options.nonce or nonce},self)
+    options=options or {}
+    assert(options.variant==nil or options.variant=='marks','invalid write journal')
+    return setmetatable({library=library,codec=codec,nonce=options.nonce or nonce,contract=options.contract or Contract,
+        state_table=options.variant=='marks' and 'mark_write_state' or 'thought_write_state'},self)
 end
 function M.draft_key(book,operation,reference) return Crypto.sha256_hex(book..'\0'..operation..'\0'..reference) end
 local function run(self,task,write)
@@ -30,7 +33,7 @@ local function run(self,task,write)
     local transaction=false
     local ok,value=pcall(function()
         db:exec('PRAGMA synchronous=FULL')
-        db:exec([[CREATE TABLE IF NOT EXISTS thought_write_state (
+        db:exec([[CREATE TABLE IF NOT EXISTS ]]..self.state_table..[[ (
             id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL,payload TEXT NOT NULL
             CHECK(length(CAST(payload AS BLOB))<=8192))]])
         db:exec([[CREATE TABLE IF NOT EXISTS thought_drafts (
@@ -57,21 +60,21 @@ local function decode(self,row,account)
     local allowed={schema=true,revision=true,phase=true,account=true}
     if value.phase~='idle' then
         allowed.id,allowed.epoch,allowed.metadata,allowed.draft_key,allowed.draft_token=true,true,true,true,true
-        if not token(value.id) or not integer(value.epoch) or not Contract.validate_metadata(value.metadata)
+        if not token(value.id) or not integer(value.epoch) or not self.contract.validate_metadata(value.metadata)
             or not (value.draft_key=='' and value.draft_token=='' or Contract.hash(value.draft_key) and token(value.draft_token)) then error('thought_store/record',0) end
     end
     for key in pairs(value) do if not allowed[key] then error('thought_store/record',0) end end
     return value
 end
 local function read(self,db,account)
-    return decode(self,statement(db,'SELECT revision,payload FROM thought_write_state WHERE id=1'),account)
+    return decode(self,statement(db,'SELECT revision,payload FROM '..self.state_table..' WHERE id=1'),account)
 end
 local function save(self,db,previous,value)
     if previous.revision>=2^53-2 then error('thought_store/revision',0) end
     value.schema,value.account,value.revision=1,previous.account,previous.revision+1
     local raw=self.codec:json_encode(value)
     if type(raw)~='string' or #raw>M.MAX_RECORD_BYTES then error('thought_store/record',0) end
-    statement(db,'INSERT INTO thought_write_state(id,revision,payload) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload',value.revision,raw)
+    statement(db,'INSERT INTO '..self.state_table..'(id,revision,payload) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET revision=excluded.revision,payload=excluded.payload',value.revision,raw)
     local actual=read(self,db,previous.account)
     if actual.revision~=value.revision or actual.id~=value.id or actual.phase~=value.phase then error('thought_store/readback',0) end
     return actual
@@ -86,7 +89,7 @@ function M:owns(record,phase)
     local value=self:read();return value~=nil and matches(value,record) and (phase==nil or value.phase==phase)
 end
 function M:begin(metadata,scope,revision,draft)
-    if not Contract.validate_metadata(metadata) or not scope or not integer(scope.epoch) or not integer(revision) then return nil,'invalid' end
+    if not self.contract.validate_metadata(metadata) or not scope or not integer(scope.epoch) or not integer(revision) then return nil,'invalid' end
     local id=self.nonce();if not token(id) then return nil,'storage' end
     local value,reason=run(self,function(db,account)
         local previous=read(self,db,account)

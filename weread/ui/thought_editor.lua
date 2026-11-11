@@ -126,6 +126,7 @@ local function submit(ctx)
     if not started then failure(ctx,reason) end
 end
 local function new_context(host,owner,current,redraw)
+    require('weread.ui.mark_editor').cancel(host,owner)
     M.cancel(host,owner)
     local journal=store(host)
     local cache=require('weread.lib.my_cloud_marks_store'):new(host.library_db,host.client,'thoughts')

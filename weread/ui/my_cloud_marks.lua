@@ -17,6 +17,7 @@ end
 local function stop(host,owner)
     require('weread.ui.my_mark_navigation').cancel(host,owner)
     require('weread.ui.thought_editor').cancel(host,owner)
+    require('weread.ui.mark_editor').cancel(host,owner)
     local context=owner.context;owner.context=nil
     if not context then return end
     if owner.worker then owner.worker:cancel() end
@@ -62,6 +63,11 @@ render=function(host,owner)
         items[#items+1]={text=_('Check last thought change'),callback=function()
             if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').check(host,owner,current,render) end
         end}
+        if not owner.thoughts then
+            items[#items+1]={text=_('Check last highlight change'),callback=function()
+                if current(host,owner) then stop(host,owner);require('weread.ui.mark_editor').check(host,owner,current,render) end
+            end}
+        end
         if owner.value then
             local stamp=owner.value.fetched_at
             local date=stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp) or _('Time unavailable')
@@ -99,6 +105,12 @@ render=function(host,owner)
                             end}}}
                         end
                         local editor=require('weread.ui.thought_editor')
+                        if not owner.thoughts and row.type==1 then
+                            buttons=buttons or {};buttons[#buttons+1]={{id='delete_highlight',text=_('Delete highlight'),callback=function()
+                                if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
+                                stop(host,owner);require('weread.ui.mark_editor').start(host,owner,'delete',row,current,render)
+                            end}}
+                        end
                         local operations=owner.thoughts and editor.can_edit(row) and {'edit','delete'}
                             or not owner.thoughts and editor.can_create(row) and {'create'} or {}
                         for _j,operation in ipairs(operations) do

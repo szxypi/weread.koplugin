@@ -29,6 +29,7 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         for key in pairs(b) do if a[key]==nil then return false end end;return true
     end
     if reopen then
+        assert(require('weread.lib.mark_edit_service').new_journal(plugin.library_db,plugin.client):read().phase=='pending','fresh process lost pending highlight')
         local journal=require('weread.lib.thought_edit_store'):new(plugin.library_db,plugin.client)
         assert(journal:read().phase=='pending' and #journal:drafts()==1,'fresh process lost selection draft or pending operation')
         plugin:showMyCloudThoughts(id);local own=assert(plugin._my_marks_owner)
@@ -88,7 +89,7 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
     local function tap(owner,key)
         UI:forceRePaint();assert(owner.menu._shelf_popup.button_table:getButtonById(key),'missing editor button '..key):onTapSelectButton()
     end
-    local function open()
+    local function open(highlight_only)
         clean_popups(reader);reader.highlight.selected_text=copy(selected);reader.highlight:onShowHighlightMenu()
         UI:forceRePaint()
         assert(reader.highlight.highlight_dialog.buttontable:getButtonById('weread_selection_thought')):onTapSelectButton()
@@ -101,9 +102,10 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         assert(not reader.highlight.selected_text,'consumed selection still blocks native source capture')
         local owner=plugin._selection_thought_owner
         assert(owner.reference.selection and owner.reference.markText==text)
-        row(owner,'Write private thought');assert(owner.editor.input)
+        if not highlight_only then row(owner,'Write private thought');assert(owner.editor.input) end
         return owner
     end
+    dofile('/source/spec/koreader/mark_editor_smoke.lua')(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     local content='来自原生选区的私密想法 😀\n第二行内容'
     plugin.isNetworkOnline=function() return false end
     local owner=open();owner.editor.input:setInputText(content);tap(owner,'save_thought_draft')

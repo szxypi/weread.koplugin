@@ -18,6 +18,7 @@ local function current(host,owner)
 end
 local function stop(host,owner)
     Editor.cancel(host,owner)
+    require('weread.ui.mark_editor').cancel(host,owner)
     if owner.task then UI:unschedule(owner.task);owner.task=nil end
     if owner.worker then owner.worker:cancel() end
 end
@@ -37,6 +38,9 @@ render=function(host,owner)
     if not current(host,owner) then return end
     local items={}
     if owner.reference then
+        items[#items+1]={text=_('Save highlight'),callback=function()
+            if current(host,owner) then require('weread.ui.mark_editor').start(host,owner,'create',owner.reference,current,render) end
+        end}
         items[#items+1]={text=_('Quoted text'),callback=function()
             if current(host,owner) then Popup.show(owner.menu,require('weread.ui.thought_text').viewer{
                 title=_('Quoted text'),text=owner.reference.markText,add_default_buttons=true}) end
@@ -50,6 +54,9 @@ render=function(host,owner)
     end}
     items[#items+1]={text=_('Check last thought change'),callback=function()
         if current(host,owner) then Editor.check(host,owner,current,render) end
+    end}
+    items[#items+1]={text=_('Check last highlight change'),callback=function()
+        if current(host,owner) then require('weread.ui.mark_editor').check(host,owner,current,render) end
     end}
     owner.menu:switchItemTable(nil,items)
     end)
@@ -66,7 +73,7 @@ function M.open(host,selection)
         account=host.library_db:accountKey(),scope=host.settings:get_auth_scope(),session=host._reader_session_gen,
         epoch=host.discovery_epoch or 0,thoughts=false}
     if not owner.location or not owner.account then return false end
-    local menu=host:showList(_('Write private thought'),{{text=_('Checking selected text…'),select_enabled=false}})
+    local menu=host:showList(_('WeRead highlight or thought'),{{text=_('Checking selected text…'),select_enabled=false}})
     if not menu then return false end
     owner.menu=menu;host._selection_thought_owner=owner
     local closed=menu.onCloseWidget
@@ -133,7 +140,7 @@ function M.attach(host)
     local highlight=host.ui and host.ui.highlight
     if not highlight or type(highlight.addToHighlightDialog)~='function' or type(highlight.removeFromHighlightDialog)~='function' then return false end
     local function factory(this)
-        return {id='weread_selection_thought',text=_('Write private thought'),show_in_highlight_dialog_func=function()
+        return {id='weread_selection_thought',text=_('WeRead highlight or thought'),show_in_highlight_dialog_func=function()
             return Marks.id(host._current_weread_book_id)~=nil and this.selected_text and type(this.selected_text.text)=='string'
                 and #this.selected_text.text>0 and this.select_mode~=true and host.library_db:accountKey()~=nil
                 and (host._translation_mode==nil or host._translation_mode=='original')

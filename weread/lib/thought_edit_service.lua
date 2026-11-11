@@ -1,14 +1,14 @@
 -- Parent owns draft persistence, previews and completion. Workers carry text
 -- through anonymous pipes; the durable intent contains only typed digests.
 local Access=require('weread.lib.native_read_access')
-local Contract=require('weread.lib.thought_edit_contract')
-local Thoughts=require('weread.lib.my_cloud_thoughts')
-local Task=require('weread.lib.thought_edit_task')
+local DefaultContract=require('weread.lib.thought_edit_contract')
+local DefaultData=require('weread.lib.my_cloud_thoughts')
+local DefaultTask=require('weread.lib.thought_edit_task')
 local M={};M.__index=M
 function M:new(options)
     return setmetatable({settings=assert(options.settings),client=assert(options.client),scheduler=assert(options.scheduler),
         journal=assert(options.journal),cache=assert(options.cache),worker=options.worker,credentials=options.credentials,
-        now=options.now or os.time},self)
+        now=options.now or os.time,contract=options.contract or DefaultContract,data=options.data or DefaultData,task=options.task or DefaultTask},self)
 end
 function M:pending()
     local record,reason=self.journal:read()
@@ -32,6 +32,7 @@ function M:_worker(task,callback)
 end
 local function clone(self,value) return self.client:json_decode(self.client:json_encode(value)) end
 function M:prepare(input,guard,callback,resolve)
+    local Contract,Thoughts,Task=self.contract,self.data,self.task
     if self.job or self.preview then return false,'busy' end
     local access=Access.capture(self.settings,self.credentials)
     if not access or access.renewal_pending then return false,'login' end
@@ -80,7 +81,7 @@ function M:preview_current(plan)
     return true
 end
 function M:_cache(snapshot,book)
-    local ok,value=pcall(Thoughts.validate,self.client,snapshot,book)
+    local ok,value=pcall(self.data.validate,self.client,snapshot,book)
     if not ok then return false end
     local saved,result=pcall(self.cache.write,self.cache,value)
     return saved and result==true
@@ -96,6 +97,7 @@ function M:resolve(plan,accept_current)
     return finished,job.snapshot
 end
 function M:commit(plan,callback)
+    local Contract,Thoughts,Task=self.contract,self.data,self.task
     if self.job or not self:preview_current(plan) or self.preview_job.resolving then return false,'session_changed' end
     local job=self.preview_job;self.preview,self.preview_job=nil,nil
     local record=self.journal:begin(job.metadata,job.access.scope,job.revision,job.input.draft)

@@ -68,6 +68,22 @@ function library:open()
 end
 expect(not store:delete_draft(replacement),'failed commit reported success');library.open=open
 expect(store:draft(replacement.draft_key)~=nil,'failed commit lost draft')
+-- Highlight journal uses the same FULL/CAS implementation with a separate
+-- validated contract and row. A fresh process cannot reclaim its dispatch.
+local thought_store=store
+local MF=require('spec.helpers.mark_edit_fixture');local MC=require('weread.lib.mark_edit_contract')
+local MS=require('weread.lib.mark_edit_service');store=MS.new_journal(library,codec)
+local mark_plan=MC.make(codec,MF.snapshot(codec),'create',MF.reference(),{bookId='900001',version=77})
+record=assert(store:begin(mark_plan.metadata,scope,0));counter[0],counter[1]=0,0
+a=fork(race);b=fork(race);counter[1]=1;reap(a);reap(b)
+expect(counter[0]==1 and store:read().phase=='pending','highlight claim not exclusive')
+expect(thought_store:read().phase=='idle','highlight intent replaced thought journal')
+local mark_fresh=MS.new_journal(library,codec)
+expect(mark_fresh:owns(record,'pending') and not mark_fresh:claim(record),'fresh highlight process replayed')
+expect(mark_fresh:finish(record,'pending'),'highlight reconciliation failed')
+local mark_db=assert(library:open());local mark_raw=mark_db:rowexec('SELECT payload FROM mark_write_state');mark_db:close()
+expect(not mark_raw:find('合成新划线',1,true),'highlight intent retained quote')
+store=thought_store
 local db=assert(library:open());local row=db:rowexec('SELECT payload FROM thought_write_state')
 expect(not row:find('New text',1,true) and not row:find('合成引用',1,true),'journal stored text')
 db:exec("UPDATE thought_write_state SET payload='{}' WHERE id=1");db:close()

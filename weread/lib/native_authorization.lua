@@ -253,6 +253,16 @@ function Auth:write_my_thought(credentials,operation,body,on_dispatch)
     return self:_request('my_thought_write',BASE..path,body,credentials,nil,on_dispatch)
 end
 
+-- Exact ordinary-highlight creation/removal and independent readback verified
+-- by verify_highlight_trial.py. No automatic renewal or write replay.
+function Auth:write_my_highlight(credentials,operation,body,on_dispatch)
+    if type(credentials)~='table' or vid(credentials.vid)~=self.expected_vid or not text(credentials.accessToken,8192)
+        or type(on_dispatch)~='function' then fail('my_highlight_write','invalid_credentials') end
+    if not require('weread.lib.mark_edit_contract').validate_body(operation,body) then fail('my_highlight_write','invalid_payload') end
+    local path=operation=='create' and '/book/addBookmark' or '/book/removeBookmark'
+    return self:_request('my_highlight_write',BASE..path,body,credentials,nil,on_dispatch)
+end
+
 -- Four statistics modes and historical month verified by the Python prototype.
 function Auth:read_statistics(credentials, mode, base_time)
     local Data = require("weread.lib.statistics_data")

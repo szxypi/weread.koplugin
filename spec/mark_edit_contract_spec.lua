@@ -1,0 +1,48 @@
+package.path='./?.lua;'..package.path
+local F=require('spec.helpers.mark_edit_fixture');local C=require('weread.lib.mark_edit_contract')
+local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
+local codec=F.codec();local snapshot=F.snapshot(codec);local ref=F.reference()
+local plan=C.make(codec,snapshot,'create',ref,{bookId='900001',version=77})
+expect(C.validate_body('create',plan.body) and C.validate_metadata(plan.metadata),'valid creation rejected')
+expect(plan.body.chapterIdx==nil and type(plan.body.chapterUid)=='number','guessed native index or wrong UID type')
+expect(not C.check(snapshot,plan.metadata),'baseline confirmed creation')
+local created=F.created(codec,snapshot);local yes,key=C.check(created,plan.metadata)
+expect(yes and key=='synthetic-new-highlight','exact creation not confirmed')
+for _i,name in ipairs({'markText','range','chapterUid','type','style','colorStyle'}) do
+    local changed=F.clone(created);changed.marks.updated[2][name]=name=='chapterUid' and 9 or 'changed'
+    expect(not C.check(changed,plan.metadata),'changed new row confirmed: '..name)
+end
+for _i,name in ipairs({'markText','range','chapterUid','createTime'}) do
+    local changed=F.clone(created);changed.marks.updated[1][name]=name=='chapterUid' and 9 or 'changed'
+    expect(not C.check(changed,plan.metadata),'original mark change hidden: '..name)
+end
+local altered=F.clone(created);altered.thoughts.reviews[1].content='External edit'
+expect(not C.check(altered,plan.metadata),'thought mutation hidden')
+altered=F.clone(created);altered.marks.chapters[1]={chapterUid=2,title='Selected chapter'}
+expect(C.check(altered,plan.metadata),'new selected chapter descriptor rejected')
+altered.marks.chapters[2]={chapterUid=999,title='Unrelated chapter'}
+expect(not C.check(altered,plan.metadata),'unrelated new descriptor accepted')
+altered=F.clone(created);altered.marks.updated[3]=F.clone(altered.marks.updated[2]);altered.marks.updated[3].bookmarkId='second-new'
+expect(not C.check(altered,plan.metadata),'duplicate creation accepted')
+local deletion=C.make(codec,created,'delete',created.marks.updated[2])
+expect(C.validate_body('delete',deletion.body) and C.check(snapshot,deletion.metadata),'exact deletion failed')
+expect(not C.check(created,deletion.metadata),'remaining mark confirmed deletion')
+altered=F.clone(created);altered.thoughts.reviews[1].chapterUid=2;altered.thoughts.reviews[1].range=ref.range
+expect(not pcall(C.make,codec,altered,'delete',altered.marks.updated[2]),'linked thought deletion allowed')
+expect(not pcall(C.make,codec,created,'create',ref,{bookId='900001',version=77}),'overlapping selection allowed')
+for _i,operation in ipairs({'create','delete','edit'}) do
+    local body=F.clone(operation=='create' and plan.body or deletion.body);body.unexpected=true
+    expect(not C.validate_body(operation,body),'extra write field allowed')
+end
+local Auth=require('weread.lib.native_authorization');local calls,claimed=0,false
+codec.request=function(_self,options)
+    calls=calls+1;expect(claimed and options.method=='POST' and options.url=='https://i.weread.qq.com/book/removeBookmark','path or claim escaped')
+    expect(options.sensitive and options.skip_cookie and options.persist_response_cookies==false and not options.headers.Cookie,'private transport changed')
+    return codec:json_encode({succ=1}),200
+end
+local auth=Auth:new(codec,{expected_vid='900000',is_current=function() return true end})
+local credentials={vid='900000',accessToken='synthetic-access'}
+expect(not pcall(auth.write_my_highlight,auth,credentials,'delete',deletion.body) and calls==0,'missing claim sent')
+auth:write_my_highlight(credentials,'delete',deletion.body,function() claimed=true end)
+expect(calls==1,'write replayed')
+print('mark_edit_contract_spec: '..checks..' checks')
