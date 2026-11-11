@@ -13,9 +13,12 @@ SERVICE='org.codex.weread.goal-native-shelf-trial'
 
 
 class NativeShelfTrialStore:
+    service=SERVICE
+    lock_prefix='codex-native-shelf-'
+    validator=staticmethod(validate_plan)
     def __init__(self,backend=None,lock=None):
-        self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
-        path=Path(tempfile.gettempdir())/('codex-native-shelf-'+ACCOUNT+'.lock')
+        self.backend=backend if backend is not None else MacKeychain(service=self.service,account=ACCOUNT)
+        path=Path(tempfile.gettempdir())/(self.lock_prefix+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
 
     def _load(self):
@@ -28,7 +31,7 @@ class NativeShelfTrialStore:
                     or type(value['reserved_posts']) is not int or value['reserved_posts']!=2
                     or not isinstance(value['attempt'],str) or len(value['attempt'])!=32
                     or any(c not in 'abcdef0123456789' for c in value['attempt'])):raise ValueError()
-            validate_plan(value['plan']);return value,raw
+            self.validator(value['plan']);return value,raw
         except (ValueError,TypeError,KeyError,UnicodeError):raise StoreError('native_shelf/intent_invalid') from None
 
     def read(self):
@@ -38,7 +41,7 @@ class NativeShelfTrialStore:
     def pending(self):return self.read()[0] is not None
 
     def reserve(self,plan):
-        validate_plan(plan)
+        self.validator(plan)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('native_shelf/pending')
             raw=canonical(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),reserved_posts=2,plan=plan))
