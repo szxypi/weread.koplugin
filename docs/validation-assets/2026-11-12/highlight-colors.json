@@ -280,5 +280,14 @@
     "kindle_usb_detected": false,
     "physical_koreader_version": "unknown",
     "physical_acceptance": false
+  },
+  "code_ci": {
+    "result": "PASS",
+    "head": "cdae1a6d4b5f75c1741512de915fed4451554773",
+    "url": "https://github.com/szxypi/weread.koplugin/actions/runs/43078555118",
+    "all_steps_passed": true,
+    "python_test_files": 95,
+    "python_tests": 1166,
+    "skips": 0
   }
 }
