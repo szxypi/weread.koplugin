@@ -139,3 +139,5 @@ python3 scripts/test_resolve_finish_experiment.py
 # 仅核对待确认状态，不发送恢复：
 python3 scripts/resolve_finish_experiment.py --saved-session
 ```
+
+后续生产单次策略已完成[新的真实原生验证](native-finish-trial.md)：两次独立确认与写后完整回读通过。上述严格回执试验的未知结果及单次接续保持原记录，不据此改写为成功。
