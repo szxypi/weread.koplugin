@@ -13,9 +13,9 @@ local checks=0
 local function expect(value,label) checks=checks+1;assert(value,label) end
 local function position() return {book_id='41',chapter_uid='2',chapter_offset=15,basis='filtered_xhtml_utf16',upload_verified=false} end
 local function bound(path) return {file=path or '/cached.epub',position=position(),identity={book_id='41',file_id=string.rep('a',64)},request_id=1} end
-local function fixture(reader)
+local function fixture(reader,thoughts)
     local f={valid=true,account='account',scope={},online=true,works={},starts=0,cancels=0,notices={},location={page=1},frame={},nav_generation=0}
-    local owner={id='41',account=f.account,scope=f.scope,value={}}
+    local owner={id='41',account=f.account,scope=f.scope,value={},thoughts=thoughts}
     local host={settings={},library_db={},ui={},_reader_session_gen=0,progress_sync={},source_navigation={}}
     host.ui.weread=host
     if reader then host.ui.document={file='/cached.epub'};host._reader_session_gen=1 end
@@ -55,7 +55,9 @@ local function fixture(reader)
         f.starts=f.starts+1;f.works[#f.works+1]={task=task,done=done};return f.start~=false
     end,cancel=function() f.cancels=f.cancels+1 end} end}
     local function current() return f.current~=false and f.valid and f.account==owner.account end
-    local function start() return Nav.start(host,owner,{type=1,chapterUid=2,markText='Unique selected text',range='15-35'},current) end
+    f.row=thoughts and {reviewId='synthetic-review',type=1,chapterUid=2,abstract='Unique selected text',content='Separate prose',range='15-35'}
+        or {type=1,chapterUid=2,markText='Unique selected text',range='15-35'}
+    local function start() return Nav.start(host,owner,f.row,current) end
     local function complete(index) local item=f.works[index or #f.works];item.done(item.task()) end
     return host,owner,f,start,complete
 end
@@ -129,4 +131,22 @@ for _i,mode in ipairs({'save','login','merge','changed_auth','download_changed'}
     expect(not owner.navigation,mode..' retained failed lookup')
     if mode~='download_changed' then expect(not f.downloads,mode..' started a download after failed validation') end
 end
+-- The thought adapter shares the complete native handoff and download path.
+host,owner,f,start,complete=fixture(true,true);expect(start(),'quoted thought lookup did not start');complete()
+expect(f.jumped and not f.opened and not owner.navigation and not host.busy_message,'thought quote did not use same-file native jump')
+f.applied(position());expect(f.finished==true,'thought quote did not preserve local resume state')
+host,owner,f,start,complete=fixture(false,true);start();complete()
+expect(f.opened=='/cached.epub' and not owner.navigation and not host.busy_message,'thought quote did not hand off cached file')
+host,owner,f,start,complete=fixture(false,true);f.missing=true;start();complete()
+expect(UI.top.text=='No matching downloaded chapter. Download it and locate this thought quote?','thought confirmation used highlight wording')
+UI.top.ok_callback();complete();f.options.on_complete(true,'/downloaded.epub');owner.navigation.task();complete()
+expect(f.opened=='/downloaded.epub' and f.options.include_annotations==false and not host.busy_message,'thought download did not rebind exact quote')
+for _i,thoughts in ipairs({false,true}) do
+    host,owner,f,start,complete=fixture(true,thoughts);start()
+    f.row[thoughts and 'abstract' or 'markText']='Changed displayed reference';complete()
+    expect(not owner.navigation and not f.jumped and not f.opened and not host.busy_message,'mutated quote kept old navigation task')
+end
+local missing_host,missing_owner,missing_f,missing_start=fixture(true,true)
+missing_f.row.abstract=nil;missing_f.row.markText='Fallback highlight';missing_f.row.content='Fallback thought'
+expect(not missing_start() and missing_f.starts==0 and not missing_owner.navigation and not missing_host.busy_message,'missing thought quote fell back to other text')
 print('my_mark_navigation_spec: '..checks..' ownership, local navigation, handoff and download checks passed')

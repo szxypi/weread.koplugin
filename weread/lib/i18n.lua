@@ -1,6 +1,10 @@
 local I18n = {}
 
 local zh = {
+    ["Open thought quoted text"] = "查看想法引用原文",
+    ["Locating thought quote…"] = "正在定位想法引用原文…",
+    ["Could not locate this thought quote in the original text. Try downloading the chapter again."] = "无法在原文中定位这条想法的引用，请尝试重新下载对应章节。",
+    ["No matching downloaded chapter. Download it and locate this thought quote?"] = "没有匹配的已下载章节。是否下载并定位这条想法的引用？",
     ["Continue"] = "继续",
     ["Write private thought"] = "写私密想法",
     ["Edit this thought"] = "编辑这条想法",

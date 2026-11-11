@@ -51,7 +51,7 @@ def validate(value,mode,count,chapters,*,shots=False):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
-    parser.add_argument('--synthetic',action='store_true');parser.add_argument('--screenshots',type=Path);args=parser.parse_args(argv)
+    parser.add_argument('--variant',choices=['thoughts']);parser.add_argument('--synthetic',action='store_true');parser.add_argument('--screenshots',type=Path);args=parser.parse_args(argv)
     if args.screenshots and not args.synthetic:parser.error('screenshots require synthetic input')
     runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('Linux runtime and positive dimensions required')
@@ -61,6 +61,7 @@ def main(argv=None):
         raw=sys.stdin.buffer.read(12*1024*1024+1)
         if len(raw)>12*1024*1024:raise ValueError('input_limit')
         payload=json.loads(raw);chapters=len(payload['chapters']);count=sum(len(row['rows']) for row in payload['chapters'])
+        if payload.get('variant')!=args.variant:raise ValueError('input_scope')
         if not 1<=chapters<=8 or not 1<=count<=5000:raise ValueError('input_limit')
         if (payload.get('synthetic') is True)!=args.synthetic:raise ValueError('input_scope')
         if args.screenshots:args.screenshots.mkdir(parents=True,exist_ok=False)
@@ -70,6 +71,7 @@ def main(argv=None):
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(root/'xdg'),EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi))
             if args.synthetic:env['WEREAD_MARKNAV_SYNTHETIC']='1'
+            if args.variant:env['WEREAD_MARKNAV_VARIANT']=args.variant
             if args.screenshots:env['WEREAD_MARKNAV_SHOTS']=str(args.screenshots.resolve())
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/my_mark_navigation_probe.lua'
             for mode in ('live','reopen'):

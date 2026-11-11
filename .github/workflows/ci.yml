@@ -137,6 +137,7 @@ jobs:
           python3 scripts/test_cb_full_reading.py
           python3 scripts/test_my_cloud_marks.py
           python3 scripts/test_my_mark_target.py
+          python3 scripts/test_my_thought_target.py
           python3 scripts/test_my_cloud_thoughts.py
           python3 scripts/test_annotation_experiment.py
           python3 scripts/test_thought_edit_contract.py

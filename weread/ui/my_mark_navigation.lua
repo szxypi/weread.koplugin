@@ -1,6 +1,7 @@
--- Explicit personal-highlight navigation. All source/archive/catalog work is
+-- Explicit personal highlight/thought-quote navigation. Source/archive work is
 -- outside the UI process; only its scoped result can open a native document.
-local Target=require('weread.lib.my_mark_target')
+local MarkTarget=require('weread.lib.my_mark_target')
+local ThoughtTarget=require('weread.lib.my_thought_target')
 local Context=require('weread.lib.source_context')
 local WorkerSettings=require('weread.lib.worker_settings')
 local UI=require('ui/uimanager')
@@ -63,13 +64,13 @@ local function open_bound(host,owner,job,result,current)
             if not saved or not accepted then
                 next_host:showInfo(_('Reading position opened, but it could not be saved. Check storage before continuing.'))
             elseif not applied then
-                next_host:showInfo(_('Could not locate this highlight in the original text. Try downloading the chapter again.'))
+                next_host:showInfo(_(job.failed_label))
             end
         end)
         if not called or not opened then
             if next_host._read_resume_active==active then next_host._read_resume_active=nil end
             pcall(sync.finish_file_resume,sync,frame,false)
-            next_host:showInfo(_('Could not locate this highlight in the original text. Try downloading the chapter again.'))
+            next_host:showInfo(_(job.failed_label))
             return false
         end
         if next_host._read_resume_active==active then active.job=next_host.source_navigation.job end
@@ -91,16 +92,22 @@ local function open_bound(host,owner,job,result,current)
 end
 function M.start(host,owner,row,is_current)
     M.cancel(host,owner)
-    if owner.thoughts or not Target.can_locate(row) then return false end
+    local Target=owner.thoughts and ThoughtTarget or MarkTarget
+    if not Target.can_locate(row) then return false end
     if host.read_report and host.read_report.job then
         host:showInfo(_('Reading position is temporarily unavailable. Please try again shortly.'));return false
     end
     local original=owner.value
-    local job={started=os.time(),location=reader_location(host),row={type=1,chapterUid=row.chapterUid,markText=row.markText,range=row.range},request_id=1}
+    local frozen={}
+    for _i,key in ipairs({'type','chapterUid','markText','range','reviewId','abstract','bookId'}) do frozen[key]=row[key] end
+    local job={started=os.time(),location=reader_location(host),row=frozen,request_id=1,
+        failed_label=owner.thoughts and 'Could not locate this thought quote in the original text. Try downloading the chapter again.'
+            or 'Could not locate this highlight in the original text. Try downloading the chapter again.'}
     owner.navigation=job
     local function current()
         local age=os.time()-job.started
         local at=reader_location(host)
+        for _i,key in ipairs({'type','chapterUid','markText','range','reviewId','abstract','bookId'}) do if row[key]~=frozen[key] then return false end end
         return owner.navigation==job and is_current(host,owner) and owner.value==original and age>=0
             and age<=(job.downloading and 1800 or 120)
             and (not host.ui.document and not job.location or Context.same_location(job.location,at))
@@ -109,14 +116,14 @@ function M.start(host,owner,row,is_current)
         if owner.navigation~=job then return end
         if not current() then M.cancel(host,owner);return end
         M.cancel(host,owner)
-        host:showInfo(_('Could not locate this highlight in the original text. Try downloading the chapter again.'))
+        host:showInfo(_(job.failed_label))
     end
     local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=4*1024*1024} end)
     if not ok then fail();return false end
     job.worker=worker
     local book=host.settings:get_book(owner.id) or {book_id=owner.id,title=''}
     local function busy()
-        host:showBusy(_('Locating saved highlight…'),function() if owner.navigation==job then M.cancel(host,owner) end end)
+        host:showBusy(_(owner.thoughts and 'Locating thought quote…' or 'Locating saved highlight…'),function() if owner.navigation==job then M.cancel(host,owner) end end)
         job.busy=host.busy_message
     end
     local launch,handle
@@ -182,7 +189,8 @@ function M.start(host,owner,row,is_current)
         close_busy(host,job)
         local confirm
         confirm=require('ui/widget/confirmbox'):new{
-            text=_('No matching downloaded chapter. Download it and locate this highlight?'),
+            text=_(owner.thoughts and 'No matching downloaded chapter. Download it and locate this thought quote?'
+                or 'No matching downloaded chapter. Download it and locate this highlight?'),
             ok_text=_('Download target chapter'),cancel_text=_('Cancel'),keep_dialog_open=true,
             ok_callback=function()
                 if not current() or job.confirm~=confirm then return end

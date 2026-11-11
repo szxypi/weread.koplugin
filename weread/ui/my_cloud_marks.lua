@@ -90,8 +90,9 @@ render=function(host,owner)
                         if #parts==1 then parts[#parts+1]=_(owner.thoughts and 'No thought text was returned.' or 'No saved quote text.') end
                         local viewer
                         local buttons
-                        if not owner.thoughts and require('weread.lib.my_mark_target').can_locate(row) then
-                            buttons={{{id='open_highlight',text=_('Open highlighted text'),callback=function()
+                        local target=require(owner.thoughts and 'weread.lib.my_thought_target' or 'weread.lib.my_mark_target')
+                        if target.can_locate(row) then
+                            buttons={{{id=owner.thoughts and 'open_thought_quote' or 'open_highlight',text=_(owner.thoughts and 'Open thought quoted text' or 'Open highlighted text'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                 stop(host,owner)
                                 require('weread.ui.my_mark_navigation').start(host,owner,row,current)

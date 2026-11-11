@@ -97,7 +97,7 @@ host,value=fixture(snapshot());value.online=true;value.native_missing=true;Marks
 row(menu,'Refresh my cloud marks').callback();expect(not value.started and #value.notices==1,'missing grant started worker')
 -- The thought adapter shares ownership while keeping its rows and filters separate.
 host,value=fixture();value.saved={schema=1,book_id='900001',fetched_at=1000,reviews={
-    {reviewId='synthetic-thought-a',content='My quoted thought',abstract='Quoted source',isPrivate=1,chapterName='Chapter'},
+    {reviewId='synthetic-thought-a',content='My quoted thought',abstract='Quoted source',isPrivate=1,chapterName='Chapter',type=1,chapterUid=7,range='12-25'},
     {reviewId='synthetic-thought-b',content='My standalone thought',abstract='',chapterName='Chapter'},
     {reviewId='synthetic-thought-c',content='',abstract='Only source'}}}
 package.loaded['weread.lib.my_cloud_thoughts']={capture=Data.capture,matches=Data.matches,validate=Data.validate,EXPIRED='my_thoughts/native_expired'}
@@ -107,8 +107,10 @@ row(menu,'Thoughts with quoted text').callback()
 expect(row(menu,'My quoted thought') and not pcall(row,menu,'My standalone thought'),'thought quote filter used the review type')
 row(menu,'My quoted thought').callback()
 expect(menu._shelf_popup.title=='Private thought' and menu._shelf_popup.text=='Chapter\n\nQuoted text\nQuoted source\n\nThought\nMy quoted thought','thought popup omitted quote or private state')
+expect(menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote','supported thought quote lost native original-text action')
 UI:close(menu._shelf_popup);row(menu,'Only source').callback()
 expect(menu._shelf_popup.text:find('No thought text was returned.',1,true),'quoted-only thought hid its missing body')
+expect(not menu._shelf_popup.buttons_table,'missing thought source range exposed a locate action')
 UI:close(menu._shelf_popup);row(menu,'Other thoughts').callback()
 expect(row(menu,'My standalone thought') and not pcall(row,menu,'My quoted thought'),'standalone thought filter failed')
 local old_refresh=row(menu,'Refresh my cloud thoughts').callback

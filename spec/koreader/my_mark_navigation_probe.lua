@@ -13,6 +13,7 @@ local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local raw=assert(io.stdin:read(12*1024*1024+1));assert(#raw<=12*1024*1024)
     local input=json.decode(raw);assert(type(input.chapters)=='table' and #input.chapters>0 and #input.chapters<=8)
+    local thoughts=input.variant=='thoughts';assert(thoughts==(os.getenv('WEREAD_MARKNAV_VARIANT')=='thoughts'))
     local synthetic=os.getenv('WEREAD_MARKNAV_SYNTHETIC')=='1'
     assert((input.synthetic==true)==synthetic)
     if synthetic then assert(input.owner=='900000' and input.book_id=='900001') end
@@ -94,22 +95,24 @@ local ok,reason=pcall(function()
         end
         assert(Content.save_catalog_cache(plugin.client,plugin.settings,book,chapters))
         local books=plugin.settings:get('books',{});books[id]=book;plugin.settings:set('books',books);plugin.settings:flush()
-        assert(require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client):write(input.model))
+        assert(require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client,thoughts and 'thoughts' or nil):write(input.model))
     else
         assert(book and book.cached_full_book);book.cached_chapters={};book.cached_file=nil
         local books=plugin.settings:get('books',{});books[id]=book;plugin.settings:set('books',books);plugin.settings:flush();report.source_files=#input.chapters+1
     end
     local tr=require('weread.lib.plugin_util').tr
+    local Target=require(thoughts and 'weread.lib.my_thought_target' or 'weread.lib.my_mark_target')
+    local function note_id(row) return thoughts and row.reviewId or row.bookmarkId end
     local expected={}
     for _i,sample in ipairs(input.chapters) do
         for index,row in ipairs(sample.rows) do
-            local target=assert(require('weread.lib.my_mark_target').project(sample.raw,id,sample.chapter_uid,row))
+            local target=assert(Target.project(sample.raw,id,sample.chapter_uid,row))
             assert(target.chapter_offset==sample.targets[index].chapter_offset and target.raw_sha256==sample.targets[index].raw_sha256)
-            expected[row.bookmarkId]=target
+            expected[note_id(row)]=target
         end
     end
     local entries={}
-    for _i,row in ipairs(input.model.updated) do if expected[row.bookmarkId] then entries[#entries+1]=row end end
+    for _i,row in ipairs(thoughts and input.model.reviews or input.model.updated) do if expected[note_id(row)] then entries[#entries+1]=row end end
     assert(#entries>0)
     if mode=='reopen' then local reversed={};for index=#entries,1,-1 do reversed[#reversed+1]=entries[index] end;entries=reversed end
     report.phase='navigate'
@@ -117,17 +120,17 @@ local ok,reason=pcall(function()
         if not reader then
             plugin:showBookMenu(book)
             local detail=assert(plugin._book_detail_view);local entry
-            for _j,button in ipairs(detail._action_buttons) do if button.text==tr('My cloud highlights') then entry=button end end
+            for _j,button in ipairs(detail._action_buttons) do if button.text==tr(thoughts and 'My cloud thoughts' or 'My cloud highlights') then entry=button end end
             assert(entry);entry.callback()
-        else assert(plugin:showMyCloudMarks(id)) end
+        else assert(require('weread.ui.my_cloud_marks').show(plugin,id,thoughts and 'thoughts' or nil)) end
         local owner=assert(plugin._my_marks_owner);assert(not owner.context)
         local menu=owner.menu;local index
-        for at,item in ipairs(menu.item_table) do if item.my_note_id==row.bookmarkId then index=at end end
+        for at,item in ipairs(menu.item_table) do if item.my_note_id==note_id(row) then index=at end end
         assert(index);menu:onGotoPage(menu:getPageNumber(index));menu:onMenuSelect(menu.item_table[index]);UI:forceRePaint()
-        local popup=assert(menu._shelf_popup);local button=assert(popup.button_table:getButtonById('open_highlight'))
+        local popup=assert(menu._shelf_popup);local button=assert(popup.button_table:getButtonById(thoughts and 'open_thought_quote' or 'open_highlight'))
         if _i==1 then shot('highlight') end
         if synthetic and _i==1 then
-            local Target=require('weread.lib.my_mark_target');local resolve=Target.resolve
+            local resolve=Target.resolve
             Target.resolve=function(...) socket.sleep(.8);return resolve(...) end
             button:onTapSelectButton()
             local active=assert(owner.navigation);local busy=assert(plugin.busy_message)
@@ -143,13 +146,13 @@ local ok,reason=pcall(function()
             old_dismiss()
             assert(owner.navigation==replacement,'old busy action cancelled new lookup')
         else button:onTapSelectButton() end
-        assert(button.text==tr('Open highlighted text'));report.buttons=report.buttons+1
+        assert(button.text==tr(thoughts and 'Open thought quoted text' or 'Open highlighted text'));report.buttons=report.buttons+1
         local beat=false;UI:scheduleIn(.1,function() beat=true end)
         wait(function()
             reader=require('apps/reader/readerui').instance
             if reader and reader.weread then plugin=reader.weread end
             local held=reader and plugin.progress_sync:current_source_target()
-            local target=expected[row.bookmarkId]
+            local target=expected[note_id(row)]
             return beat and not owner.navigation and reader and plugin.source_navigation.state=='ready'
                 and held and held.chapter_uid==target.chapter_uid and held.chapter_offset==target.chapter_offset
         end)
@@ -158,7 +161,7 @@ local ok,reason=pcall(function()
         assert(reader.document:isXPointerInCurrentPage(anchor.xpointer))
         local point=assert(plugin.source_position:current());assert(point.upload_verified==false and point.retained_source_target)
         local snapshot=assert(Source.document_metadata(reader.document,id,point.chapter_uid,point.render_path))
-        assert(snapshot.record.raw_sha256==expected[row.bookmarkId].raw_sha256)
+        assert(snapshot.record.raw_sha256==expected[note_id(row)].raw_sha256)
         assert(not plugin.progress_sync.verified and not plugin.read_report.job and counters[0]==0)
         UI:forceRePaint();report.located=report.located+1
         if _i==1 then shot('located') end
