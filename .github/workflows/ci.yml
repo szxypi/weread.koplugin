@@ -141,6 +141,7 @@ jobs:
           python3 scripts/test_note_download.py
           python3 scripts/test_my_cloud_thoughts.py
           python3 scripts/test_annotation_experiment.py
+          python3 scripts/test_native_thought_trial.py
           python3 scripts/test_thought_edit_contract.py
           python3 scripts/test_verify_thought_edit_contract.py
           python3 scripts/test_inspect_annotation_experiment.py
