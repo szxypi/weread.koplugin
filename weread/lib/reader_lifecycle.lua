@@ -16,6 +16,11 @@ local function selection_action(host,action)
     local module=package.loaded['weread.ui.selection_thought']
     if module then module[action](host) end
 end
+local function personal_action(host,action)
+    local module=package.loaded['weread.ui.personal_marks']
+    if action=='attach' then module=require('weread.ui.personal_marks') end
+    if module then module[action](host) end
+end
 
 -- KOReader v2026.03 assumes ReaderHighlight's visible box cache has already
 -- been populated when a tap arrives. During a fast document switch there is a
@@ -109,6 +114,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    personal_action(self,'detach')
     if self.cancelShelfCovers then self:cancelShelfCovers() end
     if self.cancelShelfProgress then self:cancelShelfProgress() end
     if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
@@ -173,6 +179,7 @@ function M:onReaderReady()
     self:_setupXPointerOverlayPrototype()
     perf("overlay_setup", prepared)
     if self.onUnifiedAnnotationsReady then self:onUnifiedAnnotationsReady() end
+    personal_action(self,'attach')
 
     local annotations_ready = perf("annotations_ready", opened)
     if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
@@ -197,6 +204,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    personal_action(self,'update')
     selection_action(self,'view_changed')
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
@@ -208,6 +216,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    personal_action(self,'update')
     selection_action(self,'view_changed')
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
@@ -219,6 +228,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    personal_action(self,'detach')
     selection_action(self,'detach')
     require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').on_close(self) end
@@ -413,6 +423,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    personal_action(self,'suspend')
     selection_action(self,'cancel')
     require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
@@ -452,6 +463,7 @@ function M:onSuspend()
 end
 
 function M:onResume()
+    personal_action(self,'wake')
     if self.resumeShelfCovers then self:resumeShelfCovers() end
     self.progress_sync:on_resume()
     if self.source_position then self.source_position:resume("suspend") end

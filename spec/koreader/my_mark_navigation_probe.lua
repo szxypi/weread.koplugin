@@ -21,6 +21,11 @@ local ok,reason=pcall(function()
         for _i,key in ipairs({'confirmations','downloaded_chapters','http_gets','catalog_posts','content_posts','forbidden_requests','http_failures'}) do report[key]=0 end
     end
     local thoughts=input.variant=='thoughts';assert(thoughts==(os.getenv('WEREAD_MARKNAV_VARIANT')=='thoughts'))
+    local personal=os.getenv('WEREAD_PERSONAL_DISPLAY')=='1';assert(not personal or not thoughts and not downloading)
+    if personal then
+        report.personal_display=false;report.personal_native_text=false;report.personal_spans=0
+        report.personal_position_notes_unchanged=false;report.personal_file_unchanged=false
+    end
     local synthetic=os.getenv('WEREAD_MARKNAV_SYNTHETIC')=='1'
     assert((input.synthetic==true)==synthetic)
     if synthetic then assert(input.owner=='900000' and input.book_id=='900001') end
@@ -144,6 +149,7 @@ local ok,reason=pcall(function()
     if mode=='reopen' then local reversed={};for index=#entries,1,-1 do reversed[#reversed+1]=entries[index] end;entries=reversed end
     report.phase='navigate'
     local downloaded={}
+    local function file_bytes(path) local f=assert(io.open(path,'rb'));local bytes=f:read('*a');f:close();return bytes end
     for _i,row in ipairs(entries) do
         local requests_before=tonumber(counters[0]);local uid=tostring(row.chapterUid)
         if not reader then
@@ -215,10 +221,31 @@ local ok,reason=pcall(function()
                 assert(path==reader.document.file and not record.cached_full_book);report.source_files=report.source_files+1
             else assert(tonumber(counters[0])==requests_before) end
         else assert(counters[0]==0) end
+        if personal then
+            local origin=reader.document:getXPointer();local native_notes=json.encode(reader.annotation.annotations)
+            local bytes=file_bytes(reader.document.file)
+            wait(function() return plugin._personal_marks and plugin._personal_marks.complete end)
+            local s=plugin._personal_marks;local own
+            for _j,record in ipairs(s.records) do if record.bookmarkId==row.bookmarkId then own=record;break end end
+            assert(own)
+            local text=reader.document:getTextFromXPointers(own.pos0,own.pos1);reader.document:clearSelection()
+            local Dom=require('weread.lib.source_dom')
+            assert(Dom.normalize(text)==Dom.normalize(row.markText))
+            assert(reader.document:getXPointer()==origin and json.encode(reader.annotation.annotations)==native_notes)
+            assert(file_bytes(reader.document.file)==bytes)
+            UI:forceRePaint();assert(s.overlay.enabled)
+            local visible=false;for _j,entry in ipairs(s.overlay.visible) do if entry.record.bookmarkId==row.bookmarkId then visible=true end end
+            assert(visible)
+            report.personal_spans=report.personal_spans+1
+        end
         UI:forceRePaint();report.located=report.located+1
         if _i==1 then shot('located') end
     end
     report.exact_targets=true;report.phase='close'
+    if personal then
+        assert(report.personal_spans==#entries)
+        report.personal_display=true;report.personal_native_text=true;report.personal_position_notes_unchanged=true;report.personal_file_unchanged=true
+    end
     plugin:closeWeReadUI();if reader then reader:onClose() end
     plugin.settings:flush();G_reader_settings:flush()
     for _i,worker in ipairs(workers) do wait(function() return worker.runner.done(worker.pid) end) end

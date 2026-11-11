@@ -171,6 +171,8 @@ refresh=function(host,owner)
         local saved,success=pcall(owner.store.write,owner.store,value)
         if not current(host,owner) then return end
         if not saved or not success then host:showInfo(_(owner.labels.save_failed));return end
+        local display=package.loaded['weread.ui.personal_marks']
+        if display and not owner.thoughts then display.changed(host,value) end
         owner.value=value;render(host,owner)
     end
     launch=function()

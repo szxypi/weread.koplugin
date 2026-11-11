@@ -16,7 +16,7 @@ from run_my_mark_navigation_ui import FRAME,DOWNLOAD_FRAME,validate
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--run-dir',type=Path,required=True)
-    parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts']);parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
+    parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts']);parser.add_argument('--personal-display',action='store_true');parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);repo=Path(__file__).resolve().parent.parent
     candidate=root/'candidate.zip';subprocess.run(['bash',str(repo/'scripts/package_release.sh'),str(candidate)],capture_output=True,check=True)
     source=dict(bookId='900001',updated=[],chapters=[]);chapters=[]
@@ -44,6 +44,7 @@ def main():
     command=['python3',str(repo/'scripts/run_my_mark_navigation_ui.py'),'--koreader',str(args.koreader),'--candidate',str(candidate),'--synthetic',
         '--screenshots',str(root/'screenshots'),'--width',str(args.width),'--height',str(args.height),'--dpi',str(args.dpi)]
     if args.variant:payload['variant']=args.variant;command.extend(['--variant',args.variant])
+    if args.personal_display:command.append('--personal-display')
     server=None
     try:
         if args.download_missing:
@@ -61,7 +62,7 @@ def main():
     result=json.loads(child.stdout.split(frame)[1]);result=result['report'] if args.download_missing else result
     (root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
     assert child.returncode==0 and result['result']=='PASS' and result['profile_removed'] and result['installed_bytes_match'],result
-    for row,mode in zip(result['stages'],('live','reopen')):validate(row,mode,6,2,shots=True,download=args.download_missing)
+    for row,mode in zip(result['stages'],('live','reopen')):validate(row,mode,6,2,shots=True,download=args.download_missing,personal=args.personal_display)
     if server:assert not any(path in {'/web/book/read','/login','/web/login/renewal','/review/add','/review/useredit','/review/delete'} for path,_query in server.request_totals)
     print(json.dumps(result))
 

@@ -167,6 +167,8 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    local personal=package.loaded['weread.ui.personal_marks']
+    if personal then personal.detach(self) end
     require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
     if self.source_navigation then self.source_navigation:cancel() end
@@ -189,6 +191,7 @@ function M:onWeReadAccountChanged()
     self.shelf_search_keyword = nil
     self.shelf_view_pages = nil
     if self.offline_time then self.offline_time:resume() end
+    if personal then personal.attach(self) end
 end
 
 function M:applyShelfSnapshot(all_books, archives)

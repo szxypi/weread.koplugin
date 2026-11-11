@@ -29,6 +29,11 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         for key in pairs(b) do if a[key]==nil then return false end end;return true
     end
     if reopen then
+        pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)
+        local own_display=plugin._personal_marks
+        assert(#own_display.records==1 and own_display.records[1].bookmarkId=='synthetic-display-offline','fresh offline process lost cached highlight')
+        UI:forceRePaint();assert(#own_display.overlay.visible>0,'fresh offline underline has no native screen boxes')
+        shot('personal-highlight-offline-reopen')
         assert(require('weread.lib.mark_edit_service').new_journal(plugin.library_db,plugin.client):read().phase=='pending','fresh process lost pending highlight')
         local journal=require('weread.lib.thought_edit_store'):new(plugin.library_db,plugin.client)
         assert(journal:read().phase=='pending' and #journal:drafts()==1,'fresh process lost selection draft or pending operation')
@@ -43,7 +48,7 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         shot('selection-thought-offline-reopen');plugin:cancelMyCloudMarks();clean_popups(reader)
         local file=assert(io.open(os.getenv('WEREAD_EVIDENCE')..'/selection-thought-reopen-result.json','wb'))
         file:write(Json.encode{result='PASS',synthetic_only=true,fresh_process=true,offline_source_restore=true,
-            local_draft_and_pending_kept=true,offline_http_requests=0,automatic_replay=false});file:close();return
+            local_draft_and_pending_kept=true,cached_personal_highlight_displayed=true,offline_http_requests=0,automatic_replay=false});file:close();return
     end
     local original=copy(request('/__state').selection_thoughts)
     local auth_posts=counter('/login')+counter('/web/login/renewal')

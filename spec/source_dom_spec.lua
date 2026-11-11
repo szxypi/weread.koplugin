@@ -57,6 +57,9 @@ local function fixture(raw,text,options)
         return value>0 and xp(value-1) or nil
     end
     function doc:clearSelection() counters.clear=counters.clear+1 end
+    function doc:compareXPointers(first,last)
+        local a,b=offset(first),offset(last);return a<b and 1 or a>b and -1 or 0
+    end
     function doc:findAllText() counters.search=counters.search+1; error('whole-book search called') end
     function doc:gotoXPointer() counters.move=counters.move+1; error('navigation called') end
     local index,err=Dom.open(doc,book.book_id,11,options)
@@ -201,6 +204,14 @@ local native_index,prepared_reason=Dom.open_prepared(prepared_doc,'synthetic-dom
 expect(native_index,prepared_reason)
 local prepared_point=assert(native_index:locate_anchor(assert(map:anchor(point.co))))
 expect(prepared_point.co==point.co and prepared_point.xpointer==located.xpointer,'prepared anchor changed native scalar point')
+local end_anchor=assert(map:anchor(point.end_co))
+local native_span,span_reason=native_index:locate_span(assert(map:anchor(point.co)),end_anchor,1024)
+expect(native_span,span_reason)
+expect(native_span.text=='跨段目标的第二句话用于验证精确位置。','native span changed interior text')
+expect(native_span.pos0==prepared_point.xpointer,'span changed the exact start point')
+expect(not native_index:locate_span(end_anchor,assert(map:anchor(point.co)),1024),'reversed span accepted')
+expect(not native_index:locate_span(assert(map:anchor(point.co)),end_anchor,1),'oversized native span accepted')
+expect(not native_index:locate_span(assert(map:anchor(point.co)),end_anchor,0),'invalid native span limit accepted')
 expect(not native_index:locate(point.co),'prepared native index rebuilt original source map')
 local literal='A unique body paragraph remains exactly unchanged after note conversion.'
 local moved_raw='<body><p>Original footnote text before the paragraph.</p><p>'..literal..'</p></body>'

@@ -11,7 +11,7 @@ from my_mark_target import project
 from verify_my_mark_target import TargetMarksProbe,main,NATIVE
 from test_eink_login import Opener
 from test_secure_native_session import credentials
-from run_my_mark_navigation_ui import validate as validate_ui,public_report,FLAGS,COUNTS
+from run_my_mark_navigation_ui import validate as validate_ui,public_report,FLAGS,COUNTS,PERSONAL_FLAGS
 
 
 def row(raw,quote,start=None):
@@ -121,6 +121,14 @@ class TargetTests(unittest.TestCase):
         output=public_report(dict(result=private,private=private,installed_files=True,stages=[dict(phase=private,mode=private,quote=private,requests=4,located=private,exact_targets=False)]))
         self.assertNotIn(private,json.dumps(output));self.assertEqual(output,dict(stages=[dict(requests=4,exact_targets=False)]))
         self.assertEqual(public_report(None),{})
+
+    def test_personal_display_requires_every_span_and_native_state_checks(self):
+        value=dict.fromkeys(FLAGS|PERSONAL_FLAGS,True);value.update(dict.fromkeys(COUNTS,0))
+        value.update(result='PASS',mode='reopen',phase='complete',located=52,buttons=52,source_files=6,personal_spans=52)
+        self.assertEqual(validate_ui(value,'reopen',52,5,personal=True),value)
+        for key,changed in [('personal_spans',51),('personal_spans',True)]+[(k,False) for k in PERSONAL_FLAGS]:
+            with self.subTest(key=key),self.assertRaises(ValueError):validate_ui(dict(value,**{key:changed}),'reopen',52,5,personal=True)
+        with self.assertRaises(ValueError):validate_ui(value,'reopen',52,5)
 
 
 if __name__=='__main__':unittest.main()

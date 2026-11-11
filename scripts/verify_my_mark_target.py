@@ -39,9 +39,11 @@ class TargetMarksProbe(MarksProbe):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--personal-display',action='store_true')
     command=parser.add_mutually_exclusive_group()
     command.add_argument('--lua-command',nargs=argparse.REMAINDER);command.add_argument('--native-ui-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     if (args.lua_command or args.native_ui_command) and not args.saved_session:parser.error('comparisons require --saved-session')
+    if args.personal_display and not args.native_ui_command:parser.error('personal display requires a native UI command')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,authentication_posts=0,private_data_saved_to_files=False)
     saved=credentials=marks=web=None;ui_chapters=[]
     try:
@@ -116,7 +118,7 @@ def main(argv=None):
                 report['native_ui']=public_report(ui)
                 if child.returncode or ui.get('result')!='PASS' or ui.get('profile_removed') is not True or ui.get('installed_bytes_match') is not True:raise ValueError('my_mark_target/ui_unverified')
                 if len(ui['stages'])!=2:raise ValueError('my_mark_target/ui_unverified')
-                for stage,mode in zip(ui['stages'],('live','reopen')):validate(stage,mode,len(rows),len(chapters))
+                for stage,mode in zip(ui['stages'],('live','reopen')):validate(stage,mode,len(rows),len(chapters),personal=args.personal_display)
                 # Verify real cloud state after the native process as well.
                 final=position(web.request('progress_after',BASE+'/web/book/getProgress?bookId='+marks.identity),marks.identity)
                 if final!=baseline:raise ValueError('my_mark_target/position_changed')

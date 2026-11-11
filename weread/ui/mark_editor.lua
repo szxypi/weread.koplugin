@@ -5,10 +5,14 @@ local Popup=require('weread.ui.shelf_popup')
 local Service=require('weread.lib.mark_edit_service')
 local _=require('weread.lib.plugin_util').tr
 local M={}
+local function display(host,action,value)
+    local module=package.loaded['weread.ui.personal_marks'];if module then module[action](host,value) end
+end
 local function alive(ctx) return ctx.owner.mark_editor==ctx and ctx.current(ctx.host,ctx.owner) end
 function M.cancel(_host,owner)
     local ctx=owner.mark_editor;if not ctx then return end
     owner.mark_editor=nil;ctx.service:cancel()
+    display(ctx.host,'resume')
     if Popup.current(owner.menu,ctx.dialog) then Popup.close(owner.menu) end
 end
 local function show(ctx,title,text,buttons)
@@ -17,7 +21,9 @@ local function show(ctx,title,text,buttons)
     Popup.show(ctx.owner.menu,dialog,function(widget) ctx.dialog=widget;UI:show(widget) end)
     local closed=dialog.onCloseWidget
     dialog.onCloseWidget=function(instance,...)
-        if ctx.dialog==instance and ctx.owner.mark_editor==ctx then ctx.owner.mark_editor=nil;ctx.service:cancel() end
+        if ctx.dialog==instance and ctx.owner.mark_editor==ctx then
+            ctx.owner.mark_editor=nil;ctx.service:cancel();display(ctx.host,'resume')
+        end
         if closed then return closed(instance,...) end
     end
     return dialog
@@ -36,11 +42,13 @@ local function busy(ctx,title)
     show(ctx,title,_('Closing this window stops the check. Any submitted change will only be checked, never sent again.'))
 end
 local function reload(ctx,snapshot)
+    if snapshot then display(ctx.host,'changed',snapshot.marks) end
     if not ctx.owner.thoughts and ctx.owner.value then ctx.owner.value=snapshot and snapshot.marks or ctx.cache:read(ctx.owner.id) or ctx.owner.value end
     if ctx.redraw then ctx.redraw(ctx.host,ctx.owner) end
 end
 local function context(host,owner,current,redraw)
     require('weread.ui.thought_editor').cancel(host,owner);M.cancel(host,owner)
+    display(host,'pause')
     local journal=Service.new_journal(host.library_db,host.client);local cache=Service.new_cache(host.library_db,host.client)
     local ctx={host=host,owner=owner,current=current,redraw=redraw,journal=journal,cache=cache}
     ctx.service=Service:new{settings=host.settings,client=host.client,scheduler=UI,journal=journal,cache=cache}

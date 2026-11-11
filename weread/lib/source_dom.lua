@@ -336,8 +336,30 @@ function Index:locate_anchor(anchor)
         local prefix=begin == target and '' or normalize(self:_extract(begin,target))
         if prefix ~= anchor.text:sub(1,relative) then fail('walk_diverged') end
         self:_check()
+        self._last_located_byte=first+relative
         return { xpointer=target,co=co,book_id=self.book_id,chapter_uid=self.chapter_uid,
             file_id=self.file_id,render_path=self.render_path,basis='verified_source_dom' }
+    end)
+end
+
+-- Reuse the cooperatively normalized chapter, rather than extracting an
+-- unbounded native selection on the reader event loop. Both endpoint walks
+-- still verify their complete local quote and prefix independently.
+function Index:locate_span(first_anchor,last_anchor,limit)
+    if type(limit)~='number' or limit<1 or limit>M.MAX_TEXT_BYTES or limit%1~=0 then
+        return nil,'source_dom/invalid_span'
+    end
+    local first,reason=self:locate_anchor(first_anchor)
+    if not first then return nil,reason end
+    local start=self._last_located_byte
+    local last,ending_reason=self:locate_anchor(last_anchor)
+    if not last then return nil,ending_reason end
+    local finish=self._last_located_byte
+    return self:_protected(function()
+        self:_check()
+        if not start or not finish or finish<=start or finish-start>limit
+            or self.document:compareXPointers(first.xpointer,last.xpointer)~=1 then fail('invalid_span') end
+        return {pos0=first.xpointer,pos1=last.xpointer,text=self.flat:sub(start,finish-1)}
     end)
 end
 

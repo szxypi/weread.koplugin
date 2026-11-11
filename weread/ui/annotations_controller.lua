@@ -66,6 +66,8 @@ function M:applyAnnotationVisibility()
         return
     end
     local show = self.settings:get("cache").show_annotations ~= false
+    local personal=package.loaded['weread.ui.personal_marks']
+    if personal then personal.update(self) end
     if self._xpointer_overlay then
         self._xpointer_overlay:setEnabled(show)
         if show and self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end
@@ -106,6 +108,10 @@ function M:toggleAnnotationVisibility()
         self._thought_popup_open = nil
     end
     self:applyAnnotationVisibility()
+    local personal=package.loaded['weread.ui.personal_marks']
+    if cache.show_annotations and personal and personal.available(self) then
+        self:showTransientInfo(_('Underlines and thoughts shown'),1);return true
+    end
     if cache.show_annotations and self.ensureAnnotationDisplay then
         local context = self._annotation_context
         local summary = context and self:_annotationSummary(context)

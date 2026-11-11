@@ -143,6 +143,7 @@ jobs:
           python3 scripts/test_cb_full_reading.py
           python3 scripts/test_my_cloud_marks.py
           python3 scripts/test_my_mark_target.py
+          python3 scripts/test_my_mark_span.py
           python3 scripts/test_my_thought_target.py
           python3 scripts/test_note_download.py
           python3 scripts/test_my_cloud_thoughts.py

@@ -14,6 +14,8 @@ from run_persistent_ui_probe import extract_candidate,run_child
 FRAME=b'\nWEREAD_MY_MARK_NAVIGATION_RESULT='
 FLAGS={'native_filemanager','native_reader','archive_worker','heartbeat','exact_targets','workers_reaped','credential_audit'}
 COUNTS={'failed_line','requests','located','buttons','source_files','screenshots'}
+PERSONAL_FLAGS={'personal_display','personal_native_text','personal_position_notes_unchanged','personal_file_unchanged'}
+PERSONAL_COUNTS={'personal_spans'}
 DOWNLOAD_FLAGS={'missing_cache','download_confirmed','cancel_zero_requests','downloaded_source_verified','no_data_posts'}
 DOWNLOAD_COUNTS={'confirmations','downloaded_chapters','http_gets','catalog_posts','content_posts','forbidden_requests','http_failures'}
 DOWNLOAD_FRAME=b'\nWEREAD_NOTE_DOWNLOAD_RESULT='
@@ -32,9 +34,9 @@ def public_report(value):
         for stage in value['stages'][:2]:
             if not isinstance(stage,dict):continue
             item={}
-            for key in FLAGS|DOWNLOAD_FLAGS:
+            for key in FLAGS|DOWNLOAD_FLAGS|PERSONAL_FLAGS:
                 if type(stage.get(key)) is bool:item[key]=stage[key]
-            for key in COUNTS|DOWNLOAD_COUNTS:
+            for key in COUNTS|DOWNLOAD_COUNTS|PERSONAL_COUNTS:
                 if type(stage.get(key)) is int and 0<=stage[key]<=100000:item[key]=stage[key]
             for key,allowed in [('result',('PASS','UNVERIFIED')),('mode',('live','reopen')),('phase',('init','navigate','close','complete'))]:
                 if stage.get(key) in allowed:item[key]=stage[key]
@@ -42,11 +44,13 @@ def public_report(value):
     return result
 
 
-def validate(value,mode,count,chapters,*,shots=False,download=False):
+def validate(value,mode,count,chapters,*,shots=False,download=False,personal=False):
     if mode not in ('live','reopen') or type(count) is not int or not 1<=count<=5000 or type(chapters) is not int or not 1<=chapters<=8:raise ValueError('ui_scope')
     flags=FLAGS|DOWNLOAD_FLAGS if download else FLAGS;counts=COUNTS|DOWNLOAD_COUNTS if download else COUNTS
+    if personal:flags=flags|PERSONAL_FLAGS;counts=counts|PERSONAL_COUNTS
     if not isinstance(value,dict) or set(value)!=flags|counts|{'result','mode','phase'}:raise ValueError('ui_schema')
     if any(type(value[key]) is not bool or not value[key] for key in FLAGS):raise ValueError('ui_flags')
+    if personal and (any(value[key] is not True for key in PERSONAL_FLAGS) or type(value['personal_spans']) is not int or value['personal_spans']!=count):raise ValueError('ui_personal')
     if download:
         if any(type(value[key]) is not bool for key in DOWNLOAD_FLAGS):raise ValueError('ui_flags')
         if not value['downloaded_source_verified'] or not value['no_data_posts']:raise ValueError('ui_flags')
@@ -69,7 +73,9 @@ def validate(value,mode,count,chapters,*,shots=False,download=False):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
-    parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts']);parser.add_argument('--synthetic',action='store_true');parser.add_argument('--screenshots',type=Path);args=parser.parse_args(argv)
+    parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts']);parser.add_argument('--synthetic',action='store_true');parser.add_argument('--screenshots',type=Path)
+    parser.add_argument('--personal-display',action='store_true');args=parser.parse_args(argv)
+    if args.personal_display and (args.variant or args.download_missing):parser.error('personal display requires cached own highlights')
     if args.screenshots and not args.synthetic:parser.error('screenshots require synthetic input')
     runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('Linux runtime and positive dimensions required')
@@ -94,6 +100,7 @@ def main(argv=None):
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi))
             if args.synthetic:env['WEREAD_MARKNAV_SYNTHETIC']='1'
             if args.variant:env['WEREAD_MARKNAV_VARIANT']=args.variant
+            if args.personal_display:env['WEREAD_PERSONAL_DISPLAY']='1'
             if args.download_missing:env['WEREAD_NOTE_DOWNLOAD']='1'
             if args.screenshots:env['WEREAD_MARKNAV_SHOTS']=str(args.screenshots.resolve())
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/my_mark_navigation_probe.lua'
@@ -107,7 +114,7 @@ def main(argv=None):
                     cookies=validate_cookies(value['cookies'],payload['owner']);value=value['report']
                 report['stages'].extend(public_report(dict(stages=[value]))['stages'])
                 if code or repaint:raise ValueError('ui_child')
-                validate(value,mode,count,chapters,shots=bool(args.screenshots),download=args.download_missing)
+                validate(value,mode,count,chapters,shots=bool(args.screenshots),download=args.download_missing,personal=args.personal_display)
             files=0
             with zipfile.ZipFile(args.candidate) as archive:
                 for item in archive.infolist():
