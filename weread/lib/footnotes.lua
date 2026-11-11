@@ -362,6 +362,32 @@ local function chapter_aliases(chapter)
     return aliases
 end
 
+-- Link-only archive inspection must not clean note prose, collect definitions,
+-- or emit the converter's source-derived diagnostics.
+function Footnotes.scan_links(html,chapter)
+    local anchors,links=select(2,source_blocks(tostring(html or '')))
+    local scan={chapter_uid=chapter_uid(chapter),chapter=chapter,anchors=collect_anchor_presence(anchors),
+        anchor_counts={},link_hrefs={}}
+    for anchor,points in pairs(anchors) do scan.anchor_counts[anchor]=#points end
+    for _i,link in ipairs(links) do
+        local href=get_attr(link.attrs,'href')
+        if href then scan.link_hrefs[#scan.link_hrefs+1]=href end
+    end
+    return scan
+end
+
+function Footnotes.element_texts(html,name)
+    html=tostring(html or '')
+    local blocks=source_blocks(html,name)
+    local values={}
+    for _i,block in ipairs(blocks) do
+        if block.tag==name then
+            values[#values+1]={attrs=block.attrs,text=html:sub(block.open_last+1,block.close_first-1)}
+        end
+    end
+    return values
+end
+
 function Footnotes.scan_chapter(html, chapter)
     html = tostring(html or "")
     local blocks, anchors, links = source_blocks(html)
@@ -515,7 +541,7 @@ for _i, tag in ipairs(BLOCK_TAGS) do NOTE_BLOCK_TAGS[tag] = true end
 
 -- Ranges must be balanced, even with quoted '>' or nested same-name tags.
 -- A malformed fragment never authorizes deleting an enclosing body block.
-source_blocks = function(html)
+source_blocks = function(html,wanted_tag)
     local blocks, anchors, links, images, stack, pos = {}, {}, {}, {}, {}, 1
     local lower = html:lower()
     while true do
@@ -548,7 +574,7 @@ source_blocks = function(html)
                 if node and node.tag == tag then
                     stack[#stack] = nil
                     node.close_first, node.last = first, at
-                    if NOTE_BLOCK_TAGS[tag] then blocks[#blocks + 1] = node end
+                    if NOTE_BLOCK_TAGS[tag] or tag==wanted_tag then blocks[#blocks + 1] = node end
                     if tag == "a" then
                         node.inner = html:sub(node.open_last + 1, first - 1)
                         links[#links + 1] = node

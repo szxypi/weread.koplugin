@@ -39,6 +39,7 @@ def main():
     parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--rich-footnotes', action='store_true', help='Exercise original media footnotes and return navigation')
+    parser.add_argument('--chapter-link-preflight', action='store_true', help='Exercise standalone archive link workers without navigation')
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
     parser.add_argument('--cb-resume',action='store_true',help='Use the opt-in synthetic CB_ shelf book for cached reading')
     parser.add_argument('--cache-cleanup',action='store_true',help='Verify native cache cleanup keeps local reading records')
@@ -50,6 +51,8 @@ def main():
     parser.add_argument('--process-loss-kind', choices=('periodic','manual','close'), default='periodic',
                         help='Select periodic reading time, manual progress, or close-time progress')
     args = parser.parse_args()
+    if args.chapter_link_preflight and (args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
+        parser.error('--chapter-link-preflight uses a separate fixture')
     if args.offline_progress and not args.reading_flow:
         parser.error("--offline-progress requires --reading-flow")
     if args.progress_response and not args.reading_flow:
@@ -164,6 +167,9 @@ def main():
             if args.rich_footnotes:
                 fixture = 'book_rich_footnotes_render.lua'
                 fixture_args = [str(root / 'profile/plugins/weread.koplugin'), str(root / 'evidence')]
+            if args.chapter_link_preflight:
+                fixture='chapter_link_preflight.lua'
+                fixture_args=[str(root / 'profile/plugins/weread.koplugin'),str(root / 'evidence')]
             if args.process_loss:
                 from process_loss_runtime import run_process_loss
                 result = run_process_loss(runtime, REPO / 'spec/koreader' / fixture, environment, log, server, root)
