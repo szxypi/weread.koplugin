@@ -19,6 +19,14 @@ def source(count=3,total=3):
 
 
 class ThoughtsTests(unittest.TestCase):
+    def test_native_created_decimal_chapter_uid_is_canonicalized_only_for_that_field(self):
+        raw=source();raw['reviews'][0]['review']['chapterUid']='7'
+        self.assertEqual(complete(raw,'900001','900000',1000)['reviews'][0]['chapterUid'],7)
+        self.assertEqual(raw['reviews'][0]['review']['chapterUid'],'7')
+        for field,value in [('chapterUid','07'),('chapterUid','7.0'),('chapterUid','1e1'),('chapterUid',' 7'),('chapterUid','2147483648'),('chapterUid',True),('chapterIdx','7')]:
+            bad=source();bad['reviews'][0]['review'][field]=value
+            with self.subTest(field=field,value=value),self.assertRaises(ThoughtsError):complete(bad,'900001','900000',1000)
+
     def test_default_does_not_access_credentials_or_network(self):
         with patch('verify_my_cloud_thoughts.SessionStore') as web,patch('verify_my_cloud_thoughts.NativeSessionStore') as native,\
                 patch('verify_my_cloud_thoughts.ThoughtsProbe') as probe,redirect_stdout(io.StringIO()) as out:

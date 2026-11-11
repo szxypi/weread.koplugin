@@ -1,4 +1,5 @@
 """Independent own-thought text projection; display ranges never drive writes."""
+import re
 from my_cloud_marks_model import identifier,integer,text
 
 
@@ -28,9 +29,13 @@ def entry(value):
     if 'content' not in out:fail('text')
     for name in ('chapterUid','chapterIdx','type','createTime','isPrivate','isFinish'):
         if value.get(name) is not None:
+            observed=value[name]
+            # Native creation echoes its decimal chapter UID as a string.
+            # Only this identifier accepts the verified wire representation.
+            if name=='chapterUid' and isinstance(observed,str) and re.fullmatch(r'(0|[1-9][0-9]{0,9})',observed):observed=int(observed)
             maximum=4102444800 if name=='createTime' else 1 if name in ('isPrivate','isFinish') else 2147483647
-            if not integer(value[name],maximum):fail('number')
-            out[name]=value[name]
+            if not integer(observed,maximum):fail('number')
+            out[name]=observed
     return out
 
 

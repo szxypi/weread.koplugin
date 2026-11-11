@@ -20,6 +20,13 @@ expect(Data.page(client,source(1,3),'900001','900000').has_more,'false hasMore t
 expect(not pcall(Data.project,client,source(1,3),'900001','900000',1000),'partial prefix became complete cache')
 expect(#Data.project(client,source(0,0),'900001','900000',1000).reviews==0,'empty personal list rejected')
 local function reject(value) expect(not pcall(Data.page,client,value,'900001','900000'),'invalid own thought accepted') end
+local created=source();created.reviews[1].review.chapterUid='7'
+expect(Data.project(client,created,'900001','900000',1000).reviews[1].chapterUid==7,'native-created decimal UID was not normalized')
+expect(created.reviews[1].review.chapterUid=='7','projection mutated its source')
+for _i,bad in ipairs({'07','7.0','1e1',' 7','2147483648',true}) do
+    local value=source();value.reviews[1].review.chapterUid=bad;reject(value)
+end
+created=source();created.reviews[1].review.chapterIdx='7';reject(created)
 for _,field in ipairs({'bookId','owner','author','nested','identity','missing_owner','duplicate','text','content','private','time','rows','total','flag','errcode'}) do
     local value=source();local row=value.reviews[1].review
     if field=='bookId' then row.bookId='900002' elseif field=='owner' then row.userVid=900001

@@ -136,8 +136,10 @@ jobs:
           python3 scripts/test_cb_native_reading.py
           python3 scripts/test_cb_full_reading.py
           python3 scripts/test_my_cloud_marks.py
+          python3 scripts/test_my_mark_target.py
           python3 scripts/test_my_cloud_thoughts.py
           python3 scripts/test_annotation_experiment.py
+          python3 scripts/test_inspect_annotation_experiment.py
           python3 scripts/test_native_annotations.py
           python3 scripts/test_native_ui.py
           python3 scripts/test_persistent_ui.py

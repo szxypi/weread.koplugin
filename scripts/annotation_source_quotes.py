@@ -11,11 +11,12 @@ import re
 
 
 class SourceQuotes(HTMLParser):
-    def __init__(self, raw):
+    def __init__(self, raw, *, body_only=False):
         super().__init__(convert_charrefs=False)
         if not isinstance(raw, str) or not 0 < len(raw.encode()) <= 2*1024*1024:
             raise ValueError('annotation_source_size')
         self.raw = raw.removeprefix('\ufeff')
+        self.body_only, self.in_body = body_only is True, False
         self.lines = [0]+[match.end() for match in re.finditer('\n', self.raw)]
         self.spans, self.suppressed = [], []
         self.feed(self.raw); self.close()
@@ -25,19 +26,21 @@ class SourceQuotes(HTMLParser):
         return self.lines[line-1]+column
 
     def handle_starttag(self, tag, attrs):
+        if tag == 'body': self.in_body = True
         if tag in ('script', 'style'): self.suppressed.append(tag)
 
     def handle_endtag(self, tag):
+        if tag == 'body': self.in_body = False
         if self.suppressed and self.suppressed[-1] == tag: self.suppressed.pop()
 
     def handle_data(self, data):
-        if not self.suppressed:
+        if not self.suppressed and (not self.body_only or self.in_body):
             start = self.at()
             if self.raw[start:start+len(data)] != data: raise ValueError('annotation_source_token')
             self.spans.append((start, start+len(data), data, False))
 
     def entity(self, value):
-        if self.suppressed: return
+        if self.suppressed or self.body_only and not self.in_body: return
         start = self.at()
         if self.raw[start:start+len(value)] != value: raise ValueError('annotation_source_entity')
         self.spans.append((start, start+len(value), value, True))

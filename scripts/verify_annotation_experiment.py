@@ -41,7 +41,7 @@ class Plan:
 
 class AnnotationProbe(NativeProbe):
     def __init__(self,opener=None,sleep=time.sleep):
-        super().__init__(opener);self.identity=None;self.grant=None;self.plan=None;self.original=None;self.gets=0;self.sleep=sleep;self.dispatch=None;self.store=None;self.receipt=None;self.created_id=None;self.confirmed=False;self.last_request=0
+        super().__init__(opener);self.identity=None;self.grant=None;self.plan=None;self.original=None;self.gets=0;self.sleep=sleep;self.dispatch=None;self.store=None;self.receipt=None;self.created_id=None;self.confirmed=False;self.last_request=0;self.prior_posts=0
         self.report.update(data_writes_attempted=0,authentication_posts_attempted=0,steps_verified=[],receipt_shapes=[])
 
     def request(self,stage,url,body=None,credentials=None,timeout=15):
@@ -59,7 +59,7 @@ class AnnotationProbe(NativeProbe):
                     or self.store is None or not self.store.owns(self.receipt,self.dispatch[3])):raise ValueError('annotation_experiment_request')
             if (stage,url,digest(body))!=self.specification(self.dispatch[3])[:3]:raise ValueError('annotation_experiment_request')
             expected={'create_pending':0,'edit_pending':1,'delete_pending':2}[self.dispatch[3]]
-            if self.report['data_writes_attempted']!=expected:raise ValueError('annotation_experiment_post_limit')
+            if self.report['data_writes_attempted']+self.prior_posts!=expected:raise ValueError('annotation_experiment_post_limit')
             self.report['data_writes_attempted']+=1
         delay=.35-(time.monotonic()-self.last_request)
         if delay>0:self.sleep(delay)
@@ -123,6 +123,27 @@ class AnnotationProbe(NativeProbe):
                            planned_operations=['create_private_test','edit_that_test','delete_that_test'],source_range_reused=True,
                            existing_records_are_not_write_targets=True)
         return self.plan
+
+    def prepare_remaining(self,credentials,existing):
+        """Read-only proof of a previously sent creation; never replay it."""
+        if self.plan is not None:raise ValueError('annotation_experiment_consumed')
+        validate_credentials(credentials);validate_plan(existing)
+        if existing['owner']!=credentials['vid']:raise ValueError('annotation_experiment_owner')
+        self.identity=existing['book_id'];self.grant=digest(credentials)
+        observed=self.observe(credentials,'reconcile_baseline')
+        rawmarks=self.request('reconcile_context_marks',BASE+'/book/bookmarklist?'+urlencode(dict(bookId=self.identity,synckey=0)),credentials=credentials)
+        info=self.request('reconcile_metadata',BASE+'/book/info?'+urlencode(dict(bookId=self.identity)),credentials=credentials)
+        bookmark,ctx=context(rawmarks,info,self.identity,credentials['vid'],existing['bookmark_id'])
+        if marks_state(rawmarks,self.identity,credentials['vid'])!=observed['marks']:raise ValueError('annotation_experiment_context_changed')
+        matches=[row for row in observed['thoughts'].values() if row.get('content') in (note_text(existing['nonce']),note_text(existing['nonce'],True))]
+        if len(matches)!=1 or not expected_new(matches[0],ctx,existing['nonce']):raise ValueError('annotation_experiment_reconciliation')
+        row=matches[0];baseline=dict(observed,thoughts={key:value for key,value in observed['thoughts'].items() if key!=row['reviewId']})
+        bound=bind(credentials['vid'],self.identity,bookmark,existing['nonce'],ctx,baseline)
+        if bound!=existing:raise ValueError('annotation_experiment_plan_changed')
+        if self.observe(credentials,'reconcile_independent')!=observed:raise ValueError('annotation_experiment_preflight_changed')
+        self.plan=Plan(bound,ctx,baseline);self.original=fingerprint(bound);self.created_id=row['reviewId']
+        self.report.update(reconciled_private_creation=True,original_state_unchanged=True,prior_data_writes_attempted=1,remaining_post_limit=2)
+        return self.plan,row
 
     def specification(self,pending):
         self.current();validate_context(self.plan.context,self.plan.bound['book_id'])
@@ -198,6 +219,22 @@ class AnnotationProbe(NativeProbe):
         if self.created_id in plan.baseline['thoughts']:raise ValueError('annotation_experiment_existing_target')
         self.receipt=store.advance(self.receipt,'create_pending','created',created_id=self.created_id,record_sha256=digest(row))
         self.report['steps_verified'].append('created_private_test')
+        self.finish_created(credentials,store,row)
+
+    def continue_after_creation(self,credentials,plan,store,receipt,row,*,confirmed=False):
+        if confirmed is not True or plan is not self.plan or self.report['data_writes_attempted'] or not store.owns(receipt,'create_pending'):
+            raise ValueError('annotation_experiment_confirmation')
+        value,_receipt=store.read()
+        observed=self.observe(credentials,'before_reconcile')
+        valid,current=self.verify_observation(observed,'created')
+        if value['posts']!=1 or value['plan']!=plan.bound or not valid or current!=row:raise ValueError('annotation_experiment_reconciliation')
+        if not expected_new(row,plan.context,plan.bound['nonce']) or self.created_id in plan.baseline['thoughts']:raise ValueError('annotation_experiment_reconciliation')
+        self.store,self.receipt=store,receipt;self.current();self.confirmed=True;self.prior_posts=1
+        self.receipt=store.advance(receipt,'create_pending','created',created_id=self.created_id,record_sha256=digest(row))
+        self.report['steps_verified'].append('created_private_test_independently_reconciled')
+        self.finish_created(credentials,store,row)
+
+    def finish_created(self,credentials,store,row):
         # Re-read immediately before each subsequent write, using only the
         # independently identified new record. Existing record IDs never enter a POST.
         observed=self.observe(credentials,'before_edit');success,current=self.verify_observation(observed,'created')
@@ -210,25 +247,25 @@ class AnnotationProbe(NativeProbe):
         if not success or digest(current)!=digest(row):raise ValueError('annotation_experiment_target_changed')
         self.post(credentials,'delete_pending')
         self.readback(credentials,'deleted');self.receipt=store.advance(self.receipt,'delete_pending','deleted')
-        if self.observe(credentials,'independent_final')!=plan.baseline:raise ValueError('annotation_experiment_final_changed')
+        if self.observe(credentials,'independent_final')!=self.plan.baseline:raise ValueError('annotation_experiment_final_changed')
         self.receipt=store.advance(self.receipt,'deleted','verified');store.finish(self.receipt);self.receipt=None
         self.report['steps_verified'].append('deleted_and_original_state_verified')
 
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
-    group=parser.add_mutually_exclusive_group();group.add_argument('--prepare',action='store_true');group.add_argument('--apply',action='store_true');group.add_argument('--check-pending',action='store_true');group.add_argument('--discard-prepared',action='store_true')
+    group=parser.add_mutually_exclusive_group();group.add_argument('--prepare',action='store_true');group.add_argument('--apply',action='store_true');group.add_argument('--check-pending',action='store_true');group.add_argument('--discard-prepared',action='store_true');group.add_argument('--continue-after-create',action='store_true')
     parser.add_argument('--expected-intent');args=parser.parse_args(argv)
-    if ((args.prepare or args.apply or args.check_pending or args.discard_prepared) and not args.saved_session
-            or (args.apply or args.discard_prepared) and not (isinstance(args.expected_intent,str) and re.fullmatch('[a-f0-9]{64}',args.expected_intent))
-            or args.expected_intent and not (args.apply or args.discard_prepared)):parser.error('explicit saved-session and exact expected-intent are required for apply/discard')
+    if ((args.prepare or args.apply or args.check_pending or args.discard_prepared or args.continue_after_create) and not args.saved_session
+            or (args.apply or args.discard_prepared or args.continue_after_create) and not (isinstance(args.expected_intent,str) and re.fullmatch('[a-f0-9]{64}',args.expected_intent))
+            or args.expected_intent and not (args.apply or args.discard_prepared or args.continue_after_create)):parser.error('explicit saved-session and exact expected-intent are required for writes/discard')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),data_writes_attempted=0,authentication_posts_attempted=0,
                 private_values_saved_to_files=False,credentials_retained=True,intent_state='none')
     credentials=probe=store=receipt=None
     try:
         if args.saved_session:
             credentials=NativeSessionStore().load(SessionStore().load()['vid']);probe=AnnotationProbe()
-            if args.prepare or args.apply or args.check_pending or args.discard_prepared:
+            if args.prepare or args.apply or args.check_pending or args.discard_prepared or args.continue_after_create:
                 store=AnnotationExperimentStore();pending,receipt=store.read()
                 if pending:
                     report['intent_state']=pending['phase']
@@ -249,21 +286,27 @@ def main(argv=None):
                     original_shelf_flags_unchanged=digest(observed['shelf'])==pending['plan']['shelf_sha256'],
                     intent_fingerprint=fingerprint(pending['plan']))
             else:
-                if args.prepare or args.apply:
+                if args.prepare or args.apply or args.continue_after_create:
                     if any(item.pending() for item in (FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore())):raise ValueError('annotation_experiment_other_pending')
                 if args.prepare and pending is not None:raise ValueError('annotation_experiment_intent')
                 if args.apply and (pending is None or pending['phase']!='prepared' or fingerprint(pending['plan'])!=args.expected_intent):raise ValueError('annotation_experiment_intent')
-                plan=probe.prepare(credentials,pending['plan'] if args.apply else None)
+                if args.continue_after_create:
+                    if pending is None or pending['phase']!='create_pending' or pending['posts']!=1 or fingerprint(pending['plan'])!=args.expected_intent:raise ValueError('annotation_experiment_intent')
+                    plan,row=probe.prepare_remaining(credentials,pending['plan'])
+                else:plan=probe.prepare(credentials,pending['plan'] if args.apply else None)
                 if args.prepare:
                     receipt=store.prepare(plan.bound);report.update(result='ANNOTATION_EXPERIMENT_PREPARED',intent_state='prepared',intent_fingerprint=fingerprint(plan.bound))
                 elif args.apply:
                     probe.run(credentials,plan,store,receipt,confirmed=True)
                     report.update(result='ANNOTATION_PRIVATE_CREATE_EDIT_DELETE_VERIFIED',intent_state='cleared',independent_original_state_restored=True)
+                elif args.continue_after_create:
+                    probe.continue_after_creation(credentials,plan,store,receipt,row,confirmed=True)
+                    report.update(result='ANNOTATION_PRIVATE_CREATE_EDIT_DELETE_VERIFIED',intent_state='cleared',independent_original_state_restored=True)
                 else:report['result']='ANNOTATION_EXPERIMENT_READ_ONLY_PREVIEW_VERIFIED'
     except KeyboardInterrupt:report.update(result='UNVERIFIED',reason='annotation_experiment_interrupted')
     except Exception as error:
         known={'version','mark_unavailable','metadata','plan','selection','notebooks','context_changed','preflight_changed','nonce_exists','plan_changed',
-            'confirmation','unrelated_state','unrelated_thoughts','target_changed','new_record_unverified','unconfirmed','existing_target','final_changed','intent','other_pending','owner','context'}
+            'confirmation','unrelated_state','unrelated_thoughts','target_changed','new_record_unverified','unconfirmed','existing_target','final_changed','intent','other_pending','owner','context','reconciliation'}
         report.update(result='UNVERIFIED',reason=str(error) if str(error) in {'annotation_experiment_'+r for r in known} else 'annotation_experiment_failed')
     finally:
         if probe:

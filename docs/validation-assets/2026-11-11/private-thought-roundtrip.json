@@ -1,0 +1,123 @@
+{
+  "base_commit": "a1dc2762ae04e2bf16dc665300ab11a5eb019f43",
+  "scope": "Authorized one private test create/edit/delete; total three POSTs, no replay",
+  "result": "ANNOTATION_PRIVATE_CREATE_EDIT_DELETE_VERIFIED",
+  "initial_stop": {
+    "account_data_posts": 1,
+    "reason": "New record decimal chapterUid returned as a string; old model required an integer"
+  },
+  "readonly_diagnosis": {
+    "passes": 2,
+    "matching_records": 1,
+    "private": true,
+    "same_book_and_owner": true,
+    "initial_text_and_original_context_match": true,
+    "all_original_state_unchanged": true,
+    "raw_new_chapter_uid_type": "str"
+  },
+  "continuation": {
+    "explicit_only": true,
+    "phase": "create_pending",
+    "prior_posts": 1,
+    "additional_posts": 2,
+    "maximum_total_posts": 3,
+    "original_plan_fingerprint_required": true,
+    "all_original_digests_rebound": true,
+    "full_reads_repeated": true,
+    "record_id_identified_only_from_reads": true
+  },
+  "steps_verified": [
+    "created_private_test_independently_reconciled",
+    "edited_same_private_test",
+    "deleted_and_original_state_verified"
+  ],
+  "independent_original_state_restored": true,
+  "intent_independently_absent": true,
+  "permission_consumed": true,
+  "remaining_authorized_writes": 0,
+  "actual_request_ledger": {
+    "application_gets": 61,
+    "account_data_posts": 3,
+    "authentication_posts": 0,
+    "reports": [
+      {
+        "report": "annotation-experiment-authorized-v1.json",
+        "sha256": "a35c9aea376e8abf92af89e693d0bc1d63aafab060102e2a5a3ed0fd8924a001",
+        "result": "UNVERIFIED",
+        "application_gets": 17,
+        "account_data_posts": 1,
+        "authentication_posts": 0
+      },
+      {
+        "report": "annotation-experiment-after-create-read-only-v1.json",
+        "sha256": "b9ab1154c5da35eeee43b7065123b9c76ef0c52a64013d97917b9fcb94b36b7b",
+        "result": "ANNOTATION_PENDING_READ_ONLY_INSPECTED",
+        "application_gets": 5,
+        "account_data_posts": 0,
+        "authentication_posts": 0
+      },
+      {
+        "report": "annotation-experiment-after-create-read-only-v2.json",
+        "sha256": "8297946528c4abce2ea3ece9cc3143f0bbaf07e285417787393350182836769c",
+        "result": "ANNOTATION_PENDING_READ_ONLY_INSPECTED",
+        "application_gets": 5,
+        "account_data_posts": 0,
+        "authentication_posts": 0
+      },
+      {
+        "report": "annotation-experiment-authorized-remaining-v1.json",
+        "sha256": "70ea81c9e78e320bce2d6628b6e134d5ed3d187eb3be4fd50e2927ecad6e0e4d",
+        "result": "ANNOTATION_PRIVATE_CREATE_EDIT_DELETE_VERIFIED",
+        "application_gets": 34,
+        "account_data_posts": 2,
+        "authentication_posts": 0
+      }
+    ]
+  },
+  "tool_sha256": {
+    "scripts/annotation_experiment_model.py": "36fb5f932760c19c396a26e807d6722c87fbffa7bc6598edcb6de9ef2504eb58",
+    "scripts/inspect_annotation_experiment.py": "76471555bc5ed5058963fd8589cd3631b32aefae614a36b48aed96b44b0490ad",
+    "scripts/my_cloud_thoughts_model.py": "f6426cf7f93e0d5fed0b4809e6c46b37ace14ce9083e443114c0c13f0ac01b1f",
+    "scripts/secure_annotation_experiment.py": "c843b973fdf731ce7faf18098340ae3d4eb5a4ccd9ca7ae5545bb3ba50aa2599",
+    "scripts/test_annotation_experiment.py": "66817aed8db6ea41d4e668378767fc39124e67740d7e4845937328dc30d07807",
+    "scripts/test_inspect_annotation_experiment.py": "4c055b60917f64285a521de5db3f0745f4ee7db14ca4ad87f465a3dc0990f5a9",
+    "scripts/verify_annotation_experiment.py": "4b61192c6ea425122df38a2211eb5663def5852ae059f023b2f43092bd8a94eb"
+  },
+  "checks": {
+    "python": {
+      "result": "PASS",
+      "files": 69,
+      "tests": 864,
+      "skipped": 0
+    },
+    "lua": {
+      "result": "PASS",
+      "lua_spec_groups": 199,
+      "lint_warnings": 0,
+      "lint_errors": 0,
+      "lint_files": 539,
+      "namespace": true,
+      "timezones": 4
+    },
+    "syntax": {
+      "result": "PASS",
+      "lua_syntax": 541,
+      "python_compile": 198
+    }
+  },
+  "native_read_only_projection": {
+    "decimal_uid_synthetic_checks": true,
+    "later_original_three_records_native_ui_passed": true,
+    "real_created_string_uid_lua_replayed": false
+  },
+  "privacy": {
+    "private_record_ids_nonce_source_and_credentials_persisted_to_files": false,
+    "development_logins_retained": true
+  },
+  "limitations": [
+    "No production Lua thought-write entry yet",
+    "No real native thought-write test",
+    "Service ordering/history timestamps not guaranteed restored",
+    "Three-write permission consumed"
+  ]
+}

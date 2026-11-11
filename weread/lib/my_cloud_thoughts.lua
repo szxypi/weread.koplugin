@@ -34,8 +34,13 @@ local function entry(value,present)
     if out.content==nil then fail('text') end
     for _i,name in ipairs({'chapterUid','chapterIdx','type','createTime','isPrivate','isFinish'}) do
         if present(value[name]) then
+            local observed=value[name]
+            -- Native creation echoes the decimal chapter UID as a string.
+            -- Keep one canonical numeric cache shape; no other field coerces.
+            if name=='chapterUid' and type(observed)=='string' and #observed<=10
+                and (observed=='0' or observed:match('^[1-9]%d*$')) then observed=tonumber(observed) end
             local max=name=='createTime' and 4102444800 or (name=='isPrivate' or name=='isFinish') and 1 or 2147483647
-            if not integer(value[name],max) then fail('number') end;out[name]=value[name]
+            if not integer(observed,max) then fail('number') end;out[name]=observed
         end
     end
     return out

@@ -26,7 +26,7 @@ def main():
         source=dict(bookId='900001',reviews=[],totalCount=45,hasMore=0)
         for index in range(45):
             row=dict(reviewId=f'synthetic-thought-{index}',bookId='900001',userVid=900000,content=f'合成想法 {index+1}：原生文字、中文分页 😀。',
-                chapterUid=7,chapterIdx=1,type=1,isPrivate=index%2,chapterName='合成想法章节',createTime=1000+index)
+                chapterUid='7' if index==0 else 7,chapterIdx=1,type=1,isPrivate=index%2,chapterName='合成想法章节',createTime=1000+index)
             if index==44:row['content']=''
             if index%10:row['abstract']='合成引用原文。'+('长引用保持完整。\n'*40 if index==1 else '第二句。')
             source['reviews'].append(dict(reviewId=row['reviewId'],review=row))

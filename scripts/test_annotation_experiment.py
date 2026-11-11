@@ -216,5 +216,66 @@ class AnnotationTests(unittest.TestCase):
         for args in [['--apply'],['--saved-session','--apply'],['--expected-intent','a'*64],['--prepare'],['--saved-session','--apply','--prepare']]:
             with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
 
+    def test_independently_reconciled_creation_only_consumes_remaining_two_posts(self):
+        _probe,_opener,old,store,receipt=self.fixture();pending=store.advance(receipt,'prepared','create_pending')
+        created=note('new-test',note_text('a'*32));created['review']['chapterUid']='2'
+        opener=Opener([*observation(created),marks(),info(),*observation(created),*observation(created),*self.complete_tail()[9:]])
+        probe=AnnotationProbe(opener,sleep=lambda _delay:None);plan,row=probe.prepare_remaining(credentials(),old.bound)
+        self.assertEqual(store.read()[0]['phase'],'create_pending');self.assertEqual(probe.report['data_writes_attempted'],0)
+        probe.continue_after_creation(credentials(),plan,store,pending,row,confirmed=True)
+        posts=[request for request in opener.requests if request.get_method()=='POST']
+        self.assertEqual([r.full_url for r in posts],[BASE+'/review/useredit',BASE+'/review/delete'])
+        self.assertTrue(all(json.loads(r.data)['reviewId']=='new-test' for r in posts))
+        self.assertEqual(probe.report['data_writes_attempted'],2);self.assertEqual(probe.prior_posts,1);self.assertFalse(store.pending())
+        with self.assertRaises(ValueError):probe.continue_after_creation(credentials(),plan,store,pending,row,confirmed=True)
+        self.assertEqual(sum(r.get_method()=='POST' for r in opener.requests),2)
+
+    def test_reconciliation_rejects_missing_duplicate_public_or_changed_original_state(self):
+        for mode in ['missing','duplicate','public','edited','original','position','scope','context']:
+            _probe,_opener,old,store,receipt=self.fixture();store.advance(receipt,'prepared','create_pending')
+            created=note('new-test',note_text('a'*32));before=observation(None if mode=='missing' else created)
+            if mode=='public':created['review']['isPrivate']=0
+            elif mode=='edited':created['review']['content']=note_text('a'*32,True)
+            elif mode=='duplicate':before[1]['reviews'].append(note('duplicate',note_text('a'*32)));before[1]['totalCount']=3
+            elif mode=='original':before[1]['reviews'][0]['review']['content']='External edit'
+            elif mode=='position':before[3]=position(101)
+            elif mode=='scope':old.bound['owner']='900099'
+            info_value=info()
+            if mode=='context':info_value['version']=78
+            opener=Opener([*before,marks(),info_value,*before]);probe=AnnotationProbe(opener,sleep=lambda _delay:None)
+            with self.subTest(mode=mode),self.assertRaises(ValueError):probe.prepare_remaining(credentials(),old.bound)
+            self.assertTrue(all(r.get_method()=='GET' for r in opener.requests));self.assertEqual(store.read()[0]['phase'],'create_pending')
+
+    def test_remaining_edits_require_confirmation_and_the_same_durable_pending_record(self):
+        for mode in ['unconfirmed','replaced','changed_position','changed_record']:
+            _probe,_opener,old,store,receipt=self.fixture();pending=store.advance(receipt,'prepared','create_pending')
+            created=note('new-test',note_text('a'*32));last=deepcopy(observation(created))
+            if mode=='changed_position':last[3]=position(101)
+            if mode=='changed_record':last[1]['reviews'][-1]['review']['content']='External edit'
+            opener=Opener([*observation(created),marks(),info(),*observation(created),*last]);probe=AnnotationProbe(opener,sleep=lambda _delay:None)
+            plan,row=probe.prepare_remaining(credentials(),old.bound)
+            if mode=='replaced':pending=receipt
+            with self.subTest(mode=mode),self.assertRaises(ValueError):probe.continue_after_creation(credentials(),plan,store,pending,row,confirmed=mode!='unconfirmed')
+            self.assertFalse(any(r.get_method()=='POST' for r in opener.requests));self.assertEqual(store.read()[0]['phase'],'create_pending')
+
+    def test_explicit_remaining_cli_requires_the_bound_intent_and_never_recreates(self):
+        _oldprobe,_oldopener,old,store,receipt=self.fixture();store.advance(receipt,'prepared','create_pending')
+        created=note('new-test',note_text('a'*32));created['review']['chapterUid']='2'
+        opener=Opener([*observation(created),marks(),info(),*observation(created),*observation(created),*self.complete_tail()[9:]])
+        probe=AnnotationProbe(opener,sleep=lambda _delay:None)
+        with patch('verify_annotation_experiment.SessionStore') as web,patch('verify_annotation_experiment.NativeSessionStore') as native,\
+                patch('verify_annotation_experiment.AnnotationExperimentStore',return_value=store),patch('verify_annotation_experiment.AnnotationProbe',return_value=probe),\
+                patch('verify_annotation_experiment.FinishExperimentStore') as other1,patch('verify_annotation_experiment.ShelfExperimentStore') as other2,\
+                patch('verify_annotation_experiment.PositionExperimentStore') as other3,redirect_stdout(io.StringIO()) as output:
+            web.return_value.load.return_value=dict(vid='900000');native.return_value.load.return_value=credentials()
+            for item in (other1,other2,other3):item.return_value.pending.return_value=False
+            self.assertEqual(main(['--saved-session','--continue-after-create','--expected-intent',fingerprint(old.bound)]),0)
+        result=json.loads(output.getvalue());self.assertEqual(result['data_writes_attempted'],2);self.assertEqual(result['prior_data_writes_attempted'],1)
+        self.assertEqual(result['intent_state'],'cleared');self.assertFalse(store.pending())
+        self.assertEqual([r.full_url for r in opener.requests if r.get_method()=='POST'],[BASE+'/review/useredit',BASE+'/review/delete'])
+        for private in ['new-test','existing-note','Private quote','a'*32]:self.assertNotIn(private,output.getvalue())
+        for args in [['--continue-after-create'],['--saved-session','--continue-after-create']]:
+            with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
+
 
 if __name__=='__main__':unittest.main()

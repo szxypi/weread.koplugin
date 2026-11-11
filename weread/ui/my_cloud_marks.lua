@@ -15,6 +15,7 @@ local function current(host,owner)
         and host.settings:auth_scope_matches(owner.scope)
 end
 local function stop(host,owner)
+    require('weread.ui.my_mark_navigation').cancel(host,owner)
     local context=owner.context;owner.context=nil
     if not context then return end
     if owner.worker then owner.worker:cancel() end
@@ -79,7 +80,18 @@ render=function(host,owner)
                             if row.abstract and row.abstract~='' and row.abstract~=row.markText then parts[#parts+1]=row.abstract end
                         end
                         if #parts==1 then parts[#parts+1]=_(owner.thoughts and 'No thought text was returned.' or 'No saved quote text.') end
-                        Popup.show(owner.menu,require('ui/widget/textviewer'):new{title=kind(row,owner),text=table.concat(parts,'\n\n')})
+                        local viewer
+                        local buttons
+                        if not owner.thoughts and require('weread.lib.my_mark_target').can_locate(row) then
+                            buttons={{{id='open_highlight',text=_('Open highlighted text'),callback=function()
+                                if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
+                                stop(host,owner)
+                                require('weread.ui.my_mark_navigation').start(host,owner,row,current)
+                            end}}}
+                        end
+                        viewer=require('ui/widget/textviewer'):new{title=kind(row,owner),text=table.concat(parts,'\n\n'),
+                            buttons_table=buttons,add_default_buttons=true}
+                        Popup.show(owner.menu,viewer)
                     end}
                 end
             end

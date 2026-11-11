@@ -10,7 +10,7 @@ local Marks=require('weread.ui.my_cloud_marks')
 local checks=0
 local function expect(value,label) checks=checks+1;assert(value,label) end
 local function snapshot()
-    return {schema=1,book_id='900001',fetched_at=1000,updated={{bookmarkId='synthetic-1',type=1,chapterUid=7,markText='合成引用'},
+    return {schema=1,book_id='900001',fetched_at=1000,updated={{bookmarkId='synthetic-1',type=1,chapterUid=7,markText='合成引用',range='12-24'},
         {bookmarkId='synthetic-2',type=0,chapterUid=7}},chapters={{chapterUid=7,title='合成章节'}}}
 end
 local function fixture(saved)
@@ -50,6 +50,7 @@ row(menu,'Highlights only').callback();expect(not pcall(row,menu,'合成章节')
 row(menu,'Bookmarks only').callback();expect(not pcall(row,menu,'合成引用'),'highlight escaped bookmark filter')
 row(menu,'All cloud marks').callback();row(menu,'合成引用').callback()
 expect(menu._shelf_popup.text=='合成章节\n\n合成引用','native popup lost full quote')
+expect(menu._shelf_popup.buttons_table[1][1].id=='open_highlight','valid saved range lost original-text action')
 value.online=true;row(menu,'Refresh my cloud marks').callback()
 expect(value.started==1 and host.busy_message,'refresh did not start owned worker')
 local before=menu.item_table;local changed=snapshot();changed.updated[1].markText='新引用'
