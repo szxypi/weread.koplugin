@@ -12,15 +12,23 @@ local report={result='UNVERIFIED',phase='init',permit_writes=false,anonymous_cre
     request_counts={0,0,0,0,0},post_statuses=json.decode('[]')}
 local private={plan_fingerprint=string.rep('0',64),intent_digest='',final_members_digest=string.rep('0',64)}
 local descriptors,seen={},{}
-local counters,plugin
+local counters,plugin,rpc_token
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'))
     assert(ffi.os=='Linux' and home:match('^/dev/shm/weread%-membership%-[%w_]+/profile$'))
     local source=home..'/plugins/weread.koplugin'
     local lfs=require('libs/libkoreader-lfs')
     assert(lfs.symlinkattributes(source,'mode')=='directory' and not lfs.symlinkattributes(home..'/weread'))
-    local raw=assert(io.stdin:read(256*1024+1));assert(#raw<=256*1024)
+    local raw
+    if os.getenv('WEREAD_MEMBERSHIP_HOST_STEPS')=='1' then
+        local length=assert(io.stdin:read('*l'));assert(#length<=8 and length:match('^[1-9]%d*$'))
+        length=tonumber(length);assert(length<=256*1024);raw=assert(io.stdin:read(length));assert(#raw==length)
+    else raw=assert(io.stdin:read(256*1024+1));assert(#raw<=256*1024) end
     local input=json.decode(raw)
+    if os.getenv('WEREAD_MEMBERSHIP_HOST_STEPS')=='1' then
+        rpc_token=assert(input.host_steps and input.host_steps.rpc_token)
+        assert(type(rpc_token)=='string' and #rpc_token==32 and rpc_token:match('^[a-f0-9]+$'))
+    else assert(input.host_steps==nil) end
     assert(type(input.permit_writes)=='boolean' and input.permit_writes==(os.getenv('WEREAD_MEMBERSHIP_ARMED')=='1'))
     local grant=assert(input.credentials)
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
@@ -207,6 +215,13 @@ local ok,reason=pcall(function()
     report.phase='recreate';plugin.shelf_membership:cancel()
     plugin.shelf_membership=require('weread.lib.shelf_membership_service'):new{settings=plugin.settings,client=plugin.client,scheduler=UI}
     start_preview();dialog=wait_preview(false,input.members_digest)
+    local function independent(sequence)
+        if not rpc_token then return end
+        io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..rpc_token..'_STEP='..json.encode{seq=sequence}..'\n');io.stdout:flush()
+        local line=assert(io.stdin:read('*l'));assert(#line<=16384)
+        local reply=json.decode(line);assert(type(reply)=='table' and reply.seq==sequence and reply.ok==true)
+        for key in pairs(reply) do assert(key=='seq' or key=='ok') end
+    end
     if input.permit_writes then
         report.phase='add';dialog.ok_callback();pump(function() return not plugin._shelf_membership_ui end)
         assert(counters[2]==1 and counters[3]==0 and not plugin.shelf_membership:pending())
@@ -215,13 +230,14 @@ local ok,reason=pcall(function()
         assert(#members==input.shelf_books+1)
         local original={};for _i,value in ipairs(members) do if value~=id then original[#original+1]=value end end
         assert(Task.digest(original)==input.members_digest and counters[5]==200)
-        local added_digest=Task.digest(members);counters[7]=1
+        local added_digest=Task.digest(members);independent(1);counters[7]=1
         report.phase='remove';start_preview();dialog=wait_preview(true,added_digest);dialog.ok_callback()
         pump(function() return not plugin._shelf_membership_ui end)
         assert(counters[2]==1 and counters[3]==1 and counters[5]==200 and counters[6]==200 and not plugin.shelf_membership:pending())
         assert(plugin.library_db:getShelfStatus(id).present==false)
         private.final_members_digest=Task.digest(assert(Task.members{books=plugin.library_db:getShelf()}))
         assert(private.final_members_digest==input.members_digest)
+        independent(2)
         report.roundtrip_restored=true;report.journal_before_posts=counters[8]==2;report.native_cache_readback=true
     else dialog.cancel_callback();assert(counters[2]+counters[3]==0) end
     assert(Crypto.sha256_hex(file(state_path))==state_hash)
@@ -258,5 +274,6 @@ if counters then
     ffi.C.munmap(counters,128)
 end
 for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
-io.stdout:write('\nWEREAD_OWNER_MEMBERSHIP_RESULT='..json.encode{report=report,private=private}..'\n')
+local prefix=rpc_token and 'WEREAD_NATIVE_THOUGHT_'..rpc_token..'_RESULT=' or 'WEREAD_OWNER_MEMBERSHIP_RESULT='
+io.stdout:write('\n'..prefix..json.encode{report=report,private=private}..'\n');io.stdout:flush()
 os.exit(ok and 0 or 1)

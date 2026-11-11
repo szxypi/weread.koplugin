@@ -25,6 +25,7 @@ from secure_mark_style_trial import MarkStyleTrialStore
 from secure_bookmark_trial import BookmarkTrialStore
 from secure_finish_experiment import FinishExperimentStore
 from secure_shelf_experiment import ShelfExperimentStore
+from secure_native_shelf_trial import NativeShelfTrialStore
 from secure_position_experiment import ExperimentStore as PositionExperimentStore
 from verify_annotation_experiment import AnnotationProbe
 
@@ -120,8 +121,9 @@ def run(probe,credentials,store,receipt,command,*,armed=False,expected=None,mock
         payload.clear()
 
 
-def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclude_native_bookmark=False):
+def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclude_native_bookmark=False,exclude_native_shelf=False):
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
+            or not exclude_native_shelf and NativeShelfTrialStore().pending()
             or any(MarkStyleTrialStore(native=kind).read()[0] is not None for kind in (False,True))
             or any(BookmarkTrialStore(native=kind).read()[0] is not None for kind in (False,True)
                 if not (exclude_native_bookmark if kind else exclude_bookmark))

@@ -87,7 +87,9 @@ jobs:
         run: python3 scripts/test_eink_renewal.py
 
       - name: Native shelf-write prototype checks
-        run: python3 scripts/test_eink_shelf_write.py
+        run: |
+          python3 scripts/test_eink_shelf_write.py
+          python3 scripts/test_native_shelf_trial.py
 
       - name: Offline-time read-only preflight checks
         run: python3 scripts/test_eink_readtime.py
