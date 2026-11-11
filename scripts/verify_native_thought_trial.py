@@ -118,9 +118,9 @@ def run(probe,credentials,store,receipt,command,*,armed=False,expected=None,mock
         payload.clear()
 
 
-def other_pending():
+def other_pending(*,exclude_native_highlight=False):
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
-            or any(HighlightTrialStore(native=kind).read()[0] is not None for kind in (False,True)))
+            or any(HighlightTrialStore(native=kind).read()[0] is not None for kind in ((False,) if exclude_native_highlight else (False,True))))
 
 
 def main(argv=None):

@@ -107,7 +107,15 @@ function M.check(snapshot,metadata)
     if Base.snapshot_hash(snapshot.thoughts)~=metadata.thoughts_hash then return false end
     local chapters=chapters_hash(snapshot.marks.chapters)
     if metadata.operation=='delete' or metadata.chapter_present==1 then
-        if chapters~=metadata.chapters_hash then return false end
+        if chapters~=metadata.chapters_hash then
+            -- Verified real last-mark lifecycle: the server may remove this
+            -- chapter's derived descriptor too. No remaining mark may use it;
+            -- titles and descriptors in every other chapter stay protected.
+            if metadata.operation~='delete' or metadata.chapter_present~=1
+                or chapters_hash(snapshot.marks.chapters,metadata.chapter_uid)~=metadata.chapter_without_hash then return false end
+            for _i,row in ipairs(snapshot.marks.chapters) do if tostring(row.chapterUid)==metadata.chapter_uid then return false end end
+            for _i,row in ipairs(snapshot.marks.updated) do if tostring(row.chapterUid)==metadata.chapter_uid then return false end end
+        end
     elseif chapters_hash(snapshot.marks.chapters,metadata.chapter_uid)~=metadata.chapter_without_hash then return false end
     if metadata.operation=='delete' then return rows_hash(snapshot.marks.updated)==metadata.after_hash end
     local chosen,count=nil,0

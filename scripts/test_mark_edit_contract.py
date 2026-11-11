@@ -1,6 +1,11 @@
 """Independent original-set, source match and linked-thought predicates."""
 from copy import deepcopy
+from contextlib import redirect_stdout
+import io
+import json
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 from mark_edit_contract import make,check,row_hash,disjoint
 
 
@@ -52,6 +57,25 @@ class ContractTests(unittest.TestCase):
         old['marks']['chapters'].append(dict(chapterUid=2,title='Unexpected'))
         self.assertFalse(check(old,deletion['metadata'])[0])
 
+    def test_last_selected_chapter_descriptor_can_disappear_after_exact_deletion(self):
+        old,_ref,new=fixture();old['marks']['updated'][0]['chapterUid']=7;new['marks']['updated'][0]['chapterUid']=7
+        new['marks']['chapters']=[dict(chapterUid=2,title='Selected')]
+        plan=make(new,'delete',new['marks']['updated'][1]);self.assertEqual(check(old,plan['metadata']),(True,None))
+        empty=deepcopy(old);empty['marks']['updated']=[];before=deepcopy(new);before['marks']['updated']=before['marks']['updated'][1:]
+        plan=make(before,'delete',before['marks']['updated'][0]);self.assertEqual(check(empty,plan['metadata']),(True,None))
+
+    def test_descriptor_cannot_disappear_while_any_mark_in_that_chapter_remains(self):
+        old,_ref,new=fixture();new['marks']['chapters']=[dict(chapterUid=2,title='Selected')]
+        plan=make(new,'delete',new['marks']['updated'][1]);self.assertFalse(check(old,plan['metadata'])[0])
+
+    def test_last_mark_delete_does_not_allow_changed_title_or_other_missing_descriptor(self):
+        old,_ref,new=fixture();old['marks']['updated'][0]['chapterUid']=7;new['marks']['updated'][0]['chapterUid']=7
+        other=dict(chapterUid=7,title='Other');old['marks']['chapters']=[other];new['marks']['chapters']=[other,dict(chapterUid=2,title='Selected')]
+        plan=make(new,'delete',new['marks']['updated'][1]);self.assertTrue(check(old,plan['metadata'])[0])
+        for changed in ([dict(chapterUid=2,title='Changed')],[],[dict(chapterUid=7,title='Changed')]):
+            after=deepcopy(old);after['marks']['chapters']=changed
+            with self.subTest(changed=changed):self.assertFalse(check(after,plan['metadata'])[0])
+
     def test_stale_target_overlapping_selection_and_other_book_are_rejected(self):
         old,ref,new=fixture()
         with self.assertRaises(ValueError):make(new,'create',ref,dict(bookId='41',version=77))
@@ -67,6 +91,23 @@ class ContractTests(unittest.TestCase):
         old,_ref,_new=fixture();row=old['marks']['updated'][0]
         self.assertNotEqual(row_hash(row),row_hash(dict(row,abstract='')))
         self.assertNotEqual(row_hash(row),row_hash(dict(row,chapterIdx=0)))
+
+    def test_lifecycle_diagnostic_compares_private_plan_but_emits_only_facets(self):
+        import verify_highlight_metadata_lifecycle as task
+        old,_ref,new=fixture();new['marks']['chapters']=[dict(chapterUid=2,title='Selected')]
+        target=new['marks']['updated'][1];plan=make(new,'delete',target)
+        output=b'\nWEREAD_MARK_LIFECYCLE_RESULT='+json.dumps(dict(metadata=plan['metadata'],confirmed=False)).encode()
+        with patch.object(task.subprocess,'run',return_value=SimpleNamespace(returncode=0,stdout=output)):
+            result=task.analyze(new,old,target,['synthetic-command'])
+        self.assertFalse(result['delete_contract_confirmed']);self.assertTrue(result['selected_descriptor_before'])
+        self.assertFalse(result['selected_descriptor_after']);self.assertTrue(result['exact_mark_deletion'])
+        self.assertNotIn('New quote',json.dumps(result));self.assertNotIn('bookmarkId',json.dumps(result))
+
+    def test_diagnostic_defaults_offline_without_opening_account(self):
+        import verify_highlight_metadata_lifecycle as task
+        with patch.object(task,'SessionStore') as login,patch.object(task,'HighlightProbe') as probe,redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(task.main([]),0)
+        login.assert_not_called();probe.assert_not_called();self.assertEqual(json.loads(output.getvalue())['account_data_posts'],0)
 
 
 if __name__=='__main__':unittest.main()

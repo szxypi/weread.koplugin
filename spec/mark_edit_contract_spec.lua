@@ -27,6 +27,15 @@ expect(not C.check(altered,plan.metadata),'duplicate creation accepted')
 local deletion=C.make(codec,created,'delete',created.marks.updated[2])
 expect(C.validate_body('delete',deletion.body) and C.check(snapshot,deletion.metadata),'exact deletion failed')
 expect(not C.check(created,deletion.metadata),'remaining mark confirmed deletion')
+local with_chapter=F.clone(created);with_chapter.marks.chapters[1]={chapterUid=2,title='Selected chapter'}
+local last=C.make(codec,with_chapter,'delete',with_chapter.marks.updated[2])
+expect(C.check(snapshot,last.metadata),'last-mark descriptor removal not confirmed')
+local remaining=F.clone(with_chapter);remaining.marks.updated[1].chapterUid=2
+local remaining_plan=C.make(codec,remaining,'delete',remaining.marks.updated[2])
+local after_remaining=F.clone(remaining);table.remove(after_remaining.marks.updated,2);after_remaining.marks.chapters=codec:json_decode('[]')
+expect(not C.check(after_remaining,remaining_plan.metadata),'descriptor removal hid a remaining chapter mark')
+local changed_title=F.clone(snapshot);changed_title.marks.chapters[1]={chapterUid=2,title='Changed selected title'}
+expect(not C.check(changed_title,last.metadata),'changed selected title accepted as removal')
 altered=F.clone(created);altered.thoughts.reviews[1].chapterUid=2;altered.thoughts.reviews[1].range=ref.range
 expect(not pcall(C.make,codec,altered,'delete',altered.marks.updated[2]),'linked thought deletion allowed')
 expect(not pcall(C.make,codec,created,'create',ref,{bookId='900001',version=77}),'overlapping selection allowed')

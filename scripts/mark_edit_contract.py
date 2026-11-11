@@ -67,7 +67,15 @@ def check(snapshot,metadata):
     marks=snapshot['marks']
     if thoughts_hash(snapshot['thoughts'])!=metadata['thoughts_hash']:return False,None
     if metadata['operation']=='delete' or metadata['chapter_present']:
-        if chapters_hash(marks['chapters'])!=metadata['chapters_hash']:return False,None
+        if chapters_hash(marks['chapters'])!=metadata['chapters_hash']:
+            # Real empty-book roundtrip: deleting the chapter's last mark also
+            # removes its derived descriptor. Every other descriptor and every
+            # remaining mark must still match the exact expected set.
+            removed_empty=(metadata['operation']=='delete' and metadata['chapter_present']==1
+                and chapters_hash(marks['chapters'],metadata['chapter_uid'])==metadata['chapter_without_hash']
+                and not any(str(r['chapterUid'])==metadata['chapter_uid'] for r in marks['chapters'])
+                and not any(str(r.get('chapterUid'))==metadata['chapter_uid'] for r in marks['updated']))
+            if not removed_empty:return False,None
     elif chapters_hash(marks['chapters'],metadata['chapter_uid'])!=metadata['chapter_without_hash']:return False,None
     if metadata['operation']=='delete':return rows_hash(marks['updated'])==metadata['after_hash'],None
     chosen=[r['bookmarkId'] for r in marks['updated'] if fields_hash(r,MATCH)==metadata['match_hash']

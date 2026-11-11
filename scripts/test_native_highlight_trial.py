@@ -138,6 +138,24 @@ class TrialTests(unittest.TestCase):
                 for factory in (a,f,s,p):factory.return_value.pending.return_value=False
                 h.side_effect=lambda **kw:Mock(read=Mock(return_value=({'phase':'create_pending'} if kw['native']==native else None,None)))
                 self.assertTrue(shared.other_pending())
+                self.assertEqual(shared.other_pending(exclude_native_highlight=True),not native)
+
+    def prepared_reconcile(self):
+        p,s,target=self.fixture();r=s.reserve(bind_native(p.source.plan.bound,p.body));r=s.advance(r,'created',target=target);s.advance(r,'delete_pending')
+        return p,s,digest(s.read()[0]['plan'])
+
+    def test_read_only_reconcile_requires_exact_original_plan_then_clears_without_post(self):
+        p,s,expected=self.prepared_reconcile()
+        with patch.object(task,'reading_position',return_value=p.source.plan.web_position):result=task.reconcile(p.source,{}, {},s,expected)
+        self.assertTrue(result['target_absent']);self.assertEqual(s.read(),(None,None));p.source.writer.request.assert_not_called()
+
+    def test_reconcile_rejects_wrong_intent_original_changes_or_moved_web_position(self):
+        for mode in ('intent','changed','position'):
+            p,s,expected=self.prepared_reconcile()
+            if mode=='changed':p.source.plan.bound['marks_sha256']='b'*64
+            with self.subTest(mode=mode),patch.object(task,'reading_position',return_value={} if mode=='position' else p.source.plan.web_position),self.assertRaises(ValueError):
+                task.reconcile(p.source,{}, {},s,'0'*64 if mode=='intent' else expected)
+            self.assertEqual(s.read()[0]['phase'],'delete_pending');p.source.writer.request.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

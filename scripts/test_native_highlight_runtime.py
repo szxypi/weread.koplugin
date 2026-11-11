@@ -14,7 +14,7 @@ from verify_eink_login import NativeProbe
 from verify_highlight_trial import HighlightProbe
 from verify_native_highlight_trial import run,TrialFailure
 
-CASES=('normal','lost-ack','no-create','no-delete','changed-original','new-chapter-metadata','host-mismatch','host-loss','host-lag','dry-run')
+CASES=('normal','lost-ack','no-create','no-delete','changed-original','new-chapter-metadata','host-mismatch','host-loss','host-lag','dry-run','last-chapter')
 
 
 def main():
@@ -44,7 +44,7 @@ def main():
             source.notes.observe=delayed
         try:
             result=run(probe,credentials(),store,command,armed=armed,mock_port=server.server_port)
-            assert args.case in ('normal','lost-ack','new-chapter-metadata','host-lag','dry-run')
+            assert args.case in ('normal','lost-ack','new-chapter-metadata','host-lag','dry-run','last-chapter')
             report.update(execution=result)
         except TrialFailure as failure:
             assert args.case in ('no-create','no-delete','changed-original','host-mismatch','host-loss')

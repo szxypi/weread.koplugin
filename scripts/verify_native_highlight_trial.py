@@ -13,7 +13,7 @@ import secrets
 import subprocess
 import time
 from annotation_experiment_model import digest,note_text,valid_key
-from highlight_trial_model import bind_native
+from highlight_trial_model import bind_native,request
 from native_highlight_trial import validate_payload,validate_stage
 from native_trial_pipe import Frames,reply,stop,write_initial
 from secure_highlight_trial import HighlightTrialStore
@@ -26,6 +26,7 @@ from verify_native_thought_trial import other_pending
 from verify_owner_reading import reading_position,validate_cookies
 from verify_translation_preflight import save_refreshed_web_session
 from verify_web_source_progress import BASE
+from selection_trial_probe import SelectionProbe
 
 
 class TrialFailure(ValueError):
@@ -52,6 +53,23 @@ def payload(probe,armed,mock_port=None):
     value['highlight_trial']=dict(create_body=deepcopy(probe.body),original_ids=sorted(p.baseline['marks']['updated']))
     if mock_port is not None:value['selection_mock_port']=mock_port
     validate_payload(value,armed,mock_port);return value
+
+
+def reconcile(source,saved,credentials,store,expected,*,on_final=None):
+    """Clear only a fully restored delete intent by existing reads, no POST."""
+    state,receipt=store.read()
+    if (not store.native or state is None or state['phase']!='delete_pending' or digest(state['plan'])!=expected):raise ValueError('native_highlight/intent')
+    p=source.prepare(saved,credentials,existing=state['plan']['selection']);body=request(p.context)
+    if bind_native(p.bound,body)!=state['plan'] or state['target']['id'] in p.baseline['marks']['updated']:raise ValueError('native_highlight/not_restored')
+    source.baseline(credentials,'native_highlight_reconciled_final')
+    source.web.verify_account()
+    after=reading_position(source.web.request('progress_after',BASE+'/web/book/getProgress?bookId='+p.bound['book_id']),p.bound['book_id'])
+    if after!=p.web_position:raise ValueError('native_highlight/web_position')
+    if on_final:on_final()
+    receipt=store.advance(receipt,'verified');store.finish(receipt)
+    if store.read()!=(None,None):raise ValueError('native_highlight/cleanup')
+    return dict(result='PASS',mode='read-only-reconcile',account_data_posts=0,authentication_posts=0,original_records_restored=True,
+        web_position_unchanged=True,exact_source_plan_restored=True,target_absent=True,intent_state='absent',no_automatic_replay=True)
 
 
 def run(probe,credentials,store,command,*,armed=False,mock_port=None,on_final=None):
@@ -120,23 +138,31 @@ def run(probe,credentials,store,command,*,armed=False,mock_port=None,on_final=No
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     mode=parser.add_mutually_exclusive_group()
-    for name in ('dry-run','apply','status'):mode.add_argument('--'+name,action='store_true')
+    for name in ('dry-run','apply','status','resolve'):mode.add_argument('--'+name,action='store_true')
+    parser.add_argument('--expected-intent')
     parser.add_argument('--native-ui-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
-    report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0);probe=saved=credentials=None;phase='init'
+    report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0);probe=source=saved=credentials=None;phase='init'
     try:
         if args.saved_session:
             store=HighlightTrialStore(native=True)
             if args.status:
                 state,_receipt=store.read();report.update(result='PASS',intent_state=state['phase'] if state else 'absent')
+            elif args.resolve:
+                if (not args.expected_intent or args.native_ui_command or other_pending(exclude_native_highlight=True)
+                        or NativeThoughtTrialStore().pending() or SelectionTrialStore().pending()):raise ValueError('native_highlight/pending')
+                phase='load_session';session=SessionStore();saved=session.load();credentials=NativeSessionStore().load(saved['vid'])
+                source=SelectionProbe();phase='read_only_reconcile'
+                report=reconcile(source,saved,credentials,store,args.expected_intent,
+                    on_final=lambda:save_refreshed_web_session(session,saved,source.web))
             else:
-                if (not (args.apply or args.dry_run) or not args.native_ui_command or store.read()!=(None,None)
+                if (not (args.apply or args.dry_run) or args.expected_intent or not args.native_ui_command or store.read()!=(None,None)
                         or other_pending() or NativeThoughtTrialStore().pending() or SelectionTrialStore().pending() or HighlightTrialStore().read()!=(None,None)):
                     raise ValueError('native_highlight/pending')
                 phase='load_session';session=SessionStore();saved=session.load();credentials=NativeSessionStore().load(saved['vid'])
                 probe=HighlightProbe();phase='prepare';probe.prepare(saved,credentials)
                 phase='native_ui';report=run(probe,credentials,store,args.native_ui_command,armed=args.apply,
                     on_final=lambda:save_refreshed_web_session(session,saved,probe.source.web))
-        elif args.apply or args.dry_run or args.status or args.native_ui_command:raise ValueError('native_highlight/offline')
+        elif args.apply or args.dry_run or args.status or args.resolve or args.expected_intent or args.native_ui_command:raise ValueError('native_highlight/offline')
     except (Exception,KeyboardInterrupt) as exc:
         report=dict(result='UNVERIFIED',phase=phase,authentication_posts=0,no_automatic_replay=True)
         if not args.apply:report['account_data_posts']=0
@@ -146,10 +172,11 @@ def main(argv=None):
                 state,_receipt=HighlightTrialStore(native=True).read();report.update(intent_state=state['phase'] if state else 'absent',reserved_posts=state['reserved_posts'] if state else 0)
             except Exception:report['intent_state']='unverified'
     finally:
-        if probe:
-            for name,transport in (('native',probe.source.notes),('web',probe.source.web),('host_writer',probe.source.writer)):
+        source=probe.source if probe else source
+        if source:
+            for name,transport in (('native',source.notes),('web',source.web),('host_writer',source.writer)):
                 report[name+'_stages']=[{k:r[k] for k in ('stage','status','error_code','api_code') if k in r} for r in transport.report['stages']]
-            probe.source.web.shards.clear();probe.source.web.close()
+            source.web.shards.clear();source.web.close()
         for item in (saved,credentials):
             if item:item.clear()
     print(json.dumps(report,ensure_ascii=False,indent=2));return int(report['result']=='UNVERIFIED')

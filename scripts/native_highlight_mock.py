@@ -6,8 +6,14 @@ from selection_trial_mock import Server as SelectionServer,Opener,Web,credential
 
 
 class Server(SelectionServer):
+    def __init__(self,case='normal',log=None):
+        super().__init__(case,log)
+        if case=='last-chapter':self.selection_thoughts={};self.original={}
+
     def route(self,method,target,data):
         p=urlsplit(target)
+        if self.case=='last-chapter' and p.hostname=='i.weread.qq.com' and method=='GET' and p.path=='/book/bookmarklist':
+            return 200,dict(updated=[deepcopy(self.mark)] if self.mark else [],chapters=[dict(chapterUid=2,title='Selected chapter')] if self.mark else [],synckey=0)
         if p.hostname=='i.weread.qq.com' and method=='POST' and p.path in ('/book/addBookmark','/book/removeBookmark'):
             if len(self.posts)>=2:self.trial_denied+=1;raise ValueError('native highlight write bound')
             if p.path=='/book/removeBookmark' and (self.mark is None or data!={'bookmarkIds':[self.mark['bookmarkId']]}):
