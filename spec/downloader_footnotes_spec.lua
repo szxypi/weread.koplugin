@@ -208,6 +208,29 @@ expect(resumable_rendered["22"]:find("可跨章节恢复的脚注", 1, true),
 expect(restarted_run.state.css:find("%.wr%-fn%-ref%{", 1) ~= nil,
     "restarted footnote pass did not rebuild its stylesheet")
 
+local rich_note='<aside id="target2">跨章图注<img src="note.svg"/></aside>'
+for _i, mode in ipairs({'full','single','separate'}) do
+    local job={cancelled=false,selected={source_chapter,note_chapter},
+        single_chapter=mode=='single',separate_chapters=mode=='separate',
+        bodies={['1']=source,['2']=rich_note},footnote_scans={
+            ['1']=Footnotes.scan_chapter(source,source_chapter),
+            ['2']=Footnotes.scan_chapter(rich_note,note_chapter)},
+        state={css='body{}'},index=3,total=2,
+        progress_dialog={setTitle=function() end,reportProgress=function() end}}
+    local before=#scheduled
+    downloader:_startFootnotes(job)
+    scheduled[before+1]();scheduled[before+2]();scheduled[before+3]()
+    expect(job.bodies['2']==rich_note and job.footnote_stats.converted==0,
+        'rich original was changed or copied as plain text')
+    if mode=='full' then
+        expect(job.bodies['1']:find('href="chapter-002.xhtml#target2"',1,true)
+            and job.footnote_stats.native_links==1,'full book did not map its original target')
+    else
+        expect(job.bodies['1']==source and job.footnote_stats.unresolved==1,
+            'individual EPUB referenced an absent packaged chapter')
+    end
+end
+
 local original_transform = Footnotes.transform_chapter
 Footnotes.transform_chapter = function()
     error("injected footnote transformation failure")

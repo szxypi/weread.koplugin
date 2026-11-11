@@ -65,7 +65,7 @@ local function occurrences(text, value)
 end
 assert(occurrences(body, shared_note) == 1 and occurrences(body, "乙脚注：") == 1, "generated EPUB duplicated source definitions")
 local path = Content.save_chapter_epub({}, {
-    bookId = "footnotes-standard", title = "standard", cache_dir = evidence,
+    bookId = "990178", title = "standard", cache_dir = evidence,
 }, chapter, body, {}, Footnotes.FOOTNOTES_CSS)
 local settings = require('weread.lib.settings'):new()
 settings:set('books', {['990178']={bookId='990178', title='standard', cached_file=path,

@@ -203,7 +203,7 @@ def main():
                 import posixpath
                 import xml.etree.ElementTree as ET
                 from verify_book_footnotes import inspect_epub
-                packages = list((root / 'evidence').glob('*.epub'))
+                packages = list((root / 'evidence/single-chapter').glob('*.epub'))
                 assert len(packages) == 1
                 inspected = inspect_epub(packages[0])
                 assert inspected['noterefs'] == 5 and inspected['footnotes'] == 5
@@ -225,6 +225,17 @@ def main():
                             assert b'<circle' in package.read(resource)
                     assert counts == dict(img=1, math=1, table=1)
                     inspected.update(original_media_counts=counts, embedded_image_resolves=True)
+                cross = list((root / 'evidence/cross-chapter').glob('*.epub'))
+                assert len(cross) == 1
+                with zipfile.ZipFile(cross[0]) as package:
+                    source = ET.fromstring(package.read('OEBPS/text/chapter-001.xhtml'))
+                    target = ET.fromstring(package.read('OEBPS/text/chapter-002.xhtml'))
+                    references = [node.attrib['href'] for node in source.iter() if 'href' in node.attrib and node.tag.endswith('}a')]
+                    assert references == ['chapter-002.xhtml#remote-rich']
+                    assert len([node for node in target.iter() if node.attrib.get('id') == 'remote-rich']) == 1
+                    assert all(any(node.tag.rsplit('}', 1)[-1] == tag for node in target.iter()) for tag in ('img', 'math', 'table'))
+                    assert not any(node.attrib.get('class') == 'wr-book-footnote' for node in source.iter())
+                inspected['cross_chapter_original_target_and_media_retained'] = True
                 (root / 'evidence/rich-footnotes-package.json').write_text(json.dumps(inspected, indent=2) + '\n')
     finally:
         server.shutdown()

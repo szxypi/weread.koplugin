@@ -351,6 +351,27 @@ for _i, rich in ipairs({ '<img src="note.png" alt="图片"/>', '<svg><text>图</
     local html = '<p><a epub:type="noteref" href="#rich">[1]</a></p><aside id="rich">注释正文' .. rich .. '</aside>'
     local body, stats = convert(html)
     expect(stats.converted == 0 and body == html, "plain-note conversion discarded rich content or citation")
+    local remote='<aside id="rich">远端注释正文' .. rich .. '</aside>'
+    local from='<p>正文<a epub:type="noteref" href="chapter2.xhtml#rich">[1]</a></p>'
+    local from_scan=Footnotes.scan_chapter(from, chapter)
+    local remote_scan=Footnotes.scan_chapter(remote, target_chapter)
+    local scans={['101']=from_scan,['202']=remote_scan}
+    local remote_body, remote_stats=Footnotes.transform_chapter(from,from_scan,
+        Footnotes.build_book_index(scans,{chapter,target_chapter}))
+    expect(remote_body==from and remote_stats.converted==0,
+        "cross-chapter rich note was copied as lossy plain text")
+    local mapped_body,mapped_stats=Footnotes.transform_chapter(from,from_scan,
+        Footnotes.build_book_index(scans,{chapter,target_chapter},{['202']='chapter-002.xhtml'}))
+    expect(mapped_body:find('href="chapter-002.xhtml#rich"',1,true) and mapped_stats.converted==0,
+        "full-book rich note was not linked to its packaged original")
+    local duplicated=Footnotes.scan_chapter(remote .. remote,target_chapter)
+    expect(Footnotes.transform_chapter(from,from_scan,
+        Footnotes.build_book_index({['101']=from_scan,['202']=duplicated},{chapter,target_chapter},
+            {['202']='chapter-002.xhtml'}))==from, 'ambiguous original target was rewritten')
+    local unknown=from:gsub('chapter2.xhtml','unknown.xhtml')
+    expect(Footnotes.transform_chapter(unknown,Footnotes.scan_chapter(unknown,chapter),
+        Footnotes.build_book_index(scans,{chapter,target_chapter},{['202']='chapter-002.xhtml'}))==unknown,
+        'unmatched original source file was silently redirected')
 end
 
 local ignored = '<!-- <a epub:type="noteref" href="#fake">[1]</a><aside id="fake">伪注释</aside> -->'

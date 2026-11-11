@@ -64,13 +64,32 @@ assert(stats.converted==1 and stats.removed_note_blocks==1)
 for _i, tag in ipairs({'<img ', '<math ', '<table ', 'href="#reference"'}) do
     assert(body:find(tag, 1, true), 'media was lost during conversion')
 end
-local path = Content.save_chapter_epub({}, {bookId='rich-footnotes', title='复杂脚注', cache_dir=evidence},
-    chapter, body, {{href='images/note.svg', media_type='image/svg+xml', data=
-        '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120"><rect x="2" y="2" width="236" height="116" fill="white" stroke="black" stroke-width="4"/><circle cx="120" cy="60" r="40" fill="black"/></svg>'}},
-    Footnotes.FOOTNOTES_CSS .. '\ntd,th{border:1px solid black;padding:0.3em;}')
+local assets={{href='images/note.svg', media_type='image/svg+xml', data=
+    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120"><rect x="2" y="2" width="236" height="116" fill="white" stroke="black" stroke-width="4"/><circle cx="120" cy="60" r="40" fill="black"/></svg>'}}
+local css=Footnotes.FOOTNOTES_CSS .. '\ntd,th{border:1px solid black;padding:0.3em;}'
+local path = Content.save_chapter_epub({}, {bookId='990179', title='复杂脚注', cache_dir=evidence .. '/single-chapter'},
+    chapter, body, assets, css)
+local cross_chapters={{chapterUid=180,title='正文',files={'Text/body.xhtml'}},
+    {chapterUid=181,title='原始复杂注释',files={'Text/notes.xhtml'}}}
+local cross_source='<p>跨章原注释<a epub:type="noteref" href="../Text/notes.xhtml#remote-rich">[图式表]</a></p>'
+    .. string.rep('<p>阅读正文，跨章注释不应被复制成纯文字。</p>',25)
+local cross_note='<aside id="remote-rich" epub:type="footnote"><p>跨章复杂注释：保留图片、分数、根式和表格。</p>'
+    .. '<img src="../images/note.svg" width="240" height="120"/>'
+    .. '<math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>a</mi><mi>b</mi></mfrac>'
+    .. '<mo>=</mo><msqrt><mi>x</mi></msqrt></math>'
+    .. '<table><tr><th>项目</th><th>数值</th></tr><tr><td>甲</td><td>17</td></tr><tr><td>乙</td><td>29</td></tr></table></aside>'
+local cross_scans={['180']=Footnotes.scan_chapter(cross_source,cross_chapters[1]),
+    ['181']=Footnotes.scan_chapter(cross_note,cross_chapters[2])}
+local cross_index=Footnotes.build_book_index(cross_scans,cross_chapters,{['180']='chapter-001.xhtml',['181']='chapter-002.xhtml'})
+local cross_body,cross_stats=Footnotes.transform_chapter(cross_source,cross_scans['180'],cross_index)
+assert(cross_stats.converted==0 and cross_stats.native_links==1)
+assert(Footnotes.transform_chapter(cross_note,cross_scans['181'],cross_index)==cross_note)
+local cross_path=Content.save_book_epub({}, {bookId='990180',title='跨章复杂脚注',cache_dir=evidence .. '/cross-chapter'},
+    cross_chapters,{['180']=cross_body,['181']=cross_note},'full',assets,css)
 local reader, origin
 local settings = require('weread.lib.settings'):new()
-settings:set('books', {['990179']={bookId='990179', title='复杂脚注', cached_file=path, cache_dir=evidence, chapters={chapter}}})
+settings:set('books', {['990179']={bookId='990179', title='复杂脚注', cached_file=path, cache_dir=evidence .. '/single-chapter', chapters={chapter}},
+    ['990180']={bookId='990180',title='跨章复杂脚注',cached_file=cross_path,cache_dir=evidence .. '/cross-chapter',chapters=cross_chapters}})
 settings:flush()
 local function shot(name)
     UIManager:forceRePaint(); Screen:shot(evidence .. '/' .. name .. '.png')
@@ -88,6 +107,7 @@ end
 local steps = {function()
     reader = ReaderUI:new{dimen=Screen:getSize(), document=Registry:openDocument(path)}
     assert(reader.weread)
+    assert(reader.weread._current_weread_book_id=='990179')
     UIManager:show(reader)
     reader.styletweak:onToggleStyleTweak({'footnote-inpage_epub', false}, nil, true)
     reader.rolling:onGotoPage(1)
@@ -132,7 +152,22 @@ steps[#steps+1] = function()
     reader:onClose()
     assert(not plugin._rich_footnote_guard and state.link.showAsFootnotePopup==state.original,
         'closing the document left a native handler patched')
-    reader=nil
+    reader=ReaderUI:new{dimen=Screen:getSize(),document=Registry:openDocument(cross_path)}
+    assert(reader.weread._current_weread_book_id=='990180')
+    UIManager:show(reader)
+    reader.styletweak:onToggleStyleTweak({'footnote-inpage_epub',false},nil,true)
+    reader.rolling:onGotoPage(1)
+end
+steps[#steps+1]=function()
+    origin=reader.document:getXPointer()
+    tap(1)
+    assert(not popup() and reader:getCurrentPage()>1, 'cross-chapter original was not opened')
+    shot('07-cross-chapter-original')
+end
+steps[#steps+1]=function()
+    reader.link:onGoBackLink()
+    assert(reader.document:getXPointer()==origin, 'cross-chapter return lost reading position')
+    reader:onClose();reader=nil
 end
 local failure, index = nil, 0
 local function advance()
@@ -147,6 +182,7 @@ assert(not failure, failure)
 assert(index>=#steps, 'simulator stopped before all steps completed')
 local result = assert(io.open(evidence .. '/rich-footnotes-result.json', 'wb'))
 assert(result:write(require('json').encode{result='PASS', synthetic_only=true,
-    original_media_notes=4, exact_returns=4, citation_followed=true, plain_native_popup=true}))
+    original_media_notes=4, exact_returns=4, citation_followed=true, plain_native_popup=true,
+    cross_chapter_rich_original=true,cross_chapter_exact_return=true}))
 result:close()
 print('PASS: native rich footnote originals, citation navigation and exact return; plain popup retained')

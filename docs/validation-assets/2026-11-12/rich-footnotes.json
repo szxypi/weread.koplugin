@@ -13,16 +13,18 @@
   "static_errors": 0,
   "native": [
     {
-      "fixture": "rich-footnotes-600-final-v2",
-      "candidate_sha256": "11618027f29b6d272984bcf950a7c99c31e47fd9d0b1420a07c905b9ad760c33",
+      "fixture": "rich-media-rich-final-600",
+      "candidate_sha256": "451c904dd5fef421cd7b9ae7856760eae3a3a0ce0023facc887003026b562a99",
       "source_candidate_installed_files_match": 259,
       "report": {
+        "citation_followed": true,
         "plain_native_popup": true,
         "result": "PASS",
+        "cross_chapter_exact_return": true,
+        "cross_chapter_rich_original": true,
         "synthetic_only": true,
         "original_media_notes": 4,
-        "exact_returns": 4,
-        "citation_followed": true
+        "exact_returns": 4
       },
       "package": {
         "zip_ok": true,
@@ -43,20 +45,23 @@
           "math": 1,
           "table": 1
         },
-        "embedded_image_resolves": true
+        "embedded_image_resolves": true,
+        "cross_chapter_original_target_and_media_retained": true
       }
     },
     {
-      "fixture": "rich-footnotes-ko2-final",
-      "candidate_sha256": "9aa648464caad1c7b414da9fc52b55ad9826f236753d4a2a0d5459f301bc38db",
+      "fixture": "rich-media-rich-final-1264",
+      "candidate_sha256": "cfeda9b20063272816faf315aac32597652222890055c091e0ab73ac2820bb9a",
       "source_candidate_installed_files_match": 259,
       "report": {
-        "result": "PASS",
+        "cross_chapter_exact_return": true,
+        "cross_chapter_rich_original": true,
         "synthetic_only": true,
         "original_media_notes": 4,
         "exact_returns": 4,
         "citation_followed": true,
-        "plain_native_popup": true
+        "plain_native_popup": true,
+        "result": "PASS"
       },
       "package": {
         "zip_ok": true,
@@ -77,33 +82,13 @@
           "math": 1,
           "table": 1
         },
-        "embedded_image_resolves": true
+        "embedded_image_resolves": true,
+        "cross_chapter_original_target_and_media_retained": true
       }
     },
     {
-      "fixture": "plain-footnotes-600-rich-guard-final",
-      "candidate_sha256": "306bb25b2697d894a9c127d9d357c957e55dc7d1ea11d55e17ac96e2386d1fa2",
-      "source_candidate_installed_files_match": 259,
-      "report": {
-        "note_text_once": true,
-        "shared_references": 2,
-        "generated_definitions": 4,
-        "native_dom_matches": 1,
-        "native_taps": true,
-        "popup_once": true,
-        "both_shared_popups": true,
-        "jump_and_return": true,
-        "legacy_alias_native_jump": true,
-        "result": "PASS",
-        "native_hidden_flows": true,
-        "restore_display": true,
-        "native_inpage_toggle": true,
-        "synthetic_only": true
-      }
-    },
-    {
-      "fixture": "plain-footnotes-ko2-rich-guard-final",
-      "candidate_sha256": "f9b283e6b506c239c9092501871d4a9fe20a21215ee379b8824f5fd0a9ba5ae9",
+      "fixture": "rich-media-plain-final-600",
+      "candidate_sha256": "bc60332858e1423b2a88cc5d1858b18a5c6f203d1faeead9e262ded351274c31",
       "source_candidate_installed_files_match": 259,
       "report": {
         "result": "PASS",
@@ -123,14 +108,35 @@
       }
     },
     {
-      "fixture": "rich-footnotes-core-600-final",
-      "candidate_sha256": "bb364ccce08ab9377f07cab19c2f32401d3cc77657c947f0e43ae92314718f14",
+      "fixture": "rich-media-plain-final-1264",
+      "candidate_sha256": "bf242c4b3c81bf89f56c2eadf872c015bdee8d1a0cfdbc1041b0a08d6e413a20",
+      "source_candidate_installed_files_match": 259,
+      "report": {
+        "restore_display": true,
+        "native_inpage_toggle": true,
+        "synthetic_only": true,
+        "note_text_once": true,
+        "shared_references": 2,
+        "generated_definitions": 4,
+        "native_dom_matches": 1,
+        "native_taps": true,
+        "popup_once": true,
+        "both_shared_popups": true,
+        "jump_and_return": true,
+        "legacy_alias_native_jump": true,
+        "result": "PASS",
+        "native_hidden_flows": true
+      }
+    },
+    {
+      "fixture": "rich-media-core-final-600",
+      "candidate_sha256": "8e2af7313c6d9e9fc56d5947f29da4c7a517a59f32f977ba20e8dc91901236d0",
       "source_candidate_installed_files_match": 259,
       "core_reading_regression": "PASS"
     },
     {
-      "fixture": "rich-footnotes-core-ko2-final",
-      "candidate_sha256": "e23e3435c3dba7e06417f11d48d41a25edd2b3be34959d97d1b14f2f6f920cc7",
+      "fixture": "rich-media-core-final-1264",
+      "candidate_sha256": "fd71a36c07cdc67cd734f592dd8580614f69484bacb52b16e1a0d9a6ac2197d2",
       "source_candidate_installed_files_match": 259,
       "core_reading_regression": "PASS"
     }
@@ -142,7 +148,9 @@
     "rich-footnotes-1264-original-media.png": "58445075ee4ece9d46a43dfcb2f735fabaeba8b017fcebb4f200b968284d9156",
     "rich-footnotes-1264-citation-target.png": "ca8da564e15c119e538e0381871f146ef209202c9ce23b812b16f9360189dfd1",
     "rich-footnotes-1264-plain-popup.png": "db5ad9f8ca60abeb104f510fef4dc787d959b3f78a48c8aa5fe26aed47f1d0b1",
-    "rich-footnotes-600-before-image-loss.png": "6ac7a42e1cb961e0a186603aafd1b57b65b0a3209162a5140fd738f3d13f9a19"
+    "rich-footnotes-600-before-image-loss.png": "6ac7a42e1cb961e0a186603aafd1b57b65b0a3209162a5140fd738f3d13f9a19",
+    "rich-footnotes-600-cross-chapter-original.png": "7250399222b69b14b9fc9b68fad9d856290b4ae977205de48a513b78c590d927",
+    "rich-footnotes-1264-cross-chapter-original.png": "7b6b082874760524c951b6dff3e2c5f9b014a9b0daa4b564a4e5d13842377936"
   },
   "baseline": {
     "image_popup_resource_failure_reproduced": true,
@@ -153,20 +161,30 @@
     "weread/lib/rich_footnotes.lua": "683398e54120527d645f16dbfcd3cc1ac6bcad8409819572445f663f1aec878e",
     "weread/lib/reader_lifecycle.lua": "e2806dce69a9102e369181a9c8679e714fc9a58f23f4a4fa2b4239cab9266073",
     "spec/rich_footnotes_spec.lua": "264c22981bfd6bf755ad041a94a75c9adf0f07e96cd9bf11eca080eeae7f9dee",
-    "spec/koreader/book_rich_footnotes_render.lua": "68babb616c7dc3f4d3fd932d360d480c5ffdb2f495eb86d8b86327692d0525eb",
-    "spec/koreader/book_footnotes_render.lua": "970a94ed2759e913b1bef573e25a94740257700caa19ad83c858568243ebac45",
-    "scripts/test_discovery_runtime.py": "7fcacd9a5181376b69f95d09c535c8dc4e7c528c2aadb79a7c3bea8934849d4f"
+    "spec/koreader/book_rich_footnotes_render.lua": "6b0546b47186f7511fbae38ba8dd1547874a32139b8116dac012311f761c347d",
+    "spec/koreader/book_footnotes_render.lua": "316085c644715c046059df12e1bf9869efa09f44251e9f49545421c9612390ee",
+    "scripts/test_discovery_runtime.py": "01af83b14f469e8557ff131343719fc4d51c673cf94bcf5a6c37b552e25cfc90",
+    "weread/lib/footnotes.lua": "aacf2b1599d34153f95c8df06cfd953b11f54ed76c9fc736f9d22670e6f6e683",
+    "weread/lib/downloader.lua": "3caaa28939b737c5a7ef45b3943923bcd77836dd718646815576861d2572ccb9",
+    "spec/footnotes_spec.lua": "8dc12f1d6ed971eee92a421e21bfc850a9b1ceda20055d1c6780baaac3c4741a",
+    "spec/downloader_footnotes_spec.lua": "ce7395007d8b570491982e640bec379ee2642d31243d2b766d7f6181ae082a85"
   },
   "visually_checked": [
     "SVG rectangle/circle",
     "MathML fraction and square root",
     "both table rows across normal pages",
     "citation target",
-    "Chinese plain popup, both sizes"
+    "Chinese plain popup, both sizes",
+    "cross-chapter SVG/MathML/full table, both sizes"
   ],
   "limitations": [
     "rich media uses original reader navigation, not a media-enabled popup",
     "synthetic fixtures only",
-    "more real formats and physical Kindle Oasis 2 pending"
-  ]
+    "more real formats and physical Kindle Oasis 2 pending",
+    "single-chapter EPUB cannot contain a foreign original target; link preserved",
+    "multi-hop foreign citation/backlink file paths need further acceptance"
+  ],
+  "footnote_conversion_checks": 126,
+  "downloader_footnote_checks": 56,
+  "cross_chapter_before_fix_loss_reproduced": true
 }

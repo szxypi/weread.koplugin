@@ -850,7 +850,7 @@ end
 local function add_footnote_stats(total, current)
     for _i, key in ipairs({
         "candidates", "converted", "image_notes", "backlinks",
-        "removed_note_blocks", "unresolved",
+        "removed_note_blocks", "unresolved", "native_links",
     }) do
         total[key] = (tonumber(total[key]) or 0) + (tonumber(current and current[key]) or 0)
     end
@@ -967,8 +967,12 @@ function Downloader:_startFootnotes(dl)
         Content.reset_full_download_rendered_text(dl.workspace)
     end
     local scans = {}
+    local chapter_hrefs = {}
     for chapter_index, chapter in ipairs(selected or {}) do
         local uid = tostring(chapter.chapterUid or chapter_index)
+        if not dl.single_chapter and not dl.separate_chapters then
+            chapter_hrefs[uid] = string.format('chapter-%03d.xhtml', chapter_index)
+        end
         if dl.resumable then
             local body = Content.load_full_download_chapter(
                 dl.workspace, chapter, chapter_index)
@@ -987,7 +991,7 @@ function Downloader:_startFootnotes(dl)
     dl.footnote_job = {
         index = 1,
         chapters = selected,
-        index_data = Footnotes.build_book_index(scans, selected),
+        index_data = Footnotes.build_book_index(scans, selected, chapter_hrefs),
         css_needed = false,
     }
     self:_scheduleGuarded(dl, function() self:_footnoteStep(dl) end)

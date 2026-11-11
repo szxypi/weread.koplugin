@@ -229,6 +229,7 @@ local function looks_like_ref(attrs, href, inner)
 end
 
 local source_blocks
+local local_note_range
 
 local function collect_refs(links)
     local refs = {}
@@ -370,7 +371,7 @@ function Footnotes.scan_chapter(html, chapter)
             forward_ref_ids[ref.ref_id] = true
         end
     end
-    return {
+    local scan = {
         chapter_uid = chapter_uid(chapter),
         chapter = chapter,
         definitions = collect_definitions(html, blocks, anchors, links),
@@ -379,6 +380,13 @@ function Footnotes.scan_chapter(html, chapter)
         refs = refs,
         forward_ref_ids = forward_ref_ids,
     }
+    -- Cross-chapter references must carry the same full-markup safety check
+    -- as local references; cleaned text alone cannot prove media is absent.
+    for anchor, content in pairs(scan.definitions) do
+        content.plain_safe = local_note_range(html, blocks, anchors, anchor, content, scan) ~= nil
+        content.native_safe = #(anchors[anchor] or {}) == 1
+    end
+    return scan
 end
 
 local function put_exact(index, key, content)
@@ -390,12 +398,13 @@ local function put_exact(index, key, content)
     end
 end
 
-function Footnotes.build_book_index(scans, chapters)
+function Footnotes.build_book_index(scans, chapters, chapter_hrefs)
     local index = {
         exact = {},
         local_by_uid = {},
         unique = {},
         ambiguous = {},
+        native_hrefs = {},
     }
     local chapter_by_uid = {}
     for _i, chapter in ipairs(chapters or {}) do
@@ -407,6 +416,10 @@ function Footnotes.build_book_index(scans, chapters)
         index.local_by_uid[uid] = scan.definitions or {}
         local aliases = chapter_aliases(chapter)
         for anchor, content in pairs(scan.definitions or {}) do
+            local href = chapter_hrefs and chapter_hrefs[uid]
+            if content.native_safe and type(href)=='string' and href:match('^chapter%-%d+%.xhtml$') then
+                index.native_hrefs[content] = href
+            end
             for _i, alias in ipairs(aliases) do
                 put_exact(index, ref_key(alias, anchor), content)
             end
@@ -578,7 +591,7 @@ local function rewrite_nodes(html, nodes, transform)
     return table.concat(rewritten)
 end
 
-local function local_note_range(html, blocks, anchors, anchor, content, scan)
+local_note_range = function(html, blocks, anchors, anchor, content, scan)
     local best
     for _i, point in ipairs(anchors[anchor] or {}) do
         for _j, block in ipairs(blocks) do
@@ -645,6 +658,7 @@ function Footnotes.transform_chapter(html, scan, index)
         image_notes = 0,
         backlinks = 0,
         removed_note_blocks = 0,
+        native_links = 0,
         unresolved = 0,
     }
     if type(html) ~= "string" or html == "" then return html, stats end
@@ -702,6 +716,17 @@ function Footnotes.transform_chapter(html, scan, index)
             return "<a" .. attrs .. ">" .. inner .. "</a>"
         end
         local range, range_key
+        if content ~= (scan.definitions or {})[anchor] and content.plain_safe ~= true then
+            local native_href = index.native_hrefs and index.native_hrefs[content]
+            if file and file~='' and index.exact[ref_key(file,anchor)]~=content
+                and index.exact[ref_key(basename(file),anchor)]~=content then native_href=nil end
+            if native_href then
+                stats.native_links = stats.native_links + 1
+                return '<a' .. replace_href(attrs, native_href .. '#' .. anchor) .. '>' .. inner .. '</a>'
+            end
+            stats.unresolved = stats.unresolved + 1
+            return '<a' .. attrs .. '>' .. inner .. '</a>'
+        end
         if content == (scan.definitions or {})[anchor] then
             range = local_note_range(html, blocks, anchors, anchor, content, scan)
             if not range then
