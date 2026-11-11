@@ -111,6 +111,8 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    local selection=package.loaded['weread.ui.selection_thought']
+    if selection then selection.cancel(self) end
     self:cancelShelfCovers()
     if self.cancelBookCacheCleanup then self:cancelBookCacheCleanup() end
     if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end

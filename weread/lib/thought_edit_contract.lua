@@ -58,9 +58,14 @@ local function match_hash(row,indexed)
     return Crypto.sha256_hex(table.concat(parts))
 end
 function M.context(client,marks,metadata,book,owner,reference)
-    marks=Marks.project(client,marks,book,owner,1)
     local row
-    for _i,v in ipairs(marks.updated) do if v.bookmarkId==reference.bookmarkId then row=v end end
+    if reference.selection then
+        if not require('weread.lib.selection_reference').valid(reference,book) then fail('selection') end
+        row=reference
+    else
+        marks=Marks.project(client,marks,book,owner,1)
+        for _i,v in ipairs(marks.updated) do if v.bookmarkId==reference.bookmarkId then row=v end end
+    end
     if not row or row.type~=1 or not integer(row.chapterUid,2147483647) or row.chapterUid==0
         or type(row.markText)~='string' or #row.markText==0 or #row.markText>4096
         or M.reference_hash('create',row)~=M.reference_hash('create',reference) then fail('changed') end
@@ -71,7 +76,9 @@ function M.context(client,marks,metadata,book,owner,reference)
     local version=metadata.bookVersion or metadata.version
     if not integer(version,2147483647) or version==0 then fail('version') end
     local ctx={bookId=book,chapterUid=tostring(row.chapterUid),bookVersion=version,type=1,range=row.range,abstract=row.markText,isPrivate=1}
-    if row.chapterIdx~=nil then ctx.chapterIdx=row.chapterIdx end
+    -- Selection catalog indices belong to Web source verification. The real
+    -- native creation fixture omitted chapterIdx; do not invent a conversion.
+    if row.chapterIdx~=nil and not reference.selection then ctx.chapterIdx=row.chapterIdx end
     return ctx
 end
 function M.body_hash(body)

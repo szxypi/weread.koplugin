@@ -41,7 +41,10 @@ local function fixture(op,mode)
         if mode=='bad_json' then return 'not-json',200 end
         return client:json_encode({succ=mode=='rejected' and 0 or 1}),mode=='rejected' and 401 or 200
     end
-    function f.run() return Task.run(client,settings,selected,f.input,f.record,journal,{sleep=function() end}) end
+    function f.run(options)
+        options=options or {};options.sleep=function() end
+        return Task.run(client,settings,selected,f.input,f.record,journal,options)
+    end
     return f
 end
 for _i,op in ipairs({'create','edit','delete'}) do
@@ -62,4 +65,10 @@ end
 local f=fixture('edit','normal');f.input.content=F.row().content
 f.record.metadata=C.make(F.codec(),F.snapshot(F.codec()),'edit',F.row(),f.input.content).metadata
 local result=f.run();expect(result.kind=='noop' and not result.attempted and f.posts==0,'unchanged text dispatched')
+for _i,clock_after in ipairs({99,221}) do
+    f=fixture('create','normal');local clock=100;local preview=Task.preview
+    Task.preview=function(...) local plan=preview(...);clock=clock_after;return plan end
+    result=f.run{now=function() return clock end,started=100,deadline=220};Task.preview=preview
+    expect(not result.attempted and f.posts==0 and f.claims==0 and f.phase=='prepared','delayed source check dispatched outside its time window')
+end
 print('PASS: thought single dispatch, lost receipts and exact readback ('..checks..' checks)')

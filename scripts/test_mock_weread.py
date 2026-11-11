@@ -14,6 +14,24 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_selected_thought_fixture_is_scoped_and_preserves_original(self):
+        base='https://i.weread.qq.com';raw=chapter_html(2);quote='这是第2章的第1段。我们沿着小路慢慢前行，'
+        first=raw.index(quote);body=dict(bookId=BOOK_ID,chapterUid='2',bookVersion=700,type=1,
+            range=f'{first}-{first+len(quote)}',abstract=quote,isPrivate=1,content='Synthetic selected thought')
+        with self.assertRaises(LookupError):self.server.route('POST',base+'/review/add',body)
+        original=json.loads(json.dumps(self.server.selection_thoughts));self.server.selection_fixture=True
+        try:
+            for invalid in (dict(body,isPrivate=0),dict(body,bookId='41'),dict(body,chapterIdx=True),dict(body,abstract='Different quote')):
+                with self.assertRaises(ValueError):self.server.route('POST',base+'/review/add',invalid)
+            _,result=self.server.route('POST',base+'/review/add',body);identity=result['reviewId']
+            self.assertEqual(self.server.selection_thoughts[identity]['abstract'],quote)
+            with self.assertRaises(ValueError):self.server.route('POST',base+'/review/delete',dict(reviewId='synthetic-existing-thought'))
+            with self.assertRaises(ValueError):self.server.route('POST',base+'/review/useredit',dict(reviewId=identity,content={}))
+            self.server.route('POST',base+'/review/useredit',dict(reviewId=identity,content='Edited test'))
+            self.server.route('POST',base+'/review/delete',dict(reviewId=identity))
+            self.assertEqual(self.server.selection_thoughts,original);self.assertEqual(self.server.selection_posts,3)
+        finally:self.server.selection_fixture=False;self.server.selection_thoughts=original;self.server.selection_posts=0
+
     def test_finished_mark_fixture_is_opt_in_and_single_target(self):
         base='https://i.weread.qq.com';body=dict(bookId=BOOK_ID,auto=0,finishInfo=0,status=4,isCancel=0)
         with self.assertRaises(LookupError):self.server.route('POST',base+'/book/markstatus',body)

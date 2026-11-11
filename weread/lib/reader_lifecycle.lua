@@ -12,6 +12,10 @@ local file_exists = PluginUtil.file_exists
 local log_error = PluginUtil.log_error
 
 local M = {}
+local function selection_action(host,action)
+    local module=package.loaded['weread.ui.selection_thought']
+    if module then module[action](host) end
+end
 
 -- KOReader v2026.03 assumes ReaderHighlight's visible box cache has already
 -- been populated when a tap arrives. During a fast document switch there is a
@@ -126,6 +130,10 @@ function M:onReaderReady()
     -- Cache it so the per-tap handler (_onThoughtTap) does not have to re-scan
     -- the whole book table on every screen tap.
     self._current_weread_book_id = weread_book_id
+    selection_action(self,'detach')
+    if weread_book_id and self.ui and self.ui.highlight and type(self.ui.highlight.addToHighlightDialog)=='function' then
+        require('weread.ui.selection_thought').attach(self)
+    end
     if weread_book_id then FileIdentity.read_document(self.ui.document, weread_book_id) end
     if weread_book_id and self.recordRecentReading then self:recordRecentReading(weread_book_id) end
     if weread_book_id then
@@ -189,6 +197,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    selection_action(self,'view_changed')
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
@@ -199,6 +208,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    selection_action(self,'view_changed')
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
@@ -209,6 +219,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    selection_action(self,'detach')
     require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').on_close(self) end
     if self.cancelShelfCovers then self:cancelShelfCovers() end
@@ -402,6 +413,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    selection_action(self,'cancel')
     require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
     if self.cancelShelfCovers then self:cancelShelfCovers(true) end

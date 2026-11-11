@@ -49,7 +49,8 @@ function M:prepare(input,guard,callback,resolve)
         local ok,value
         if resolve then ok,value=pcall(Task.observe,self.client,self.settings,access,request.book_id)
         else ok,value=pcall(Task.preview,self.client,self.settings,access,request) end
-        return ok and {value=value} or {reason=Task.expired(value) and 'native_expired' or 'changed'}
+        return ok and {value=value} or {reason=Task.expired(value) and 'native_expired'
+            or Task.source_login and Task.source_login(value) and 'source_login' or 'changed'}
     end,function(result)
         if self.job~=job then return end
         if not self:current(job) then self:cancel();callback(nil,'session_changed');return end
@@ -101,7 +102,8 @@ function M:commit(plan,callback)
     if not record then return false,'storage' end
     job.record,job.started=record,self.now();self.job=job
     local called,started=pcall(self._worker,self,function()
-        return Task.run(self.client,self.settings,job.access,job.input,record,self.journal)
+        return Task.run(self.client,self.settings,job.access,job.input,record,self.journal,
+            {now=self.now,started=job.started,deadline=job.started+120})
     end,function(result)
         if self.job~=job then return end
         if not self:current(job) then self:cancel();callback({kind='unconfirmed'},false);return end

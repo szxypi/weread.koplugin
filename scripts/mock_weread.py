@@ -184,7 +184,7 @@ class MockServer(ThreadingHTTPServer):
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
                             progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0,
-                            shelf_membership_mode='plain',finished_mark_mode='plain')
+                            shelf_membership_mode='plain',finished_mark_mode='plain',selection_thought_mode='plain',selection_source_revision=1)
         self.progress_confirmation_book = None
         self.progress_confirmation_reads = 0
         self.roundtrip_seed = None
@@ -198,6 +198,10 @@ class MockServer(ThreadingHTTPServer):
         self.finished_marks = {}
         self.finished_release = threading.Event()
         self.finished_held = False
+        self.selection_fixture=False
+        self.selection_posts=0
+        self.selection_thoughts={'synthetic-existing-thought':dict(reviewId='synthetic-existing-thought',content='原有合成想法',
+            abstract='不应改动的原有引用',chapterUid=2,chapterIdx=2,type=1,range='99-100',isPrivate=1,createTime=1700000000)}
 
     def record(self, event):
         with self.lock:
@@ -209,6 +213,14 @@ class MockServer(ThreadingHTTPServer):
             if self.log_path:
                 with self.log_path.open("a") as out:
                     out.write(json.dumps(event, ensure_ascii=False) + "\n")
+
+    def chapter_source(self,uid,revision=None):
+        source=chapter_html(uid)
+        if self.selection_fixture:
+            extra='<p>选区专用开始😀&amp;标记<strong>跨标签文字</strong>结尾🙂</p>\n<p>第二段选区验证。</p>'
+            if (self.control['selection_source_revision'] if revision is None else revision)==2:extra+='<p>合成来源已经更新。</p>'
+            source=source.replace('</body>',extra+'</body>')
+        return source
 
     def route(self, method, target, data):
         readable_books=BOOKS+(CB_READING_BOOKS if self.cb_reading else [])
@@ -299,6 +311,41 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
+            if self.selection_fixture and path=='/review/list' and method=='GET':
+                if query!={'bookId':[BOOK_ID],'listType':['11'],'listMode':['0'],'mine':['1'],'synckey':['0'],'count':['20']}:
+                    raise ValueError('invalid selection thought query')
+                with self.lock:rows=[dict(review=dict(row,bookId=BOOK_ID,userVid=900000)) for row in self.selection_thoughts.values()]
+                return 200,dict(reviews=rows,totalCount=len(rows),hasMore=0)
+            if self.selection_fixture and path in {'/review/add','/review/useredit','/review/delete'} and method=='POST':
+                if query or self.selection_posts>=12:raise ValueError('invalid selection thought scope')
+                if path=='/review/add':
+                    required={'bookId','chapterUid','bookVersion','type','range','abstract','isPrivate','content'}
+                    if (set(data)!=required or data['bookId']!=BOOK_ID or type(data['chapterUid']) is not str or data['chapterUid'] not in {str(c['chapterUid']) for c in CHAPTERS}
+                            or any(type(data[k]) is not int for k in ('bookVersion','type','isPrivate'))
+                            or data['bookVersion']!=700 or data['type']!=1 or data['isPrivate']!=1
+                            or not isinstance(data['abstract'],str) or not 0<len(data['abstract'].encode())<=4096
+                            or not isinstance(data['content'],str) or not 0<len(data['content'].encode())<=131072):raise ValueError('invalid selected quote request')
+                    from annotation_source_quotes import SourceQuotes
+                    if SourceQuotes(self.chapter_source(int(data['chapterUid'])),body_only=True).quote(data['range']).strip()!=data['abstract']:
+                        raise ValueError('selection quote does not address source')
+                    identity='synthetic-selection-'+str(self.selection_posts+1)
+                    row={k:data[k] for k in ('chapterUid','type','range','abstract','isPrivate','content')}
+                    row.update(reviewId=identity,createTime=1700000001+self.selection_posts)
+                    with self.lock:
+                        if control['selection_thought_mode']!='no_change':self.selection_thoughts[identity]=row
+                    result=dict(reviewId=identity)
+                else:
+                    if (set(data)!=({'reviewId','content'} if path=='/review/useredit' else {'reviewId'})
+                            or not isinstance(data.get('reviewId'),str) or not data['reviewId'].startswith('synthetic-selection-')
+                            or data['reviewId'] not in self.selection_thoughts
+                            or path=='/review/useredit' and (not isinstance(data.get('content'),str) or not 0<len(data['content'].encode())<=131072)):
+                        raise ValueError('selection original thought protected')
+                    with self.lock:
+                        if path=='/review/delete':del self.selection_thoughts[data['reviewId']]
+                        else:self.selection_thoughts[data['reviewId']]['content']=data['content']
+                    result=dict(succ=1)
+                with self.lock:self.selection_posts+=1
+                return 200,'' if control['selection_thought_mode']=='empty' else result
             if self.finish_fixture and path=='/book/getProgress' and method=='GET':
                 if set(query)!={'bookId'} or query['bookId']!=[book_id] or not any(row['bookId']==book_id for row in BOOKS):
                     raise ValueError('invalid native finished-mark position query')
@@ -512,7 +559,8 @@ class MockServer(ThreadingHTTPServer):
             if part == "e_2":
                 return 200, shards("p { line-height: 1.5; } img { max-width: 100%; }", 1)[0]
             if part in {"e_0", "e_1", "e_3"}:
-                return 200, shards(chapter_html(uid))[["e_0", "e_1", "e_3"].index(part)]
+                source=self.chapter_source(uid,control['selection_source_revision'])
+                return 200, shards(source)[["e_0", "e_1", "e_3"].index(part)]
         if path == "/web/review/single" and method == "GET":
             return 200, dict(review=review(), comments=[
                 dict(commentId=f"mock-comment-{i}", content=f"合成回复 {i}", author={"nick": "测试读者"}, createTime=1700000000)
@@ -596,6 +644,8 @@ class Handler(BaseHTTPRequestHandler):
                                               progress=self.server.progress.copy(), confirmation_reads=self.server.progress_confirmation_reads)
                     result['finished_marks']=self.server.finished_marks.copy()
                     result['finished_held']=self.server.finished_held
+                    result['selection_thoughts']=self.server.selection_thoughts.copy()
+                    result['selection_posts']=self.server.selection_posts
             elif path.path == "/__control" and self.command == "POST":
                 self.set_control(data)
                 status, result = 200, dict(ok=True)
@@ -667,6 +717,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('invalid membership mode')
             if candidate['finished_mark_mode'] not in {'plain','empty','no_change','position','delayed_ack','hold'}:
                 raise ValueError('invalid finished-mark mode')
+            if candidate['selection_thought_mode'] not in {'plain','empty','no_change'} or type(candidate['selection_source_revision']) is not int or candidate['selection_source_revision'] not in (1,2):
+                raise ValueError('invalid selection fixture mode')
             if candidate["progress_response"] not in {"plain", "foreign", "aliases", "range", "offset", "ambiguous", "rejected"}:
                 raise ValueError("invalid progress response mode")
             if type(candidate['progress_offset_delta']) is not int or not 0 <= candidate['progress_offset_delta'] <= 1000000:

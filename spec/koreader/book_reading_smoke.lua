@@ -182,6 +182,9 @@ if offline then
             remote_choice_clears_pending = true, remote_choice_no_upload = true, flush_preserves_remote_choice = true,
             offline_new_requests = 0, chosen_updates = 1, session_entry_and_progress_posts = 2 })); output:close()
     end
+    if os.getenv('WEREAD_TEST_SELECTION_THOUGHT')=='1' then
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'selection_thought_smoke.lua')(reader,current,pump,shot,clean_popups,true)
+    end
     clean_popups(reader); reader:onClose(false)
     if reconnect then print("PASS: fresh process -> restored offline intent -> reconnect read-only comparison -> explicit local choice -> one upload sequence and mock readback")
     else print("PASS: fresh process -> plugin Home cached selection -> native reader restored position; zero HTTP") end
@@ -370,6 +373,9 @@ if os.getenv('WEREAD_TEST_SHELF_MEMBERSHIP_WRITE')=='1' then
 end
 if os.getenv('WEREAD_TEST_FINISH_CHANGE')=='1' then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'finish_reader_smoke.lua')(reader,current,pump,shot,clean_popups)
+end
+if os.getenv('WEREAD_TEST_SELECTION_THOUGHT')=='1' then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'selection_thought_smoke.lua')(reader,current,pump,shot,clean_popups)
 end
 local checkpoint = { book_id = book_id, path = reader.document.file,
     xpointer = reader.document:getXPointer(), chapter_uid = saved.last_uploaded_position.chapter_uid,

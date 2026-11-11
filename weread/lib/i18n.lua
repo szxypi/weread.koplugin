@@ -1,6 +1,11 @@
 local I18n = {}
 
 local zh = {
+    ["Checking selected text…"] = "正在核对选中文字…",
+    ["This selection could not be matched to the original source. Try another passage or download this chapter again."] = "无法核对这段选区的原文，请选择其他段落，或重新下载本章后再试。",
+    ["Select less text to write a WeRead thought."] = "选中文字过长，请缩小选区后再写微信读书想法。",
+    ["Log in again to verify the selected text. Your local draft is kept."] = "请重新登录微信读书后再核对选区，本机草稿仍保留。",
+    ["The selected source is unavailable or changed. Your local draft is kept."] = "选中文字的原文暂不可用或已变化，本机草稿仍保留。",
     ["Open thought quoted text"] = "查看想法引用原文",
     ["Locating thought quote…"] = "正在定位想法引用原文…",
     ["Could not locate this thought quote in the original text. Try downloading the chapter again."] = "无法在原文中定位这条想法的引用，请尝试重新下载对应章节。",
