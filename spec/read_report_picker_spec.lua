@@ -167,7 +167,10 @@ expect(offline.enabled and local_stops == 1 and local_starts == 1, "offline togg
 fail_flush = true
 report_items[6].callback(touchmenu)
 expect(offline.enabled and status_text == "Could not save offline time settings.", "failed offline preference save rolls back")
-host:showOfflineTimeStatus()
-expect(status_text:find("12 s", 1, true) and status_text:find("Enable KOReader Reading statistics", 1, true)
-    and status_text:find("until cloud transfer is available", 1, true), "offline status explains saved time, native prerequisite and transfer availability")
+local reviewed,closed
+package.preload['weread.ui.offline_time_review']=function() return {
+    show=function(target) reviewed=target end,close=function(target) closed=target end,
+} end
+host:showOfflineTimeStatus();expect(reviewed==host,'offline entry opens the native ledger review')
+host:closeOfflineTimeUI();expect(closed==host,'offline review has a lifecycle close hook')
 print(("read_report_picker_spec: %d checks"):format(checks))

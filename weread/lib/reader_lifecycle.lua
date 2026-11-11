@@ -114,6 +114,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'detach')
     if self.cancelShelfCovers then self:cancelShelfCovers() end
     if self.cancelShelfProgress then self:cancelShelfProgress() end
@@ -228,6 +229,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'detach')
     selection_action(self,'detach')
     require('weread.ui.mp_reader_open').cancel(self)
@@ -423,6 +425,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'suspend')
     selection_action(self,'cancel')
     require('weread.ui.mp_reader_open').cancel(self)

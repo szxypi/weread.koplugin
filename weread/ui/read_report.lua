@@ -117,24 +117,12 @@ function M:getReadReportMenuItems()
 end
 
 function M:showOfflineTimeStatus()
-    if not self.offline_time then return end
-    self.offline_time:update("status")
-    local status = self.offline_time:status()
-    local labels = {
-        recording = "Recording offline reading", online = "Online; offline recording is idle",
-        disabled = "Disabled", paused = "Paused", no_book = "Open a WeRead book to record time",
-        reader_hidden = "Return to the reading page to record time",
-        book_mismatch = "This file does not match the reading book; time is not recorded",
-        unsupported_book = "Offline time recording is unavailable for public-account articles",
-        account_unavailable = "Log in to associate offline reading time",
-        statistics_unavailable = "Enable KOReader Reading statistics to record time",
-        clock_unavailable = "Device clock is unavailable", clock_changed = "Device clock changed; recording is waiting",
-        storage_error = "Could not save offline reading time", storage_unavailable = "Could not save offline reading time",
-        ledger_full = "Offline reading time storage is full", network_unavailable = "Waiting for a known network state",
-    }
-    self:showInfo(T(_("Locally saved, not uploaded: %1 s"), status.pending + status.in_flight + status.unknown)
-        .. "\n" .. _(labels[status.error or status.state] or "Could not save offline reading time")
-        .. "\n\n" .. _("Offline time stays on this device until cloud transfer is available."))
+    return require('weread.ui.offline_time_review').show(self)
+end
+
+function M:closeOfflineTimeUI()
+    local review=package.loaded['weread.ui.offline_time_review']
+    if review then review.close(self) end
 end
 
 -- Preset reporting intervals. A longer interval means fewer network wake-ups,

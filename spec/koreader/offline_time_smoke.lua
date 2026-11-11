@@ -66,10 +66,14 @@ return function(reader, request_count, flush_tasks)
     reader:handleEvent(require("ui/event"):new("ReadingPaused"))
     total = collector:status().pending
     plugin:showOfflineTimeStatus()
+    local deadline=require('socket').gettime()+10
+    while not plugin._offline_time_menu do
+        assert(require('socket').gettime()<deadline,'offline ledger menu did not load')
+        flush_tasks();require('socket').sleep(.02)
+    end
     UIManager:forceRePaint()
     require("device").screen:shot(os.getenv("KO_HOME") .. "/../evidence/offline-time-status.png")
-    local message = UIManager._window_stack[#UIManager._window_stack].widget
-    UIManager:close(message)
+    plugin:closeOfflineTimeUI()
     assert(request_count("/web/book/read") == writes, "local collection unexpectedly uploaded time")
     collector:stop("disabled")
     plugin.settings:set("offline_time", { enabled = false })

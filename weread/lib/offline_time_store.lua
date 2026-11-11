@@ -69,6 +69,7 @@ function Store:_access(account, change)
             );
             CREATE INDEX IF NOT EXISTS segments_window ON segments(window_id);
             CREATE INDEX IF NOT EXISTS segments_time ON segments(start_time);
+            CREATE INDEX IF NOT EXISTS segments_state_id ON segments(state,id);
             CREATE TABLE IF NOT EXISTS transfer_receipts(attempt TEXT PRIMARY KEY,rows_hash TEXT NOT NULL,seconds INTEGER NOT NULL) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS totals (name TEXT PRIMARY KEY, seconds INTEGER NOT NULL) WITHOUT ROWID;
         ]])
@@ -86,6 +87,18 @@ function Store:_access(account, change)
     pcall(db.close, db)
     if ok then return result end
     return nil, tostring(result):find("ledger_full", 1, true) and "ledger_full" or "storage_error"
+end
+
+-- The indexed overlap checks rely on these bounds, including other books and
+-- unverified sources. Corrupt/orphan rows must never be silently overlooked.
+local function check_segments(db)
+    assert(#query(db,[[SELECT s.id FROM segments s LEFT JOIN windows w ON w.id=s.window_id
+        WHERE w.id IS NULL OR typeof(s.id)<>'integer' OR s.id<1 OR s.id>9007199254740991
+        OR typeof(s.start_time)<>'integer' OR s.start_time<1
+        OR typeof(s.duration)<>'integer' OR s.duration<1 OR s.duration>60
+        OR s.start_time+s.duration>4102444800
+        OR s.state NOT IN ('pending','in_flight','unknown','covered') LIMIT 1]])==0,'corrupt')
+    assert(tonumber(query(db,'SELECT COUNT(*) FROM segments')[1][1])<=MAX_ROWS,'ledger_full')
 end
 
 local function prune(db)
@@ -172,13 +185,55 @@ end
 
 function Store:summary(account)
     return self:_access(account, function(db)
-        local result = { pending = 0, in_flight = 0, unknown = 0, confirmed = 0, rows = 0 }
+        check_segments(db)
+        local result = { pending = 0, in_flight = 0, unknown = 0, covered = 0, confirmed = 0, rows = 0 }
         for _, row in ipairs(query(db, "SELECT state,SUM(duration),COUNT(*) FROM segments GROUP BY state")) do
             result[row[1]], result.rows = tonumber(row[2]), result.rows + tonumber(row[3])
         end
         local confirmed = query(db, "SELECT seconds FROM totals WHERE name='confirmed'")[1]
         result.confirmed = confirmed and tonumber(confirmed[1]) or 0
         return result
+    end)
+end
+
+local CATEGORIES={pending="s.state='pending'",review="s.state IN ('in_flight','unknown')",covered="s.state='covered'",all="1=1"}
+function Store:review_page(account,category,after_id,upper_id,limit)
+    local C=require('weread.lib.readtime_transfer_contract')
+    after_id,limit=after_id or 0,limit or 20
+    if not CATEGORIES[category] or not C.integer(after_id,0,2^53-1) or not C.integer(limit,1,100)
+        or upper_id~=nil and not C.integer(upper_id,after_id,2^53-1) then return nil,'invalid_page' end
+    return self:_access(account,function(db)
+        check_segments(db)
+        local ceiling=upper_id or tonumber(query(db,'SELECT COALESCE(MAX(id),0) FROM segments')[1][1])
+        local found=query(db,[[SELECT s.id,w.book_id,s.start_time,s.duration,w.time_zone,w.book_version,w.file_id,w.version_source,s.state,
+            EXISTS(SELECT 1 FROM segments other WHERE other.id<>s.id AND other.state IN ('pending','in_flight','unknown')
+                AND other.start_time>=s.start_time-59 AND other.start_time<s.start_time+s.duration
+                AND other.start_time+other.duration>s.start_time)
+            FROM segments s JOIN windows w ON w.id=s.window_id WHERE ]]..CATEGORIES[category]..[[
+            AND s.id>? AND s.id<=? ORDER BY s.id LIMIT ?]],after_id,ceiling,limit+1)
+        local page={rows={},upper_id=ceiling,after_id=after_id,has_more=#found>limit}
+        for index=1,math.min(limit,#found) do
+            local row=found[index]
+            local source={id=tonumber(row[1]),book_id=row[2],start_time=tonumber(row[3]),duration=tonumber(row[4]),time_zone=row[5],
+                book_version=tonumber(row[6]),file_id=row[7],version_source=row[8]}
+            assert(C.row(source),'corrupt')
+            local blocked={}
+            if tonumber(row[10])==1 then
+                local stamps=query(db,[[WITH RECURSIVE seconds(stamp,n) AS
+                    (SELECT CAST(? AS INTEGER),1 UNION ALL SELECT stamp+1,n+1 FROM seconds WHERE n<60 AND stamp+1<CAST(? AS INTEGER))
+                    SELECT stamp FROM seconds WHERE EXISTS(SELECT 1 FROM segments other
+                        WHERE other.id<>? AND other.state IN ('pending','in_flight','unknown')
+                        AND other.start_time>=? AND other.start_time<=stamp AND other.start_time+other.duration>stamp)
+                    ORDER BY stamp]],source.start_time,source.start_time+source.duration,source.id,source.start_time-59)
+                for _i,item in ipairs(stamps) do
+                    local stamp=tonumber(item[1]);local last=blocked[#blocked]
+                    if last and last[2]==stamp then last[2]=stamp+1 else blocked[#blocked+1]={stamp,stamp+1} end
+                end
+            end
+            page.rows[#page.rows+1]={source=source,state=row[9],conflict=#blocked>0,blocked=blocked}
+        end
+        page.last_id=#page.rows>0 and page.rows[#page.rows].source.id or after_id
+        return page
     end)
 end
 
@@ -269,6 +324,7 @@ function Store:claim_parts(account,rows,parts,attempt,covered)
     local C=require('weread.lib.readtime_transfer_contract')
     if not C.attempt(attempt) or not C.array(rows,1,100) or not C.array(parts,1,100) or type(covered)~='function' then return nil end
     return self:_access(account,function(db)
+        check_segments(db)
         local originals,selected,seen={},{},{}
         for _i,row in ipairs(rows) do
             assert(C.row(row),'invalid_row')

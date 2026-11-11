@@ -147,7 +147,7 @@ function Coverage.subtract(start, duration, since, ranges)
     return result
 end
 
-function Coverage:preview(account, rows)
+function Coverage:_preview(account, rows, independent)
     local key = scope(account)
     if key == nil or key == "" or type(rows) ~= "table" or #rows > 100 then return nil, "invalid_coverage" end
     local ordered, seen = {}, {}
@@ -161,7 +161,7 @@ function Coverage:preview(account, rows)
     table.sort(ordered, function(a, b) return a.start_time < b.start_time end)
     local previous_end = 0
     for _, row in ipairs(ordered) do
-        if row.start_time < previous_end then return nil, "invalid_coverage" end
+        if not independent and row.start_time < previous_end then return nil, "invalid_coverage" end
         previous_end = row.start_time + row.duration
     end
     return self:_access(function(db, since)
@@ -183,5 +183,10 @@ function Coverage:preview(account, rows)
         return result
     end)
 end
+
+function Coverage:preview(account,rows) return self:_preview(account,rows,false) end
+-- Queue planning independently subtracts ambiguous ledger overlap afterward.
+-- The dispatch gate still rechecks both source and overlap in one transaction.
+function Coverage:preview_individual(account,rows) return self:_preview(account,rows,true) end
 
 return Coverage

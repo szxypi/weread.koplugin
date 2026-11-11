@@ -111,6 +111,7 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     local selection=package.loaded['weread.ui.selection_thought']
     if selection then selection.cancel(self) end
     self:cancelShelfCovers()
