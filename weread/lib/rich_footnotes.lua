@@ -1,6 +1,7 @@
 -- Preserve media and interactive citations by following the original note.
 -- KOReader's MuPDF footnote panel has no book-resource resolver or link handler.
 local M = {}
+local BookLinks = require('weread.lib.book_link_paths')
 local media = {img=true, image=true, svg=true, math=true, table=true, object=true,
     audio=true, video=true, embed=true, iframe=true}
 local methods = {'getHTMLFromXPointer', 'getHTMLFromXPointers'}
@@ -56,6 +57,9 @@ function M.detach(host)
     if state.link.showAsFootnotePopup==state.wrapper then
         state.link.showAsFootnotePopup=state.original
     end
+    if state.goto_wrapper and state.link.onGotoLink==state.goto_wrapper then
+        state.link.onGotoLink=state.goto_original
+    end
     host._rich_footnote_guard=nil
 end
 
@@ -68,7 +72,7 @@ function M.attach(host)
     local state={link=link, original=link.showAsFootnotePopup}
     local rich={} -- private sentinel; no partial popup/highlight is created
     state.wrapper=function(link_self, ...)
-        if host.ui~=ui or ui.document~=document or ui.link~=link then
+        if host._rich_footnote_guard~=state or host.ui~=ui or ui.document~=document or ui.link~=link then
             return state.original(link_self, ...)
         end
         local saved={}
@@ -95,6 +99,25 @@ function M.attach(host)
     end
     host._rich_footnote_guard=state
     link.showAsFootnotePopup=state.wrapper
+    if type(link.onGotoLink)=='function' then
+        state.goto_original=link.onGotoLink
+        state.goto_wrapper=function(link_self,target,...)
+            if host._rich_footnote_guard==state and host.ui==ui and ui.document==document
+                and ui.link==link and type(target)=='table' then
+                local pointer=BookLinks.native_xpointer(document,target.xpointer)
+                local mt=getmetatable(target)
+                if pointer~=target.xpointer and (mt==nil or type(mt)=='table') then
+                    local copy={}
+                    for key,value in pairs(target) do copy[key]=value end
+                    copy.xpointer=pointer
+                    copy.marker_xpointer=BookLinks.native_xpointer(document,target.marker_xpointer)
+                    target=setmetatable(copy,mt)
+                end
+            end
+            return state.goto_original(link_self,target,...)
+        end
+        link.onGotoLink=state.goto_wrapper
+    end
     return true
 end
 return M

@@ -70,22 +70,33 @@ local css=Footnotes.FOOTNOTES_CSS .. '\ntd,th{border:1px solid black;padding:0.3
 local path = Content.save_chapter_epub({}, {bookId='990179', title='复杂脚注', cache_dir=evidence .. '/single-chapter'},
     chapter, body, assets, css)
 local cross_chapters={{chapterUid=180,title='正文',files={'Text/body.xhtml'}},
-    {chapterUid=181,title='原始复杂注释',files={'Text/notes.xhtml'}}}
-local cross_source='<p>跨章原注释<a epub:type="noteref" href="../Text/notes.xhtml#remote-rich">[图式表]</a></p>'
+    {chapterUid=181,title='原始复杂注释',files={'Text/notes.xhtml'}},
+    {chapterUid=182,title='引用资料',files={'Text/资料 100%.xhtml'}}}
+local cross_source='<p>跨章原注释<a id="source-ref" epub:type="noteref" href="../Text/notes.xhtml#remote-rich">[图式表]</a></p>'
     .. string.rep('<p>阅读正文，跨章注释不应被复制成纯文字。</p>',25)
 local cross_note='<aside id="remote-rich" epub:type="footnote"><p>跨章复杂注释：保留图片、分数、根式和表格。</p>'
     .. '<img src="../images/note.svg" width="240" height="120"/>'
     .. '<math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mi>a</mi><mi>b</mi></mfrac>'
     .. '<mo>=</mo><msqrt><mi>x</mi></msqrt></math>'
-    .. '<table><tr><th>项目</th><th>数值</th></tr><tr><td>甲</td><td>17</td></tr><tr><td>乙</td><td>29</td></tr></table></aside>'
+    .. '<table><tr><th>项目</th><th>数值</th></tr><tr><td>甲</td><td>17</td></tr><tr><td>乙</td><td>29</td></tr></table>'
+    .. '<p><a role="doc-backlink" href="body.xhtml#source-ref">返回正文</a> '
+    .. '<a href="%E8%B5%84%E6%96%99%20100%25.xhtml#%E6%9D%90%E6%96%99%26%E8%AF%B4%E6%98%8E">查看资料</a> '
+    .. '<a href="body.xhtml#source-ref">[1]</a></p></aside>'
+    .. '<p id="source-ref">本章同名锚点，不应被误选为正文。</p>'
+local cross_reference='<p id="材料&amp;说明">真正的引用资料：中文和转义锚点。'
+    .. '<a href="notes.xhtml#remote-rich">返回注释</a></p>'
 local cross_scans={['180']=Footnotes.scan_chapter(cross_source,cross_chapters[1]),
-    ['181']=Footnotes.scan_chapter(cross_note,cross_chapters[2])}
-local cross_index=Footnotes.build_book_index(cross_scans,cross_chapters,{['180']='chapter-001.xhtml',['181']='chapter-002.xhtml'})
+    ['181']=Footnotes.scan_chapter(cross_note,cross_chapters[2]),
+    ['182']=Footnotes.scan_chapter(cross_reference,cross_chapters[3])}
+local cross_index=Footnotes.build_book_index(cross_scans,cross_chapters,
+    {['180']='chapter-001.xhtml',['181']='chapter-002.xhtml',['182']='chapter-003.xhtml'})
 local cross_body,cross_stats=Footnotes.transform_chapter(cross_source,cross_scans['180'],cross_index)
 assert(cross_stats.converted==0 and cross_stats.native_links==1)
-assert(Footnotes.transform_chapter(cross_note,cross_scans['181'],cross_index)==cross_note)
+local rendered_note,note_stats=Footnotes.transform_chapter(cross_note,cross_scans['181'],cross_index)
+local rendered_reference=Footnotes.transform_chapter(cross_reference,cross_scans['182'],cross_index)
+assert(note_stats.converted==0 and note_stats.native_links==3)
 local cross_path=Content.save_book_epub({}, {bookId='990180',title='跨章复杂脚注',cache_dir=evidence .. '/cross-chapter'},
-    cross_chapters,{['180']=cross_body,['181']=cross_note},'full',assets,css)
+    cross_chapters,{['180']=cross_body,['181']=rendered_note,['182']=rendered_reference},'full',assets,css)
 local reader, origin
 local settings = require('weread.lib.settings'):new()
 settings:set('books', {['990179']={bookId='990179', title='复杂脚注', cached_file=path, cache_dir=evidence .. '/single-chapter', chapters={chapter}},
@@ -99,10 +110,20 @@ local function popup()
         if widget.html and widget.htmlwidget then return widget end
     end
 end
+local function visible_links()
+    local result={}
+    for _i,link in ipairs(reader.document:getPageLinks()) do
+        if link.segments and #link.segments>0 then result[#result+1]=link end
+    end
+    return result
+end
 local function tap(index)
-    local link = assert(reader.document:getPageLinks()[index], 'missing link ' .. index)
+    local link = assert(visible_links()[index], 'missing link ' .. index)
     local rect = assert(link.segments[1])
-    reader.link:onTap(nil, {pos=Geom:new{x=math.floor((rect.x0+rect.x1)/2), y=math.floor((rect.y0+rect.y1)/2)}})
+    local gesture={pos=Geom:new{x=math.floor((rect.x0+rect.x1)/2), y=math.floor((rect.y0+rect.y1)/2)}}
+    local chosen=assert(reader.link:getLinkFromGes(gesture))
+    reader.link:onTap(nil,gesture)
+    return chosen.xpointer
 end
 local steps = {function()
     reader = ReaderUI:new{dimen=Screen:getSize(), document=Registry:openDocument(path)}
@@ -150,7 +171,8 @@ steps[#steps+1] = function()
     local state=assert(reader.weread._rich_footnote_guard, 'native reader guard was not attached')
     local plugin=reader.weread
     reader:onClose()
-    assert(not plugin._rich_footnote_guard and state.link.showAsFootnotePopup==state.original,
+    assert(not plugin._rich_footnote_guard and state.link.showAsFootnotePopup==state.original
+        and state.link.onGotoLink==state.goto_original,
         'closing the document left a native handler patched')
     reader=ReaderUI:new{dimen=Screen:getSize(),document=Registry:openDocument(cross_path)}
     assert(reader.weread._current_weread_book_id=='990180')
@@ -165,6 +187,46 @@ steps[#steps+1]=function()
     shot('07-cross-chapter-original')
 end
 steps[#steps+1]=function()
+    local links=visible_links()
+    local detail={}
+    for _i,link in ipairs(links) do detail[_i]={section=link.section,uri=link.uri,segments=link.segments,
+        native_target_exists=reader.document:isXPointerInDocument(link.section)} end
+    local file=assert(io.open(evidence .. '/synthetic-cross-links.json','wb'))
+    file:write(require('json').encode(detail));file:close()
+    assert(#links==3,'expected two original return links and one citation')
+    local target='#_doc_fragment_2_ 材料&说明'
+    assert(reader.document:isXPointerInDocument(target),'literal original anchor is unavailable')
+    local text=reader.document:getHTMLFromXPointer(target,0x1001,true)
+    assert(text:find('真正的引用资料',1,true),'encoded citation points to the wrong chapter')
+    tap(2)
+    assert(not popup() and reader.rolling.xpointer==target,'citation target not followed exactly')
+    shot('08-cross-citation')
+end
+steps[#steps+1]=function()
+    assert(#visible_links()==1,'expected one return to the note')
+    local target=tap(1)
+    assert(not popup() and reader.rolling.xpointer==target,'second-hop return not followed exactly')
+    shot('09-cross-note-return')
+end
+steps[#steps+1]=function()
+    local target=tap(1)
+    assert(not popup() and reader.rolling.xpointer==target and reader:getCurrentPage()==1,
+        'typed original backlink selected a different chapter or anchor')
+    shot('10-cross-body-return')
+end
+steps[#steps+1]=function()
+    tap(1)
+    local target=tap(3)
+    assert(not popup() and reader.rolling.xpointer==target and reader:getCurrentPage()==1,
+        'implicit original backlink selected the same-name local anchor')
+    shot('11-cross-implicit-return')
+end
+steps[#steps+1]=function()
+    -- Clear the deliberate multi-hop history and independently verify the
+    -- existing native Back behavior from the original reading view.
+    reader.rolling:onGotoPage(1)
+    origin=reader.document:getXPointer()
+    tap(1)
     reader.link:onGoBackLink()
     assert(reader.document:getXPointer()==origin, 'cross-chapter return lost reading position')
     reader:onClose();reader=nil
@@ -183,6 +245,8 @@ assert(index>=#steps, 'simulator stopped before all steps completed')
 local result = assert(io.open(evidence .. '/rich-footnotes-result.json', 'wb'))
 assert(result:write(require('json').encode{result='PASS', synthetic_only=true,
     original_media_notes=4, exact_returns=4, citation_followed=true, plain_native_popup=true,
-    cross_chapter_rich_original=true,cross_chapter_exact_return=true}))
+    cross_chapter_rich_original=true,cross_chapter_exact_return=true,
+    cross_chapter_citation=true,unicode_encoded_anchor=true,typed_backlink_exact=true,
+    implicit_backlink_exact=true,second_hop_return_exact=true}))
 result:close()
 print('PASS: native rich footnote originals, citation navigation and exact return; plain popup retained')

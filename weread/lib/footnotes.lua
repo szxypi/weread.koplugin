@@ -5,6 +5,7 @@
 -- anchor index, then transform the finalized chapter bodies cooperatively.
 
 local logger = require("weread.lib.logger").scoped("Footnotes")
+local BookLinks = require('weread.lib.book_link_paths')
 
 local Footnotes = {}
 
@@ -376,15 +377,16 @@ function Footnotes.scan_chapter(html, chapter)
         chapter = chapter,
         definitions = collect_definitions(html, blocks, anchors, links),
         anchors = collect_anchor_presence(anchors),
+        anchor_counts = {},
         definition_backlinks = collect_definition_backlinks(blocks, links),
         refs = refs,
         forward_ref_ids = forward_ref_ids,
     }
+    for anchor,points in pairs(anchors) do scan.anchor_counts[anchor]=#points end
     -- Cross-chapter references must carry the same full-markup safety check
     -- as local references; cleaned text alone cannot prove media is absent.
     for anchor, content in pairs(scan.definitions) do
         content.plain_safe = local_note_range(html, blocks, anchors, anchor, content, scan) ~= nil
-        content.native_safe = #(anchors[anchor] or {}) == 1
     end
     return scan
 end
@@ -404,7 +406,7 @@ function Footnotes.build_book_index(scans, chapters, chapter_hrefs)
         local_by_uid = {},
         unique = {},
         ambiguous = {},
-        native_hrefs = {},
+        book_links = BookLinks.build(scans,chapters,chapter_hrefs),
     }
     local chapter_by_uid = {}
     for _i, chapter in ipairs(chapters or {}) do
@@ -416,10 +418,6 @@ function Footnotes.build_book_index(scans, chapters, chapter_hrefs)
         index.local_by_uid[uid] = scan.definitions or {}
         local aliases = chapter_aliases(chapter)
         for anchor, content in pairs(scan.definitions or {}) do
-            local href = chapter_hrefs and chapter_hrefs[uid]
-            if content.native_safe and type(href)=='string' and href:match('^chapter%-%d+%.xhtml$') then
-                index.native_hrefs[content] = href
-            end
             for _i, alias in ipairs(aliases) do
                 put_exact(index, ref_key(alias, anchor), content)
             end
@@ -505,7 +503,7 @@ local function replace_href(attrs, href)
     end, 1)
     if count > 0 then return replaced end
     replaced, count = attrs:gsub("(href%s*=%s*)'[^']*'", function(prefix)
-        return prefix .. "'" .. escaped .. "'"
+        return prefix .. "'" .. escaped:gsub("'",'&apos;') .. "'"
     end, 1)
     return count > 0 and replaced or attrs
 end
@@ -692,38 +690,49 @@ function Footnotes.transform_chapter(html, scan, index)
     local blocks, anchors, links = source_blocks(html)
     local function transform_ref(attrs, inner)
         local href = get_attr(attrs, "href")
-        if not href or not looks_like_ref(attrs, href, inner) then
-            return "<a" .. attrs .. ">" .. inner .. "</a>"
+        local native,reason
+        if href and index.book_links then native,reason=BookLinks.resolve(index.book_links,scan.chapter_uid,href) end
+        local function keep(fallback)
+            local target=native and native.href or fallback
+            if target and target~=BookLinks.attribute(href) then
+                stats.native_links=stats.native_links+1
+                return '<a' .. replace_href(attrs,target) .. '>' .. inner .. '</a>'
+            end
+            return '<a' .. attrs .. '>' .. inner .. '</a>'
+        end
+        if not href or reason=='external' or reason=='invalid' or not looks_like_ref(attrs, href, inner) then
+            return keep()
         end
         stats.candidates = stats.candidates + 1
         local file, anchor = split_href(href)
-        if (scan.definition_backlinks and scan.definition_backlinks[anchor])
+        local local_target=file=='' or native and native.uid==tostring(scan.chapter_uid)
+        if native and native.forward_ref then stats.backlinks=stats.backlinks+1;return keep() end
+        if local_target and ((scan.definition_backlinks and scan.definition_backlinks[anchor])
             or (scan.forward_ref_ids and scan.forward_ref_ids[anchor])
             or (scan.anchors and scan.anchors[anchor]
-                and not (scan.definitions and scan.definitions[anchor])) then
+                and not (scan.definitions and scan.definitions[anchor]))) then
             stats.backlinks = stats.backlinks + 1
-            return "<a" .. replace_href(attrs, "#" .. anchor) .. ">"
-                .. inner .. "</a>"
+            return keep('#' .. anchor)
+        end
+        if file~='' and not native and index.book_links and index.book_links.packaged then
+            stats.unresolved=stats.unresolved+1;return keep()
         end
         local content = resolve_ref(index, scan.chapter_uid, file or "", anchor)
+        if content and file~='' and not local_target and content==(scan.definitions or {})[anchor] then
+            stats.unresolved=stats.unresolved+1;return keep()
+        end
         if not content or is_trivial_note(content.text) then
-            if scan.anchors and scan.anchors[anchor] then
+            if native then return keep() end
+            if local_target and scan.anchors and scan.anchors[anchor] then
                 stats.backlinks = stats.backlinks + 1
-                return "<a" .. replace_href(attrs, "#" .. anchor) .. ">"
-                    .. inner .. "</a>"
+                return keep('#' .. anchor)
             end
             stats.unresolved = stats.unresolved + 1
             return "<a" .. attrs .. ">" .. inner .. "</a>"
         end
         local range, range_key
         if content ~= (scan.definitions or {})[anchor] and content.plain_safe ~= true then
-            local native_href = index.native_hrefs and index.native_hrefs[content]
-            if file and file~='' and index.exact[ref_key(file,anchor)]~=content
-                and index.exact[ref_key(basename(file),anchor)]~=content then native_href=nil end
-            if native_href then
-                stats.native_links = stats.native_links + 1
-                return '<a' .. replace_href(attrs, native_href .. '#' .. anchor) .. '>' .. inner .. '</a>'
-            end
+            if native then return keep() end
             stats.unresolved = stats.unresolved + 1
             return '<a' .. attrs .. '>' .. inner .. '</a>'
         end

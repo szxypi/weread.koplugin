@@ -202,7 +202,7 @@ def main():
             if args.rich_footnotes and result.returncode == 0:
                 import posixpath
                 import xml.etree.ElementTree as ET
-                from verify_book_footnotes import inspect_epub
+                from verify_book_footnotes import inspect_epub, inspect_epub_links
                 packages = list((root / 'evidence/single-chapter').glob('*.epub'))
                 assert len(packages) == 1
                 inspected = inspect_epub(packages[0])
@@ -235,6 +235,13 @@ def main():
                     assert len([node for node in target.iter() if node.attrib.get('id') == 'remote-rich']) == 1
                     assert all(any(node.tag.rsplit('}', 1)[-1] == tag for node in target.iter()) for tag in ('img', 'math', 'table'))
                     assert not any(node.attrib.get('class') == 'wr-book-footnote' for node in source.iter())
+                link_graph=inspect_epub_links(cross[0])
+                assert link_graph['chapters']==3 and link_graph['local_links']==5
+                assert link_graph['zip_ok'] and link_graph['local_images']==1
+                for key in ('duplicate_ids','duplicate_archive_entries','broken_local_links',
+                            'invalid_local_links','missing_local_images'):
+                    assert link_graph[key]==0,(key,link_graph[key])
+                inspected['cross_chapter_link_graph']=link_graph
                 inspected['cross_chapter_original_target_and_media_retained'] = True
                 (root / 'evidence/rich-footnotes-package.json').write_text(json.dumps(inspected, indent=2) + '\n')
     finally:

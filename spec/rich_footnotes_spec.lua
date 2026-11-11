@@ -62,4 +62,36 @@ Guard.detach(host)
 host._current_weread_book_id=nil
 check(not Guard.attach(host) and link.showAsFootnotePopup==another, 'ordinary local books untouched')
 check(not Guard.attach({}), 'unavailable native reader is harmless')
+local received
+local navigation=function(_self,target,neglect,allow)
+    received={target=target,neglect=neglect,allow=allow};return 'native',nil,17
+end
+host._current_weread_book_id='synthetic';host.ui.document=previous_document
+previous_document.isXPointerInDocument=function(_self,pointer) return pointer=='#encoded anchor' end
+link.onGotoLink=navigation
+Guard.attach(host)
+local input={xpointer='#encoded%20anchor',marker_xpointer='#encoded%20anchor',from_xpointer='/body/p[1]/text().2',other='kept'}
+local first,empty,last=link:onGotoLink(input,true,false)
+check(first=='native' and empty==nil and last==17,'native navigation return values preserved')
+check(received.target~=input and input.xpointer=='#encoded%20anchor','cached native link is not mutated')
+check(received.target.xpointer=='#encoded anchor' and received.target.marker_xpointer=='#encoded anchor',
+    'only proven target and target marker are normalized')
+check(received.target.from_xpointer==input.from_xpointer and received.target.other=='kept'
+    and received.neglect==true and received.allow==false,'source coordinate and native flags preserved')
+host.ui.document={}
+link:onGotoLink(input,false,true)
+check(received.target==input,'stale document bypasses target normalization')
+Guard.detach(host)
+check(link.onGotoLink==navigation,'native navigation restored on detach')
+host.ui.document=previous_document
+Guard.attach(host)
+local later_navigation=function() return 'later' end
+link.onGotoLink=later_navigation;Guard.detach(host)
+check(link.onGotoLink==later_navigation,'later navigation hook is preserved')
+link.onGotoLink=navigation;Guard.attach(host)
+local captured=link.onGotoLink
+local later_chain=function(...) return captured(...) end
+link.onGotoLink=later_chain;Guard.detach(host)
+link:onGotoLink(input,false,true)
+check(received.target==input and link.onGotoLink==later_chain,'a later wrapper retaining the detached guard stays inert')
 print('rich_footnotes_spec: ' .. count .. ' checks passed')

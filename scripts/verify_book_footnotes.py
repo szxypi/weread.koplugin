@@ -11,11 +11,13 @@ import argparse
 from collections import Counter
 import json
 import os
+import posixpath
 import re
 import subprocess
 import sys
 import tempfile
 import urllib.request
+from urllib.parse import unquote, urlsplit
 import xml.etree.ElementTree as ET
 import zipfile
 from pathlib import Path
@@ -247,6 +249,69 @@ def inspect_epub(path: Path) -> dict[str, int | bool]:
         "missing_generated_backlinks": missing_generated_backlinks,
         "duplicate_ids": sum(count - 1 for count in counts.values()),
     }
+
+
+def inspect_epub_links(path: Path) -> dict[str, int | bool]:
+    """Independently resolve links in this plugin's generated multi-chapter ZIP.
+
+    XML IDs belong to their own XHTML member. No HTTP, extraction, or real data
+    is needed, and only counts leave this inspector.
+    """
+    with zipfile.ZipFile(path) as archive:
+        names = Counter(archive.namelist())
+        documents = {name: ET.fromstring(archive.read(name)) for name in names
+                     if name.startswith('OEBPS/text/') and name.endswith('.xhtml')}
+        zip_ok = archive.testzip() is None
+    ids = {name: Counter(node.attrib['id'] for node in root.iter() if 'id' in node.attrib)
+           for name, root in documents.items()}
+    result = dict(zip_ok=zip_ok, chapters=len(documents), local_links=0, external_links=0,
+                  file_only_links=0, broken_local_links=0, invalid_local_links=0,
+                  duplicate_ids=sum(sum(count - 1 for count in values.values()) for values in ids.values()),
+                  duplicate_archive_entries=sum(count - 1 for count in names.values()),
+                  local_images=0, missing_local_images=0)
+
+    def resolve(current, raw):
+        try:
+            parts = urlsplit(raw)
+            if parts.scheme or parts.netloc:
+                return None, None, 'external'
+            if re.search(r'%(?![0-9a-fA-F]{2})', parts.path + parts.fragment):
+                return None, None, 'invalid'
+            link_path = unquote(parts.path, errors='strict')
+            fragment = unquote(parts.fragment, errors='strict')
+            target = current if not link_path else posixpath.normpath(
+                link_path.lstrip('/') if link_path.startswith('/') else
+                posixpath.join(posixpath.dirname(current), link_path))
+            if target == '..' or target.startswith('../') or any(ord(char) < 32 for char in target + fragment):
+                return None, None, 'invalid'
+            return target, fragment, 'local'
+        except (ValueError, UnicodeError):
+            return None, None, 'invalid'
+
+    for name, root in documents.items():
+        for node in root.iter():
+            tag = node.tag.rsplit('}', 1)[-1]
+            if tag == 'a' and 'href' in node.attrib:
+                target, fragment, kind = resolve(name, node.attrib['href'])
+                if kind == 'external':
+                    result['external_links'] += 1
+                    continue
+                result['local_links'] += 1
+                if kind == 'invalid':
+                    result['invalid_local_links'] += 1
+                    result['broken_local_links'] += 1
+                elif target not in documents or fragment and ids[target][fragment] != 1:
+                    result['broken_local_links'] += 1
+                elif not fragment:
+                    result['file_only_links'] += 1
+            elif tag == 'img' and 'src' in node.attrib:
+                target, _fragment, kind = resolve(name, node.attrib['src'])
+                if kind == 'external':
+                    continue
+                result['local_images'] += 1
+                if kind != 'local' or names[target] != 1:
+                    result['missing_local_images'] += 1
+    return result
 
 
 def parse_args() -> argparse.Namespace:
