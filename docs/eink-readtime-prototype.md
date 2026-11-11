@@ -1,5 +1,8 @@
 # 离线时长补传：只读前置验证
 
+后续已有独立的[当前来源协议与原生签名层验证](readtime-upload-protocol.md)。本页只读工具及其历史结果保持不变；
+受限实际请求不等于历史账本、去重协调和原生补传入口已经完成。
+
 当前工具 `scripts/verify_eink_readtime.py` 只验证补传所需的读取条件，不构造上传签名或发送时长。
 它参考 MiuRead `c1893562aa25a870b8dd076d7be062a3348f823e` 的 `eink_readtime.lua` 与
 `readtime_protocol.lua`，复用本仓库已有的 E-Ink 扫码原型。未将未验证的补传接口接入 Lua。

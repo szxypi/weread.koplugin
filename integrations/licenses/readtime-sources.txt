@@ -1,0 +1,17 @@
+Reading-time signature and native time-only report adapter
+
+Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
+Source: https://github.com/miumiupy98-art/miuread-koreader/tree/c1893562aa25a870b8dd076d7be062a3348f823e
+miuread/readtime_protocol.lua, miuread/eink_readtime.lua
+
+Byte substitution, rotation and signature transform reference:
+AnkioTomas/moon, GPL-3.0, commit 43b2181da6eb5285b62114da85e1413d2f8464e4
+https://github.com/AnkioTomas/moon/blob/43b2181da6eb5285b62114da85e1413d2f8464e4/book.koplugin/source/wechat/app.lua
+License text: moon-GPL-3.0.txt
+
+Adapted 2026-11-12 to strict Python/Lua prototype contracts and bounded native
+DTOs. The combined plugin is distributed under its root AGPL-3.0 license.
+No authentication tokens or account data are part of these protocol constants.
+
+Endpoint catalog reference (MIT):
+https://github.com/teng-lin/weread-omni/blob/88bd2e095d7d7ee423eaadf8f40653e72c5be6d4/docs/endpoints.md

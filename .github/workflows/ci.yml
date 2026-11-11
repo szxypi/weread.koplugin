@@ -47,6 +47,7 @@ jobs:
         run: |
           for zone in UTC Asia/Shanghai America/New_York Pacific/Apia; do
             TZ="$zone" luajit spec/profile_data_spec.lua
+            TZ="$zone" luajit spec/readtime_protocol_spec.lua
           done
 
       - name: Python syntax check
@@ -80,7 +81,10 @@ jobs:
           python3 scripts/test_native_finish_trial.py
 
       - name: Offline-time read-only preflight checks
-        run: python3 scripts/test_eink_readtime.py
+        run: |
+          python3 scripts/test_eink_readtime.py
+          python3 scripts/test_readtime_upload.py
+          python3 scripts/test_readtime_trial.py
 
       - name: Source coordinate prototype checks
         run: |

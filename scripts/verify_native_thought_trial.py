@@ -25,6 +25,7 @@ from secure_mark_style_trial import MarkStyleTrialStore
 from secure_initial_mark_style import InitialMarkStyleStore
 from secure_mark_color import MarkColorStore
 from secure_nonempty_marks_trial import NonemptyMarksStore
+from secure_readtime_trial import ReadtimeTrialStore
 from secure_bookmark_trial import BookmarkTrialStore
 from secure_finish_experiment import FinishExperimentStore
 from secure_shelf_experiment import ShelfExperimentStore
@@ -125,12 +126,20 @@ def run(probe,credentials,store,receipt,command,*,armed=False,expected=None,mock
         payload.clear()
 
 
+def readtime_pending():
+    for version in (1,2):
+        state,_receipt=ReadtimeTrialStore(version=version).read()
+        if state is not None and state['phase']!='retired':return True
+    return False
+
+
 def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclude_native_bookmark=False,exclude_native_shelf=False,exclude_native_finish=False,exclude_mark_color=False):
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
             or not exclude_native_shelf and NativeShelfTrialStore().pending()
             or not exclude_native_finish and NativeFinishTrialStore().pending()
             or InitialMarkStyleStore().read()[0] is not None
             or NonemptyMarksStore().read()[0] is not None
+            or readtime_pending()
             or not exclude_mark_color and MarkColorStore().read()[0] is not None
             or any(MarkStyleTrialStore(native=kind).read()[0] is not None for kind in (False,True))
             or any(BookmarkTrialStore(native=kind).read()[0] is not None for kind in (False,True)
