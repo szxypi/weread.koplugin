@@ -56,7 +56,9 @@ CB_SOURCE_REASONS = {'none', 'walk_diverged', 'anchor_ambiguous', 'anchor_missin
                      'sample_start_mismatch', 'source_anchor_missing', 'source_anchor_unavailable'}
 
 
-def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False):
+def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False):
+    if type(selection_preview) is not bool or selection_preview and (cb_reading or cb_full_book or full_chapters!=1):
+        raise ValueError('reading_scope')
     if (type(cb_reading) is not bool or type(cb_full_book) is not bool
             or type(full_chapters) is not int or not 1 <= full_chapters <= (128 if cb_full_book else 32)
             or cb_full_book and (not cb_reading or full_chapters < 2) or cb_reading and not cb_full_book and full_chapters != 1):
@@ -113,6 +115,7 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
     counts = value['requests']
     limits = (2, 60, max(8, 2*full_chapters+4), 4, max(12, 6*full_chapters),
               512 if full_chapters > 1 else 60, 1024)
+    if selection_preview:limits=(2,60,12,8,18,60,1024)
     if (not isinstance(counts, list) or len(counts) != len(KINDS)
             or any(type(n) is not int or not 0 <= n <= limit for n, limit in zip(counts, limits))):
         raise ValueError('reading_requests')
@@ -163,7 +166,7 @@ def validate_full_book(value, chapters, *, complete=True, cb_full_book=False):
     return value
 
 
-def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False):
+def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False):
     """The private cookie envelope is consumed here; never print this value."""
     if not isinstance(raw, bytes) or len(raw) > (8 if full_chapters>1 else 2) * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('reading_frame')
@@ -179,7 +182,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
         raise ValueError('reading_envelope')
     validate_cookies(value['cookies'], owner)
     if mode is not None:
-        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book)
+        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview)
     else:
         report = value['report']
         fields = {'result', 'tmpfs_profile', 'profile_removed', 'stages', 'runner_error'}
@@ -192,7 +195,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
                 or not isinstance(report['stages'], list) or len(report['stages']) > 2):
             raise ValueError('reading_runner')
         for phase, stage in zip(('live', 'reopen'), report['stages']):
-            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book)
+            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview)
         if report['result'] == 'PASS' and (not report['tmpfs_profile'] or not report['profile_removed']
                 or report['runner_error'] != 'none' or len(report['stages']) != 2
                 or any(stage['result'] != 'PASS' for stage in report['stages'])

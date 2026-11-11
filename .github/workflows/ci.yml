@@ -75,7 +75,9 @@ jobs:
         run: python3 scripts/test_eink_readtime.py
 
       - name: Source coordinate prototype checks
-        run: python3 scripts/test_source_coordinates.py
+        run: |
+          python3 scripts/test_source_coordinates.py
+          python3 scripts/test_owner_selection_preview.py
 
       - name: Web source-position read-only preflight checks
         run: |

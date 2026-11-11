@@ -8,11 +8,24 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 from run_persistent_ui_probe import extract_candidate, run_child
 from verify_owner_reading import FRAME, RUNNER_ERRORS, decode_envelope, validate_cookies
 from check_owner_full_book import inspect_full_book,FullBookIncomplete
 from verify_reader_context import project as reader_context, ContextError
+
+
+def check_installed(candidate,profile):
+    files=0
+    with zipfile.ZipFile(candidate) as archive:
+        for item in archive.infolist():
+            if item.is_dir():continue
+            installed=profile/'plugins'/item.filename
+            if installed.is_symlink() or installed.read_bytes()!=archive.read(item):raise ValueError('stage_unverified')
+            files+=1
+    if not 1<=files<=1000:raise ValueError('stage_unverified')
+    return {'files':files,'bytes_match':True}
 
 
 def main(argv=None):
@@ -31,7 +44,11 @@ def main(argv=None):
     addons.add_argument('--progress-preview', action='store_true')
     addons.add_argument('--progress-roundtrip', action='store_true')
     addons.add_argument('--source-upload-preview', action='store_true')
+    addons.add_argument('--selection-thought-preview', action='store_true')
+    parser.add_argument('--mock-port',type=int)
     args = parser.parse_args(argv)
+    if args.mock_port is not None and (not args.selection_thought_preview or not 1<=args.mock_port<=65535):
+        parser.error('--mock-port requires --selection-thought-preview and a valid loopback port')
     if args.diagnostic_read_pacing and not args.cb_full_book:
         parser.error('--diagnostic-read-pacing requires --cb-full-book')
     runtime = args.koreader.resolve()
@@ -44,11 +61,20 @@ def main(argv=None):
     recovery_private = []
     progress_private = None
     candidate_private = []
+    selection_private = []
     try:
         raw = sys.stdin.buffer.read(256 * 1024 + 1)
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        if payload.get('selection_mock_port')!=args.mock_port:
+            raise ValueError('input_limit')
+        if args.mock_port is not None:
+            grant=payload.get('selection_preview',{}).get('credentials',{})
+            if (payload.get('vid')!='900000' or payload.get('book_id')!='900001'
+                    or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}
+                    or grant.get('accessToken')!='mock-native-access' or grant.get('refreshToken')!='mock-native-refresh'):
+                raise ValueError('input_limit')
         if args.diagnostic_read_pacing != (payload.get('diagnostic_read_pacing') is True):
             raise ValueError('input_limit')
         cb_reading=args.cb_reading or args.cb_full_book
@@ -72,6 +98,10 @@ def main(argv=None):
         if args.source_upload_preview:
             from owner_source_candidate_contract import decode
             decoder = decode
+        if args.selection_thought_preview:
+            from owner_selection_preview import decode,validate_input
+            validate_input(payload)
+            decoder = decode
         has_annotations = args.annotations or args.annotation_recovery
         if has_annotations != ('annotations' in payload) or has_annotations and 'full_manifest' in payload:
             raise ValueError('input_limit')
@@ -80,6 +110,8 @@ def main(argv=None):
         if args.progress_roundtrip != ('progress_roundtrip' in payload) or args.progress_roundtrip and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         if args.source_upload_preview != ('source_upload_preview' in payload) or args.source_upload_preview and ('full_manifest' in payload or has_annotations):
+            raise ValueError('input_limit')
+        if args.selection_thought_preview != ('selection_preview' in payload) or args.selection_thought_preview and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         full_chapters = len(payload['full_manifest']) if 'full_manifest' in payload else 1
         if not 1 <= full_chapters <= (128 if args.cb_full_book else 32) or args.cb_full_book and full_chapters < 2:
@@ -112,6 +144,8 @@ def main(argv=None):
                     command.append(str(probe.with_name('owner_progress_roundtrip_case.lua')))
                 if args.source_upload_preview:
                     command.append(str(probe.with_name('owner_source_candidate_case.lua')))
+                if args.selection_thought_preview:
+                    command.append(str(probe.with_name('owner_selection_preview_case.lua')))
                 code, out, repaint = run_child(command, env,
                                                json.dumps(payload, ensure_ascii=False).encode(), runtime,
                                                timeout=900 if args.cb_full_book and mode=='live' else 600 if full_chapters > 1 and mode == 'live' else 150)
@@ -120,6 +154,7 @@ def main(argv=None):
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview: candidate_private.append(envelope['candidate_private'])
+                if args.selection_thought_preview: selection_private.append(envelope['selection_private'])
                 if args.annotation_recovery:
                     private = envelope['recovery_private']
                     recovery_private.append(private)
@@ -152,6 +187,8 @@ def main(argv=None):
                     full_hash = current_hash
                     inspected['fresh_offline_package_identical'] = mode == 'reopen'
                     report['full_book'] = inspected
+            if args.selection_thought_preview:
+                report['installed_package']=check_installed(args.candidate,profile)
             report['result'] = 'PASS'
     except subprocess.TimeoutExpired:
         report['runner_error'] = 'child_timeout'
@@ -174,6 +211,7 @@ def main(argv=None):
     if args.annotation_recovery: envelope['recovery_private'] = recovery_private
     if args.progress_preview or args.progress_roundtrip: envelope['progress_private'] = progress_private
     if args.source_upload_preview: envelope['candidate_private'] = candidate_private
+    if args.selection_thought_preview: envelope['selection_private'] = selection_private
     sys.stdout.buffer.write(FRAME + json.dumps(envelope).encode() + b'\n')
     return 0 if report['result'] == 'PASS' and report['profile_removed'] else 1
 

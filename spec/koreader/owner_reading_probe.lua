@@ -19,6 +19,7 @@ local annotation_case
 local recovery_private
 local progress_case,progress_private
 local candidate_case,candidate_private
+local selection_case,selection_private
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
@@ -37,7 +38,7 @@ local ok,reason=pcall(function()
     assert(type(input.book_id)=='string' and (cb_reading and #input.book_id<=67 and input.book_id:match('^CB_[A-Za-z0-9]+$')
         or not cb_reading and input.book_id:match('^[1-9]%d*$')))
     assert(not cb_reading or not ((input.full_manifest and not cb_full) or input.annotations or input.progress_preview
-        or input.progress_roundtrip or input.source_upload_preview))
+        or input.progress_roundtrip or input.source_upload_preview or input.selection_preview))
     assert(type(input.chapter_uid)=='string' and input.chapter_uid:match('^[1-9]%d*$'))
     assert(type(input.source_text)=='string' and #input.source_text>=32 and #input.source_text<=128)
     assert(input.source_format=='web_xhtml' or input.source_format=='web_txt')
@@ -82,6 +83,12 @@ local ok,reason=pcall(function()
     local Settings=require('weread.lib.settings');local new_settings=Settings.new
     function Settings:new()
         local value=new_settings(self);assert(not value.mock_endpoint)
+        if input.selection_mock_port then
+            local grant=input.selection_preview and input.selection_preview.credentials
+            assert(input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
+                and grant.accessToken=='mock-native-access' and grant.refreshToken=='mock-native-refresh')
+            value.mock_endpoint='http://127.0.0.1:'..input.selection_mock_port
+        end
         local flush=value.store.flush
         local secrets={'account','cookies','api_key','wr_ticket','wr_wrpa','device_fingerprint'}
         value.store.flush=function(store,...)
@@ -97,7 +104,7 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
-        if full or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview then
+        if full or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview or input.selection_preview then
             local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
@@ -124,6 +131,10 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
+    elseif input.selection_preview then
+        assert(arg[2] and arg[2]:match('/owner_selection_preview_case%.lua$'))
+        selection_case=dofile(arg[2])(input,mode,counters)
+        report.selection_preview=selection_case.report
     else assert(not arg[2]) end
     local Protocol=require('weread.lib.protocol')
     local Cookie=require('weread.lib.cookie')
@@ -147,6 +158,7 @@ local ok,reason=pcall(function()
     end
     local chapter_count=full and #input.full_manifest or 1
     local limits={2,60,math.max(8,2*chapter_count+4),4,math.max(12,6*chapter_count),full and 512 or 60}
+    if selection_case then limits={2,60,12,8,18,60} end
     local resource_urls={}
     local protected_resources={}
     local function protected_resource(url)
@@ -203,7 +215,7 @@ local ok,reason=pcall(function()
                 if id==input.book_id and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 then return 2 end
             end
             if options.url==root_url or chapter_urls[options.url] then return 3 end
-            if input.source_upload_preview and options.url=='https://weread.qq.com/api/userInfo?userVid='..input.vid
+            if (input.source_upload_preview or selection_case) and options.url=='https://weread.qq.com/api/userInfo?userVid='..input.vid
                 and options.sensitive==true and options.diagnostic_api=='source_currentness'
                 and options.skip_cookie==true and options.persist_response_cookies==false
                 and h.Cookie==Cookie.to_header(cookies) and h['X-Vid']==input.vid and h['X-Skey']==cookies.wr_skey
@@ -264,6 +276,7 @@ local ok,reason=pcall(function()
     end
     report.transport_guard_selftest=true
     function Client:request(options)
+        if selection_case and selection_case:is_native(options) then return selection_case:request(self,options,request) end
         if progress_case and progress_case:is_write(options) then
             if input.progress_roundtrip then return progress_case:request(self,options,request) end
             return progress_case:request(self,options)
@@ -601,6 +614,7 @@ local ok,reason=pcall(function()
     report.legacy_progress_units_preserved=true
     if progress_case then progress_case:run(plugin,reader,pump,source_index,position) end
     if candidate_case then candidate_case:run(plugin,reader,pump,source_index,position) end
+    if selection_case then selection_case:run(plugin,reader,pump,source_index,position) end
     if cb_full then
         plugin,reader=dofile(fixtures..'cb_full_handoff_case.lua')(input,report.cb_handoff,plugin,reader,pump,tick,position)
         document=reader.document
@@ -630,6 +644,7 @@ local ok,reason=pcall(function()
     if annotation_case then
         for _i,value in ipairs(annotation_case:secrets()) do secrets[#secrets+1]=value end
     end
+    if selection_case then for _i,value in ipairs(selection_case:secrets()) do secrets[#secrets+1]=value end end
     for key,value in pairs(latest_cookies) do if key~='wr_vid' and #value>=8 then secrets[#secrets+1]=value end end
     for key,value in pairs(input.cookies) do if key~='wr_vid' and #value>=8 then secrets[#secrets+1]=value end end
     local function audit(path)
@@ -657,6 +672,7 @@ end)
 if counters then
     if progress_case then progress_case:finish(reason);progress_private=progress_case:private() end
     if candidate_case then candidate_case:finish(reason);candidate_private=candidate_case:private() end
+    if selection_case then selection_case:finish(reason);selection_private=selection_case:private() end
     if annotation_case then
         annotation_case:finish(reason)
         if annotation_case.private then recovery_private=annotation_case:private() end
@@ -681,5 +697,5 @@ if not ok then
     report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
 end
 io.stdout:write('\nWEREAD_OWNER_READING_RESULT='..json.encode{report=report,cookies=latest_cookies or {},rejected_html=rejected_html,
-    recovery_private=recovery_private,progress_private=progress_private,candidate_private=candidate_private}..'\n')
+    recovery_private=recovery_private,progress_private=progress_private,candidate_private=candidate_private,selection_private=selection_private}..'\n')
 os.exit(ok and 0 or 1)
