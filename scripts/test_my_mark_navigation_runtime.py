@@ -4,17 +4,19 @@ import argparse
 import json
 from pathlib import Path
 import subprocess
+import threading
+from unittest.mock import patch
 
 from my_cloud_marks_model import project as marks_project
 from my_mark_target import project
 from my_thought_target import project as thought_target
 from my_cloud_thoughts_model import complete as thoughts_project
-from run_my_mark_navigation_ui import FRAME,validate
+from run_my_mark_navigation_ui import FRAME,DOWNLOAD_FRAME,validate
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--run-dir',type=Path,required=True)
-    parser.add_argument('--variant',choices=['thoughts']);parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
+    parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts']);parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);repo=Path(__file__).resolve().parent.parent
     candidate=root/'candidate.zip';subprocess.run(['bash',str(repo/'scripts/package_release.sh'),str(candidate)],capture_output=True,check=True)
     source=dict(bookId='900001',updated=[],chapters=[]);chapters=[]
@@ -42,11 +44,25 @@ def main():
     command=['python3',str(repo/'scripts/run_my_mark_navigation_ui.py'),'--koreader',str(args.koreader),'--candidate',str(candidate),'--synthetic',
         '--screenshots',str(root/'screenshots'),'--width',str(args.width),'--height',str(args.height),'--dpi',str(args.dpi)]
     if args.variant:payload['variant']=args.variant;command.extend(['--variant',args.variant])
-    child=subprocess.run(command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=600)
-    assert child.stdout.count(FRAME)==1
-    result=json.loads(child.stdout.split(FRAME)[1]);(root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
+    server=None
+    try:
+        if args.download_missing:
+            from mock_weread import MockServer
+            server=MockServer(0,None);threading.Thread(target=server.serve_forever,daemon=True).start()
+            payload.update(download_missing=True,cookies=dict(wr_vid='900000',wr_skey='synthetic-note-cookie'),mock_endpoint='http://127.0.0.1:'+str(server.server_port))
+            command.append('--download-missing')
+            sources={int(row['chapter_uid']):row['raw'] for row in chapters}
+            with patch('mock_weread.chapter_html',side_effect=lambda uid:sources[uid]):
+                child=subprocess.run(command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=600)
+        else:child=subprocess.run(command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=600)
+    finally:
+        if server:server.shutdown();server.server_close()
+    frame=DOWNLOAD_FRAME if args.download_missing else FRAME;assert child.stdout.count(frame)==1
+    result=json.loads(child.stdout.split(frame)[1]);result=result['report'] if args.download_missing else result
+    (root/'result.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n')
     assert child.returncode==0 and result['result']=='PASS' and result['profile_removed'] and result['installed_bytes_match'],result
-    for row,mode in zip(result['stages'],('live','reopen')):validate(row,mode,6,2,shots=True)
+    for row,mode in zip(result['stages'],('live','reopen')):validate(row,mode,6,2,shots=True,download=args.download_missing)
+    if server:assert not any(path in {'/web/book/read','/login','/web/login/renewal','/review/add','/review/useredit','/review/delete'} for path,_query in server.request_totals)
     print(json.dumps(result))
 
 

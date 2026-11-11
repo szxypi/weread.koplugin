@@ -31,3 +31,5 @@ Lua 随后使用同一真实数据独立投影，全部目标与 Python 相同�
 本批账号数据和授权 POST 都为零，目录／正文的只读 POST 单独计数；既有登录继续保留。
 其他笔记写入、附件和任意选区创建仍在[开发清单](development-roadmap.md)，真实原生想法写后回读仍需新的具体授权。
 固定范围、候选与工具哈希见[本批证据](validation-assets/2026-11-11/my-thought-navigation.json)。
+
+后续已补齐数字 EPUB 的[真实缺章下载后定位](note-source-download-validation.md)：想法与划线两入口、两尺寸正常目录／下载器／原生定位和新进程离线恢复分别验证，历史缓存定位证据不作扩大解释。
