@@ -134,8 +134,9 @@ class TrialTests(unittest.TestCase):
     def test_other_annotation_trials_stop_while_either_highlight_scope_is_pending(self):
         import verify_native_thought_trial as shared
         for native in (False,True):
-            with patch.object(shared,'AnnotationExperimentStore') as a,patch.object(shared,'FinishExperimentStore') as f,patch.object(shared,'ShelfExperimentStore') as s,patch.object(shared,'PositionExperimentStore') as p,patch.object(shared,'HighlightTrialStore') as h,patch.object(shared,'MarkStyleTrialStore') as styles:
+            with patch.object(shared,'AnnotationExperimentStore') as a,patch.object(shared,'FinishExperimentStore') as f,patch.object(shared,'ShelfExperimentStore') as s,patch.object(shared,'PositionExperimentStore') as p,patch.object(shared,'HighlightTrialStore') as h,patch.object(shared,'MarkStyleTrialStore') as styles,patch.object(shared,'BookmarkTrialStore') as bookmarks:
                 styles.return_value.read.return_value=(None,None)
+                bookmarks.return_value.read.return_value=(None,None)
                 for factory in (a,f,s,p):factory.return_value.pending.return_value=False
                 h.side_effect=lambda **kw:Mock(read=Mock(return_value=({'phase':'create_pending'} if kw['native']==native else None,None)))
                 self.assertTrue(shared.other_pending())

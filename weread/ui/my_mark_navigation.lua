@@ -2,6 +2,7 @@
 -- outside the UI process; only its scoped result can open a native document.
 local MarkTarget=require('weread.lib.my_mark_target')
 local ThoughtTarget=require('weread.lib.my_thought_target')
+local BookmarkTarget=require('weread.lib.my_bookmark_target')
 local Context=require('weread.lib.source_context')
 local WorkerSettings=require('weread.lib.worker_settings')
 local UI=require('ui/uimanager')
@@ -92,22 +93,23 @@ local function open_bound(host,owner,job,result,current)
 end
 function M.start(host,owner,row,is_current)
     M.cancel(host,owner)
-    local Target=owner.thoughts and ThoughtTarget or MarkTarget
+    local Target=owner.thoughts and ThoughtTarget or row.type==0 and BookmarkTarget or MarkTarget
     if not Target.can_locate(row) then return false end
     if host.read_report and host.read_report.job then
         host:showInfo(_('Reading position is temporarily unavailable. Please try again shortly.'));return false
     end
     local original=owner.value
     local frozen={}
-    for _i,key in ipairs({'type','chapterUid','markText','range','reviewId','abstract','bookId'}) do frozen[key]=row[key] end
+    for _i,key in ipairs({'type','chapterUid','markText','range','reviewId','bookmarkId','abstract','bookId'}) do frozen[key]=row[key] end
     local job={started=os.time(),location=reader_location(host),row=frozen,request_id=1,
         failed_label=owner.thoughts and 'Could not locate this thought quote in the original text. Try downloading the chapter again.'
+            or row.type==0 and 'Could not locate this bookmark in the original text. Try downloading the chapter again.'
             or 'Could not locate this highlight in the original text. Try downloading the chapter again.'}
     owner.navigation=job
     local function current()
         local age=os.time()-job.started
         local at=reader_location(host)
-        for _i,key in ipairs({'type','chapterUid','markText','range','reviewId','abstract','bookId'}) do if row[key]~=frozen[key] then return false end end
+        for _i,key in ipairs({'type','chapterUid','markText','range','reviewId','bookmarkId','abstract','bookId'}) do if row[key]~=frozen[key] then return false end end
         return owner.navigation==job and is_current(host,owner) and owner.value==original and age>=0
             and age<=(job.downloading and 1800 or 120)
             and (not host.ui.document and not job.location or Context.same_location(job.location,at))
@@ -123,7 +125,8 @@ function M.start(host,owner,row,is_current)
     job.worker=worker
     local book=host.settings:get_book(owner.id) or {book_id=owner.id,title=''}
     local function busy()
-        host:showBusy(_(owner.thoughts and 'Locating thought quote…' or 'Locating saved highlight…'),function() if owner.navigation==job then M.cancel(host,owner) end end)
+        host:showBusy(_(owner.thoughts and 'Locating thought quote…' or row.type==0 and 'Locating cloud bookmark…' or 'Locating saved highlight…'),
+            function() if owner.navigation==job then M.cancel(host,owner) end end)
         job.busy=host.busy_message
     end
     local launch,handle
@@ -190,6 +193,7 @@ function M.start(host,owner,row,is_current)
         local confirm
         confirm=require('ui/widget/confirmbox'):new{
             text=_(owner.thoughts and 'No matching downloaded chapter. Download it and locate this thought quote?'
+                or row.type==0 and 'No matching downloaded chapter. Download it and locate this bookmark?'
                 or 'No matching downloaded chapter. Download it and locate this highlight?'),
             ok_text=_('Download target chapter'),cancel_text=_('Cancel'),keep_dialog_open=true,
             ok_callback=function()

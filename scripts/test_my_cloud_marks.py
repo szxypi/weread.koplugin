@@ -19,6 +19,13 @@ def source():
 
 
 class MarksTests(unittest.TestCase):
+    def test_crlf_preview_is_preserved_and_other_controls_still_rejected(self):
+        raw=source();raw['updated'][0]['markText']='First\r\nSecond\tline\nThird'
+        self.assertEqual(project(raw,'900001','900000',1)['updated'][0]['markText'],raw['updated'][0]['markText'])
+        for char in ('\x00','\x08','\x0b','\x0c','\x0e','\x1f','\x7f'):
+            raw['updated'][0]['markText']='Text'+char
+            with self.subTest(char=ord(char)),self.assertRaises(ValueError):project(raw,'900001','900000',1)
+
     def test_projection_is_display_only_and_does_not_mutate(self):
         raw=source();before=deepcopy(raw);out=project(raw,'900001','900000',1000)
         self.assertEqual(raw,before)

@@ -52,6 +52,13 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     assert(plugin._personal_marks.overlay.enabled and #plugin._personal_marks.overlay.visible>0)
     local font_size=reader.font.configurable.font_size
     reader.font:onSetFontSize(font_size+2);clean_popups(reader);UI:forceRePaint()
+    -- A preceding source-point navigation can leave this quote near the page
+    -- bottom. Reflow may move it to the next page; locate the saved native
+    -- span before checking its boxes rather than assuming pagination is fixed.
+    for _i,item in ipairs(plugin._personal_marks.records) do
+        if item.bookmarkId==created then reader.rolling:onGotoXPointer(item.pos0) end
+    end
+    UI:forceRePaint()
     assert(#plugin._personal_marks.overlay.visible>0,'font reflow lost personal underline')
     reader.font:onSetFontSize(font_size);clean_popups(reader);reader.rolling:onGotoXPointer(origin);UI:forceRePaint()
     local own_box=plugin._personal_marks.overlay.visible[1].rect
@@ -104,7 +111,7 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     request('/__control',{selection_thought_mode='no_change'});tap(owner,'confirm_highlight_change');notice()
     assert(request('/__state').highlight_posts==5 and Journal:read().phase=='pending')
     row(owner,'Save highlight');assert(not owner.mark_editor and request('/__state').highlight_posts==5,'unknown result resent')
-    notice();row(owner,'Check last highlight change');wait_preview()
+    notice();row(owner,'Check last cloud mark change');wait_preview()
     assert(not owner.mark_editor.service.preview.confirmed);tap(owner,'resolve_highlight_change');notice()
     assert(request('/__state').highlight_posts==5 and Journal:read().phase=='idle','GET recovery dispatched')
     -- A failed style receipt must persist without replay in a fresh process.
@@ -126,6 +133,7 @@ return function(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     local cache=require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client)
     local cached=assert(cache:read(plugin:detectWeReadBook()))
     created_row.bookmarkId='synthetic-display-offline';created_row.style=2;cached.updated[#cached.updated+1]=created_row
+    cached.updated[#cached.updated+1]=assert(plugin._bookmark_offline_fixture)
     assert(cache:write(cached));display.changed(plugin,cached)
     pump(function() return plugin._personal_marks and plugin._personal_marks.complete end)
     assert(#plugin._personal_marks.records==1,'offline cache fixture did not project')

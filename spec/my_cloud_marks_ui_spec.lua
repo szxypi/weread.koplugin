@@ -119,5 +119,16 @@ value.saved=snapshot();Marks.show(host,'900001');local replacement=host._my_mark
 old_refresh();old_complete({schema=1,book_id='900001',fetched_at=1001,reviews={}})
 expect(host._my_marks_menu==replacement and value.writes==0 and not host.busy_message and value.cancelled==1,'old thought result changed a highlight view')
 Marks.cancel(host)
+local bookmark_view=snapshot();bookmark_view.updated[2].range='25'
+host,value=fixture(bookmark_view)
+bookmark_view.chapters={};host.library_db.getChapters=function() return {{chapterUid='7',title='缓存章节'}} end
+expect(Marks.show(host,'900001','bookmarks'),'offline bookmark view rejected')
+menu=host._my_marks_menu
+expect(menu.title=='My cloud bookmarks' and host._my_marks_owner.filter==0,'bookmark scope/title lost')
+expect(not pcall(row,menu,'All cloud marks') and not pcall(row,menu,'合成引用'),'bookmark view exposed other types')
+row(menu,'缓存章节').callback()
+expect(menu._shelf_popup.buttons_table[1][1].id=='open_bookmark' and menu._shelf_popup.buttons_table[2][1].id=='delete_bookmark','point without preview lost actions')
+expect(menu._shelf_popup.text:find('No saved quote text.',1,true),'missing server preview synthesized')
+Marks.cancel(host)
 expect(not Marks.show(host,'900001','untrusted_table'),'arbitrary personal note mode accepted')
 print('PASS: own marks native UI ownership, filters, cache and cancellation ('..checks..' checks)')

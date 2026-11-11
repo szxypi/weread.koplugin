@@ -34,6 +34,15 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         assert(#own_display.records==1 and own_display.records[1].bookmarkId=='synthetic-display-offline','fresh offline process lost cached highlight')
         UI:forceRePaint();assert(#own_display.overlay.visible>0,'fresh offline underline has no native screen boxes')
         shot('personal-highlight-offline-reopen')
+        assert(plugin:showMyCloudBookmarks(id));local bookmarks=assert(plugin._my_marks_owner);local opened=false
+        for _i,item in ipairs(bookmarks.menu.item_table) do
+            if item.my_note_id=='synthetic-bookmark-offline' then item.callback();opened=true;break end
+        end
+        assert(opened and bookmarks.menu._shelf_popup,'offline bookmark cache lost')
+        UI:forceRePaint();shot('bookmark-offline-reopen')
+        bookmarks.menu._shelf_popup.button_table:getButtonById('open_bookmark'):onTapSelectButton()
+        pump(function() return not plugin._my_marks_owner and not plugin._read_resume_active and not bookmarks.navigation end)
+        clean_popups(reader)
         assert(require('weread.lib.mark_edit_service').new_journal(plugin.library_db,plugin.client):read().phase=='pending','fresh process lost pending highlight')
         assert(require('weread.lib.mark_edit_service').new_journal(plugin.library_db,plugin.client):read().metadata.operation=='style','fresh process lost pending style operation')
         local journal=require('weread.lib.thought_edit_store'):new(plugin.library_db,plugin.client)
@@ -49,7 +58,8 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         shot('selection-thought-offline-reopen');plugin:cancelMyCloudMarks();clean_popups(reader)
         local file=assert(io.open(os.getenv('WEREAD_EVIDENCE')..'/selection-thought-reopen-result.json','wb'))
         file:write(Json.encode{result='PASS',synthetic_only=true,fresh_process=true,offline_source_restore=true,
-            local_draft_and_pending_kept=true,pending_style_kept=true,cached_personal_highlight_displayed=true,offline_http_requests=0,automatic_replay=false});file:close();return
+            local_draft_and_pending_kept=true,pending_style_kept=true,cached_personal_highlight_displayed=true,offline_bookmark_located=true,
+            offline_http_requests=0,automatic_replay=false});file:close();return
     end
     local original=copy(request('/__state').selection_thoughts)
     local auth_posts=counter('/login')+counter('/web/login/renewal')
@@ -111,6 +121,7 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
         if not highlight_only then row(owner,'Write private thought');assert(owner.editor.input) end
         return owner
     end
+    dofile('/source/spec/koreader/bookmark_editor_smoke.lua')(reader,plugin,pump,shot,clean_popups,row,tap,request,same)
     dofile('/source/spec/koreader/mark_editor_smoke.lua')(reader,plugin,pump,shot,clean_popups,open,row,tap,request,same)
     local content='来自原生选区的私密想法 😀\n第二行内容'
     plugin.isNetworkOnline=function() return false end

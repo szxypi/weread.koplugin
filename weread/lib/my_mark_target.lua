@@ -83,7 +83,7 @@ function M.project(raw,book,chapter,row)
 end
 -- Independent worker-only archive reads. No raw text or path from the mark
 -- becomes a filename; candidates come from the reader and this book's cache.
-function M.bind_file(file,book,row,request_id,read_archive)
+function M.bind_file(file,book,row,request_id,read_archive,project)
     local ok,value=pcall(function()
         if type(file)~='string' or file=='' or #file>4096 or file:find('[%z%c]')
             or not Data.id(book) or type(row)~='table' or not integer(row.chapterUid,2147483647) then fail('scope') end
@@ -103,7 +103,7 @@ function M.bind_file(file,book,row,request_id,read_archive)
         local verified=Source.verify_snapshot({metadata=metadata,identity=identity,book_id=book,chapter_uid=uid,
             raw=data and data[raw_path],rendered=data and data[record.render_path]})
         if not verified then fail('source_changed') end
-        local remote,reason=M.project(verified.raw,book,uid,row)
+        local remote,reason=(project or M.project)(verified.raw,book,uid,row)
         if not remote then error(reason,0) end
         local bound=require('weread.lib.source_cloud').bind({file=file,identity=identity,book_id=book,request_id=request_id},remote,read)
         if not bound.position or bound.metadata~=metadata then fail('source_changed') end
@@ -113,7 +113,7 @@ function M.bind_file(file,book,row,request_id,read_archive)
     if ok then return value end
     return {error=type(value)=='string' and value:match('^my_mark_target/[a-z_]+$') and value or 'my_mark_target/unavailable',request_id=request_id}
 end
-function M.resolve(book,current_file,row,request_id,read_archive)
+function M.resolve(book,current_file,row,request_id,read_archive,project)
     if type(book)~='table' then return {error='my_mark_target/scope',request_id=request_id} end
     local id=Data.id(tostring(book.book_id or book.bookId or ''))
     local uid=type(row)=='table' and tostring(row.chapterUid)
@@ -124,7 +124,7 @@ function M.resolve(book,current_file,row,request_id,read_archive)
         book.cached_full_book or false,book.cached_file or false}) do
         if type(file)=='string' and not seen[file] then
             seen[file]=true
-            local value=M.bind_file(file,id,row,request_id,read_archive)
+            local value=M.bind_file(file,id,row,request_id,read_archive,project)
             if value.position then return value end
             reason=value.error
         end

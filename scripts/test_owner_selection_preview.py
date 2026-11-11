@@ -46,6 +46,15 @@ def envelope():
 
 
 class SelectionPreviewTests(unittest.TestCase):
+    def test_point_bookmarks_are_exclusions_without_becoming_text_ranges(self):
+        selected=contract.choose(RAW,{},'41','2',2);first=int(selected['reference']['range'].split('-')[0])
+        extended=RAW.replace('</body>','<p>Another unique paragraph with sufficient plain letters for the bookmark point exclusion.</p></body>')
+        marks={'point':dict(type=0,chapterUid=2,range=str(first))}
+        other=contract.choose(extended,marks,'41','2',2);a,b=map(int,other['reference']['range'].split('-'))
+        self.assertFalse(a<=first<b)
+        marks['point']['range']='01'
+        with self.assertRaises(ValueError):contract.choose(extended,marks,'41','2',2)
+
     def test_selects_unique_unmarked_raw_range_with_source_coordinates(self):
         value=contract.choose(RAW,{},'41','2',2);row=value['reference'];a,b=map(int,row['range'].split('-'))
         self.assertEqual(RAW[a:b],row['markText'])

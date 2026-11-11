@@ -8,7 +8,7 @@ def identifier(value):
 
 def text(value,limit,empty=True):
     return (isinstance(value,str) and (empty or bool(value)) and len(value.encode())<=limit
-            and not re.search(r'[\x00-\x08\x0b-\x1f\x7f]',value))
+            and not re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]',value))
 
 
 def integer(value,maximum):return type(value) is int and 0<=value<=maximum

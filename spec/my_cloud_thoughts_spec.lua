@@ -20,6 +20,11 @@ expect(Data.page(client,source(1,3),'900001','900000').has_more,'false hasMore t
 expect(not pcall(Data.project,client,source(1,3),'900001','900000',1000),'partial prefix became complete cache')
 expect(#Data.project(client,source(0,0),'900001','900000',1000).reviews==0,'empty personal list rejected')
 local function reject(value) expect(not pcall(Data.page,client,value,'900001','900000'),'invalid own thought accepted') end
+local lines=source();lines.reviews[1].review.abstract='First\r\nSecond\tline'
+expect(Data.page(client,lines,'900001','900000').reviews[1].abstract==lines.reviews[1].review.abstract,'CRLF thought quote changed')
+for _i,char in ipairs({'\0','\8','\11','\12','\14','\31','\127'}) do
+    lines.reviews[1].review.abstract='Text'..char;reject(lines)
+end
 local created=source();created.reviews[1].review.chapterUid='7'
 expect(Data.project(client,created,'900001','900000',1000).reviews[1].chapterUid==7,'native-created decimal UID was not normalized')
 expect(created.reviews[1].review.chapterUid=='7','projection mutated its source')

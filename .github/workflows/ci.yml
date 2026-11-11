@@ -84,6 +84,10 @@ jobs:
           python3 scripts/test_mark_edit_contract.py
           python3 scripts/test_mark_style_trial.py
           python3 scripts/test_native_mark_style_trial.py
+          python3 scripts/test_bookmark_point.py
+          python3 scripts/test_bookmark_trial.py
+          python3 scripts/test_bookmark_recovery.py
+          python3 scripts/test_bookmark_contract.py
 
       - name: Web source-position read-only preflight checks
         run: |

@@ -260,7 +260,8 @@ function Auth:write_my_highlight(credentials,operation,body,on_dispatch)
     if type(credentials)~='table' or vid(credentials.vid)~=self.expected_vid or not text(credentials.accessToken,8192)
         or type(on_dispatch)~='function' then fail('my_highlight_write','invalid_credentials') end
     if not require('weread.lib.mark_edit_contract').validate_body(operation,body) then fail('my_highlight_write','invalid_payload') end
-    local path=operation=='create' and '/book/addBookmark' or operation=='style' and '/book/updateBookmark' or '/book/removeBookmark'
+    local path=(operation=='create' or operation=='bookmark_create') and '/book/addBookmark'
+        or operation=='style' and '/book/updateBookmark' or '/book/removeBookmark'
     return self:_request('my_highlight_write',BASE..path,body,credentials,nil,on_dispatch)
 end
 

@@ -33,10 +33,10 @@ local function message(ctx,key)
     M.cancel(ctx.host,ctx.owner);ctx.host:showInfo(_(key))
 end
 local function failure(ctx,reason)
-    message(ctx,(reason=='pending' or reason=='unconfirmed') and 'A highlight change needs checking. Use Check last highlight change before submitting again.'
+    message(ctx,(reason=='pending' or reason=='unconfirmed') and 'A cloud mark change needs checking. Use Check last cloud mark change before submitting again.'
         or (reason=='login' or reason=='native_expired') and 'Authorize or renew E-Ink login in settings, then try again.'
         or reason=='source_login' and 'Log in again to verify the selected text.'
-        or 'The highlight or its source changed, overlaps a saved note, or could not be checked. Refresh and try again.')
+        or 'The cloud mark or its source changed, overlaps a saved note, or could not be checked. Refresh and try again.')
 end
 local function busy(ctx,title)
     show(ctx,title,_('Closing this window stops the check. Any submitted change will only be checked, never sent again.'))
@@ -55,26 +55,32 @@ local function context(host,owner,current,redraw)
     owner.mark_editor=ctx;return ctx
 end
 function M.start(host,owner,operation,reference,current,redraw,style)
-    if not current(host,owner) or operation~='create' and operation~='delete' and operation~='style' then return false end
-    if not host:isNetworkOnline() then host:showOffline(_('Highlight'));return false end
+    if not current(host,owner) or operation~='create' and operation~='delete' and operation~='style'
+        and operation~='bookmark_create' and operation~='bookmark_delete' then return false end
+    local bookmark=operation=='bookmark_create' or operation=='bookmark_delete'
+    if not host:isNetworkOnline() then host:showOffline(_(bookmark and 'Bookmark' or 'Highlight'));return false end
     local ctx=context(host,owner,current,redraw)
-    busy(ctx,'Checking this highlight…')
+    busy(ctx,bookmark and 'Checking bookmark position…' or 'Checking this highlight…')
     local started,reason=ctx.service:prepare({book_id=owner.id,operation=operation,reference=reference,style=style,
         source_file=owner.source_file or host.ui and host.ui.document and host.ui.document.file},function() return alive(ctx) end,function(plan,why)
         if not alive(ctx) then return end
         if not plan then failure(ctx,why);return end
-        local title=operation=='create' and 'Save this highlight?' or operation=='style' and 'Change this highlight style?' or 'Delete this highlight?'
+        local title=operation=='bookmark_create' and 'Save this cloud bookmark?' or operation=='bookmark_delete' and 'Delete this cloud bookmark?'
+            or operation=='create' and 'Save this highlight?' or operation=='style' and 'Change this highlight style?' or 'Delete this highlight?'
         local text=_(operation=='create' and 'Save the quoted text as a WeRead highlight.' or
             'This deletes only the selected highlight from WeRead. Highlights linked to your thoughts cannot be deleted here.')
         if operation=='style' then text=_('Change the style while keeping its saved color setting and quoted text.')..'\n\n'.._(require('weread.lib.mark_style').labels[style]) end
+        if bookmark then text=_(operation=='bookmark_create' and 'Save this original-page position as a WeRead bookmark.'
+            or 'Delete only this cloud bookmark. Your highlights and thoughts are kept.') end
         text=text..'\n\n'..(type(reference.markText)=='string' and reference.markText or '')
         local dialog
-        dialog=show(ctx,title,text,{{{id='confirm_highlight_change',text=_(operation=='create' and 'Save highlight' or operation=='style' and 'Change highlight style' or 'Delete highlight'),callback=function()
+        dialog=show(ctx,title,text,{{{id='confirm_highlight_change',text=_(operation=='bookmark_create' and 'Save cloud bookmark'
+            or operation=='bookmark_delete' and 'Delete cloud bookmark' or operation=='create' and 'Save highlight' or operation=='style' and 'Change highlight style' or 'Delete highlight'),callback=function()
             if not alive(ctx) or not Popup.current(owner.menu,dialog) then return end
-            busy(ctx,'Saving this highlight…')
+            busy(ctx,bookmark and 'Saving cloud bookmark…' or 'Saving this highlight…')
             local sent,err=ctx.service:commit(plan,function(result,finished)
                 if not alive(ctx) then return end
-                if finished and result.kind=='confirmed' then reload(ctx,result.snapshot);message(ctx,'Cloud highlight change verified.')
+                if finished and result.kind=='confirmed' then reload(ctx,result.snapshot);message(ctx,bookmark and 'Cloud bookmark change verified.' or 'Cloud highlight change verified.')
                 else failure(ctx,finished and result.kind or 'unconfirmed') end
             end)
             if not sent then failure(ctx,err) end
@@ -85,24 +91,24 @@ function M.start(host,owner,operation,reference,current,redraw,style)
 end
 function M.check(host,owner,current,redraw)
     if not current(host,owner) then return false end
-    if not host:isNetworkOnline() then host:showOffline(_('Highlight'));return false end
-    local ctx=context(host,owner,current,redraw);busy(ctx,'Checking this highlight…')
+    if not host:isNetworkOnline() then host:showOffline(_('Cloud mark'));return false end
+    local ctx=context(host,owner,current,redraw);busy(ctx,'Checking cloud mark change…')
     local started,reason=ctx.service:prepare({},function() return alive(ctx) end,function(plan,why)
         if not alive(ctx) then return end
-        if not plan then message(ctx,why=='no_pending' and 'No highlight change needs checking.' or
-            'The highlight or its source changed, overlaps a saved note, or could not be checked. Refresh and try again.');return end
+        if not plan then message(ctx,why=='no_pending' and 'No cloud mark change needs checking.' or
+            'The cloud mark or its source changed, overlaps a saved note, or could not be checked. Refresh and try again.');return end
         local dialog
-        dialog=show(ctx,'Check last highlight change',_(plan.confirmed and 'The cloud highlight matches the submitted change.' or
-            'The cloud highlight does not match a confirmed change. Keep the current cloud state without sending again?'),
+        dialog=show(ctx,'Check last cloud mark change',_(plan.confirmed and 'The cloud mark matches the submitted change.' or
+            'The cloud mark does not match a confirmed change. Keep the current cloud state without sending again?'),
             {{{id='resolve_highlight_change',text=_('Keep current cloud state'),callback=function()
                 if not alive(ctx) or not Popup.current(owner.menu,dialog) then return end
                 local finished,snapshot=ctx.service:resolve(plan,true)
-                if finished then reload(ctx,snapshot);message(ctx,'Highlight check finished. No change was sent again.')
+                if finished then reload(ctx,snapshot);message(ctx,'Cloud mark check finished. No change was sent again.')
                 else failure(ctx,'unconfirmed') end
             end}}})
     end,true)
-    if not started then message(ctx,reason=='no_pending' and 'No highlight change needs checking.' or
-        'A highlight change needs checking. Use Check last highlight change before submitting again.') end
+    if not started then message(ctx,reason=='no_pending' and 'No cloud mark change needs checking.' or
+        'A cloud mark change needs checking. Use Check last cloud mark change before submitting again.') end
     return started
 end
 return M

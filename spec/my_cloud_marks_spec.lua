@@ -17,6 +17,11 @@ expect(not value.updated[1].vid and not value.updated[1].bookId and not value.up
 expect(Data.validate(client,value,'900001').updated[1].range=='12-23','display range lost')
 expect(#Data.project(client,{updated=rows()},'900001',nil,1).updated==0,'empty response rejected')
 local function reject(raw) expect(not pcall(Data.project,client,raw,'900001','900000',1),'invalid source accepted') end
+local lines=source();lines.updated[1].markText='First\r\nSecond\tline\nThird'
+expect(Data.project(client,lines,'900001','900000',1).updated[1].markText==lines.updated[1].markText,'CRLF response changed')
+for _i,char in ipairs({'\0','\8','\11','\12','\14','\31','\127'}) do
+    lines.updated[1].markText='Text'..char;reject(lines)
+end
 for _,key in ipairs({'bookId','vid','hasMore','errcode','succ','updated','chapters'}) do
     local raw=source();raw[key]=({bookId='900002',vid='900002',hasMore=1,errcode=false,succ=false,updated={},chapters=null})[key];reject(raw)
 end

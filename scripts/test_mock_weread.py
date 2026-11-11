@@ -14,6 +14,21 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_point_bookmark_fixture_rejects_guesses_and_only_removes_its_new_record(self):
+        from bookmark_point import project
+        from test_bookmark_point import coordinate
+        base='https://i.weread.qq.com';raw=self.server.chapter_source(2);value=project(raw,coordinate(raw,'这是第2章的第1段'))
+        body=dict(bookId=BOOK_ID,chapterUid=2,bookVersion=700,type=0,style=0,range=value['range'],markText=value['markText'])
+        original=json.loads(json.dumps(self.server.selection_marks));self.server.selection_fixture=True
+        try:
+            for invalid in (dict(body,colorStyle=0),dict(body,chapterIdx=2),dict(body,range='01'),dict(body,markText='Other preview')):
+                with self.assertRaises(ValueError):self.server.route('POST',base+'/book/addBookmark',invalid)
+            _,result=self.server.route('POST',base+'/book/addBookmark',body);key=result['bookmarkId']
+            self.assertEqual(self.server.selection_marks[key]['type'],0);self.assertNotIn('markText',self.server.selection_marks[key])
+            self.server.route('POST',base+'/book/removeBookmark',dict(bookmarkIds=[key]))
+            self.assertEqual(self.server.selection_marks,original);self.assertEqual(self.server.bookmark_posts,2)
+        finally:self.server.selection_fixture=False;self.server.selection_marks=original;self.server.bookmark_posts=0
+
     def test_selected_thought_fixture_is_scoped_and_preserves_original(self):
         base='https://i.weread.qq.com';raw=chapter_html(2);quote='这是第2章的第1段。我们沿着小路慢慢前行，'
         first=raw.index(quote);body=dict(bookId=BOOK_ID,chapterUid='2',bookVersion=700,type=1,

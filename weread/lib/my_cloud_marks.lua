@@ -12,7 +12,7 @@ end
 local function integer(value,max) return type(value)=='number' and value>=0 and value%1==0 and value<=max end
 local function text(value,max,empty)
     return type(value)=='string' and (empty or value~='') and #value<=max
-        and not value:find('[%z\1-\8\11-\31\127]') and Protocol.utf8_substr(value,#value)==value
+        and not value:find('[%z\1-\8\11\12\14-\31\127]') and Protocol.utf8_substr(value,#value)==value
 end
 function M.project(client,source,id,owner,now)
     if not M.id(id) or not integer(now,2^53-1) or now==0 then fail('scope') end

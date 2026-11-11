@@ -201,6 +201,7 @@ class MockServer(ThreadingHTTPServer):
         self.selection_fixture=False
         self.selection_posts=0
         self.highlight_posts=0
+        self.bookmark_posts=0
         self.selection_marks={'synthetic-existing-highlight':dict(bookmarkId='synthetic-existing-highlight',type=1,style=1,colorStyle=0,
             chapterUid=2,range='99-100',markText='不应改动的原有引用',createTime=1700000000)}
         self.selection_thoughts={'synthetic-existing-thought':dict(reviewId='synthetic-existing-thought',content='原有合成想法',
@@ -319,6 +320,34 @@ class MockServer(ThreadingHTTPServer):
                 with self.lock:rows=[row.copy() for row in self.selection_marks.values()]
                 return 200,dict(bookId=BOOK_ID,updated=rows,chapters=[],hasMore=0)
             if self.selection_fixture and path in {'/book/addBookmark','/book/removeBookmark','/book/updateBookmark'} and method=='POST':
+                ids=data.get('bookmarkIds')
+                bookmark=path=='/book/addBookmark' and data.get('type')==0 or path=='/book/removeBookmark' and isinstance(ids,list) and any(
+                    isinstance(key,str) and key.startswith('synthetic-new-bookmark-') for key in ids)
+                if bookmark:
+                    if query or self.bookmark_posts>=8:raise ValueError('invalid bookmark scope')
+                    if path=='/book/addBookmark':
+                        from bookmark_point import from_mark,project
+                        required={'bookId','chapterUid','bookVersion','type','style','range','markText'}
+                        if (set(data)!=required or data['bookId']!=BOOK_ID or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style'))
+                                or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=700
+                                or data['type']!=0 or data['style']!=0):raise ValueError('invalid bookmark body')
+                        raw=self.chapter_source(data['chapterUid']);point=from_mark(raw,BOOK_ID,str(data['chapterUid']),data)
+                        if project(raw,point['chapter_offset'])['markText']!=data['markText']:raise ValueError('invalid bookmark preview')
+                        identity='synthetic-new-bookmark-'+str(self.bookmark_posts+1)
+                        # One supported server shape omits the point preview.
+                        row=dict(bookmarkId=identity,type=0,style=0,chapterUid=data['chapterUid'],range=data['range'],createTime=1700000001)
+                        with self.lock:
+                            if control['selection_thought_mode']!='no_change':self.selection_marks[identity]=row
+                        result=dict(bookmarkId=identity)
+                    else:
+                        ids=data.get('bookmarkIds')
+                        if (set(data)!={'bookmarkIds'} or not isinstance(ids,list) or len(ids)!=1 or not isinstance(ids[0],str)
+                                or not ids[0].startswith('synthetic-new-bookmark-') or ids[0] not in self.selection_marks):raise ValueError('invalid bookmark deletion')
+                        with self.lock:
+                            if control['selection_thought_mode']!='no_change':del self.selection_marks[ids[0]]
+                        result=dict(succ=1)
+                    with self.lock:self.bookmark_posts+=1
+                    return 200,'' if control['selection_thought_mode']=='empty' else result
                 if query or self.highlight_posts>=8:raise ValueError('invalid highlight scope')
                 if path=='/book/addBookmark':
                     required={'bookId','chapterUid','bookVersion','type','style','colorStyle','range','markText'}
@@ -685,6 +714,7 @@ class Handler(BaseHTTPRequestHandler):
                     result['selection_thoughts']=self.server.selection_thoughts.copy()
                     result['selection_posts']=self.server.selection_posts
                     result['highlight_posts']=self.server.highlight_posts
+                    result['bookmark_posts']=self.server.bookmark_posts
                     result['selection_marks']=self.server.selection_marks.copy()
             elif path.path == "/__control" and self.command == "POST":
                 self.set_control(data)

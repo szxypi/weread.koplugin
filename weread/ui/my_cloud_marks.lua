@@ -36,7 +36,8 @@ local function kind(row,owner)
 end
 local function chapter(owner,row)
     if owner.thoughts and row.chapterName and row.chapterName~='' then return row.chapterName end
-    return owner.chapter_titles and owner.chapter_titles[row.chapterUid] or _('Chapter unavailable')
+    return owner.chapter_titles and owner.chapter_titles[row.chapterUid]
+        or owner.catalog_titles and owner.catalog_titles[row.chapterUid] or _('Chapter unavailable')
 end
 local function preview(value)
     return Protocol.utf8_substr(value:gsub('[%z%c]',' '),80)
@@ -49,7 +50,7 @@ render=function(host,owner)
         owner.chapter_titles={}
         for _i,item in ipairs(owner.value and owner.value.chapters or {}) do owner.chapter_titles[item.chapterUid]=item.title end
         local items={{text=_(owner.labels.refresh),callback=function() if current(host,owner) then refresh(host,owner) end end}}
-        local filters=owner.thoughts and {{'All my thoughts',nil},{'Thoughts with quoted text',1},{'Other thoughts',0}}
+        local filters=owner.bookmarks and {} or owner.thoughts and {{'All my thoughts',nil},{'Thoughts with quoted text',1},{'Other thoughts',0}}
             or {{'All cloud marks',nil},{'Highlights only',1},{'Bookmarks only',0}}
         for _i,filter in ipairs(filters) do
             local selected=filter[2]
@@ -57,14 +58,14 @@ render=function(host,owner)
                 if current(host,owner) then owner.filter=selected;render(host,owner) end
             end}
         end
-        items[#items+1]={text=_('Local thought drafts'),callback=function()
+        if not owner.bookmarks then items[#items+1]={text=_('Local thought drafts'),callback=function()
             if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
         end}
         items[#items+1]={text=_('Check last thought change'),callback=function()
             if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').check(host,owner,current,render) end
-        end}
+        end} end
         if not owner.thoughts then
-            items[#items+1]={text=_('Check last highlight change'),callback=function()
+            items[#items+1]={text=_('Check last cloud mark change'),callback=function()
                 if current(host,owner) then stop(host,owner);require('weread.ui.mark_editor').check(host,owner,current,render) end
             end}
         end
@@ -96,15 +97,22 @@ render=function(host,owner)
                         if #parts==1 then parts[#parts+1]=_(owner.thoughts and 'No thought text was returned.' or 'No saved quote text.') end
                         local viewer
                         local buttons
-                        local target=require(owner.thoughts and 'weread.lib.my_thought_target' or 'weread.lib.my_mark_target')
+                        local target=require(owner.thoughts and 'weread.lib.my_thought_target' or row.type==0 and 'weread.lib.my_bookmark_target' or 'weread.lib.my_mark_target')
                         if target.can_locate(row) then
-                            buttons={{{id=owner.thoughts and 'open_thought_quote' or 'open_highlight',text=_(owner.thoughts and 'Open thought quoted text' or 'Open highlighted text'),callback=function()
+                            buttons={{{id=owner.thoughts and 'open_thought_quote' or row.type==0 and 'open_bookmark' or 'open_highlight',
+                                text=_(owner.thoughts and 'Open thought quoted text' or row.type==0 and 'Open bookmark position' or 'Open highlighted text'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                 stop(host,owner)
                                 require('weread.ui.my_mark_navigation').start(host,owner,row,current)
                             end}}}
                         end
                         local editor=require('weread.ui.thought_editor')
+                        if not owner.thoughts and row.type==0 and target.can_locate(row) then
+                            buttons=buttons or {};buttons[#buttons+1]={{id='delete_bookmark',text=_('Delete cloud bookmark'),callback=function()
+                                if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
+                                stop(host,owner);require('weread.ui.mark_editor').start(host,owner,'bookmark_delete',row,current,render)
+                            end}}
+                        end
                         if not owner.thoughts and row.type==1 then
                             buttons=buttons or {};buttons[#buttons+1]={{id='delete_highlight',text=_('Delete highlight'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
@@ -203,7 +211,7 @@ refresh=function(host,owner)
     return launch()
 end
 function M.show(host,id,variant)
-    if variant~=nil and variant~='thoughts' then return false end
+    if variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
     if not Data.id(id) or not host.library_db then return false end
     local scope=host.settings:get_auth_scope()
     if not host.library_db:accountKey() or not scope or not host.settings:auth_scope_matches(scope) then
@@ -211,15 +219,26 @@ function M.show(host,id,variant)
     end
     M.cancel(host)
     local thoughts=variant=='thoughts'
-    local owner={id=id,scope=scope,thoughts=thoughts,data=thoughts and require('weread.lib.my_cloud_thoughts') or Data,account=host.library_db:accountKey(),epoch=host.discovery_epoch or 0,
+    local owner={id=id,scope=scope,thoughts=thoughts,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,
+        data=thoughts and require('weread.lib.my_cloud_thoughts') or Data,account=host.library_db:accountKey(),epoch=host.discovery_epoch or 0,
         session=host._reader_session_gen,document=host.ui and host.ui.document,parent=host._book_detail_view,
-        store=Store:new(host.library_db,host.client,variant)}
+        store=Store:new(host.library_db,host.client,thoughts and 'thoughts' or nil)}
+    if not thoughts and type(host.library_db.getChapters)=='function' then
+        local ok,chapters=pcall(host.library_db.getChapters,host.library_db,id)
+        owner.catalog_titles={}
+        if ok and type(chapters)=='table' then for _i,row in ipairs(chapters) do
+            if type(row)=='table' and Data.id(tostring(row.chapterUid)) and tonumber(row.chapterUid)<=2147483647 and type(row.title)=='string'
+                and #row.title>0 and #row.title<=4096 and Protocol.utf8_substr(row.title,#row.title)==row.title
+                and not row.title:find('[%z%c]') then owner.catalog_titles[tonumber(row.chapterUid)]=row.title end
+        end end
+    end
     owner.labels=thoughts and {title='My cloud thoughts',refresh='Refresh my cloud thoughts',saved='Saved cloud thoughts',
         empty='No thoughts in this view.',missing='No saved thoughts. Refresh while online.',failed='Could not update my thoughts. Saved thoughts are kept.',
         loading='Loading my thoughts…\nTap or press a key to cancel.',save_failed='Could not save my thoughts. The previous saved copy is kept.'}
         or {title='My cloud highlights',refresh='Refresh my cloud marks',saved='Saved cloud marks',empty='No cloud marks in this view.',
             missing='No saved cloud marks. Refresh while online.',failed='Could not update my cloud marks. Saved marks are kept.',
             loading='Loading my cloud marks…\nTap or press a key to cancel.',save_failed='Could not save my cloud marks. The previous saved copy is kept.'}
+    if owner.bookmarks then owner.labels.title='My cloud bookmarks';owner.labels.empty='No cloud bookmarks in this view.' end
     local ok,value=pcall(owner.store.read,owner.store,id);owner.value=ok and value or nil
     if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
     local menu=host:showList(_(owner.labels.title),{{text=_(owner.labels.missing),select_enabled=false}})

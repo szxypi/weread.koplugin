@@ -19,6 +19,13 @@ def source(count=3,total=3):
 
 
 class ThoughtsTests(unittest.TestCase):
+    def test_crlf_quote_preserved_and_other_controls_refused(self):
+        raw=source();raw['reviews'][0]['review']['abstract']='First\r\nSecond\tline'
+        self.assertEqual(page(raw,'900001','900000')['reviews'][0]['abstract'],raw['reviews'][0]['review']['abstract'])
+        for char in ('\x00','\x08','\x0b','\x0c','\x0e','\x1f','\x7f'):
+            raw['reviews'][0]['review']['abstract']='Text'+char
+            with self.subTest(char=ord(char)),self.assertRaises(ThoughtsError):page(raw,'900001','900000')
+
     def test_native_created_decimal_chapter_uid_is_canonicalized_only_for_that_field(self):
         raw=source();raw['reviews'][0]['review']['chapterUid']='7'
         self.assertEqual(complete(raw,'900001','900000',1000)['reviews'][0]['chapterUid'],7)

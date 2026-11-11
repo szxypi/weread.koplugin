@@ -7,9 +7,16 @@ local function fixture(operation,mode)
     local client=F.codec();local settings,store,state=F.access();client.settings=settings
     local access=require('weread.lib.native_read_access').capture(settings,store)
     local before=F.snapshot(client);local after=F.created(client,before)
-    if operation=='delete' then before,after=after,before end
+    local bookmark=operation=='bookmark_create' or operation=='bookmark_delete'
+    local bookmark_ref
+    if bookmark then
+        bookmark_ref={bookmark=true,type=0,bookmarkId='bookmark:2:210:'..string.rep('a',64),range='210',chapterUid=2,chapterIdx=3,
+            markText='Synthetic bookmark\r\npreview',source={book_id='900001',chapter_uid='2',chapter_idx=3,raw_sha256=string.rep('a',64),raw_bytes=1000}}
+        after.marks.updated[2]={bookmarkId='synthetic-new-bookmark',type=0,style=0,chapterUid=2,range='210',markText=bookmark_ref.markText}
+    end
+    if operation=='delete' or operation=='bookmark_delete' then before,after=after,before end
     if operation=='style' then before=after;after=F.clone(before);after.marks.updated[2].style=2 end
-    local reference=operation=='create' and F.reference() or before.marks.updated[2]
+    local reference=operation=='create' and F.reference() or operation=='bookmark_create' and bookmark_ref or before.marks.updated[2]
     local input={book_id='900001',operation=operation,reference=reference,style=operation=='style' and 2 or nil}
     local plan=C.make(client,before,operation,reference,{bookId='900001',version=77},input.style);local record={metadata=plan.metadata}
     local journal={owns=function() return f.phase~='idle' end,claim=function()
@@ -37,7 +44,7 @@ local function fixture(operation,mode)
     function f.run(options) options=options or {};options.sleep=function() end;return Task.run(client,settings,access,input,record,journal,options) end
     return f
 end
-for _i,operation in ipairs({'create','delete','style'}) do
+for _i,operation in ipairs({'create','delete','style','bookmark_create','bookmark_delete'}) do
     for _j,mode in ipairs({'normal','lost-ack','bad-json'}) do
         local f=fixture(operation,mode);local result=f.run()
         expect(result.kind=='confirmed' and f.posts==1 and f.phase=='pending','independent readback failed: '..operation..'/'..mode)

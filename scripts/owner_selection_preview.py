@@ -30,6 +30,9 @@ def choose(raw,marks,book,uid,index):
     model=Selection(raw);excluded=[]
     for row in marks.values():
         if str(row['chapterUid'])!=uid:continue
+        if type(row.get('type')) is int and row['type']==0:
+            from bookmark_point import point_range
+            at=point_range(row.get('range'));excluded.append((at,at+1));continue
         marker=row.get('range','');match=re.fullmatch(r'([0-9]{1,10})-([0-9]{1,10})',marker)
         if not match:fail('scope')
         first,last=map(int,match.groups())

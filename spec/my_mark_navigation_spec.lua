@@ -6,6 +6,7 @@ package.preload['ui/uimanager']=function() return UI end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,v) return v end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(s) return s end} end
 local Target=require('weread.lib.my_mark_target')
+local Bookmark=require('weread.lib.my_bookmark_target')
 local Nav=require('weread.ui.my_mark_navigation')
 local Context=require('weread.lib.source_context')
 local Auth=require('weread.lib.worker_settings')
@@ -62,6 +63,17 @@ local function fixture(reader,thoughts)
     return host,owner,f,start,complete
 end
 local host,owner,f,start,complete=fixture(true)
+Bookmark.resolve=function(...) return Target.resolve(...) end
+Bookmark.bind_file=function(...) return Target.bind_file(...) end
+f.row={type=0,chapterUid=2,range='15',bookmarkId='synthetic-point'}
+expect(start(),'bookmark without preview did not start');complete()
+expect(f.jumped and f.jumped.chapter_offset==15 and f.jumped.upload_verified==false,'bookmark used wrong position path')
+f.applied(position())
+expect(not owner.navigation and not host._read_resume_active,'bookmark retained finished navigation')
+host,owner,f,start,complete=fixture(true);f.row={type=0,chapterUid=2,range='15',bookmarkId='synthetic-point'}
+expect(start(),'bookmark stale guard did not start');f.row.bookmarkId='changed';complete()
+expect(not f.jumped and not f.opened and not owner.navigation and not host._read_resume_active,'changed bookmark id navigated')
+host,owner,f,start,complete=fixture(true)
 expect(start(),'reader lookup did not start');complete()
 expect(f.closed and f.jumped and not f.opened and f.begin==1,'same-file jump reopened a file or lost sync gate')
 expect(not owner.navigation,'same-file dispatch retained old lookup')
