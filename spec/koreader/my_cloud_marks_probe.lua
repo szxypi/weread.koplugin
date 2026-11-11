@@ -164,9 +164,13 @@ local ok,reason=pcall(function()
     for page=1,menu.page_num do menu:onGotoPage(page);UI:forceRePaint();report.pages=report.pages+1 end
     shot('all-marks')
     local items=menu.item_table;local shown={}
-    for index,row in ipairs(thoughts and expected.reviews or expected.updated) do
-        local item=items[index+5];assert(item and item.callback and item.select_enabled~=false)
-        menu:onGotoPage(menu:getPageNumber(index+5));menu:onMenuSelect(item)
+    for _i,row in ipairs(thoughts and expected.reviews or expected.updated) do
+        local item,position
+        for index,candidate in ipairs(items) do
+            if candidate.my_note_id==(thoughts and row.reviewId or row.bookmarkId) then item,position=candidate,index end
+        end
+        assert(item and item.callback and item.select_enabled~=false)
+        menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(item)
         local popup=assert(menu._shelf_popup);assert(type(popup.text)=='string')
         local content=thoughts and row.content or row.markText
         if content and content~='' then assert(popup.text:find(content,1,true))

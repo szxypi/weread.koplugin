@@ -1,4 +1,4 @@
--- Native, read-only personal notes; shared ownership for marks and thoughts. Parent owns persistence and popup lifetimes.
+-- Native personal notes; parent owns persistence and popup lifetimes.
 local Data=require('weread.lib.my_cloud_marks')
 local Store=require('weread.lib.my_cloud_marks_store')
 local Recovery=require('weread.lib.native_read_recovery')
@@ -16,6 +16,7 @@ local function current(host,owner)
 end
 local function stop(host,owner)
     require('weread.ui.my_mark_navigation').cancel(host,owner)
+    require('weread.ui.thought_editor').cancel(host,owner)
     local context=owner.context;owner.context=nil
     if not context then return end
     if owner.worker then owner.worker:cancel() end
@@ -55,6 +56,12 @@ render=function(host,owner)
                 if current(host,owner) then owner.filter=selected;render(host,owner) end
             end}
         end
+        items[#items+1]={text=_('Local thought drafts'),callback=function()
+            if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
+        end}
+        items[#items+1]={text=_('Check last thought change'),callback=function()
+            if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').check(host,owner,current,render) end
+        end}
         if owner.value then
             local stamp=owner.value.fetched_at
             local date=stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp) or _('Time unavailable')
@@ -68,7 +75,8 @@ render=function(host,owner)
                     local content=owner.thoughts and row.content or row.markText
                     if not content or content=='' then content=row.abstract end
                     if not content or content=='' then content=chapter(owner,row) end
-                    items[#items+1]={text=preview(content or chapter(owner,row)),mandatory=kind(row,owner),callback=function()
+                    items[#items+1]={text=preview(content or chapter(owner,row)),mandatory=kind(row,owner),
+                        my_note_id=owner.thoughts and row.reviewId or row.bookmarkId,callback=function()
                         if not current(host,owner) then return end
                         local parts={chapter(owner,row)}
                         if owner.thoughts then
@@ -89,6 +97,16 @@ render=function(host,owner)
                                 require('weread.ui.my_mark_navigation').start(host,owner,row,current)
                             end}}}
                         end
+                        local editor=require('weread.ui.thought_editor')
+                        local operations=owner.thoughts and editor.can_edit(row) and {'edit','delete'}
+                            or not owner.thoughts and editor.can_create(row) and {'create'} or {}
+                        for _j,operation in ipairs(operations) do
+                            buttons=buttons or {};buttons[#buttons+1]={{id='thought_'..operation,
+                                text=_(operation=='create' and 'Write private thought' or operation=='edit' and 'Edit this thought' or 'Delete this thought'),callback=function()
+                                    if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
+                                    stop(host,owner);editor.start(host,owner,operation,row,current,render)
+                                end}}
+                        end
                         viewer=require('ui/widget/textviewer'):new{title=kind(row,owner),text=table.concat(parts,'\n\n'),
                             buttons_table=buttons,add_default_buttons=true}
                         Popup.show(owner.menu,viewer)
@@ -101,7 +119,7 @@ render=function(host,owner)
     end)
 end
 refresh=function(host,owner)
-    if not current(host,owner) or owner.context then return false end
+    if not current(host,owner) or owner.context or owner.editor then return false end
     if not host:isNetworkOnline() then host:showOffline(_(owner.labels.title));return false end
     local access=owner.data.capture(host.settings)
     if not access then host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false end

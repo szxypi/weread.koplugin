@@ -243,6 +243,16 @@ function Auth:read_my_cloud_thoughts(credentials,book_id,count)
     return self:_request('my_thoughts',BASE..'/review/list?bookId='..book_id..'&listType=11&listMode=0&mine=1&synckey=0&count='..count,nil,credentials)
 end
 
+-- Payloads and readback semantics verified by the user-authorized Python
+-- create/edit/delete roundtrip. No renewal or write replay exists here.
+function Auth:write_my_thought(credentials,operation,body,on_dispatch)
+    if type(credentials)~='table' or vid(credentials.vid)~=self.expected_vid or not text(credentials.accessToken,8192)
+        or type(on_dispatch)~='function' then fail('my_thought_write','invalid_credentials') end
+    if not require('weread.lib.thought_edit_contract').validate_body(operation,body) then fail('my_thought_write','invalid_payload') end
+    local path=operation=='create' and '/review/add' or operation=='edit' and '/review/useredit' or '/review/delete'
+    return self:_request('my_thought_write',BASE..path,body,credentials,nil,on_dispatch)
+end
+
 -- Four statistics modes and historical month verified by the Python prototype.
 function Auth:read_statistics(credentials, mode, base_time)
     local Data = require("weread.lib.statistics_data")

@@ -122,7 +122,7 @@ local ok,reason=pcall(function()
         else assert(plugin:showMyCloudMarks(id)) end
         local owner=assert(plugin._my_marks_owner);assert(not owner.context)
         local menu=owner.menu;local index
-        for at,item in ipairs(owner.value.updated) do if item.bookmarkId==row.bookmarkId then index=at+5 end end
+        for at,item in ipairs(menu.item_table) do if item.my_note_id==row.bookmarkId then index=at end end
         assert(index);menu:onGotoPage(menu:getPageNumber(index));menu:onMenuSelect(menu.item_table[index]);UI:forceRePaint()
         local popup=assert(menu._shelf_popup);local button=assert(popup.button_table:getButtonById('open_highlight'))
         if _i==1 then shot('highlight') end
