@@ -1,0 +1,63 @@
+-- Test-only one-shot transport gate. The host reserves both slots first;
+-- deletion stays disabled until the independent host read proves the new ID.
+local Contract=require('weread.lib.mark_edit_contract')
+local Key=require('weread.lib.thought_edit_contract').key
+local M={};M.__index=M
+local function statement(db,sql,...)
+    local s=db:prepare(sql);local args={...};local ok,row=pcall(function() return s:bind(unpack(args)):step() end)
+    s:close();assert(ok);return row
+end
+local function same(a,b)
+    if type(a)~=type(b) then return false end
+    if type(a)~='table' then return a==b end
+    for k,v in pairs(a) do if not same(v,b[k]) then return false end end
+    for k in pairs(b) do if a[k]==nil then return false end end;return true
+end
+function M:new(input,library,codec,root)
+    assert(Contract.validate_body('create',input.create_body))
+    local value=setmetatable({input=input,library=library,codec=codec,path=root..'/highlight-trial-gate.db'},self)
+    local db=require('lua-ljsqlite3/init').open(value.path);db:exec('PRAGMA synchronous=FULL')
+    db:exec('CREATE TABLE trial(id INTEGER PRIMARY KEY,phase TEXT,posts INTEGER,target TEXT,preview TEXT)')
+    statement(db,'INSERT INTO trial VALUES(1,?,0,?,?)','create','','');db:close();return value
+end
+function M:_run(task)
+    local db=require('lua-ljsqlite3/init').open(self.path);db:exec('PRAGMA synchronous=FULL')
+    local ok,value=pcall(task,db);if not ok then pcall(db.exec,db,'ROLLBACK') end
+    db:close();if not ok then error('native_highlight/gate',0) end;return value
+end
+function M:read()
+    return self:_run(function(db)
+        local row=assert(statement(db,'SELECT phase,posts,target,preview FROM trial WHERE id=1'))
+        return {phase=row[1],posts=tonumber(row[2]),target=row[3],preview=row[4]~='' and self.codec:json_decode(row[4]) or nil}
+    end)
+end
+function M:advance(target)
+    assert(Key(target))
+    self:_run(function(db)
+        db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
+        assert(row[1]=='create_pending' and tonumber(row[2])==1 and row[3]=='')
+        for _i,id in ipairs(self.input.original_ids) do assert(id~=target) end
+        statement(db,'UPDATE trial SET phase=?,target=? WHERE id=1','delete',target);db:exec('COMMIT')
+    end)
+end
+function M:claim(operation,body)
+    assert(Contract.validate_body(operation,body))
+    return self:_run(function(db)
+        db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
+        local expected=self.input.create_body
+        if operation=='delete' then
+            assert(Key(row[3]));expected={bookmarkIds={row[3]}}
+            for _i,id in ipairs(self.input.original_ids) do assert(id~=row[3]) end
+        end
+        assert(row[1]==operation and tonumber(row[2])==(operation=='create' and 0 or 1) and same(body,expected))
+        local journal=require('weread.lib.mark_edit_service').new_journal(self.library,self.codec):read()
+        assert(journal and journal.phase=='pending' and journal.metadata.operation==operation
+            and journal.metadata.book_id==self.input.book_id and journal.metadata.request_hash==Contract.body_hash(body))
+        if not self.input.permit_writes then
+            assert(operation=='create' and tonumber(row[2])==0)
+            statement(db,'UPDATE trial SET phase=?,preview=? WHERE id=1','blocked',self.codec:json_encode(body));db:exec('COMMIT');return false
+        end
+        statement(db,'UPDATE trial SET phase=?,posts=posts+1 WHERE id=1',operation..'_pending');db:exec('COMMIT');return true
+    end)
+end
+return M

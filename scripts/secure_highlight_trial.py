@@ -11,6 +11,7 @@ from secure_native_session import project_lock
 from secure_weread_session import MacKeychain,ACCOUNT,StoreError
 
 SERVICE='org.codex.weread.goal-highlight-trial'
+NATIVE_SERVICE='org.codex.weread.goal-native-highlight-trial'
 
 
 @dataclass(frozen=True,repr=False)
@@ -19,9 +20,11 @@ class Receipt:
 
 
 class HighlightTrialStore:
-    def __init__(self,backend=None,lock=None):
-        self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
-        path=Path(tempfile.gettempdir())/('codex-highlight-'+ACCOUNT+'.lock')
+    def __init__(self,backend=None,lock=None,*,native=False):
+        if type(native) is not bool:raise ValueError('highlight_intent_kind')
+        self.native=native
+        self.backend=backend if backend is not None else MacKeychain(service=NATIVE_SERVICE if native else SERVICE,account=ACCOUNT)
+        path=Path(tempfile.gettempdir())/(('codex-native-highlight-' if native else 'codex-highlight-')+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
 
     def _load(self):
@@ -36,7 +39,7 @@ class HighlightTrialStore:
                     or type(v['reserved_posts']) is not int or v['reserved_posts']!=2
                     or not isinstance(v['attempt'],str) or len(v['attempt'])!=32
                     or any(c not in '0123456789abcdef' for c in v['attempt'])):raise ValueError()
-            validate_plan(v['plan']);target=v['target']
+            validate_plan(v['plan'],native=self.native);target=v['target']
             if v['phase']=='create_pending':
                 if target is not None:raise ValueError()
             elif (not isinstance(target,dict) or set(target)!={'id','sha256'} or not valid_key(target['id'])
@@ -57,7 +60,7 @@ class HighlightTrialStore:
             v,raw=self._load();return v,Receipt(raw) if raw else None
 
     def reserve(self,plan):
-        validate_plan(plan)
+        validate_plan(plan,native=self.native)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('highlight_intent_exists')
             return self._write(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),phase='create_pending',plan=plan,target=None,reserved_posts=2))

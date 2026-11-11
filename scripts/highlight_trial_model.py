@@ -3,11 +3,12 @@ from annotation_experiment_model import digest,valid_key
 from selection_trial_model import validate_plan as selection_plan
 
 PROTOCOL='source-highlight-create-remove-v1'
+NATIVE_PROTOCOL='native-source-highlight-create-remove-v1'
 
 
-def validate_plan(value):
+def validate_plan(value,*,native=False):
     if (not isinstance(value,dict) or set(value)!={'protocol','selection','request_sha256'}
-            or value['protocol']!=PROTOCOL):raise ValueError('highlight_trial/plan')
+            or value['protocol']!=(NATIVE_PROTOCOL if native else PROTOCOL)):raise ValueError('highlight_trial/plan')
     selection_plan(value['selection'])
     h=value['request_sha256']
     if not isinstance(h,str) or len(h)!=64 or any(c not in '0123456789abcdef' for c in h):raise ValueError('highlight_trial/plan')
@@ -23,6 +24,11 @@ def request(context):
 
 def bind(selection,body):
     return validate_plan(dict(protocol=PROTOCOL,selection=selection,request_sha256=digest(body)))
+
+
+def bind_native(selection,body):
+    value=bind(selection,body);value['protocol']=NATIVE_PROTOCOL
+    return validate_plan(value,native=True)
 
 
 class PendingObservation(ValueError):

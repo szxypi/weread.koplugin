@@ -146,7 +146,8 @@ local ok,reason=pcall(function()
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
     elseif input.selection_preview then
-        assert(arg[2] and arg[2]:match(trial_mode and '/owner_selection_trial_case%.lua$' or '/owner_selection_preview_case%.lua$'))
+        local case_pattern=trial_mode and (input.highlight_trial and '/owner_highlight_trial_case%.lua$' or '/owner_selection_trial_case%.lua$') or '/owner_selection_preview_case%.lua$'
+        assert(arg[2] and arg[2]:match(case_pattern))
         selection_case=dofile(arg[2])(input,mode,counters)
         if trial_mode then report.selection_trial=selection_case.report else report.selection_preview=selection_case.report end
     else assert(not arg[2]) end
