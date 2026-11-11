@@ -14,6 +14,7 @@ from mark_style_trial_model import bind
 from native_highlight_trial import validate_payload
 from native_trial_pipe import Frames,reply,stop,write_initial
 from secure_mark_style_trial import MarkStyleTrialStore
+from secure_nonempty_marks_trial import NonemptyMarksStore
 from secure_native_session import NativeSessionStore
 from secure_native_thought_trial import NativeThoughtTrialStore
 from secure_selection_trial import SelectionTrialStore
@@ -37,17 +38,18 @@ class NativeStyleProbe(StyleProbe):
         if self.bound!=bind(self.highlight.bound,native=True):raise ValueError('native_style/changed')
 
 
-def payload(probe,armed,mock_port=None):
-    value=highlight_payload(probe.highlight,armed,mock_port);value['highlight_trial']['styles']=True
-    validate_payload(value,armed,mock_port,styles=True);return value
+def payload(probe,armed,mock_port=None,*,color_style=False):
+    value=highlight_payload(probe.highlight,armed,mock_port);value['highlight_trial']['color_style' if color_style else 'styles']=True
+    validate_payload(value,armed,mock_port,styles=not color_style,color_style=color_style);return value
 
 
-def run(probe,credentials,command,*,armed=False,mock_port=None,on_final=None):
+def run(probe,credentials,command,*,armed=False,mock_port=None,on_final=None,color_style=False):
     store=probe.store
     if type(armed) is not bool or not command or any(not isinstance(v,str) or not v for v in command):raise ValueError('native_style/command')
+    if type(color_style) is not bool or color_style!=isinstance(store,NonemptyMarksStore):raise ValueError('native_style/scope')
     if not store.native or store.read()!=(None,None):raise ValueError('native_style/pending')
     probe.current();p=probe.highlight.source.plan;bound=probe.bound
-    probe.highlight.source.baseline(credentials,'native_style_before_launch');value=payload(probe,armed,mock_port)
+    probe.highlight.source.baseline(credentials,'native_style_before_launch');value=payload(probe,armed,mock_port,color_style=color_style)
     receipt=store.reserve(bound) if armed else None
     child=frames=runner=awaiting=None;steps=0;blocked=False
     try:
@@ -55,7 +57,7 @@ def run(probe,credentials,command,*,armed=False,mock_port=None,on_final=None):
         write_initial(child.stdin,value);frames=Frames(child.stdout,value['selection_trial']['rpc_token'],timeout=600)
         while True:
             kind,event=frames.next()
-            if kind=='RESULT':runner=validate_runner(event,armed,False,styles=True);validate_runner(runner,armed,styles=True);break
+            if kind=='RESULT':runner=validate_runner(event,armed,False,styles=not color_style,color_style=color_style);validate_runner(runner,armed,styles=not color_style,color_style=color_style);break
             awaiting=event.get('seq')
             if not armed:
                 if blocked or set(event)!={'seq','preview'} or type(event['seq']) is not int or event['seq']!=0 or event['preview']!=probe.highlight.body:raise ValueError('native_style/preview')
@@ -65,20 +67,21 @@ def run(probe,credentials,command,*,armed=False,mock_port=None,on_final=None):
             if (owned!=receipt or state['plan']!=bound or set(event)!={'seq','created_id'} or type(event['seq']) is not int
                     or event['seq']!=steps+1 or not 1<=event['seq']<=4 or not valid_key(event['created_id'])
                     or event['created_id'] in p.baseline['marks']['updated']):raise ValueError('native_style/step')
-            sequence=event['seq'];phase={1:'create_pending',2:'straight_pending',3:'wave_pending',4:'delete_pending'}[sequence]
+            sequence=event['seq'];phase=({1:'create_pending',2:'color_pending',3:'style_pending',4:'delete_pending'} if color_style else {1:'create_pending',2:'straight_pending',3:'wave_pending',4:'delete_pending'})[sequence]
             if state['phase']!=phase or state['target']!=probe.target:raise ValueError('native_style/intent')
-            target,row,_observed=probe.read(credentials,style={2:0,3:2}.get(sequence),deleted=sequence==4)
+            target,row,_observed=(probe.read(credentials,color=3 if sequence==2 else None,style=2 if sequence==3 else None,deleted=sequence==4) if color_style else probe.read(credentials,style={2:0,3:2}.get(sequence),deleted=sequence==4))
             if sequence<4:
                 if target['id']!=event['created_id'] or probe.target is not None and target['id']!=probe.target['id']:raise ValueError('native_style/target')
                 probe.target,probe.row=target,row
-                receipt=store.advance(receipt,{1:'created',2:'straight',3:'wave'}[sequence],target=target)
-                probe.read(credentials,style=row['style'])
-                receipt=store.advance(receipt,{1:'straight_pending',2:'wave_pending',3:'delete_pending'}[sequence])
+                receipt=store.advance(receipt,({1:'created',2:'colored',3:'styled'} if color_style else {1:'created',2:'straight',3:'wave'})[sequence],target=target)
+                probe.read(credentials,color=row['colorStyle'],style=row['style']) if color_style else probe.read(credentials,style=row['style'])
+                receipt=store.advance(receipt,({1:'color_pending',2:'style_pending',3:'delete_pending'} if color_style else {1:'straight_pending',2:'wave_pending',3:'delete_pending'})[sequence])
             elif event['created_id']!=probe.target['id']:raise ValueError('native_style/target')
             steps=sequence;reply(child.stdin,dict(seq=sequence,ok=True,created_id=event['created_id']));awaiting=None
         if child.wait(timeout=15) or steps!=(4 if armed else 0) or blocked is armed:raise ValueError('native_style/child')
         if armed:_target,_row,final=probe.read(credentials,deleted=True)
         else:final=probe.highlight.source.baseline(credentials,'native_style_final')
+        if color_style and final!=p.baseline:raise ValueError('native_style/final_originals')
         web=probe.highlight.source.web;validate_cookies(runner['cookies'],p.bound['owner']);web.cookies.clear()
         for key,item in runner['cookies'].items():web.set_cookie(key,item)
         web.verify_account()
@@ -89,7 +92,8 @@ def run(probe,credentials,command,*,armed=False,mock_port=None,on_final=None):
         if store.read()!=(None,None):raise ValueError('native_style/cleanup')
         return dict(result='PASS',mode='apply' if armed else 'dry-run',native_ui=public_runner(runner),independent_steps=steps,
             reserved_posts=4 if armed else 0,account_data_posts=4 if armed else 0,authentication_posts=0,
-            original_records_restored=True,web_position_unchanged=True,color_setting_preserved=True,
+            original_records_restored=True,web_position_unchanged=True,color_setting_preserved=not color_style,color_change_verified=color_style and armed,
+            original_mark_count=len(p.baseline['marks']['updated']),original_thought_count=len(p.baseline['thoughts']),
             derived_chapter_metadata_changed=final['marks']['chapters']!=p.baseline['marks']['chapters'],
             intent_state='absent',no_automatic_replay=True)
     except (Exception,KeyboardInterrupt):
@@ -97,7 +101,7 @@ def run(probe,credentials,command,*,armed=False,mock_port=None,on_final=None):
             try:
                 reply(child.stdin,dict(seq=awaiting,ok=False));frames.deadline=time.monotonic()+15
                 kind,event=frames.next()
-                if kind=='RESULT':runner=validate_runner(event,armed,False,styles=True)
+                if kind=='RESULT':runner=validate_runner(event,armed,False,styles=not color_style,color_style=color_style)
                 child.wait(timeout=10)
             except Exception:pass
         raise TrialFailure(public_runner(runner)) from None

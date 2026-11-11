@@ -94,6 +94,7 @@ jobs:
           python3 scripts/test_mark_color.py
           python3 scripts/test_mark_style_trial.py
           python3 scripts/test_native_mark_style_trial.py
+          python3 scripts/test_nonempty_marks_trial.py
           python3 scripts/test_bookmark_point.py
           python3 scripts/test_bookmark_trial.py
           python3 scripts/test_bookmark_recovery.py

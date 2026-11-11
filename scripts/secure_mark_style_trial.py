@@ -15,6 +15,11 @@ NATIVE_SERVICE='org.codex.weread.goal-native-mark-style-trial'
 
 
 class MarkStyleTrialStore:
+    phases=PHASES
+    confirmed_phases=('created','straight','wave')
+
+    def validate_plan(self,value):return validate_plan(value,native=self.native)
+
     def __init__(self,backend=None,lock=None,*,native=False):
         if type(native) is not bool:raise ValueError('mark_style/intent_kind')
         self.native=native
@@ -30,10 +35,10 @@ class MarkStyleTrialStore:
             v=json.loads(raw)
             if (set(v)!={'schema','scope','attempt','phase','plan','target','reserved_posts'}
                     or type(v['schema']) is not int or v['schema']!=1 or v['scope']!=ACCOUNT
-                    or v['phase'] not in PHASES or type(v['reserved_posts']) is not int or v['reserved_posts']!=4
+                    or v['phase'] not in self.phases or type(v['reserved_posts']) is not int or v['reserved_posts']!=4
                     or not isinstance(v['attempt'],str) or len(v['attempt'])!=32
                     or any(c not in '0123456789abcdef' for c in v['attempt'])):raise ValueError()
-            validate_plan(v['plan'],native=self.native)
+            self.validate_plan(v['plan'])
             if v['phase']=='create_pending':
                 if v['target'] is not None:raise ValueError()
             elif not target_valid(v['target']):raise ValueError()
@@ -52,17 +57,17 @@ class MarkStyleTrialStore:
         self._load();return Receipt(raw)
 
     def reserve(self,plan):
-        validate_plan(plan,native=self.native)
+        self.validate_plan(plan)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('mark_style/intent_exists')
-            return self._write(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),phase=PHASES[0],plan=plan,target=None,reserved_posts=4))
+            return self._write(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),phase=self.phases[0],plan=plan,target=None,reserved_posts=4))
 
     def advance(self,receipt,phase,*,target=None):
         with self.lock():
             v,raw=self._load()
-            if (not isinstance(receipt,Receipt) or raw!=receipt.raw or v is None or phase not in PHASES
-                    or PHASES.index(phase)!=PHASES.index(v['phase'])+1):raise StoreError('mark_style/replaced')
-            if phase in ('created','straight','wave'):
+            if (not isinstance(receipt,Receipt) or raw!=receipt.raw or v is None or phase not in self.phases
+                    or self.phases.index(phase)!=self.phases.index(v['phase'])+1):raise StoreError('mark_style/replaced')
+            if phase in self.confirmed_phases:
                 if not target_valid(target) or v['target'] is not None and v['target']['id']!=target['id']:raise StoreError('mark_style/target')
                 v['target']=target
             elif target is not None:raise StoreError('mark_style/target')

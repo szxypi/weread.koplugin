@@ -70,14 +70,14 @@ def main(argv=None):
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     parser.add_argument('--armed',action='store_true');parser.add_argument('--mock-port',type=int)
     feature=parser.add_mutually_exclusive_group()
-    feature.add_argument('--highlights',action='store_true');feature.add_argument('--highlight-styles',action='store_true');feature.add_argument('--bookmarks',action='store_true')
+    feature.add_argument('--highlights',action='store_true');feature.add_argument('--highlight-styles',action='store_true');feature.add_argument('--highlight-color-style',action='store_true');feature.add_argument('--bookmarks',action='store_true')
     args=parser.parse_args(argv)
     check_payload,check_stage=validate_payload,validate_stage
-    if args.highlights or args.highlight_styles:
+    if args.highlights or args.highlight_styles or args.highlight_color_style:
         from native_highlight_trial import validate_payload as check_payload,validate_stage as check_stage
-        if args.highlight_styles:
+        if args.highlight_styles or args.highlight_color_style:
             from functools import partial
-            check_payload,check_stage=partial(check_payload,styles=True),partial(check_stage,styles=True)
+            check_payload,check_stage=partial(check_payload,styles=args.highlight_styles,color_style=args.highlight_color_style),partial(check_stage,styles=args.highlight_styles,color_style=args.highlight_color_style)
     elif args.bookmarks:
         from native_bookmark_trial import validate_payload as check_payload,validate_stage as check_stage
     runtime=args.koreader.resolve()
@@ -98,7 +98,7 @@ def main(argv=None):
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(root/'xdg'),EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_SELECTION_ARMED='1' if args.armed else '0')
             case=Path(__file__).resolve().parent.parent/'spec/koreader'/('owner_bookmark_trial_case.lua' if args.bookmarks
-                else 'owner_highlight_trial_case.lua' if args.highlights or args.highlight_styles else 'owner_selection_trial_case.lua')
+                else 'owner_highlight_trial_case.lua' if args.highlights or args.highlight_styles or args.highlight_color_style else 'owner_selection_trial_case.lua')
             child=subprocess.Popen([str(runtime/'luajit'),str(case.with_name('owner_reading_probe.lua')),'selection-trial',str(case)],cwd=runtime,
                 env=env,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
             try:
