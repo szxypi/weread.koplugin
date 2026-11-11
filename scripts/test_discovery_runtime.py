@@ -38,6 +38,7 @@ def main():
     parser.add_argument('--selection-thought',action='store_true',help='Verify native selected-text thought drafts and mock HTTP writes')
     parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
+    parser.add_argument('--rich-footnotes', action='store_true', help='Exercise original media footnotes and return navigation')
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
     parser.add_argument('--cb-resume',action='store_true',help='Use the opt-in synthetic CB_ shelf book for cached reading')
     parser.add_argument('--cache-cleanup',action='store_true',help='Verify native cache cleanup keeps local reading records')
@@ -64,6 +65,8 @@ def main():
     if args.selection_thought and not args.reading_flow:parser.error('--selection-thought requires --reading-flow')
     if args.recovery_save_retry and not (args.reading_flow and args.source_upload and args.source_recovery and args.progress_recovery):
         parser.error('--recovery-save-retry requires --reading-flow --source-upload --source-recovery --progress-recovery')
+    if args.rich_footnotes and (args.footnotes or args.reading_flow or args.cached_resume):
+        parser.error('--rich-footnotes uses a separate fixture')
     if args.footnotes and args.reading_flow:
         parser.error("--footnotes and --reading-flow use separate fixtures")
     if args.cached_resume and (args.footnotes or args.reading_flow):
@@ -158,6 +161,9 @@ def main():
             if args.footnotes:
                 fixture = "book_footnotes_render.lua"
                 fixture_args = [str(root / "profile/plugins/weread.koplugin"), str(root / "evidence")]
+            if args.rich_footnotes:
+                fixture = 'book_rich_footnotes_render.lua'
+                fixture_args = [str(root / 'profile/plugins/weread.koplugin'), str(root / 'evidence')]
             if args.process_loss:
                 from process_loss_runtime import run_process_loss
                 result = run_process_loss(runtime, REPO / 'spec/koreader' / fixture, environment, log, server, root)
@@ -193,6 +199,33 @@ def main():
                             "unreferenced_generated_notes", "missing_generated_backlinks"):
                     assert inspected[key] == 0, key
                 (root / "evidence/footnotes-package.json").write_text(json.dumps(inspected, indent=2) + "\n")
+            if args.rich_footnotes and result.returncode == 0:
+                import posixpath
+                import xml.etree.ElementTree as ET
+                from verify_book_footnotes import inspect_epub
+                packages = list((root / 'evidence').glob('*.epub'))
+                assert len(packages) == 1
+                inspected = inspect_epub(packages[0])
+                assert inspected['noterefs'] == 5 and inspected['footnotes'] == 5
+                assert inspected['generated_footnotes'] == 1
+                for key in ('duplicate_ids', 'broken_targets', 'broken_backlinks', 'broken_local_links',
+                            'unreferenced_generated_notes', 'missing_generated_backlinks'):
+                    assert inspected[key] == 0, key
+                with zipfile.ZipFile(packages[0]) as package:
+                    chapter = 'OEBPS/text/chapter.xhtml'
+                    document = ET.fromstring(package.read(chapter))
+                    counts = dict.fromkeys(('img', 'math', 'table'), 0)
+                    for element in document.iter():
+                        tag = element.tag.rsplit('}', 1)[-1]
+                        if tag in counts:
+                            counts[tag] += 1
+                        if tag == 'img':
+                            resource = posixpath.normpath(posixpath.join(posixpath.dirname(chapter), element.attrib['src']))
+                            assert resource == 'OEBPS/images/note.svg'
+                            assert b'<circle' in package.read(resource)
+                    assert counts == dict(img=1, math=1, table=1)
+                    inspected.update(original_media_counts=counts, embedded_image_resolves=True)
+                (root / 'evidence/rich-footnotes-package.json').write_text(json.dumps(inspected, indent=2) + '\n')
     finally:
         server.shutdown()
         server.server_close()

@@ -114,6 +114,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    require('weread.lib.rich_footnotes').detach(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'detach')
     if self.cancelShelfCovers then self:cancelShelfCovers() end
@@ -137,6 +138,7 @@ function M:onReaderReady()
     -- Cache it so the per-tap handler (_onThoughtTap) does not have to re-scan
     -- the whole book table on every screen tap.
     self._current_weread_book_id = weread_book_id
+    if weread_book_id then require('weread.lib.rich_footnotes').attach(self) end
     selection_action(self,'detach')
     if weread_book_id and self.ui and self.ui.highlight and type(self.ui.highlight.addToHighlightDialog)=='function' then
         require('weread.ui.selection_thought').attach(self)
@@ -229,6 +231,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    require('weread.lib.rich_footnotes').detach(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'detach')
     selection_action(self,'detach')

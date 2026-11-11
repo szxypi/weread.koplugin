@@ -15,6 +15,16 @@
 页下注与章末注释是否同时显示取决于这些设置；修复不强制隐藏或关闭其中一种。
 对应原生规则见 [KOReader 样式设置](https://github.com/koreader/koreader/blob/v2026.07.1/frontend/ui/data/css_tweaks.lua)。
 
+复杂注释在开启弹窗时另有保真处理：原生弹窗没有书内资源解析和可点击链接处理，
+已实际复现图片只显示 `[image]` 占位。插件识别原生检测选中的注释片段，
+遇到图片、SVG、MathML、表格或资料链接时，由 KOReader 直接跳转到书中原注释，
+使用完整阅读器显示内容；可继续点击引用资料，并通过原生返回操作回到阅读位置。
+纯文字以及生成的返回链接仍使用原生弹窗。此处理仅安装在当前微信读书文档实例，
+关书时恢复；不改写 EPUB、原文坐标或全局脚注设置，也不增加网络请求。
+它不把复杂注释转换成纯文字，不宣称已为弹窗实现完整媒体支持。
+接口行为核对自官方版本的 [ReaderLink](https://github.com/koreader/koreader/blob/v2026.07.1/frontend/apps/reader/modules/readerlink.lua)
+和 [FootnoteWidget](https://github.com/koreader/koreader/blob/v2026.07.1/frontend/ui/widget/footnotewidget.lua)。
+
 ## 验证
 
 - 修改前复现原始 aside 与新生成脚注同时保留，同一注释文字在 XHTML 中出现两份。
@@ -28,7 +38,14 @@
 - 正常插件选书、目录／章节下载、ReaderUI 中的脚注点击和弹窗也在两尺寸通过，
   再完成翻页、模拟同步回读、离线保存、重连选择和核心回归。
 
-以上均为合成资料，未访问真实账号或钥匙串。复杂媒体在弹窗中的呈现、更多真实书籍格式、
+- 复杂脚注新增 44 项独立检查：媒体／引用识别、CRE 重写后的返回锚点、转义及注释伪标签、
+  原生扩展片段、返回值、异常恢复、文档切换及后装钩子保留。
+- 两尺寸实际插件实例中，四类复杂注释均进入原内容，SVG 图、分数／根式和完整表格经目视检查，
+  引用资料可点击，四次返回与原 XPointer 完全一致，纯文字仍弹窗显示，关书后钩子恢复。
+  Python 独立解析 ZIP／XML，确认五处引用、五个注释、仅一份生成文字注释，图像资源确实在包内。
+- 原有共享引用／旧锚点／页下注／隐藏注释的两尺寸完整流程重新通过，且这次显式要求实际实例保护已安装。
+
+显示验证均为合成资料，未访问真实账号。更多真实书籍格式、
 旧缓存重新下载后的真实记录、实体 KO2 等仍待验收；不据此宣称全部脚注格式已支持。
 原始格式中的复杂内容保留不等于其所有原生显示方式均已验收。
 
@@ -38,7 +55,10 @@
 python3 scripts/test_book_footnotes.py
 xvfb-run -a python3 scripts/test_discovery_runtime.py --footnotes \
   --koreader /path/to/runtime --run-dir /path/to/new-test-directory
+xvfb-run -a python3 scripts/test_discovery_runtime.py --rich-footnotes \
+  --koreader /path/to/runtime --run-dir /path/to/another-new-directory
 ```
 
 KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`；每次使用新目录。
 结果见[去敏报告](validation-assets/2026-11-09/book-footnotes-runtime.json)和[本轮验证](validation-2026-11-09.md)。
+复杂注释保真跳转与本轮回归另见[验证报告](validation-assets/2026-11-12/rich-footnotes.json)。

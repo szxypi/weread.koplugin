@@ -67,12 +67,17 @@ assert(occurrences(body, shared_note) == 1 and occurrences(body, "乙脚注：")
 local path = Content.save_chapter_epub({}, {
     bookId = "footnotes-standard", title = "standard", cache_dir = evidence,
 }, chapter, body, {}, Footnotes.FOOTNOTES_CSS)
+local settings = require('weread.lib.settings'):new()
+settings:set('books', {['990178']={bookId='990178', title='standard', cached_file=path,
+    cache_dir=evidence, chapters={chapter}}})
+settings:flush()
 
 local reader, popup, normal_height, hide_item
 local function open()
     if reader then reader:onClose() end
     reader = ReaderUI:new{ dimen = Screen:getSize(), document = Registry:openDocument(path) }
     assert(reader.weread, "candidate plugin must be loaded")
+    assert(reader.weread._rich_footnote_guard, 'standard note regression must exercise the instance guard')
     assert(reader.weread.settings:get("cache").book_footnotes_in_popup == nil,
         "obsolete footnote setting was not removed")
     UIManager:show(reader)
