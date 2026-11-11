@@ -47,4 +47,38 @@ return function(reader, request_count)
         "reopened journal failed to exclude offline overlap after lost receipt")
     assert(plugin.offline_time:status().pending == seconds, "preview mutated offline records")
     print("PASS: real worker commits coverage before HTTP; lost receipt survives exit; offline overlap excluded; seconds=" .. seconds)
+    -- A synthetic native seal must defer both online requests, including the
+    -- session-enter request. Its status is rendered by the actual native UI.
+    local coverage=Coverage:new(plugin.settings.data_dir)
+    local seal_start,seal_end
+    local function seal(add)
+        assert(coverage:_access(function(db)
+            local sql=add and 'INSERT INTO offline_time_seals VALUES(?,?,?,?)'
+                or 'DELETE FROM offline_time_seals WHERE scope=? AND attempt=? AND start_time=? AND end_time=?'
+            local stamp=os.time()
+            if add then seal_start,seal_end=stamp-30,stamp end
+            local statement=db:prepare(sql)
+            statement:bind(account,'native-admission-smoke',seal_start,seal_end):step();statement:close()
+            return true
+        end))
+    end
+    seal(true)
+    local writes=request_count('/web/book/read')
+    local attempt={}
+    local result=plugin.read_report:_send(position.book_id,book,position,30,attempt)
+    assert(type(result)=='table' and result.resume_at>=os.time() and not attempt.enter_attempted and not attempt.report_attempted)
+    assert(request_count('/web/book/read')==writes,'deferred online request reached HTTP')
+    local reporter=plugin.read_report
+    local task,state=reporter.task,reporter.state
+    reporter.task=function() end
+    assert(reporter:_apply_outcome({deferred_until=result.resume_at})==false)
+    plugin:onShowWeReadReportStatus()
+    local manager=require('ui/uimanager');local widget=assert(manager:getTopmostVisibleWidget())
+    local label=require('weread.lib.i18n').tr('Waiting for an available reading-time interval')
+    assert(widget.text:find(label,1,true),'native deferred status is missing')
+    manager:forceRePaint();require('device').screen:shot(os.getenv('KO_HOME')..'/../evidence/readtime-admission.png')
+    manager:close(widget)
+    reporter.task,reporter.state,reporter.deferred_until=task,state,nil
+    seal(false)
+    print('PASS: native seal defers enter/time HTTP; translated waiting status renders; source seconds unchanged')
 end

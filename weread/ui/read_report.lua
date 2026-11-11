@@ -185,6 +185,9 @@ function M:onShowWeReadReportStatus()
         target = cur.book_title ~= "" and cur.book_title or _("Not configured")
     end
     local status = report_status.running and _("Running") or _("Stopped")
+    if report_status.running and report_status.state == "waiting_for_offline_time" then
+        status = _("Waiting for an available reading-time interval")
+    end
     local count = report_status.count
     local last = report_status.last_time
         and os.date("%H:%M:%S", report_status.last_time) or "--"

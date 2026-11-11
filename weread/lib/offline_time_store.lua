@@ -68,6 +68,8 @@ function Store:_access(account, change)
                 state TEXT NOT NULL DEFAULT 'pending', attempt TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS segments_window ON segments(window_id);
+            CREATE INDEX IF NOT EXISTS segments_time ON segments(start_time);
+            CREATE TABLE IF NOT EXISTS transfer_receipts(attempt TEXT PRIMARY KEY,rows_hash TEXT NOT NULL,seconds INTEGER NOT NULL) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS totals (name TEXT PRIMARY KEY, seconds INTEGER NOT NULL) WITHOUT ROWID;
         ]])
         -- Old rows keep their original values and explicitly unverified origin.
@@ -182,12 +184,13 @@ end
 
 -- Local queue transitions for the future transport adapter. An interrupted
 -- dispatched request is uncertain; it must never be silently replayed.
-function Store:pending(account, limit)
+function Store:pending(account, limit, after_id)
     limit = integer(limit, 1, 100) or 100
+    after_id=integer(after_id or 0,0,2^53-1) or 0
     return self:_access(account, function(db)
         local result = {}
         for _, row in ipairs(query(db, [[SELECT s.id,w.book_id,s.start_time,s.duration,w.time_zone,w.book_version,w.file_id,w.version_source
-            FROM segments s JOIN windows w ON w.id=s.window_id WHERE s.state='pending' ORDER BY s.id LIMIT ?]], limit)) do
+            FROM segments s JOIN windows w ON w.id=s.window_id WHERE s.state='pending' AND s.id>? ORDER BY s.id LIMIT ?]],after_id,limit)) do
             result[#result + 1] = { id = tonumber(row[1]), book_id = row[2], start_time = tonumber(row[3]),
                 duration = tonumber(row[4]), time_zone = row[5], book_version = tonumber(row[6]),
                 file_id = row[7], version_source = row[8] }
@@ -234,6 +237,142 @@ function Store:finish(account, rows, attempt, state)
             prune(db)
         end
         return seconds
+    end)
+end
+
+local function source_row(db,id)
+    return query(db,[[SELECT s.state,s.attempt,s.start_time,s.duration,w.book_id,w.time_zone,w.book_version,w.file_id,w.version_source,w.id
+        FROM segments s JOIN windows w ON s.window_id=w.id WHERE s.id=?]],id)[1]
+end
+local function same_row(found,row)
+    return found and tonumber(found[3])==row.start_time and tonumber(found[4])==row.duration
+        and found[5]==row.book_id and found[6]==row.time_zone and tonumber(found[7])==row.book_version
+        and found[8]==row.file_id and found[9]==row.version_source
+end
+function Store:owns(account,rows,attempt)
+    local C=require('weread.lib.readtime_transfer_contract')
+    if not C.attempt(attempt) or not C.array(rows,1,100) then return false end
+    return self:_access(account,function(db)
+        local seen={}
+        for _i,row in ipairs(rows) do
+            if not C.row(row) or seen[row.id] then return false end
+            seen[row.id]=true
+            local found=source_row(db,row.id)
+            if not same_row(found,row) or found[1]~='in_flight' or found[2]~=attempt then return false end
+        end
+        return true
+    end)
+end
+-- Called only while the coverage writer owns its BEGIN IMMEDIATE transaction.
+-- Known online ranges become a distinct retained category, never "confirmed".
+function Store:claim_parts(account,rows,parts,attempt,covered)
+    local C=require('weread.lib.readtime_transfer_contract')
+    if not C.attempt(attempt) or not C.array(rows,1,100) or not C.array(parts,1,100) or type(covered)~='function' then return nil end
+    return self:_access(account,function(db)
+        local originals,selected,seen={},{},{}
+        for _i,row in ipairs(rows) do
+            assert(C.row(row),'invalid_row')
+            local found=source_row(db,row.id)
+            if seen[row.id] or not same_row(found,row) or found[1]~='pending' then error('changed') end
+            seen[row.id]=true;originals[row.id]={row=row,window=tonumber(found[10])};selected[row.id]={}
+        end
+        for _i,part in ipairs(parts) do
+            assert(C.part(part),'invalid_parts')
+            local item=originals[part.row_id];local row=item and item.row
+            assert(row and C.integer(part.start_time,row.start_time,row.start_time+row.duration-1)
+                and C.integer(part.duration,1,row.start_time+row.duration-part.start_time),'invalid_parts')
+            for stamp=part.start_time,part.start_time+part.duration-1 do
+                assert(not selected[row.id][stamp] and not covered(row.id,stamp),'overlap')
+                selected[row.id][stamp]=true
+            end
+            -- Row durations are bounded to sixty seconds; a conflicting source
+            -- in any book is ambiguous, even when it is outside this batch.
+            assert(#query(db,[[SELECT id FROM segments WHERE start_time>=? AND start_time<? AND start_time+duration>?
+                AND state IN ('pending','in_flight','unknown') AND id<>?]],
+                part.start_time-59,part.start_time+part.duration,part.start_time,row.id)==0,'overlap')
+        end
+        local result={};local count=tonumber(query(db,'SELECT COUNT(*) FROM segments')[1][1])
+        for _i,row in ipairs(rows) do
+            query(db,'DELETE FROM segments WHERE id=?',row.id);count=count-1
+            local first,state=row.start_time,nil
+            local function insert(last)
+                if not state or last<=first then return end
+                assert(count<MAX_ROWS,'ledger_full');count=count+1
+                local token=state=='in_flight' and attempt or ''
+                query(db,'INSERT INTO segments(window_id,start_time,duration,state,attempt) VALUES(?,?,?,?,?)',originals[row.id].window,first,last-first,state,token)
+                if state=='in_flight' then
+                    local item={};for k,v in pairs(row) do item[k]=v end
+                    item.id=tonumber(query(db,'SELECT last_insert_rowid()')[1][1]);item.start_time=first;item.duration=last-first
+                    result[#result+1]=item;assert(#result<=100,'ledger_full')
+                end
+            end
+            for stamp=row.start_time,row.start_time+row.duration-1 do
+                local next_state=selected[row.id][stamp] and 'in_flight' or covered(row.id,stamp) and 'covered' or 'pending'
+                if state~=next_state then insert(stamp);first,state=stamp,next_state end
+            end
+            insert(row.start_time+row.duration)
+        end
+        assert(#result>0,'empty');return result
+    end)
+end
+-- A durable prepared coverage record proves the transport has not claimed it.
+function Store:release_unsent(account,rows,attempt)
+    local Contract=require('weread.lib.readtime_transfer_contract')
+    if not Contract.attempt(attempt) or not Contract.array(rows,1,100) then return nil,'invalid_attempt' end
+    local seen={}
+    for _i,row in ipairs(rows) do
+        if not Contract.row(row) or seen[row.id] then return nil,'invalid_attempt' end
+        seen[row.id]=true
+    end
+    return self:_access(account,function(db)
+        for _i,row in ipairs(rows) do
+            local found=source_row(db,row.id)
+            assert(same_row(found,row) and (found[2]==attempt and (found[1]=='in_flight' or found[1]=='unknown')
+                or found[1]=='pending' and found[2]==''),'changed')
+        end
+        for _i,row in ipairs(rows) do query(db,"UPDATE segments SET state='pending',attempt='' WHERE id=?",row.id) end
+        return true
+    end)
+end
+function Store:settle_confirmed(account,rows,attempt)
+    local Contract=require('weread.lib.readtime_transfer_contract')
+    if not Contract.attempt(attempt) or not Contract.array(rows,1,100) then return nil,'invalid_attempt' end
+    local seen={}
+    for _i,row in ipairs(rows) do
+        if not Contract.row(row) or seen[row.id] then return nil,'invalid_attempt' end
+        seen[row.id]=true
+    end
+    local C=require('weread.lib.readtime_transfer_contract');local hash=C.digest(rows)
+    return self:_access(account,function(db)
+        local receipt=query(db,'SELECT rows_hash FROM transfer_receipts WHERE attempt=?',attempt)[1]
+        if receipt then assert(receipt[1]==hash,'changed');return true end
+        local seconds=0
+        for _i,row in ipairs(rows) do
+            local found=source_row(db,row.id)
+            assert(same_row(found,row) and found[2]==attempt and (found[1]=='in_flight' or found[1]=='unknown'),'changed')
+            seconds=seconds+row.duration
+        end
+        assert(tonumber(query(db,'SELECT COUNT(*) FROM transfer_receipts')[1][1])<MAX_ROWS,'ledger_full')
+        for _i,row in ipairs(rows) do query(db,'DELETE FROM segments WHERE id=?',row.id) end
+        query(db,[[INSERT INTO totals VALUES('confirmed',?) ON CONFLICT(name) DO UPDATE SET seconds=seconds+excluded.seconds]],seconds)
+        query(db,'INSERT INTO transfer_receipts VALUES(?,?,?)',attempt,hash,seconds);prune(db);return true
+    end)
+end
+function Store:mark_unknown(account,rows,attempt)
+    local Contract=require('weread.lib.readtime_transfer_contract')
+    if not Contract.attempt(attempt) or not Contract.array(rows,1,100) then return nil,'invalid_attempt' end
+    local seen={}
+    for _i,row in ipairs(rows) do
+        if not Contract.row(row) or seen[row.id] then return nil,'invalid_attempt' end
+        seen[row.id]=true
+    end
+    return self:_access(account,function(db)
+        for _i,row in ipairs(rows) do
+            local found=source_row(db,row.id)
+            assert(same_row(found,row) and found[2]==attempt and (found[1]=='in_flight' or found[1]=='unknown'),'changed')
+        end
+        for _i,row in ipairs(rows) do query(db,"UPDATE segments SET state='unknown' WHERE id=?",row.id) end
+        return true
     end)
 end
 

@@ -961,6 +961,7 @@ local zh = {
     ["Report status"] = "上报状态",
     ["Report book: %1\nStatus: %2"] = "上报书籍：%1\n状态：%2",
     ["Running"] = "运行中",
+    ["Waiting for an available reading-time interval"] = "等待下一段可计入的阅读时间",
     ["Stopped"] = "已停止",
     ["Reported: %1 times, last: %2"] = "已上报：%1 次，最近：%2",
     ["Last error: %1"] = "最近错误：%1",

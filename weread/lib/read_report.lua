@@ -29,6 +29,14 @@ local CONTEXT_FIELDS = {
     "read_context_updated_at", "read_session_entered_at", "read_session_id",
 }
 
+local TIME_DEFERRED={}
+local function deferred(outcome,ok,value)
+    if ok and getmetatable(value)==TIME_DEFERRED then
+        outcome.deferred_until=value.resume_at
+        return true
+    end
+    return false
+end
 local ReadReport = {}
 ReadReport.__index = ReadReport
 
@@ -383,6 +391,7 @@ function ReadReport:stop(reason)
     self.state = reason == "suspend" and "suspended"
         or "stopped"
     self.stop_reason = reason
+    self.deferred_until=nil
     if had_task then
         log("info", "reading time report stopped:",
             "reason=", reason,
@@ -442,7 +451,9 @@ end
 
 function ReadReport:_schedule_next(generation, task)
     if self.generation == generation and self.task == task then
-        self.scheduler:scheduleIn(self:_interval(), task)
+        local delay=self.deferred_until and math.max(.1,self.deferred_until-self.now()) or self:_interval()
+        self.deferred_until=nil
+        self.scheduler:scheduleIn(delay,task)
     end
 end
 
@@ -772,6 +783,13 @@ function ReadReport:_apply_outcome(outcome)
         self:_set_error("report job returned no result", "job", "read report job failed:")
         return false
     end
+    if type(outcome.deferred_until)=='number' and outcome.deferred_until==outcome.deferred_until
+        and outcome.deferred_until%1==0 and outcome.deferred_until>=self.now()-JOB_TIMEOUT_SECONDS
+        and outcome.deferred_until<=self.now()+86400 then
+        self.deferred_until=outcome.deferred_until
+        self.state='waiting_for_offline_time'
+        return false
+    end
     if outcome.renew_attempted then
         self.last_renew_attempt = self.now()
     end
@@ -907,6 +925,7 @@ function ReadReport:_run_pipeline(book_id, opts)
         book.summary=original_summary
         outcome.book=self:_context_snapshot(book)
         outcome.enter_attempted,outcome.report_attempted=attempt.enter_attempted==true,attempt.report_attempted==true
+        if deferred(outcome,sent,result) then return outcome end
         outcome.accepted=sent and position_acknowledged(result,code) or false
         outcome.acknowledged=outcome.accepted
         if outcome.accepted then
@@ -934,6 +953,7 @@ function ReadReport:_run_pipeline(book_id, opts)
             book_id, book, opts.position, opts.elapsed_seconds)
     end)
     outcome.book = self:_context_snapshot(book)
+    if deferred(outcome,ok,result) then return outcome end
     local accepted, accepted_body = response_accepted(result, http_code)
     if ok and accepted then
         outcome.accepted = true
@@ -959,6 +979,7 @@ function ReadReport:_run_pipeline(book_id, opts)
                 book_id, refreshed, opts.position, opts.elapsed_seconds)
         end)
         outcome.book = self:_context_snapshot(refreshed)
+        if deferred(outcome,retry_ok,retry_result) then return outcome end
         local retry_accepted, retry_body = response_accepted(retry_result, retry_code)
         if retry_ok and retry_accepted then
             outcome.accepted = true
@@ -1008,6 +1029,7 @@ function ReadReport:_run_pipeline(book_id, opts)
             book_id, final_book, opts.position, opts.elapsed_seconds)
     end)
     outcome.book = self:_context_snapshot(final_book)
+    if deferred(outcome,final_ok,final_result) then return outcome end
     local final_accepted, final_body = response_accepted(final_result, final_code)
     if final_ok and final_accepted then
         outcome.accepted = true
@@ -1228,8 +1250,9 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds, attempt)
         book.read_session_id = self.session_id
         book.read_session_entered_at = nil
     end
+    local enter_payload
     if not book.read_session_entered_at then
-        local enter_payload = WeRead.make_enter_read_payload{
+        enter_payload = WeRead.make_enter_read_payload{
             book_id = book_id,
             chapter_uid = book.chapter_uid,
             chapter_idx = tonumber(book.chapter_idx) or 0,
@@ -1240,18 +1263,6 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds, attempt)
             psvts = book.psvts,
             pclts = book.pclts,
         }
-        dispatch_current()
-        if attempt then attempt.enter_attempted = true end
-        local entered, enter_code = self.client:report_read(
-            enter_payload,
-            book.reader_url or WeRead.reader_url(book_id),
-            attempt and { sensitive = true } or nil
-        )
-        if attempt and not position_acknowledged(entered, enter_code) then
-            error("upload_enter_unconfirmed", 0)
-        end
-        book.read_session_entered_at = self.now()
-        book.read_session_id = self.session_id
     end
     local payload = self:build_payload(
         book_id,
@@ -1267,8 +1278,24 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds, attempt)
         vid = tostring(vid or "")
         local account = #vid <= 32 and vid:match("^[1-9]%d*$") and require("weread.lib.crypto").sha256_hex(
             "weread-library:" .. vid):sub(1, 20) or nil
-        local saved = self.coverage:reserve(account, payload.ct, payload.rt)
+        dispatch_current()
+        local saved,reason,resume_at=self.coverage:reserve(account,payload.ct,payload.rt)
+        if not saved and reason=='offline_overlap' then return setmetatable({resume_at=resume_at},TIME_DEFERRED) end
         if not saved then error(_("Could not save reading-time coverage; report was not sent."), 0) end
+    end
+    if enter_payload then
+        dispatch_current()
+        if attempt then attempt.enter_attempted = true end
+        local entered, enter_code = self.client:report_read(
+            enter_payload,
+            book.reader_url or WeRead.reader_url(book_id),
+            attempt and { sensitive = true } or nil
+        )
+        if attempt and not position_acknowledged(entered, enter_code) then
+            error("upload_enter_unconfirmed", 0)
+        end
+        book.read_session_entered_at = self.now()
+        book.read_session_id = self.session_id
     end
     dispatch_current()
     if attempt then attempt.report_attempted = true end

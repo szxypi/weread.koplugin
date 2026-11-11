@@ -47,7 +47,19 @@ function Coverage:_access(callback)
             scope TEXT NOT NULL, start_time INTEGER NOT NULL, end_time INTEGER NOT NULL,
             PRIMARY KEY(scope,start_time)) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS coverage_end ON coverage(scope,end_time);
-            CREATE TABLE IF NOT EXISTS coverage_meta (name TEXT PRIMARY KEY,value INTEGER NOT NULL) WITHOUT ROWID;]])
+            CREATE TABLE IF NOT EXISTS coverage_meta (name TEXT PRIMARY KEY,value INTEGER NOT NULL) WITHOUT ROWID;
+            CREATE TABLE IF NOT EXISTS offline_time_records (
+                attempt TEXT PRIMARY KEY,scope TEXT NOT NULL,phase TEXT NOT NULL,metadata TEXT NOT NULL,
+                rows TEXT NOT NULL,request_hash TEXT NOT NULL,created INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS offline_time_account ON offline_time_records(scope,phase);
+            CREATE UNIQUE INDEX IF NOT EXISTS offline_time_active ON offline_time_records(scope)
+                WHERE phase IN ('prepared','claimed','unknown','confirmed');
+            CREATE TABLE IF NOT EXISTS offline_time_seals (
+                scope TEXT NOT NULL,attempt TEXT NOT NULL,start_time INTEGER NOT NULL,end_time INTEGER NOT NULL,
+                PRIMARY KEY(scope,attempt,start_time)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS offline_time_end ON offline_time_seals(scope,end_time);]])
         db:exec("BEGIN IMMEDIATE")
         transaction = true
         local now = self.now()
@@ -75,8 +87,11 @@ function Coverage:reserve(account, endpoint, seconds)
     local key = scope(account)
     if key == nil or not integer(endpoint, 1, 4102444800) or not integer(seconds, 1, 86400)
         or endpoint - seconds < 1 then return nil, "invalid_coverage" end
-    return self:_access(function(db)
+    local result,reason=self:_access(function(db)
         local start, finish = endpoint - seconds, endpoint
+        local sealed=query(db,[[SELECT MAX(end_time) FROM offline_time_seals
+            WHERE (?='' OR scope=?) AND start_time<? AND end_time>?]],key,key,finish,start)[1]
+        if sealed and sealed[1] then return {resume_at=tonumber(sealed[1])+seconds} end
         local overlapping = query(db, [[SELECT start_time,end_time FROM coverage
             WHERE scope=? AND start_time<=? AND end_time>=?]], key, finish, start)
         for _, row in ipairs(overlapping) do
@@ -90,6 +105,8 @@ function Coverage:reserve(account, endpoint, seconds)
         query(db, "INSERT INTO coverage VALUES(?,?,?)", key, start, finish)
         return true
     end)
+    if type(result)=='table' then return nil,'offline_overlap',result.resume_at end
+    return result,reason
 end
 
 -- Planning only. No network or queue mutation. Unrecorded time before tracking
@@ -151,7 +168,10 @@ function Coverage:preview(account, rows)
         local result = { eligible = 0, covered = 0, unverified = 0, parts = {} }
         for _, row in ipairs(ordered) do
             local ranges = query(db, [[SELECT start_time,end_time FROM coverage WHERE (scope=? OR scope='')
-                AND start_time<? AND end_time>?]], key, row.start_time + row.duration, row.start_time)
+                AND start_time<? AND end_time>?
+                UNION ALL SELECT start_time,end_time FROM offline_time_seals
+                WHERE scope=? AND start_time<? AND end_time>?]], key,row.start_time+row.duration,row.start_time,
+                key,row.start_time+row.duration,row.start_time)
             for _, range in ipairs(ranges) do range[1], range[2] = tonumber(range[1]), tonumber(range[2]) end
             local split = assert(Coverage.subtract(row.start_time, row.duration, since, ranges))
             for _, part in ipairs(split.parts) do

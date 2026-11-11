@@ -11,6 +11,8 @@ return function(plugin,count,flush_tasks,home,pump)
     local http,ltn12=require('socket.http'),require('ltn12')
     local id='900024'
     local url=Protocol.reader_url(id)
+    local kept_path=home..'/weread-mock/reader-link-kept/kept.epub'
+    local original_reader_url='https://example.invalid/legacy'
     local store=Store:new(plugin.library_db,client)
     local tr=require('weread.lib.i18n').tr
     local function control(options)
@@ -30,9 +32,9 @@ return function(plugin,count,flush_tasks,home,pump)
     end
     local before_books=settings:get('books',{})
     local old_book=before_books[id]
-    before_books[id]={book_id=id,title='Synthetic local state',reader_url='https://example.invalid/legacy',progress=83,chapter_uid=99,chapter_offset=123,bookVersion=47,
+    before_books[id]={book_id=id,title='Synthetic local state',reader_url=original_reader_url,progress=83,chapter_uid=99,chapter_offset=123,bookVersion=47,
         pending_upload_position={book_id=id,percent=83},pending_upload_account=plugin.library_db:accountKey(),
-        cached_chapters={['1']='/synthetic/kept.epub'}}
+        cached_chapters={['1']=kept_path}}
     settings:set('books',before_books);settings:flush()
     local writes=count('/web/book/read')
     local shelf_before=#plugin.library_db:getShelf()
@@ -62,8 +64,10 @@ return function(plugin,count,flush_tasks,home,pump)
         and saved.metadata.progress==nil and saved.metadata.bookVersion==nil,'import stored reader session or positions')
     assert(plugin._book_detail_view and count('/web/reader/'..Protocol.e(id))==before+1,'import did not open native detail or duplicated metadata HTTP')
     local live=settings:get_book(id)
-    assert(live.reader_url==url and live.progress==84 and live.chapter_uid==99 and live.chapter_offset==123 and live.bookVersion==47
-        and live.pending_upload_position.percent==84 and live.cached_chapters['1']=='/synthetic/kept.epub',
+    -- The imported list owns its canonical URL; metadata never replaces the
+    -- reading session URL in the latest per-book checkpoint.
+    assert(live.reader_url==original_reader_url and live.progress==84 and live.chapter_uid==99 and live.chapter_offset==123 and live.bookVersion==47
+        and live.pending_upload_position.percent==84 and live.cached_chapters['1']==kept_path,
         'import replaced current local reading or download state')
     close_info();UIManager:forceRePaint();Screen:shot(home..'/../evidence/reader-link-imported-detail.png')
     control{match='',times=0,delay=0}
@@ -144,7 +148,7 @@ return function(plugin,count,flush_tasks,home,pump)
     choose(plugin._reader_link_actions,'Remove imported book')
     plugin._reader_link_confirm.ok_callback()
     assert(not store:get(id) and plugin._reader_link_menu,'local removal did not refresh list')
-    assert(settings:get_book(id).cached_chapters['1']=='/synthetic/kept.epub' and #plugin.library_db:getShelf()==shelf_before,
+    assert(settings:get_book(id).cached_chapters['1']==kept_path and #plugin.library_db:getShelf()==shelf_before,
         'local removal deleted download state or changed shelf membership')
     assert(count('/web/book/read')==writes,'reader-link import wrote reading state')
     plugin:closeWeReadUI();plugin.isNetworkOnline=online
