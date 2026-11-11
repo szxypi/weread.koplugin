@@ -14,6 +14,46 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_finished_mark_fixture_is_opt_in_and_single_target(self):
+        base='https://i.weread.qq.com';body=dict(bookId=BOOK_ID,auto=0,finishInfo=0,status=4,isCancel=0)
+        with self.assertRaises(LookupError):self.server.route('POST',base+'/book/markstatus',body)
+        self.server.finish_fixture=True
+        try:
+            original=self.server.get_progress(BOOK_ID)
+            self.assertEqual(self.server.route('POST',base+'/book/markstatus',body),(200,dict(status=1)))
+            books=self.server.route('GET',base+'/shelf/sync',{})[1]['books']
+            self.assertEqual(next(row for row in books if row['bookId']==BOOK_ID)['finishReading'],1)
+            self.assertEqual(self.server.route('GET',base+'/book/getProgress?bookId='+BOOK_ID,{})[1],original)
+            self.assertEqual(self.server.route('POST',base+'/book/markstatus',dict(body,isCancel=1)),(200,dict(status=1)))
+            for changed in [dict(body,isCancel=True),dict(body,auto=0.0),dict(body,status=1),dict(body,bookId='CB_1'),dict(body,bookIds=[BOOK_ID])]:
+                with self.assertRaises(ValueError):self.server.route('POST',base+'/book/markstatus',changed)
+            self.assertEqual(self.request('/__control',dict(finished_mark_mode='empty'))[0],200)
+            self.assertEqual(self.server.route('POST',base+'/book/markstatus',body),(200,''))
+            self.assertEqual(self.server.finished_marks[BOOK_ID],1)
+            self.assertEqual(self.request('/__control',dict(finished_mark_mode='no_change'))[0],200)
+            self.server.route('POST',base+'/book/markstatus',dict(body,isCancel=1));self.assertEqual(self.server.finished_marks[BOOK_ID],1)
+            self.assertEqual(self.request('/__control',dict(finished_mark_mode='position'))[0],200)
+            self.server.route('POST',base+'/book/markstatus',body)
+            self.assertEqual(self.server.get_progress(BOOK_ID)['book']['chapterOffset'],original['book']['chapterOffset']+1)
+            self.assertEqual(self.request('/__control',dict(finished_mark_mode='hold'))[0],200)
+            result=[]
+            worker=threading.Thread(target=lambda:result.append(self.server.route('POST',base+'/book/markstatus',dict(body,isCancel=1))))
+            worker.start()
+            try:
+                deadline=time.monotonic()+2
+                while not self.server.finished_held and time.monotonic()<deadline:time.sleep(.01)
+                self.assertTrue(self.server.finished_held)
+                self.assertEqual(self.server.finished_marks[BOOK_ID],0)
+                self.assertEqual(self.request('/__control',dict(finished_mark_mode='plain'))[0],200)
+                worker.join(2)
+                self.assertFalse(worker.is_alive());self.assertEqual(result,[(200,dict(status=1))])
+            finally:
+                self.server.finished_release.set();worker.join(2)
+            for invalid in ('unexpected',1,None):self.assertEqual(self.request('/__control',dict(finished_mark_mode=invalid))[0],400)
+        finally:
+            self.server.finish_fixture=False;self.server.finished_marks.clear()
+            self.request('/__control',dict(finished_mark_mode='plain',progress_offset_delta=0))
+
     def test_single_book_native_membership_and_unknown_ack(self):
         base='https://i.weread.qq.com'
         members=lambda:{str(row['bookId']) for row in self.server.route('GET',base+'/shelf/sync',{})[1]['books']}

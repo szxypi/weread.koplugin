@@ -1,5 +1,6 @@
 -- Bookshelf, book, chapter, public-account, and search UI flows.
 local BookReviews = require("weread.lib.book_reviews")
+local BookStore = require("weread.lib.book_store")
 local BookReviewsView = require("weread.ui.book_reviews_view")
 local ConfirmBox = require("ui/widget/confirmbox")
 local Content = require("weread.lib.content")
@@ -984,10 +985,10 @@ function M:showBookRecord(book, options)
     end
     local cached = self.library_db and self.library_db:getBook(book_id) or nil
     for key, value in pairs(cached or {}) do
-        if saved[key] == nil then saved[key] = value end
+        if saved[key] == nil and not BookStore.is_reading_field(key) then saved[key] = value end
     end
     for key, value in pairs(book) do
-        if value ~= nil and key ~= "_cached" then saved[key] = value end
+        if value ~= nil and key ~= "_cached" and not BookStore.is_reading_field(key) then saved[key] = value end
     end
     saved.book_id = book_id
     saved._library_account_key = account_key

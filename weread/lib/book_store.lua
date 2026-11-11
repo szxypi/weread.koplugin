@@ -38,6 +38,20 @@ local article_fields = {
     mp_articles_time = true,
 }
 
+-- Reading state has one owner: the latest per-book checkpoint. Metadata
+-- snapshots must neither restore cleared fields nor overwrite newer ones.
+function BookStore.is_reading_field(key)
+    return reading_fields[key] == true
+end
+
+function BookStore.without_reading_state(book)
+    local metadata = {}
+    for key, value in pairs(book) do
+        if not reading_fields[key] then metadata[key] = value end
+    end
+    return metadata
+end
+
 local function basename_safe(value)
     value = tostring(value or ""):gsub("[^%w%._-]", "_")
     return value ~= "" and value or "weread"

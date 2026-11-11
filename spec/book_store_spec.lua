@@ -70,6 +70,15 @@ expect(exists(index.cache_dir .. "/articles.json"),
     "article file was not written")
 
 local loaded = BookStore.load(settings, "book/42", index)
+local metadata_only = BookStore.without_reading_state(loaded)
+expect(metadata_only.title == loaded.title and metadata_only.cache_dir == loaded.cache_dir,
+    "metadata filtering lost ordinary fields or cache paths")
+expect(metadata_only.progress == nil and metadata_only.pending_upload_account == nil
+    and metadata_only.source_dispatch == nil and loaded.progress == 37 and loaded.source_dispatch.id == "synthetic-receipt",
+    "metadata filtering retained reading state or mutated its caller")
+expect(BookStore.is_reading_field("pending_upload_position") and BookStore.is_reading_field("source_dispatch")
+    and not BookStore.is_reading_field("title") and not BookStore.is_reading_field("cache_dir"),
+    "metadata/checkpoint ownership is inconsistent")
 expect(loaded.title == "Fixture book" and loaded.author == "Fixture author",
     "metadata did not round-trip")
 expect(loaded.progress == 37 and loaded.chapter_uid == 9,

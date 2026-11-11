@@ -5,6 +5,7 @@
 local logger = require("weread.lib.logger")
 local Crypto = require("weread.lib.crypto")
 local ShelfSnapshot = require("weread.lib.shelf_snapshot")
+local BookStore = require("weread.lib.book_store")
 
 local ok_json, json = pcall(require, "json")
 if not ok_json then
@@ -313,7 +314,7 @@ end
 function LibraryDB:putBook(book)
     if type(book) ~= "table" then return false end
     local book_id = book.book_id or book.bookId
-    local payload = encode(book)
+    local payload = encode(BookStore.without_reading_state(book))
     if not book_id or not payload then return false end
     local db = self:open()
     if not db then return false end
@@ -346,7 +347,10 @@ function LibraryDB:getBook(book_id)
     local ok = pcall(function()
         stmt = db:prepare("SELECT COALESCE(detail_payload, payload) FROM books WHERE book_id=?")
         local row = stmt:reset():bind(tostring(book_id)):step()
-        result = row and decode(row[1]) or nil
+        local decoded = row and decode(row[1]) or nil
+        -- Older detail rows may contain a checkpoint copied before a sync.
+        -- Filter on read as well, without rewriting those legacy rows.
+        result = decoded and BookStore.without_reading_state(decoded) or nil
     end)
     close_statement(stmt)
     pcall(function() db:close() end)

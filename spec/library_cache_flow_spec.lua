@@ -211,6 +211,34 @@ host:showBookRecord({bookId='43',title='Imported metadata',detail_updated_at=123
 expect(shown_book and not auto_refresh and shown_book.progress==84 and shown_book.cached_chapters['1']=='/kept.epub'
     and shown_book.pending_upload_position.percent==84,'verified import refreshed twice or replaced current local state')
 
+-- A stale open details menu and legacy SQLite row can both outlive a completed
+-- upload. Neither is allowed to resurrect its cleared pending checkpoint.
+local reading_fields = {
+    'app_id','chapter_idx','chapter_offset','chapter_uid','last_local_position','last_pull_at',
+    'last_remote_position','last_sync_error','last_upload_at','last_uploaded_position','pclts',
+    'pending_upload_position','pending_upload_reason','pending_upload_account','source_dispatch',
+    'progress','psvts','read_context_updated_at','read_session_entered_at','read_session_id',
+    'reader_url','summary','token','verified_at','verified_source',
+}
+local stale = { bookId='44', title='Updated metadata', detail_updated_at=123, cache_dir='/cache/44' }
+for _i, key in ipairs(reading_fields) do stale[key] = { stale=true } end
+db_detail = stale
+books['44'] = { book_id='44', last_uploaded_position={chapter_uid=7,chapter_offset=200} }
+host:showBookRecord({bookId='44',title='Fresh title'})
+expect(books['44'].title=='Fresh title' and books['44'].cache_dir=='/cache/44', 'metadata/cache paths stopped merging')
+for _i, key in ipairs(reading_fields) do
+    expect(key=='last_uploaded_position' and books['44'][key].chapter_offset==200 or key~='last_uploaded_position' and books['44'][key]==nil,
+        'legacy detail resurrected cleared reading field: '..key)
+end
+local pending = { chapter_uid=8,chapter_offset=300 }
+books['44'].pending_upload_position = pending
+books['44'].pending_upload_account = 'account-a'
+host:showBookRecord(stale)
+expect(books['44'].pending_upload_position==pending and books['44'].pending_upload_account=='account-a'
+    and books['44'].last_uploaded_position.chapter_offset==200, 'stale incoming menu replaced current checkpoint')
+expect(books['44'].title=='Updated metadata' and stale.pending_upload_position.stale, 'metadata merge mutated caller or lost title')
+db_detail = nil
+
 local catalog_book,catalog_cancelled
 package.preload['weread.ui.mp_catalog']=function() return {
     start=function(self,book) expect(self==host,'MP catalog host changed');catalog_book=book;return true end,

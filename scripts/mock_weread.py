@@ -184,7 +184,7 @@ class MockServer(ThreadingHTTPServer):
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
                             empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
                             progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0,
-                            shelf_membership_mode='plain')
+                            shelf_membership_mode='plain',finished_mark_mode='plain')
         self.progress_confirmation_book = None
         self.progress_confirmation_reads = 0
         self.roundtrip_seed = None
@@ -194,6 +194,10 @@ class MockServer(ThreadingHTTPServer):
         self.cb_reading = False
         self.shelf_removed = set()
         self.shelf_added = {}
+        self.finish_fixture = False
+        self.finished_marks = {}
+        self.finished_release = threading.Event()
+        self.finished_held = False
 
     def record(self, event):
         with self.lock:
@@ -208,6 +212,10 @@ class MockServer(ThreadingHTTPServer):
 
     def route(self, method, target, data):
         readable_books=BOOKS+(CB_READING_BOOKS if self.cb_reading else [])
+        if self.finish_fixture:
+            with self.lock:marks=self.finished_marks.copy()
+            readable_books=[dict(book,secret=book.get('secret',0) if book.get('secret',0) in (0,1) else 0,
+                                 **({'finishReading':marks[book['bookId']]} if book['bookId'] in marks else {})) for book in readable_books]
         url = urlsplit(target)
         path = url.path
         query = parse_qs(url.query)
@@ -291,6 +299,27 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=2, name="待读", bookIds=[b["bookId"] for b in BOOKS[15:]]),
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
+            if self.finish_fixture and path=='/book/getProgress' and method=='GET':
+                if set(query)!={'bookId'} or query['bookId']!=[book_id] or not any(row['bookId']==book_id for row in BOOKS):
+                    raise ValueError('invalid native finished-mark position query')
+                return 200,self.get_progress(book_id)
+            if self.finish_fixture and path=='/book/markstatus' and method=='POST':
+                if (query or set(data)!={'bookId','auto','finishInfo','status','isCancel'} or type(data['bookId']) is not str
+                        or not any(row['bookId']==data['bookId'] for row in BOOKS) or data['bookId'] in self.shelf_removed
+                        or any(type(data[key]) is not int for key in ('auto','finishInfo','status','isCancel'))
+                        or data['auto']!=0 or data['finishInfo']!=0 or data['status']!=4 or data['isCancel'] not in (0,1)):
+                    raise ValueError('invalid single-book finished-mark request')
+                with self.lock:
+                    if control['finished_mark_mode']!='no_change':self.finished_marks[book_id]=1-data['isCancel']
+                    if control['finished_mark_mode']=='position':self.control['progress_offset_delta']=1
+                if control['finished_mark_mode']=='delayed_ack':time.sleep(6)
+                if control['finished_mark_mode']=='hold':
+                    with self.lock:self.finished_held=True
+                    released=self.finished_release.wait(12)
+                    with self.lock:self.finished_held=False
+                    if not released:return 503,dict(errcode=-1)
+                if control['finished_mark_mode']=='empty':return 200,''
+                return 200,dict(status=1)
             if path in {'/shelf/add','/shelf/delete'} and method=='POST':
                 if set(data)!={'bookIds'} or not isinstance(data['bookIds'],list) or len(data['bookIds'])!=1 or not re.fullmatch(r'[1-9][0-9]{0,19}',str(data['bookIds'][0])):
                     raise ValueError('invalid single-book membership request')
@@ -565,6 +594,8 @@ class Handler(BaseHTTPRequestHandler):
                     status, result = 200, dict(control=self.server.control.copy(), requests=list(self.server.events),
                                               totals=totals, active_requests=dict(self.server.active_requests),
                                               progress=self.server.progress.copy(), confirmation_reads=self.server.progress_confirmation_reads)
+                    result['finished_marks']=self.server.finished_marks.copy()
+                    result['finished_held']=self.server.finished_held
             elif path.path == "/__control" and self.command == "POST":
                 self.set_control(data)
                 status, result = 200, dict(ok=True)
@@ -634,6 +665,8 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError("invalid Web renewal mode")
             if candidate['shelf_membership_mode'] not in {'plain','noack'}:
                 raise ValueError('invalid membership mode')
+            if candidate['finished_mark_mode'] not in {'plain','empty','no_change','position','delayed_ack','hold'}:
+                raise ValueError('invalid finished-mark mode')
             if candidate["progress_response"] not in {"plain", "foreign", "aliases", "range", "offset", "ambiguous", "rejected"}:
                 raise ValueError("invalid progress response mode")
             if type(candidate['progress_offset_delta']) is not int or not 0 <= candidate['progress_offset_delta'] <= 1000000:
@@ -650,6 +683,9 @@ class Handler(BaseHTTPRequestHandler):
                 if type(candidate[key]) is not bool:
                     raise ValueError(key + " must be boolean")
             self.server.control = candidate
+            if 'finished_mark_mode' in data:
+                if candidate['finished_mark_mode']=='hold':self.server.finished_release.clear()
+                else:self.server.finished_release.set()
             if 'progress_confirmation' in data:
                 self.server.progress_confirmation_book, self.server.progress_confirmation_reads = None, 0
             if 'progress_roundtrip_mode' in data:
