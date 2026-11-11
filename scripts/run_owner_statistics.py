@@ -10,6 +10,7 @@ import tempfile
 
 from owner_statistics_contract import FRAME,ERRORS,decode_stage
 from run_persistent_ui_probe import extract_candidate,run_child
+from run_owner_reading_probe import check_installed
 
 
 def main(argv=None):
@@ -21,7 +22,7 @@ def main(argv=None):
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('requires Linux and a built runtime')
     if args.mock_port is not None and not 1<=args.mock_port<=65535:parser.error('invalid mock port')
     if not any(line.split()[1:3]==['/dev/shm','tmpfs'] for line in Path('/proc/mounts').read_text().splitlines()):parser.error('/dev/shm must be tmpfs')
-    report=dict(result='UNVERIFIED',tmpfs_profile=True,profile_removed=False,stages=[],runner_error='none');root=None
+    report=dict(result='UNVERIFIED',tmpfs_profile=True,profile_removed=False,stages=[],runner_error='none',installed_files=0,installed_bytes_match=False);root=None
     try:
         raw=sys.stdin.buffer.read(2*1024*1024+1)
         if len(raw)>2*1024*1024:raise ValueError('input_limit')
@@ -40,6 +41,8 @@ def main(argv=None):
                 code,out,repaint=run_child([str(runtime/'luajit'),str(probe),mode],dict(env,TZ=tz),raw,runtime,timeout=150)
                 stage=decode_stage(out,mode);report['stages'].append(stage)
                 if code or repaint or stage['result']!='PASS':raise ValueError('stage_unverified')
+            installed=check_installed(args.candidate,profile)
+            report.update(installed_files=installed['files'],installed_bytes_match=True)
             report['result']='PASS'
     except subprocess.TimeoutExpired:report['runner_error']='child_timeout'
     except Exception as exc:report['runner_error']=str(exc) if str(exc) in ERRORS else 'runner_exception'

@@ -15,8 +15,28 @@ from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
 from verify_eink_login import BASE
 from verify_native_statistics import StatisticsProbe,StatisticsError,CST,period,project
+from verify_web_source_progress import WebSourceProbe,identifier
+from verify_translation_preflight import save_refreshed_web_session
 
 DAY=86400
+
+
+def account_name(value,owner):
+    if not isinstance(value,dict) or identifier(value.get('vid',value.get('userVid')))!=owner:
+        raise ValueError('profile_account_mismatch')
+    name=value.get('name')
+    if (not isinstance(name,str) or not name.strip() or len(name)>256 or len(name.encode())>512
+            or any(ord(char)<32 or ord(char)==127 for char in name)):
+        raise ValueError('profile_name_invalid')
+    return name
+
+
+class NameProbe(WebSourceProbe):
+    def request(self,stage,*args,**kwargs):
+        if stage!='account':raise ValueError('profile_read_outside_scope')
+        value=super().request(stage,*args,**kwargs)
+        self.name=account_name(value,self.vid)
+        return value
 
 
 def streak(months,now):
@@ -105,30 +125,51 @@ def prepare(credentials,probe,now=None):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--saved-session',action='store_true');parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
+    parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--verify-account-name',action='store_true',help='also verify the current owner nickname on the native profile page')
+    parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command):parser.error('pair --saved-session and --lua-command; put --lua-command last')
+    if args.verify_account_name and not args.saved_session:parser.error('--verify-account-name requires --saved-session')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_writes_attempted=0,
                 authentication_posts_attempted=0,screenshots=0,private_data_on_regular_disk=False,credentials_written_to_files=False)
-    credentials=payload=probe=None
+    credentials=payload=probe=saved=name_probe=None;store=None
     try:
         if args.saved_session:
-            owner=SessionStore().load()['vid'];credentials=NativeSessionStore().load(owner)
-            probe=StatisticsProbe();payload=prepare(credentials,probe);encoded=json.dumps(payload,ensure_ascii=False).encode()
+            store=SessionStore();saved=store.load();owner=saved['vid'];credentials=NativeSessionStore().load(owner)
+            if args.verify_account_name:
+                name_probe=NameProbe();name_probe.vid=owner
+                for key,value in saved['cookies'].items():name_probe.set_cookie(key,value)
+                name_probe.verify_account()
+            probe=StatisticsProbe();payload=prepare(credentials,probe)
+            if name_probe:payload['account_name']=name_probe.name
+            encoded=json.dumps(payload,ensure_ascii=False).encode()
             if len(encoded)>2*1024*1024:raise StatisticsError('owner_statistics_input_limit')
             child=subprocess.run(args.lua_command,input=encoded,capture_output=True,timeout=320)
             result=decode_runner(child.stdout);report['ui']=result
             if child.returncode or result['result']!='PASS':raise StatisticsError('owner_statistics_ui_unverified')
             if result['stages'][0]['request_counts']!=[row['count'] for row in payload['rules']]:raise StatisticsError('owner_statistics_requests_unverified')
             if result['stages'][0]['profile_months']!=len(payload['profile_months']):raise StatisticsError('owner_statistics_profile_unverified')
+            if any(row['account_name_present']!=args.verify_account_name for row in result['stages']):
+                raise StatisticsError('owner_profile_name_unverified')
             report.update(result='OWNER_STATISTICS_FILE_UI_AND_OFFLINE_VERIFIED',same_owner_verified=True,
                           python_preflight_gets=len(probe.report['stages']),profile_months=len(payload['profile_months']))
     except KeyboardInterrupt:report.update(result='UNVERIFIED',reason='owner_statistics_interrupted')
     except Exception:report.update(result='UNVERIFIED',reason='owner_statistics_verification_failed')
     finally:
+        if name_probe:
+            try:
+                name_probe.verify_account()
+                report['web_cookie_rotation_saved']=save_refreshed_web_session(store,saved,name_probe)
+                if payload and name_probe.name!=payload.get('account_name'):raise ValueError('profile_name_changed')
+                report['account_name_verified']=report['result']=='OWNER_STATISTICS_FILE_UI_AND_OFFLINE_VERIFIED'
+            except Exception:report.update(result='UNVERIFIED',reason='owner_profile_name_unverified')
+            report['account_name_stages']=[{k:v for k,v in row.items() if k in ('stage','status','api_code')} for row in name_probe.report['stages']]
+            name_probe.close()
         if probe:report['preflight_stages']=[{k:v for k,v in row.items() if k in ('stage','status','error_code')} for row in probe.report['stages']]
         if credentials:credentials.clear()
         if payload:payload.clear()
+        if saved:saved.clear()
     print(json.dumps(report,ensure_ascii=False,indent=2))
     return 0 if report['result'] in ('OFFLINE_ONLY','OWNER_STATISTICS_FILE_UI_AND_OFFLINE_VERIFIED') else 1
 

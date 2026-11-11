@@ -7,6 +7,7 @@ local mode=arg[1]
 local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_credentials=false,transport_guard_selftest=false,
     file_backed_sqlite=false,profile_matches=false,detail_views_match=false,local_goal_readback=false,workers_reaped=false,
     credential_file_audit=false,native_filemanager_host=false,cache_account_scoped=false,worker_http_child=false,
+    account_name_matches=false,account_name_glyphs=false,account_name_present=false,
     profile_months=0,validated_views=0,detail_periods=0,calendar_days=0,calendar_cells=0,profile_files_audited=0,
     screenshots=0,forbidden_requests=0,failed_line=0,request_counts=json.decode('[0]')}
 local plugin,counters,memory
@@ -19,6 +20,10 @@ local ok,reason=pcall(function()
     assert((lfs.symlinkattributes(home..'/weread')~=nil)==(mode=='reopen'))
     local raw=assert(io.stdin:read(2*1024*1024+1));assert(#raw<=2*1024*1024)
     local input=json.decode(raw);local grant=assert(input.credentials)
+    assert(input.account_name==nil or type(input.account_name)=='string' and #input.account_name>0 and input.account_name:find('%S'))
+    local account_name=input.account_name or ''
+    assert(type(account_name)=='string' and #account_name<=512 and not account_name:find('[%z%c]'))
+    report.account_name_present=account_name~=''
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$') and #grant.vid<=20)
     for _i,key in ipairs({'accessToken','refreshToken','deviceId'}) do assert(type(grant[key])=='string' and #grant[key]>=8) end
     assert(math.abs(os.time()-input.now)<=180 and math.floor((os.time()+28800)/86400)==math.floor((input.now+28800)/86400))
@@ -45,7 +50,7 @@ local ok,reason=pcall(function()
         end
         return '/proc/self/fd/'..fd
     end
-    local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=grant.vid,name=''},cookies={},api_key=''}
+    local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=grant.vid,name=account_name},cookies={},api_key=''}
     local scope_path=anonymous(auth);local saved={}
     for key,value in pairs(grant) do saved[key]=value end
     saved.epoch,saved.verified_at,saved.book_count=1,os.time(),0
@@ -161,6 +166,19 @@ local ok,reason=pcall(function()
     local snapshot=assert(plugin.library_db:getProfileState('statistics'))
     assert(snapshot.source_kind=='native' and same(snapshot.months,input.profile_snapshot))
     report.profile_months=#input.profile_months;report.profile_matches=true;paint(profile)
+    local expected_name=account_name~='' and account_name or require('weread.lib.plugin_util').tr('Unknown account')
+    assert(profile.data.account_name==expected_name)
+    local function name_widget(widget)
+        if widget.text==expected_name and widget.face==profile.fonts.card_title then return widget end
+        for _i,child in ipairs(widget) do local found=name_widget(child);if found then return found end end
+    end
+    local label=assert(name_widget(profile))
+    local label_size=label:getSize()
+    assert(label_size.w>0 and label_size.w<=profile.content_width and label_size.h>0)
+    report.account_name_matches=true
+    assert(label.use_xtext and label._xshaping and #label._xshaping>0)
+    for _i,glyph in ipairs(label._xshaping) do assert(glyph.no_drawing or glyph.glyph>0,'profile name has a missing glyph') end
+    report.account_name_glyphs=true
     assert(plugin.library_db:getProfileState('goal').minutes==45);report.local_goal_readback=true
     profile._profile_buttons[2].callback();pump(function() return plugin._read_stats_view~=nil end)
     for index,expected in ipairs(input.details) do

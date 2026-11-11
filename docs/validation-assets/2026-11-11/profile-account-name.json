@@ -1,0 +1,754 @@
+{
+  "result": "PASS",
+  "base_commit": "8f6cc302a746476aafd18a3d47177221c1593827",
+  "scope": "Actual owner nickname and visible native glyphs; statistics pages and fresh offline cache. No new login or nickname mutation",
+  "production_unchanged": true,
+  "production_files": 236,
+  "production_manifest_source": "cover-titles.json",
+  "production_manifest_file_sha256": "932217cb6fc44a4e33b5bad5c913bc5f5a60d64c7242b860804b78f5764b1380",
+  "candidate_sha256": "47bf0093d422e7c0f8d2187fcc7c112e3a91e8f696e4562693f1c08a9e38d814",
+  "actual_installed_bytes_verified": true,
+  "source_sha256": {
+    "scripts/owner_statistics_contract.py": "8fe1a8bc36fb69165b2aa5f4f5b492f9263f3364eaf68be876c3707d1c8d7af1",
+    "scripts/run_owner_statistics.py": "b50e4cb92659a8a051e0235d6eb4314bf89865030db022db3117c86c0d8b61a6",
+    "scripts/test_owner_statistics.py": "b24b29846b85d69e0359a6c26128ad559a07e4f809271cd409b0833c5ec3f1b1",
+    "scripts/test_owner_statistics_runtime.py": "1904c0e8b4ab7163f459b0b61025f366ecc63dceb66b3db200fa4c469b630324",
+    "scripts/verify_owner_statistics.py": "88d9e7948c25587a2f86e68fe15afdc70077d57c59852db2394da37403302138",
+    "spec/koreader/owner_statistics_probe.lua": "994a9b25500d413a4328e382e3e00d97a907b57091464c0e1a7a33fd572f55ed"
+  },
+  "real_request_ledger": {
+    "gets": 35,
+    "authentication_posts": 1,
+    "account_data_posts": 0
+  },
+  "real_validated_views": 28,
+  "real_nickname_profile_views": 4,
+  "nickname_preliminary_gets": 1,
+  "initial_statistics_http_401": {
+    "result": "UNVERIFIED",
+    "checked_at": "2026-11-11T10:00:33.195673+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 0,
+    "screenshots": 0,
+    "private_data_on_regular_disk": false,
+    "credentials_written_to_files": false,
+    "reason": "owner_statistics_verification_failed",
+    "web_cookie_rotation_saved": false,
+    "account_name_verified": false,
+    "account_name_stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      }
+    ],
+    "preflight_stages": [
+      {
+        "stage": "statistics_monthly",
+        "status": 401
+      }
+    ]
+  },
+  "once_only_native_renewal": {
+    "result": "SAVED_NATIVE_RENEWAL_VERIFIED",
+    "checked_at": "2026-11-11T10:01:01.310072+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 1,
+    "credentials_written_to_files": false,
+    "keychain_pending_readback_verified": true,
+    "same_owner_verified": true,
+    "book_count": 140,
+    "keychain_renewed_readback_verified": true,
+    "access_token_changed": true,
+    "refresh_token_returned": false,
+    "stages": [
+      {
+        "stage": "renewal",
+        "status": 200,
+        "keys": [
+          "accessToken",
+          "firstLogin",
+          "openId",
+          "pf",
+          "skey",
+          "user",
+          "vid",
+          "wxAccessToken"
+        ]
+      },
+      {
+        "stage": "renewed_shelf",
+        "status": 200,
+        "keys": [
+          "archive",
+          "bookCount",
+          "bookProgress",
+          "books",
+          "lectureBooks",
+          "lectureRemoved",
+          "lectureSynckey",
+          "lectureUpdate",
+          "mp",
+          "mpEx",
+          "pureBookCount",
+          "removed",
+          "removedArchive",
+          "synckey"
+        ]
+      }
+    ]
+  },
+  "actual_ui": {
+    "600": {
+      "result": "OWNER_STATISTICS_FILE_UI_AND_OFFLINE_VERIFIED",
+      "checked_at": "2026-11-11T10:01:10.685504+00:00",
+      "account_data_writes_attempted": 0,
+      "authentication_posts_attempted": 0,
+      "screenshots": 0,
+      "private_data_on_regular_disk": false,
+      "credentials_written_to_files": false,
+      "ui": {
+        "result": "PASS",
+        "tmpfs_profile": true,
+        "profile_removed": true,
+        "stages": [
+          {
+            "result": "PASS",
+            "phase": "complete",
+            "anonymous_credentials": true,
+            "transport_guard_selftest": true,
+            "file_backed_sqlite": true,
+            "profile_matches": true,
+            "detail_views_match": true,
+            "local_goal_readback": true,
+            "workers_reaped": true,
+            "credential_file_audit": true,
+            "native_filemanager_host": true,
+            "cache_account_scoped": true,
+            "worker_http_child": true,
+            "account_name_matches": true,
+            "account_name_glyphs": true,
+            "account_name_present": true,
+            "profile_months": 1,
+            "validated_views": 7,
+            "detail_periods": 6,
+            "calendar_days": 30,
+            "calendar_cells": 42,
+            "profile_files_audited": 7,
+            "screenshots": 0,
+            "forbidden_requests": 0,
+            "failed_line": 0,
+            "request_counts": [
+              2,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "mode": "live"
+          },
+          {
+            "mode": "reopen",
+            "result": "PASS",
+            "phase": "complete",
+            "anonymous_credentials": true,
+            "transport_guard_selftest": true,
+            "file_backed_sqlite": true,
+            "profile_matches": true,
+            "detail_views_match": true,
+            "local_goal_readback": true,
+            "workers_reaped": true,
+            "credential_file_audit": true,
+            "native_filemanager_host": true,
+            "cache_account_scoped": true,
+            "worker_http_child": false,
+            "account_name_matches": true,
+            "account_name_glyphs": true,
+            "account_name_present": true,
+            "profile_months": 1,
+            "validated_views": 7,
+            "detail_periods": 6,
+            "calendar_days": 30,
+            "calendar_cells": 42,
+            "profile_files_audited": 7,
+            "screenshots": 0,
+            "forbidden_requests": 0,
+            "failed_line": 0,
+            "request_counts": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "runner_error": "none",
+        "installed_files": 236,
+        "installed_bytes_match": true
+      },
+      "same_owner_verified": true,
+      "python_preflight_gets": 6,
+      "profile_months": 1,
+      "web_cookie_rotation_saved": false,
+      "account_name_verified": true,
+      "account_name_stages": [
+        {
+          "stage": "account",
+          "status": 200
+        },
+        {
+          "stage": "account",
+          "status": 200
+        }
+      ],
+      "preflight_stages": [
+        {
+          "stage": "statistics_monthly",
+          "status": 200
+        },
+        {
+          "stage": "statistics_monthly",
+          "status": 200
+        },
+        {
+          "stage": "statistics_monthly",
+          "status": 200
+        },
+        {
+          "stage": "statistics_weekly",
+          "status": 200
+        },
+        {
+          "stage": "statistics_annually",
+          "status": 200
+        },
+        {
+          "stage": "statistics_overall",
+          "status": 200
+        }
+      ]
+    },
+    "1264": {
+      "result": "OWNER_STATISTICS_FILE_UI_AND_OFFLINE_VERIFIED",
+      "checked_at": "2026-11-11T10:01:56.451418+00:00",
+      "account_data_writes_attempted": 0,
+      "authentication_posts_attempted": 0,
+      "screenshots": 0,
+      "private_data_on_regular_disk": false,
+      "credentials_written_to_files": false,
+      "ui": {
+        "result": "PASS",
+        "tmpfs_profile": true,
+        "profile_removed": true,
+        "stages": [
+          {
+            "phase": "complete",
+            "anonymous_credentials": true,
+            "transport_guard_selftest": true,
+            "file_backed_sqlite": true,
+            "profile_matches": true,
+            "detail_views_match": true,
+            "local_goal_readback": true,
+            "workers_reaped": true,
+            "credential_file_audit": true,
+            "native_filemanager_host": true,
+            "cache_account_scoped": true,
+            "worker_http_child": true,
+            "account_name_matches": true,
+            "account_name_glyphs": true,
+            "account_name_present": true,
+            "profile_months": 1,
+            "validated_views": 7,
+            "detail_periods": 6,
+            "calendar_days": 30,
+            "calendar_cells": 42,
+            "profile_files_audited": 7,
+            "screenshots": 0,
+            "forbidden_requests": 0,
+            "failed_line": 0,
+            "request_counts": [
+              2,
+              1,
+              1,
+              1,
+              1,
+              1
+            ],
+            "mode": "live",
+            "result": "PASS"
+          },
+          {
+            "detail_views_match": true,
+            "local_goal_readback": true,
+            "workers_reaped": true,
+            "credential_file_audit": true,
+            "native_filemanager_host": true,
+            "cache_account_scoped": true,
+            "worker_http_child": false,
+            "account_name_matches": true,
+            "account_name_glyphs": true,
+            "account_name_present": true,
+            "profile_months": 1,
+            "validated_views": 7,
+            "detail_periods": 6,
+            "calendar_days": 30,
+            "mode": "reopen",
+            "profile_files_audited": 7,
+            "result": "PASS",
+            "forbidden_requests": 0,
+            "phase": "complete",
+            "request_counts": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "anonymous_credentials": true,
+            "transport_guard_selftest": true,
+            "file_backed_sqlite": true,
+            "profile_matches": true,
+            "failed_line": 0,
+            "screenshots": 0,
+            "calendar_cells": 42
+          }
+        ],
+        "runner_error": "none",
+        "installed_files": 236,
+        "installed_bytes_match": true
+      },
+      "same_owner_verified": true,
+      "python_preflight_gets": 6,
+      "profile_months": 1,
+      "web_cookie_rotation_saved": false,
+      "account_name_verified": true,
+      "account_name_stages": [
+        {
+          "stage": "account",
+          "status": 200
+        },
+        {
+          "stage": "account",
+          "status": 200
+        }
+      ],
+      "preflight_stages": [
+        {
+          "stage": "statistics_monthly",
+          "status": 200
+        },
+        {
+          "stage": "statistics_monthly",
+          "status": 200
+        },
+        {
+          "stage": "statistics_monthly",
+          "status": 200
+        },
+        {
+          "stage": "statistics_weekly",
+          "status": 200
+        },
+        {
+          "stage": "statistics_annually",
+          "status": 200
+        },
+        {
+          "stage": "statistics_overall",
+          "status": 200
+        }
+      ]
+    }
+  },
+  "synthetic_runs": [
+    {
+      "display": "600",
+      "named": true,
+      "long_streak": false,
+      "report": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "long_streak": false,
+        "account_name": true,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "mode": "live",
+              "request_counts": [
+                2,
+                1,
+                1,
+                1,
+                1,
+                1
+              ],
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "profile_matches": true,
+              "detail_views_match": true,
+              "local_goal_readback": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "worker_http_child": true,
+              "account_name_matches": true,
+              "account_name_glyphs": true,
+              "account_name_present": true,
+              "profile_months": 1,
+              "validated_views": 7,
+              "detail_periods": 6,
+              "calendar_days": 30,
+              "calendar_cells": 42,
+              "failed_line": 0
+            },
+            {
+              "calendar_cells": 42,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "profile_matches": true,
+              "detail_views_match": true,
+              "local_goal_readback": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "worker_http_child": false,
+              "account_name_matches": true,
+              "account_name_glyphs": true,
+              "account_name_present": true,
+              "profile_months": 1,
+              "validated_views": 7,
+              "detail_periods": 6,
+              "calendar_days": 30
+            }
+          ],
+          "runner_error": "none",
+          "installed_files": 236,
+          "installed_bytes_match": true
+        },
+        "real_account_requests_attempted": 0
+      }
+    },
+    {
+      "display": "1264",
+      "named": true,
+      "long_streak": false,
+      "report": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "long_streak": false,
+        "account_name": true,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "profile_matches": true,
+              "detail_views_match": true,
+              "local_goal_readback": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "worker_http_child": true,
+              "account_name_matches": true,
+              "account_name_glyphs": true,
+              "account_name_present": true,
+              "profile_months": 1,
+              "request_counts": [
+                2,
+                1,
+                1,
+                1,
+                1,
+                1
+              ],
+              "failed_line": 0,
+              "forbidden_requests": 0,
+              "screenshots": 0,
+              "profile_files_audited": 7,
+              "calendar_cells": 42,
+              "mode": "live",
+              "calendar_days": 30,
+              "result": "PASS",
+              "detail_periods": 6,
+              "phase": "complete",
+              "validated_views": 7,
+              "anonymous_credentials": true
+            },
+            {
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "profile_matches": true,
+              "detail_views_match": true,
+              "local_goal_readback": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "worker_http_child": false,
+              "account_name_matches": true,
+              "account_name_glyphs": true,
+              "account_name_present": true,
+              "profile_months": 1,
+              "validated_views": 7,
+              "detail_periods": 6,
+              "calendar_days": 30,
+              "calendar_cells": 42,
+              "profile_files_audited": 7,
+              "screenshots": 0
+            }
+          ],
+          "runner_error": "none",
+          "installed_files": 236,
+          "installed_bytes_match": true
+        },
+        "real_account_requests_attempted": 0
+      }
+    },
+    {
+      "display": "600",
+      "named": false,
+      "long_streak": true,
+      "report": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "long_streak": true,
+        "account_name": false,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "profile_matches": true,
+              "detail_views_match": true,
+              "local_goal_readback": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "worker_http_child": true,
+              "account_name_matches": true,
+              "account_name_glyphs": true,
+              "account_name_present": false,
+              "profile_months": 24,
+              "validated_views": 7,
+              "detail_periods": 6,
+              "calendar_days": 30,
+              "calendar_cells": 42,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                2,
+                2,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1,
+                1
+              ]
+            },
+            {
+              "account_name_matches": true,
+              "account_name_glyphs": true,
+              "account_name_present": false,
+              "profile_months": 24,
+              "validated_views": 7,
+              "detail_periods": 6,
+              "calendar_days": 30,
+              "calendar_cells": 42,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "failed_line": 0,
+              "request_counts": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "transport_guard_selftest": true,
+              "file_backed_sqlite": true,
+              "profile_matches": true,
+              "detail_views_match": true,
+              "local_goal_readback": true,
+              "workers_reaped": true,
+              "credential_file_audit": true,
+              "native_filemanager_host": true,
+              "cache_account_scoped": true,
+              "worker_http_child": false
+            }
+          ],
+          "runner_error": "none",
+          "installed_files": 236,
+          "installed_bytes_match": true
+        },
+        "real_account_requests_attempted": 0
+      }
+    }
+  ],
+  "initial_synthetic_coordinate_assertion": {
+    "fixed": true,
+    "counted_as_pass": false
+  },
+  "checks": {
+    "python_files": 78,
+    "python_tests": 962,
+    "python_skips": 0,
+    "lua_specs": 211,
+    "time_zones": 4,
+    "python_compile": 235,
+    "lua_syntax": 587,
+    "result": "PASS",
+    "lint_files": 585,
+    "lint_warnings": 0,
+    "lint_errors": 0,
+    "namespace": "PASS"
+  },
+  "private_screenshots": 0,
+  "nickname_in_public_report": false,
+  "native_nickname_source": "Python owner-verified userInfo name supplied through anonymous authentication settings in each native process",
+  "nickname_disk_persistence_verified": false,
+  "nickname_change_refresh_verified": false,
+  "qr_login_repeated": false,
+  "credentials_retained_in_keychain": true,
+  "pending_selection_trial_applied": false,
+  "pending_selection_trial_grant_reused": false,
+  "protected_files_unchanged": [
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md",
+    "main.lua",
+    "_meta.lua"
+  ],
+  "limitations": [
+    "Native nickname rendering and visible glyphs verified without private screenshots or visual inspection",
+    "Offline statistics persist in tmpfs SQLite, but nickname is reconstructed from anonymous authentication input; no actual nickname file roundtrip claim",
+    "One existing native authorization maintenance after observed HTTP 401, not an end-to-end native UI renewal test",
+    "Physical KO2 and remaining functional goal/performance phase are incomplete"
+  ],
+  "privacy_audit": {
+    "result": "PASS",
+    "files": 1355,
+    "actual_authentication_literals": 0,
+    "short_public_cookie_flags_excluded": [
+      "wr_ql",
+      "wr_pf"
+    ],
+    "credentials_retained": true,
+    "legacy_native_trial_intent_absent": true,
+    "new_selection_intent_prepared": true,
+    "new_selection_reserved_posts": 0,
+    "protected_files_unchanged": true,
+    "document_links_checked": 123
+  }
+}
