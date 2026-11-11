@@ -1,0 +1,87 @@
+{
+  "result": "PASS_RECOVERY_AND_CAPTURE_ONLY",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "local_checks": {
+    "python_files": 100,
+    "python_tests": 1228,
+    "python_skips": 0,
+    "lua_specs": 226,
+    "time_zones": 4,
+    "readtime_protocol_time_zones": 4,
+    "python_compile": 312,
+    "lua_syntax": 637,
+    "result": "PASS"
+  },
+  "static_files": 635,
+  "static_warnings": 0,
+  "new_python_tests": 17,
+  "read_only_diagnosis": {
+    "result": "PASS_READONLY_UNCHANGED",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "independent_reads": 2,
+    "original_source_and_positions_exact": true,
+    "book_counter_unchanged": true,
+    "statistics_unchanged": true,
+    "original_trial_unverified": true,
+    "intent_retained": true,
+    "no_replay": true,
+    "old_scope_reusable": false
+  },
+  "unknown_retirement": {
+    "result": "UNVERIFIED_RETIRED",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "independent_reads": 2,
+    "original_source_and_positions_exact": true,
+    "book_counter_unchanged": true,
+    "statistics_unchanged": true,
+    "original_trial_unverified": true,
+    "intent_retained": true,
+    "no_replay": true,
+    "old_scope_reusable": false
+  },
+  "cross_day_capture": {
+    "result": "CAPTURED_NO_DISPATCH",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "controlled_test_seconds": 2,
+    "real_wall_and_monotonic_interval": true,
+    "original_source_and_positions_exact": true,
+    "counter_unchanged": true,
+    "future_write_granted": false,
+    "source_proof_in_keychain": true,
+    "wait_until_utc": "2026-11-12T16:00:01Z"
+  },
+  "capture_reopen": {
+    "result": "PASS",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "capture_present": true,
+    "ready_for_separate_cross_day_preflight": false,
+    "future_write_granted": false
+  },
+  "candidate_and_old_native_install_match": [
+    256,
+    256
+  ],
+  "native_upload_enabled": false,
+  "goal_complete": false,
+  "source_sha256": {
+    "scripts/secure_readtime_trial.py": "e3ed14e893543d6e3df68d66e3d2cf055a82fa2565e586ec7c9bce8b8071affe",
+    "scripts/verify_readtime_recovery.py": "9b26ff8b36a6e7950f846c36339b06206f8aaa96d4e034b627f00ae8aa3ccbff",
+    "scripts/test_readtime_recovery.py": "dad7df2cf1eeeb3ebb7ba73de2d78ee63eecc5bd6d614e1801b1189b20875044",
+    "scripts/readtime_history_capture.py": "bd6c68a7ca3b1ff6f5d6bd5e0e40552ff2b3edc7ff557404da21d990bbfc62da",
+    "scripts/verify_readtime_history_capture.py": "c677dbd5f421ec871979f2fe672e0c2fa10d476118b7e48b2b0a7355cffc212f",
+    "scripts/test_readtime_history_capture.py": "35bc8c5cce4558b8f290eee2626106f5094cdb5765d4fe5b02208485d510a6f0",
+    ".github/workflows/ci.yml": "b76aad091912b24ddbe317c91b42f9811e24ce7c843ceb171332aa0b5b99c278"
+  },
+  "pending": [
+    "cross_day_preflight_and_historical_accounting",
+    "native_ledger_selector_and_review",
+    "native_history_worker_and_ui",
+    "cross_month_and_old_file_versions",
+    "physical_ko2_and_power_loss"
+  ]
+}

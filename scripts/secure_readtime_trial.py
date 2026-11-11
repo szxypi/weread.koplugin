@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import secrets,tempfile
 from annotation_experiment_model import canonical
+from annotation_experiment_model import digest
 from readtime_trial_model import validate_plan
 from secure_highlight_trial import Receipt
 from secure_native_session import project_lock
@@ -18,6 +19,18 @@ def validate_retirement(value):
     fields={'explicit_success_receipt','original_records_exact','web_and_native_positions_exact','independent_counters_stable',
         'book_counter_delta_verified','monthly_baseline_missing','original_trial_unverified','no_replay'}
     if not isinstance(value,dict) or set(value)!=fields or any(value[k] is not True for k in fields):raise StoreError('readtime/retirement_invalid')
+
+
+def validate_unverified_retirement(value,plan):
+    fields={'protocol','plan_sha256','observations_sha256','checked_at','independent_reads','original_trial_unverified','no_replay',
+        'original_source_and_positions_exact','book_counter_unchanged','statistics_unchanged'}
+    if (not isinstance(value,dict) or set(value)!=fields or value['protocol']!='unchanged-time-trial-retirement-v1'
+            or value['plan_sha256']!=digest(plan) or type(value['checked_at']) is not int or not plan['start_time']+2<=value['checked_at']<=4102444800
+            or type(value['independent_reads']) is not int or value['independent_reads']!=2
+            or not isinstance(value['observations_sha256'],str) or len(value['observations_sha256'])!=64
+            or any(c not in 'abcdef0123456789' for c in value['observations_sha256'])
+            or any(value[k] is not True for k in ('original_trial_unverified','no_replay','original_source_and_positions_exact','book_counter_unchanged','statistics_unchanged'))):
+        raise StoreError('readtime/retirement_invalid')
 
 
 class ReadtimeTrialStore:
@@ -35,11 +48,13 @@ class ReadtimeTrialStore:
             if not isinstance(raw,bytes) or not 0<len(raw)<=8192:raise ValueError()
             value=json.loads(raw)
             if not isinstance(value,dict):raise ValueError()
-            if (set(value)!=({'schema','scope','attempt','phase','plan','reserved_posts','retirement'} if self.version==1 and value.get('phase')=='retired' else {'schema','scope','attempt','phase','plan','reserved_posts'}) or type(value['schema']) is not int or value['schema']!=1
-                    or value['scope']!=ACCOUNT or value['phase'] not in (PHASES+('retired',) if self.version==1 else PHASES) or type(value['reserved_posts']) is not int or value['reserved_posts']!=1
+            if (set(value)!=({'schema','scope','attempt','phase','plan','reserved_posts','retirement'} if value.get('phase')=='retired' else {'schema','scope','attempt','phase','plan','reserved_posts'}) or type(value['schema']) is not int or value['schema']!=1
+                    or value['scope']!=ACCOUNT or value['phase'] not in PHASES+('retired',) or type(value['reserved_posts']) is not int or value['reserved_posts']!=1
                     or not isinstance(value['attempt'],str) or len(value['attempt'])!=32 or any(c not in '0123456789abcdef' for c in value['attempt'])):raise ValueError()
             validate_plan(value['plan'],version=self.version)
-            if value['phase']=='retired':validate_retirement(value['retirement'])
+            if value['phase']=='retired':
+                if self.version==1:validate_retirement(value['retirement'])
+                else:validate_unverified_retirement(value['retirement'],value['plan'])
             return value,raw
         except (TypeError,ValueError,KeyError):raise StoreError('readtime/intent_invalid') from None
 
@@ -82,4 +97,13 @@ class ReadtimeTrialStore:
         with self.lock():
             value,raw=self._load()
             if self.version!=1 or not isinstance(receipt,Receipt) or value is None or value['phase']!='claimed' or receipt.raw!=raw:raise StoreError('readtime/retirement_scope')
+            value['phase']='retired';value['retirement']=audit;return self._write(value)
+
+    def retire_unverified(self,receipt,audit):
+        """Archive a consumed request after unchanged readbacks; never verify it."""
+        with self.lock():
+            value,raw=self._load()
+            if self.version!=2 or not isinstance(receipt,Receipt) or value is None or value['phase']!='claimed' or receipt.raw!=raw:
+                raise StoreError('readtime/retirement_scope')
+            validate_unverified_retirement(audit,value['plan'])
             value['phase']='retired';value['retirement']=audit;return self._write(value)
