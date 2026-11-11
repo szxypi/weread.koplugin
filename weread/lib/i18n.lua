@@ -1,6 +1,21 @@
 local I18n = {}
 
 local zh = {
+    ["My cloud thoughts"] = "我的云端想法",
+    ["Thought"] = "想法",
+    ["Private thought"] = "私密想法",
+    ["Quoted text"] = "引用原文",
+    ["All my thoughts"] = "全部想法",
+    ["Thoughts with quoted text"] = "有引用原文",
+    ["Other thoughts"] = "其他想法",
+    ["Refresh my cloud thoughts"] = "刷新我的云端想法",
+    ["Saved cloud thoughts"] = "云端想法缓存",
+    ["No thoughts in this view."] = "当前筛选下没有想法。",
+    ["No saved thoughts. Refresh while online."] = "尚无想法缓存，请联网刷新。",
+    ["Could not update my thoughts. Saved thoughts are kept."] = "未能更新我的想法，已保留原缓存。",
+    ["Loading my thoughts…\nTap or press a key to cancel."] = "正在读取我的想法…\n点击或按键取消。",
+    ["Could not save my thoughts. The previous saved copy is kept."] = "无法保存我的想法，已保留原缓存。",
+    ["No thought text was returned."] = "未返回想法文字。",
     ["My cloud highlights"] = "我的云端划线",
     ["Highlight"] = "划线",
     ["Bookmark"] = "书签",

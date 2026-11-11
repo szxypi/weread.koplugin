@@ -234,6 +234,15 @@ function Auth:read_my_cloud_marks(credentials, book_id)
     return self:_request('my_marks',BASE..'/book/bookmarklist?bookId='..book_id..'&synckey=0',nil,credentials)
 end
 
+-- Personal listType=11 and progressive count prefixes verified in Python.
+function Auth:read_my_cloud_thoughts(credentials,book_id,count)
+    local Data=require('weread.lib.my_cloud_thoughts')
+    if not Data.id(book_id) or type(count)~='number' or count<1 or count>Data.MAX_ROWS or count%1~=0 then fail('my_thoughts','invalid_query') end
+    if type(credentials)~='table' or not vid(credentials.vid) or not text(credentials.accessToken,8192) then fail('my_thoughts','invalid_credentials') end
+    if self.expected_vid and vid(credentials.vid)~=self.expected_vid then fail('my_thoughts','account_mismatch') end
+    return self:_request('my_thoughts',BASE..'/review/list?bookId='..book_id..'&listType=11&listMode=0&mine=1&synckey=0&count='..count,nil,credentials)
+end
+
 -- Four statistics modes and historical month verified by the Python prototype.
 function Auth:read_statistics(credentials, mode, base_time)
     local Data = require("weread.lib.statistics_data")

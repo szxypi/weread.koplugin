@@ -12,6 +12,7 @@ import time
 from urllib.parse import urlencode
 
 from my_cloud_marks_model import project,identifier,integer
+from personal_notes_position import unchanged,response_clock_matches
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
 from verify_eink_login import NativeProbe,BASE
@@ -48,14 +49,20 @@ class MarksProbe(NativeProbe):
         if not choices:raise ValueError('my_marks_empty_selection')
         declared,self.identity=sorted(choices,key=lambda row:(-row[0],row[1]))[0]
         self.book=lookup[self.identity]
+        before_started=time.time()
         before=self.request('progress_before',BASE+'/book/getProgress?'+urlencode(dict(bookId=self.identity)),credentials=credentials)
+        before_finished=time.time()
         validate_position(before,self.identity)
         self.baseline=before
         self.source=self.request('marks',BASE+'/book/bookmarklist?'+urlencode(dict(bookId=self.identity,synckey=0)),credentials=credentials)
         self.model=project(self.source,self.identity,credentials['vid'],int(time.time()))
+        after_started=time.time()
         after=self.request('progress_after',BASE+'/book/getProgress?'+urlencode(dict(bookId=self.identity)),credentials=credentials)
+        after_finished=time.time()
         validate_position(after,self.identity)
-        if before!=after:
+        clocks=response_clock_matches(before,before_started,before_finished) and response_clock_matches(after,after_started,after_finished)
+        if not clocks:raise ValueError('my_marks_position_clock')
+        if not unchanged(before,after,self.identity):
             self.position_diagnostic={}
             for level in ('root','book'):
                 left,right=(before,after) if level=='root' else (before.get('book'),after.get('book'))
@@ -66,7 +73,7 @@ class MarksProbe(NativeProbe):
             raise ValueError('my_marks_position_changed')
         return dict(shelf_books=len(shelf['books']),notebook_books=len(notebooks['books']),marks=len(self.model['updated']),
                     chapters=len(self.model['chapters']),declared_count_matches=declared==len(self.model['updated']),
-                    position_unchanged=True,text_rows=sum(bool(row.get('markText')) for row in self.model['updated']))
+                    position_unchanged=True,response_clock_verified=clocks,response_timestamp_changed=before.get('timestamp')!=after.get('timestamp'),text_rows=sum(bool(row.get('markText')) for row in self.model['updated']))
 
 
 def main(argv=None):

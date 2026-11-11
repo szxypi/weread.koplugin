@@ -1129,6 +1129,16 @@ function M:showBookMenu(book)
             end
         end)}
     end
+    if self.showMyCloudThoughts and require('weread.lib.my_cloud_marks').id(tostring(book_id)) then
+        local account=self.library_db and self.library_db:accountKey()
+        local session,document=self._reader_session_gen,self.ui and self.ui.document
+        actions[#actions+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()
+            if self._book_detail_view==view and account==self.library_db:accountKey()
+                and session==self._reader_session_gen and document==(self.ui and self.ui.document) then
+                self:showMyCloudThoughts(tostring(book_id))
+            end
+        end)}
+    end
     if has_cache then
         actions[#actions + 1] = {
             text = _("Clear book cache"),
@@ -2090,6 +2100,10 @@ end
 
 function M:showMyCloudMarks(book_id)
     return require('weread.ui.my_cloud_marks').show(self,book_id)
+end
+
+function M:showMyCloudThoughts(book_id)
+    return require('weread.ui.my_cloud_marks').show(self,book_id,'thoughts')
 end
 
 function M:cancelMyCloudMarks()

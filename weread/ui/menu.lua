@@ -211,6 +211,16 @@ function M:getMainMenuItems()
                     end
                 end)}
             end
+            if require('weread.lib.my_cloud_marks').id(book_id) then
+                local session,document=self._reader_session_gen,self.ui.document
+                local account=self.library_db and self.library_db:accountKey()
+                reader_items[#reader_items+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        self:showMyCloudThoughts(book_id)
+                    end
+                end)}
+            end
             if not WeRead.is_mp_book(book_id) then
                 reader_items[#reader_items + 1] = {
                     text = _("Reading language"),
