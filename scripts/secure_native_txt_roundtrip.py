@@ -34,15 +34,19 @@ def point(value):
             or any(ord(c)<32 and c not in '\t\r\n' for c in value['summary'])):raise StoreError('txt_roundtrip/point')
 
 
-def validate_plan(value,protocol):
+def validate_binding(value,protocol):
     if not isinstance(value,dict) or set(value)!=HASH_FIELDS|{'protocol','baseline','target','counts','version','chapter_progress'} or value['protocol']!=protocol:raise StoreError('txt_roundtrip/plan')
     if any(not isinstance(value[k],str) or not re.fullmatch('[a-f0-9]{64}',value[k]) for k in HASH_FIELDS):raise StoreError('txt_roundtrip/plan')
-    point(value['baseline']);point(value['target']);original,target=value['baseline'],value['target']
-    if (any(original[k]!=target[k] for k in POINT_FIELDS-{'chapter_offset','summary'}) or target['chapter_offset']!=original['chapter_offset']+1
-            or len(target['summary'])!=len(original['summary']) or target['summary'][:-1]!=original['summary'][1:]):raise StoreError('txt_roundtrip/adjacent')
+    point(value['baseline']);point(value['target'])
     if (not isinstance(value['counts'],dict) or set(value['counts'])!={'readingTime','recordReadingTime','ttsTime'}
             or any(not integer(n,0,2**53-1) for n in value['counts'].values()) or not integer(value['version'],0,2147483647)
             or value['chapter_progress'] is not None and (type(value['chapter_progress']) not in (int,float) or not 0<=value['chapter_progress']<=100)):raise StoreError('txt_roundtrip/plan')
+
+
+def validate_plan(value,protocol):
+    validate_binding(value,protocol);original,target=value['baseline'],value['target']
+    if (any(original[k]!=target[k] for k in POINT_FIELDS-{'chapter_offset','summary'}) or target['chapter_offset']!=original['chapter_offset']+1
+            or len(target['summary'])!=len(original['summary']) or target['summary'][:-1]!=original['summary'][1:]):raise StoreError('txt_roundtrip/adjacent')
 
 
 class NativeTxtRoundtripStore:
@@ -56,6 +60,8 @@ class NativeTxtRoundtripStore:
         self.backend=backend if backend is not None else MacKeychain(service=self.service,account=ACCOUNT)
         path=Path(tempfile.gettempdir())/('codex-native-txt-roundtrip-'+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
+    def validate_plan(self,plan):
+        validate_plan(plan,self.protocol)
     def _load(self):
         raw=self.backend.load()
         if raw is None:return None,None
@@ -66,7 +72,7 @@ class NativeTxtRoundtripStore:
                     or type(value['schema']) is not int or value['schema']!=1 or value['scope']!=ACCOUNT
                     or value['phase'] not in PHASES or not integer(value['posts'],0,2) or value['posts']!=PHASES[value['phase']]
                     or not isinstance(value['attempt'],str) or not re.fullmatch('[a-f0-9]{32}',value['attempt'])):raise ValueError()
-            validate_plan(value['plan'],self.protocol);return value,raw
+            self.validate_plan(value['plan']);return value,raw
         except Exception:raise StoreError('txt_roundtrip/intent_invalid') from None
     def read(self):
         with self.lock():
@@ -78,7 +84,7 @@ class NativeTxtRoundtripStore:
         if self.backend.load()!=raw:raise StoreError('txt_roundtrip/readback')
         self._load();return Receipt(raw)
     def reserve(self,plan):
-        validate_plan(plan,self.protocol)
+        self.validate_plan(plan)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('txt_roundtrip/consumed')
             return self._write(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),phase='prepared',posts=0,plan=plan))

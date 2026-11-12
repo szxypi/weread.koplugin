@@ -9,8 +9,8 @@ from source_upload_candidate import identifier
 
 FLAGS={'normal_capture','page_turn_capture','retained_target','parent_native_guard','opaque_receipts',
        'movement_invalidates_receipt','source_gate_preserved','legacy_units_preserved','position_restored',
-       'text_not_in_source_state','text_not_in_settings','page_child_cancelled','close_child_cancelled'}
-COUNTS={'background_workers':3,'excerpts':3,'failed_line':10000,'denied_shape':4,'denied_checks':255,'denied_api':4}
+       'text_not_in_source_state','text_not_in_settings','page_child_cancelled','close_child_cancelled','fresh_policy_verified'}
+COUNTS={'background_workers':3,'excerpts':3,'failed_line':10000,'denied_shape':4,'denied_checks':255,'denied_api':4,'currentness_checks':1}
 EXCERPT_FIELDS={'text','co','end_co','scalars','basis','upload_verified'}
 
 
@@ -63,6 +63,7 @@ def decode(raw,owner,*,mode=None,full_chapters=1):
     addons=[]
     for stage,private in zip(stages,privates):
         addon=stage.pop('native_source_excerpt',None);validate(addon,private,stage.get('result')=='PASS');addons.append(addon)
+        if stage.get('result')=='PASS' and addon['currentness_checks']!=int(stage.get('mode')=='live'):raise ValueError('native_excerpt/freshness')
     decoded=decode_envelope(FRAME+json.dumps(dict(report=report,cookies=value['cookies'])).encode(),owner,mode=mode)
     targets=decoded['report']['stages'] if mode is None else [decoded['report']]
     for stage,addon in zip(targets,addons):stage['native_source_excerpt']=addon

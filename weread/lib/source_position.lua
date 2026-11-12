@@ -71,6 +71,7 @@ function Service:cancel_upload_preview()
     if job and job.recovery and self.recovery then self.recovery:cancel(job.recovery) end
     self.checked_previews=setmetatable({},{__mode='k'})
     self.checked_native_excerpts=setmetatable({},{__mode='k'})
+    self.checked_native_previews=setmetatable({},{__mode='k'})
     if self.preview_worker then self.preview_worker:cancel() end
 end
 
@@ -269,6 +270,81 @@ function Service:is_current_native_excerpt(receipt,packet)
         or not Candidate.same(packet.excerpt,job.packet.excerpt) then return false end
     local age=self.now()-job.started
     return age>=0 and age<=30 and self:_native_excerpt_current(job) or false
+end
+function Service:_native_preview_current(job)
+    if not self:_current(job.scope) or not self:is_current_native_excerpt(job.local_receipt,job.packet) then return false end
+    local live=self.get_upload_context and self.get_upload_context()
+    local projected=live and live.book_id==job.point.book_id
+        and require('weread.lib.native_source_candidate').project(job.packet,live.chapters,live.percent)
+    return Candidate.same(projected,job.candidate)
+end
+-- Read-only online freshness for a native TXT candidate. The local receipt,
+-- catalog/percent and original Web access must all remain current throughout.
+function Service:prepare_current_native_preview(callback,recovered)
+    assert(type(callback)=='function')
+    if not self.is_online() then self:cancel_upload_preview();callback(nil,'offline');return false end
+    if not self.client then self:cancel_upload_preview();callback(nil,'web_required');return false end
+    return self:prepare_native_excerpt(function(packet,reason,local_receipt)
+        if not packet then callback(nil,reason);return end
+        if not self.is_online() then callback(nil,'offline');return end
+        local selected=Currentness.capture(self.client.settings)
+        if not selected or not selected.web then callback(nil,'web_required');return end
+        local live=self.get_upload_context and self.get_upload_context()
+        local candidate=live and live.book_id==packet.position.book_id
+            and require('weread.lib.native_source_candidate').project(packet,live.chapters,live.percent)
+        local point=packet.position
+        local scope=self:_live()
+        local snapshot=scope and Source.document_metadata(scope.document,point.book_id,point.chapter_uid,point.render_path)
+        if not candidate or not snapshot then callback(nil,'context_unavailable');return end
+        scope.metadata,scope.render_path=snapshot.metadata,point.render_path
+        local expected=Currentness.expected{book_id=point.book_id,chapter_uid=point.chapter_uid,chapter_idx=candidate.chapter_idx,
+            raw_sha256=point.raw_sha256,raw_bytes=snapshot.record.raw_bytes}
+        if not expected then callback(nil,'context_unavailable');return end
+        self.sequence=self.sequence+1
+        local job={scope=scope,point=clone(point),packet=clone(packet),local_receipt=local_receipt,candidate=clone(candidate),
+            access=selected,started=self.now(),request_id=self.sequence}
+        local token=self.preview_token;self.preview_job=job
+        local started=self.preview_worker:start(function()
+            local result=Currentness.run_txt(self.client,expected,selected);result.request_id=job.request_id;return result
+        end,function(result)
+            if self.preview_job~=job or self.preview_token~=token then return end
+            if not self.is_online() or not self:_native_preview_current(job) or not Currentness.matches(self.client.settings,selected) then
+                self.preview_job=nil;return
+            end
+            if type(result)=='table' and result.request_id==job.request_id and result.error=='source_web_expired' and not result.check then
+                if recovered or not self.recovery then self:_auth_unavailable(callback,point.book_id);return end
+                local renewing,handle=self.recovery:start(point.book_id,selected,function()
+                    return self.preview_job==job and self.preview_token==token and self.is_online() and self:_native_preview_current(job)
+                end,function(fresh)
+                    if self.preview_job~=job or self.preview_token~=token then return end
+                    if fresh then self:prepare_current_native_preview(callback,true) else self:_auth_unavailable(callback,point.book_id) end
+                end)
+                if self.preview_job==job then
+                    if renewing then job.recovery=handle else self:_auth_unavailable(callback,point.book_id) end
+                end
+                return
+            end
+            self.preview_job=nil
+            local age=self.now()-job.started
+            if type(result)~='table' or result.request_id~=job.request_id or not Currentness.packet_txt(result.check,expected)
+                or age<0 or age>30 then callback(nil,'source_currentness_unavailable');return end
+            local receipt={};self.checked_native_previews[receipt]=job
+            callback(clone(candidate),nil,receipt)
+        end)
+        if not started and self.preview_job==job then self.preview_job=nil;callback(nil,'worker_unavailable') end
+    end)
+end
+function Service:is_current_native_preview(receipt,candidate)
+    local job=type(receipt)=='table' and self.checked_native_previews and self.checked_native_previews[receipt]
+    if not job or not self.client or not self.is_online() or not Candidate.same(candidate,job.candidate) then return false end
+    local age=self.now()-job.started
+    return age>=0 and age<=30 and Currentness.matches(self.client.settings,job.access) and self:_native_preview_current(job) or false
+end
+function Service:native_preview_deadline(receipt,candidate)
+    if not self:is_current_native_preview(receipt,candidate) then return nil end
+    local job=self.checked_native_previews[receipt]
+    local local_job=self.checked_native_excerpts[job.local_receipt]
+    return local_job and math.min(job.started,local_job.started)+30 or nil
 end
 function Service:stop() self:_invalidate('idle') end
 function Service:pause(reason)

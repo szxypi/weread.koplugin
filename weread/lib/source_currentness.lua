@@ -98,7 +98,30 @@ function M.packet(value,expected)
     expected.catalog_stamp,expected.source_current,expected.upload_verified=value.catalog_stamp,true,false
     return expected
 end
-function M.fetch(client,expected,selected)
+function M.txt_marker(client,raw,book,uid)
+    if type(raw)~='string' or #raw>65536 then fail('txt_marker') end
+    local ok,value=pcall(client.json_decode,client,raw)
+    if not ok or type(value)~='table' or Access.book_id(value.bookId)~=book then fail('txt_marker') end
+    local chapter=nullable(value.chapterUid)
+    if chapter~=nil and Access.book_id(chapter)~=uid then fail('txt_marker') end
+    for _i,key in ipairs({'errcode','errCode'}) do
+        local code=nullable(value[key])
+        if code~=nil and code~=0 and code~='0' then fail('txt_marker') end
+    end
+    local succ=value.succ
+    if succ~=nil and succ~=true and succ~=1 and succ~='1' then fail('txt_marker') end
+    return true
+end
+function M.packet_txt(value,expected)
+    if type(value)~='table' or value.basis~='raw_txt_utf16' then return nil end
+    local stripped={};for key,item in pairs(value) do if key~='basis' then stripped[key]=item end end
+    local checked=M.packet(stripped,expected)
+    if checked then checked.basis='raw_txt_utf16' end
+    return checked
+end
+function M.fetch(client,expected,selected,format)
+    format=format or 'web_xhtml'
+    if format~='web_xhtml' and format~='web_txt' then fail('format') end
     expected=M.expected(expected);if not expected then fail('expected') end
     selected=selected or M.capture(client.settings)
     local cookies=selected and selected.web and selected.web.cookies
@@ -142,20 +165,37 @@ function M.fetch(client,expected,selected)
     if not parsed then fail('reader') end
     local params=Protocol.make_content_params(expected.book_id,expected.chapter_uid,reader.psvts,{sc=1})
     local parts={}
-    for _i,name in ipairs({'e_0','e_1','e_3'}) do
-        parts[#parts+1]=request('https://weread.qq.com/web/book/chapter/'..name,params,4*1024*1024,false)
+    if format=='web_txt' then
+        if Access.book_id(reader.current_chapter and reader.current_chapter.chapterUid)~=expected.chapter_uid then fail('reader') end
+        M.txt_marker(client,request('https://weread.qq.com/web/book/chapter/e_0',params,65536,false),expected.book_id,expected.chapter_uid)
+        parts[1]=request('https://weread.qq.com/web/book/chapter/t_0',params,4*1024*1024,false)
+        parts[2]=request('https://weread.qq.com/web/book/chapter/t_1',params,4*1024*1024,false)
+        if parts[1]=='{}' then fail('source_invalid') end
+        if parts[2]=='{}' then parts[2]='' end
+        parts[3]=''
+    else
+        for _i,name in ipairs({'e_0','e_1','e_3'}) do
+            parts[#parts+1]=request('https://weread.qq.com/web/book/chapter/'..name,params,4*1024*1024,false)
+        end
     end
     local decoded,raw=pcall(require('weread.lib.content').decode_content_shards,unpack(parts))
     if not decoded then fail('source_invalid') end
     local after=request(url,body,4*1024*1024,true)
     account()
     current()
-    return M.project(expected,before,reader,raw,after)
+    local result=M.project(expected,before,reader,raw,after)
+    if format=='web_txt' then result.basis='raw_txt_utf16' end
+    return result
 end
 -- Only a confirmed HTTP status may ask the parent to recover credentials.
 -- Body errors, redirects, worker failures and other statuses stay generic.
 function M.run(client,expected,selected)
     local ok,value=pcall(M.fetch,client,expected,selected)
+    if ok then return {check=value} end
+    return {error=value=='source_currentness/web_expired' and 'source_web_expired' or 'source_currentness_unavailable'}
+end
+function M.run_txt(client,expected,selected)
+    local ok,value=pcall(M.fetch,client,expected,selected,'web_txt')
     if ok then return {check=value} end
     return {error=value=='source_currentness/web_expired' and 'source_web_expired' or 'source_currentness_unavailable'}
 end

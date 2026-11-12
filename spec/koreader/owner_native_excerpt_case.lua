@@ -5,6 +5,7 @@ return function(input,counters)
         retained_target=false,parent_native_guard=false,opaque_receipts=false,movement_invalidates_receipt=false,
         source_gate_preserved=false,legacy_units_preserved=false,position_restored=false,
         text_not_in_source_state=false,text_not_in_settings=false,page_child_cancelled=false,close_child_cancelled=false,
+        fresh_policy_verified=false,currentness_checks=0,
         background_workers=0,excerpts=0,failed_line=0,denied_shape=0,denied_checks=0,denied_api=0}}
     function case:run(plugin,reader,pump,index,origin)
         local service,doc=plugin.source_position,reader.document
@@ -23,14 +24,22 @@ return function(input,counters)
             end)
             return assert(service:current())
         end
-        local previous_receipt,previous_packet
+        local previous_current
         local function capture(stage,retained)
             local point=ready(retained)
             assert(point.book_id==input.book_id and point.chapter_uid==input.chapter_uid
                 and point.raw_sha256==input.source_raw_sha256 and point.basis=='raw_txt_utf16' and point.upload_verified==false)
-            if previous_receipt then
-                assert(not service:is_current_native_excerpt(previous_receipt,previous_packet),'old view receipt remained current')
+            if previous_current then
+                assert(not previous_current(),'old view receipt remained current')
                 self.report.movement_invalidates_receipt=true
+            end
+            if stage=='page' and not plugin:isNetworkConnected() then
+                local done,why
+                service:prepare_current_native_preview(function(value,reason,receipt)
+                    assert(not value and not receipt);done,why=true,reason
+                end)
+                assert(done and why=='offline','offline currentness attempted network')
+                self.report.fresh_policy_verified=true
             end
             local legacy=assert(plugin.progress_sync:capture_local())
             local packet,receipt,done
@@ -53,7 +62,19 @@ return function(input,counters)
             assert(complete and rejected,'native excerpt enabled the XHTML sender')
             local current=assert(service:current())
             assert(not current.excerpt and not current.summary and not after.source_position.excerpt and not after.source_position.summary)
-            previous_receipt,previous_packet=receipt,packet
+            previous_current=function() return service:is_current_native_excerpt(receipt,packet) end
+            if stage=='page' and plugin:isNetworkConnected() then
+                local prepared,token,finished
+                service:prepare_current_native_preview(function(value,_why,checked) prepared,token,finished=value,checked,true end)
+                pump(function() return finished end)
+                local live=assert(service.get_upload_context())
+                local expected=assert(require('weread.lib.native_source_candidate').project(packet,live.chapters,live.percent))
+                assert(require('weread.lib.source_upload_candidate').same(expected,prepared)
+                    and token and next(token)==nil and service:is_current_native_preview(token,prepared))
+                assert(service:native_preview_deadline(token,prepared))
+                previous_current=function() return service:is_current_native_preview(token,prepared) end
+                self.report.fresh_policy_verified=true;self.report.currentness_checks=1
+            end
             self.records[#self.records+1]={stage=stage,packet=packet,legacy={chapter_uid=tostring(legacy.chapter_uid),
                 chapter_idx=legacy.chapter_idx,chapter_offset=legacy.chapter_offset,percent=legacy.percent}}
             self.report.excerpts=#self.records

@@ -241,7 +241,7 @@ local ok,reason=pcall(function()
                     and h.Referer==Protocol.reader_url(id) then return 2 end
             end
             if options.url==root_url or chapter_urls[options.url] then return 3 end
-            if (input.source_upload_preview or selection_case) and options.url=='https://weread.qq.com/api/userInfo?userVid='..input.vid
+            if (input.source_upload_preview or input.native_source_excerpt or selection_case) and options.url=='https://weread.qq.com/api/userInfo?userVid='..input.vid
                 and options.sensitive==true and options.diagnostic_api=='source_currentness'
                 and options.skip_cookie==true and options.persist_response_cookies==false
                 and h.Cookie==Cookie.to_header(cookies) and h['X-Vid']==input.vid and h['X-Skey']==cookies.wr_skey

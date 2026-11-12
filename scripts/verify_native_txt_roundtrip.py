@@ -118,7 +118,7 @@ def dispatch(web,native,credentials,session,store,receipt,plan,guest,stage,befor
     return store.advance(receipt,'advance_acknowledged','advance_verified') if stage=='native_txt_advance' else receipt
 
 
-def run(web,native,credentials,session,saved,store,report,*,apply=False,restore_only=False,resolving=False):
+def run(web,native,credentials,session,saved,store,report,*,apply=False,restore_only=False,resolving=False,planner=None,summary_method='slide_observed_window_once'):
     if restore_only or resolving:
         state,receipt=store.read()
         if not state or not store.pending():raise ValueError('txt_roundtrip/no_pending')
@@ -138,12 +138,12 @@ def run(web,native,credentials,session,saved,store,report,*,apply=False,restore_
         known=state['phase']!='advance_pending'
         store.advance(receipt,'restore_acknowledged' if known else 'restore_acknowledged_unverified_advance','retired' if known else 'restored_advance_unverified')
         report.update(result='NATIVE_TXT_ORIGINAL_RESTORED_ONCE',original_restoration_verified=True,prior_advance_success_claimed=known);return
-    plan,guest=make_plan(web,native,credentials,report)
+    plan,guest=(planner or make_plan)(web,native,credentials,report)
     web.verify_account();save_refreshed_web_session(session,saved,web)
     if digest(NativeSessionStore().load(web.vid))!=plan['grant_sha256']:raise ValueError('txt_roundtrip/grant')
     check(web,native,credentials,plan,plan['baseline'],refresh=True)
     report.update(result='NATIVE_TXT_ADJACENT_RESTORE_PLAN_VERIFIED',planned_posts=2,planned_read_seconds=0,full_summary_scalars=len(plan['baseline']['summary']),
-        summary_method='slide_observed_window_once',internal_whitespace_preserved=True,source_snapshot_only=plan['version']==0)
+        summary_method=summary_method,internal_whitespace_preserved=True,source_snapshot_only=plan['version']==0)
     if not apply:return
     receipt=store.reserve(plan)
     try:

@@ -27,7 +27,7 @@ def records():
 def envelope():
     stages=[stage(),stage('reopen')]
     for row in stages:row['native_source_excerpt']=dict(**dict.fromkeys(contract.FLAGS,True),background_workers=3,excerpts=3,failed_line=0,
-                                                     denied_shape=0,denied_checks=0,denied_api=0)
+                                                     denied_shape=0,denied_checks=0,denied_api=0,currentness_checks=int(row['mode']=='live'))
     return dict(report=dict(result='PASS',tmpfs_profile=True,profile_removed=True,stages=stages,runner_error='none',
                             installed_package=dict(files=275,bytes_match=True)),cookies=COOKIES.copy(),candidate_private=[records(),records()])
 
