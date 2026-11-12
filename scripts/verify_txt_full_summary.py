@@ -81,7 +81,7 @@ def run(web,session,saved,intent,report,apply=False):
         raise
 
 
-def resolve(web,intent,report):
+def resolve(web,intent,report,baseline_fingerprint=None):
     state,receipt=intent.read()
     if not state or state['phase'] not in ('enter_pending','same_pending'):raise ValueError('txt_full/no_pending')
     bound=state['plan']
@@ -89,7 +89,7 @@ def resolve(web,intent,report):
     if not web.find_sample(limit=16):raise ValueError('txt_full/no_sample')
     plan=prepare(web.inspect_plan())
     if (hashlib.sha256(web.sample['plain'].encode()).hexdigest()!=bound['source_sha256']
-            or digest(plan['baseline'])!=bound['baseline_sha256']):raise ValueError('txt_full/baseline_changed')
+            or (baseline_fingerprint or digest)(plan['baseline'])!=bound['baseline_sha256']):raise ValueError('txt_full/baseline_changed')
     for _i in range(2):web.exact(plan['baseline'],bound['shelf_sha256'])
     phase='closed_enter_unverified' if state['phase']=='enter_pending' else 'closed_same_unverified'
     intent.advance(receipt,state['phase'],phase)

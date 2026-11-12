@@ -43,3 +43,6 @@ python3 scripts/test_txt_full_summary.py
 python3 scripts/verify_txt_full_summary.py --saved-session
 # 已消耗 v1 不能再次 --apply；--resolve 仅适用于仍待核对的同一意图。
 ```
+
+后续[单次零时长尝试](txt-zero-time.md)使用现行官方配置读取 token，与本页旧会话试验隔离；
+仅发一次不同阶段请求，仍未确认成功并已只读收尾，生产上传继续关闭。

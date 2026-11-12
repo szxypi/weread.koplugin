@@ -126,7 +126,7 @@ class TrialTests(unittest.TestCase):
         with self.assertRaises(StoreError):store.read()
 
     def test_pending_time_trial_blocks_all_old_scope_exclusions(self):
-        factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
+        factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
         with ExitStack() as stack:
             mocks={name:stack.enter_context(patch.object(shared,name)) for name in factories}
             for factory in mocks.values():factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)

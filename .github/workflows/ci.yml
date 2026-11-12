@@ -202,6 +202,7 @@ jobs:
           python3 scripts/test_txt_reading.py
           python3 scripts/test_txt_cloud_position.py
           python3 scripts/test_txt_full_summary.py
+          python3 scripts/test_txt_zero_time.py
           python3 scripts/test_selection_quote.py
 
       - name: Bundled TLS trust store integrity
