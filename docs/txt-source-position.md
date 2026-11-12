@@ -61,3 +61,6 @@ KO2 分辨率增加 `--width 1264 --height 1680 --dpi 300`。表情参与文本�
 以及合成数据的[普通尺寸提示](validation-assets/2026-11-10/txt-source-position-600.png)、
 [KO2 分辨率提示](validation-assets/2026-11-10/txt-source-position-ko2.png)。两张提示截图已目视核对。
 当前未发现已连接的 Kindle USB 设备或挂载目录，实体 KO2 尚不可验收。
+
+2026-11-12 新增[云端位置只读预检](txt-cloud-position-preflight.md)：真实当前点与规范化摘要起点一致，但原摘要为 30 个标量，
+当前 20 标量编码器不能保证完整恢复，上传门槛保持关闭；未进行位置写入，完整摘要协议和实际往返仍待验证。
