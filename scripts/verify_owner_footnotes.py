@@ -76,7 +76,20 @@ def projected_catalog(chapters):
     return result
 
 
-def candidates(shelf,maximum):
+def selection_bounds(maximum,offset,cap,limit):
+    if type(maximum) is not int or not 1<=maximum<=cap or type(offset) is not int or not 0<=offset<limit:raise PreflightError('selection_invalid')
+
+
+def offset_argument(limit):
+    def parse(value):
+        if not isinstance(value,str) or not re.fullmatch(r'[0-9]{1,4}',value) or int(value)>=limit:
+            raise argparse.ArgumentTypeError('expected an integer between 0 and '+str(limit-1))
+        return int(value)
+    return parse
+
+
+def candidates(shelf,maximum,offset=0):
+    selection_bounds(maximum,offset,8,5000)
     rows=shelf.get('books') if isinstance(shelf,dict) else None
     if not isinstance(rows,list) or len(rows)>5000:raise PreflightError('shelf_invalid')
     seen=set();weighted=[]
@@ -94,20 +107,22 @@ def candidates(shelf,maximum):
             title=row.get('title') if isinstance(row.get('title'),str) else ''
             score=bool(re.search(r'古文|史记|文言|诗词|译注|注释|楚辞|论语|庄子|唐诗|宋词|文选|左传|资治',title))
             weighted.append((not score,len(weighted),uid))
-    return [value[2] for value in sorted(weighted)[:maximum]]
+    return [value[2] for value in sorted(weighted)[offset:offset+maximum]]
 
 
-def select_chapters(chapters,progress,maximum):
+def select_chapters(chapters,progress,maximum,offset=0):
+    selection_bounds(maximum,offset,4,10000)
     readable=[row for row in chapters if type(row.get('wordCount')) in (int,float) and row['wordCount']>0 and row.get('title')!='封面']
-    selected=[]
+    selected=[];seen=set()
     def add(row):
-        if row and row not in selected and len(selected)<maximum:selected.append(row)
+        if row and id(row) not in seen:
+            seen.add(id(row));selected.append(row)
     current=str(progress.get('chapter','')) if isinstance(progress,dict) else ''
     add(next((row for row in readable if str(row.get('chapterUid'))==current),None))
     for row in readable:
         if re.search(r'注释|注解|译注|尾注|notes?',str(row.get('title','')),re.I):add(row)
     for row in readable:add(row)
-    return selected
+    return selected[offset:offset+maximum]
 
 
 def decode_result(raw,payload):
@@ -130,13 +145,14 @@ class Probe(WebSourceProbe):
         if self.calls>192:raise PreflightError('request_limit')
         try:return super().request(stage,url,body,**kwargs)
         finally:time.sleep(.15)
-    def inspect_book(self,book_id,maximum):
+    def inspect_book(self,book_id,maximum,chapter_offset=0):
+        selection_bounds(maximum,chapter_offset,4,10000)
         self.book_id=identifier(book_id);self.chapter=None
         progress_url=BASE+'/web/book/getProgress?'+urlencode({'bookId':self.book_id})
         before=reading_position(self.request('progress_before',progress_url),self.book_id,allow_unstarted=True)
         record,chapters=normalize_chapter_infos(self.request('catalog_before',BASE+'/web/book/chapterInfos',{'bookIds':[self.book_id]}),self.book_id)
         catalog=projected_catalog(chapters);samples=[];scans=[]
-        for chapter in select_chapters(chapters,before,maximum):
+        for chapter in select_chapters(chapters,before,maximum,chapter_offset):
             self.chapter=identifier(chapter['chapterUid'])
             state=read_reader_state(self.request('reader',reader_url_for(self.book_id,self.chapter),as_json=False))
             if state.book_id!=self.book_id or str(state.current_chapter.get('chapterUid'))!=self.chapter or not state.psvts:raise PreflightError('reader_source_scope_mismatch')
@@ -166,13 +182,16 @@ def main(argv=None):
     parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--max-books',type=int,choices=range(1,9),default=4)
     parser.add_argument('--chapters-per-book',type=int,choices=range(1,5),default=4)
+    parser.add_argument('--book-offset',type=offset_argument(5000),default=0,metavar='0..4999')
+    parser.add_argument('--chapter-offset',type=offset_argument(10000),default=0,metavar='0..9999')
     parser.add_argument('--native',action='store_true')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if args.native and not args.lua_command:parser.error('--native requires --lua-command')
     if args.lua_command and not args.saved_session:parser.error('--lua-command requires --saved-session')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),samples=[],
-        account_data_writes_attempted=0,authentication_posts_attempted=0,private_data_on_regular_disk=False)
+        account_data_writes_attempted=0,authentication_posts_attempted=0,private_data_on_regular_disk=False,
+        book_offset=args.book_offset,chapter_offset=args.chapter_offset)
     probe=saved=store=None;reason=None
     try:
         if args.saved_session:
@@ -180,9 +199,9 @@ def main(argv=None):
             store=SessionStore();saved=store.load();probe=Probe();probe.vid=saved['vid']
             for key,value in saved['cookies'].items():probe.set_cookie(key,value)
             probe.verify_account()
-            books=candidates(probe.request('shelf',BASE+'/web/shelf/sync'),args.max_books)
+            books=candidates(probe.request('shelf',BASE+'/web/shelf/sync'),args.max_books,args.book_offset)
             for book_id in books:
-                payload,summary=probe.inspect_book(book_id,args.chapters_per_book)
+                payload,summary=probe.inspect_book(book_id,args.chapters_per_book,args.chapter_offset)
                 if args.lua_command:
                     encoded=json.dumps(payload,ensure_ascii=False).encode()
                     if len(encoded)>LIMIT:raise PreflightError('source_limit')
@@ -205,9 +224,12 @@ def main(argv=None):
             report.update(result='PASS' if report['samples'] else 'NO_SAMPLE',books=len(report['samples']))
     except Exception as exc:
         safe={'http_rejected','api_rejected','catalog_changed','progress_changed','reader_source_scope_mismatch','non_xhtml_source',
-              'catalog_invalid','catalog_ambiguous','source_limit','request_limit','no_readable_sample','lua_result_invalid','lua_failed','link_count_mismatch','native_note_mismatch','conversion_invalid'}
+              'connection_failed','request_timed_out','response_or_connection_invalid','catalog_invalid','catalog_ambiguous','source_limit','request_limit','no_readable_sample','lua_result_invalid','lua_failed','link_count_mismatch','native_note_mismatch','conversion_invalid'}
         reason=str(exc) if isinstance(exc,PreflightError) and str(exc) in safe else 'probe_failed'
         report.update(result='FAILED',reason=reason)
+        stages=probe.report['stages'] if probe else []
+        stage=stages[-1].get('stage') if stages else None
+        if stage in {'account','shelf','progress_before','progress_after','catalog_before','catalog_after','reader','e_0','e_1','e_3'}:report['failure_stage']=stage
     finally:
         if probe:
             if probe.authenticated:

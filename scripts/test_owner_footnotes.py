@@ -42,6 +42,67 @@ class FootnoteProbeTests(unittest.TestCase):
         chapters=[dict(chapterUid=1,title='封面',wordCount=1),dict(chapterUid=2,title='正文',wordCount=40),dict(chapterUid=3,title='注释',wordCount=40),dict(chapterUid=4,title='最近',wordCount=40)]
         self.assertEqual([row['chapterUid'] for row in probe.select_chapters(chapters,dict(chapter='4'),2)],[4,3])
 
+    def test_book_offset_applies_after_deduplication_and_priority(self):
+        shelf=dict(books=[dict(bookId='1'),dict(bookId='1'),dict(bookId='2',title='注释合成书'),dict(bookId='3'),dict(bookId='4',format='pdf')])
+        self.assertEqual(probe.candidates(shelf,1),['2'])
+        self.assertEqual(probe.candidates(shelf,2,1),['1','3'])
+        self.assertEqual(probe.candidates(shelf,8,3),[])
+
+    def test_successive_book_windows_do_not_repeat_candidates(self):
+        shelf=dict(books=[dict(bookId=str(value)) for value in range(1,22)])
+        windows=[probe.candidates(shelf,8,start) for start in (0,8,16)]
+        self.assertEqual([len(values) for values in windows],[8,8,5])
+        self.assertEqual(len(set(sum(windows,[]))),21)
+
+    def test_chapter_offset_applies_to_current_notes_then_rest(self):
+        chapters=[dict(chapterUid=1,title='封面',wordCount=1),dict(chapterUid=2,title='正文',wordCount=40),dict(chapterUid=3,title='注释',wordCount=40),dict(chapterUid=4,title='最近',wordCount=40)]
+        self.assertEqual([v['chapterUid'] for v in probe.select_chapters(chapters,dict(chapter='4'),2,1)],[3,2])
+        self.assertEqual(probe.select_chapters(chapters,dict(chapter='4'),4,3),[])
+
+    def test_invalid_selection_bounds_fail_before_any_book_request(self):
+        for maximum,offset in ((True,0),(0,0),(5,0),(1,True),(1,-1),(1,10000)):
+            web=probe.Probe()
+            with patch.object(web,'request') as request,self.assertRaises(probe.PreflightError):web.inspect_book('1',maximum,offset)
+            request.assert_not_called()
+        for maximum,offset in ((0,0),(9,0),(1,-1),(1,5000),(1,False)):
+            with self.assertRaises(probe.PreflightError):probe.candidates(dict(books=[]),maximum,offset)
+
+    def test_offset_cli_rejects_invalid_values_without_private_access(self):
+        for flag,value in (('--book-offset','5000'),('--chapter-offset','10000'),('--book-offset','-1'),('--chapter-offset','1.5')):
+            with patch.object(probe,'SessionStore') as store,patch('sys.stderr',io.StringIO()) as errors,self.assertRaises(SystemExit):probe.main([flag,value])
+            store.assert_not_called();self.assertLess(len(errors.getvalue()),1500)
+
+    def test_offset_offline_report_contains_only_selection_numbers(self):
+        with patch.object(probe,'SessionStore') as store,redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(probe.main(['--book-offset','8','--chapter-offset','4']),0)
+        store.assert_not_called();report=json.loads(output.getvalue());self.assertEqual((report['book_offset'],report['chapter_offset']),(8,4))
+
+    def test_saved_cli_forwards_offsets_and_empty_window_does_not_inspect(self):
+        for offset,expected in ((8,'9'),(10,None)):
+            with patch.object(probe.resource,'setrlimit'),patch.object(probe,'SessionStore') as store,patch.object(probe,'Probe') as factory,patch.object(probe,'save_refreshed_web_session',return_value=False),redirect_stdout(io.StringIO()) as output:
+                store.return_value.load.return_value=dict(vid='900000',cookies={})
+                web=factory.return_value;web.authenticated=True;web.calls=0;web.report={'stages':[]}
+                web.request.return_value=dict(books=[dict(bookId=str(i)) for i in range(1,10)])
+                web.inspect_book.return_value=({},dict(chapters=4))
+                code=probe.main(['--saved-session','--max-books','1','--book-offset',str(offset),'--chapter-offset','7'])
+            report=json.loads(output.getvalue())
+            if expected:
+                web.inspect_book.assert_called_once_with(expected,4,7)
+                self.assertEqual((code,report['result'],report['books']),(0,'PASS',1))
+            else:
+                web.inspect_book.assert_not_called();self.assertEqual((code,report['result'],report['books']),(1,'NO_SAMPLE',0))
+
+    def test_transport_failure_reports_only_fixed_reason_and_known_stage(self):
+        for stage in ('reader','synthetic-private-stage'):
+            with patch.object(probe.resource,'setrlimit'),patch.object(probe,'SessionStore') as store,patch.object(probe,'Probe') as factory,patch.object(probe,'save_refreshed_web_session',return_value=False),redirect_stdout(io.StringIO()) as output:
+                store.return_value.load.return_value=dict(vid='900000',cookies={})
+                web=factory.return_value;web.authenticated=True;web.calls=1;web.report={'stages':[dict(stage=stage)]}
+                web.request.side_effect=probe.PreflightError('request_timed_out')
+                self.assertEqual(probe.main(['--saved-session']),1)
+            report=json.loads(output.getvalue());self.assertEqual(report['reason'],'request_timed_out')
+            self.assertEqual(report.get('failure_stage'),'reader' if stage=='reader' else None)
+            self.assertNotIn('synthetic-private',output.getvalue())
+
     def test_html_scan_counts_entities_comments_and_media(self):
         scan=probe.Scan();scan.feed('<p id="中"><a href="a.xhtml#&#20013;" epub:type="noteref">[1]</a></p><!-- <a href="bad"> --><svg/><math/><table></table>')
         self.assertEqual(scan.links,['a.xhtml#中']);self.assertEqual((scan.noterefs,scan.media),(1,3))

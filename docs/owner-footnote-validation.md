@@ -66,3 +66,31 @@ KO2 尺寸为渲染器追加 `--width 1264 --height 1680 --dpi 300`。
 本批源章节没有普通锚点引用或外章原链接，不能据此确认真实跨章节链接。
 真实图片／公式／表格等复杂注释、更多编号与格式、实体 KO2、硬件休眠／断电和云同步组合仍待验收。
 相关已完成的合成导航见[单章导航说明](standalone-chapter-links.md)。
+
+## 分批扩展来源样本
+
+工具新增 `--book-offset 0..4999` 与 `--chapter-offset 0..9999`，默认为零，保持既有抽样方式。
+书籍偏移在格式筛选、去重和注释类书名优先排序之后应用；章节偏移在当前章、注释章、其他可读章的去重排序之后应用。
+每批仍最多八本、每本最多四章，网络请求／内存字节限制不变，不会因到达末尾自动从头重读。
+偏移针对本次书架排序；其他设备改动书架顺序后，不保证与历史批次完全无重叠。
+新增八项边界检查覆盖窗口去重／截断、章节优先级、非法值在请求前拒绝和离线报告；该文件现有 33 项检查全部通过。
+
+例如跳过当前排序前八本，读取下一批：
+
+```sh
+python3 scripts/verify_owner_footnotes.py --saved-session --max-books 8 \
+  --book-offset 8 --chapters-per-book 4 --native --lua-command \
+  docker exec -i -w /source weread-validation \
+  flock -x /validation/weread-native-ui.lock xvfb-run -a \
+  python3 scripts/run_owner_footnote_probe.py \
+  --koreader /validation/runtime/lib/koreader --candidate /path/to/candidate.zip
+```
+
+若选择范围没有可读内容，会明确返回空样本或失败，不把未读取的章节算作通过。
+
+2026-11-12 的[扩展实测](validation-assets/2026-11-12/owner-footnotes-expanded.json)在两个尺寸各检查当前排序第 9–16 本候选，共八本／32 章。
+每个尺寸实际打开六章原生阅读器，完成 40 条图标脚注的完整可见文字、弹窗、跳转和返回；其余章节仅完成转换及模型核对。
+另识别六个外部链接，未点击；样本没有原始跨文件链接，也不能证明复杂媒体脚注已验收。
+KO2 首轮在一次读取未取得 HTTP 状态时中断，原记录保留，具体异常未分型；新增固定传输原因／已知阶段诊断后，
+全新只读复验通过。成功的两轮各 163 次读取，均为 HTTP 200；所有尝试均零账号数据修改、零授权续期、无真实正文截图。
+候选包与当前 269 个生产文件逐字节一致，本轮没有修改生产逻辑。
