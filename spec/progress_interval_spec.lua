@@ -144,4 +144,21 @@ f.values.sync.upload_interval_minutes=0;f.sync.interval:reschedule();f.queue[1](
 expect(f.reads==0 and f.writes==0,'disabled queued comparison executed')
 f=fixture();f.verify();f.sync.source_state='unavailable';f.sync.get_source_position=function() return nil end;f.sync.interval:refresh()
 expect(not f.sync.interval.task and f.reads==0,'unavailable source kept polling cloud')
+f=fixture();f.point.basis='raw_txt_utf16';f.position.source_position=copy(f.point);f.remote.source='web'
+f.sync.prepare_upload=function(intent,callback)
+    expect(intent.native_position_only==true and intent.expected_remote.source=='web','TXT timer lost native route or cloud baseline')
+    callback{transport='native_position',basis='raw_txt_utf16',source_position=copy(f.point),
+        position={book_id='900001',chapter_uid='11',chapter_idx=0,chapter_offset=1000,percent=10},
+        is_current=function() return true end,dispatch=function(done)
+            f.writes=f.writes+1;f.deliver=done;return true
+        end}
+end
+f.verify();expect(f.sync.interval.task and f.sync.interval.due==160,'TXT source never armed a position deadline')
+f.advance(60);expect(f.reads==1 and f.writes==1 and f.sync.uploading,'TXT timer did not use asynchronous native dispatch')
+local remote=copy(f.remote);remote.chapter_offset=1000;remote.source='native'
+f.deliver(true,true,{acknowledged=true,position_confirmed=true,report_attempted=true,remote=remote})
+expect(not f.sync.uploading and not f.sync.dirty and not f.sync.interval.task and not f.journal:pending('900001'),
+    'TXT timer retained work or used Web dispatch state')
+f=fixture();f.point.basis='unknown';f.position.source_position=copy(f.point);f.verify()
+expect(not f.sync.interval.task,'unknown units enabled the timer')
 print(('progress_interval_spec: %d checks'):format(checks))

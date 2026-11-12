@@ -74,6 +74,9 @@ jobs:
       - name: Native renewal prototype checks
         run: python3 scripts/test_eink_renewal.py
 
+      - name: Native TXT reader boundary checks
+        run: python3 scripts/test_native_reader_position.py
+
       - name: Native shelf-write prototype checks
         run: |
           python3 scripts/test_eink_shelf_write.py

@@ -1,6 +1,7 @@
 -- One opt-in deadline per dirty, verified native reading session. A timer
 -- never catches up missed periods, wakes Wi-Fi, or replays an uncertain send.
 local Readback = require('weread.lib.progress_readback')
+local Source = require('weread.lib.position_source')
 local M = {}; M.__index = M
 local function copy(value)
     if type(value) ~= 'table' then return value end
@@ -46,7 +47,7 @@ function M:_eligible()
     -- deadline during capture, rather than postponing it on every page.
     point=point or sync.source_local_anchor
     return type(point)=='table' and point.book_id==sync.current_book_id
-        and point.basis=='filtered_xhtml_utf16' and point.upload_verified==false
+        and Source.is_coordinate_basis(point.basis) and point.upload_verified==false
 end
 function M:refresh()
     if not self:_eligible() then self:halt();return false end
