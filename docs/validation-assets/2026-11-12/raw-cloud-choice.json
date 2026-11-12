@@ -1,0 +1,212 @@
+{
+  "result": "REAL_RAW_CLOUD_CHOICE_AND_PRECISE_OFFLINE_REOPEN_VERIFIED",
+  "runtime": [
+    {
+      "scope": "synthetic",
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "mode": "live",
+      "result": "PASS",
+      "cloud_choice": true,
+      "sync_verified": true,
+      "raw_target": true,
+      "checkpoint_saved": true,
+      "initial_reopen_exact_point": false,
+      "offline_local_only": false,
+      "truthful_notice": true,
+      "native_denied": 0,
+      "http_requests": 34,
+      "workers_reaped": true
+    },
+    {
+      "scope": "synthetic",
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "mode": "reopen",
+      "result": "PASS",
+      "cloud_choice": false,
+      "sync_verified": false,
+      "raw_target": true,
+      "checkpoint_saved": false,
+      "initial_reopen_exact_point": true,
+      "offline_local_only": true,
+      "truthful_notice": false,
+      "native_denied": 0,
+      "http_requests": 0,
+      "workers_reaped": true
+    },
+    {
+      "scope": "synthetic",
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "mode": "live",
+      "result": "PASS",
+      "cloud_choice": true,
+      "sync_verified": true,
+      "raw_target": true,
+      "checkpoint_saved": true,
+      "initial_reopen_exact_point": false,
+      "offline_local_only": false,
+      "truthful_notice": true,
+      "native_denied": 0,
+      "http_requests": 40,
+      "workers_reaped": true
+    },
+    {
+      "scope": "synthetic",
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "mode": "reopen",
+      "result": "PASS",
+      "cloud_choice": false,
+      "sync_verified": false,
+      "raw_target": true,
+      "checkpoint_saved": false,
+      "initial_reopen_exact_point": true,
+      "offline_local_only": true,
+      "truthful_notice": false,
+      "native_denied": 0,
+      "http_requests": 0,
+      "workers_reaped": true
+    },
+    {
+      "scope": "real",
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "mode": "live",
+      "result": "PASS",
+      "cloud_choice": true,
+      "sync_verified": true,
+      "raw_target": true,
+      "checkpoint_saved": true,
+      "initial_reopen_exact_point": false,
+      "offline_local_only": false,
+      "truthful_notice": true,
+      "native_denied": 0,
+      "http_requests": 29,
+      "workers_reaped": true
+    },
+    {
+      "scope": "real",
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "mode": "reopen",
+      "result": "PASS",
+      "cloud_choice": false,
+      "sync_verified": false,
+      "raw_target": true,
+      "checkpoint_saved": false,
+      "initial_reopen_exact_point": true,
+      "offline_local_only": true,
+      "truthful_notice": false,
+      "native_denied": 0,
+      "http_requests": 0,
+      "workers_reaped": true
+    },
+    {
+      "scope": "real",
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "mode": "live",
+      "result": "PASS",
+      "cloud_choice": true,
+      "sync_verified": true,
+      "raw_target": true,
+      "checkpoint_saved": true,
+      "initial_reopen_exact_point": false,
+      "offline_local_only": false,
+      "truthful_notice": true,
+      "native_denied": 0,
+      "http_requests": 29,
+      "workers_reaped": true
+    },
+    {
+      "scope": "real",
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "mode": "reopen",
+      "result": "PASS",
+      "cloud_choice": false,
+      "sync_verified": false,
+      "raw_target": true,
+      "checkpoint_saved": false,
+      "initial_reopen_exact_point": true,
+      "offline_local_only": true,
+      "truthful_notice": false,
+      "native_denied": 0,
+      "http_requests": 0,
+      "workers_reaped": true
+    }
+  ],
+  "actual_account_data_posts": 0,
+  "actual_authentication_posts": 0,
+  "independent_raw_position_checkpoint_comparisons": 8,
+  "complete_web_native_position_summary_counts_version_shelf_preserved": true,
+  "raw_source_catalog_preserved": true,
+  "native_grant_unchanged": true,
+  "retired_real_trial_unchanged": true,
+  "all_profiles_removed": true,
+  "screenshots": 0,
+  "fixed": "Previously saved exact source point survived on disk but live source position reverted to page start on same-file reopen. Persist local point/account/native-view fingerprint and only restore on complete viewport match, then independent archive/render validation and native parent navigation. Offline remains unverified; no upload grant.",
+  "checks": {
+    "lua_groups": 255,
+    "python_files": 122,
+    "python_tests": 1557,
+    "python_skips": 0,
+    "new_python_tests": 13,
+    "source_view": 37,
+    "read_resume": 97,
+    "progress_sync": 631,
+    "lua_syntax_files": 724,
+    "luacheck_files": 722,
+    "luacheck_warnings": 0
+  },
+  "package": {
+    "files": 285,
+    "sha256": "ee7d0839180bac487352a46147c31ef99c4947d480e583af1cb3f49b5af27c67",
+    "source_and_installed_bytes_match": true
+  },
+  "regressions": {
+    "manual_timer_unknown_receipt_offline_reopen": "PASS",
+    "native_close": "PASS",
+    "legacy_xhtml_cloud_navigation": "PASS"
+  },
+  "limitations": [
+    "Physical Kindle Oasis 2, power-failure and multiple-device acceptance remain pending.",
+    "Unchanged-view precision only; changed or unknown view retains native position.",
+    "No new real data-write or authentication test was performed."
+  ],
+  "privacy": {
+    "result": "PASS",
+    "files": 1832,
+    "document_links_checked": 291,
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "old_consumed_scopes_retained": true,
+    "protected_roots_unchanged": true
+  }
+}

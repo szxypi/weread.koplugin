@@ -49,6 +49,18 @@ for _i,format in ipairs({'web_xhtml','web_txt'}) do
     local other_doc=select(2,fixture(format=='web_txt' and 'web_xhtml' or 'web_txt',7,'other'))
     expect(select(2,Resume.bind(other_doc,old))=='source_changed','different coordinate basis was rebound')
 end
+for _i,format in ipairs({'web_xhtml','web_txt'}) do
+    local position,doc=fixture(format,7,'same-package')
+    local frame={page=1,pos=0,view_mode='page',xpointer='/body/p/text().0',rendering_hash=12,pages=4,height=3200,viewport_height=800}
+    local owner=string.rep('a',20);local view=assert(require('weread.lib.source_view').capture(frame,owner,position))
+    local target=Resume.bind(doc,position,view,owner,frame)
+    expect(target and target.file_id==position.file_id and target.chapter_offset==position.chapter_offset and not target.upload_verified,
+        'unchanged same-file viewport lost exact local source point: '..format)
+    local moved=copy(frame);moved.page=2
+    expect(select(2,Resume.bind(doc,position,view,owner,moved))=='same_file','same-file restore overrode a changed native page')
+    expect(not Resume.bind(doc,position,view,string.rep('b',20),frame),'foreign owner reused saved source viewport')
+    expect(not Resume.bind(doc,position,nil,owner,frame),'legacy source point without viewport overrode native position')
+end
 local original=fixture('web_xhtml',7,'old')
 for _i,change in ipairs({{book_id='900002'},{chapter_uid=''},{chapter_uid='bad\nuid'},{chapter_offset=-1},
     {chapter_offset=0/0},{chapter_offset=math.huge},{chapter_offset=0.5},{book_version=-1},

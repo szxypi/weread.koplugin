@@ -7,6 +7,7 @@
 后续已增加[独立 TXT 原文分支](native-position-review.md#txt-的云端选择)：同书／章标记、两份原文分片、
 前后云端位置及原始 TXT UTF-16 模型分别核对；与下述 XHTML 模型按格式绑定，不能交叉解释。
 真实 Python／Lua／KOReader HTTPS 的完整 TXT 目标比较及两尺寸实际云端选择通过，实体 KO2 仍待验收。
+后续[真实账号完整界面与离线重开](raw-cloud-choice.md)也已通过；并修复同文件重开后精确原文锚点退回页面起点的问题。
 
 ## 协议验证先于接入
 

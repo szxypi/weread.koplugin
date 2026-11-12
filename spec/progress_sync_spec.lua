@@ -1318,6 +1318,9 @@ test("native source targets remain file bound and separate from legacy progress:
     f.document.getHTMLFromXPointers = function() return '<DocFragment Source="' .. path .. '"><body/>' end
     f.document.getNormalizedXPointer = function(_self, xp) return xp end
     f.document.getXPointer = function() return "viewport" end
+    f.document.getCurrentPos = function() return 0 end
+    f.document.getDocumentRenderingHash = function() return 12345 end
+    f.document.info={doc_height=8000};f.sync.get_viewport_height=function() return 800 end
     f.document.isXPointerInCurrentPage = function() return true end
     local position = { book_id = "book", chapter_uid = "22", chapter_offset = 32, file_id = identity.file_id,
         book_version = 7, raw_sha256 = original.raw_sha256, render_path = path,
@@ -1339,6 +1342,9 @@ test("native source targets remain file bound and separate from legacy progress:
     local captured = assert(f.sync:capture_local())
     eq(captured.chapter_offset, 150, "source target did not replace legacy wire units")
     eq(captured.source_position.chapter_offset, 32, "source target exposed independently")
+    eq(type(captured.source_view),'table','visible exact source target saved its local viewport proof')
+    eq(require('weread.lib.source_view').matches(captured.source_view,f.sync:_viewport(f.document),f.sync:_account_key(),captured.source_position),true,
+        'saved source viewport matches its account, native view and original point')
     eq(f.sync.verified, false, "local source jump did not grant cloud upload rights")
     local _, _, context = f.sync:capture_local()
     local cancelled = 0

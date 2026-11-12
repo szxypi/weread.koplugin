@@ -128,6 +128,9 @@ local ok,reason=pcall(function()
             assert(input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
                 and grant.accessToken=='mock-native-access' and grant.refreshToken=='mock-native-refresh')
             value.mock_endpoint='http://127.0.0.1:'..input.selection_mock_port
+        elseif input.cloud_mock_port then
+            assert(input.raw_cloud_preview and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key')
+            value.mock_endpoint='http://127.0.0.1:'..input.cloud_mock_port
         elseif input.reader_mock_port then
             local grant=input.native_grant
             assert((reader_trial_mode or close_trial_mode or native_recovery_mode) and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
@@ -176,6 +179,11 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
+    elseif input.raw_cloud_preview then
+        assert(input.native_source_excerpt==true and input.source_format=='web_txt' and not full and arg[2]
+            and arg[2]:match('/owner_cloud_source_case%.lua$'))
+        candidate_case=dofile(arg[2])(input,mode,counters)
+        report.cloud_source=candidate_case.report
     elseif native_recovery_mode then
         assert(input.source_format=='web_txt' and not full and arg[2] and arg[2]:match('/owner_native_recovery_case%.lua$'))
         candidate_case=dofile(arg[2])(input,counters)
@@ -224,7 +232,7 @@ local ok,reason=pcall(function()
     end
     local chapter_count=full and #input.full_manifest or 1
     local limits={2,60,math.max(8,2*chapter_count+4),4,math.max(12,6*chapter_count),full and 512 or 60}
-    if selection_case or reader_trial_mode or close_trial_mode or native_recovery_mode then limits={2,60,12,8,18,60} end
+    if selection_case or reader_trial_mode or close_trial_mode or native_recovery_mode or input.raw_cloud_preview then limits={2,60,12,8,18,60} end
     local resource_urls={}
     local protected_resources={}
     local function protected_resource(url)
@@ -636,6 +644,7 @@ local ok,reason=pcall(function()
         assert(checkpoint.file==document.file and document:isXPointerInCurrentPage(checkpoint.xpointer))
         assert(reader:getCurrentPage()==checkpoint.page)
     end
+    if candidate_case and candidate_case.reader_ready then candidate_case:reader_ready(plugin,reader,pump,source_index) end
     local origin=document:getXPointer()
     reader.rolling:onGotoXPointer(matches[1].start);tick()
     assert(document:isXPointerInCurrentPage(matches[1].start))

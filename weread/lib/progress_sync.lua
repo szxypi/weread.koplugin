@@ -555,6 +555,9 @@ function ProgressSync:capture_local()
     -- Keep source units separate from the existing word/percent contract.
     -- The local source snapshot is read-only until wire write/readback validation.
     if self.get_source_position then position.source_position = copy(self.get_source_position()) end
+    if position.source_position and self:current_source_target() then
+        position.source_view=require('weread.lib.source_view').capture(self:_viewport(document),self:_account_key(),position.source_position)
+    end
     if self.prepare_upload then position.summary=nil end
     position.book_id = book_id
     position.captured_at = self.now()

@@ -32,19 +32,22 @@ function M.from_book(book,owner)
     for _i,position in ipairs(Reading.local_positions(book,owner)) do
         if next(position) then
             local source=M.position(position.source_position,id)
-            if source and (position.chapter_uid==nil or tostring(position.chapter_uid)==source.chapter_uid) then return source end
+            if source and (position.chapter_uid==nil or tostring(position.chapter_uid)==source.chapter_uid) then return source,position.source_view end
             return nil -- A newer local point without source data must not revive an older point.
         end
     end
 end
-function M.bind(document,position)
+function M.bind(document,position,view,owner,frame)
     position=M.position(position,type(position)=='table' and position.book_id)
     if not position then return nil,'position_unavailable' end
     local snapshot=Source.document_metadata(document,position.book_id,position.chapter_uid)
     if not snapshot then return nil,'chapter_unavailable' end
     local record=snapshot.record
-    if record.file_id==position.file_id then return nil,'same_file' end
     if record.raw_sha256~=position.raw_sha256 or Source.coordinate_basis(record.format)~=position.basis then return nil,'source_changed' end
+    if record.file_id==position.file_id then
+        if record.book_version~=position.book_version or record.render_path~=position.render_path
+            or not require('weread.lib.source_view').matches(view,frame,owner,position) then return nil,'same_file' end
+    end
     local target={};for _i,key in ipairs(fields) do target[key]=position[key] end
     target.file_id,target.render_path,target.book_version=record.file_id,record.render_path,record.book_version
     return target
@@ -103,7 +106,7 @@ function M.open(host,path,book,dispatch)
         return (host.ui and host.ui.document)==document and (host._reader_session_gen or 0)==token.session
             and (not document or (marker(host)==token.marker and Context.same_location(token.location,Context.location(document,mode(host)))))
     end
-    local function launch(position)
+    local function launch(position,view)
         if not valid_parent(false) then return end
         position=M.position(position,id)
         if not position then host._read_resume_token=nil;dispatch();return end
@@ -122,7 +125,8 @@ function M.open(host,path,book,dispatch)
                 or account(next_host)~=owner or not next_host.settings:auth_scope_matches(auth)
                 or tostring(next_host:detectWeReadBook() or '')~=id or sync.navigation_generation~=0
                 or sync.pending_jump or sync.verified or next_host.cloud_source_request then return false end
-            local target,reason=M.bind(doc,position)
+            local viewport=view and sync._viewport and sync:_viewport(doc)
+            local target,reason=M.bind(doc,position,view,owner,viewport)
             if not target and reason~='source_changed' then return false end
             local started,frame=pcall(sync.begin_file_resume,sync)
             if not started or not frame then notify(next_host);return false end

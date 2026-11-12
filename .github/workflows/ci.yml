@@ -83,6 +83,7 @@ jobs:
           python3 scripts/test_native_reader_review.py
           python3 scripts/test_native_reader_recovery.py
           python3 scripts/test_owner_native_recovery.py
+          python3 scripts/test_owner_cloud_source.py
 
       - name: Native shelf-write prototype checks
         run: |
