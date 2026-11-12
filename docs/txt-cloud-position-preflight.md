@@ -34,3 +34,6 @@
 python3 scripts/test_txt_cloud_position.py
 python3 scripts/verify_txt_cloud_position.py --saved-session
 ```
+
+后续[完整摘要限定尝试](txt-full-summary.md)只发出会话建立请求，未确认成功即停止，零时长请求未发送。
+独立只读核对原始指纹一致后保留已消耗且未验证的记录；原实验没有改写为通过，生产上传仍未启用。

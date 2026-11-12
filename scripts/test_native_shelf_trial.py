@@ -173,7 +173,8 @@ class RecoveryTests(unittest.TestCase):
         with patch.object(shared,'AnnotationExperimentStore') as a,patch.object(shared,'FinishExperimentStore') as f,\
              patch.object(shared,'ShelfExperimentStore') as s,patch.object(shared,'PositionExperimentStore') as p,\
              patch.object(shared,'HighlightTrialStore') as h,patch.object(shared,'MarkStyleTrialStore') as style,\
-             patch.object(shared,'BookmarkTrialStore') as bookmarks,patch.object(shared,'NativeShelfTrialStore') as native,patch.object(shared,'NativeFinishTrialStore') as finish,patch.object(shared,'InitialMarkStyleStore') as initial,patch.object(shared,'MarkColorStore') as colors,patch.object(shared,'NonemptyMarksStore') as nonempty,patch.object(shared,'ReadtimeTrialStore') as readtime,patch.object(shared,'FlagTrialStore') as flags,patch.object(shared,'NativeFlagTrialStore') as native_flags:
+             patch.object(shared,'BookmarkTrialStore') as bookmarks,patch.object(shared,'NativeShelfTrialStore') as native,patch.object(shared,'NativeFinishTrialStore') as finish,patch.object(shared,'InitialMarkStyleStore') as initial,patch.object(shared,'MarkColorStore') as colors,patch.object(shared,'NonemptyMarksStore') as nonempty,patch.object(shared,'ReadtimeTrialStore') as readtime,patch.object(shared,'FlagTrialStore') as flags,patch.object(shared,'NativeFlagTrialStore') as native_flags,patch.object(shared,'TxtFullSummaryStore') as txt_full:
+            txt_full.return_value.pending.return_value=False
             flags.return_value.pending.return_value=native_flags.return_value.pending.return_value=False
             readtime.return_value.read.return_value=nonempty.return_value.read.return_value=initial.return_value.read.return_value=colors.return_value.read.return_value=(None,None)
             finish.return_value.pending.return_value=False
