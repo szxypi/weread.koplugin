@@ -57,3 +57,6 @@ python3 scripts/verify_native_position_lua.py --saved-session --lua-command \
   docker exec -i -w /validation/runtime/lib/koreader weread-validation \
   ./luajit /source/spec/koreader/native_position_protocol_probe.lua /source
 ```
+
+后续[后台服务与真实流程](native-position-service.md)已通过限定原生前移／恢复：两个明确成功回执和独立回读，
+原位置／完整摘要恢复。父进程取消和回执重开已有两种尺寸的进程验证；实际书籍阅读器与生产 SourceDispatch 仍待接入。

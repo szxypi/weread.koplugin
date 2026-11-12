@@ -11,6 +11,8 @@ from secure_shelf_experiment import canonical,Receipt
 from readtime_upload_model import integer
 from source_upload_candidate import identifier
 
+NATIVE_PROTOCOL='native-txt-lua-flow-zero-time-v1'
+
 POINT_FIELDS={'book_id','chapter_uid','chapter_idx','chapter_offset','raw_percent','summary'}
 HASH_FIELDS={'owner_sha256','source_sha256','grant_sha256','shelf_sha256','catalog_sha256'}
 PHASES={'prepared':0,'advance_pending':1,'advance_acknowledged':1,'advance_verified':1,'restore_pending':2,
@@ -46,7 +48,11 @@ def validate_plan(value,protocol):
 class NativeTxtRoundtripStore:
     service='org.codex.weread.goal-native-txt-roundtrip-v1'
     protocol='native-txt-adjacent-restore-zero-time-v1'
-    def __init__(self,backend=None,lock=None):
+    def __init__(self,backend=None,lock=None,*,native=False):
+        if type(native) is not bool:raise StoreError('txt_roundtrip/kind')
+        if native:
+            self.service='org.codex.weread.goal-native-txt-lua-flow-v1'
+            self.protocol=NATIVE_PROTOCOL
         self.backend=backend if backend is not None else MacKeychain(service=self.service,account=ACCOUNT)
         path=Path(tempfile.gettempdir())/('codex-native-txt-roundtrip-'+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)

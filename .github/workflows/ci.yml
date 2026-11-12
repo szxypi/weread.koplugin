@@ -206,6 +206,7 @@ jobs:
           python3 scripts/test_native_txt_position.py
           python3 scripts/test_native_txt_roundtrip.py
           python3 scripts/test_native_position_lua.py
+          python3 scripts/test_native_position_flow.py
           python3 scripts/test_selection_quote.py
 
       - name: Bundled TLS trust store integrity

@@ -139,7 +139,7 @@ def readtime_pending():
     return False
 
 
-def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclude_native_bookmark=False,exclude_native_shelf=False,exclude_native_finish=False,exclude_mark_color=False,exclude_txt_full_summary=False,exclude_txt_zero_time=False,exclude_native_txt=False,exclude_native_txt_roundtrip=False):
+def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclude_native_bookmark=False,exclude_native_shelf=False,exclude_native_finish=False,exclude_mark_color=False,exclude_txt_full_summary=False,exclude_txt_zero_time=False,exclude_native_txt=False,exclude_native_txt_roundtrip=False,exclude_native_txt_flow=False):
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
             or not exclude_native_shelf and NativeShelfTrialStore().pending()
             or not exclude_native_finish and NativeFinishTrialStore().pending()
@@ -147,6 +147,7 @@ def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclud
             or not exclude_txt_zero_time and TxtZeroTimeStore().pending()
             or not exclude_native_txt and NativeTxtPositionStore().pending()
             or not exclude_native_txt_roundtrip and NativeTxtRoundtripStore().pending()
+            or not exclude_native_txt_flow and NativeTxtRoundtripStore(native=True).pending()
             or InitialMarkStyleStore().read()[0] is not None
             or NonemptyMarksStore().read()[0] is not None
             or readtime_pending()

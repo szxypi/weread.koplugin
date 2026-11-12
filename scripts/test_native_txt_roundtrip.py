@@ -199,10 +199,16 @@ class DispatchTests(unittest.TestCase):
             factories={name:stack.enter_context(patch.object(shared,name)) for name in names}
             for factory in factories.values():factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)
             factories['NativeTxtRoundtripStore'].return_value.pending.return_value=True
+            ordinary=factories['NativeTxtRoundtripStore'].return_value;native=Mock();native.pending.return_value=False
+            factories['NativeTxtRoundtripStore'].side_effect=lambda *args,**kwargs:native if kwargs.get('native') else ordinary
             self.assertTrue(shared.other_pending());self.assertFalse(shared.other_pending(exclude_native_txt_roundtrip=True))
             for name in ('NativeTxtPositionStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeFlagTrialStore'):
                 factories[name].return_value.pending.return_value=True;self.assertTrue(shared.other_pending(exclude_native_txt_roundtrip=True))
                 factories[name].return_value.pending.return_value=False
+            native.pending.return_value=True
+            self.assertTrue(shared.other_pending(exclude_native_txt_roundtrip=True))
+            ordinary.pending.return_value=False
+            self.assertFalse(shared.other_pending(exclude_native_txt_flow=True))
 
 
 class FreshStateTests(unittest.TestCase):
