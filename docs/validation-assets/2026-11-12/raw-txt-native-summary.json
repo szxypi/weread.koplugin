@@ -1005,5 +1005,14 @@
     "native_preview": 114
   },
   "production_native_txt_upload_enabled": false,
-  "physical_device_verified": false
+  "physical_device_verified": false,
+  "test_isolation_repair": {
+    "first_ci_run": 43170074284,
+    "first_result": "failure",
+    "fixed_missing_keychain_mock_in_bookmark_contract": true,
+    "production_files_changed_by_repair": false,
+    "linux_python_files": 114,
+    "linux_python_tests": 1450,
+    "linux_python_skips": 0
+  }
 }
