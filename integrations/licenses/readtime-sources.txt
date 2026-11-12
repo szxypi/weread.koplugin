@@ -1,4 +1,4 @@
-Reading-time signature and native time-only report adapter
+Reading-time signature, native time-only adapter and TXT position prototype
 
 Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
 Source: https://github.com/miumiupy98-art/miuread-koreader/tree/c1893562aa25a870b8dd076d7be062a3348f823e

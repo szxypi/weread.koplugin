@@ -47,3 +47,6 @@ python3 scripts/test_txt_zero_time.py
 python3 scripts/verify_txt_zero_time.py --saved-session
 # 单次 v1 已消耗，不能再次 --apply。
 ```
+
+后续[原生 TXT 同位置协议](native-txt-position.md)使用独立墨水屏端点，已得到一次明确成功回执并核对原状态。
+该结果不改变本页 Web 试验的未验证结论；相邻位置与恢复及生产发送仍待完成。
