@@ -98,4 +98,8 @@ for _i,kind in ipairs({'accepted','delayed','noack','changed'}) do
     expect(kind~='delayed' or out.readbacks==3 and f.waits==2)
     f.run();expect(f.posts==1,'initial operation repeated')
 end
+-- Optional diagnostics expose a fixed label only, before any transport claim.
+f=fixture();f.options.diagnose_preflight=true;f.queue[2]=progress(after)
+out=f.run();expect(out.kind=='unavailable' and out.preflight_failure=='changed' and f.posts==0)
+f=fixture();f.queue[2]=progress(after);out=f.run();expect(out.preflight_failure==nil and f.posts==0)
 print('PASS native_position_task_spec '..checks)

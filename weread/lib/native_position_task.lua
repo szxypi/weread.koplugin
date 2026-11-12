@@ -78,6 +78,12 @@ function M.run(client,settings,selected,record,store,options)
     end)
     auth:cancel()
     if not ok and not out.attempted then
+        if options.diagnose_preflight==true then
+            out.preflight_failure='other'
+            for _i,tag in ipairs({'changed','shelf_changed','version','metadata','stale','pending','claim','response','counts'}) do
+                if type(reason)=='string' and reason:find('native_position/'..tag,1,true) then out.preflight_failure=tag;break end
+            end
+        end
         out.kind=M.expired(reason) and 'login' or 'unavailable'
         if out.kind=='login' then out.authentication_expired=true end
     end

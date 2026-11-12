@@ -7,7 +7,7 @@ from txt_full_summary import digest
 from readtime_upload_model import zone
 
 FLAGS={'permit_writes','source_reference','manual_controls','source_plan','local_commit','sqlite_before_posts','dispatch_blocked','no_automatic_initialization'}
-COUNTS={'native_gets':40,'native_posts':1,'blocked_posts':1,'native_denied':32,'last_native_status':599,'acknowledged':1,'steps':1,'failed_line':10000}
+COUNTS={'native_gets':40,'native_posts':1,'blocked_posts':1,'native_denied':32,'last_native_status':599,'acknowledged':1,'steps':1,'preflight_failure':10,'failed_line':10000}
 
 
 def validate_payload(value,armed,mock_port=None):
@@ -50,7 +50,7 @@ def validate_stage(stage,armed,complete=True):
             or a['phase'] not in ('init','manual','complete') or any(type(a[k]) is not bool for k in FLAGS)
             or any(type(a[k]) is not int or not 0<=a[k]<=cap for k,cap in COUNTS.items())):raise ValueError('initial_reader/stage')
     reading_stage({k:v for k,v in stage.items() if k!='native_initial_reader'},'live',selection_preview=True)
-    if complete and (stage['result']!='PASS' or a['phase']!='complete' or a['failed_line'] or a['native_denied']
+    if complete and (stage['result']!='PASS' or a['phase']!='complete' or a['failed_line'] or a['native_denied'] or a['preflight_failure']
             or not all(a[k] for k in ('source_reference','manual_controls','source_plan','sqlite_before_posts'))
             or a['steps']!=(1 if armed else 0) or a['native_posts']!=(1 if armed else 0) or a['acknowledged']!=(1 if armed else 0)
             or a['blocked_posts']!=(0 if armed else 1) or a['dispatch_blocked'] is armed

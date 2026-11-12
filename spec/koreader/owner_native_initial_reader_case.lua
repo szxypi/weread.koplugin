@@ -7,7 +7,7 @@ return function(input,counters)
     local trial,plan=input.native_initial_reader,input.native_initial_reader.plan
     local case={report={phase='init',permit_writes=trial.armed,source_reference=false,manual_controls=false,
         source_plan=false,no_automatic_initialization=false,local_commit=false,sqlite_before_posts=false,dispatch_blocked=false,
-        native_gets=0,native_posts=0,blocked_posts=0,native_denied=0,last_native_status=0,acknowledged=0,steps=0,failed_line=0}}
+        native_gets=0,native_posts=0,blocked_posts=0,native_denied=0,last_native_status=0,acknowledged=0,steps=0,preflight_failure=0,failed_line=0}}
     local parent=tonumber(ffi.C.getpid())
     local function clone(value) return json.decode(json.encode(value)) end
     local function rpc(kind,seq,extra)
@@ -90,6 +90,14 @@ return function(input,counters)
         end
         jump(plan.target);self.report.source_reference=true;self.report.phase='manual';counters[27]=1
         local uploader=plugin.source_upload;local original_prepare=uploader.prepare
+        local task=require('weread.lib.native_position_task');self.original_task_run=task.run
+        task.run=function(client,settings,selected,record,store,options)
+            options.diagnose_preflight=true
+            local out=self.original_task_run(client,settings,selected,record,store,options)
+            local failures={changed=1,shelf_changed=2,version=3,metadata=4,stale=5,pending=6,claim=7,response=8,counts=9,other=10}
+            counters[30]=failures[out.preflight_failure] or 0
+            return out
+        end
         uploader:_native().service.task_options.zone=trial.time_zone
         uploader.prepare=function(active,intent,callback)
             return original_prepare(active,intent,function(prepared,reason)
@@ -141,6 +149,8 @@ return function(input,counters)
         end
     end
     function case:finish(reason)
+        if self.original_task_run then require('weread.lib.native_position_task').run=self.original_task_run end
+        self.report.preflight_failure=tonumber(counters[30])
         if self.original_credentials then require('weread.lib.native_credentials').new=self.original_credentials end
         self.report.native_gets,self.report.native_posts,self.report.native_denied=tonumber(counters[23]),tonumber(counters[24]),tonumber(counters[25])
         self.report.blocked_posts,self.report.last_native_status,self.report.acknowledged=tonumber(counters[26]),tonumber(counters[28]),tonumber(counters[29])

@@ -34,7 +34,7 @@ def payload(armed=True,prepare=False):
 def result(armed):
     s=reading_stage();a={k:True for k in FLAGS}
     a.update(phase='complete',permit_writes=armed,local_commit=armed,dispatch_blocked=not armed,native_gets=12,native_posts=1 if armed else 0,
-             blocked_posts=0 if armed else 1,native_denied=0,last_native_status=200,acknowledged=1 if armed else 0,steps=1 if armed else 0,failed_line=0)
+             blocked_posts=0 if armed else 1,native_denied=0,last_native_status=200,acknowledged=1 if armed else 0,steps=1 if armed else 0,preflight_failure=0,failed_line=0)
     s['native_initial_reader']=a
     return dict(result='PASS',profile_removed=True,installed=dict(files=287,bytes_match=True),stage=s,cookies=dict(wr_vid='900000',wr_skey='mock_key'))
 
