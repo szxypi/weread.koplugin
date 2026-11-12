@@ -62,3 +62,6 @@ python3 scripts/test_native_txt_roundtrip.py
 # 原生 v1 的两个槽位均已消耗；不得重新 --apply 或 --restore-only。
 # --resolve 仅读取尚待核对的同一意图，不发送修改。
 ```
+
+后续[Lua 原生核心](native-position-core.md)已迁入协议、单次任务和 SQLite 回执记录；
+真实两份完整请求与 Python 一致，候选模块和数据库测试通过，尚未执行真实 Lua 修改或接入生产 TXT 入口。

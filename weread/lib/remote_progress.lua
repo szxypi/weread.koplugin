@@ -86,4 +86,12 @@ function M.project(data,book_id,source)
     if ok then return result,nil,provided end
     return nil,reasons[result] and result or 'progress_invalid'
 end
+function M.node(data,book_id)
+    local ok,result=pcall(function()
+        local id=identity(book_id);if not id then fail('progress_book_mismatch') end
+        return find_node(data,id)
+    end)
+    if ok then return result end
+    return nil,reasons[result] and result or 'progress_invalid'
+end
 return M
