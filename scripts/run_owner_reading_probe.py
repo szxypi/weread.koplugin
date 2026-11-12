@@ -38,6 +38,7 @@ def main(argv=None):
     addons = parser.add_mutually_exclusive_group()
     addons.add_argument('--cb-reading', action='store_true')
     addons.add_argument('--cb-full-book', action='store_true')
+    parser.add_argument('--cb-sync-limit',action='store_true')
     parser.add_argument('--diagnostic-read-pacing', action='store_true')
     addons.add_argument('--annotations', action='store_true')
     addons.add_argument('--annotation-recovery', action='store_true')
@@ -49,6 +50,7 @@ def main(argv=None):
     addons.add_argument('--selection-thought-preview', action='store_true')
     parser.add_argument('--mock-port',type=int)
     args = parser.parse_args(argv)
+    if args.cb_sync_limit and not args.cb_reading:parser.error('--cb-sync-limit requires --cb-reading')
     if args.native_routing_preview and not args.native_source_excerpt:parser.error('native routing preview requires TXT excerpt mode')
     if args.mock_port is not None and (not args.selection_thought_preview or not 1<=args.mock_port<=65535):
         parser.error('--mock-port requires --selection-thought-preview and a valid loopback port')
@@ -91,7 +93,10 @@ def main(argv=None):
                 or args.cb_full_book != (payload.get('cb_full_book') is True)
                 or args.cb_full_book and 'full_manifest' not in payload):
             raise ValueError('input_limit')
+        if args.cb_sync_limit != (payload.get('cb_sync_limit_preview') is True):raise ValueError('input_limit')
         decoder = decode_envelope
+        if args.cb_sync_limit:
+            from cb_sync_limit_contract import decode_envelope as decoder
         if args.annotations:
             from owner_annotation_contract import decode
             decoder = decode
@@ -149,6 +154,8 @@ def main(argv=None):
             for mode in (('live',) if args.progress_preview or args.progress_roundtrip else ('live', 'reopen')):
                 payload['cookies'] = cookies
                 command = [str(runtime / 'luajit'), str(probe), mode]
+                if args.cb_sync_limit:
+                    command.append(str(probe.with_name('owner_cb_sync_limit_case.lua')))
                 if args.annotations:
                     command.append(str(probe.with_name('owner_annotations_case.lua')))
                 if args.annotation_recovery:
@@ -204,7 +211,7 @@ def main(argv=None):
                     full_hash = current_hash
                     inspected['fresh_offline_package_identical'] = mode == 'reopen'
                     report['full_book'] = inspected
-            if args.selection_thought_preview or args.native_source_excerpt:
+            if args.selection_thought_preview or args.native_source_excerpt or args.cb_sync_limit:
                 report['installed_package']=check_installed(args.candidate,profile)
             report['result'] = 'PASS'
     except subprocess.TimeoutExpired:

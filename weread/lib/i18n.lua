@@ -1,6 +1,7 @@
 local I18n = {}
 
 local zh = {
+    ["Cloud progress sync is not supported for this book yet. Your local reading position is kept."] = "本书暂不支持云端进度同步，已保留本机阅读位置。",
     ["Sync current position"] = "同步当前阅读位置",
     ["WeRead has no chapter position for \"%1\" yet. Sync the current KOReader position to begin cloud progress? Later automatic syncing starts only after this position is confirmed."] = "微信读书尚无《%1》的章节位置。是否将当前 KOReader 阅读位置同步到云端？位置确认成功后，才会开启后续自动同步。",
     ["WeRead has no chapter position for “%1”. Archiving keeps the old request result and your local position; it does not resend or undo anything. A delayed cloud change may still arrive."] = "微信读书尚无《%1》的章节位置。封存会保留上次请求结果和本机位置，不重发或撤销请求；服务端仍可能稍后变化。",

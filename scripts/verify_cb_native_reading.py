@@ -22,12 +22,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-index', type=int, choices=range(1, 9))
+    parser.add_argument('--sync-limit',action='store_true')
     parser.add_argument('--full-book', action='store_true')
     parser.add_argument('--diagnostic-read-pacing', action='store_true',
                         help='Full-book diagnostic only: delay each native Reader/content read by one second')
     parser.add_argument('--progress-file', type=Path)
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if args.sync_limit and (not args.saved_session or args.full_book):parser.error('--sync-limit requires single CB reading')
     if args.diagnostic_read_pacing and not (args.saved_session and args.full_book):
         parser.error('--diagnostic-read-pacing requires --saved-session --full-book')
     if args.progress_file and not (args.saved_session and args.full_book): parser.error('--progress-file requires --saved-session --full-book')
@@ -42,7 +44,11 @@ def main(argv=None):
         if args.saved_session:
             def progress(value):
                 if args.progress_file: args.progress_file.write_text(json.dumps(value)+'\n')
-            store, web = SessionStore(), (CbFullReadingProbe(progress=progress) if args.full_book else CbReadingProbe())
+            if args.sync_limit:
+                from verify_cb_cloud_position import Web as CbSyncProbe
+                from cb_sync_limit_contract import decode_envelope as decoder
+            else:CbSyncProbe=CbReadingProbe;decoder=decode_envelope
+            store, web = SessionStore(), (CbFullReadingProbe(progress=progress) if args.full_book else CbSyncProbe())
             saved = store.load(); web.vid = saved['vid']
             for key, value in saved['cookies'].items(): web.set_cookie(key, value)
             web.verify_account(); prepared = web.prepare(args.book_index); sample = prepared if args.full_book else prepared[0]; web.verify_account()
@@ -56,6 +62,7 @@ def main(argv=None):
                       'shelf_ids', 'shelf_books')
             payload = {key: sample[key] for key in fields}
             payload.update(cb_reading=True, vid=web.vid, cookies=cookies)
+            if args.sync_limit:payload['cb_sync_limit_preview']=True
             chapters=1
             if args.full_book:
                 payload.update(cb_full_book=True,full_manifest=sample['full_manifest'],protected_resource_urls=sample['protected_resource_urls'])
@@ -65,7 +72,7 @@ def main(argv=None):
             if len(encoded) > 256 * 1024: raise ValueError('input_limit')
             if args.full_book:progress(dict(phase='native',completed=chapters,total=chapters))
             child = subprocess.run(args.lua_command, input=encoded, capture_output=True, timeout=1100 if args.full_book else 360)
-            envelope = decode_envelope(child.stdout, web.vid, cb_reading=True,cb_full_book=args.full_book,full_chapters=chapters)
+            envelope = decoder(child.stdout, web.vid, cb_reading=True,cb_full_book=args.full_book,full_chapters=chapters)
             report['ui'] = envelope['report']
             if any(stage['shelf_books'] != sample['shelf_books'] for stage in report['ui']['stages']):
                 raise ValueError('native_scope_changed')
@@ -75,7 +82,12 @@ def main(argv=None):
             after = CbReadingProbe(); after.vid = web.vid; after.book_id = web.book_id; after.allowed = {web.book_id}
             for key, value in envelope['cookies'].items(): after.set_cookie(key, value)
             after.verify_account()
-            observed = baseline_position(after.request('progress_after', BASE + '/web/book/getProgress?bookId=' + web.book_id), web.book_id)
+            raw_after=after.request('progress_after', BASE + '/web/book/getProgress?bookId=' + web.book_id)
+            observed = baseline_position(raw_after, web.book_id)
+            if args.sync_limit:
+                from cb_cloud_position import observed as snapshot
+                report['full_cloud_state_unchanged']=snapshot(raw_after,web.book_id,sample['chapters'],'web')==snapshot(web.progress[(web.book_id,'progress_before')],web.book_id,sample['chapters'],'web')
+                if not report['full_cloud_state_unchanged']:raise ValueError('native_scope_changed')
             after.verify_account()
             report['native_rotation_saved'] = save_refreshed_web_session(store, saved, after)
             report['cloud_position_unchanged'] = observed == sample['baseline']

@@ -6,7 +6,7 @@ import unittest
 from native_reader_fixture import NativeReaderServer,BOOK_ID,GRANT,GUEST,COUNTS,chapter_txt
 from native_txt_read_model import body
 from txt_coordinates import PlainSource
-from run_native_reader_position import decode,FRAME,FLAGS
+from run_native_reader_position import decode,decode_diagnostic,FRAME,FLAGS
 
 
 def wire():
@@ -49,6 +49,13 @@ class ReaderPositionTests(unittest.TestCase):
         self.assertEqual(self.server.route('GET','https://i.weread.qq.com/book/info?bookId='+BOOK_ID,{})[1]['version'],0)
         self.assertEqual(self.server.route('GET','https://i.weread.qq.com/book/getProgress?bookId='+BOOK_ID,{})[1],self.server.snapshot())
         with self.assertRaises(ValueError):self.server.route('GET','https://i.weread.qq.com/book/getProgress?bookId=41',{})
+    def test_synthetic_failure_diagnostic_has_no_private_or_unbounded_fields(self):
+        v=dict(reason='source_position_changed',verified=True,state='error',numeric_book=True,source_basis='raw_txt_utf16')
+        frame=lambda value:b'WEREAD_SYNTHETIC_SYNC_DIAGNOSTIC='+json.dumps(value).encode()+b'\n'
+        self.assertEqual(decode_diagnostic(frame(v)),v)
+        for change in ({'summary':'private'},{'reason':'raw private error'},{'verified':1},{'source_basis':'unknown'},{'state':'private'}):
+            bad=dict(v,**change);self.assertIsNone(decode_diagnostic(frame(bad)))
+        self.assertIsNone(decode_diagnostic(frame(v)*2));self.assertIsNone(decode_diagnostic(b'malformed'))
     def test_live_complete_proof_requires_native_and_no_web_route(self):
         value=stage();self.assertEqual(decode(FRAME+json.dumps(value).encode(),'live'),value)
         for key,bad in [('native_posts',2),('web_posts',1),('failed_line',True),('timed',False),('reader_from_shelf',False),('extra','private')]:

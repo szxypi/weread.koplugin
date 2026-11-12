@@ -34,6 +34,19 @@ def decode(raw,mode):
     return r
 
 
+def decode_diagnostic(out):
+    marker=b'WEREAD_SYNTHETIC_SYNC_DIAGNOSTIC='
+    if not isinstance(out,bytes) or out.count(marker)!=1:return None
+    try:v=json.loads(out.split(marker)[1].split(b'\n',1)[0])
+    except Exception:return None
+    reasons={'source_position_changed','source_currentness_unavailable','source_no_visible_text','source_data_unavailable','source_cancelled','source_book_sync_unsupported','other'}
+    if (not isinstance(v,dict) or set(v)!={'reason','verified','state','numeric_book','source_basis'} or v['reason'] not in reasons
+            or type(v['verified']) is not bool or type(v['numeric_book']) is not bool
+            or v['state'] not in ('error','verified','unverified','offline','uploading','awaiting_choice','pulling','idle','waiting','unsupported')
+            or v['source_basis'] not in ('raw_txt_utf16','filtered_xhtml_utf16','none')):return None
+    return v
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--koreader',required=True,type=Path);p.add_argument('--candidate',required=True,type=Path)
     p.add_argument('--width',type=int,default=600);p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
@@ -60,6 +73,8 @@ def main(argv=None):
                 before=server.request_totals.copy()
                 code,out,repaint=run_child([str(runtime/'luajit'),str(probe),mode],env,b'',runtime,timeout=180)
                 stage=decode(out,mode);report['stages'].append(stage)
+                diagnostic=decode_diagnostic(out)
+                if diagnostic is not None:report['diagnostic']=diagnostic
                 if mode=='reopen':
                     report['offline_requests']=sum((server.request_totals-before).values())
                     if report['offline_requests']:raise ValueError('native_reader/offline_requests')

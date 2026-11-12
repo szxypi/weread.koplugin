@@ -578,7 +578,29 @@ function ProgressSync:capture_local()
     }
 end
 
+-- CB_ XHTML cloud units have not yet been correlated with the current
+-- source model. Keep local reading usable without scheduling doomed uploads.
+local function cb_book(book_id) return type(book_id)=='string' and book_id:sub(1,3)=='CB_' end
+function ProgressSync:_unsupported_book(book_id,position,manual)
+    book_id=tostring(book_id)
+    local active=tostring(self.detect_book() or '')==book_id
+    if active then
+        self.current_book_id=book_id;self.checkpoint_account=self:_account_key()
+        self.interval:halt();self.verified,self.verified_at,self.verified_reason=false,nil,'progress_book_sync_unsupported'
+        self.state='unverified'
+    end
+    local patch={verified_at=false,verified_source='progress_book_sync_unsupported',last_sync_error='progress_book_sync_unsupported'}
+    if type(position)=='table' and tostring(position.book_id)==book_id then
+        if active then self.local_position=copy(position) end
+        patch.last_local_position=position
+    end
+    self:_persist(book_id,patch)
+    if manual and active then self.notify('pull_failed',{error='progress_book_sync_unsupported'}) end
+    return false
+end
+
 function ProgressSync:_mark_verified(book_id, reason, local_position, remote)
+    if cb_book(tostring(book_id)) then return self:_unsupported_book(book_id,local_position,false) end
     self.current_book_id = tostring(book_id)
     self.checkpoint_account = self:_account_key()
     self.verified = true
@@ -769,6 +791,12 @@ end
 
 function ProgressSync:_apply_remote(remote, context, options)
     options = options or {}
+    if cb_book(context.book_id) then
+        local point=self:capture_local()
+        if point and point.book_id==context.book_id then point=self:checkpoint_local('unsupported_cloud_jump') end
+        self:_unsupported_book(context.book_id,point,false)
+        return false,'source_book_sync_unsupported'
+    end
     -- Park the latest movement before revoking writes. A rejected target or
     -- failed engine navigation or chapter download must not lose this checkpoint.
     self:checkpoint_local("cloud_navigation")
@@ -870,6 +898,11 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         pending_upload_reason = reason or "unspecified",
         pending_upload_account = scope.account,
     })
+    if cb_book(book_id) then
+        self:_unsupported_book(book_id,position,false)
+        if show_result and self:_session_current(scope) then self.notify('upload_failed',{error='source_book_sync_unsupported'}) end
+        return false
+    end
     -- Capture the latest location even while an older immutable snapshot is
     -- waiting on the time reporter. Its eventual acknowledgement may only
     -- remove that older snapshot, never this new one.
@@ -1165,6 +1198,7 @@ end
 
 function ProgressSync:_resolve(local_position, remote, context, options)
     options = options or {}
+    if cb_book(context.book_id) then return self:_unsupported_book(context.book_id,local_position,options.manual) end
     self.local_position = copy(local_position)
     self.remote_position = copy(remote)
     local comparison = PositionMapper.compare(
@@ -1308,6 +1342,9 @@ function ProgressSync:_pull(options)
             end
             return false
         end
+    end
+    if local_position and cb_book(local_position.book_id) then
+        return self:_unsupported_book(local_position.book_id,local_position,options.manual)
     end
     if not self.settings:is_api_configured()
         and not self.settings:is_cookie_configured() then

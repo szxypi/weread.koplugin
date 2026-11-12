@@ -182,6 +182,9 @@ jobs:
           python3 scripts/test_cb_metadata.py
           python3 scripts/test_cb_reading.py
           python3 scripts/test_cb_native_reading.py
+          python3 scripts/test_cb_cloud_position.py
+          python3 scripts/test_cb_source_lens.py
+          python3 scripts/test_cb_sync_limit.py
           python3 scripts/test_cb_full_reading.py
           python3 scripts/test_my_cloud_marks.py
           python3 scripts/test_my_mark_target.py

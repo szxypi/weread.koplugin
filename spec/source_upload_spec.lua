@@ -96,4 +96,8 @@ expect(not plan and reason=='source_format_unsupported' and cancelled==before_ca
 raw_intent.native_position_only=true;begin(raw_intent)
 expect(plan.transport=='native_position' and routed==1,'explicit zero-time request did not route natively')
 upload:on_view_changed();expect(views==1)
+local previous_callbacks=#callbacks
+local unsupported=copy(intent);unsupported.book_id='CB_SyntheticOnly';unsupported.source_position.book_id=unsupported.book_id
+expect(not begin(unsupported) and reason=='source_book_sync_unsupported','CB upload masqueraded as temporary source failure')
+expect(#callbacks==previous_callbacks and not upload.job and not plan,'CB upload performed source preparation')
 print(('source_upload_spec: %d checks'):format(checks))

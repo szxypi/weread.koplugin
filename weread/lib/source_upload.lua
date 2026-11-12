@@ -55,6 +55,9 @@ function M:prepare(intent,callback)
         self:_finish(self.job,nil,'source_cancelled')
     end
     if type(intent)~='table' then callback(nil,'source_position_unavailable');return false end
+    if type(intent.book_id)=='string' and intent.book_id:sub(1,3)=='CB_' then
+        callback(nil,'source_book_sync_unsupported');return false
+    end
     local point=intent.source_position
     if intent.native_position_only==true and type(point)=='table' and point.basis=='raw_txt_utf16' then
         return self:_native():prepare(intent,callback)

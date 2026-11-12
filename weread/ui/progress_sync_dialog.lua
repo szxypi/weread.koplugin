@@ -57,7 +57,9 @@ function ProgressSyncDialog.notify(code, data)
     elseif code == "upload_unconfirmed" then
         text = _("The cloud position could not be confirmed.\nYour local position is kept. This upload will not be sent again automatically. Please sync again later to compare positions.")
     elseif code == "upload_failed" then
-        if data.error=='source_authentication_unavailable' then
+        if data.error=='source_book_sync_unsupported' then
+            text=_("Cloud progress sync is not supported for this book yet. Your local reading position is kept.")
+        elseif data.error=='source_authentication_unavailable' then
             text=_("Could not restore login for checking this position. Your local position is kept. Please check login and sync again.")
         elseif data.error=='source_remote_changed' then
             text=_("The cloud position changed while preparing this upload. Your local position is kept. Sync again to compare positions.")
@@ -80,7 +82,9 @@ function ProgressSyncDialog.notify(code, data)
     elseif code == "local_kept" then
         text = _("Kept the current KOReader position.")
     elseif code == "pull_failed" then
-        if data.error=='progress_authentication_unavailable' then
+        if data.error=='progress_book_sync_unsupported' then
+            text=_("Cloud progress sync is not supported for this book yet. Your local reading position is kept.")
+        elseif data.error=='progress_authentication_unavailable' then
             text=_("Could not restore login for checking this position. Your local position is kept. Please check login and sync again.")
         elseif data.error=='progress_no_chapter' then
             text=_("WeRead has no chapter position for this book yet. Your local reading position is kept. First-time cloud sync is not available yet.")
@@ -95,8 +99,10 @@ function ProgressSyncDialog.notify(code, data)
             text = T(_("Could not fetch WeRead progress:\n%1"), tostring(data.error or ""))
         end
     elseif code == "jump_failed" then
-        text = T(_("Could not jump to WeRead progress:\n%1"),
-            tostring(data.error or ""))
+        if data.error=='source_book_sync_unsupported' then
+            text=_("Cloud progress sync is not supported for this book yet. Your local reading position is kept.")
+        else text = T(_("Could not jump to WeRead progress:\n%1"),
+            tostring(data.error or "")) end
     elseif code == "local_unavailable" then
         if data.error=='source_preparation_timeout' or data.error=='source_position_unavailable' then
             text=_("Reading position is temporarily unavailable. Please try again shortly.")

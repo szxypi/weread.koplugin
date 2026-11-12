@@ -203,6 +203,10 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
+    elseif input.cb_sync_limit_preview then
+        assert(input.cb_sync_limit_preview==true and cb_reading and not full and arg[2] and arg[2]:match('/owner_cb_sync_limit_case%.lua$'))
+        candidate_case=dofile(arg[2])(input,mode,counters)
+        report.cb_sync_limit=candidate_case.report
     elseif input.initial_plan_preview then
         assert(input.initial_plan_preview==true and input.native_source_excerpt==true and input.source_format=='web_txt'
             and mode=='live' and not full and arg[2] and arg[2]:match('/owner_initial_plan_case%.lua$'))

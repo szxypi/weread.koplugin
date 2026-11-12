@@ -198,6 +198,69 @@ test('source no-chapter marker keeps local intent and overrides an older gateway
     eq(f.notifications[#f.notifications].data.error,'progress_no_chapter','no-chapter status lacked its specific notice')
 end)
 
+local function cb_fixture()
+    local source={book_id='CB_SyntheticOnly',chapter_uid='22',chapter_offset=150,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=7,render_path='chapter.xhtml'}
+    local f=fixture({bookId=source.book_id,progress=25,chapterUid=22,chapterIdx=2,chapterOffset=150},
+        {book_id=source.book_id,get_source_position=function() return source end})
+    f.source=source;f.remote_reads=0;f.prepares=0
+    f.client.get_progress=function() f.remote_reads=f.remote_reads+1;error('unsupported CB fetched cloud position') end
+    f.client.get_web_progress=f.client.get_progress
+    f.sync.prepare_upload=function() f.prepares=f.prepares+1;error('unsupported CB prepared upload') end
+    f.sync.current_book_id=source.book_id;f.sync.dirty=true;f.sync:checkpoint_local('cb_prior_local')
+    f.values.sync.upload_interval_minutes=1;return f
+end
+
+test('unsupported CB sync preserves local intent, reports its limit and does not start remote work',function()
+    local f=cb_fixture();local id=f.source.book_id
+    for _i=1,2 do
+        eq(f.sync:sync_now(),false,'unsupported sync was accepted');f.drain()
+        eq(f.sync.verified,false,'CB point gained unproven cloud authority');eq(f.sync.state,'unverified','CB state became transient error')
+        eq(#f.choices,0,'unverified CB units offered a cloud jump');eq(f.remote_reads,0,'CB retry fetched known unsupported units')
+        eq(f.prepares,0,'CB retry prepared a doomed upload');eq(f.sync.interval.task,nil,'CB retry scheduled automatic upload')
+        eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'CB pending point erased')
+        eq(f.notifications[#f.notifications].data.error,'progress_book_sync_unsupported','missing stable limit notice')
+    end
+    f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update();f.sync:checkpoint_local('cb_new_local')
+    eq(f.values.books[id].last_local_position.source_position.chapter_offset,151,'CB guard broke local reading')
+end)
+
+test('automatic CB opening and resume stay local without retry tasks',function()
+    local f=cb_fixture();f.sync:on_reader_ready();f.drain()
+    eq(f.remote_reads,0,'CB automatic opening fetched unsupported cloud coordinates')
+    eq(#f.notifications,0,'automatic opening repeatedly showed notices')
+    eq(f.sync.verified,false,'CB opening became verified');eq(f.sync.interval.task,nil,'CB opening armed timer')
+    f.sync:on_resume();f.drain();eq(f.remote_reads,0,'CB resume retried unsupported sync')
+end)
+
+test('stale CB authority cannot upload on close, qualify a report, or apply an old cloud target',function()
+    local f=cb_fixture();local id=f.source.book_id;local point=assert(f.sync:capture_local())
+    eq(f.sync:_mark_verified(id,'stale_test',point,{}),false,'CB comparison qualified unsupported coordinates')
+    local _,why=f.sync:position_for_report(id);eq(why,'progress_unverified','CB time report gained authority')
+    f.sync.verified=true;f.sync.dirty=true;f.sync:on_close_document()
+    eq(f.prepares,0,'closing CB prepared unsupported write');eq(#f.uploads,0,'closing CB sent a legacy report')
+    f=cb_fixture()
+    local ok,reason=f.sync:_apply_remote({book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=170,percent=25},
+        {book_id=id,book=f.values.books[id],chapters=chapters})
+    eq(ok,false,'old CB target was applied');eq(reason,'source_book_sync_unsupported','CB target did not explain its limit')
+    eq(#f.jumps,0,'CB guard jumped to guessed source units')
+    eq(f.values.books[id].pending_upload_position.source_position.chapter_offset,150,'CB jump erased local point')
+end)
+
+test('a closed unsupported book cannot revoke a newer reader or copy its point into the wrong book',function()
+    local f=cb_fixture();local id=f.source.book_id;local old=assert(f.sync:capture_local())
+    f.sync.detect_book=function() return '900001' end;f.sync.current_book_id='900001';f.sync.verified=true
+    local timer=function() end;f.sync.interval.task=timer;f.notifications={}
+    eq(f.sync:_upload_snapshot(old,'old_closed_book',true),false,'old CB upload was accepted')
+    eq(f.sync.current_book_id,'900001','old CB replaced current book');eq(f.sync.verified,true,'old CB revoked current verification')
+    eq(f.sync.interval.task,timer,'old CB halted current timer')
+    eq(f.values.books[id].last_local_position.book_id,id,'old book checkpoint got a foreign point')
+    f.sync.capture_local=function() return {book_id='900001',percent=40} end
+    f.sync:_apply_remote({book_id=id},{book_id=id})
+    eq(f.values.books[id].last_local_position.book_id,id,'old jump copied current point into a different book')
+    eq(f.sync.current_book_id,'900001','old jump replaced current book')
+end)
+
 local function first_fixture()
     local source={book_id='41',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
         file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}

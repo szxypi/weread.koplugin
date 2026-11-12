@@ -126,7 +126,14 @@ local ok,reason=pcall(function()
     end
     local function move()
         clean(reader);reader.rolling:onGotoPage(reader:getCurrentPage()==2 and 1 or 2)
-        pump(function() return plugin.source_position:current()~=nil end)
+        local previous,settled
+        pump(function()
+            local point=plugin.source_position:current();local local_point=point and sync:capture_local()
+            if not point or not local_point or not local_point.source_position then previous,settled=nil,nil;return false end
+            local key=point.chapter_offset..':'..local_point.percent..':'..reader.document:getXPointer()
+            if key~=previous then previous,settled=key,socket.gettime() end
+            return socket.gettime()-settled>=.2
+        end)
         assert(plugin.source_position:current().basis=='raw_txt_utf16')
     end
     if arg[1]=='initial' then
@@ -137,7 +144,14 @@ local ok,reason=pcall(function()
     assert(plugin:onWeReadSyncProgress());pump(function() return not sync.pulling end)
     local choice=assert(UI:getTopmostVisibleWidget());assert(choice.cancel_text==require('weread.lib.plugin_util').tr('Keep KOReader progress'))
     choice.cancel_callback();UI:close(choice);pump(function() return not sync.uploading end)
-    local saved=plugin.settings:get_book(id);local uploaded=assert(saved.last_uploaded_position)
+    local saved=plugin.settings:get_book(id)
+    if not saved.last_uploaded_position then
+        local reason=type(saved.last_sync_error)=='string' and saved.last_sync_error or ''
+        reason=reason:match('^source_[a-z_]+$') or reason:match('^upload_[a-z_]+$') or 'other'
+        io.stdout:write('\nWEREAD_SYNTHETIC_SYNC_DIAGNOSTIC='..json.encode{reason=reason,verified=sync.verified,state=sync.state,
+            numeric_book=tostring(id):match('^[1-9]%d*$')~=nil,source_basis=local_before.source_position and local_before.source_position.basis or 'none'}..'\n')
+    end
+    local uploaded=assert(saved.last_uploaded_position)
     assert(counters[0]==1 and not saved.pending_upload_position and sync.verified and uploaded.wire_basis=='raw_txt_utf16')
     assert(saved.last_local_position.chapter_offset==local_before.chapter_offset and uploaded.source_position.chapter_offset==local_before.source_position.chapter_offset)
     assert(not uploaded.summary and not saved.last_local_position.summary and not saved.last_remote_position.summary)
