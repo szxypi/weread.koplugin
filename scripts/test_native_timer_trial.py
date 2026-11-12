@@ -155,7 +155,7 @@ class TimerTrialTests(unittest.TestCase):
         import verify_native_thought_trial as shared
         names=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore',
                'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore',
-               'NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','InitialMarkStyleStore','NonemptyMarksStore',
+               'NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore',
                'ReadtimeTrialStore','MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
         with ExitStack() as context:
             factories={name:context.enter_context(patch.object(shared,name)) for name in names}

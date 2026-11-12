@@ -64,7 +64,7 @@ class NativePrivateTests(unittest.TestCase):
     def test_both_private_intents_block_all_existing_exclusion_modes(self):
         import verify_native_thought_trial as shared
         factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore',
-            'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore',
+            'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore',
             'InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
         with ExitStack() as stack:
             mocks={key:stack.enter_context(patch.object(shared,key)) for key in factories}

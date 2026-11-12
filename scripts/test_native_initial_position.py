@@ -151,7 +151,7 @@ class InitialPositionTests(unittest.TestCase):
         import verify_native_thought_trial as shared
         names=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore',
                'FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore',
-               'NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','InitialMarkStyleStore','NonemptyMarksStore',
+               'NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore',
                'ReadtimeTrialStore','MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
         with ExitStack() as stack:
             factories={n:stack.enter_context(patch.object(shared,n)) for n in names}
