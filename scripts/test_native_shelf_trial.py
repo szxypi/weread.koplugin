@@ -192,6 +192,7 @@ class RecoveryTests(unittest.TestCase):
             native_txt=contexts.enter_context(patch.object(shared,'NativeTxtPositionStore'))
             native_txt_roundtrip=contexts.enter_context(patch.object(shared,'NativeTxtRoundtripStore'))
             contexts.enter_context(patch.object(shared,'RawTxtExcerptStore')).return_value.pending.return_value=False
+            contexts.enter_context(patch.object(shared,'NativeReaderTrialStore')).return_value.pending.return_value=False
             native_txt.return_value.pending.return_value=native_txt_roundtrip.return_value.pending.return_value=False
             txt_zero.return_value.pending.return_value=False
             txt_full.return_value.pending.return_value=False

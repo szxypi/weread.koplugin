@@ -75,7 +75,9 @@ jobs:
         run: python3 scripts/test_eink_renewal.py
 
       - name: Native TXT reader boundary checks
-        run: python3 scripts/test_native_reader_position.py
+        run: |
+          python3 scripts/test_native_reader_position.py
+          python3 scripts/test_native_reader_trial.py
 
       - name: Native shelf-write prototype checks
         run: |

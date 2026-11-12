@@ -6,7 +6,8 @@ require('setupkoenv')
 local ffi=require('ffi');require('ffi/posix_h')
 local json=require('json')
 local trial_mode=arg[1]=='selection-trial'
-local mode=trial_mode and 'live' or arg[1]
+local reader_trial_mode=arg[1]=='native-reader-trial'
+local mode=(trial_mode or reader_trial_mode) and 'live' or arg[1]
 local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_auth=false,transport_guard_selftest=false,
     plugin_selection=false,native_reader=false,source_text_visible=false,source_receipt_verified=false,page_turn=false,position_checkpoint=false,
     local_source_position_verified=false,source_navigation_roundtrip=false,source_dialog_verified=false,legacy_progress_units_preserved=false,
@@ -22,18 +23,26 @@ local progress_case,progress_private
 local candidate_case,candidate_private
 local selection_case,selection_private
 local trial_input
+local reader_trial_input
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
     assert(ffi.os=='Linux' and home:match('^/dev/shm/weread%-reading%-[%w_]+/profile$'))
     local raw
-    if trial_mode then
+    if trial_mode or reader_trial_mode then
         local length=assert(io.stdin:read('*l'));assert(#length<=6 and length:match('^[1-9]%d*$') and tonumber(length)<=256*1024)
         raw=assert(io.stdin:read(tonumber(length)));assert(#raw==tonumber(length))
     else raw=assert(io.stdin:read(256*1024+1)) end
     assert(#raw<=256*1024)
     local input=json.decode(raw)
     assert((input.selection_trial~=nil)==trial_mode)
+    assert((input.native_reader_trial~=nil)==reader_trial_mode)
+    if reader_trial_mode then
+        reader_trial_input=input
+        assert(input.native_source_excerpt==true and type(input.native_reader_trial.rpc_token)=='string'
+            and #input.native_reader_trial.rpc_token==32 and input.native_reader_trial.rpc_token:match('^[a-f0-9]+$'))
+        assert(type(input.native_reader_trial.armed)=='boolean' and input.native_reader_trial.armed==(os.getenv('WEREAD_NATIVE_READER_ARMED')=='1'))
+    end
     if trial_mode then
         trial_input=input
         assert(type(input.selection_trial.rpc_token)=='string' and #input.selection_trial.rpc_token==32
@@ -102,6 +111,11 @@ local ok,reason=pcall(function()
             assert(input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
                 and grant.accessToken=='mock-native-access' and grant.refreshToken=='mock-native-refresh')
             value.mock_endpoint='http://127.0.0.1:'..input.selection_mock_port
+        elseif input.reader_mock_port then
+            local grant=input.native_grant
+            assert(reader_trial_mode and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
+                and grant.accessToken=='synthetic-native-access' and grant.refreshToken=='synthetic-native-refresh')
+            value.mock_endpoint='http://127.0.0.1:'..input.reader_mock_port
         end
         local flush=value.store.flush
         local secrets={'account','cookies','api_key','wr_ticket','wr_wrpa','device_fingerprint'}
@@ -145,6 +159,11 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
+    elseif reader_trial_mode then
+        assert(input.native_source_excerpt==true and input.source_format=='web_txt' and not full and arg[2]
+            and arg[2]:match('/owner_native_reader_trial_case%.lua$'))
+        candidate_case=dofile(arg[2])(input,counters)
+        report.native_reader_trial=candidate_case.report
     elseif input.native_source_excerpt then
         assert(input.native_source_excerpt==true and input.source_format=='web_txt' and not full
             and arg[2] and arg[2]:match('/owner_native_excerpt_case%.lua$'))
@@ -179,7 +198,7 @@ local ok,reason=pcall(function()
     end
     local chapter_count=full and #input.full_manifest or 1
     local limits={2,60,math.max(8,2*chapter_count+4),4,math.max(12,6*chapter_count),full and 512 or 60}
-    if selection_case then limits={2,60,12,8,18,60} end
+    if selection_case or reader_trial_mode then limits={2,60,12,8,18,60} end
     local resource_urls={}
     local protected_resources={}
     local function protected_resource(url)
@@ -738,7 +757,10 @@ for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
     report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
 end
-if trial_input then
+if reader_trial_input then
+    local value=json.encode{report=report,cookies=latest_cookies or {}};assert(#value<=16384)
+    io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..reader_trial_input.native_reader_trial.rpc_token..'_RESULT='..value..'\n')
+elseif trial_input then
     local value=json.encode{report=report,cookies=latest_cookies or {}};assert(#value<=16384)
     io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..trial_input.selection_trial.rpc_token..'_RESULT='..value..'\n')
 else
