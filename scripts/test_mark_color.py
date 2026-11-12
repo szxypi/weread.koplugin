@@ -186,7 +186,7 @@ class ColorTests(unittest.TestCase):
     def test_pending_palette_cannot_be_bypassed_by_any_other_trial_exclusion(self):
         import verify_native_thought_trial as task
         factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore',
-            'NativeFinishTrialStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
+            'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
         with ExitStack() as stack:
             mocks={k:stack.enter_context(patch.object(task,k)) for k in factories}
             for value in mocks.values():value.return_value.pending.return_value=False;value.return_value.read.return_value=(None,None)

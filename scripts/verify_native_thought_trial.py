@@ -31,6 +31,8 @@ from secure_finish_experiment import FinishExperimentStore
 from secure_shelf_experiment import ShelfExperimentStore
 from secure_native_shelf_trial import NativeShelfTrialStore
 from secure_native_finish_trial import NativeFinishTrialStore
+from secure_shelf_flag_trial import FlagTrialStore
+from secure_native_shelf_flag_trial import NativeFlagTrialStore
 from secure_position_experiment import ExperimentStore as PositionExperimentStore
 from verify_annotation_experiment import AnnotationProbe
 
@@ -137,6 +139,7 @@ def other_pending(*,exclude_native_highlight=False,exclude_bookmark=False,exclud
     return (any(item.pending() for item in (AnnotationExperimentStore(),FinishExperimentStore(),ShelfExperimentStore(),PositionExperimentStore()))
             or not exclude_native_shelf and NativeShelfTrialStore().pending()
             or not exclude_native_finish and NativeFinishTrialStore().pending()
+            or FlagTrialStore().pending() or NativeFlagTrialStore().pending()
             or InitialMarkStyleStore().read()[0] is not None
             or NonemptyMarksStore().read()[0] is not None
             or readtime_pending()

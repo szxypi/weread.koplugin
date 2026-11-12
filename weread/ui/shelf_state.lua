@@ -1,4 +1,4 @@
--- Read-only account snapshot. Refresh reuses the existing guarded shelf job.
+-- Cached account snapshot and independently verified cloud changes.
 local Flags=require('weread.lib.shelf_flags')
 local UIManager=require('ui/uimanager')
 local Util=require('weread.lib.plugin_util')
@@ -14,6 +14,7 @@ local function current(host,owner)
         and owner.parent==host._book_detail_view
 end
 function M.cancel(host)
+    if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end
     if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
     local menu=host._shelf_state_menu;host._shelf_state_menu=nil
@@ -72,6 +73,16 @@ function M.show(host,id)
             end}
         end
     end
+    if host.client and host.library_db.open and id:match('^[1-9]%d*$') and #id<=20 then
+        items[#items+1]={text=_('Change private reading'),callback=function()
+            if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id) end
+        end}
+        if require('weread.ui.shelf_flag_change').pending(host) then
+            items[#items+1]={text=_('Check pending private-reading change'),callback=function()
+                if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id,true) end
+            end}
+        end
+    end
     items[#items+1]={text=_('Refresh shelf status'),callback=function()
         if host._shelf_state_menu~=menu or not current(host,owner) then return end
         if host.shelf_refreshing then host:showInfo(_('The bookshelf is already refreshing. Please wait.'));return end
@@ -95,6 +106,7 @@ function M.show(host,id)
         local on_close=menu.onCloseWidget
         menu.onCloseWidget=function(instance,...)
             if host._shelf_state_menu==instance then
+                if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
                 if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end
                 if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
                 host._shelf_state_menu=nil

@@ -194,6 +194,8 @@ jobs:
           python3 scripts/test_finish_roundtrip.py
           python3 scripts/test_finish_receipts.py
           python3 scripts/test_finish_change.py
+          python3 scripts/test_shelf_flag_change.py
+          python3 scripts/test_native_shelf_flag_trial.py
           python3 scripts/test_resolve_finish_experiment.py
           python3 scripts/test_annotation_source_quotes.py
           python3 scripts/test_txt_reading.py

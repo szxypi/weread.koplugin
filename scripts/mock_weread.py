@@ -196,6 +196,8 @@ class MockServer(ThreadingHTTPServer):
         self.shelf_added = {}
         self.finish_fixture = False
         self.finished_marks = {}
+        self.private_fixture = False
+        self.private_flags = {}
         self.finished_release = threading.Event()
         self.finished_held = False
         self.selection_fixture=False
@@ -232,6 +234,9 @@ class MockServer(ThreadingHTTPServer):
             with self.lock:marks=self.finished_marks.copy()
             readable_books=[dict(book,secret=book.get('secret',0) if book.get('secret',0) in (0,1) else 0,
                                  **({'finishReading':marks[book['bookId']]} if book['bookId'] in marks else {})) for book in readable_books]
+        if self.private_fixture:
+            with self.lock:private=self.private_flags.copy()
+            readable_books=[dict(book,secret=private.get(book['bookId'],0)) for book in readable_books]
         url = urlsplit(target)
         path = url.path
         query = parse_qs(url.query)
@@ -420,6 +425,12 @@ class MockServer(ThreadingHTTPServer):
                 if set(query)!={'bookId'} or query['bookId']!=[book_id] or not any(row['bookId']==book_id for row in BOOKS):
                     raise ValueError('invalid native finished-mark position query')
                 return 200,self.get_progress(book_id)
+            if self.private_fixture and path=='/book/secret' and method=='POST':
+                if (query or set(data)!={'bookIds','private'} or data['bookIds']!=[BOOK_ID]
+                        or type(data['private']) is not int or data['private'] not in (0,1)
+                        or BOOK_ID in self.shelf_removed):raise ValueError('invalid single-book private-reading request')
+                with self.lock:self.private_flags[BOOK_ID]=data['private']
+                return 200,dict(succ=1)
             if self.finish_fixture and path=='/book/markstatus' and method=='POST':
                 if (query or set(data)!={'bookId','auto','finishInfo','status','isCancel'} or type(data['bookId']) is not str
                         or not any(row['bookId']==data['bookId'] for row in BOOKS) or data['bookId'] in self.shelf_removed

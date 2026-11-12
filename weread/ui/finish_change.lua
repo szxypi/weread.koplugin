@@ -39,6 +39,14 @@ local function message(reason)
 end
 function M.open(host,id,resolving)
     M.cancel(host)
+    if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
+    local private_pending,private_error=require('weread.ui.shelf_flag_change').pending(host)
+    if private_pending then
+        host:showInfo(_('A previous private-reading change is unconfirmed. Check it before making another change.'));return false
+    end
+    if private_error=='storage' then
+        host:showInfo(_('Could not prepare or save this private-reading change. Check E-Ink login, network and storage, then try again.'));return false
+    end
     if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
     local member_pending,member_error
     if host.shelf_membership then member_pending,member_error=host.shelf_membership:pending() end
