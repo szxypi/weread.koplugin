@@ -5,7 +5,8 @@ from urllib.parse import urlsplit
 from native_reader_fixture import NativeReaderServer,GRANT,BOOK_ID,chapter_txt
 from txt_coordinates import PlainSource
 
-MODES=('snapshot','prewrite','feature','second','post','unknown','foreign','cancel','save','save-sync','changed','close-snapshot','close-prewrite')
+MODES=('snapshot','prewrite','feature','second','post','unknown','foreign','cancel','save','save-sync','changed',
+       'close-snapshot','close-prewrite','timer-snapshot','timer-prewrite','offline','account','suspend')
 
 
 class NativeRecoveryServer(NativeReaderServer):
@@ -20,7 +21,7 @@ class NativeRecoveryServer(NativeReaderServer):
         if url.hostname=='i.weread.qq.com' and mode:
             if url.path=='/book/info' and method=='GET':
                 self.info_reads+=1
-                at=2 if mode in ('prewrite','close-prewrite') else 1
+                at=2 if mode in ('prewrite','close-prewrite','timer-prewrite') else 1
                 expired=(mode not in ('feature','post') and self.expiries==0 and self.info_reads==at
                          or mode=='second' and self.auth_posts and self.expiries==1)
                 if expired:self.expiries+=1;return 401,dict(errcode=-1)

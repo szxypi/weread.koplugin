@@ -19,7 +19,8 @@
 后续已补齐[关书后的独立来源交接](native-source-close.md)及[待确认记录恢复入口](native-position-review.md)。
 随后[真实关书往返](native-close-trial.md)通过，恢复在阅读器保持关闭时完成，不依赖原生文档句柄。
 后续[发送前原生授权恢复](native-source-recovery.md)也已接入：仅依据本次实际 HTTP 401 续期一次，
-重新核对来源和原生状态，不延长旧计划有效期，无写后自动续期或重发；完整真实自动续期仍待验收。
+重新核对来源和原生状态，不延长旧计划有效期，无写后自动续期或重发。
+后续[真实阅读器自然过期验收](native-source-recovery-acceptance.md)已完成一次授权申请、重新准备及独立核对，零真实位置修改。
 
 ## 验收
 

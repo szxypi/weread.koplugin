@@ -6,18 +6,18 @@ import time
 import unittest
 from types import SimpleNamespace
 from native_source_recovery_fixture import NativeRecoveryServer, MODES, GRANT, BOOK_ID
-from run_native_reader_recovery import decode, check_server, FRAME, FLAGS, RECOVERY_FLAGS, SUCCESS
+from run_native_reader_recovery import decode, check_server, FRAME, FLAGS, RECOVERY_FLAGS, SUCCESS, CANCELLED
 from test_native_reader_position import wire
 
 
 def stage(kind):
     success = kind in SUCCESS
-    pending = kind in ('cancel', 'unknown', 'foreign')
+    pending = kind in (*CANCELLED, 'unknown', 'foreign')
     flags = {key: key in ('manual', 'original_local_units', 'summary_not_in_checkpoints',
                          'parent_only_document', 'workers_reaped', 'reader_from_shelf', 'source_workers') for key in FLAGS}
     detail = {key: False for key in RECOVERY_FLAGS}
     detail.update(kind=kind, confirmed=success, fresh_source=success, closed=kind.startswith('close-'),
-                  cancelled=kind == 'cancel', save_only=kind in ('save', 'save-sync'),
+                  cancelled=kind in CANCELLED, save_only=kind in ('save', 'save-sync'), timer_triggered=kind.startswith('timer-'),
                   unknown_not_replayed=kind == 'post', local_kept=not success and kind != 'post',
                   renewal_pending=pending, no_closed_document_calls=True, workers_reaped=True,
                   grant_revision=1 if kind == 'post' else 2 if pending else 3,

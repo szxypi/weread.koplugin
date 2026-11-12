@@ -137,7 +137,7 @@ local ok,reason=pcall(function()
     if arg[1]=='recovery' then
         report.recovery_case={kind=assert(os.getenv('WEREAD_NATIVE_RECOVERY_CASE')),confirmed=false,fresh_source=false,closed=false,
             cancelled=false,save_only=false,unknown_not_replayed=false,local_kept=false,grant_revision=0,renewal_pending=false,
-            source_passes=0,auth_posts=0,expired_responses=0,no_closed_document_calls=false,workers_reaped=false,failed_line=0}
+            source_passes=0,auth_posts=0,expired_responses=0,no_closed_document_calls=false,workers_reaped=false,timer_triggered=false,failed_line=0}
         dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'native_reader_recovery_case.lua')(
             reader,plugin,pump,clean,counters,pids,report.recovery_case)
         report.source_workers,report.workers_reaped=true,true

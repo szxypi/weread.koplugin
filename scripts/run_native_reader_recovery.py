@@ -15,9 +15,10 @@ from run_owner_reading_probe import check_installed
 from run_persistent_ui_probe import extract_candidate,run_child
 
 CASES=MODES
-RECOVERY_FLAGS={'confirmed','fresh_source','closed','cancelled','save_only','unknown_not_replayed','local_kept','renewal_pending','no_closed_document_calls','workers_reaped'}
+RECOVERY_FLAGS={'confirmed','fresh_source','closed','cancelled','save_only','unknown_not_replayed','local_kept','renewal_pending','no_closed_document_calls','workers_reaped','timer_triggered'}
 RECOVERY_COUNTS={'grant_revision':3,'source_passes':2,'auth_posts':1,'expired_responses':2,'failed_line':10000}
-SUCCESS=('snapshot','prewrite','feature','save','save-sync','close-snapshot','close-prewrite')
+SUCCESS=('snapshot','prewrite','feature','save','save-sync','close-snapshot','close-prewrite','timer-snapshot','timer-prewrite')
+CANCELLED=('cancel','offline','account','suspend')
 
 
 def decode(raw,kind):
@@ -30,17 +31,18 @@ def decode(raw,kind):
             or r['result'] not in ('PASS','UNVERIFIED') or r['phase'] not in ('init','manual','timer','cancel','unknown','complete')
             or any(type(r[k]) is not bool for k in FLAGS) or any(type(r[k]) is not int or not 0<=r[k]<=cap for k,cap in COUNTS.items())):raise ValueError('native_recovery/schema')
     success=kind in SUCCESS
-    pending=kind in ('cancel','unknown','foreign')
+    pending=kind in (*CANCELLED,'unknown','foreign')
     if r['result']=='PASS' and (r['phase']!='complete' or r['failed_line'] or a['failed_line'] or r['web_posts']
             or not all(r[k] for k in ('manual','original_local_units','summary_not_in_checkpoints','reader_from_shelf','source_workers','workers_reaped','parent_only_document'))
             or any(r[k] for k in ('timed','unknown_not_replayed','pending_reopened','timer_cancelled'))
             or not a['no_closed_document_calls'] or not a['workers_reaped'] or a['confirmed']!=success or a['fresh_source']!=success
-            or a['closed']!=kind.startswith('close-') or a['cancelled']!=(kind=='cancel') or a['save_only']!=(kind in ('save','save-sync'))
+            or a['closed']!=kind.startswith('close-') or a['cancelled']!=(kind in CANCELLED) or a['save_only']!=(kind in ('save','save-sync'))
+            or a['timer_triggered']!=kind.startswith('timer-')
             or a['unknown_not_replayed']!=(kind=='post') or a['local_kept']!=(not success and kind!='post')
             or a['renewal_pending']!=pending or a['grant_revision']!=(1 if kind=='post' else 2 if pending else 3)
             or a['source_passes']!=(1 if pending or kind=='post' else 2)
             or a['expired_responses']!=(2 if kind=='second' else 1)
-            or kind!='cancel' and a['auth_posts']!=int(kind!='post') or r['native_posts']!=(2 if success or kind=='post' else 1)):
+            or kind not in CANCELLED and a['auth_posts']!=int(kind!='post') or r['native_posts']!=(2 if success or kind=='post' else 1)):
         raise ValueError('native_recovery/incomplete')
     return r
 
