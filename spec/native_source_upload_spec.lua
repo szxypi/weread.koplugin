@@ -164,4 +164,11 @@ for _i,result in ipairs({{kind='login',attempted=false,acknowledged=false,readba
     f=fixture();recovery(f);f:prepare();f.plan.dispatch(function() end);f.service.job=nil;f.pending='pending'
     f.deliver(result);expect(f.renewals==0,'uncertain/already sent request caused renewal')
 end
+-- Review must release a failed delivery's in-memory token even after the
+-- upload job is closed. The durable confirmed row remains a separate concern.
+f=fixture();local released=false
+f.upload.service.receipt={};f.pending='verified'
+f.upload.service.cancel=function(service) released=true;service.receipt=nil;return false end
+expect(f.upload:cancel()==false and released and not f.upload.service.receipt and f.pending=='verified',
+    'idle review retained a stale receipt or erased the durable record')
 print(('native_source_upload_spec: %d checks'):format(checks))

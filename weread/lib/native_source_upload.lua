@@ -41,7 +41,13 @@ function M:_close(job)
     if self.source.preview_token==job.source_token then self.source:cancel_upload_preview() end
 end
 function M:cancel()
-    local job=self.job;if not job then return false end
+    local job=self.job
+    if not job then
+        -- A delivered result can leave an in-memory receipt after local save
+        -- failure. Drop that handle on review/cancel; its durable journal row
+        -- stays available for an explicit fresh check.
+        return self.service:cancel()
+    end
     if job.stage=='delivering' then job.release_requested=true;return true end
     local complete=job.completion;job.completion=nil
     self:_close(job)

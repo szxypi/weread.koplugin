@@ -1953,7 +1953,7 @@ test('source dispatch interruption keeps journal and blocks replay until explici
 end)
 
 test('native asynchronous dispatch bypasses Web sender and journal and preserves later intent',function()
-    for _i,mode in ipairs({'confirmed','unknown','newer','readonly'}) do
+    for _i,mode in ipairs({'confirmed','unknown','newer','readonly','save_failure','readonly_save_failure','notify_failure'}) do
         local source={book_id='book',chapter_uid='22',chapter_offset=10001,basis='raw_txt_utf16',upload_verified=false,
             file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=7,render_path='OEBPS/text/chapter.xhtml'}
         local f=fixture({}, {get_source_position=function() return source end})
@@ -1980,13 +1980,35 @@ test('native asynchronous dispatch bypasses Web sender and journal and preserves
         if mode=='newer' then
             source.chapter_offset=10002;f.sync:on_source_position_changed('ready',source);f.sync:checkpoint_local('later')
         end
+        local save_failure=mode=='save_failure' or mode=='readonly_save_failure' or mode=='notify_failure'
+        if save_failure then
+            f.sync.settings.patch_reading_state=function() return false,'synthetic full disk' end
+            f.sync.interval.cycle={scope=f.sync:_scope(),minutes=1}
+            f.sync.interval.task=function() error('stale timer fired') end
+            if mode=='notify_failure' then f.sync.notify=function() error('synthetic notice failure') end end
+        end
         local accepted=mode~='unknown'
-        delivered(true,accepted,{acknowledged=mode~='readonly' and accepted,position_confirmed=accepted,
-            read_only_confirmation=mode=='readonly',report_attempted=mode~='readonly',
+        local readonly=mode=='readonly' or mode=='readonly_save_failure'
+        local returned,save_error=pcall(delivered,true,accepted,{acknowledged=not readonly and accepted,position_confirmed=accepted,
+            read_only_confirmation=readonly,report_attempted=not readonly,
             error_kind=not accepted and 'unconfirmed' or nil,error=not accepted and 'upload_readback_unconfirmed' or nil})
+        eq(returned,not save_failure,'local commit failure must prevent the sender accepting its durable receipt')
+        if save_failure then eq(save_error,'native_position/local_save_failed','storage details escaped callback boundary') end
         eq(f.sync.uploading,false,'native completion retained upload slot')
         eq(releases,1,'native lease was not released')
-        if mode=='unknown' then
+        if save_failure then
+            eq(f.sync.verified,false,'failed local save retained sync authority')
+            eq(f.sync.state,'error','failed local save stayed uploading')
+            eq(f.sync.dirty,true,'failed local save lost local intent')
+            eq(f.sync.interval.cycle,nil,'failed local save retained timer cycle')
+            eq(f.sync.interval.task,nil,'failed local save retained scheduled timer')
+            eq(f.values.books.book.last_uploaded_position,nil,'failed save claimed cached success')
+            eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,10001,'failed save erased pending intent')
+            if mode~='notify_failure' then
+                eq(f.notifications[#f.notifications].code,'upload_local_save_failed','storage failure lacked a recovery notice')
+                eq(f.notifications[#f.notifications].data.acknowledged,not readonly,'notice invented a data acknowledgement')
+            end
+        elseif mode=='unknown' then
             eq(f.values.books.book.pending_upload_reason,'upload_readback_unconfirmed','unknown dispatch lost durable intent')
             eq(f.sync.verified,false,'unknown native result granted automatic synchronization')
         elseif mode=='newer' then

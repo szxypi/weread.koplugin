@@ -932,7 +932,19 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             if clear_pending then
                 patch.pending_upload_position, patch.pending_upload_reason, patch.pending_upload_account = false, false, false
             end
-            self:_persist(book_id, patch)
+            if job.plan and job.plan.transport=='native_position' then
+                local saved=pcall(self._persist,self,book_id,patch)
+                if not saved then
+                    -- Keep the native verified receipt: the sender accepts it
+                    -- only when this callback returns normally. Do not write
+                    -- another reading-state patch while storage is failing.
+                    self.interval:halt()
+                    self.verified,self.verified_at,self.verified_reason=false,nil,'local_save_failed'
+                    self.dirty,self.state=true,'error'
+                    pcall(self.notify,'upload_local_save_failed',{acknowledged=outcome.acknowledged==true})
+                    error('native_position/local_save_failed',0)
+                end
+            else self:_persist(book_id, patch) end
             local active = self:_session_current(scope)
             if active then
                 local live = self:capture_local() or self.local_position
