@@ -1,6 +1,9 @@
 local I18n = {}
 
 local zh = {
+    ["Checking chapter link…"] = "正在核对章节链接…",
+    ["Could not open this chapter link. The current reading position is kept."] = "无法打开这条章节链接，保留当前阅读位置。",
+    ["Could not locate the linked text in this chapter."] = "无法在本章中定位链接指向的原文。",
     ["Save cloud bookmark"] = "保存云端书签",
     ["My cloud bookmarks"] = "我的云端书签",
     ["Bookmark source preview"] = "书签原文预览",

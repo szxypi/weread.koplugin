@@ -114,6 +114,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    require('weread.ui.chapter_links').detach(self)
     require('weread.lib.rich_footnotes').detach(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'detach')
@@ -190,6 +191,7 @@ function M:onReaderReady()
     if self.source_close then self.source_close:on_reader_ready(weread_book_id) end
     if self.source_position then self.source_position:on_reader_ready() end
     self.progress_sync:on_reader_ready()
+    if weread_book_id then require('weread.ui.chapter_links').attach(self) end
     if self.onTranslationReaderReady then self:onTranslationReaderReady() end
     local prefetch_session_gen = self._reader_session_gen
     UIManager:scheduleIn(0.2, function()
@@ -207,6 +209,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    require('weread.ui.chapter_links').view_changed(self)
     personal_action(self,'update')
     selection_action(self,'view_changed')
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
@@ -219,6 +222,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    require('weread.ui.chapter_links').view_changed(self)
     personal_action(self,'update')
     selection_action(self,'view_changed')
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
@@ -231,6 +235,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    require('weread.ui.chapter_links').detach(self)
     require('weread.lib.rich_footnotes').detach(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'detach')
@@ -428,6 +433,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    require('weread.ui.chapter_links').cancel(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'suspend')
     selection_action(self,'cancel')
