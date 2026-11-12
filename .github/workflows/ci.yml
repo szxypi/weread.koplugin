@@ -87,6 +87,7 @@ jobs:
           python3 scripts/test_owner_cloud_source.py
           python3 scripts/test_source_remote_position.py
           python3 scripts/test_owner_unstarted.py
+          python3 scripts/test_native_initial_position.py
 
       - name: Native shelf-write prototype checks
         run: |

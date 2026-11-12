@@ -137,6 +137,9 @@ local ok,reason=pcall(function()
             assert(input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
                 and grant.accessToken=='mock-native-access' and grant.refreshToken=='mock-native-refresh')
             value.mock_endpoint='http://127.0.0.1:'..input.selection_mock_port
+        elseif input.initial_plan_mock_port then
+            assert(input.initial_plan_preview==true and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key')
+            value.mock_endpoint='http://127.0.0.1:'..input.initial_plan_mock_port
         elseif input.unstarted_mock_port then
             assert(input.unstarted_preview==true and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key')
             value.mock_endpoint='http://127.0.0.1:'..input.unstarted_mock_port
@@ -191,6 +194,11 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
+    elseif input.initial_plan_preview then
+        assert(input.initial_plan_preview==true and input.native_source_excerpt==true and input.source_format=='web_txt'
+            and mode=='live' and not full and arg[2] and arg[2]:match('/owner_initial_plan_case%.lua$'))
+        candidate_case=dofile(arg[2])(input,counters)
+        report.initial_plan=candidate_case.report
     elseif input.unstarted_preview then
         assert(input.unstarted_preview==true and input.native_source_excerpt==true and input.source_format=='web_txt'
             and not full and arg[2] and arg[2]:match('/owner_unstarted_case%.lua$'))
