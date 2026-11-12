@@ -147,7 +147,7 @@ class NonemptyTests(unittest.TestCase):
         with self.assertRaises(ValueError):NonemptyMarksProbe(p.highlight,NonemptyMarksStore(Backend()),selector).prepare({},{})
 
     def test_pending_new_scope_blocks_all_old_exclusions(self):
-        factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
+        factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
         with ExitStack() as stack:
             mocks={name:stack.enter_context(patch.object(shared,name)) for name in factories}
             for factory in mocks.values():factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)

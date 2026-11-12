@@ -7,7 +7,8 @@ local ffi=require('ffi');require('ffi/posix_h')
 local json=require('json')
 local trial_mode=arg[1]=='selection-trial'
 local reader_trial_mode=arg[1]=='native-reader-trial'
-local mode=(trial_mode or reader_trial_mode) and 'live' or arg[1]
+local close_trial_mode=arg[1]=='native-close-trial'
+local mode=(trial_mode or reader_trial_mode or close_trial_mode) and 'live' or arg[1]
 local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_auth=false,transport_guard_selftest=false,
     plugin_selection=false,native_reader=false,source_text_visible=false,source_receipt_verified=false,page_turn=false,position_checkpoint=false,
     local_source_position_verified=false,source_navigation_roundtrip=false,source_dialog_verified=false,legacy_progress_units_preserved=false,
@@ -24,12 +25,13 @@ local candidate_case,candidate_private
 local selection_case,selection_private
 local trial_input
 local reader_trial_input
+local close_trial_input
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
     assert(ffi.os=='Linux' and home:match('^/dev/shm/weread%-reading%-[%w_]+/profile$'))
     local raw
-    if trial_mode or reader_trial_mode then
+    if trial_mode or reader_trial_mode or close_trial_mode then
         local length=assert(io.stdin:read('*l'));assert(#length<=6 and length:match('^[1-9]%d*$') and tonumber(length)<=256*1024)
         raw=assert(io.stdin:read(tonumber(length)));assert(#raw==tonumber(length))
     else raw=assert(io.stdin:read(256*1024+1)) end
@@ -37,6 +39,13 @@ local ok,reason=pcall(function()
     local input=json.decode(raw)
     assert((input.selection_trial~=nil)==trial_mode)
     assert((input.native_reader_trial~=nil)==reader_trial_mode)
+    assert((input.native_close_trial~=nil)==close_trial_mode)
+    if close_trial_mode then
+        close_trial_input=input
+        assert(input.native_source_excerpt==true and type(input.native_close_trial.rpc_token)=='string'
+            and #input.native_close_trial.rpc_token==32 and input.native_close_trial.rpc_token:match('^[a-f0-9]+$'))
+        assert(type(input.native_close_trial.armed)=='boolean' and input.native_close_trial.armed==(os.getenv('WEREAD_NATIVE_CLOSE_ARMED')=='1'))
+    end
     if reader_trial_mode then
         reader_trial_input=input
         assert(input.native_source_excerpt==true and type(input.native_reader_trial.rpc_token)=='string'
@@ -113,7 +122,7 @@ local ok,reason=pcall(function()
             value.mock_endpoint='http://127.0.0.1:'..input.selection_mock_port
         elseif input.reader_mock_port then
             local grant=input.native_grant
-            assert(reader_trial_mode and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
+            assert((reader_trial_mode or close_trial_mode) and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
                 and grant.accessToken=='synthetic-native-access' and grant.refreshToken=='synthetic-native-refresh')
             value.mock_endpoint='http://127.0.0.1:'..input.reader_mock_port
         end
@@ -159,6 +168,11 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
+    elseif close_trial_mode then
+        assert(input.native_source_excerpt==true and input.source_format=='web_txt' and not full and arg[2]
+            and arg[2]:match('/owner_native_close_trial_case%.lua$'))
+        candidate_case=dofile(arg[2])(input,counters)
+        report.native_close_trial=candidate_case.report
     elseif reader_trial_mode then
         assert(input.native_source_excerpt==true and input.source_format=='web_txt' and not full and arg[2]
             and arg[2]:match('/owner_native_reader_trial_case%.lua$'))
@@ -198,7 +212,7 @@ local ok,reason=pcall(function()
     end
     local chapter_count=full and #input.full_manifest or 1
     local limits={2,60,math.max(8,2*chapter_count+4),4,math.max(12,6*chapter_count),full and 512 or 60}
-    if selection_case or reader_trial_mode then limits={2,60,12,8,18,60} end
+    if selection_case or reader_trial_mode or close_trial_mode then limits={2,60,12,8,18,60} end
     local resource_urls={}
     local protected_resources={}
     local function protected_resource(url)
@@ -679,11 +693,16 @@ local ok,reason=pcall(function()
         plugin,reader=dofile(fixtures..'cb_full_handoff_case.lua')(input,report.cb_handoff,plugin,reader,pump,tick,position)
         document=reader.document
     end
-    local checkpoint={file=document.file,xpointer=document:getXPointer(),page=reader:getCurrentPage()}
-    local file=assert(io.open(checkpoint_path,'wb'));assert(file:write(json.encode(checkpoint)));file:close()
+    if close_trial_mode then
+        assert(candidate_case.closed==true and candidate_case.report.document_closed
+            and candidate_case.report.no_closed_document_calls)
+    else
+        local checkpoint={file=document.file,xpointer=document:getXPointer(),page=reader:getCurrentPage()}
+        local file=assert(io.open(checkpoint_path,'wb'));assert(file:write(json.encode(checkpoint)));file:close()
+    end
     report.phase='close'
     while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
-    plugin:closeWeReadUI();plugin:onFlushSettings();reader:onClose(false);reader=nil
+    plugin:closeWeReadUI();plugin:onFlushSettings();if not close_trial_mode then reader:onClose(false) end;reader=nil
     plugin.settings:flush();G_reader_settings:flush();report.position_checkpoint=true
     pump(function() return not plugin.shelf_cover_job and not plugin.shelf_cover_pending
         and not plugin.book_reading_context and not plugin.downloader._active_job
@@ -757,7 +776,10 @@ for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
     report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
 end
-if reader_trial_input then
+if close_trial_input then
+    local value=json.encode{report=report,cookies=latest_cookies or {}};assert(#value<=16384)
+    io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..close_trial_input.native_close_trial.rpc_token..'_RESULT='..value..'\n')
+elseif reader_trial_input then
     local value=json.encode{report=report,cookies=latest_cookies or {}};assert(#value<=16384)
     io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..reader_trial_input.native_reader_trial.rpc_token..'_RESULT='..value..'\n')
 elseif trial_input then

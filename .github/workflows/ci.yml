@@ -78,6 +78,7 @@ jobs:
         run: |
           python3 scripts/test_native_reader_position.py
           python3 scripts/test_native_reader_trial.py
+          python3 scripts/test_native_close_trial.py
           python3 scripts/test_native_reader_close.py
 
       - name: Native shelf-write prototype checks

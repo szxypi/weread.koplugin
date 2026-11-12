@@ -96,6 +96,7 @@ class BookmarkContractTests(unittest.TestCase):
                 native_txt_roundtrip=contexts.enter_context(patch.object(task,'NativeTxtRoundtripStore'))
                 contexts.enter_context(patch.object(task,'RawTxtExcerptStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(task,'NativeReaderTrialStore')).return_value.pending.return_value=False
+                contexts.enter_context(patch.object(task,'NativeCloseTrialStore')).return_value.pending.return_value=False
                 native_txt.return_value.pending.return_value=native_txt_roundtrip.return_value.pending.return_value=False
                 txt_zero.return_value.pending.return_value=False
                 txt_full.return_value.pending.return_value=False

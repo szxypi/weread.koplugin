@@ -1,0 +1,110 @@
+{
+  "result": "REAL_NATIVE_READER_CLOSE_ROUNDTRIP_VERIFIED",
+  "real_runtime_dimensions": [
+    600,
+    800,
+    167
+  ],
+  "keychain_protocol": "native-reader-close-literal-raw-30-zero-time-v1",
+  "intent_phase": "retired",
+  "claimed_posts": 2,
+  "account_data_posts": 2,
+  "explicit_success_receipts": 2,
+  "independent_steps": 2,
+  "original_full_position_and_summary_restored": true,
+  "counts_preserved": true,
+  "visible_shelf_preserved": true,
+  "web_write_posts": 0,
+  "historical_time_rows": 0,
+  "roundtrip_authentication_posts": 0,
+  "natural_401_observed_before_claim": true,
+  "one_preflight_renewal_verified": true,
+  "preflight_authentication_posts": 1,
+  "no_automatic_replay": true,
+  "real_prepare": {
+    "result": "PASS",
+    "native_gets": 7,
+    "blocked_body_checks": 1,
+    "claimed_posts": 0,
+    "account_data_posts": 0,
+    "profile_removed": true
+  },
+  "final_readonly": {
+    "result": "PASS",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "claimed_posts": 0,
+    "document_closed": true,
+    "no_closed_document_calls": true,
+    "intent_backend_memory_only": true,
+    "retired_real_intent_unchanged": true,
+    "profile_removed": true
+  },
+  "package": {
+    "files": 279,
+    "source_bytes_match": true,
+    "sha256": "5e7221da34c852b3ae9501b5d8bf08d07029b3980eafee9b736c1fb840522638"
+  },
+  "checks": {
+    "python_files": 118,
+    "python_tests": 1497,
+    "python_skips": 0,
+    "lua_syntax_files": 705,
+    "luacheck_files": 703,
+    "luacheck_warnings": 0,
+    "lua_groups": 249
+  },
+  "old_reader_mock_regression": "PASS",
+  "physical_ko2_verified": false,
+  "release_published": false,
+  "real_reader": {
+    "document_closed": true,
+    "no_closed_document_calls": true,
+    "baseline_readonly": true,
+    "archive_worker": true,
+    "source_plan": true,
+    "restore_source": true,
+    "local_commit": true,
+    "sqlite_before_posts": true,
+    "native_gets": 15,
+    "native_posts": 2,
+    "workers_reaped": true,
+    "credential_file_audit": true,
+    "screenshots": 0,
+    "profile_removed": true
+  },
+  "mock_runtime": [
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "result": "PASS",
+      "prepare_posts": 0,
+      "synthetic_native_posts": 2,
+      "explicit_success_receipts": 2,
+      "independent_steps": 2,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "PASS",
+      "prepare_posts": 0,
+      "synthetic_native_posts": 2,
+      "explicit_success_receipts": 2,
+      "independent_steps": 2,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "profile_removed": true
+    }
+  ]
+}
