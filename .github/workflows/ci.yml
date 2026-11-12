@@ -181,6 +181,7 @@ jobs:
           python3 scripts/test_native_ui.py
           python3 scripts/test_persistent_ui.py
           python3 scripts/test_owner_reading.py
+          python3 scripts/test_owner_footnotes.py
           python3 scripts/test_owner_annotations.py
           python3 scripts/test_owner_recovery.py
           python3 scripts/test_owner_progress_preview.py
