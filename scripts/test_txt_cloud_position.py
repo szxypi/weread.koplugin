@@ -78,6 +78,7 @@ class TxtCloudTests(unittest.TestCase):
         progress,context,chapters=fixture();progress['book']['summary']='独立的合成'+'长'*30;context['progress']=deepcopy(progress)
         value=model.prepare(RAW,progress,context,chapters,'41')
         self.assertFalse(value['original_summary_preserved']);self.assertFalse(value['existing_wire_preflight_compatible'])
+        self.assertEqual(value['baseline']['summary'],progress['book']['summary'])
         self.assertEqual(value['source_summary_scalars'],35);self.assertTrue(value['source_has_bom'])
         self.assertEqual(value['source_nonbmp_scalars'],1)
 

@@ -30,7 +30,7 @@ def prepare(raw,progress,context,chapters,book_id):
     embedded=project_progress(context.get('progress'),book_id)
     if not same_position(baseline,embedded):raise ValueError('txt_cloud/changed')
     model=PlainSource(raw);co=baseline['chapter_offset'];text,point=anchor(model,co)
-    index=model.starts.index(co);tail=''.join(model.characters[index:index+20])
+    index=model.starts.index(co)
     node=find_node(progress,book_id);summary=node.get('summary')
     summary_matches=isinstance(summary,str) and bool(summary) and raw[index:].startswith(summary)
     target=None
@@ -40,7 +40,10 @@ def prepare(raw,progress,context,chapters,book_id):
             target=dict(baseline,chapter_offset=co+1,summary=''.join(model.characters[index+1:index+21]))
         except ValueError:pass
     original_preserved=isinstance(summary,str) and len(summary)<=20
-    baseline['summary']=summary if original_preserved else tail
+    # Keep the complete observed baseline even when the existing wire encoder
+    # would truncate it. A future executor must not mistake a derived snippet
+    # for the original state it needs to restore.
+    baseline['summary']=summary if isinstance(summary,str) else ''
     summary_start=summary_end=False
     if isinstance(summary,str) and summary:
         try:
