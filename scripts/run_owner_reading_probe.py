@@ -44,6 +44,7 @@ def main(argv=None):
     addons.add_argument('--progress-preview', action='store_true')
     addons.add_argument('--progress-roundtrip', action='store_true')
     addons.add_argument('--source-upload-preview', action='store_true')
+    addons.add_argument('--native-source-excerpt', action='store_true')
     addons.add_argument('--selection-thought-preview', action='store_true')
     parser.add_argument('--mock-port',type=int)
     args = parser.parse_args(argv)
@@ -98,6 +99,9 @@ def main(argv=None):
         if args.source_upload_preview:
             from owner_source_candidate_contract import decode
             decoder = decode
+        if args.native_source_excerpt:
+            from owner_native_excerpt_contract import decode
+            decoder = decode
         if args.selection_thought_preview:
             from owner_selection_preview import decode,validate_input
             validate_input(payload)
@@ -110,6 +114,9 @@ def main(argv=None):
         if args.progress_roundtrip != ('progress_roundtrip' in payload) or args.progress_roundtrip and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         if args.source_upload_preview != ('source_upload_preview' in payload) or args.source_upload_preview and ('full_manifest' in payload or has_annotations):
+            raise ValueError('input_limit')
+        if args.native_source_excerpt != ('native_source_excerpt' in payload) or args.native_source_excerpt and (
+                payload['native_source_excerpt'] is not True or payload.get('source_format')!='web_txt' or 'full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         if args.selection_thought_preview != ('selection_preview' in payload) or args.selection_thought_preview and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
@@ -144,6 +151,8 @@ def main(argv=None):
                     command.append(str(probe.with_name('owner_progress_roundtrip_case.lua')))
                 if args.source_upload_preview:
                     command.append(str(probe.with_name('owner_source_candidate_case.lua')))
+                if args.native_source_excerpt:
+                    command.append(str(probe.with_name('owner_native_excerpt_case.lua')))
                 if args.selection_thought_preview:
                     command.append(str(probe.with_name('owner_selection_preview_case.lua')))
                 code, out, repaint = run_child(command, env,
@@ -153,7 +162,7 @@ def main(argv=None):
                                    **({'cb_reading': True,'cb_full_book':args.cb_full_book} if cb_reading else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
-                if args.source_upload_preview: candidate_private.append(envelope['candidate_private'])
+                if args.source_upload_preview or args.native_source_excerpt: candidate_private.append(envelope['candidate_private'])
                 if args.selection_thought_preview: selection_private.append(envelope['selection_private'])
                 if args.annotation_recovery:
                     private = envelope['recovery_private']
@@ -187,7 +196,7 @@ def main(argv=None):
                     full_hash = current_hash
                     inspected['fresh_offline_package_identical'] = mode == 'reopen'
                     report['full_book'] = inspected
-            if args.selection_thought_preview:
+            if args.selection_thought_preview or args.native_source_excerpt:
                 report['installed_package']=check_installed(args.candidate,profile)
             report['result'] = 'PASS'
     except subprocess.TimeoutExpired:
@@ -210,7 +219,7 @@ def main(argv=None):
     envelope = dict(report=report, cookies=cookies)
     if args.annotation_recovery: envelope['recovery_private'] = recovery_private
     if args.progress_preview or args.progress_roundtrip: envelope['progress_private'] = progress_private
-    if args.source_upload_preview: envelope['candidate_private'] = candidate_private
+    if args.source_upload_preview or args.native_source_excerpt: envelope['candidate_private'] = candidate_private
     if args.selection_thought_preview: envelope['selection_private'] = selection_private
     sys.stdout.buffer.write(FRAME + json.dumps(envelope).encode() + b'\n')
     return 0 if report['result'] == 'PASS' and report['profile_removed'] else 1

@@ -70,10 +70,17 @@ function Service:cancel_upload_preview()
     self.preview_job,self.preview_token=nil,nil
     if job and job.recovery and self.recovery then self.recovery:cancel(job.recovery) end
     self.checked_previews=setmetatable({},{__mode='k'})
+    self.checked_native_excerpts=setmetatable({},{__mode='k'})
     if self.preview_worker then self.preview_worker:cancel() end
 end
 
 local point_fields={'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}
+local function same_point(first,second)
+    if type(first)~='table' or type(second)~='table' then return false end
+    for _i,key in ipairs(point_fields) do if first[key]~=second[key] then return false end end
+    return true
+end
+
 function Service:_preview_current(job,candidate)
     if not self:_current(job.scope) or self.is_busy() or not self.can_prepare() then return false end
     local point=self:current()
@@ -199,6 +206,69 @@ function Service:prepare_upload_preview(callback)
         end)
         if not started and self.preview_job==job then self.preview_job=nil;callback(nil,'worker_unavailable') end
     end)
+end
+local function native_excerpt(value,point)
+    if type(value)~='table' or type(value.text)~='string' or #value.text<1 or #value.text>120
+        or value.co~=point.chapter_offset or value.basis~='raw_txt_utf16' or value.upload_verified~=false then return nil end
+    local fields={text=true,co=true,end_co=true,scalars=true,basis=true,upload_verified=true}
+    local count=0;for key in pairs(value) do if not fields[key] then return nil end;count=count+1 end
+    if count~=6 then return nil end
+    -- Validate at most thirty scalars on the UI thread. Whole-chapter reads
+    -- and hashes remain in the independently opened archive worker.
+    local map=require('weread.lib.source_coordinates').build(value.text,{format='web_txt'})
+    local expected=map and map:literal_excerpt(0)
+    if not expected or expected.text~=value.text or expected.scalars~=value.scalars
+        or point.chapter_offset+expected.end_co~=value.end_co then return nil end
+    return clone(value)
+end
+function Service:_native_excerpt_current(job)
+    return self:_current(job.scope) and not self.is_busy() and self.can_prepare()
+        and same_point(self:current(),job.point)
+end
+
+-- Exact source text is a local preparation result, not a cloud summary. Its
+-- opaque receipt is reader/account/view-bound and never enables Web upload.
+function Service:prepare_native_excerpt(callback)
+    assert(type(callback)=='function')
+    self:cancel_upload_preview()
+    local token={};self.preview_token=token
+    return self:check(function(point,reason)
+        if self.preview_token~=token then return end
+        if not point then callback(nil,reason);return end
+        if point.basis~='raw_txt_utf16' or point.upload_verified~=false then callback(nil,'source_unsupported');return end
+        if self.is_busy() or not self.can_prepare() then callback(nil,'resources_unavailable');return end
+        local snapshot=Source.document_metadata(self.get_document(),point.book_id,point.chapter_uid,point.render_path)
+        local scope=self:_live()
+        if not snapshot or not scope then callback(nil,'context_unavailable');return end
+        scope.metadata,scope.render_path=snapshot.metadata,point.render_path
+        self.sequence=self.sequence+1
+        local input={file=scope.file,book_id=point.book_id,chapter_uid=point.chapter_uid,identity=snapshot.identity,
+            metadata=snapshot.metadata,render_path=point.render_path,target=clone(point),request_id=self.sequence}
+        local job={scope=scope,point=clone(point),request_id=input.request_id,started=self.now()}
+        self.preview_job=job
+        self.preview_worker=self.preview_worker or self.make_worker()
+        local started=self.preview_worker:start(function() return WorkerTask.prepare_native_excerpt(input) end,function(result)
+            if self.preview_job~=job or self.preview_token~=token then return end
+            self.preview_job=nil
+            if not self:_native_excerpt_current(job) then return end
+            local excerpt=type(result)=='table' and result.request_id==job.request_id
+                and same_point(result.position,job.point) and native_excerpt(result.excerpt,job.point)
+            local age=self.now()-job.started
+            if not excerpt or age<0 or age>30 then callback(nil,'candidate_unavailable');return end
+            local accepted={};for _i,key in ipairs(point_fields) do accepted[key]=job.point[key] end
+            job.packet={position=accepted,excerpt=excerpt}
+            local receipt={};self.checked_native_excerpts[receipt]=job
+            callback(clone(job.packet),nil,receipt)
+        end)
+        if not started and self.preview_job==job then self.preview_job=nil;callback(nil,'worker_unavailable') end
+    end)
+end
+function Service:is_current_native_excerpt(receipt,packet)
+    local job=type(receipt)=='table' and self.checked_native_excerpts and self.checked_native_excerpts[receipt]
+    if not job or type(packet)~='table' or not Candidate.same(packet.position,job.packet.position)
+        or not Candidate.same(packet.excerpt,job.packet.excerpt) then return false end
+    local age=self.now()-job.started
+    return age>=0 and age<=30 and self:_native_excerpt_current(job) or false
 end
 function Service:stop() self:_invalidate('idle') end
 function Service:pause(reason)

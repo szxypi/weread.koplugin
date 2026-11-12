@@ -52,7 +52,7 @@ local ok,reason=pcall(function()
     assert(type(input.book_id)=='string' and (cb_reading and #input.book_id<=67 and input.book_id:match('^CB_[A-Za-z0-9]+$')
         or not cb_reading and input.book_id:match('^[1-9]%d*$')))
     assert(not cb_reading or not ((input.full_manifest and not cb_full) or input.annotations or input.progress_preview
-        or input.progress_roundtrip or input.source_upload_preview or input.selection_preview))
+        or input.progress_roundtrip or input.source_upload_preview or input.native_source_excerpt or input.selection_preview))
     assert(type(input.chapter_uid)=='string' and input.chapter_uid:match('^[1-9]%d*$'))
     assert(type(input.source_text)=='string' and #input.source_text>=32 and #input.source_text<=128)
     assert(input.source_format=='web_xhtml' or input.source_format=='web_txt')
@@ -118,7 +118,7 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
-        if full or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview or input.selection_preview then
+        if full or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview or input.native_source_excerpt or input.selection_preview then
             local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
@@ -145,6 +145,11 @@ local ok,reason=pcall(function()
         assert(not full and arg[2])
         candidate_case=dofile(arg[2])(input)
         report.source_candidate=candidate_case.report
+    elseif input.native_source_excerpt then
+        assert(input.native_source_excerpt==true and input.source_format=='web_txt' and not full
+            and arg[2] and arg[2]:match('/owner_native_excerpt_case%.lua$'))
+        candidate_case=dofile(arg[2])(input,counters)
+        report.native_source_excerpt=candidate_case.report
     elseif input.selection_preview then
         local case_pattern=trial_mode and (input.bookmark_trial and '/owner_bookmark_trial_case%.lua$'
             or input.highlight_trial and '/owner_highlight_trial_case%.lua$' or '/owner_selection_trial_case%.lua$') or '/owner_selection_preview_case%.lua$'
@@ -226,9 +231,14 @@ local ok,reason=pcall(function()
         if options.method=='GET' and not options.body then
             if options.url=='https://weread.qq.com/web/shelf/sync' then return 1 end
             if progress_urls[options.url] then return 2 end
-            if input.progress_roundtrip and options.sensitive == true then
+            if (input.progress_roundtrip or input.native_source_excerpt) and options.sensitive == true then
                 local id, stamp=options.url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=([1-9]%d*)&_=(%d+)$')
                 if id==input.book_id and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 then return 2 end
+                if input.native_source_excerpt and id and progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id]
+                    and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000
+                    and options.diagnostic_api=='shelf_progress' and options.skip_cookie==true
+                    and options.persist_response_cookies==false and h.Cookie==Cookie.to_header(cookies)
+                    and h.Referer==Protocol.reader_url(id) then return 2 end
             end
             if options.url==root_url or chapter_urls[options.url] then return 3 end
             if (input.source_upload_preview or selection_case) and options.url=='https://weread.qq.com/api/userInfo?userVid='..input.vid
@@ -303,6 +313,18 @@ local ok,reason=pcall(function()
         if resource_urls[options.url] and not protected_resources[options.url] then options.skip_cookie=true end
         local kind=classify(self,options)
         if not kind or counters[kind-1]>=limits[kind] then
+            if input.native_source_excerpt and counters[6]==0 then
+                local url,h=options.url or '',options.headers or {}
+                local id,stamp=url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=([1-9]%d*)&_=(%d+)$')
+                counters[20]=id and 2 or url:find('&_=',1,true) and 3 or progress_urls[url] and 1 or 4
+                counters[21]=(id==input.book_id and 1 or 0)+(options.sensitive==true and 2 or 0)
+                    +(id and progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id] and 4 or 0)
+                    +(options.skip_cookie==true and 8 or 0)+(options.persist_response_cookies==false and 16 or 0)
+                    +(h.Cookie==Cookie.to_header(self.settings:get('cookies',{})) and 32 or 0)
+                    +(id and h.Referer==Protocol.reader_url(id) and 64 or 0)
+                    +(stamp and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 and 128 or 0)
+                counters[22]=({shelf_progress=1,position_readback=2,source_currentness=3})[options.diagnostic_api] or 4
+            end
             if counters[6]==0 then
                 local url,h=options.url or '',options.headers or {}
                 counters[9]=url:find('/web/book/getProgress',1,true) and 1

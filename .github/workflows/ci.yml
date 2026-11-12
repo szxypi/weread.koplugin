@@ -190,6 +190,7 @@ jobs:
           python3 scripts/test_source_upload_candidate.py
           python3 scripts/test_source_currentness.py
           python3 scripts/test_owner_source_candidate.py
+          python3 scripts/test_owner_native_excerpt.py
           python3 scripts/test_owner_shelf_membership.py
           python3 scripts/test_finish_roundtrip.py
           python3 scripts/test_finish_receipts.py
