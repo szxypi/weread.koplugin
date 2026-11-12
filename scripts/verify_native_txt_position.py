@@ -41,17 +41,18 @@ def inspect(web,native,credentials,plan,report=None):
     report.update(same_point_and_complete_summary=True,time_counters_observed=True)
     native_version=metadata.get('bookVersion',metadata.get('version'))
     record=web.sample['record'];info=record.get('book',{})
-    version=info.get('bookVersion',info.get('version'))
+    versions=[item[key] for item in (record,info) for key in ('bookVersion','version') if key in item]
     def kind(value):
         return 'zero' if type(value) is int and value==0 else 'positive' if integer(value,1,2147483647) else 'missing' if value is None else 'invalid'
     report['version_field_kinds']={
         'native_bookVersion':kind(metadata.get('bookVersion')),'native_version':kind(metadata.get('version')),
         'catalog_bookVersion':kind(record.get('bookVersion')),'catalog_version':kind(record.get('version')),
         'book_bookVersion':kind(info.get('bookVersion')),'book_version':kind(info.get('version'))}
-    report['selected_versions_equal']=native_version==version
+    report['selected_versions_equal']=bool(versions) and all(type(version) is int and version==native_version for version in versions)
     if str(metadata.get('bookId'))!=identity or not integer(native_version,0,2147483647):raise ValueError('native_txt/version')
-    matched=integer(native_version,1,2147483647) and version==native_version
-    unversioned=native_version==0 and version is None
+    if any(not integer(metadata[key],0,2147483647) or metadata[key]!=native_version for key in ('bookVersion','version') if key in metadata):raise ValueError('native_txt/version')
+    matched=integer(native_version,1,2147483647) and bool(versions) and all(integer(version,1,2147483647) and version==native_version for version in versions)
+    unversioned=native_version==0 and not versions
     if not matched and not unversioned:raise ValueError('native_txt/version')
     report.update(book_version_matched=matched,unversioned_native_zero=unversioned)
     config=native.request('native_txt_config',BASE+'/config?token=1',credentials=credentials)
@@ -59,7 +60,8 @@ def inspect(web,native,credentials,plan,report=None):
     if not isinstance(token,str) or not 1<=len(token)<=4096:raise ValueError('native_txt/token')
     guest,kind=guest_token(native.request('native_txt_feature',BASE+'/feature?synckey=0',credentials=credentials))
     metadata_again=native.request('native_txt_metadata_again',BASE+'/book/info?'+urlencode(dict(bookId=identity)),credentials=credentials)
-    if metadata_again.get('bookVersion',metadata_again.get('version'))!=native_version or str(metadata_again.get('bookId'))!=identity:raise ValueError('native_txt/version')
+    if any((key in metadata_again)!=(key in metadata) or type(metadata_again.get(key)) is not type(metadata.get(key))
+           or metadata_again.get(key)!=metadata.get(key) for key in ('bookId','bookVersion','version')):raise ValueError('native_txt/version')
     later=native.request('native_txt_progress_again',progress_url,credentials=credentials)
     second,counts_after=compare(plan,later,identity)
     if counts!=counts_after:raise ValueError('native_txt/counters_changed')

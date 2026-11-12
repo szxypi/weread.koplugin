@@ -100,7 +100,7 @@ class NativeTxtTests(unittest.TestCase):
             p=progress();p['book'][field]=value
             with self.subTest(field=field),self.assertRaises(ValueError):compare(source,p,'41')
     def test_live_zero_version_is_explicit_and_positive_versions_must_match(self):
-        for native_version,web_version,allowed in ((0,None,True),(7,7,True),(0,7,False),(7,None,False),(7,8,False)):
+        for native_version,web_version,allowed in ((0,None,True),(7,7,True),(0,7,False),(7,None,False),(7,8,False),(1,True,False),(7,7.0,False)):
             with self.subTest(native=native_version,web=web_version):
                 web=Mock();web.book_id='41';web.sample={'record':{'book':{}}}
                 if web_version is not None:web.sample['record']['book']['bookVersion']=web_version
@@ -114,6 +114,16 @@ class NativeTxtTests(unittest.TestCase):
                     self.assertEqual(report['unversioned_native_zero'],native_version==0)
                 else:
                     with self.assertRaises(ValueError):inspect(web,native,credentials(),{'baseline':point()},report)
+    def test_conflicting_metadata_aliases_or_outer_catalog_versions_are_rejected(self):
+        for kind in ('native_alias','outer_catalog','metadata_changed'):
+            with self.subTest(kind=kind):
+                web=Mock();web.book_id='41';web.sample={'record':{'book':{}}}
+                metadata=dict(bookId='41',version=0);later=deepcopy(metadata)
+                if kind=='native_alias':metadata['bookVersion']=1
+                elif kind=='outer_catalog':web.sample['record']['version']=7
+                else:later['version']=1
+                native=Mock();native.request.side_effect=[progress(),metadata,{'token':'synthetic-config'},{'feature':{}},later,progress()]
+                with self.assertRaisesRegex(ValueError,'native_txt/version'):inspect(web,native,credentials(),{'baseline':point()},{})
     def test_fresh_readback_checks_native_web_summary_counters_and_shelf(self):
         web=Mock();web.book_id='41';native=Mock();native.request.return_value=progress()
         web.request.side_effect=[progress(),{'books':[]}]
