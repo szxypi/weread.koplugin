@@ -134,6 +134,15 @@ local ok,reason=pcall(function()
     assert(saved.last_local_position.chapter_offset==local_before.chapter_offset and uploaded.source_position.chapter_offset==local_before.source_position.chapter_offset)
     assert(not uploaded.summary and not saved.last_local_position.summary and not saved.last_remote_position.summary)
     report.manual,report.original_local_units,report.summary_not_in_checkpoints=true,true,true
+    if arg[1]=='recovery' then
+        report.recovery_case={kind=assert(os.getenv('WEREAD_NATIVE_RECOVERY_CASE')),confirmed=false,fresh_source=false,closed=false,
+            cancelled=false,save_only=false,unknown_not_replayed=false,local_kept=false,grant_revision=0,renewal_pending=false,
+            source_passes=0,auth_posts=0,expired_responses=0,no_closed_document_calls=false,workers_reaped=false,failed_line=0}
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'native_reader_recovery_case.lua')(
+            reader,plugin,pump,clean,counters,pids,report.recovery_case)
+        report.source_workers,report.workers_reaped=true,true
+        report.phase,report.result='complete','PASS';return
+    end
     if arg[1]=='review' then
         report.review_case={kind=assert(os.getenv('WEREAD_NATIVE_REVIEW_CASE')),unknown_retained=false,review_worker=false,
             cancelled=false,storage_preserved=false,archived_unknown=false,newer_local_kept=false,fresh_choice=false,

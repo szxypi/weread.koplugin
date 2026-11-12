@@ -61,7 +61,7 @@ expect(out.kind=='confirmed' and not out.attempted and f.posts==1,'same-owner ne
 f=fixture();f.settings:get_auth_scope().epoch=2;out=f.run();expect(not out.attempted and f.posts==0,'old login dispatched')
 for _i,ack in ipairs({{}, {succ='1'}, {raise=true}, {status=401}}) do
     f=fixture({after},ack);f.unknown=true;out=f.run()
-    expect(out.kind=='unconfirmed' and out.attempted and not out.acknowledged and f.saved.phase=='pending' and f.posts==1 and f.waits==0)
+    expect(out.kind=='unconfirmed' and out.authentication_expired~=true and out.attempted and not out.acknowledged and f.saved.phase=='pending' and f.posts==1 and f.waits==0)
     out=f.resolve();expect(out.kind=='unconfirmed' and not out.attempted and f.posts==1)
 end
 for _i,change in ipairs({{summary='unexpected'},{chapterOffset=99},{readingTime=11}}) do
@@ -70,7 +70,7 @@ for _i,change in ipairs({{summary='unexpected'},{chapterOffset=99},{readingTime=
 end
 f=fixture();f.fail_claim=true;out=f.run();expect(not out.attempted and f.posts==0 and f.saved.phase=='prepared')
 f=fixture();f.fail_ack=true;out=f.run();expect(out.attempted and out.kind=='unconfirmed' and f.posts==1 and f.saved.phase=='pending')
-f=fixture();f.queue[1]={status=401};out=f.run();expect(out.kind=='login' and not out.attempted and f.posts==0)
+f=fixture();f.queue[1]={status=401};out=f.run();expect(out.kind=='login' and out.authentication_expired==true and not out.attempted and f.posts==0)
 f=fixture();f.queue[4]={feature={},cancel=true};out=f.run();expect(out.kind=='unavailable' and not out.attempted and f.posts==0)
 f=fixture();f.queue[5]={succ=1,cancel=true};out=f.run();expect(out.kind=='unconfirmed' and f.posts==1 and f.saved.phase=='pending')
 f=fixture();f.options.is_current=nil;out=f.run();expect(not out.attempted and f.posts==0 and #f.queue==7)

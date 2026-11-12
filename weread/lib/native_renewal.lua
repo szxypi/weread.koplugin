@@ -38,11 +38,23 @@ end
 
 function Renewal:retry_save()
     local job = self.job
-    if not job or job.state ~= "save_failed" or not self:_current(job) then
+    if not job or job.state ~= "save_failed" or not self.settings:auth_scope_matches(job.scope) then
         if job then self:cancel(job) end
         return false, "session_changed"
     end
-    local ok, reason = self.store:save(job.credentials, job.scope, job.revision, job.book_count)
+    local ok, reason
+    if self:_current(job) then
+        ok, reason = self.store:save(job.credentials, job.scope, job.revision, job.book_count)
+    elseif type(self.store.confirm_saved) == "function" then
+        ok, reason = self.store:confirm_saved(job.credentials, job.scope, job.revision + 1, job.book_count)
+        if not ok and reason ~= "save_failed" then
+            self:cancel(job)
+            return false, "session_changed"
+        end
+    else
+        self:cancel(job)
+        return false, "session_changed"
+    end
     if ok then self:cancel(job) end
     return ok, reason
 end

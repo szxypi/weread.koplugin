@@ -71,10 +71,14 @@ return function(reader,plugin,pump,clean,counters,pids,report)
                 dialog=assert(UI:getTopmostVisibleWidget());assert(dialog.cancel_text==tr('Keep KOReader progress'))
                 assert(counters[0]==2,'fresh comparison ignored explicit choice');report.fresh_choice=true
                 if kind=='cloud' then
+                    local transient=plugin.showTransientInfo;local notice
+                    function plugin:showTransientInfo(text,...) notice=text;return transient(self,text,...) end
                     dialog.ok_callback();UI:close(dialog)
                     wait(function() return not plugin.cloud_source_request and not plugin.source_navigation.job end)
                     assert(sync.verified and not plugin.settings:get_book(id).pending_upload_position,'raw cloud choice did not finish sync state')
                     assert(plugin.source_position:current().chapter_offset==original.metadata.desired.chapter_offset and counters[0]==2)
+                    plugin.showTransientInfo=transient
+                    assert(notice==tr('Cloud reading position opened and sync comparison saved.'),'cloud success notice is stale')
                     report.cloud_choice=true
                 else
                     local request=plugin.client.request

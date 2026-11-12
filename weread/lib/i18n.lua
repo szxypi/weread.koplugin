@@ -1,6 +1,7 @@
 local I18n = {}
 
 local zh = {
+    ["Cloud reading position opened and sync comparison saved."] = "已打开云端阅读位置，并保存同步核对结果。",
     ["Review previous sync"] = "核对上次同步",
     ["Previous book"] = "上次同步的书籍",
     ["Check cloud position"] = "核对云端位置",

@@ -27,7 +27,8 @@ position.chapter_offset=99;expect(Snapshot.run({},settings,selected,input,gate).
 position=F.clone(before);info={bookId='41'};expect(Snapshot.run({},settings,selected,input,gate).kind=='unavailable','missing API version was invented')
 info={bookId='41',version=0,bookVersion=7};expect(Snapshot.run({},settings,selected,input,gate).kind=='unavailable','archive version replaced native zero')
 info={bookId='41',version=0};fail='native_auth/position_metadata/http_401'
-expect(Snapshot.run({},settings,selected,input,gate).kind=='login','actual read401 was not classified')
+result=Snapshot.run({},settings,selected,input,gate)
+expect(result.kind=='login' and result.authentication_expired==true,'actual read401 was not classified')
 fail='native_auth/position_metadata/http_500';expect(Snapshot.run({},settings,selected,input,gate).kind=='unavailable','500 permitted renewal')
 expected.source='gateway';expect(not Snapshot.matches_expected(before,expected),'gateway offset became TXT wire coordinates')
 expected.source='web';expected.has_chapter_index=false;expect(not Snapshot.matches_expected(before,expected),'missing index became zero')

@@ -95,6 +95,45 @@ sync_failed = true
 ok, value = store:begin_renewal(scope, revision)
 expect(not ok and value == "save_failed", "visible intent is insufficient when file/directory sync fails")
 sync_failed = false
+expect(store:save(credentials, scope, 8, 26), "reset after undurable pending marker")
+expect(store:begin_renewal(scope, 9), "new renewal intent before partial save")
+local renewed = { vid = credentials.vid, accessToken = "test-renewed-access", refreshToken = credentials.refreshToken,
+    deviceId = credentials.deviceId }
+sync_failed = true
+ok, value = store:save(renewed, scope, 10, 26)
+expect(not ok and value == "save_failed", "primary replaced but durability failed")
+value, revision, read_error, pending = reopened:read()
+expect(value.accessToken == renewed.accessToken and revision == 11 and not read_error and not pending,
+    "partial save has new primary and no pending marker")
+before = writes
+expect(not store:confirm_saved(renewed, scope, 11, 26) and writes == before, "failed resync never rewrites primary")
+sync_failed = false
+for _, field in ipairs({ "vid", "accessToken", "refreshToken", "deviceId" }) do
+    local changed = {}
+    for key, item in pairs(renewed) do changed[key] = item end
+    changed[field] = field == "vid" and "456" or field == "deviceId" and string.rep("2", 32) or "different"
+    expect(not store:confirm_saved(changed, scope, 11, 26) and writes == before, "resync rejects changed " .. field)
+end
+expect(not store:confirm_saved(renewed, scope, 10, 26), "resync rejects stale revision")
+expect(not store:confirm_saved(renewed, scope, 11, 27), "resync rejects changed count")
+current.epoch = 2
+expect(not store:confirm_saved(renewed, scope, 11, 26), "resync rejects changed account session")
+current.epoch = 1
+expect(store:confirm_saved(renewed, scope, 11, 26) and writes == before, "exact verified grant resynced without write")
+value, revision, read_error, pending = reopened:read()
+expect(value.accessToken == renewed.accessToken and revision == 11 and not read_error and not pending,
+    "durability retry retains exact grant and revision after reopen")
+expect(store:begin_renewal(scope, 11), "pending marker before confirm rejection")
+expect(not store:confirm_saved(renewed, scope, 12, 26), "resync cannot clear pending authorization attempt")
+expect(store:save(renewed, scope, 12, 26), "verified grant before concurrent resync check")
+local syncing=store.sync
+store.sync=function()
+    local record=assert(store:_read());record.authorization.accessToken="test-replaced-during-sync"
+    local file=assert(io.open(path,"w"));file:write("return "..dump(record));file:close()
+    return true
+end
+expect(not store:confirm_saved(renewed, scope, 13, 26), "fresh primary read rejects a grant replaced during fsync")
+store.sync=syncing
 os.remove(path)
 os.remove(path .. ".old")
 print("PASS: " .. checks .. " native credential persistence/readback/session checks")

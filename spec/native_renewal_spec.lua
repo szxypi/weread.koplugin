@@ -28,7 +28,16 @@ local function fixture()
             assert(revision == state.revision and count == 1)
             if state.save_fail then return false, "save_failed" end
             state.credentials, state.pending, state.revision = credentials, false, revision + 1
+            if state.partial_save then return false, "save_failed" end
             return true, state.revision
+        end,
+        confirm_saved = function(_self, credentials, _scope, revision, count)
+            state.confirms = (state.confirms or 0) + 1
+            if state.pending or state.credentials ~= credentials or state.revision ~= revision or count ~= 1 then
+                return false, "replaced"
+            end
+            if state.sync_fail then return false, "save_failed" end
+            return true, revision
         end,
     }
     local queue = {}
@@ -98,6 +107,22 @@ local posts, gets = f.state.posts, f.state.gets
 f.state.save_fail = false
 expect(f.service:retry_save() and f.state.posts == posts and f.state.gets == gets and not f.state.pending,
     "local save retry performs no network request")
+f = fixture(); f.state.partial_save = true; start(f); f.tick()
+expect(not outcome and reason == "save_failed" and f.state.revision == 3 and not f.state.pending,
+    "partial save keeps verified receipt without claiming durability")
+f.state.sync_fail = true
+expect(not f.service:retry_save() and f.service.job and f.state.confirms == 1 and f.state.saves == 1
+    and f.state.posts == 1 and f.state.gets == 1, "failed resync retains receipt without network or rewrite")
+f.state.sync_fail = false
+expect(f.service:retry_save() and not f.service.job and f.state.confirms == 2 and f.state.saves == 1
+    and f.state.posts == 1 and f.state.gets == 1, "partial save repaired only by syncing exact primary")
+for _, change in ipairs({ "grant", "revision", "account", "pending" }) do
+    f = fixture(); f.state.partial_save = true; start(f); f.tick()
+    if change == "grant" then f.state.credentials = {} elseif change == "revision" then f.state.revision = 4
+    elseif change == "account" then f.state.current = false else f.state.pending = true end
+    expect(not f.service:retry_save() and not f.service.job and f.state.posts == 1 and f.state.saves == 1,
+        "partial save retry rejects changed " .. change)
+end
 f = fixture(); start(f); late = f.pop(); local value = late.task()
 f.state.revision, f.state.pending = 3, false
 f.state.credentials.accessToken = "test-other-grant"

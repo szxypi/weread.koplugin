@@ -76,7 +76,10 @@ function M.run(client,settings,selected,record,store,options)
         end
     end)
     auth:cancel()
-    if not ok and not out.attempted then out.kind=M.expired(reason) and 'login' or 'unavailable' end
+    if not ok and not out.attempted then
+        out.kind=M.expired(reason) and 'login' or 'unavailable'
+        if out.kind=='login' then out.authentication_expired=true end
+    end
     return out
 end
 function M.resolve(client,settings,selected,record,store,options)

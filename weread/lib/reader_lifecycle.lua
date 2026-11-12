@@ -115,6 +115,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    if self.client and self.native_renewal then self.client._native_renewal=self.native_renewal end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     require('weread.ui.chapter_links').detach(self)
     require('weread.lib.rich_footnotes').detach(self)

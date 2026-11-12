@@ -78,6 +78,17 @@ expect(f.host.cloud_source_request~=nil,'native commit cancelled its own cloud r
 f.host.source_navigation.committing=false;f.complete(true)
 expect(not f.host.cloud_source_request and not f.host.busy_message and not f.state.paused and f.state.notice,
     'successful navigation leaked busy/pause state or omitted result')
+expect(f.state.notice=='Cloud reading position opened. Progress reporting is waiting for verification.',
+    'read-only navigation claimed a completed sync comparison')
+for _,choice in ipairs({false,true}) do
+    for _,verified in ipairs({false,true}) do
+        f=fixture();f.host.progress_sync.verified=verified
+        assert(Request.start(f.host,nil,{sync_choice=choice}));f.deliver();f.complete(true)
+        local expected_notice=choice and verified and 'Cloud reading position opened and sync comparison saved.'
+            or 'Cloud reading position opened. Progress reporting is waiting for verification.'
+        expect(f.state.notice==expected_notice,'cloud notice ignored current verified sync choice')
+    end
+end
 for _,change in ipairs({'page','credentials','document','session','file','new_navigation'}) do
     f=fixture();assert(Request.start(f.host))
     if change=='page' then f.doc.page=2

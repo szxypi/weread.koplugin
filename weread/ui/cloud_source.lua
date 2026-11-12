@@ -114,7 +114,10 @@ function M.start(host,resume,options)
         if host.cloud_source_request~=job then return end
         job.navigation=nil
         M.cancel(host)
-        if success then host:showTransientInfo(_('Cloud reading position opened. Progress reporting is waiting for verification.'),3)
+        if success then
+            local verified=job.sync_choice and host.progress_sync and host.progress_sync.verified
+            host:showTransientInfo(verified and _('Cloud reading position opened and sync comparison saved.')
+                or _('Cloud reading position opened. Progress reporting is waiting for verification.'),3)
         elseif reason=='cloud_changed' then host:showInfo(_('Cloud reading chapter changed during download. Please try again.'))
         elseif reason=='source_changed' or reason=='source_unavailable' then
             host:showInfo(_('This file has no matching original text. Download the target chapter or full book and try again.'))

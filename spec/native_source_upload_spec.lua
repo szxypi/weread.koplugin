@@ -39,11 +39,12 @@ local function fixture()
         unschedule=function(_self,fn) f.timers[fn]=nil end}
     f.upload=Upload:new{source=f.source,scheduler=scheduler,credentials=store,service=f.service,worker=f.worker,
         now=function() return f.clock end,make_gate=function()
-            local gate={valid=function() return not f.gate_closed end,close=function() f.gate_closed=true end};return gate
+            f.gate_closed=false;local open=true
+            local gate={valid=function() return open end,close=function() open=false;f.gate_closed=true end};return gate
         end,snapshot=function(_client,_settings,_access,input,gate)
             expect(gate:valid(),'snapshot lacked cancellation gate')
             expect(input.source.book_version==7 and input.candidate.raw_percent==18,'source inputs changed')
-            return {kind=f.snapshot_kind or 'ready',metadata=F.clone(f.metadata)}
+            return {kind=f.snapshot_kind or 'ready',metadata=F.clone(f.metadata),authentication_expired=f.snapshot_expired}
         end}
     f.callback=function(plan,reason) f.plan,f.reason=plan,reason;f.callbacks=f.callbacks+1 end
     function f:prepare()
@@ -115,4 +116,52 @@ f.plan.dispatch(function(_ok,accepted,result) expired=result;expect(not accepted
 f.service.job=nil;f.deliver({kind='login',attempted=false,acknowledged=false,readbacks=0})
 expect(expired.error=='source_native_authentication_unavailable' and not expired.report_attempted and f.starts==1,
     'native read expiry used Web guidance or retried')
+local function recovery(env)
+    env.renewals=0
+    env.upload.recovery={start=function(_self,selected,current,cb)
+        env.renewals=env.renewals+1;expect(selected.revision==1 and current(),'renewal lost its original source')
+        env.auth.revision,env.auth.pending=2,true;env.renew_current,env.renew_callback=current,cb;return true,{}
+    end,cancel=function() env.renew_cancelled=true end}
+    function env:renew(check_current)
+        if check_current~=false then expect(self.renew_current(),'our grant transition cancelled the source') end
+        self.auth.revision,self.auth.pending=3,false
+        self.renew_callback(require('weread.lib.native_read_access').capture(self.upload.settings,self.upload.credentials))
+    end
+    function env:fresh()
+        self.snapshot_kind,self.snapshot_expired=nil,nil
+        self.capture(F.clone(self.candidate),nil,{})
+        self.probe(self.task())
+    end
+end
+f=fixture();recovery(f);f.snapshot_kind,f.snapshot_expired='login',true;f:prepare()
+expect(f.renewals==1 and not f.plan and f.prepared==1 and f.starts==0)
+f:renew();expect(f.prepared==2 and not f.plan,'renewal reused old source proof');f:fresh()
+expect(f.plan and f.plan.is_current() and f.plan.deadline==130 and f.callbacks==1,'renewal extended the original deadline')
+f=fixture();recovery(f);f.snapshot_kind,f.snapshot_expired='login',true;f:prepare();f:renew()
+f.capture(F.clone(f.candidate),nil,{});f.probe(f.task())
+expect(f.renewals==1 and not f.plan and f.reason=='source_native_authentication_unavailable','second 401 renewed again')
+f=fixture();recovery(f);f:prepare();local plan=f.plan;local finished
+expect(plan.dispatch(function(_ok,accepted,result) finished={accepted=accepted,result=result} end))
+f.service.job=nil;f.deliver({kind='login',authentication_expired=true,attempted=false,acknowledged=false,readbacks=0})
+expect(f.renewals==1 and not finished and not plan.is_current(),'prewrite recovery retained old dispatch authority')
+f:renew();f:fresh();expect(f.starts==2 and f.plan==plan and plan.deadline==130 and not plan.dispatch(function() end))
+f.service.job=nil;f.pending='verified';f.deliver({kind='confirmed',attempted=true,acknowledged=true,readbacks=1},{})
+expect(finished.accepted and f.accepts==1 and f.renewals==1,'fresh prepared operation did not finish normally')
+for _i,change in ipairs({'point','deadline','cancel','remote'}) do
+    f=fixture();recovery(f);f.snapshot_kind,f.snapshot_expired='login',true;f:prepare()
+    if change=='point' then f.valid=false elseif change=='deadline' then f.clock=131
+    elseif change=='cancel' then f.upload:cancel() end
+    f:renew(change=='remote')
+    if f.upload.job then
+        if change=='remote' then f.metadata.before.chapter_offset=99 end
+        f:fresh()
+    end
+    expect(not f.plan and f.starts==0 and f.renewals==1,'stale '..change..' resumed sending')
+end
+for _i,result in ipairs({{kind='login',attempted=false,acknowledged=false,readbacks=0},
+    {kind='unconfirmed',attempted=true,acknowledged=false,readbacks=0,authentication_expired=true},
+    {kind='login',attempted=false,acknowledged=true,readbacks=0,authentication_expired=true}}) do
+    f=fixture();recovery(f);f:prepare();f.plan.dispatch(function() end);f.service.job=nil;f.pending='pending'
+    f.deliver(result);expect(f.renewals==0,'uncertain/already sent request caused renewal')
+end
 print(('native_source_upload_spec: %d checks'):format(checks))

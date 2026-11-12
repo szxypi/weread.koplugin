@@ -39,6 +39,7 @@ function M.run(client,settings,selected,input,gate)
     auth:cancel()
     if ok then return {kind='ready',metadata=value} end
     if type(value)=='string' and value:find('native_position/remote_changed',1,true) then return {kind='changed'} end
-    return {kind=require('weread.lib.native_position_task').expired(value) and 'login' or 'unavailable'}
+    if require('weread.lib.native_position_task').expired(value) then return {kind='login',authentication_expired=true} end
+    return {kind='unavailable'}
 end
 return M

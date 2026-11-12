@@ -117,6 +117,30 @@ function Store:save(credentials, scope, revision, count)
     return self:_write(value, scope, revision)
 end
 
+-- A flush may have replaced the primary file before reporting a failed fsync.
+-- Confirm only the exact verified grant; retry durability without another write
+-- or revision advance. Never repair a different grant or a pending refresh.
+function Store:confirm_saved(credentials, scope, revision, count)
+    if not valid_credentials(credentials) or type(scope) ~= "table" or credentials.vid ~= scope.vid
+        or type(count) ~= "number" or count < 0 or count % 1 ~= 0 then return false, "invalid" end
+    if not self.settings:auth_scope_matches(scope) then return false, "account_changed" end
+    local record = self:_read()
+    local value = record and record.authorization
+    if not record then return false, "unavailable" end
+    if record.revision ~= revision or record.renewal_pending ~= nil or not value
+        or value.epoch ~= scope.epoch or value.book_count ~= count or type(value.verified_at) ~= "number"
+        or value.vid ~= credentials.vid or value.deviceId ~= credentials.deviceId
+        or value.accessToken ~= credentials.accessToken or value.refreshToken ~= credentials.refreshToken then
+        return false, "replaced"
+    end
+    local ok, synced = pcall(self.sync, self.path)
+    local actual = self:_read()
+    if not ok or synced ~= true or not actual or actual.revision ~= revision or actual.renewal_pending ~= nil
+        or not same(actual.authorization, value) or not self.settings:auth_scope_matches(scope) then return false, "save_failed" end
+    os.remove(self.path .. ".old")
+    return true, revision
+end
+
 function Store:clear(scope, revision)
     return self:_write(nil, scope, revision)
 end
