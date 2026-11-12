@@ -894,7 +894,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             return
         end
         local confirmed = ok and accepted and type(outcome) == "table" and outcome.position_confirmed == true
-            and outcome.acknowledged == true
+            and (outcome.acknowledged == true or job.plan and job.plan.transport=='native_position'
+                and outcome.read_only_confirmation==true and outcome.report_attempted==false)
         if confirmed then
             local book = self.get_book(book_id) or {}
             local clear_pending = book.pending_upload_account == scope.account
@@ -948,7 +949,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         if unconfirmed then error_message = "upload_readback_unconfirmed" end
         if active then
             if unconfirmed then self:_clear_verified("upload_readback_unconfirmed")
-            elseif error_message=='source_authentication_unavailable' then self:_clear_verified(error_message) end
+            elseif error_message=='source_authentication_unavailable' or error_message=='source_native_authentication_unavailable'
+                or error_message=='source_remote_changed' then self:_clear_verified(error_message) end
             self.state = "error"
         end
         local patch = { last_sync_error = tostring(error_message or "upload_failed") }
@@ -958,7 +960,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         end
         self:_persist(book_id, patch)
         log("warn", "upload failed:", tostring(error_message))
-        if (show_result or interval_cycle and (unconfirmed or error_message=='source_authentication_unavailable')) and active then
+        if (show_result or interval_cycle and (unconfirmed or error_message=='source_authentication_unavailable'
+            or error_message=='source_native_authentication_unavailable' or error_message=='source_remote_changed')) and active then
             self.notify(unconfirmed and "upload_unconfirmed" or "upload_failed", {
                 error = tostring(error_message or "upload_failed"),
             })
@@ -982,7 +985,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                 if type(plan)~='table' or close_token and plan.detached~=true
                     or type(plan.is_current)~='function' or not plan.is_current() then
                     if plan and plan.release then plan.release() end
-                    finish(true,false,{error=error_reason or 'source_position_changed',error_kind='position'});return
+                    finish(true,false,{error=error_reason or 'source_position_changed',
+                        error_kind=error_reason=='upload_readback_unconfirmed' and 'unconfirmed' or 'position'});return
                 end
                 if not position.source_position and plan.source_position then
                     local saved=self.get_book(book_id) or {}
@@ -990,7 +994,12 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                     position.source_position=copy(plan.source_position)
                     if own then self:_persist(book_id,{pending_upload_position=position,last_local_position=position}) end
                 end
-                if self.source_dispatch then
+                if plan.transport=='native_position' then
+                    if plan.basis~='raw_txt_utf16' or type(plan.dispatch)~='function' then
+                        if plan.release then plan.release() end
+                        finish(true,false,{error='source_position_changed',error_kind='position'});return
+                    end
+                elseif self.source_dispatch then
                     plan.before_send=function()
                         if not current() or not plan.is_current() then return false end
                         if job.dispatch then return self.source_dispatch:owns(job.dispatch) end
@@ -1001,13 +1010,23 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                 job.plan=plan;attempt()
             end
             if close_token and self.prepare_closed then self.prepare_closed(close_token,copy(position),prepared)
-            else self.prepare_upload(copy(position),prepared) end
+            else
+                local intent=copy(position);intent.native_position_only=true
+                local saved=self.get_book(book_id) or {}
+                intent.expected_remote=copy(self.remote_position or saved.last_remote_position)
+                self.prepare_upload(intent,prepared)
+            end
             return
         end
         if job.plan and not job.plan.is_current() then
             finish(true,false,{error='source_position_changed',error_kind='position'});return
         end
         attempts = attempts + 1
+        if job.plan and job.plan.transport=='native_position' then
+            local ok,started,reason_=pcall(job.plan.dispatch,finish)
+            if not ok or not started then finish(true,false,{error=reason_ or 'source_position_changed',error_kind='position'}) end
+            return
+        end
         finish(pcall(self.upload_position, book_id, copy(job.plan and job.plan.position or position), 0, job.plan))
     end
     local started = self.run_online("progress_upload", attempt,interval_cycle and {silent_offline=true} or nil)
@@ -1040,11 +1059,12 @@ end
 
 function ProgressSync:_compare_source(local_position,remote,chapters)
     local source=type(local_position)=='table' and local_position.source_position
-    if type(source)~='table' or source.basis~='filtered_xhtml_utf16' or source.upload_verified~=false
+    if type(source)~='table' or not Source.is_coordinate_basis(source.basis) or source.upload_verified~=false
         or source.book_id~=local_position.book_id or type(source.chapter_offset)~='number'
         or source.chapter_offset%1~=0 or source.chapter_offset<0 or source.chapter_offset>2147483647
         or type(remote)~='table' or remote.book_id~=local_position.book_id or not remote.has_chapter_offset
         or not remote.has_chapter_index then return nil end
+    if source.basis=='raw_txt_utf16' and remote.source~='web' and remote.source~='native' then return nil end
     local local_index=SourceCandidate.chapter_index(chapters,tostring(source.chapter_uid))
     local remote_index=SourceCandidate.chapter_index(chapters,tostring(remote.chapter_uid))
     if not local_index or remote_index~=remote.chapter_idx or not remote_index then return nil end

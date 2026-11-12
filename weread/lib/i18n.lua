@@ -1,6 +1,8 @@
 local I18n = {}
 
 local zh = {
+    ["The cloud position changed while preparing this upload. Your local position is kept. Sync again to compare positions."] = "准备同步时云端位置发生了变化。本机位置已保留，请重新同步以核对位置。",
+    ["E-ink authorization is unavailable for syncing this position. Your local position is kept. Check E-ink login in account settings, then sync again."] = "本次同步所需的墨水屏授权不可用。本机位置已保留，请在账号设置中检查墨水屏登录状态后重新同步。",
     ["Checking chapter link…"] = "正在核对章节链接…",
     ["Could not open this chapter link. The current reading position is kept."] = "无法打开这条章节链接，保留当前阅读位置。",
     ["Could not locate the linked text in this chapter."] = "无法在本章中定位链接指向的原文。",

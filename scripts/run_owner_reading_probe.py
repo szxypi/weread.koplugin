@@ -45,9 +45,11 @@ def main(argv=None):
     addons.add_argument('--progress-roundtrip', action='store_true')
     addons.add_argument('--source-upload-preview', action='store_true')
     addons.add_argument('--native-source-excerpt', action='store_true')
+    parser.add_argument('--native-routing-preview', action='store_true')
     addons.add_argument('--selection-thought-preview', action='store_true')
     parser.add_argument('--mock-port',type=int)
     args = parser.parse_args(argv)
+    if args.native_routing_preview and not args.native_source_excerpt:parser.error('native routing preview requires TXT excerpt mode')
     if args.mock_port is not None and (not args.selection_thought_preview or not 1<=args.mock_port<=65535):
         parser.error('--mock-port requires --selection-thought-preview and a valid loopback port')
     if args.diagnostic_read_pacing and not args.cb_full_book:
@@ -68,6 +70,12 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        if args.native_routing_preview != (payload.get('native_routing_preview') is True):raise ValueError('input_limit')
+        if args.native_routing_preview:
+            from verify_eink_renewal import validate_credentials
+            validate_credentials(payload.get('native_grant'))
+            if payload['native_grant']['vid']!=payload['vid'] or not isinstance(payload.get('expected_native_remote'),dict):raise ValueError('input_limit')
+        elif 'native_grant' in payload:raise ValueError('input_limit')
         if payload.get('selection_mock_port')!=args.mock_port:
             raise ValueError('input_limit')
         if args.mock_port is not None:

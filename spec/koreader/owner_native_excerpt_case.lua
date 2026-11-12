@@ -1,4 +1,4 @@
--- Real bookReader source preparation only. No uploader or native credentials.
+-- Real bookReader source preparation only. Never dispatch an upload.
 return function(input,counters)
     assert(input.native_source_excerpt==true and input.source_format=='web_txt')
     local case={records=require('json').decode('[]'),report={normal_capture=false,page_turn_capture=false,
@@ -6,7 +6,24 @@ return function(input,counters)
         source_gate_preserved=false,legacy_units_preserved=false,position_restored=false,
         text_not_in_source_state=false,text_not_in_settings=false,page_child_cancelled=false,close_child_cancelled=false,
         fresh_policy_verified=false,currentness_checks=0,
+        native_prepare_checks=0,native_snapshot_workers=0,native_http_gets=0,native_http_status=0,native_denied=0,native_prepare_failure=0,
         background_workers=0,excerpts=0,failed_line=0,denied_shape=0,denied_checks=0,denied_api=0}}
+    function case:is_native(options) return type(options.url)=='string' and options.url:find('https://i.weread.qq.com/',1,true)==1 end
+    function case:request(client,options,request)
+        local h=options.headers or {};local grant=input.native_grant
+        local allowed=options.url=='https://i.weread.qq.com/book/info?bookId='..input.book_id
+            or options.url=='https://i.weread.qq.com/book/getProgress?bookId='..input.book_id or options.url=='https://i.weread.qq.com/shelf/sync'
+        if not grant or not allowed or options.method~='GET' or options.body or h.Cookie or h.Authorization
+            or h.vid~=grant.vid or h.accessToken~=grant.accessToken or not options.skip_cookie
+            or options.persist_response_cookies~=false or not options.sensitive or counters[23]>=3 then
+            counters[25]=counters[25]+1;error('native preview scope rejected',0)
+        end
+        counters[23]=counters[23]+1
+        local a,b,c=request(client,options);counters[24]=type(b)=='number' and b or 0;return a,b,c
+    end
+    function case:secrets()
+        local result={};for key,value in pairs(input.native_grant or {}) do if key~='vid' then result[#result+1]=value end end;return result
+    end
     function case:run(plugin,reader,pump,index,origin)
         local service,doc=plugin.source_position,reader.document
         local Source=require('weread.lib.position_source')
@@ -63,7 +80,7 @@ return function(input,counters)
             local current=assert(service:current())
             assert(not current.excerpt and not current.summary and not after.source_position.excerpt and not after.source_position.summary)
             previous_current=function() return service:is_current_native_excerpt(receipt,packet) end
-            if stage=='page' and plugin:isNetworkConnected() then
+            if stage=='page' and plugin:isNetworkConnected() and not input.native_routing_preview then
                 local prepared,token,finished
                 service:prepare_current_native_preview(function(value,_why,checked) prepared,token,finished=value,checked,true end)
                 pump(function() return finished end)
@@ -73,6 +90,36 @@ return function(input,counters)
                     and token and next(token)==nil and service:is_current_native_preview(token,prepared))
                 assert(service:native_preview_deadline(token,prepared))
                 previous_current=function() return service:is_current_native_preview(token,prepared) end
+                self.report.fresh_policy_verified=true;self.report.currentness_checks=1
+            end
+            if stage=='page' and plugin:isNetworkConnected() and input.native_routing_preview then
+                local Credentials=require('weread.lib.native_credentials');self.native_original=Credentials.new
+                Credentials.new=function(_self,settings)
+                    assert(settings.data_dir:sub(1,#assert(os.getenv('KO_HOME')))==os.getenv('KO_HOME'))
+                    return {read=function() return input.native_grant,1,nil,false end}
+                end
+                local intent=assert(plugin.progress_sync:capture_local())
+                intent.native_position_only=true;intent.expected_remote=input.expected_native_remote
+                local plan,why,native_done
+                plugin.source_upload:prepare(intent,function(value,reason) plan,why,native_done=value,reason,true end)
+                pump(function()
+                    local uploader=plugin.source_upload.native
+                    if uploader and uploader.worker and uploader.worker.job then
+                        assert(uploader.worker.job.pid~=parent);self.report.native_snapshot_workers=1
+                    end
+                    return native_done
+                end)
+                Credentials.new=self.native_original;self.native_original=nil
+                if not plan then self.report.native_prepare_failure=({source_native_authentication_unavailable=1,
+                    source_remote_changed=2,source_currentness_unavailable=3})[why] or 4 end
+                assert(plan and plan.transport=='native_position' and plan.basis=='raw_txt_utf16' and type(plan.dispatch)=='function'
+                    and plan.is_current(),'native source preparation failed')
+                assert(plan.position.chapter_offset==point.chapter_offset and plan.position.summary==packet.excerpt.text)
+                assert(not plugin.source_upload.native.service:pending(),'preparation claimed a write')
+                local time_rejected=false
+                plugin.source_upload:prepare(legacy,function(value,reason) time_rejected=not value and reason=='source_format_unsupported' end)
+                assert(time_rejected and plan.is_current(),'time preparation cancelled native position plan')
+                previous_current=plan.is_current;self.report.native_prepare_checks=1
                 self.report.fresh_policy_verified=true;self.report.currentness_checks=1
             end
             self.records[#self.records+1]={stage=stage,packet=packet,legacy={chapter_uid=tostring(legacy.chapter_uid),
@@ -139,6 +186,8 @@ return function(input,counters)
         end
     end
     function case:finish(reason)
+        if self.native_original then require('weread.lib.native_credentials').new=self.native_original end
+        self.report.native_http_gets,self.report.native_http_status,self.report.native_denied=tonumber(counters[23]),tonumber(counters[24]),tonumber(counters[25])
         self.report.denied_shape,self.report.denied_checks,self.report.denied_api=tonumber(counters[20]),tonumber(counters[21]),tonumber(counters[22])
         self.report.close_child_cancelled=self.close_check and self.close_check() or false
         self.report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_native_excerpt_case%.lua:(%d+):')) or 0

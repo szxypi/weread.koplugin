@@ -18,12 +18,19 @@ end
 function M:new(options)
     return setmetatable({source=assert(options.source),scheduler=assert(options.scheduler),now=options.now or os.time},self)
 end
+function M:_native()
+    if not self.native then
+        self.native=require('weread.lib.native_source_upload'):new{source=self.source,scheduler=self.scheduler,now=self.now}
+    end
+    return self.native
+end
 function M:_finish(job,plan,reason)
     if self.job~=job then return end
     self.job=nil;self.scheduler:unschedule(job.timeout)
     job.callback(plan,reason)
 end
 function M:on_view_changed()
+    if self.native then self.native:on_view_changed() end
     local job=self.job
     if not job then return end
     if job.scope and not self.source:_current(job.scope) or job.point and not same(job.point,self.source:current()) then
@@ -31,17 +38,27 @@ function M:on_view_changed()
     end
 end
 function M:cancel()
-    if not self.job then return false end
+    local native=self.native and self.native:cancel()
+    if not self.job then return native==true end
     self.source:cancel_upload_preview();self:_finish(self.job,nil,'source_cancelled');return true
 end
 function M:prepare(intent,callback)
     assert(type(callback)=='function')
+    if type(intent)=='table' and type(intent.source_position)=='table' and intent.source_position.basis=='raw_txt_utf16'
+        and intent.native_position_only~=true then callback(nil,'source_format_unsupported');return false end
+    if self.native and self.native.job and (type(intent)~='table' or intent.native_position_only~=true) then
+        callback(nil,'source_busy');return false
+    end
+    if self.native then self.native:cancel() end
     if self.job then
         self.source:cancel_upload_preview()
         self:_finish(self.job,nil,'source_cancelled')
     end
     if type(intent)~='table' then callback(nil,'source_position_unavailable');return false end
     local point=intent.source_position
+    if intent.native_position_only==true and type(point)=='table' and point.basis=='raw_txt_utf16' then
+        return self:_native():prepare(intent,callback)
+    end
     if type(point)=='table' and point.basis~='filtered_xhtml_utf16' then callback(nil,'source_format_unsupported');return false end
     local provided=point~=nil
     local scope=not provided and self.source:_live()
@@ -59,6 +76,13 @@ function M:prepare(intent,callback)
     self.scheduler:scheduleIn(35,job.timeout)
     local function prepare_point(captured,why)
         if self.job~=job then return end
+        if captured and captured.basis=='raw_txt_utf16' and intent.native_position_only==true
+            and captured.book_id==intent.book_id and (not scope or self.source:_current(scope)) then
+            self.job=nil;self.scheduler:unschedule(job.timeout)
+            local native_intent={};for key,value in pairs(intent) do native_intent[key]=value end
+            native_intent.source_position=captured
+            self:_native():prepare(native_intent,callback);return
+        end
         if captured and captured.basis~='filtered_xhtml_utf16' then self:_finish(job,nil,'source_format_unsupported');return end
         if not captured or captured.upload_verified~=false
             or captured.book_id~=intent.book_id or scope and not self.source:_current(scope) then

@@ -10,7 +10,8 @@ from source_upload_candidate import identifier
 FLAGS={'normal_capture','page_turn_capture','retained_target','parent_native_guard','opaque_receipts',
        'movement_invalidates_receipt','source_gate_preserved','legacy_units_preserved','position_restored',
        'text_not_in_source_state','text_not_in_settings','page_child_cancelled','close_child_cancelled','fresh_policy_verified'}
-COUNTS={'background_workers':3,'excerpts':3,'failed_line':10000,'denied_shape':4,'denied_checks':255,'denied_api':4,'currentness_checks':1}
+COUNTS={'background_workers':3,'excerpts':3,'failed_line':10000,'denied_shape':4,'denied_checks':255,'denied_api':4,'currentness_checks':1,
+        'native_prepare_checks':1,'native_snapshot_workers':1,'native_http_gets':8,'native_http_status':599,'native_denied':8,'native_prepare_failure':8}
 EXCERPT_FIELDS={'text','co','end_co','scalars','basis','upload_verified'}
 
 
@@ -23,6 +24,10 @@ def validate(addon,records,complete):
     if complete and (not all(addon[k] for k in FLAGS) or addon['background_workers']!=3 or addon['excerpts']!=3
                      or any(addon[k] for k in ('failed_line','denied_shape','denied_checks','denied_api'))):
         raise ValueError('native_excerpt/incomplete')
+    if complete and (addon['native_denied'] or addon['native_prepare_failure'] or
+            addon['native_prepare_checks']==1 and (addon['native_snapshot_workers']!=1 or addon['native_http_gets']!=3 or addon['native_http_status']!=200)
+            or addon['native_prepare_checks']==0 and any(addon[k] for k in ('native_snapshot_workers','native_http_gets','native_http_status'))):
+        raise ValueError('native_excerpt/native_preflight')
     for index,row in enumerate(records['records']):
         if not isinstance(row,dict) or set(row)!={'stage','packet','legacy'} or row['stage']!=STAGES[index]:raise ValueError('native_excerpt/order')
         packet,legacy=row['packet'],row['legacy']

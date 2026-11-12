@@ -27,7 +27,9 @@ def records():
 def envelope():
     stages=[stage(),stage('reopen')]
     for row in stages:row['native_source_excerpt']=dict(**dict.fromkeys(contract.FLAGS,True),background_workers=3,excerpts=3,failed_line=0,
-                                                     denied_shape=0,denied_checks=0,denied_api=0,currentness_checks=int(row['mode']=='live'))
+                                                     denied_shape=0,denied_checks=0,denied_api=0,currentness_checks=int(row['mode']=='live'),
+                                                     native_prepare_checks=0,native_snapshot_workers=0,native_http_gets=0,native_http_status=0,
+                                                     native_denied=0,native_prepare_failure=0)
     return dict(report=dict(result='PASS',tmpfs_profile=True,profile_removed=True,stages=stages,runner_error='none',
                             installed_package=dict(files=275,bytes_match=True)),cookies=COOKIES.copy(),candidate_private=[records(),records()])
 
@@ -57,6 +59,18 @@ class NativeExcerptTests(unittest.TestCase):
             else:v['report']['stages'][1]['requests'][0]=1
             with self.subTest(change=change),self.assertRaises(ValueError):contract.decode(frame(v),OWNER)
 
+    def test_native_preparation_requires_exact_read_only_observations(self):
+        v=envelope();addon=v['report']['stages'][0]['native_source_excerpt']
+        addon.update(native_prepare_checks=1,native_snapshot_workers=1,native_http_gets=3,native_http_status=200)
+        contract.decode(frame(v),OWNER)
+        for key,bad in (('native_snapshot_workers',0),('native_http_gets',2),('native_http_gets',4),
+                        ('native_http_status',401),('native_denied',1),('native_prepare_failure',1)):
+            value=envelope();value['report']['stages'][0]['native_source_excerpt'].update(addon)
+            value['report']['stages'][0]['native_source_excerpt'][key]=bad
+            with self.subTest(key=key,bad=bad),self.assertRaises(ValueError):contract.decode(frame(value),OWNER)
+        value=envelope();value['report']['stages'][0]['native_source_excerpt']['native_http_gets']=1
+        with self.assertRaises(ValueError):contract.decode(frame(value),OWNER)
+
     def test_private_rows_cannot_change_basis_units_or_fields(self):
         for change in ({'basis':'filtered_xhtml_utf16'},{'chapter_offset':True},{'upload_verified':True},{'file_id':'bad'},{'summary':'private'}):
             v=envelope();v['candidate_private'][0]['records'][0]['packet']['position'].update(change)
@@ -82,6 +96,19 @@ class NativeExcerptTests(unittest.TestCase):
         with patch.object(task,'SessionStore') as store,patch.object(task.subprocess,'run') as child,redirect_stdout(io.StringIO()) as out:
             self.assertEqual(task.main([]),0)
         store.assert_not_called();child.assert_not_called();self.assertEqual(json.loads(out.getvalue())['result'],'OFFLINE_ONLY')
+
+    def test_native_preview_skips_only_unstarted_samples(self):
+        web=task.Preflight(require_started=True)
+        try:
+            with patch.object(task.TxtReadingPreflight,'choose_chapter',return_value={'chapterUid':'11'}):
+                web.baseline={'chapter':'0'}
+                with self.assertRaises(task.UnstartedSample):web.choose_chapter([])
+                web.baseline={'chapter':'11'};self.assertEqual(web.choose_chapter([]),{'chapterUid':'11'})
+            with patch.object(task.TxtReadingPreflight,'inspect_book',side_effect=task.UnstartedSample):
+                self.assertFalse(web.inspect_book('900001'))
+            with patch.object(task.TxtReadingPreflight,'inspect_book',side_effect=ValueError('transport')):
+                with self.assertRaises(ValueError):web.inspect_book('900001')
+        finally:web.close()
 
     def test_display_only_cb_reads_require_actual_shelf_membership(self):
         web=task.Preflight()

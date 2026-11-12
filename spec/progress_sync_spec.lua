@@ -1823,6 +1823,12 @@ test('source comparison distinguishes one unit at identical percentages',functio
     remote.chapter_idx=2;remote.book_id='other';eq(f.sync:_compare_source(position,remote,chapters),nil,'foreign source position accepted')
     remote.book_id='book';position.source_position.basis='raw_txt_utf16'
     eq(f.sync:_compare_source(position,remote,chapters),nil,'TXT borrowed XHTML cloud semantics')
+    remote.source='web'
+    eq(f.sync:_compare_source(position,remote,chapters),'same','validated raw TXT comparison was not enabled')
+    remote.chapter_offset=10001
+    eq(f.sync:_compare_source(position,remote,chapters),'remote_ahead','raw UTF16 one-unit movement was lost')
+    remote.source='gateway'
+    eq(f.sync:_compare_source(position,remote,chapters),nil,'gateway coordinates became raw TXT without proof')
 end)
 
 test('source progress keeps server percentages and compares exact coordinates',function()
@@ -1938,6 +1944,54 @@ test('source dispatch interruption keeps journal and blocks replay until explici
     f.sync:_resolve(position,remote,{book_id='book',book=f.values.books.book,chapters=chapters},{manual=true})
     eq(journal:pending('book'),false,'exact read-only comparison did not retire uncertainty')
     eq(sends,1,'read-only comparison resent a write')
+end)
+
+test('native asynchronous dispatch bypasses Web sender and journal and preserves later intent',function()
+    for _i,mode in ipairs({'confirmed','unknown','newer','readonly'}) do
+        local source={book_id='book',chapter_uid='22',chapter_offset=10001,basis='raw_txt_utf16',upload_verified=false,
+            file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=7,render_path='OEBPS/text/chapter.xhtml'}
+        local f=fixture({}, {get_source_position=function() return source end})
+        local point=assert(f.sync:capture_local())
+        local remote={book_id='book',chapter_uid=22,chapter_idx=2,chapter_offset=10000,raw_percent=20,percent=20,
+            source='web',has_chapter_offset=true,has_chapter_index=true}
+        local delivered,sends,releases=nil,0,0
+        local plan={transport='native_position',basis='raw_txt_utf16',source_position=source,is_current=function() return true end,
+            position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10001,percent=point.percent,summary='RAW_SUMMARY_CANARY'},
+            release=function() releases=releases+1 end,
+            dispatch=function(cb) sends=sends+1;delivered=cb;return true end}
+        f.sync.source_dispatch={pending=function() return false end,begin=function() error('native entered Web journal') end}
+        f.sync.upload_position=function() error('native entered Web sender') end
+        f.sync.prepare_upload=function(intent,ready)
+            eq(intent.native_position_only,true,'native route did not distinguish time reporting')
+            eq(intent.expected_remote.chapter_offset,10000,'cloud decision was not pinned')
+            ready(plan);return true
+        end
+        f.sync:_mark_verified('book','fixture',point,remote)
+        f.sync:_upload_snapshot(point,'explicit_local_choice',true)
+        eq(f.sync.uploading,true,'native async slot closed before result')
+        eq(sends,1,'native dispatcher did not start exactly once')
+        eq(f.values.books.book.last_uploaded_position,nil,'preparation claimed a completed upload')
+        if mode=='newer' then
+            source.chapter_offset=10002;f.sync:on_source_position_changed('ready',source);f.sync:checkpoint_local('later')
+        end
+        local accepted=mode~='unknown'
+        delivered(true,accepted,{acknowledged=mode~='readonly' and accepted,position_confirmed=accepted,
+            read_only_confirmation=mode=='readonly',report_attempted=mode~='readonly',
+            error_kind=not accepted and 'unconfirmed' or nil,error=not accepted and 'upload_readback_unconfirmed' or nil})
+        eq(f.sync.uploading,false,'native completion retained upload slot')
+        eq(releases,1,'native lease was not released')
+        if mode=='unknown' then
+            eq(f.values.books.book.pending_upload_reason,'upload_readback_unconfirmed','unknown dispatch lost durable intent')
+            eq(f.sync.verified,false,'unknown native result granted automatic synchronization')
+        elseif mode=='newer' then
+            eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,10002,'old completion erased a newer source point')
+            eq(f.sync.dirty,true,'new native source became clean')
+        else
+            eq(f.values.books.book.last_uploaded_position.wire_basis,'raw_txt_utf16','native coordinate basis was lost')
+            eq(f.values.books.book.last_uploaded_position.summary,nil,'native summary persisted in checkpoint')
+            eq(f.values.books.book.pending_upload_position,nil,'completed own native intent remained pending')
+        end
+    end
 end)
 
 print(string.format(

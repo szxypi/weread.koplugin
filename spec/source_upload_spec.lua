@@ -84,4 +84,16 @@ frame_current=false;begin(initial);check_ready(copy(point))
 expect(not plan and count==1 and reason=='source_position_unavailable','changed initial frame was adopted')
 frame_current=true;begin(initial);check_ready(nil,'no_visible_text')
 expect(not plan and reason=='source_no_visible_text','native failure escaped as a raw implementation code')
+local routed,cancelled,views=0,0,0
+upload.native={job={},cancel=function(self) cancelled=cancelled+1;self.job=nil;return true end,
+    on_view_changed=function() views=views+1 end,prepare=function(_self,value,cb)
+        routed=routed+1;expect(value.native_position_only==true);cb({transport='native_position'});return true
+    end}
+local raw_intent={book_id='900001',percent=37,source_position={basis='raw_txt_utf16'}}
+local before_cancel=cancelled
+begin(raw_intent)
+expect(not plan and reason=='source_format_unsupported' and cancelled==before_cancel,'time reporter cancelled native position upload')
+raw_intent.native_position_only=true;begin(raw_intent)
+expect(plan.transport=='native_position' and routed==1,'explicit zero-time request did not route natively')
+upload:on_view_changed();expect(views==1)
 print(('source_upload_spec: %d checks'):format(checks))

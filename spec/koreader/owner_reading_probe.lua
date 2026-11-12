@@ -302,6 +302,9 @@ local ok,reason=pcall(function()
     end
     report.transport_guard_selftest=true
     function Client:request(options)
+        if candidate_case and candidate_case.is_native and candidate_case:is_native(options) then
+            return candidate_case:request(self,options,request)
+        end
         if selection_case and selection_case:is_native(options) then return selection_case:request(self,options,request) end
         if progress_case and progress_case:is_write(options) then
             if input.progress_roundtrip then return progress_case:request(self,options,request) end
@@ -683,6 +686,7 @@ local ok,reason=pcall(function()
         for _i,value in ipairs(annotation_case:secrets()) do secrets[#secrets+1]=value end
     end
     if selection_case then for _i,value in ipairs(selection_case:secrets()) do secrets[#secrets+1]=value end end
+    if candidate_case and candidate_case.secrets then for _i,value in ipairs(candidate_case:secrets()) do secrets[#secrets+1]=value end end
     for key,value in pairs(latest_cookies) do if key~='wr_vid' and #value>=8 then secrets[#secrets+1]=value end end
     for key,value in pairs(input.cookies) do if key~='wr_vid' and #value>=8 then secrets[#secrets+1]=value end end
     local function audit(path)
