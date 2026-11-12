@@ -5,6 +5,7 @@ local Source = require("weread.lib.position_source")
 local SourceDom = require("weread.lib.source_dom")
 local FileIdentity = require("weread.lib.book_file_identity")
 local ProgressReadback = require("weread.lib.progress_readback")
+local CloudState = require('weread.lib.native_cloud_state')
 local SourceRemote = require("weread.lib.source_remote_position")
 local SourceCandidate = require("weread.lib.source_upload_candidate")
 local ReadAccess = require("weread.lib.read_access")
@@ -626,6 +627,7 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
     local web
     local gateway_error
     local web_error
+    local web_none
     local function normalize(value,kind)
         if not self.prepare_upload then return PositionMapper.normalize_remote(value,book_id,kind,chapters) end
         local position,reason=SourceRemote.resolve(value,book_id,chapters,kind)
@@ -652,13 +654,17 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
         if access and ok and not result and kind=='web_expired' then return nil,'progress_web_expired',access end
         if ok then
             web, web_error = normalize(result,"web")
+            if web_error=='progress_no_chapter' then web_none=CloudState.from(result,book_id) end
         else
             web_error = access and 'progress_unavailable' or tostring(result)
         end
     end
     -- An explicit Web no-chapter marker is an observed cloud state, not an
     -- unavailable transport. An older gateway point must not replace it.
-    if web_error=='progress_no_chapter' then return nil,web_error end
+    if web_error=='progress_no_chapter' then
+        if web_none then return {book_id=book_id,source='web',no_chapter=web_none} end
+        return nil,web_error
+    end
     local selected = PositionMapper.choose_remote(
         web,
         gateway,
@@ -845,11 +851,15 @@ function ProgressSync:_apply_remote(remote, context, options)
     return true
 end
 
-function ProgressSync:_upload_snapshot(position, reason, show_result, close_token, interval_cycle)
+function ProgressSync:_upload_snapshot(position, reason, show_result, close_token, interval_cycle, initial_remote)
     if type(position) ~= "table" then return false end
     local book_id = tostring(position.book_id or self.current_book_id or "")
     if book_id == "" then return false end
     if self.source_dispatch and self.source_dispatch:pending(book_id) then return false end
+    if initial_remote and (reason~='explicit_first_sync' or close_token or interval_cycle or not self.prepare_upload
+        or initial_remote.source~='web' or initial_remote.book_id~=book_id or not CloudState.none(initial_remote.no_chapter)
+        or initial_remote.no_chapter.book_id~=book_id) then return false end
+    initial_remote=copy(initial_remote)
     position = copy(position)
     local scope = self:_scope()
     scope.book_id = book_id
@@ -916,6 +926,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         local confirmed = ok and accepted and type(outcome) == "table" and outcome.position_confirmed == true
             and (outcome.acknowledged == true or job.plan and job.plan.transport=='native_position'
                 and outcome.read_only_confirmation==true and outcome.report_attempted==false)
+            and (not initial_remote or outcome.acknowledged==true and outcome.report_attempted==true
+                and job.plan and job.plan.transport=='native_position')
         if confirmed then
             local book = self.get_book(book_id) or {}
             local clear_pending = book.pending_upload_account == scope.account
@@ -938,6 +950,9 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             if clear_pending then
                 patch.pending_upload_position, patch.pending_upload_reason, patch.pending_upload_account = false, false, false
             end
+            if initial_remote then
+                patch.verified_at,patch.verified_source=self.now(),'first_sync_confirmed'
+            end
             if job.plan and job.plan.transport=='native_position' then
                 local saved=pcall(self._persist,self,book_id,patch)
                 if not saved then
@@ -953,6 +968,10 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             else self:_persist(book_id, patch) end
             local active = self:_session_current(scope)
             if active then
+                if initial_remote then
+                    self.verified,self.verified_at,self.verified_reason=true,patch.verified_at,'first_sync_confirmed'
+                    self.source_local_anchor=copy(position.source_position)
+                end
                 local live = self:capture_local() or self.local_position
                 local unchanged=job.plan and ProgressReadback.same_intent(live,position)
                     or not job.plan and ProgressReadback.same_wire_position(live,position)
@@ -1026,6 +1045,10 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                     position.source_position=copy(plan.source_position)
                     if own then self:_persist(book_id,{pending_upload_position=position,last_local_position=position}) end
                 end
+                if initial_remote and plan.transport~='native_position' then
+                    if plan.release then plan.release() end
+                    finish(true,false,{error='source_position_changed',error_kind='position'});return
+                end
                 if plan.transport=='native_position' then
                     if plan.basis~='raw_txt_utf16' or type(plan.dispatch)~='function' then
                         if plan.release then plan.release() end
@@ -1045,7 +1068,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             else
                 local intent=copy(position);intent.native_position_only=true
                 local saved=self.get_book(book_id) or {}
-                intent.expected_remote=copy(self.remote_position or saved.last_remote_position)
+                intent.expected_remote=copy(initial_remote or self.remote_position or saved.last_remote_position)
+                if initial_remote then intent.initialize_cloud=true end
                 self.prepare_upload(intent,prepared)
             end
             return
@@ -1104,6 +1128,39 @@ function ProgressSync:_compare_source(local_position,remote,chapters)
     if tostring(source.chapter_uid)~=tostring(remote.chapter_uid) then return nil end
     if source.chapter_offset==remote.chapter_offset then return 'same' end
     return remote.chapter_offset>source.chapter_offset and 'remote_ahead' or 'local_ahead'
+end
+
+-- An absent cloud chapter offers one explicit first write; cancel/open/timer
+-- never select a chapter or grant automatic synchronization authority.
+function ProgressSync:_resolve_initial(local_position,remote,context,options)
+    self.local_position,self.remote_position=copy(local_position),copy(remote)
+    self.state='unverified'
+    if not options.manual then return end
+    local source=local_position.source_position
+    if not self.prepare_upload or type(source)~='table' or source.basis~='raw_txt_utf16' then
+        self.notify('pull_failed',{error='progress_no_chapter'});return
+    end
+    self.state='awaiting_choice'
+    local scope,document,marker,decided=self:_scope(),self.get_document(),self:_recovery_marker(),false
+    local function current()
+        if decided or not self:_session_current(scope) or scope.navigation_generation~=self.navigation_generation
+            or document~=self.get_document() or marker~=self:_recovery_marker() then return false end
+        decided=true;return true
+    end
+    self.on_choice({book_title=context.book.title or context.book_id,local_position=copy(local_position),
+        remote_position=copy(remote),initialize_cloud=true,
+        initialize=function()
+            if not current() then return end
+            local latest,reason=self:capture_local()
+            if not latest or not ProgressReadback.same_intent(latest,local_position) then
+                self.state='unverified';self.notify('local_unavailable',{error=reason or 'source_position_unavailable'});return
+            end
+            self:_upload_snapshot(latest,'explicit_first_sync',true,nil,nil,remote)
+        end,
+        keep_local=function()
+            if not current() then return end
+            self.state='unverified';self.notify('local_kept',{position=local_position})
+        end})
 end
 
 function ProgressSync:_resolve(local_position, remote, context, options)
@@ -1334,7 +1391,9 @@ function ProgressSync:_pull(options)
                     last_pull_at = self.now(),
                     last_sync_error = false,
                 })
-                self:_resolve(local_position, remote, context, options)
+                if CloudState.none(remote.no_chapter) then
+                    self:_resolve_initial(local_position,remote,context,options)
+                else self:_resolve(local_position, remote, context, options) end
             end)
         end
         local function unavailable(why,quiet)

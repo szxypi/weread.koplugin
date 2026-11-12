@@ -6,9 +6,15 @@ local Access=require('weread.lib.native_read_access')
 local Shelf=require('weread.lib.shelf_flag_change_contract')
 local Auth=require('weread.lib.native_authorization')
 local BASE='https://i.weread.qq.com'
+local State=require('weread.lib.native_cloud_state')
 local M={}
-function M.matches_expected(point,expected)
+function M.matches_expected(point,expected,initializing)
     expected=type(expected)=='table' and (expected.web or expected) or nil
+    if State.none(point) then
+        return initializing==true and type(expected)=='table' and expected.source=='web'
+            and expected.book_id==point.book_id and State.none(expected.no_chapter) and expected.no_chapter.book_id==point.book_id
+    end
+    if initializing then return false end
     if not expected or expected.has_chapter_offset~=true or expected.has_chapter_index~=true
         or expected.source~='web' and expected.source~='native' then return false end
     for _i,key in ipairs({'book_id','chapter_uid'}) do if tostring(point[key])~=tostring(expected[key]) then return false end end
@@ -28,8 +34,8 @@ function M.run(client,settings,selected,input,gate)
             assert(P.integer(info[key],0,2147483647) and (version==nil or version==info[key]),'native_position/version');version=info[key]
         end end
         assert(version~=nil,'native_position/version')
-        local snapshot=P.snapshot(auth:_request('position_progress',BASE..'/book/getProgress?bookId='..desired.book_id,nil,selected.credentials),desired.book_id)
-        assert(M.matches_expected(snapshot.position,input.expected_remote),'native_position/remote_changed')
+        local snapshot=State.snapshot(auth:_request('position_progress',BASE..'/book/getProgress?bookId='..desired.book_id,nil,selected.credentials),desired.book_id)
+        assert(M.matches_expected(snapshot.position,input.expected_remote,input.initialize_cloud),'native_position/remote_changed')
         local shelf=auth:read_shelf(selected.credentials)
         local metadata={book_id=desired.book_id,before=snapshot.position,desired=desired,counts=snapshot.counts,
             version=version,shelf_sha256=Shelf.state_hash(shelf),source_sha256=input.source.raw_sha256,

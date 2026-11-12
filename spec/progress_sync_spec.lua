@@ -33,6 +33,7 @@ local chapters = {
 
 local function fixture(remote, options)
     options = options or {}
+    local fixture_book=options.book_id or "book"
     local document = {
         file = "/cache/book/full.epub",
         page = 25,
@@ -40,7 +41,7 @@ local function fixture(remote, options)
         getPageCount = function() return 100 end,
     }
     local book = {
-        book_id = "book",
+        book_id = fixture_book,
         title = "Book",
         summary = "Book",
         cached_file = document.file,
@@ -57,7 +58,7 @@ local function fixture(remote, options)
             upload_on_close = true,
             ask_on_conflict = true,
         },
-        books = { book = book },
+        books = { [fixture_book] = book },
     }
     local settings = {
         get = function(_self, key, default)
@@ -98,7 +99,7 @@ local function fixture(remote, options)
         get_view_mode = options.get_view_mode,
         get_viewport_height = options.get_viewport_height,
         get_navigation_xpointer = options.get_navigation_xpointer,
-        detect_book = function() return "book" end,
+        detect_book = function() return fixture_book end,
         get_book = function() return book end,
         get_chapters = options.get_chapters or function() return chapters end,
         refresh_catalog = options.refresh_catalog,
@@ -195,6 +196,95 @@ test('source no-chapter marker keeps local intent and overrides an older gateway
     eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,150,'no-chapter marker erased local intent')
     eq(f.values.books.book.last_sync_error,'progress_no_chapter','no-chapter reason was lost')
     eq(f.notifications[#f.notifications].data.error,'progress_no_chapter','no-chapter status lacked its specific notice')
+end)
+
+local function first_fixture()
+    local source={book_id='41',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    local f=fixture({bookId='41',progress=0,chapterUid=0,chapterOffset=0},
+        {book_id='41',get_source_position=function() return source end})
+    f.source=source;f.document.getXPointer=function() return 'synthetic-xpointer' end
+    f.sync.prepare_upload=function(intent,cb)
+        f.intent=intent;f.prepared=cb
+    end
+    f.sync.current_book_id='41';f.values.sync.upload_interval_minutes=1
+    function f:plan()
+        self.prepared({basis='raw_txt_utf16',transport='native_position',position={book_id='41',chapter_uid='22',chapter_idx=2,
+            chapter_offset=150,percent=self.intent.percent,summary='synthetic raw summary'},source_position=self.source,
+            is_current=function() return true end,release=function() end,
+            dispatch=function(cb) self.complete=cb;return true end})
+    end
+    function f:confirmed()
+        self.complete(true,true,{accepted=true,position_confirmed=true,acknowledged=true,report_attempted=true,
+            remote={book_id='41',chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=self.intent.percent,
+                raw_percent=self.intent.percent,has_chapter_index=true,has_chapter_offset=true,source='native'}})
+    end
+    return f
+end
+
+test('first sync requires a manual choice, cancels locally and never offers UID0 navigation',function()
+    local f=first_fixture();f.sync:_pull({manual=false});f.drain()
+    eq(#f.choices,0,'opening offered automatic first write');eq(f.sync.verified,false,'opening granted authority')
+    f.sync:sync_now();f.drain();local c=assert(f.choices[1])
+    eq(c.initialize_cloud,true,'missing explicit first-sync choice');eq(c.use_remote,nil,'UID0 navigation offered')
+    eq(f.intent,nil,'preparation before user choice');c.keep_local()
+    eq(f.sync.state,'unverified','cancel verified absent chapter');eq(f.sync.interval.task,nil,'cancel scheduled timer')
+    f.sync:prepare_close();eq(f.intent,nil,'close initialized position')
+end)
+
+test('first-sync authority is granted only after ACK readback and local save',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize()
+    eq(f.intent.initialize_cloud,true,'explicit intent was lost');eq(f.intent.expected_remote.no_chapter.kind,'no_chapter','baseline was invented')
+    eq(f.sync.verified,false,'preflight granted authority');f:plan();eq(f.sync.verified,false,'dispatch granted authority')
+    f:confirmed();eq(f.sync.verified,true,'confirmed first point did not grant authority')
+    eq(f.sync.verified_reason,'first_sync_confirmed','confirmation provenance lost')
+    eq(f.values.books['41'].pending_upload_position,nil,'confirmed intent remained pending')
+    eq(f.values.books['41'].last_remote_position.chapter_uid,'22','real chapter was not retained')
+    eq(f.values.books['41'].last_remote_position.summary,nil,'summary leaked to checkpoint')
+end)
+
+test('first-sync unknown result stays unverified and is not resent on close',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.complete(true,false,{acknowledged=false,report_attempted=true,error_kind='unconfirmed',error='upload_readback_unconfirmed'})
+    eq(f.sync.verified,false,'lost receipt became success');eq(f.sync.interval.task,nil,'unknown initial request armed timer')
+    eq(f.values.books['41'].pending_upload_reason,'upload_readback_unconfirmed','unknown intent was lost')
+    f.intent=nil;f.sync:prepare_close();eq(f.intent,nil,'unknown initial request retried on close')
+end)
+
+test('first sync cannot fall back to a Web plan or grant authority from a read-only match',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize()
+    f.prepared({basis='raw_txt_utf16',transport='web',position=f.intent,is_current=function() return true end,release=function() end})
+    eq(#f.uploads,0,'initial position used a Web sender');eq(f.sync.verified,false,'wrong transport granted authority')
+    f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.complete(true,true,{acknowledged=false,position_confirmed=true,read_only_confirmation=true,report_attempted=false})
+    eq(f.sync.verified,false,'read-only match initialized authority')
+end)
+
+test('first-sync choice is revoked by movement, document replacement or account change',function()
+    for _i,kind in ipairs({'source','page','document','account'}) do
+        local f=first_fixture();f.sync:sync_now();f.drain()
+        if kind=='source' then f.source.chapter_offset=151
+        elseif kind=='page' then f.document.getXPointer=function() return 'changed' end
+        elseif kind=='document' then local d=f.document;f.sync.get_document=function() return {file=d.file} end
+        else f.values.account.user_vid='other-owner' end
+        f.choices[1].initialize();eq(f.intent,nil,'stale '..kind..' dispatched')
+        eq(f.sync.verified,false,'stale '..kind..' granted authority')
+    end
+end)
+
+test('confirmed first-sync local-save failure keeps authority closed and callback fails for durable journal recovery',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.sync._persist=function() error('synthetic storage failure',0) end
+    eq(pcall(function() f:confirmed() end),false,'sender would retire receipt before local save')
+    eq(f.sync.verified,false,'failed local save enabled automatic first sync');eq(f.sync.state,'error','save failure hidden')
+    eq(f.sync.interval.task,nil,'save failure armed timer')
+end)
+
+test('later local movement remains pending after a confirmed initial snapshot',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.source.chapter_offset=151;f.document.page=26;f.sync:checkpoint_local('newer_local');f:confirmed()
+    eq(f.sync.verified,true,'confirmed baseline lost');eq(f.sync.dirty,true,'later movement was cleared')
+    eq(f.values.books['41'].pending_upload_position.source_position.chapter_offset,151,'newer intent overwritten')
 end)
 
 test('source comparison binds a missing index to the explicit catalog value',function()

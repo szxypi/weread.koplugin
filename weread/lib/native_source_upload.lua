@@ -5,6 +5,7 @@ local P=require('weread.lib.native_position_protocol')
 local C=require('weread.lib.native_position_contract')
 local Snapshot=require('weread.lib.native_position_snapshot')
 local Same=require('weread.lib.source_upload_candidate').same
+local State=require('weread.lib.native_cloud_state')
 local M={};M.__index=M
 local fields={'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}
 local function copy(v) if type(v)~='table' then return v end;local o={};for k,x in pairs(v) do o[k]=copy(x) end;return o end
@@ -123,6 +124,13 @@ function M:prepare(intent,callback)
     self:cancel()
     if type(intent)~='table' then callback(nil,'source_position_changed');return false end
     intent=copy(intent)
+    local expected=intent.expected_remote
+    if intent.initialize_cloud~=nil and intent.initialize_cloud~=true
+        or intent.initialize_cloud==true and (type(expected)~='table' or expected.source~='web'
+            or not State.none(expected.no_chapter) or expected.book_id~=intent.book_id or expected.no_chapter.book_id~=intent.book_id)
+        or type(expected)=='table' and expected.no_chapter~=nil and intent.initialize_cloud~=true then
+        callback(nil,'source_position_changed');return false
+    end
     local point=type(intent)=='table' and intent.source_position
     local scope=type(point)=='table' and self.source:_live()
     if not scope or point.basis~='raw_txt_utf16' or point.upload_verified~=false or point.book_id~=intent.book_id
@@ -180,7 +188,7 @@ function M:_snapshot(job)
     local point,intent,candidate=job.point,job.intent,job.candidate
     local gate=self.make_gate();job.gate=gate
     self.worker=self.worker or self.source.make_worker()
-    local input={candidate=copy(candidate),source=copy(point),expected_remote=copy(intent.expected_remote)}
+    local input={candidate=copy(candidate),source=copy(point),expected_remote=copy(intent.expected_remote),initialize_cloud=intent.initialize_cloud}
     local client,settings,selected,snapshot=self.client,self.settings,job.access,self.snapshot
     local started=self.worker:start(function() return snapshot(client,settings,selected,input,gate) end,function(result)
         if self.job~=job then return end
@@ -190,7 +198,7 @@ function M:_snapshot(job)
         local metadata=type(result)=='table' and result.metadata
         if type(result)~='table' or result.kind~='ready' or not C.valid(metadata)
             or metadata.file_id~=point.file_id or metadata.source_sha256~=point.raw_sha256
-            or not P.equal(metadata.desired,candidate) or not Snapshot.matches_expected(metadata.before,intent.expected_remote) then
+            or not P.equal(metadata.desired,candidate) or not Snapshot.matches_expected(metadata.before,intent.expected_remote,intent.initialize_cloud) then
             local reason_=type(result)=='table' and result.kind=='login' and 'source_native_authentication_unavailable'
                 or type(result)=='table' and result.kind=='changed' and 'source_remote_changed' or 'source_currentness_unavailable'
             self:_fail(job,reason_);return

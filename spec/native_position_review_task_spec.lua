@@ -54,4 +54,10 @@ for _i,mutate in ipairs({function(o) o.point.extra=true end,function(o) o.counts
 end
 f=fixture();out=Task.run(f.client,f.settings,nil,f.row,f.journal,f.gate);expect(out.kind=='unavailable' and f.reads==0)
 out=Task.run(f.client,f.settings,{},nil,f.journal,f.gate);expect(out.kind=='unavailable' and f.reads==0)
+f=fixture()
+for _i,index in ipairs({2,5}) do
+    f.queue[index]={book={bookId='41',chapterUid=0,chapterOffset=0,progress=0,readingTime=55,recordReadingTime=20,ttsTime=0}}
+end
+out=f:run();expect(out.kind=='observed' and out.readbacks==2 and out.observation.point.kind=='no_chapter'
+    and out.observation.counts.readingTime==55 and f.row.phase=='pending' and f.archives==0,'absent state lost unknown receipt history')
 print('native_position_review_task_spec: '..checks..' checks')

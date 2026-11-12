@@ -32,5 +32,20 @@ expect(result.kind=='login' and result.authentication_expired==true,'actual read
 fail='native_auth/position_metadata/http_500';expect(Snapshot.run({},settings,selected,input,gate).kind=='unavailable','500 permitted renewal')
 expected.source='gateway';expect(not Snapshot.matches_expected(before,expected),'gateway offset became TXT wire coordinates')
 expected.source='web';expected.has_chapter_index=false;expect(not Snapshot.matches_expected(before,expected),'missing index became zero')
+fail=nil
+local State=require('weread.lib.native_cloud_state')
+local none={book={bookId='41',chapterUid=0,chapterOffset=0,progress=0,readingTime=0,recordReadingTime=0,ttsTime=0}}
+local expected_none={book_id='41',source='web',no_chapter=assert(State.from(none,'41'))}
+Auth.new=function() return {cancel=function() end,read_shelf=function() return {books={{bookId='41'}},archive={}} end,
+    _request=function(_self,stage) return stage=='position_metadata' and {bookId='41',version=0} or none end} end
+input.expected_remote=expected_none
+expect(Snapshot.run({},settings,selected,input,gate).kind=='changed','implicit first sync admitted')
+input.initialize_cloud=true
+result=Snapshot.run({},settings,selected,input,gate);expect(result.kind=='ready' and State.none(result.metadata.before))
+none.book.chapterIdx=0;none.book.summary=''
+expect(Snapshot.run({},settings,selected,input,gate).kind=='ready','cross-channel absent metadata flags wrongly required identical')
+none.book.readingTime=1;expect(Snapshot.run({},settings,selected,input,gate).kind=='unavailable','unproven nonzero-time initialization')
+none.book.readingTime=0;none.book.chapterUid=2;none.book.summary='now located'
+expect(Snapshot.run({},settings,selected,input,gate).kind=='changed','initial intent overwrote a new real point')
 Auth.new=original
 print(('native_position_snapshot_spec: %d checks'):format(checks))

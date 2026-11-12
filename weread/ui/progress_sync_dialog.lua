@@ -17,7 +17,9 @@ end
 
 function ProgressSyncDialog.show_choice(context)
     local message
-    if context.source_conflict then
+    if context.initialize_cloud then
+        message=T(_("WeRead has no chapter position for \"%1\" yet. Sync the current KOReader position to begin cloud progress? Later automatic syncing starts only after this position is confirmed."),context.book_title)
+    elseif context.source_conflict then
         message = T(_(
             "WeRead's two progress sources disagree for \"%1\".\n\n"
             .. "KOReader: %2%\nSelected cloud position: %3%\n\n"
@@ -36,9 +38,9 @@ function ProgressSyncDialog.show_choice(context)
     UIManager:show(ConfirmBox:new{
         title = _("Reading progress sync"),
         text = message,
-        ok_text = _("Use WeRead progress"),
+        ok_text = context.initialize_cloud and _("Sync current position") or _("Use WeRead progress"),
         cancel_text = _("Keep KOReader progress"),
-        ok_callback = context.use_remote,
+        ok_callback = context.initialize_cloud and context.initialize or context.use_remote,
         cancel_callback = context.keep_local,
     })
 end

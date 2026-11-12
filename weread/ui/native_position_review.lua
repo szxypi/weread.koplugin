@@ -58,6 +58,9 @@ function M.open(host)
             if result.kind~='observed' then fail(result.kind);return end
             ctx.token=token
             local text=T(_('Current cloud position for “%1”: %2%. Archiving keeps the old request result and your local position; it does not resend or undo anything. A delayed cloud change may still arrive.'),title,string.format('%.0f',result.percent))
+            if result.no_chapter then
+                text=T(_('WeRead has no chapter position for “%1”. Archiving keeps the old request result and your local position; it does not resend or undo anything. A delayed cloud change may still arrive.'),title)
+            end
             if result.phase=='pending' then text=_('The previous request has no confirmed receipt. A matching cloud position does not prove that request succeeded.')..'\n\n'..text end
             local dialog
             dialog=Confirm:new{title=_('Review previous sync'),text=text,ok_text=_('Archive and compare again'),keep_dialog_open=true,

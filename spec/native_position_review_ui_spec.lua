@@ -50,5 +50,9 @@ f=fixture();f.row.phase='idle';expect(not View.open(f.host) and f.begins==0)
 f=fixture();f.host.progress_sync.uploading=true;expect(View.open(f.host) and f.begins==0 and f.starts==0)
 f=fixture();expect(View.open(f.host));f.row.revision=3;stack[#stack].ok_callback()
 expect(f.starts==0 and f.archives==0 and f.info:find('changed during the check',1,true),'new row was reviewed under an old title')
+f=fixture();f.observation.point=assert(require('weread.lib.native_cloud_state').from({progress=0,chapterUid=0,chapterOffset=0},'41'))
+f:inspect();f:run();local absent=stack[#stack]
+expect(absent.text:find('WeRead has no chapter position',1,true) and not absent.text:find('0%',1,true),'absence shown as an actual zero-percent coordinate')
+absent.ok_callback();expect(f.history.phase=='pending' and f.compares==1,'absence erased unknown request history')
 Review.new=new
 print('native_position_review_ui_spec: '..checks..' checks')

@@ -61,7 +61,7 @@ function M:start(guard,callback,expected_record)
             self:cancel();callback({kind=kind=='login' and 'login' or kind=='changed' and 'changed' or 'unavailable'});return
         end
         job.observation=client:json_decode(client:json_encode(result.observation));job.observation_hash=O.hash(job.observation);job.token={}
-        callback({kind='observed',phase=record.phase,percent=job.observation.point.raw_percent},job.token)
+        callback({kind='observed',phase=record.phase,percent=job.observation.point.raw_percent,no_chapter=require('weread.lib.native_cloud_state').none(job.observation.point)},job.token)
     end)
     if not ok or not started then self:cancel();return false,'unavailable' end
     return true

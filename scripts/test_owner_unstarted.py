@@ -26,7 +26,7 @@ def private():
 
 def stage(mode='live'):
     r=reading_stage(mode);a={k:False for k in FLAGS}
-    keys={'parent_native_guard','local_intent','unverified','timer_stopped'}|({'offline_local_only','initial_offline_checkpoint'} if mode=='reopen' else {'no_chapter_notice','no_choice','retry_kept'})
+    keys={'parent_native_guard','local_intent','unverified','timer_stopped'}|({'offline_local_only','initial_offline_checkpoint'} if mode=='reopen' else {'no_chapter_choice','cancelled_locally','retry_kept'})
     for k in keys:a[k]=True
     a.update(native_denied=0,failed_line=0);r['unstarted']=a;return r
 

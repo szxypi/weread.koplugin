@@ -171,4 +171,15 @@ f.upload.service.receipt={};f.pending='verified'
 f.upload.service.cancel=function(service) released=true;service.receipt=nil;return false end
 expect(f.upload:cancel()==false and released and not f.upload.service.receipt and f.pending=='verified',
     'idle review retained a stale receipt or erased the durable record')
+local State=require('weread.lib.native_cloud_state')
+for _i,explicit in ipairs({false,true}) do
+    f=fixture();f.intent.expected_remote={book_id='41',source='web',no_chapter=assert(State.from({progress=0,chapterUid=0,chapterOffset=0},'41'))}
+    if explicit then
+        f.intent.initialize_cloud=true;f.metadata.before=F.clone(f.intent.expected_remote.no_chapter)
+        f.metadata.counts={readingTime=0,recordReadingTime=0,ttsTime=0};f:prepare()
+        expect(f.plan and State.none(f.upload.job.metadata.before),'explicit first intent did not bind native absence')
+    else
+        expect(not f.upload:prepare(f.intent,f.callback) and f.prepared==0 and f.starts==0,'automatic path initialized a chapter')
+    end
+end
 print(('native_source_upload_spec: %d checks'):format(checks))

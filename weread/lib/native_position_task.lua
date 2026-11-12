@@ -1,6 +1,7 @@
 -- One zero-time native position operation; source ownership is supplied by
 -- the caller's captured document context. Never renew or repeat a POST.
 local P=require('weread.lib.native_position_protocol')
+local State=require('weread.lib.native_cloud_state')
 local C=require('weread.lib.native_position_contract')
 local Signing=require('weread.lib.readtime_protocol')
 local Shelf=require('weread.lib.shelf_flag_change_contract')
@@ -12,7 +13,7 @@ function M.expired(reason)
     return reason=='native_auth/position_metadata/http_401' or reason=='native_auth/position_progress/http_401'
         or reason=='native_auth/position_feature/http_401' or reason=='native_auth/shelf/http_401'
 end
-local function same_snapshot(snapshot,point,counts) return P.equal(snapshot.position,point) and P.same_counts(snapshot.counts,counts) end
+local function same_snapshot(snapshot,point,counts) return State.equal(snapshot.position,point) and P.same_counts(snapshot.counts,counts) end
 local function snapshot(auth,selected,metadata,info)
     if info then
         local value=auth:_request('position_metadata',BASE..'/book/info?bookId='..metadata.book_id,nil,selected.credentials)
@@ -26,7 +27,7 @@ local function snapshot(auth,selected,metadata,info)
     local raw=auth:_request('position_progress',BASE..'/book/getProgress?bookId='..metadata.book_id,nil,selected.credentials)
     local shelf=auth:read_shelf(selected.credentials)
     assert(Shelf.state_hash(shelf)==metadata.shelf_sha256,'native_position/shelf_changed')
-    return P.snapshot(raw,metadata.book_id)
+    return State.snapshot(raw,metadata.book_id)
 end
 local function current(settings,selected,record,store,metadata,options,read_only)
     if type(options.is_current)~='function' or not selected or selected.renewal_pending or not P.credentials(selected.credentials)

@@ -2,7 +2,7 @@
 return function(input,mode,counters)
     local ffi,UI=require('ffi'),require('ui/uimanager')
     local tr=require('weread.lib.plugin_util').tr;local parent=tonumber(ffi.C.getpid());local private
-    local case={report={local_intent=false,no_chapter_notice=false,no_choice=false,unverified=false,
+    local case={report={local_intent=false,no_chapter_choice=false,cancelled_locally=false,unverified=false,
         timer_stopped=false,retry_kept=false,parent_native_guard=false,offline_local_only=false,initial_offline_checkpoint=false,native_denied=0,failed_line=0}}
     local fields={'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}
     local function copy(p) local out={};for _i,k in ipairs(fields) do out[k]=p[k] end;return out end
@@ -41,14 +41,15 @@ return function(input,mode,counters)
             for _i=1,2 do
                 clean();assert(plugin:onWeReadSyncProgress());pump(function() return not sync.pulling end)
                 local top=assert(UI:getTopmostVisibleWidget())
-                assert(top.text==tr('WeRead has no chapter position for this book yet. Your local reading position is kept. First-time cloud sync is not available yet.'))
-                assert(not top.ok_callback and not top.cancel_callback and not sync.uploading and not plugin._native_position_review_ui)
+                assert(top.ok_text==tr('Sync current position') and type(top.ok_callback)=='function' and type(top.cancel_callback)=='function')
+                assert(not sync.uploading and not plugin._native_position_review_ui)
+                top.cancel_callback();UI:close(top)
                 assert(not sync.verified and sync.state=='unverified' and not sync.interval.task and not sync.interval.cycle)
                 local saved=assert(plugin.settings:get_book(input.book_id))
                 assert(saved.pending_upload_position.source_position.chapter_offset==point.chapter_offset and not saved.last_uploaded_position
-                    and saved.last_sync_error=='progress_no_chapter')
+                    and saved.last_sync_error==nil and saved.last_remote_position.no_chapter.kind=='no_chapter')
             end
-            self.report.no_chapter_notice,self.report.no_choice,self.report.retry_kept=true,true,true
+            self.report.no_chapter_choice,self.report.cancelled_locally,self.report.retry_kept=true,true,true
             cfg.upload_interval_minutes=0;plugin.settings:set('sync',cfg);clean()
         else
             assert(not plugin:isNetworkOnline() and self.offline_point

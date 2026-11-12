@@ -74,4 +74,28 @@ f=fixture();f.queue[1]={status=401};out=f.run();expect(out.kind=='login' and out
 f=fixture();f.queue[4]={feature={},cancel=true};out=f.run();expect(out.kind=='unavailable' and not out.attempted and f.posts==0)
 f=fixture();f.queue[5]={succ=1,cancel=true};out=f.run();expect(out.kind=='unconfirmed' and f.posts==1 and f.saved.phase=='pending')
 f=fixture();f.options.is_current=nil;out=f.run();expect(not out.attempted and f.posts==0 and #f.queue==7)
+-- First write: preserve the exact no-chapter observation while waiting for ACK
+-- propagation. Never restore UID0 or equate a matching point with a lost ACK.
+local State=require('weread.lib.native_cloud_state')
+local function initial_fixture(kind)
+    local empty={book={bookId='41',chapterUid=0,chapterOffset=0,progress=0,readingTime=0,recordReadingTime=0,ttsTime=0}}
+    local target=progress(after,0);target.book.recordReadingTime=0
+    local initial=fixture()
+    initial.record.metadata.before=assert(State.from(empty,'41'))
+    initial.record.metadata.counts={readingTime=0,recordReadingTime=0,ttsTime=0};initial.saved=F.clone(initial.record)
+    initial.queue={{bookId='41',version=0},F.clone(empty),shelf,{feature={}},kind=='noack' and {} or {succ=1}}
+    if kind=='changed' then target.book.readingTime=1 end
+    for _i,value in ipairs(kind=='delayed' and {empty,empty,target} or {target}) do
+        initial.queue[#initial.queue+1]=F.clone(value);initial.queue[#initial.queue+1]=shelf
+    end
+    initial.unknown=kind=='noack';return initial
+end
+for _i,kind in ipairs({'accepted','delayed','noack','changed'}) do
+    f=initial_fixture(kind);out=f.run()
+    expect(f.posts==1 and f.body.chapterUid==2 and f.body.readingTime==0,'initial route or body changed')
+    expect(out.kind==((kind=='accepted' or kind=='delayed') and 'confirmed' or 'unconfirmed'))
+    expect(f.saved.phase==((kind=='accepted' or kind=='delayed') and 'verified' or kind=='noack' and 'pending' or 'acknowledged'))
+    expect(kind~='delayed' or out.readbacks==3 and f.waits==2)
+    f.run();expect(f.posts==1,'initial operation repeated')
+end
 print('PASS native_position_task_spec '..checks)

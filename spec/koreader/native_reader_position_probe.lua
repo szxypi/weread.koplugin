@@ -37,7 +37,7 @@ local ok,reason=pcall(function()
     assert(require('weread.lib.mock_environment').save{enabled=true,host='127.0.0.1',port=port})
     local Settings=require('weread.lib.settings');local settings=Settings:new()
     assert(settings.mock_endpoint=='http://127.0.0.1:'..port)
-    local reopen=arg[1]=='reopen' or arg[1]=='review-reopen'
+    local reopen=arg[1]=='reopen' or arg[1]=='review-reopen' or arg[1]=='initial-reopen'
     if not reopen then
         local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         settings:set('sync',sync)
@@ -79,6 +79,10 @@ local ok,reason=pcall(function()
     report.reader_from_shelf=reader.document.file:match('%.epub$')~=nil
     local sync=plugin.progress_sync;local id=assert(plugin:detectWeReadBook())
     if reopen then
+        if arg[1]=='initial-reopen' then
+            dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'native_reader_initial_case.lua')(reader,plugin,pump,clean,nil,pids,report,true)
+            report.phase,report.result='complete','PASS';return
+        end
         if arg[1]=='review-reopen' then
             local kind=assert(os.getenv('WEREAD_NATIVE_REVIEW_CASE'))
             local archived=kind=='local' or kind=='cloud'
@@ -124,6 +128,10 @@ local ok,reason=pcall(function()
         clean(reader);reader.rolling:onGotoPage(reader:getCurrentPage()==2 and 1 or 2)
         pump(function() return plugin.source_position:current()~=nil end)
         assert(plugin.source_position:current().basis=='raw_txt_utf16')
+    end
+    if arg[1]=='initial' then
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'native_reader_initial_case.lua')(reader,plugin,pump,clean,counters,pids,report,false)
+        report.phase,report.result='complete','PASS';return
     end
     report.phase='manual';move();local local_before=assert(sync:capture_local())
     assert(plugin:onWeReadSyncProgress());pump(function() return not sync.pulling end)
@@ -193,6 +201,6 @@ local ok,reason=pcall(function()
 end)
 if plugin and plugin.source_upload then pcall(plugin.source_upload.cancel,plugin.source_upload) end
 if counters then report.native_posts,report.web_posts=tonumber(counters[0]),tonumber(counters[1]);ffi.C.munmap(memory,4096) end
-if not ok then report.failed_line=tonumber(type(reason)=='string' and reason:match('native_reader_position_probe%.lua:(%d+):')) or 0 end
+if not ok then report.failed_line=tonumber(type(reason)=='string' and (reason:match('native_reader_position_probe%.lua:(%d+):') or reason:match('native_reader_initial_case%.lua:(%d+):'))) or 0 end
 io.stdout:write('\nWEREAD_NATIVE_READER_RESULT='..json.encode(report)..'\n');io.stdout:flush()
 os.exit(ok and 0 or 1)

@@ -4,7 +4,7 @@ from verify_owner_reading import FRAME,validate_cookies,validate_stage as readin
 from owner_cloud_source_contract import validate_source
 from txt_coordinates import PlainSource
 
-FLAGS={'local_intent','no_chapter_notice','no_choice','unverified','timer_stopped','retry_kept','parent_native_guard','offline_local_only','initial_offline_checkpoint'}
+FLAGS={'local_intent','no_chapter_choice','cancelled_locally','unverified','timer_stopped','retry_kept','parent_native_guard','offline_local_only','initial_offline_checkpoint'}
 
 
 def validate_payload(value,mock_port=None):
@@ -36,7 +36,7 @@ def decode(raw,owner,mode):
             or any(type(a[k]) is not int or not 0<=a[k]<=cap for k,cap in (('native_denied',32),('failed_line',10000)))):raise ValueError('unstarted/stage')
     reading_stage({k:x for k,x in stage.items() if k!='unstarted'},mode,selection_preview=True)
     if stage['result']=='PASS':
-        required={'parent_native_guard','local_intent','unverified','timer_stopped'}|({'offline_local_only','initial_offline_checkpoint'} if mode=='reopen' else {'no_chapter_notice','no_choice','retry_kept'})
+        required={'parent_native_guard','local_intent','unverified','timer_stopped'}|({'offline_local_only','initial_offline_checkpoint'} if mode=='reopen' else {'no_chapter_choice','cancelled_locally','retry_kept'})
         if a['native_denied'] or a['failed_line'] or any(a[k]!=(k in required) for k in FLAGS):raise ValueError('unstarted/incomplete')
         private=v.get('candidate_private')
         if not isinstance(private,dict) or set(private)!={'position','checkpoint'}:raise ValueError('unstarted/private')
