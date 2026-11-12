@@ -80,6 +80,10 @@ function ProgressSyncDialog.notify(code, data)
     elseif code == "pull_failed" then
         if data.error=='progress_authentication_unavailable' then
             text=_("Could not restore login for checking this position. Your local position is kept. Please check login and sync again.")
+        elseif data.error=='progress_no_chapter' then
+            text=_("WeRead has no chapter position for this book yet. Your local reading position is kept. First-time cloud sync is not available yet.")
+        elseif data.error=='progress_source_incomplete' then
+            text=_("A complete cloud chapter position could not be verified. Your local reading position is kept.")
         elseif data.error == "progress_book_mismatch" then
             text = _("WeRead returned a position that does not match this book.\nYour current position is kept. Please try syncing again later.")
         elseif data.error == "progress_invalid" or data.error == "progress_ambiguous"

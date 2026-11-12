@@ -1,0 +1,416 @@
+{
+  "result": "PASS",
+  "released": false,
+  "source_remote_classifier": {
+    "result": "SOURCE_REMOTE_READONLY_VERIFIED",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "books_checked": 8,
+    "observations_checked": 16,
+    "no_chapter": 10,
+    "located": 6,
+    "incomplete": 0,
+    "web_indices_missing": 5,
+    "native_indices_missing": 5,
+    "python_lua_matches": true,
+    "read_fields_stable": true,
+    "catalog_and_shelf_stable": true
+  },
+  "runs": {
+    "mock600": {
+      "result": "OWNER_UNSTARTED_READER_VERIFIED",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "synthetic_only": true,
+      "independent_local_comparisons": 4,
+      "cloud_no_chapter_and_counts_preserved": true,
+      "source_catalog_unchanged": true,
+      "grants_retained": true,
+      "fresh_offline_process": true,
+      "initialization_write_implemented": false,
+      "installed": {
+        "files": 286,
+        "bytes_match": true
+      },
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "proof": {
+            "failed_line": 0,
+            "local_intent": true,
+            "no_chapter_notice": true,
+            "no_choice": true,
+            "unverified": true,
+            "timer_stopped": true,
+            "retry_kept": true,
+            "parent_native_guard": true,
+            "offline_local_only": false,
+            "initial_offline_checkpoint": false,
+            "native_denied": 0
+          },
+          "requests": [
+            1,
+            19,
+            4,
+            1,
+            4,
+            0,
+            0
+          ],
+          "workers_reaped": true,
+          "credential_file_audit": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "proof": {
+            "failed_line": 0,
+            "local_intent": true,
+            "no_chapter_notice": false,
+            "no_choice": false,
+            "unverified": true,
+            "timer_stopped": true,
+            "retry_kept": false,
+            "parent_native_guard": true,
+            "offline_local_only": true,
+            "initial_offline_checkpoint": true,
+            "native_denied": 0
+          },
+          "requests": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "workers_reaped": true,
+          "credential_file_audit": true
+        }
+      ]
+    },
+    "mock_ko2": {
+      "result": "OWNER_UNSTARTED_READER_VERIFIED",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "synthetic_only": true,
+      "independent_local_comparisons": 4,
+      "cloud_no_chapter_and_counts_preserved": true,
+      "source_catalog_unchanged": true,
+      "grants_retained": true,
+      "fresh_offline_process": true,
+      "initialization_write_implemented": false,
+      "installed": {
+        "files": 286,
+        "bytes_match": true
+      },
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "proof": {
+            "local_intent": true,
+            "no_chapter_notice": true,
+            "no_choice": true,
+            "unverified": true,
+            "timer_stopped": true,
+            "retry_kept": true,
+            "parent_native_guard": true,
+            "offline_local_only": false,
+            "initial_offline_checkpoint": false,
+            "native_denied": 0,
+            "failed_line": 0
+          },
+          "requests": [
+            1,
+            25,
+            4,
+            1,
+            4,
+            0,
+            0
+          ],
+          "workers_reaped": true,
+          "credential_file_audit": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "proof": {
+            "no_chapter_notice": false,
+            "no_choice": false,
+            "unverified": true,
+            "timer_stopped": true,
+            "retry_kept": false,
+            "parent_native_guard": true,
+            "offline_local_only": true,
+            "initial_offline_checkpoint": true,
+            "local_intent": true,
+            "failed_line": 0,
+            "native_denied": 0
+          },
+          "requests": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "workers_reaped": true,
+          "credential_file_audit": true
+        }
+      ]
+    },
+    "real600": {
+      "result": "OWNER_UNSTARTED_READER_VERIFIED",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "synthetic_only": false,
+      "independent_local_comparisons": 4,
+      "cloud_no_chapter_and_counts_preserved": true,
+      "source_catalog_unchanged": true,
+      "grants_retained": true,
+      "fresh_offline_process": true,
+      "initialization_write_implemented": false,
+      "installed": {
+        "files": 286,
+        "bytes_match": true
+      },
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "proof": {
+            "no_choice": true,
+            "unverified": true,
+            "timer_stopped": true,
+            "retry_kept": true,
+            "parent_native_guard": true,
+            "offline_local_only": false,
+            "initial_offline_checkpoint": false,
+            "native_denied": 0,
+            "failed_line": 0,
+            "local_intent": true,
+            "no_chapter_notice": true
+          },
+          "requests": [
+            1,
+            14,
+            4,
+            1,
+            4,
+            0,
+            0
+          ],
+          "workers_reaped": true,
+          "credential_file_audit": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "proof": {
+            "local_intent": true,
+            "no_chapter_notice": false,
+            "no_choice": false,
+            "unverified": true,
+            "timer_stopped": true,
+            "retry_kept": false,
+            "parent_native_guard": true,
+            "offline_local_only": true,
+            "initial_offline_checkpoint": true,
+            "native_denied": 0,
+            "failed_line": 0
+          },
+          "requests": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "workers_reaped": true,
+          "credential_file_audit": true
+        }
+      ]
+    },
+    "real_ko2": {
+      "result": "OWNER_UNSTARTED_READER_VERIFIED",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "synthetic_only": false,
+      "independent_local_comparisons": 4,
+      "cloud_no_chapter_and_counts_preserved": true,
+      "source_catalog_unchanged": true,
+      "grants_retained": true,
+      "fresh_offline_process": true,
+      "initialization_write_implemented": false,
+      "installed": {
+        "files": 286,
+        "bytes_match": true
+      },
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "proof": {
+            "local_intent": true,
+            "no_chapter_notice": true,
+            "no_choice": true,
+            "unverified": true,
+            "timer_stopped": true,
+            "retry_kept": true,
+            "parent_native_guard": true,
+            "offline_local_only": false,
+            "initial_offline_checkpoint": false,
+            "native_denied": 0,
+            "failed_line": 0
+          },
+          "requests": [
+            1,
+            14,
+            4,
+            1,
+            4,
+            0,
+            0
+          ],
+          "workers_reaped": true,
+          "credential_file_audit": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "proof": {
+            "local_intent": true,
+            "no_chapter_notice": false,
+            "no_choice": false,
+            "unverified": true,
+            "timer_stopped": true,
+            "retry_kept": false,
+            "parent_native_guard": true,
+            "offline_local_only": true,
+            "initial_offline_checkpoint": true,
+            "native_denied": 0,
+            "failed_line": 0
+          },
+          "requests": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "workers_reaped": true,
+          "credential_file_audit": true
+        }
+      ]
+    }
+  },
+  "missing_web_index_mock": {
+    "600": {
+      "result": "PASS",
+      "account_data_posts": 0,
+      "synthetic_only": true,
+      "server_posts": 3,
+      "offline_requests": 0,
+      "counts_preserved": true,
+      "profile_removed": true,
+      "installed": {
+        "files": 286,
+        "bytes_match": true
+      }
+    },
+    "ko2": {
+      "result": "PASS",
+      "account_data_posts": 0,
+      "synthetic_only": true,
+      "server_posts": 3,
+      "offline_requests": 0,
+      "counts_preserved": true,
+      "profile_removed": true,
+      "installed": {
+        "files": 286,
+        "bytes_match": true
+      }
+    }
+  },
+  "renewal": {
+    "result": "NATIVE_SOURCE_AUTOMATIC_RENEWAL_VERIFIED",
+    "account_data_posts": 0,
+    "authentication_posts_claimed": 1,
+    "blocked_data_posts": 1,
+    "same_owner_keychain_readback": true,
+    "independent_position_counts_shelf_preserved": true,
+    "keychain_new_grant_saved": true,
+    "web_original_position_summary_shelf_preserved": true,
+    "retired_reference_unchanged": true,
+    "independent_http_401_observed": true
+  },
+  "regressions": [
+    {
+      "case": "timer_save_recovery",
+      "result": "NATIVE_TIMER_TRIAL_VERIFIED"
+    },
+    {
+      "case": "closed_restore",
+      "result": "NATIVE_CLOSE_TRIAL_VERIFIED"
+    },
+    {
+      "case": "cloud_choice",
+      "result": "OWNER_RAW_TXT_CLOUD_CHOICE_VERIFIED"
+    }
+  ],
+  "package": {
+    "files": 286,
+    "sha256": "d5502c67b381178d0401c534d6a0ac04c53d1271d7bdb1d7db63dbabbf1e6dc4"
+  },
+  "local_checks": {
+    "lua_groups": 256,
+    "python_modules": 125,
+    "python_tests": 1604,
+    "python_skips": 0,
+    "lua_syntax": 729,
+    "lint_files": 727,
+    "lint_warnings": 0,
+    "lint_errors": 0,
+    "source_remote_checks": 70,
+    "progress_sync_checks": 714,
+    "new_python_tests": 25
+  },
+  "phase_totals": {
+    "real_account_data_posts": 0,
+    "authentication_posts": 1,
+    "new_once_marker_consumed": true,
+    "old_consumed_slots_reused": false
+  },
+  "incomplete": [
+    "no_chapter_first_cloud_write",
+    "no_chapter_unknown_receipt_protocol",
+    "physical_ko2",
+    "real_storage_full_and_power_loss",
+    "more_concurrency_and_formats",
+    "historical_time_sender",
+    "overall_performance_phase"
+  ],
+  "privacy_checks": {
+    "result": "PASS",
+    "files": 1855,
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "active_test_intents_absent": true,
+    "protected_files_unchanged": true,
+    "document_links_checked": 299
+  }
+}

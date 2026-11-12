@@ -158,6 +158,71 @@ local function fixture(remote, options)
     }
 end
 
+test('ordinary current source capture saves an unchanged local viewport proof',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end,get_viewport_height=function() return 800 end})
+    f.document.getXPointer=function() return '/body/p/text().1' end
+    f.document.getCurrentPos=function() return 0 end
+    f.document.getDocumentRenderingHash=function() return 12345 end
+    f.document.info={doc_height=8000}
+    eq(f.sync:current_source_target(),nil,'ordinary fixture unexpectedly held a source jump')
+    local point=assert(f.sync:capture_local());local View=require('weread.lib.source_view')
+    eq(type(point.source_view),'table','ordinary capture lost its local viewport proof')
+    eq(View.matches(point.source_view,f.sync:_viewport(f.document),f.sync:_account_key(),source),true,'ordinary source proof was not bound to the actual view')
+    eq(f.sync.verified,false,'local proof granted cloud authority')
+    f.document.getDocumentRenderingHash=function() return nil end
+    eq(assert(f.sync:capture_local()).source_view,nil,'unknown layout created local restoration authority')
+    source=nil
+    eq(assert(f.sync:capture_local()).source_view,nil,'stale source created a local viewport proof')
+end)
+
+test('source no-chapter marker keeps local intent and overrides an older gateway point',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    local f=fixture({progress=0,chapterUid=0,chapterOffset=0},{get_source_position=function() return source end})
+    f.sync.prepare_upload=function() error('no-chapter position reached upload preparation') end
+    f.client.get_progress=function() return {book={progress=25,chapterUid=22,chapterIdx=2,chapterOffset=150,updateTime=999}} end
+    f.sync:_mark_verified('book','fixture',assert(f.sync:capture_local()),{});f.sync.dirty=true
+    f.sync:checkpoint_local('prior_local')
+    f.values.sync.upload_interval_minutes=1
+    f.sync:sync_now();f.drain()
+    eq(f.sync.verified,false,'no-chapter cloud state retained old automatic authority')
+    eq(f.sync.state,'unverified','no-chapter state became an ordinary conflict or network error')
+    eq(#f.choices,0,'no-chapter marker offered impossible cloud navigation')
+    eq(#f.uploads,0,'no-chapter marker sent a guessed first chapter')
+    eq(f.sync.interval.task,nil,'no-chapter marker scheduled automatic upload')
+    eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,150,'no-chapter marker erased local intent')
+    eq(f.values.books.book.last_sync_error,'progress_no_chapter','no-chapter reason was lost')
+    eq(f.notifications[#f.notifications].data.error,'progress_no_chapter','no-chapter status lacked its specific notice')
+end)
+
+test('source comparison binds a missing index to the explicit catalog value',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    for _i,bad in ipairs({false,true}) do
+        local raw={progress=25.4,chapterUid=22,chapterOffset=150}
+        if bad then raw.chapterIdx=0 end
+        local f=fixture(raw,{get_source_position=function() return source end})
+        f.sync.prepare_upload=function() error('read-only comparison prepared an upload') end
+        f.sync:_mark_verified('book','fixture',assert(f.sync:capture_local()),{});f.sync.dirty=true
+        f.sync:checkpoint_local('prior_local');f.sync:sync_now();f.drain()
+        eq(#f.uploads,0,'catalog binding sent a position')
+        eq(#f.choices,0,'catalog binding offered an invalid or already-matching choice')
+        eq(f.sync.verified,not bad,'present zero index was silently replaced or absent index was rejected')
+        if not bad then
+            eq(f.values.books.book.last_remote_position.chapter_idx,2,'array ordinal replaced explicit chapter index')
+            eq(f.values.books.book.last_remote_position.chapter_index_source,'catalog','derived index lost provenance')
+            eq(f.values.books.book.last_remote_position.raw_percent,25.4,'source comparison changed server percentage units')
+            eq(f.values.books.book.last_remote_position.summary,nil,'temporary summary entered local checkpoint')
+            eq(f.values.books.book.pending_upload_position,nil,'matching original position retained obsolete intent')
+        else
+            eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,150,'incomplete response lost local intent')
+            eq(f.notifications[#f.notifications].data.error,'progress_source_incomplete','conflicting explicit index lacked a specific notice')
+        end
+    end
+end)
+
 test("malformed cloud rechecks revoke old authority without losing local intent", function()
     for _i, bad in ipairs({
         { bookId = "other", data = { progress = 25 } },

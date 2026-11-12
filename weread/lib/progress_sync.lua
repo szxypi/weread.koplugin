@@ -5,7 +5,7 @@ local Source = require("weread.lib.position_source")
 local SourceDom = require("weread.lib.source_dom")
 local FileIdentity = require("weread.lib.book_file_identity")
 local ProgressReadback = require("weread.lib.progress_readback")
-local RemoteProgress = require("weread.lib.remote_progress")
+local SourceRemote = require("weread.lib.source_remote_position")
 local SourceCandidate = require("weread.lib.source_upload_candidate")
 local ReadAccess = require("weread.lib.read_access")
 local SourceWait = require("weread.lib.progress_source_wait")
@@ -555,7 +555,10 @@ function ProgressSync:capture_local()
     -- Keep source units separate from the existing word/percent contract.
     -- The local source snapshot is read-only until wire write/readback validation.
     if self.get_source_position then position.source_position = copy(self.get_source_position()) end
-    if position.source_position and self:current_source_target() then
+    -- The source service returns only a point bound to the current native
+    -- location, including ordinary page captures. Preserve its exact local
+    -- point across an unchanged viewport, not only explicit source jumps.
+    if position.source_position then
         position.source_view=require('weread.lib.source_view').capture(self:_viewport(document),self:_account_key(),position.source_position)
     end
     if self.prepare_upload then position.summary=nil end
@@ -625,8 +628,8 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
     local web_error
     local function normalize(value,kind)
         if not self.prepare_upload then return PositionMapper.normalize_remote(value,book_id,kind,chapters) end
-        local position,reason,provided=RemoteProgress.project(value,book_id,kind)
-        if position then position.has_chapter_index=provided.chapter_idx==true;position.summary=nil end
+        local position,reason=SourceRemote.resolve(value,book_id,chapters,kind)
+        if position then position.summary=nil end
         return position,reason
     end
     if self.settings:is_api_configured() then
@@ -653,6 +656,9 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
             web_error = access and 'progress_unavailable' or tostring(result)
         end
     end
+    -- An explicit Web no-chapter marker is an observed cloud state, not an
+    -- unavailable transport. An older gateway point must not replace it.
+    if web_error=='progress_no_chapter' then return nil,web_error end
     local selected = PositionMapper.choose_remote(
         web,
         gateway,
@@ -1304,7 +1310,7 @@ function ProgressSync:_pull(options)
                 if not current() then return end
                 self.pull_job, self.pulling = nil, false
                 if not remote then
-                    self.state = "error"
+                    self.state = pull_error=='progress_no_chapter' and 'unverified' or 'error'
                     self:_persist(context.book_id, {
                         last_pull_at = self.now(),
                         last_sync_error = tostring(pull_error),
