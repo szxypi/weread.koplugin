@@ -87,7 +87,7 @@ local function outcome(result,metadata)
             percent=p.raw_percent,raw_percent=p.raw_percent,has_chapter_offset=true,has_chapter_index=true,source='native'}
         out.error,out.error_kind=nil,nil
     elseif not result.attempted then
-        out.error_kind='position';out.error=result.kind=='login' and 'source_authentication_unavailable' or 'source_position_changed'
+        out.error_kind='position';out.error=result.kind=='login' and 'source_native_authentication_unavailable' or 'source_position_changed'
     end
     return out
 end
@@ -114,7 +114,8 @@ function M:_plan(job,metadata)
         end)
         if not started then
             self:_close(job)
-            return false,reason=='pending' and 'upload_readback_unconfirmed' or 'source_position_changed'
+            return false,reason=='pending' and 'upload_readback_unconfirmed'
+                or reason=='login' and 'source_native_authentication_unavailable' or 'source_position_changed'
         end
         return true
     end

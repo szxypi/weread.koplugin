@@ -60,11 +60,12 @@
   "package": {
     "result": "PASS",
     "files": 278,
-    "sha256": "224315fce1df1d0c449e6303c55936747bd4473262260735ffd29f92f40dea45",
+    "sha256": "6978a4be0ad3f71647539ab86544b3a2e05b8ec911a81561e42e3ef90213fa21",
     "source_bytes_match": true
   },
   "real_reader_write_roundtrip_verified": false,
   "close_detached_upload_verified": false,
   "physical_ko2_verified": false,
-  "release_published": false
+  "release_published": false,
+  "final_candidate_after_native_auth_message_fix": true
 }

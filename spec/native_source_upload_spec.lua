@@ -27,7 +27,7 @@ local function fixture()
         cancel=function(self) self.job=nil end,
         start=function(self,metadata,guard,cb)
             f.starts=f.starts+1;f.sent=F.clone(metadata);f.guard=guard;f.deliver=cb
-            self.job={};return not f.start_fail,'storage'
+            self.job={};return not f.start_fail,f.start_reason or 'storage'
         end,
         accept=function() f.accepts=f.accepts+1;f.events[#f.events+1]='accept';f.pending=nil;return true end,
         resolve=function(_self,_guard,cb)
@@ -107,4 +107,12 @@ f.plan.release();expect(not cancelled,'releasing old native plan cancelled a new
 f=fixture();local owned={};f.source.preview_token=owned;f:prepare()
 cancelled=false;f.source.cancel_upload_preview=function() cancelled=true end
 f.plan.release();expect(cancelled,'owned source preparation was not cancelled')
+f=fixture();f:prepare();f.start_fail=true;f.start_reason='login'
+local sent,reason=f.plan.dispatch(function() error('failed start delivered twice') end)
+expect(not sent and reason=='source_native_authentication_unavailable','pre-dispatch native login error lost its origin')
+f=fixture();f:prepare();local expired
+f.plan.dispatch(function(_ok,accepted,result) expired=result;expect(not accepted) end)
+f.service.job=nil;f.deliver({kind='login',attempted=false,acknowledged=false,readbacks=0})
+expect(expired.error=='source_native_authentication_unavailable' and not expired.report_attempted and f.starts==1,
+    'native read expiry used Web guidance or retried')
 print(('native_source_upload_spec: %d checks'):format(checks))
