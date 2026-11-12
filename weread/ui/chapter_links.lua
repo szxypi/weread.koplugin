@@ -2,6 +2,7 @@
 -- reader at a verified literal anchor. No WebView or new network protocol.
 local Task=require('weread.lib.chapter_link_worker')
 local History=require('weread.lib.chapter_link_history')
+local NativePosition=require('weread.lib.chapter_link_position')
 local Identity=require('weread.lib.book_file_identity')
 local Context=require('weread.lib.source_context')
 local BookLinks=require('weread.lib.book_link_paths')
@@ -107,7 +108,7 @@ local function frame(host,job,direction,index)
     local back,forward=History.stacks(host.ui.link,direction,index)
     return {book_id=job.book_id,uid=job.uid,path=job.path,file_id=job.file_id,sha256=job.source_sha256,
         owner=job.owner,auth=job.auth,catalog=job.catalog,
-        location={xpointer=marker(host),marker_xpointer=job.from_xpointer},back=back,forward=forward}
+        location=NativePosition.capture(host.ui,job.from_xpointer),back=back,forward=forward}
 end
 local function open(host,job,result)
     if not same(host,job,false) then M.cancel(host);return end
@@ -145,8 +146,7 @@ local function open(host,job,result)
         -- ID, including any remaining percent signs, must never be decoded again.
         local applied=false
         if xp and doc:isXPointerInDocument(xp) then
-            reader.rolling:onGotoXPointer(xp,point and point.marker_xpointer)
-            applied=reader.rolling.xpointer==xp
+            applied=NativePosition.restore(reader,point or {xpointer=xp})
         elseif not xp then
             reader.rolling:onGotoPage(1);applied=true
         end

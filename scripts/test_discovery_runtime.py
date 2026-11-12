@@ -39,6 +39,7 @@ def main():
     parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--rich-footnotes', action='store_true', help='Exercise original media footnotes and return navigation')
+    parser.add_argument('--chapter-link-scroll', action='store_true', help='Exercise standalone scroll viewport and suspend ownership')
     parser.add_argument('--chapter-links', action='store_true', help='Exercise standalone chapter taps, downloads and cross-file history')
     parser.add_argument('--chapter-link-preflight', action='store_true', help='Exercise standalone archive link workers without navigation')
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
@@ -52,6 +53,8 @@ def main():
     parser.add_argument('--process-loss-kind', choices=('periodic','manual','close'), default='periodic',
                         help='Select periodic reading time, manual progress, or close-time progress')
     args = parser.parse_args()
+    if args.chapter_link_scroll and (args.chapter_links or args.chapter_link_preflight or args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
+        parser.error('--chapter-link-scroll uses a separate fixture')
     if args.chapter_links and (args.chapter_link_preflight or args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
         parser.error('--chapter-links uses a separate fixture')
     if args.chapter_link_preflight and (args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
@@ -170,6 +173,9 @@ def main():
             if args.rich_footnotes:
                 fixture = 'book_rich_footnotes_render.lua'
                 fixture_args = [str(root / 'profile/plugins/weread.koplugin'), str(root / 'evidence')]
+            if args.chapter_link_scroll:
+                fixture='chapter_links_scroll.lua'
+                fixture_args=[str(root / 'profile/plugins/weread.koplugin'),str(root / 'evidence')]
             if args.chapter_links:
                 fixture='chapter_links_navigation.lua'
                 fixture_args=[str(root / 'profile/plugins/weread.koplugin'),str(root / 'evidence')]
