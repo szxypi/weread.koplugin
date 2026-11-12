@@ -1,4 +1,5 @@
 """Offline two-slot ownership, exact handshakes and read-only dispatch gates."""
+from contextlib import ExitStack
 from contextlib import redirect_stdout
 from copy import deepcopy
 import io
@@ -134,8 +135,27 @@ class TrialTests(unittest.TestCase):
     def test_other_annotation_trials_stop_while_either_highlight_scope_is_pending(self):
         import verify_native_thought_trial as shared
         for native in (False,True):
-            with patch.object(shared,'AnnotationExperimentStore') as a,patch.object(shared,'FinishExperimentStore') as f,patch.object(shared,'ShelfExperimentStore') as s,patch.object(shared,'PositionExperimentStore') as p,patch.object(shared,'HighlightTrialStore') as h,patch.object(shared,'MarkStyleTrialStore') as styles,patch.object(shared,'BookmarkTrialStore') as bookmarks,patch.object(shared,'NativeShelfTrialStore') as shelf_trial,patch.object(shared,'NativeFinishTrialStore') as finish_trial,patch.object(shared,'InitialMarkStyleStore') as initial,patch.object(shared,'MarkColorStore') as colors,patch.object(shared,'NonemptyMarksStore') as nonempty,patch.object(shared,'ReadtimeTrialStore') as readtime,patch.object(shared,'FlagTrialStore') as flags,patch.object(shared,'NativeFlagTrialStore') as native_flags,patch.object(shared,'TxtFullSummaryStore') as txt_full,patch.object(shared,'TxtZeroTimeStore') as txt_zero,patch.object(shared,'NativeTxtPositionStore') as native_txt:
-                native_txt.return_value.pending.return_value=False
+            with ExitStack() as contexts:
+                a=contexts.enter_context(patch.object(shared,'AnnotationExperimentStore'))
+                f=contexts.enter_context(patch.object(shared,'FinishExperimentStore'))
+                s=contexts.enter_context(patch.object(shared,'ShelfExperimentStore'))
+                p=contexts.enter_context(patch.object(shared,'PositionExperimentStore'))
+                h=contexts.enter_context(patch.object(shared,'HighlightTrialStore'))
+                styles=contexts.enter_context(patch.object(shared,'MarkStyleTrialStore'))
+                bookmarks=contexts.enter_context(patch.object(shared,'BookmarkTrialStore'))
+                shelf_trial=contexts.enter_context(patch.object(shared,'NativeShelfTrialStore'))
+                finish_trial=contexts.enter_context(patch.object(shared,'NativeFinishTrialStore'))
+                initial=contexts.enter_context(patch.object(shared,'InitialMarkStyleStore'))
+                colors=contexts.enter_context(patch.object(shared,'MarkColorStore'))
+                nonempty=contexts.enter_context(patch.object(shared,'NonemptyMarksStore'))
+                readtime=contexts.enter_context(patch.object(shared,'ReadtimeTrialStore'))
+                flags=contexts.enter_context(patch.object(shared,'FlagTrialStore'))
+                native_flags=contexts.enter_context(patch.object(shared,'NativeFlagTrialStore'))
+                txt_full=contexts.enter_context(patch.object(shared,'TxtFullSummaryStore'))
+                txt_zero=contexts.enter_context(patch.object(shared,'TxtZeroTimeStore'))
+                native_txt=contexts.enter_context(patch.object(shared,'NativeTxtPositionStore'))
+                native_txt_roundtrip=contexts.enter_context(patch.object(shared,'NativeTxtRoundtripStore'))
+                native_txt.return_value.pending.return_value=native_txt_roundtrip.return_value.pending.return_value=False
                 txt_zero.return_value.pending.return_value=False
                 txt_full.return_value.pending.return_value=False
                 flags.return_value.pending.return_value=native_flags.return_value.pending.return_value=False

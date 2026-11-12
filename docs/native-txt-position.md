@@ -49,3 +49,6 @@ python3 scripts/verify_native_txt_position.py --saved-session
 python3 scripts/verify_native_txt_same_point.py --saved-session
 # 本轮 v1 已消耗，不得再 --apply；--resolve 仅用于仍待核对的同一意图。
 ```
+
+后续[一字前移与恢复](native-txt-roundtrip.md)已实际看到精确目标和恢复原状态，两次明确成功回执均保留；
+即时回读未通过，独立稍后核对一致，自动往返仍按未验证收尾，生产发送未启用。

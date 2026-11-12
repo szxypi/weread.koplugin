@@ -142,7 +142,7 @@ class FullSummaryTests(unittest.TestCase):
     def test_shared_guard_cannot_bypass_pending_txt_intent(self):
         import verify_native_thought_trial as shared
         factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore',
-            'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','MarkStyleTrialStore','HighlightTrialStore',
+            'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','MarkStyleTrialStore','HighlightTrialStore',
             'BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
         with ExitStack() as stack:
             mocks={k:stack.enter_context(patch.object(shared,k)) for k in factories}

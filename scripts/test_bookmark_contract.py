@@ -1,4 +1,5 @@
 """Point lifecycle guards, optional response fields and exact original sets."""
+from contextlib import ExitStack
 from copy import deepcopy
 from contextlib import redirect_stdout
 import io
@@ -73,8 +74,27 @@ class BookmarkContractTests(unittest.TestCase):
         import verify_native_thought_trial as task
         from unittest.mock import Mock
         for native in (False,True):
-            with patch.object(task,'AnnotationExperimentStore') as a,patch.object(task,'FinishExperimentStore') as f,patch.object(task,'ShelfExperimentStore') as s,patch.object(task,'PositionExperimentStore') as p,patch.object(task,'HighlightTrialStore') as h,patch.object(task,'MarkStyleTrialStore') as styles,patch.object(task,'BookmarkTrialStore') as bookmarks,patch.object(task,'NativeShelfTrialStore') as shelf_trial,patch.object(task,'NativeFinishTrialStore') as finish_trial,patch.object(task,'InitialMarkStyleStore') as initial,patch.object(task,'MarkColorStore') as colors,patch.object(task,'NonemptyMarksStore') as nonempty,patch.object(task,'ReadtimeTrialStore') as readtime,patch.object(task,'FlagTrialStore') as flags,patch.object(task,'NativeFlagTrialStore') as native_flags,patch.object(task,'TxtFullSummaryStore') as txt_full,patch.object(task,'TxtZeroTimeStore') as txt_zero,patch.object(task,'NativeTxtPositionStore') as native_txt:
-                native_txt.return_value.pending.return_value=False
+            with ExitStack() as contexts:
+                a=contexts.enter_context(patch.object(task,'AnnotationExperimentStore'))
+                f=contexts.enter_context(patch.object(task,'FinishExperimentStore'))
+                s=contexts.enter_context(patch.object(task,'ShelfExperimentStore'))
+                p=contexts.enter_context(patch.object(task,'PositionExperimentStore'))
+                h=contexts.enter_context(patch.object(task,'HighlightTrialStore'))
+                styles=contexts.enter_context(patch.object(task,'MarkStyleTrialStore'))
+                bookmarks=contexts.enter_context(patch.object(task,'BookmarkTrialStore'))
+                shelf_trial=contexts.enter_context(patch.object(task,'NativeShelfTrialStore'))
+                finish_trial=contexts.enter_context(patch.object(task,'NativeFinishTrialStore'))
+                initial=contexts.enter_context(patch.object(task,'InitialMarkStyleStore'))
+                colors=contexts.enter_context(patch.object(task,'MarkColorStore'))
+                nonempty=contexts.enter_context(patch.object(task,'NonemptyMarksStore'))
+                readtime=contexts.enter_context(patch.object(task,'ReadtimeTrialStore'))
+                flags=contexts.enter_context(patch.object(task,'FlagTrialStore'))
+                native_flags=contexts.enter_context(patch.object(task,'NativeFlagTrialStore'))
+                txt_full=contexts.enter_context(patch.object(task,'TxtFullSummaryStore'))
+                txt_zero=contexts.enter_context(patch.object(task,'TxtZeroTimeStore'))
+                native_txt=contexts.enter_context(patch.object(task,'NativeTxtPositionStore'))
+                native_txt_roundtrip=contexts.enter_context(patch.object(task,'NativeTxtRoundtripStore'))
+                native_txt.return_value.pending.return_value=native_txt_roundtrip.return_value.pending.return_value=False
                 txt_zero.return_value.pending.return_value=False
                 txt_full.return_value.pending.return_value=False
                 flags.return_value.pending.return_value=native_flags.return_value.pending.return_value=False

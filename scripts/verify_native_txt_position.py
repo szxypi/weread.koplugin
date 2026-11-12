@@ -16,12 +16,13 @@ from readtime_upload_model import integer,guest_token
 
 
 class Native(NativeProbe):
+    max_reads=12
     def __init__(self,credentials,identity,opener=None):
         super().__init__(opener);self.credentials=credentials;self.identity=identity;self.reads=0
     def request(self,stage,url,body=None,credentials=None,timeout=15):
         allowed={BASE+'/config?token=1',BASE+'/feature?synckey=0',BASE+'/shelf/sync'}|{
             BASE+'/book/'+route+'?'+urlencode(dict(bookId=self.identity)) for route in ('getProgress','info')}
-        if body is not None or credentials!=self.credentials or url not in allowed or self.reads>=12:raise ValueError('native_txt/read_scope')
+        if body is not None or credentials!=self.credentials or url not in allowed or self.reads>=self.max_reads:raise ValueError('native_txt/read_scope')
         self.reads+=1;return super().request(stage,url,credentials=credentials,timeout=timeout)
 
 

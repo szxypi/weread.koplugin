@@ -64,7 +64,7 @@ class NativeTxtTests(unittest.TestCase):
         import verify_native_thought_trial as shared
         factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore',
             'NativeShelfTrialStore','NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore',
-            'TxtZeroTimeStore','NativeTxtPositionStore','InitialMarkStyleStore','NonemptyMarksStore','ReadtimeTrialStore',
+            'TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','InitialMarkStyleStore','NonemptyMarksStore','ReadtimeTrialStore',
             'MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
         with ExitStack() as stack:
             mocks={name:stack.enter_context(patch.object(shared,name)) for name in factories}
