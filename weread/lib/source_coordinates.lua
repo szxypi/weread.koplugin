@@ -367,6 +367,45 @@ function Map:anchor(co, options)
     return nil, type(result) == "string" and result:match("^source_coordinates/[a-z_]+$") or "source_coordinates/unavailable"
 end
 
+-- A bounded literal slice for native TXT preparation. This is deliberately
+-- separate from normalized navigation anchors and from any cloud DTO. Keep
+-- BOM, CRLF, literal entities/tags and combining marks exactly as captured.
+function Map:literal_excerpt(co, limit)
+    local ok, result = pcall(function()
+        limit = limit == nil and 30 or limit
+        if not self.literal or self.basis ~= 'raw_txt_utf16'
+            or type(co) ~= 'number' or co < 0 or co % 1 ~= 0
+            or type(limit) ~= 'number' or limit < 1 or limit > 512 or limit % 1 ~= 0 then
+            fail('invalid_literal_excerpt')
+        end
+        self:_index()
+        -- Sparse source checkpoints already exist for matching; reuse them
+        -- rather than allocating a per-scalar table for an entire chapter.
+        local low, high = 1, #self.points
+        while low <= high do
+            local middle = math.floor((low + high) / 2)
+            if self.points[middle].co <= co then low = middle + 1 else high = middle - 1 end
+        end
+        local point = self.points[high]
+        if not point then fail('invalid_literal_excerpt') end
+        local raw, at, offset = self.segments[1][2], point.at, point.co
+        while offset < co and at <= #raw do
+            local _, width, n = scalar(raw, at)
+            at, offset = at + width, offset + n
+        end
+        if offset ~= co or at > #raw then fail('invalid_literal_excerpt') end
+        local first, count = at, 0
+        while at <= #raw and count < limit do
+            local _, width, n = scalar(raw, at)
+            at, offset, count = at + width, offset + n, count + 1
+        end
+        return {text=raw:sub(first, at-1), co=co, end_co=offset, scalars=count,
+            basis='raw_txt_utf16', upload_verified=false}
+    end)
+    if ok then return result end
+    return nil, 'source_coordinates/invalid_literal_excerpt'
+end
+
 function M.build(raw, options)
     local ok, result = pcall(function()
         local format = options and options.format or 'web_xhtml'

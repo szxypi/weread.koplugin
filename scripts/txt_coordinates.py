@@ -6,7 +6,7 @@ whitespace is removed only for matching; no HTML parser touches the TXT source.
 import json
 import subprocess
 
-from verify_source_coordinates import CoordinateError, SourceText, boundaries
+from verify_source_coordinates import CoordinateError, SourceText, boundaries, from_co
 
 BASIS = 'raw_txt_utf16'
 
@@ -22,6 +22,17 @@ class PlainSource:
         self.flat = ''.join(raw[i] for i in self.visible)
 
     locate = SourceText.locate
+
+    def excerpt(self, co, limit=30):
+        """An exact raw slice, not an official summary or upload permission."""
+        if type(limit) is not int or not 1 <= limit <= 512:
+            raise CoordinateError('txt: invalid excerpt limit')
+        first = from_co(self.offsets, co)
+        after = min(len(self.raw), first + limit)
+        if first == after:
+            raise CoordinateError('txt: empty excerpt')
+        return dict(text=self.raw[first:after], co=co, end_co=self.offsets[after],
+                    scalars=after-first, basis=BASIS, upload_verified=False)
 
     def locate_point(self, text, point_offset):
         clean = ''.join(char for char in text if not char.isspace())

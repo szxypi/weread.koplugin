@@ -1,7 +1,8 @@
 -- Pure source-position work plus independent bounded archive I/O. No native
 -- document, UI, network or settings writes. Capture results are metadata-only;
 -- target preparation returns one bounded quote transiently through the pipe.
--- Upload preparation returns a separate, transient twenty-scalar summary.
+-- XHTML upload preparation returns a separate twenty-scalar summary. Native
+-- TXT excerpts remain exact raw slices, unverified and memory-only.
 local Archive = require('weread.lib.source_archive')
 local Coordinates = require('weread.lib.source_coordinates')
 local Dom = require('weread.lib.source_dom')
@@ -153,6 +154,20 @@ function M.prepare_upload(input,read_archive)
         local candidate,why=require('weread.lib.source_upload_candidate').project(point,table.concat(summary),input.chapters,input.percent)
         if not candidate then return {error=why} end
         return {request_id=input.request_id,position=point,candidate=candidate}
+    end)
+    return ok and result or {error='position_unavailable'}
+end
+
+-- No API, percent extrapolation or upload permission. The caller must still
+-- bind a live reader point and independently validate any future cloud plan.
+function M.prepare_native_excerpt(input,read_archive)
+    local ok,result=pcall(function()
+        local prepared,target=target_source(input,read_archive)
+        if not target then return prepared end
+        if prepared.record.format~='web_txt' then return {error='source_unsupported'} end
+        local excerpt=prepared.map:literal_excerpt(target.chapter_offset)
+        if not excerpt then return {error='target_unavailable'} end
+        return {request_id=input.request_id,position=position(prepared,target.chapter_offset),excerpt=excerpt}
     end)
     return ok and result or {error='position_unavailable'}
 end
