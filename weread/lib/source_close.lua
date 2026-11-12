@@ -31,6 +31,7 @@ function M:_drop(entry,reason)
     if entry.worker then entry.worker:cancel() end
     if entry.recovery and self.source.recovery then self.source.recovery:cancel(entry.recovery) end
     local callback = entry.callback; entry.callback = nil
+    if entry.native then entry.native:cancel() end
     if callback then callback(nil,reason or 'source_cancelled') end
 end
 function M:cancel()
@@ -44,9 +45,10 @@ end
 function M:freeze(intent)
     local point = type(intent) == 'table' and intent.source_position
     local source = self.source
-    if type(point) ~= 'table' or point.basis ~= 'filtered_xhtml_utf16' or point.upload_verified ~= false
+    if type(point) ~= 'table' or not Source.is_coordinate_basis(point.basis) or point.upload_verified ~= false
         or point.book_id ~= intent.book_id or not same(point,source:current())
         or source.is_busy() or not source.can_prepare() then return nil end
+    if point.basis=='raw_txt_utf16' and (intent.native_position_only~=true or type(intent.expected_remote)~='table') then return nil end
     local scope = source:_live()
     local context = source.get_upload_context and source.get_upload_context()
     local snapshot = scope and Source.document_metadata(source.get_document(),point.book_id,point.chapter_uid,point.render_path)
@@ -63,6 +65,10 @@ function M:freeze(intent)
         input={file=scope.file,book_id=point.book_id,chapter_uid=point.chapter_uid,identity=copy(snapshot.identity),
             metadata=snapshot.metadata,render_path=point.render_path,target=copy(point),
             chapters=copy(context.chapters),percent=context.percent,request_id=1}}
+    if point.basis=='raw_txt_utf16' then
+        entry.input.target={};for _i,key in ipairs(fields) do entry.input.target[key]=point[key] end
+        entry.account_scope=self.settings.get_auth_scope and copy(self.settings:get_auth_scope())
+    end
     active[self.namespace] = entry
     entry.timeout = function()
         if active[self.namespace] ~= entry then return end
@@ -84,8 +90,35 @@ function M:prepare(token,intent,callback)
     entry.used,entry.callback,entry.started = true,callback,self.now()
     entry.deadline=entry.started+35
     self.scheduler:unschedule(entry.timeout); self.scheduler:scheduleIn(35,entry.timeout)
+    if entry.input.target.basis=='raw_txt_utf16' then return self:_launch_native(entry) end
     entry.worker = self.source.make_worker()
     return self:_launch(entry)
+end
+function M:_launch_native(entry)
+    local face=require('weread.lib.native_close_source'):new{source=self.source,input=entry.input,expected=entry.expected,
+        access=entry.access,account_scope=entry.account_scope,get_catalog=self.get_catalog,now=self.now,deadline=entry.deadline,
+        is_current=function() return active[self.namespace]==entry and self.now()>=entry.frozen
+            and (not entry.plan or entry.plan.detached==true) end}
+    entry.face=face
+    entry.native=require('weread.lib.native_source_upload'):new{source=face,scheduler=self.scheduler,now=self.now}
+    return entry.native:prepare(copy(entry.intent),function(plan,reason)
+        if active[self.namespace]~=entry or not entry.callback then if plan then plan.release() end;return end
+        local callback=entry.callback;entry.callback=nil
+        if not plan then self:_drop(entry);callback(nil,reason);return end
+        local current,dispatch=plan.is_current,plan.dispatch
+        plan.detached=true;entry.plan=plan
+        plan.is_current=function() return active[self.namespace]==entry and plan.detached==true and current() end
+        plan.release=function() self:_drop(entry) end
+        plan.dispatch=function(done)
+            if not plan.is_current() then return false,'source_position_changed' end
+            return dispatch(function(...)
+                local ok,value=pcall(done,...)
+                self:_drop(entry)
+                if not ok then error(value,0) end
+            end)
+        end
+        callback(plan)
+    end)
 end
 function M:_launch(entry)
     entry.sequence=(entry.sequence or 0)+1

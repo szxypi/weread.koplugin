@@ -1505,7 +1505,10 @@ function ProgressSync:prepare_close(source_position)
     if position and self.verified and self.dirty and not self.uploading and self.freeze_close
         and not (self.source_dispatch and self.source_dispatch:pending(position.book_id))
         and self:_config().upload_on_close == true then
-        return self.freeze_close(copy(position)),position
+        local intent=copy(position);intent.native_position_only=true
+        local saved=self.get_book(position.book_id) or {}
+        intent.expected_remote=copy(self.remote_position or saved.last_remote_position)
+        return self.freeze_close(intent),position
     end
     return nil,position
 end
@@ -1520,7 +1523,7 @@ function ProgressSync:on_close_document(source_position, close_token, close_posi
             or not PositionMapper.same_position(position, self.local_position) then
             self.dirty = true
         end
-        if self.dirty then
+        if self.dirty and (not self.prepare_upload or not self.freeze_close or close_token) then
             self:_upload_snapshot(position, "document_close", false, close_token)
         end
     end

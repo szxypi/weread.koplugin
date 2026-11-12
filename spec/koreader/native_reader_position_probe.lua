@@ -120,6 +120,15 @@ local ok,reason=pcall(function()
     assert(saved.last_local_position.chapter_offset==local_before.chapter_offset and uploaded.source_position.chapter_offset==local_before.source_position.chapter_offset)
     assert(not uploaded.summary and not saved.last_local_position.summary and not saved.last_remote_position.summary)
     report.manual,report.original_local_units,report.summary_not_in_checkpoints=true,true,true
+    if arg[1]=='close' then
+        report.close_case={kind=assert(os.getenv('WEREAD_NATIVE_CLOSE_CASE')),document_closed=false,archive_worker=false,
+            workers_reaped=false,no_closed_document_calls=false,confirmed=false,unknown_retained=false,cancelled=false,
+            close_posts=0,failed_line=0}
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'native_reader_close_case.lua')(
+            reader,plugin,pump,clean,counters,pids,report.close_case)
+        report.source_workers,report.workers_reaped=true,true
+        report.phase,report.result='complete','PASS';return
+    end
     local timer=sync.interval;local clock=100;timer.now=function() return clock end
     local config=plugin.settings:get('sync');config.upload_interval_minutes=1;plugin.settings:set('sync',config)
     local function due()

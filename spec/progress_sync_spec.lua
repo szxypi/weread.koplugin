@@ -1994,6 +1994,48 @@ test('native asynchronous dispatch bypasses Web sender and journal and preserves
     end
 end)
 
+test('raw close freezes cloud decision and finishes asynchronously after reader generation closes',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=10001,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=7,render_path='OEBPS/text/chapter.xhtml'}
+    local f=fixture({}, {get_source_position=function() return source end})
+    local position=assert(f.sync:capture_local())
+    local remote={book_id='book',chapter_uid=22,chapter_idx=2,chapter_offset=10000,raw_percent=20,percent=20,
+        source='web',has_chapter_offset=true,has_chapter_index=true}
+    local frozen,ready,done;local token={};local sends,releases=0,0
+    f.sync.freeze_close=function(intent) frozen=intent;return token end
+    f.sync.prepare_closed=function(receipt,intent,callback)
+        eq(receipt,token,'raw close lost opaque token');eq(intent.native_position_only,nil,'route flag entered saved position')
+        eq(intent.expected_remote,nil,'cloud decision entered saved position');ready=callback;return true
+    end
+    f.sync.prepare_upload=function() error('closed raw point used live document') end
+    f.sync.upload_position=function() error('closed raw point used Web sender') end
+    f.sync:_mark_verified('book','fixture',position,remote);f.sync.dirty=true
+    local captured,closed=f.sync:prepare_close(source)
+    eq(frozen.native_position_only,true,'close did not opt into native-only route')
+    eq(frozen.expected_remote.chapter_offset,10000,'close lost last cloud decision')
+    f.sync.remote_position.chapter_offset=999
+    eq(frozen.expected_remote.chapter_offset,10000,'later decision mutated close snapshot')
+    f.sync:on_close_document(source,captured,closed)
+    ready{position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10001,percent=position.percent},
+        basis='raw_txt_utf16',transport='native_position',source_position=source,detached=true,is_current=function() return true end,
+        dispatch=function(cb) sends=sends+1;done=cb;return true end,release=function() releases=releases+1 end}
+    eq(sends,1,'closed native generation did not dispatch');eq(f.sync.uploading,true,'async close ended early')
+    done(true,true,{acknowledged=true,position_confirmed=true})
+    eq(releases,1,'closed raw receipt leaked');eq(f.sync.verified,false,'closed completion reactivated reader')
+    eq(f.values.books.book.last_uploaded_position.wire_basis,'raw_txt_utf16','closed raw basis was lost')
+    eq(f.values.books.book.pending_upload_position,nil,'closed confirmed raw point retained its intent')
+end)
+test('failed close freezing retains intent without trying live preparation after stop',function()
+    local f=fixture({});local position=assert(f.sync:capture_local())
+    f.sync.freeze_close=function() return nil end
+    f.sync.prepare_upload=function() error('failed freeze touched stopped live source') end
+    f.sync:_mark_verified('book','fixture',position,{});f.sync.dirty=true
+    local token,closed=f.sync:prepare_close()
+    f.sync:on_close_document(nil,token,closed)
+    eq(f.sync.uploading==true,false,'failed freeze started upload')
+    eq(f.values.books.book.pending_upload_position~=nil,true,'failed freeze discarded local intent')
+end)
+
 print(string.format(
     "progress_sync_spec: %d checks, %d failure(s)", checks, failures))
 os.exit(failures == 0 and 0 or 1)

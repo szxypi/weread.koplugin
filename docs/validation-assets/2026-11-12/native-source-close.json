@@ -1,0 +1,204 @@
+{
+  "result": "PACKAGED_NATIVE_TXT_CLOSE_VERIFIED",
+  "synthetic_only": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "runtime": [
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "plain",
+      "result": "PASS",
+      "close_posts": 1,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": false,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "noack",
+      "result": "PASS",
+      "close_posts": 1,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": true,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "cancel",
+      "result": "PASS",
+      "close_posts": 0,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": false,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "reopen",
+      "result": "PASS",
+      "close_posts": 0,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": false,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        600,
+        800,
+        167
+      ],
+      "case": "account",
+      "result": "PASS",
+      "close_posts": 0,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": false,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "plain",
+      "result": "PASS",
+      "close_posts": 1,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": false,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "noack",
+      "result": "PASS",
+      "close_posts": 1,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": true,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "cancel",
+      "result": "PASS",
+      "close_posts": 0,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": false,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "reopen",
+      "result": "PASS",
+      "close_posts": 0,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": false,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    },
+    {
+      "dimensions": [
+        1264,
+        1680,
+        300
+      ],
+      "case": "account",
+      "result": "PASS",
+      "close_posts": 0,
+      "web_posts": 0,
+      "document_closed": true,
+      "no_closed_document_calls": true,
+      "workers_reaped": true,
+      "unknown_retained": false,
+      "offline_requests": 0,
+      "profile_removed": true,
+      "counts_preserved": true
+    }
+  ],
+  "package": {
+    "result": "PASS",
+    "files": 279,
+    "sha256": "42c45b616e5adb57ac6f91f892d6c7b0874dfcf54a64d17ab68d4b35f37a5f39",
+    "source_bytes_match": true
+  },
+  "regression": {
+    "lua_groups": 249,
+    "python_files": 117,
+    "python_tests": 1481,
+    "python_skips": 0,
+    "legacy_xhtml_reader_and_close": "PASS"
+  },
+  "real_account_close_write_verified": false,
+  "physical_ko2_verified": false,
+  "release_published": false
+}
