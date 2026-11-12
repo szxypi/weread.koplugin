@@ -1,0 +1,91 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "base_commit": "f71ccc3c32b7fc43ec3db7e59e9693490aab5eeb",
+  "offline": {
+    "lua_specs": 145,
+    "python_suites": 32,
+    "python_tests": 315,
+    "luacheck_files": 380,
+    "lua_syntax_files": 382,
+    "membership_model_and_sql_checks": 48,
+    "status_ui_checks": 37
+  },
+  "cases": [
+    {
+      "name": "shelf-membership600-final",
+      "candidate_sha256": "ee678c46e78064946812cb5a789019bf8983e03902910a4bdc49c839d2cf603a",
+      "installed_files": 174,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0,
+      "membership": {
+        "cases": {
+          "present_from_complete_snapshot": true,
+          "account_switch_and_return": true,
+          "unreadable_payload_does_not_become_absent": true,
+          "complete_empty_snapshot_is_known": true,
+          "saved_absence_offline_and_detail_isolation": true,
+          "legacy_negative_requires_refresh": true,
+          "invalid_snapshots_keep_previous_state": true,
+          "invalid_marker_is_unknown": true,
+          "no_snapshot_and_detail_only_unknown": true,
+          "inconsistent_marker_count_is_unknown": true,
+          "transaction_failure_rolls_back_books_marker_and_archives": true,
+          "nil_encoding_rolls_back_prior_inserts": true
+        },
+        "account_requests": 0,
+        "result": "PASS",
+        "account_data_writes": 0,
+        "synthetic_only": true
+      },
+      "metadata_fresh_process_reopen": true,
+      "independent_epub_exports": true,
+      "independent_epub_versions": true
+    },
+    {
+      "name": "shelf-membership-ko2-final",
+      "candidate_sha256": "89ee55f3ec85d81aaa7df3150da1619f2de3f62e0067c645f73fe5973f6edab8",
+      "installed_files": 174,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0,
+      "membership": {
+        "account_data_writes": 0,
+        "synthetic_only": true,
+        "cases": {
+          "inconsistent_marker_count_is_unknown": true,
+          "no_snapshot_and_detail_only_unknown": true,
+          "account_switch_and_return": true,
+          "transaction_failure_rolls_back_books_marker_and_archives": true,
+          "present_from_complete_snapshot": true,
+          "nil_encoding_rolls_back_prior_inserts": true,
+          "unreadable_payload_does_not_become_absent": true,
+          "complete_empty_snapshot_is_known": true,
+          "saved_absence_offline_and_detail_isolation": true,
+          "legacy_negative_requires_refresh": true,
+          "invalid_snapshots_keep_previous_state": true,
+          "invalid_marker_is_unknown": true
+        },
+        "account_requests": 0,
+        "result": "PASS"
+      },
+      "metadata_fresh_process_reopen": true,
+      "independent_epub_exports": true,
+      "independent_epub_versions": true
+    },
+    {
+      "name": "shelf-membership-discovery600-final",
+      "candidate_sha256": "5054668c1aa39e9a82c17212a25516ecbe75475c738e8967c4fb4e888ea3d9bf",
+      "installed_files": 174,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0
+    },
+    {
+      "name": "shelf-membership-discovery-ko2-final",
+      "candidate_sha256": "c37d35b74d893158b4db33d8025870755c8c6f6dfb909d92749e5bd1f25b7428",
+      "installed_files": 174,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0
+    }
+  ]
+}

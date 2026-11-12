@@ -1,0 +1,179 @@
+{
+  "result": "PASS",
+  "accepted_scope": "native_chapter_highlight_and_thought_reads_without_skill_key",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "production_parent_commit": "cdad25177328feb7e1bdd6c6b09875ab921612e6",
+  "production_manifest_algorithm": "sha256(sorted(relative_path + NUL + sha256(file) + LF))",
+  "production_manifest_sha256": "a7b250f46548c6100b05f4cde59b109d8b4763849835f49e75a6e034bb2e8128",
+  "probe_sha256": {
+    "weread/lib/native_annotation_data.lua": "9a5e92717dc636edd12c105a61650d9c50548663207b43436bad54ce58c5fbd3",
+    "weread/lib/annotation_access.lua": "5f441645cea32f0a6dd56f1557520a707bf331189a40746a857ddbdea5dd46c7",
+    "weread/lib/native_authorization.lua": "e8ea60e737a186649cd832d6d55bd2a1dc3bc7f17afd1617a92ce0f4b937166d",
+    "weread/lib/annotation_sync.lua": "ceee53cd8f2f81566437a0ef2fdc12d8431b0d848f8e28b859c1eefa880bcd40",
+    "weread/lib/client.lua": "2ef469ccda1ee04db4d48947c586010b437db0f0fa505971d7127d6fb23679c2",
+    "weread/ui/annotation_sync_controller.lua": "9e8fa11edc22fa2297e1cea0fbf605d2eca12aac8715030c385974c6bf89a1a3",
+    "scripts/verify_native_annotations.py": "08d580b740e93f86ff236816eb2257feb376bddccf86ebddb4f0a47fbe1c7664",
+    "spec/koreader/native_annotations_probe.lua": "fceb1f31c0f8c5357f77bbb44f47672e538efbea63f578f481374101fcc1b939",
+    "spec/koreader/native_annotations_smoke.lua": "7197eb232bcedbed107045e2613c0d97835f5cd2d2ac0a53e6b37ced272b79f9"
+  },
+  "real_read_contract": {
+    "result": "NATIVE_ANNOTATION_CONTRACT_VERIFIED",
+    "checked_at": "2026-11-10T00:14:51.635828+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 0,
+    "private_annotations_saved": false,
+    "credentials_written_to_files": false,
+    "shelf_book_count": 139,
+    "sampled_chapters": 1,
+    "underlines": 124,
+    "thought_ranges": 30,
+    "thought_items": 96,
+    "nonempty_underlines_verified": true,
+    "nonempty_thoughts_verified": true,
+    "lua_model_matches": true,
+    "native_https_matches": true,
+    "same_owner_verified": true,
+    "stages": [
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "metadata",
+        "status": 200
+      },
+      {
+        "stage": "catalog",
+        "status": 200
+      },
+      {
+        "stage": "underlines",
+        "status": 200
+      },
+      {
+        "stage": "thoughts",
+        "status": 200
+      }
+    ]
+  },
+  "independent_authorization_maintenance": {
+    "result": "SAVED_NATIVE_RENEWAL_VERIFIED",
+    "checked_at": "2026-11-09T23:52:35.581454+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 1,
+    "credentials_written_to_files": false,
+    "keychain_pending_readback_verified": true,
+    "same_owner_verified": true,
+    "book_count": 139,
+    "keychain_renewed_readback_verified": true,
+    "access_token_changed": true,
+    "refresh_token_returned": false,
+    "stages": [
+      {
+        "stage": "renewal",
+        "status": 200,
+        "keys": [
+          "accessToken",
+          "firstLogin",
+          "openId",
+          "pf",
+          "skey",
+          "user",
+          "vid",
+          "wxAccessToken"
+        ]
+      },
+      {
+        "stage": "renewed_shelf",
+        "status": 200,
+        "keys": [
+          "archive",
+          "bookCount",
+          "bookProgress",
+          "books",
+          "lectureBooks",
+          "lectureRemoved",
+          "lectureSynckey",
+          "lectureUpdate",
+          "mp",
+          "mpEx",
+          "pureBookCount",
+          "removed",
+          "removedArchive",
+          "synckey"
+        ]
+      }
+    ]
+  },
+  "profiles": [
+    {
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "result": {
+        "synthetic_only": true,
+        "keyless_native": true,
+        "native_picker_and_matching": true,
+        "result": "PASS",
+        "cancel_and_resume_batch": true,
+        "no_late_commit": true,
+        "explicit_401_and_429_single_read": true,
+        "grant_change_rejected": true,
+        "offline_cached_matching": true,
+        "gateway_annotation_requests": 0,
+        "reading_writes": 0,
+        "renewal_posts": 0,
+        "real_overlay_tap_and_popup": true
+      },
+      "production_files": 187,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "407d602642ecce0cf4911463ae967f8998cfad23c62ad40b75bdf0387ce8219e",
+      "native_repaint_errors": 0
+    },
+    {
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "result": {
+        "reading_writes": 0,
+        "renewal_posts": 0,
+        "no_late_commit": true,
+        "synthetic_only": true,
+        "keyless_native": true,
+        "native_picker_and_matching": true,
+        "real_overlay_tap_and_popup": true,
+        "cancel_and_resume_batch": true,
+        "result": "PASS",
+        "explicit_401_and_429_single_read": true,
+        "grant_change_rejected": true,
+        "offline_cached_matching": true,
+        "gateway_annotation_requests": 0
+      },
+      "production_files": 187,
+      "source_and_installed_bytes_equal": true,
+      "candidate_sha256": "4be4a679391c9941ef9ea076548b7aee1159b146c30d1e01b0af6805fd84f3fb",
+      "native_repaint_errors": 0
+    }
+  ],
+  "lua_spec_groups": 159,
+  "python_tests": 477,
+  "native_routing_checks": 64,
+  "native_checkpoint_checks": 50,
+  "controller_login_gate_checks": 4,
+  "lua_static_files": 420,
+  "lua_syntax_files": 422,
+  "screenshots_synthetic_only": true,
+  "physical_device": false,
+  "pending": [
+    "real_account_full_chapter_matching_and_all_thought_batches",
+    "automatic_parent_renewal_during_annotation_job",
+    "other_real_formats_and_complex_ranges",
+    "cloud_annotation_writes",
+    "physical_ko2",
+    "concentrated_eink_performance"
+  ]
+}

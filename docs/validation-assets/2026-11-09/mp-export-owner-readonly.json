@@ -1,0 +1,32 @@
+{
+  "result": "READONLY_CONVERSION_VERIFIED",
+  "checked_at": "2026-11-09T00:55:26.006936+00:00",
+  "account_data_writes_attempted": 0,
+  "catalog_reads": 0,
+  "credential_renewals": 0,
+  "private_articles_saved": false,
+  "credentials_written_to_files": false,
+  "owner_verified": true,
+  "source_text_preserved": true,
+  "model_and_native_text_match": true,
+  "remote_images_not_fetched": true,
+  "unavailable_images": 3,
+  "model_native_image_counts_match": true,
+  "native_content_gets": 1,
+  "web_cookie_rotation_saved": false,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "mp_content",
+      "method": "GET",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

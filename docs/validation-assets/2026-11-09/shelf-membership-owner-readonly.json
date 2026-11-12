@@ -1,0 +1,25 @@
+{
+  "result": "SHELF_MEMBERSHIP_READ_VERIFIED",
+  "checked_at": "2026-11-09T08:34:22.650190+00:00",
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "private_identities_saved": false,
+  "credentials_sent_to_lua": false,
+  "absent_control_is_synthetic": true,
+  "web_cookie_rotation_saved": false,
+  "owner_verified": true,
+  "shelf_books": 139,
+  "positive_samples": 8,
+  "absent_samples": 1,
+  "lua_membership_projection_matches": true,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    }
+  ]
+}

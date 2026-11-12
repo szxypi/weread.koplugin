@@ -1,12 +1,13 @@
 -- Bookshelf, book, chapter, public-account, and search UI flows.
 local BookReviews = require("weread.lib.book_reviews")
+local BookStore = require("weread.lib.book_store")
 local BookReviewsView = require("weread.ui.book_reviews_view")
 local ConfirmBox = require("ui/widget/confirmbox")
 local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
+local ShelfFlags = require("weread.lib.shelf_flags")
 local InputDialog = require("ui/widget/inputdialog")
 local logger = require("weread.lib.logger")
-local ProgressbarDialog = require("ui/widget/progressbardialog")
 local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
 local WeRead = require("weread.lib.protocol")
@@ -31,6 +32,16 @@ local function cover_subprocess_runner()
         terminate = function(pid) return ffiutil.terminateSubProcess(pid) end,
         read_all = function(fd) return ffiutil.readAllFromFD(fd) end,
     }
+end
+
+local function terminate_cover_job(job)
+    if job.termination_requested then return end
+    job.termination_requested = true
+    local ok = pcall(job.runner.terminate, job.pid)
+    if not ok then
+        job.termination_requested = nil
+        logger.warn("bookshelf cover worker termination failed")
+    end
 end
 
 local local_cache_fields = {
@@ -69,6 +80,7 @@ local function list_items_per_page()
 end
 
 function M:showBookshelf()
+    if self._profile_view then self:closeWeReadUI() end
     local cached = self.library_db and self.library_db:getShelf() or nil
     local archives = self.library_db and self.library_db:getShelfArchives() or nil
     if cached and (#cached > 0 or archives ~= nil) then
@@ -99,10 +111,49 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
+    local selection=package.loaded['weread.ui.selection_thought']
+    if selection then selection.cancel(self) end
+    self:cancelShelfCovers()
+    if self.cancelBookCacheCleanup then self:cancelBookCacheCleanup() end
+    if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
+    if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
+    if self.cancelWebRenewal then self:cancelWebRenewal() end
+    if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
+    if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
+    if self.cancelMPArticleExport then self:cancelMPArticleExport() end
+    if self.cancelMPArticleActions then self:cancelMPArticleActions() end
+    if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
+    if self.cancelShelfState then self:cancelShelfState() end
+    if self.cancelReadingLanguage then self:cancelReadingLanguage() end
+    if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
+    if self.closeReaderLinkUI then self:closeReaderLinkUI() end
+    if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
+    if self.cancelShelfRefresh then self:cancelShelfRefresh() end
+    if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
+    if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelBookReading then self:cancelBookReading() end
+    if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
+    if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
+    if self.closeHomeControls then self:closeHomeControls(false) end
+    if self._stats_busy_generation then
+        self._stats_busy_generation = nil
+        self:closeBusy()
+    end
+    if self.cancelShelfProgress then self:cancelShelfProgress() end
+    if self.cancelProfileRefresh then self:cancelProfileRefresh() end
+    self.discovery_epoch = (self.discovery_epoch or 0) + 1
     -- Close from the topmost view down so no full-screen WeRead widget remains
     -- in UIManager's window stack after a document is opened.
     local seen = {}
     for _, field in ipairs({
+        "_discovery_menu",
+        "_mp_article_list_view",
+        "_home_controls_menu",
+        "_home_prefetch_confirmation",
+        "_profile_goal_dialog",
+        "_read_stats_view",
+        "_profile_view",
         "_chapter_list_view",
         "_book_detail_view",
         "shelf_view",
@@ -117,7 +168,22 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    local personal=package.loaded['weread.ui.personal_marks']
+    if personal then personal.detach(self) end
+    require('weread.ui.mp_reader_open').cancel(self)
+    if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
+    if self.source_navigation then self.source_navigation:cancel() end
+    if self.source_close then self.source_close:cancel() end
+    if self.source_position then self.source_position:on_account_changed() end
+    if self.native_renewal then self.native_renewal:cancel() end
+    if self.native_authorization then self.native_authorization:cancel() end
+    if self.offline_time then self.offline_time:stop("account_unavailable") end
+    if self.read_report then self.read_report:stop("account_changed") end
+    if self.progress_sync and self.progress_sync.on_account_changed then self.progress_sync:on_account_changed() end
     self:closeWeReadUI()
+    self.discovery_state = nil
+    self.discovery_categories = nil
+    self.shelf_progress_retry_at = nil
     self.shelf_regular = nil
     self.shelf_mp = nil
     self.shelf_books = nil
@@ -125,6 +191,8 @@ function M:onWeReadAccountChanged()
     self.shelf_group_key = nil
     self.shelf_search_keyword = nil
     self.shelf_view_pages = nil
+    if self.offline_time then self.offline_time:resume() end
+    if personal then personal.attach(self) end
 end
 
 function M:applyShelfSnapshot(all_books, archives)
@@ -147,26 +215,95 @@ function M:applyShelfSnapshot(all_books, archives)
     end
 end
 
+function M:requireShelfLogin()
+    if self.client.shelf_authentication then
+        local ready, reason = self.client:shelf_authentication()
+        if ready then return true end
+        if reason == "native_required" and self.native_authorization then
+            self.native_authorization:showMenu()
+            return false
+        end
+        if reason == "login_required" then
+            self:showTransientInfo(_("Please scan the QR code to log in first."), 2)
+            UIManager:scheduleIn(0.2, function() self.qr_login:start() end)
+            return false
+        end
+    end
+    return self:requireLogin(false, true)
+end
+
+function M:cancelShelfRefresh()
+    local context = self.shelf_refresh_context
+    if not context then return end
+    context.cancelled = true
+    self.shelf_refresh_context, self.shelf_refreshing = nil, nil
+    if self.shelf_refresh_worker then self.shelf_refresh_worker:cancel() end
+    if context.renewal_job and self.native_renewal then self.native_renewal:cancel(context.renewal_job) end
+    if context.old_view then pcall(context.old_view.setRefreshing, context.old_view, false) end
+    if self.busy_message == context.busy then self:closeBusy() end
+end
+
 function M:refreshBookshelf(old_view, view_options)
-    if self.shelf_refreshing or not self:requireLogin(false, true) then return end
+    if self.shelf_refreshing or not self:requireShelfLogin() then return end
     self.shelf_refreshing = true
+    local context = { old_view = old_view }
+    self.shelf_refresh_context = context
+    local refresh_epoch = self.discovery_epoch or 0
+    local account_key = self.library_db and self.library_db.accountKey and self.library_db:accountKey()
+    local scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local source = require("weread.lib.shelf_source").mode(self.settings)
+    if self.native_renewal then
+        context.native_revision = require("weread.lib.shelf_source").selection(self.settings).revision
+    end
+    local function still_current()
+        return not context.cancelled and (self.discovery_epoch or 0) == refresh_epoch
+            and (not account_key or self.library_db:accountKey() == account_key)
+            and (not scope or self.settings:auth_scope_matches(scope))
+            and require("weread.lib.shelf_source").mode(self.settings) == source
+    end
     -- A finishing thumbnail batch must not replace the view being refreshed.
-    self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
-    self.shelf_cover_pending = nil
+    self:cancelShelfCovers()
     if old_view then old_view:setRefreshing(true) end
     local function done()
-        self.shelf_refreshing = nil
-        if old_view then old_view:setRefreshing(false) end
-        self:closeBusy()
+        if self.shelf_refresh_context ~= context then return end
+        self.shelf_refresh_context, self.shelf_refreshing = nil, nil
+        if old_view and still_current() then old_view:setRefreshing(false) end
+        if self.busy_message == context.busy then self:closeBusy() end
     end
-    self:showBusy(_("Loading bookshelf..."))
-    local started = self:runOnlineTask(_("Bookshelf"), function()
-        local ok, result = pcall(function()
-            return self.client:get_shelf()
-        end)
+    self:showBusy(_("Loading bookshelf..."), function() self:cancelShelfRefresh() end)
+    context.busy = self.busy_message
+    local launch
+    local function complete(ok, result)
+        if not still_current() then done() return end
+        if not ok and result == "shelf_source/native_expired" and self.native_renewal and not context.recovery_attempted then
+            context.recovery_attempted = true
+            local function renewed(success)
+                if self.shelf_refresh_context ~= context or not still_current() then done() return end
+                if success then launch(false, false)
+                elseif source == "auto" then launch(false, true)
+                else complete(false, "shelf_source/native_unavailable") end
+            end
+            local renewing, job = self.native_renewal:start({ expected_revision = context.native_revision }, renewed)
+            if renewing then context.renewal_job = job else renewed(false) end
+            return
+        end
         done()
+        if not still_current() then return end
+        if ok and type(result) == "table" and result._native_revision ~= nil then
+            local selected = require("weread.lib.shelf_source").selection(self.settings)
+            if not selected.credentials or selected.revision ~= result._native_revision then return end
+        end
+        if ok and type(result) == "table" and result._web_revision ~= nil
+            and require("weread.lib.shelf_source").web_revision(self.settings) ~= result._web_revision then return end
         if not ok then
             logger.err("load bookshelf failed:", log_error(result))
+            if result == "shelf_source/native_unavailable" or result == "shelf_source/native_required" then
+                self:showInfo(_("E-Ink bookshelf could not be read. Authorize again, or choose Automatic or Standard bookshelf."))
+                return
+            end
+            if type(result) == "string" and result:match("^shelf_source/") then
+                result = _("Bookshelf is unavailable. Check the network and authorization, then try again.")
+            end
             self:showInfo(T(
                 _("Load bookshelf failed:\n%1\n\nIf other account features still work, use Search to find and download books."),
                 display_error(result)
@@ -178,12 +315,23 @@ function M:refreshBookshelf(old_view, view_options)
             and result.books
             or {}
         local archives = type(result) == "table" and type(result.archive) == "table" and result.archive or {}
-        if self.library_db then self.library_db:cacheShelf(all_books, archives) end
+        local snapshot_saved=self.library_db and self.library_db:cacheShelf(all_books, archives)==true
+        self.shelf_active_source = type(result) == "table" and result._shelf_source or "gateway"
+        if type(result) == "table" and result._native_fallback then
+            self:showTransientInfo(_("E-Ink bookshelf is unavailable. Using the standard bookshelf for this refresh."), 3)
+        elseif type(result) == "table" and result._gateway_fallback then
+            self:showTransientInfo(_("The standard connection is unavailable. Using the Web bookshelf for this refresh."), 3)
+        end
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
+        if view_options and view_options.on_loaded then
+            view_options.on_loaded(snapshot_saved)
+            return
+        end
         local next_options = {}
         for key, value in pairs(view_options or {}) do next_options[key] = value end
         next_options.prepared_shelf = nil
+        next_options.refresh_progress = true
         if old_group_key ~= self.shelf_group_key then
             next_options.page, next_options.scroll_offset = 1, nil
         end
@@ -194,8 +342,47 @@ function M:refreshBookshelf(old_view, view_options)
             nil,
             next_options
         )
-    end)
-    if started == false then done() end
+    end
+    local started
+    if self.client.shelf_authentication then
+        if not self:isNetworkConnected() then
+            done()
+            self:showOffline(_("Bookshelf"))
+            return
+        end
+        if not self.shelf_refresh_worker then
+            self.shelf_refresh_worker = require("weread.lib.memory_worker"):new{
+                scheduler = UIManager, codec = self.client, max_bytes = 8 * 1024 * 1024,
+            }
+        end
+        launch = function(recover_auth, skip_native)
+            local ok = self.shelf_refresh_worker:start(function()
+                if not still_current() then return { ok = false, error = "shelf_source/session_changed" } end
+                local fetched, value = pcall(self.client.get_shelf, self.client,
+                    { is_current = still_current, recover_auth = recover_auth, skip_native = skip_native })
+                if fetched then return { ok = true, value = value } end
+                return { ok = false, error = type(value) == "string" and value:match("^shelf_source/[a-z_]+$")
+                    or "shelf_source/unavailable" }
+            end, function(result)
+                if self.shelf_refresh_context ~= context then return end
+                complete(type(result) == "table" and result.ok == true, type(result) == "table" and (result.value or result.error)
+                    or _("Bookshelf refresh was interrupted. Please try again."))
+            end)
+            if not ok then complete(false, "shelf_source/unavailable") end
+            return ok
+        end
+        started = launch(self.native_renewal ~= nil, false)
+    else
+        started = self:runOnlineTask(_("Bookshelf"), function()
+            if not still_current() then done() return end
+            local ok, result = pcall(self.client.get_shelf, self.client)
+            complete(ok, result)
+        end)
+    end
+    if started == false then
+        done()
+        if self.client.shelf_authentication then self:showInfo(_("Could not start bookshelf refresh. Please try again.")) end
+    end
 end
 
 local function shelf_search_match(book, keyword)
@@ -242,6 +429,29 @@ function M:getShelfCoverCache()
     return self.shelf_cover_cache
 end
 
+function M:cancelShelfCovers(resume_on_wake)
+    local job = self.shelf_cover_job
+    local request = self.shelf_cover_pending or (job and job.request)
+    self.shelf_cover_resume = resume_on_wake and request
+        and request.view == self.shelf_view and request or nil
+    self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
+    self.shelf_cover_pending = nil
+    if job then
+        job.cancelled = true
+        terminate_cover_job(job)
+    end
+    -- Keep the job and its pipe until the existing poll has reaped the child.
+    -- Reopened pages may queue work but cannot overlap a retiring writer.
+end
+
+function M:resumeShelfCovers()
+    local request = self.shelf_cover_resume
+    self.shelf_cover_resume = nil
+    if request and request.view == self.shelf_view then
+        self:fetchVisibleShelfCovers(request.view, request.items, request.options)
+    end
+end
+
 function M:fetchVisibleShelfCovers(view, items, options)
     if not view or not items or #items == 0 then return end
     options = options or {}
@@ -264,6 +474,10 @@ function M:fetchVisibleShelfCovers(view, items, options)
     if self.shelf_cover_job then
         -- Keep only the newest visible page while the current child exits.
         self.shelf_cover_pending = { view = view, items = items, options = options }
+        if self.shelf_cover_job.request.view ~= view then
+            self.shelf_cover_job.cancelled = true
+            terminate_cover_job(self.shelf_cover_job)
+        end
         return
     end
 
@@ -292,7 +506,11 @@ function M:fetchVisibleShelfCovers(view, items, options)
             }
             next_options.page = view.page
             next_options.skip_cover_fetch_once = true
-            self:showShelfView(options.mode or "books", options.keyword, view, next_options)
+            require('weread.ui.shelf_popup').redraw(view,function()
+                if generation~=self.shelf_cover_generation or self.shelf_view~=view then return end
+                if options.on_redraw then options.on_redraw(view.page)
+                else self:showShelfView(options.mode or "books", options.keyword, view, next_options) end
+            end)
         end
         local pending = self.shelf_cover_pending
         self.shelf_cover_pending = nil
@@ -319,6 +537,9 @@ function M:fetchVisibleShelfCovers(view, items, options)
                     return self.client:get_binary(shelf_cover_url(book), {
                         skip_cookie = true,
                         persist_response_cookies = false,
+                        sensitive = true,
+                        diagnostic_api = "shelf_cover",
+                        max_bytes = cache.MAX_IMAGE_BYTES,
                         timeout = { 8, 12 },
                     })
                 end)
@@ -333,14 +554,18 @@ function M:fetchVisibleShelfCovers(view, items, options)
             return
         end
 
-        local job = { pid = pid, read_fd = read_fd, started_at = os.time() }
+        local job = { pid = pid, read_fd = read_fd, started_at = os.time(), runner = runner,
+            request = { view = view, items = items, options = options } }
         self.shelf_cover_job = job
         local poll
         poll = function()
             if self.shelf_cover_job ~= job then return end
             if not runner.is_done(job.pid) then
-                if os.time() - job.started_at > 30 then
-                    runner.terminate(job.pid)
+                if job.cancelled or os.time() - job.started_at > 30 then
+                    -- A signal can race with the child's process-group setup.
+                    -- Retry only while this exact child is still unreaped.
+                    job.termination_requested = nil
+                    terminate_cover_job(job)
                 end
                 UIManager:scheduleIn(0.15, poll)
                 return
@@ -348,10 +573,14 @@ function M:fetchVisibleShelfCovers(view, items, options)
             local result = job.read_fd and runner.read_all(job.read_fd) or nil
             job.read_fd = nil
             self.shelf_cover_job = nil
-            if result == "ok" and cache:pathFor(book) then
-                changed = true
-            else
-                logger.warn("bookshelf cover background task failed")
+            -- Cancellation may race with a completed cache commit. Keep valid
+            -- thumbnails, but never redraw or continue the cancelled page.
+            if not job.cancelled then
+                if result == "ok" and cache:pathFor(book) then
+                    changed = true
+                else
+                    logger.warn("bookshelf cover background task failed")
+                end
             end
             index = index + 1
             fetch_next()
@@ -363,14 +592,16 @@ end
 
 
 function M:showShelfView(mode, keyword, old_view, options)
+    if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     local LibraryView = require("weread.ui.library_view")
+    old_view = old_view or self.shelf_view
     options = options or {}
     mode = mode or "books"
     options.mode = mode
     options.keyword = keyword
     local skip_cover_fetch_once = options.skip_cover_fetch_once == true
     options.skip_cover_fetch_once = nil
-    self.shelf_cover_generation = (self.shelf_cover_generation or 0) + 1
+    self:cancelShelfCovers()
     self.shelf_view_mode = mode
     self.shelf_search_keyword = keyword
     self.shelf_view_pages = self.shelf_view_pages or { books = 1, public_account = 1 }
@@ -400,9 +631,16 @@ function M:showShelfView(mode, keyword, old_view, options)
     local paged = cover_mode or shelf_settings.paginated ~= false
     local page = paged and (options.page or self.shelf_view_pages[mode] or 1) or 1
     local source = mode == "public_account" and accounts or books
-    local layout = LibraryView.getLayout(cover_mode, #source, mode)
+    local navigation = self.discoveryNavigation and not options.on_select
+        and self:discoveryNavigation("shelf") or nil
+    local layout = LibraryView.getLayout(cover_mode, #source, mode, navigation and 54 or 0)
     local cover_layout = cover_mode and layout or nil
     local page_size = layout.page_size
+    local progress_books, progress_snapshots
+    if mode == "books" and self.prepareShelfProgress then
+        progress_books = paged and shelf_page_items(source, page, page_size) or source
+        progress_snapshots = self:prepareShelfProgress(progress_books)
+    end
     local cover_paths, cover_loading
     if cover_mode then
         cover_paths = {}
@@ -420,9 +658,30 @@ function M:showShelfView(mode, keyword, old_view, options)
         end
     end
     if old_view then UIManager:close(old_view) end
-    local view
+    local view, update_progress
+    local owner={account=self.library_db and self.library_db.accountKey and self.library_db:accountKey() or false,
+        epoch=self.discovery_epoch or 0,session=self._reader_session_gen or false,
+        document=self.ui and self.ui.document or false,books=self.shelf_regular,groups=self.shelf_groups,
+        source=shelf_settings.source or 'auto',auth=self.settings.get_auth_scope and self.settings:get_auth_scope()}
+    local function current()
+        if self.shelf_view~=view or not view or view._shelf_closed
+            or owner.account~=(self.library_db and self.library_db.accountKey and self.library_db:accountKey() or false)
+            or owner.epoch~=(self.discovery_epoch or 0) or owner.session~=(self._reader_session_gen or false)
+            or owner.document~=(self.ui and self.ui.document or false)
+            or owner.books~=self.shelf_regular or owner.groups~=self.shelf_groups
+            or owner.source~=(self.settings:get('shelf').source or 'auto') then return false end
+        if self.settings.get_auth_scope then
+            local auth=self.settings:get_auth_scope()
+            if not owner.auth then return auth==nil end
+            return auth and auth.vid==owner.auth.vid and auth.epoch==owner.auth.epoch
+                and self.settings:auth_scope_matches(owner.auth)
+        end
+        return true
+    end
+    if navigation then navigation = self:discoveryNavigation("shelf", current) end
     view = LibraryView.show({
         mode = mode,
+        navigation = navigation,
         title = options.title,
         wp_enable = options.wp_enable,
         books = books,
@@ -445,7 +704,17 @@ function M:showShelfView(mode, keyword, old_view, options)
         cover_paths = cover_paths,
         cover_loading = cover_loading,
     }, {
+        on_visible_changed = function()
+            if current() and update_progress then update_progress() end
+        end,
+        on_close = function()
+            if self.shelf_view == view then
+                self.shelf_view = nil
+                self:closeWeReadUI()
+            end
+        end,
         on_switch = function(new_mode)
+            if not current() then return end
             local next_options = {}
             for key, value in pairs(options) do next_options[key] = value end
             next_options.prepared_shelf = { books = books, accounts = accounts }
@@ -454,6 +723,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:showShelfView(new_mode, keyword, view, next_options)
         end,
         on_select_group = function(key)
+            if not current() then return end
             if key and not ShelfGroups.find(self.shelf_groups, key) then return end
             self.shelf_group_key = key
             local next_options = {}
@@ -463,6 +733,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:showShelfView("books", keyword, view, next_options)
         end,
         on_display_change = function(key, value)
+            if not current() then return end
             local shelf = self.settings:get("shelf")
             shelf[key] = value
             self.settings:set("shelf", shelf)
@@ -471,9 +742,11 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:showShelfView(mode, keyword, view, options)
         end,
         on_search = function()
-            self:showShelfSearchDialog(view, mode, keyword, options)
+            if not current() then return end
+            self:showShelfSearchDialog(view, mode, keyword, options, current)
         end,
         on_refresh = function()
+            if not current() then return end
             local refresh_options = {}
             for key, value in pairs(options) do refresh_options[key] = value end
             refresh_options.prepared_shelf = nil
@@ -482,22 +755,27 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:refreshBookshelf(view, refresh_options)
         end,
         on_sort = function()
+            if not current() then return end
             self:showShelfSortOptions(function()
+                if not current() then return end
                 self.shelf_view_pages = { books = 1, public_account = 1 }
                 options.prepared_shelf = nil
                 options.page, options.scroll_offset = 1, nil
                 self:showShelfView(mode, keyword, view, options)
-            end)
+            end,{owner=view,is_current=current})
         end,
         on_filter = function()
+            if not current() then return end
             self:showShelfFilterOptions(function()
+                if not current() then return end
                 self.shelf_view_pages = { books = 1, public_account = 1 }
                 options.prepared_shelf = nil
                 options.page, options.scroll_offset = 1, nil
                 self:showShelfView(mode, keyword, view, options)
-            end)
+            end,{owner=view,is_current=current})
         end,
         on_select = function(book, selected_mode)
+            if not current() then return end
             if options.on_select then
                 options.on_select(book, selected_mode, view)
             elseif selected_mode == "public_account" then
@@ -507,6 +785,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             end
         end,
         on_page_changed = function(new_page)
+            if not current() then return end
             self.shelf_view_pages[mode] = new_page
             local next_options = {}
             for key, value in pairs(options) do next_options[key] = value end
@@ -517,6 +796,36 @@ function M:showShelfView(mode, keyword, old_view, options)
     })
     if paged then self.shelf_view_pages[mode] = view.page end
     self.shelf_view = view
+    view._prepare_detail_return = function()
+        if not current() then return end
+        return function()
+            if self.shelf_view == view and not view._shelf_closed then
+                options.page = view.page
+                self:showShelfView(mode, keyword, view, options)
+            end
+        end
+    end
+    if progress_books then
+        local force = options.refresh_progress
+        options.refresh_progress = nil
+        update_progress = function(refresh)
+            self:refreshVisibleShelfProgress(view, paged and progress_books or view:getVisibleBooks(), progress_snapshots, {
+                force = refresh,
+                on_redraw = function()
+                    require('weread.ui.shelf_popup').redraw(view,function()
+                        if not current() then return end
+                        local next_options = {}
+                        for key, value in pairs(options) do next_options[key] = value end
+                        next_options.prepared_shelf = { books = books, accounts = accounts }
+                        next_options.page = view.page
+                        next_options.scroll_offset = view:getScrollOffset()
+                        self:showShelfView(mode, keyword, view, next_options)
+                    end)
+                end,
+            })
+        end
+        update_progress(force)
+    elseif self.cancelShelfProgress then self:cancelShelfProgress() end
     if cover_mode and not skip_cover_fetch_once then
         local fetch_options = {}
         for key, value in pairs(options) do fetch_options[key] = value end
@@ -526,8 +835,12 @@ function M:showShelfView(mode, keyword, old_view, options)
     end
 end
 
-function M:showShelfSearchDialog(view, mode, keyword, options)
+function M:showShelfSearchDialog(view, mode, keyword, options, is_current)
+    local Popup=require('weread.ui.shelf_popup')
     local dialog
+    local function current()
+        return self.shelf_view==view and Popup.current(view,dialog) and (not is_current or is_current())
+    end
     dialog = InputDialog:new{
         title = _("Search shelf"),
         input = keyword or "",
@@ -536,7 +849,8 @@ function M:showShelfSearchDialog(view, mode, keyword, options)
             {
                 text = _("Clear"),
                 callback = self:safeCallback(_("Clear"), function()
-                    UIManager:close(dialog)
+                    if not current() then return end
+                    Popup.close(view)
                     self.shelf_view_pages = { books = 1, public_account = 1 }
                     options.prepared_shelf = nil
                     options.page, options.scroll_offset = 1, nil
@@ -547,8 +861,9 @@ function M:showShelfSearchDialog(view, mode, keyword, options)
                 text = _("Search"),
                 is_enter_default = true,
                 callback = self:safeCallback(_("Search"), function()
+                    if not current() then return end
                     local value = dialog:getInputText()
-                    UIManager:close(dialog)
+                    Popup.close(view)
                     self.shelf_view_pages = { books = 1, public_account = 1 }
                     options.prepared_shelf = nil
                     options.page = 1
@@ -559,12 +874,12 @@ function M:showShelfSearchDialog(view, mode, keyword, options)
             },
         }},
     }
-    self:showInputDialog(dialog)
+    Popup.show(view,dialog,function(widget) self:showInputDialog(widget) end)
 end
 
 sortBooks = function(books, sort_order)
     if sort_order == "default" or not sort_order then
-        return books
+        return ShelfFlags.pinned_first(books)
     end
     local sorted = {}
     for i, book in ipairs(books) do
@@ -587,7 +902,7 @@ sortBooks = function(books, sort_order)
             return (a.title or "") > (b.title or "")
         end)
     end
-    return sorted
+    return ShelfFlags.pinned_first(sorted)
 end
 
 function M:showShelfPage()
@@ -611,13 +926,18 @@ function M:showShelfPage()
                 local book_id = book.book_id or book.bookId
                 local is_cached = self:isBookDownloaded(book, saved_books, downloaded_cache)
                 local right_text
-                if book.readUpdateTime and book.readUpdateTime > 0 then
-                    right_text = os.date("%Y-%m-%d", book.readUpdateTime)
-                elseif book.finishReading == 1 then
+                if ShelfFlags.display(book,'finished')==true then
                     right_text = _("Done")
+                elseif book.readUpdateTime and book.readUpdateTime > 0 then
+                    right_text = os.date("%Y-%m-%d", book.readUpdateTime)
                 else
                     right_text = ""
                 end
+                local labels={}
+                if ShelfFlags.display(book,'pinned')==true then labels[#labels+1]=_('Pinned') end
+                if ShelfFlags.display(book,'private')==true then labels[#labels+1]=_('Private') end
+                if right_text~='' then labels[#labels+1]=right_text end
+                right_text=table.concat(labels,' · ')
                 local function rightStatus(cached)
                     if cached then
                         return right_text ~= "" and "✓  " .. right_text or "✓"
@@ -654,7 +974,7 @@ function M:refreshShelfCacheIndicators()
     end
 end
 
-function M:showBookRecord(book)
+function M:showBookRecord(book, options)
     local books = self.settings:get("books", {})
     local book_id = book.book_id or book.bookId
     if WeRead.is_mp_book(book_id) then
@@ -671,10 +991,10 @@ function M:showBookRecord(book)
     end
     local cached = self.library_db and self.library_db:getBook(book_id) or nil
     for key, value in pairs(cached or {}) do
-        if saved[key] == nil then saved[key] = value end
+        if saved[key] == nil and not BookStore.is_reading_field(key) then saved[key] = value end
     end
     for key, value in pairs(book) do
-        if value ~= nil and key ~= "_cached" then saved[key] = value end
+        if value ~= nil and key ~= "_cached" and not BookStore.is_reading_field(key) then saved[key] = value end
     end
     saved.book_id = book_id
     saved._library_account_key = account_key
@@ -686,7 +1006,7 @@ function M:showBookRecord(book)
     if type(saved.chapters) ~= "table" and self.library_db then
         saved.chapters = self.library_db:getChapters(book_id)
     end
-    if not has_book_details(cached) then
+    if not has_book_details(cached) and not (options and options.verified_metadata) then
         self:refreshBookRecord(saved, nil, { automatic = true })
     else
         self:showBookMenu(saved)
@@ -694,60 +1014,11 @@ function M:showBookRecord(book)
 end
 
 function M:refreshBookRecord(book, old_view, options)
-    options = options or {}
-    if not self:requireLogin(false, true) then
-        if options.automatic then self:showBookMenu(book) end
-        return
-    end
-    local book_id = book.book_id or book.bookId
-    if not self:isNetworkOnline() then
-        if options.automatic then self:showBookMenu(book) end
-        self:showOffline(_("Book info"))
-        return
-    end
-    self:showBusy(_("Loading book info..."))
-    local started = self:runOnlineTask(_("Book info"), function()
-        local ok, err = pcall(function()
-            local info = self.client:get_book_info(book_id)
-            if info then
-                for key, value in pairs(info) do
-                    if value ~= nil then book[key] = value end
-                end
-                book.categoryName = info.categoryName or info.category or book.categoryName
-            end
-            local progress_result = self.client:get_progress(book_id)
-            if progress_result and progress_result.book then
-                local remote = progress_result.book
-                book.progress = remote.progress or book.progress or 0
-                book.chapter_uid = remote.chapterUid or remote.chapterId
-                    or remote.chapter_uid or book.chapter_uid
-                book.chapter_idx = tonumber(remote.chapterIdx or remote.chapterIndex
-                    or remote.chapter_idx) or tonumber(book.chapter_idx)
-                book.chapter_offset = tonumber(remote.chapterOffset or remote.chapterPos
-                    or remote.offset) or tonumber(book.chapter_offset) or 0
-            end
-            book.book_id = book_id
-            book._library_account_key = self.library_db
-                and self.library_db:accountKey() or nil
-            book.detail_updated_at = os.time()
-            local books = self.settings:get("books", {})
-            books[book_id] = book
-            self.settings:set("books", books)
-            self.settings:flush()
-            if self.library_db then self.library_db:putBook(book) end
-        end)
-        self:closeBusy()
-        if not ok then
-            logger.err("load book info failed:", log_error(err))
-            if options.automatic then self:showBookMenu(book) end
-            self:showInfo(T(_("%1 failed:\n%2"), _("Book info"), display_error(err)))
-            return
-        end
-        if old_view then UIManager:close(old_view) end
-        self:showBookMenu(book)
-        self:showTransientInfo(_("Book information updated."), 2)
-    end)
-    if started == false and options.automatic then self:showBookMenu(book) end
+    return require("weread.ui.book_metadata").refresh(self, book, old_view, options)
+end
+
+function M:cancelBookMetadata()
+    return require("weread.ui.book_metadata").cancel(self)
 end
 
 function M:showBookMenu(book)
@@ -768,14 +1039,18 @@ function M:showBookMenu(book)
     local has_cache = self:bookRecordHasDownload(saved)
     book.cached_full_book = is_full_cached and cached_path or nil
     local cached_chapter_count = 0
-    for _uid, path in pairs(book.cached_chapters or {}) do
-        if file_exists(path) then cached_chapter_count = cached_chapter_count + 1 end
+    local catalog_uids,seen_paths={},{}
+    for _i,chapter in ipairs(book.chapters or {}) do
+        local uid=chapter.chapterUid or chapter.chapterId
+        if uid~=nil then catalog_uids[tostring(uid)]=true end
+    end
+    for uid, path in pairs(saved.cached_chapters or {}) do
+        if (type(book.chapters)~='table' or catalog_uids[tostring(uid)]) and not seen_paths[path] and file_exists(path) then
+            cached_chapter_count = cached_chapter_count + 1;seen_paths[path]=true
+        end
     end
     local total_chapters = type(book.chapters) == "table" and #book.chapters or nil
-    if is_full_cached and cached_chapter_count == 0 and total_chapters then
-        cached_chapter_count = total_chapters
-    end
-    local chapter_status = total_chapters
+    local chapter_status = is_full_cached and _("Full book cached") or total_chapters
         and T(_("Cached %1/%2 chapters"), tostring(cached_chapter_count), tostring(total_chapters))
         or T(_("%1 chapters cached"), tostring(cached_chapter_count))
 
@@ -834,17 +1109,61 @@ function M:showBookMenu(book)
         end),
     }
     local actions = {}
+    local shelf_state_action
+    if self.showShelfState then
+        local owner_account=self.library_db and self.library_db:accountKey()
+        local owner_session=self._reader_session_gen
+        shelf_state_action={text=_('Shelf status'),callback=self:safeCallback(_('Shelf status'),function()
+            if self._book_detail_view==view and self.library_db:accountKey()==owner_account and self._reader_session_gen==owner_session then
+                self:showShelfState(tostring(book_id))
+            end
+        end)}
+    end
+    if self.showSimilarBooks then
+        actions[#actions + 1] = {
+            text = _("Similar books"),
+            callback = self:safeCallback(_("Similar books"), function() self:showSimilarBooks(book) end),
+        }
+    end
+    if shelf_state_action then actions[#actions+1]=shelf_state_action end
+    if self.showMyCloudMarks and require('weread.lib.my_cloud_marks').id(tostring(book_id)) then
+        local account=self.library_db and self.library_db:accountKey()
+        local session,document=self._reader_session_gen,self.ui and self.ui.document
+        actions[#actions+1]={text=_('My cloud highlights'),callback=self:safeCallback(_('My cloud highlights'),function()
+            if self._book_detail_view==view and account==self.library_db:accountKey()
+                and session==self._reader_session_gen and document==(self.ui and self.ui.document) then
+                self:showMyCloudMarks(tostring(book_id))
+            end
+        end)}
+    end
+    if self.showMyCloudThoughts and require('weread.lib.my_cloud_marks').id(tostring(book_id)) then
+        local account=self.library_db and self.library_db:accountKey()
+        local session,document=self._reader_session_gen,self.ui and self.ui.document
+        actions[#actions+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()
+            if self._book_detail_view==view and account==self.library_db:accountKey()
+                and session==self._reader_session_gen and document==(self.ui and self.ui.document) then
+                self:showMyCloudThoughts(tostring(book_id))
+            end
+        end)}
+    end
+    if self.showMyCloudBookmarks and require('weread.lib.my_cloud_marks').id(tostring(book_id)) then
+        local account=self.library_db and self.library_db:accountKey()
+        local session,document=self._reader_session_gen,self.ui and self.ui.document
+        actions[#actions+1]={text=_('My cloud bookmarks'),callback=self:safeCallback(_('My cloud bookmarks'),function()
+            if self._book_detail_view==view and account==self.library_db:accountKey()
+                and session==self._reader_session_gen and document==(self.ui and self.ui.document) then
+                self:showMyCloudBookmarks(tostring(book_id))
+            end
+        end)}
+    end
     if has_cache then
         actions[#actions + 1] = {
             text = _("Clear book cache"),
             callback = self:safeCallback(_("Clear book cache"), function()
                 self:confirmClearBookCache(book_id, book.title or book_id, function()
-                    book.cached_file = nil
-                    book.cached_full_book = nil
-                    book.cached_chapters = nil
-                    book.cache_dir = nil
+                    local latest = self.settings:get("books", {})[book_id] or book
                     if view then UIManager:close(view) end
-                    self:showBookMenu(book)
+                    self:showBookMenu(latest)
                 end)
             end),
         }
@@ -864,9 +1183,8 @@ function M:showBookMenu(book)
         },
         {
             text = _("▤ Read"),
-            enabled = has_cache,
             callback = self:safeCallback(_("Read"), function()
-                self:openBookForReading(book)
+                self:startBookReading(book, view)
             end),
         },
     }
@@ -885,6 +1203,22 @@ function M:showBookMenu(book)
         on_refresh = self:safeCallback(_("Get latest information"), function()
             self:refreshBookRecord(book, view)
         end),
+        on_close = function()
+            if self._book_detail_view == view then
+                if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
+                if self.cancelShelfState then self:cancelShelfState() end
+                self:cancelBookMetadata()
+                self:cancelBookReading()
+                if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
+                self._book_detail_view = nil
+                local parent = self.shelf_view
+                local resume = parent and parent._prepare_detail_return and parent._prepare_detail_return()
+                self.discovery_epoch = (self.discovery_epoch or 0) + 1
+                -- Rebuild the retained parent with fresh callbacks after the
+                -- detail's epoch is invalidated; old deferred taps stay stale.
+                if resume then resume() end
+            end
+        end,
     })
     self._book_detail_view = view
     return view
@@ -1029,7 +1363,7 @@ function M:showMPAccount(book)
     self:rememberMPAccount(book)
     local book_id = book.book_id or book.bookId
     local cached = self:getCachedMPArticles(book_id)
-    if cached and #cached > 0 then
+    if type(cached)=='table' then
         self:showMPArticleList(book, cached)
         return
     end
@@ -1058,47 +1392,11 @@ function M:rememberMPAccount(book)
 end
 
 function M:fetchMPArticles(book)
-    if not self:requireLogin(true, false) then
-        return
-    end
-    self:runOnlineTask(_("Loading articles..."), function()
-        self:showBusy(_("Loading articles..."))
-        local book_id = book.book_id or book.bookId
-        local function request_articles()
-            local ticket = self.settings:get("wr_ticket", "")
-            if ticket == "" then ticket = nil end
-            return self.client:get_mp_articles(book_id, 0, 100, ticket)
-        end
-        local ok, result, err_code = pcall(request_articles)
-        if ok and not result and (err_code == -2041 or err_code == -2012) then
-            logger.info("MP credentials rejected; renewing before retry")
-            local renew_ok = pcall(function()
-                return self.client:renew_cookie()
-            end)
-            if renew_ok then
-                ok, result, err_code = pcall(request_articles)
-            end
-        end
-        self:closeBusy()
-        if not ok then
-            logger.err("load MP articles failed:", log_error(result))
-            self:showInfo(T(_("Load articles failed:\n%1"), display_error(result)))
-            return
-        end
-        if not result and (err_code == -2041 or err_code == -2012) then
-            logger.warn("load MP articles rejected, error_code:", tostring(err_code))
-            self:showInfo(_("WeRead could not refresh the public-account credential. Please scan the QR code again."))
-            return
-        end
-        if not result then
-            logger.warn("load MP articles failed, error_code:", tostring(err_code))
-            self:showInfo(T(_("Load articles failed:\n%1"), "errCode " .. tostring(err_code)))
-            return
-        end
-        local articles = Content.parse_mp_articles(result)
-        self:cacheMPArticles(book_id, articles)
-        self:showMPArticleList(book, articles)
-    end)
+    return require('weread.ui.mp_catalog').start(self,book)
+end
+
+function M:cancelMPArticleCatalog()
+    return require('weread.ui.mp_catalog').cancel(self)
 end
 
 function M:getCachedMPArticles(book_id)
@@ -1120,86 +1418,104 @@ function M:cacheMPArticles(book_id, articles)
 end
 
 function M:showMPArticleList(book, articles)
+    if self.cancelWebRenewal then self:cancelWebRenewal() end
+    if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
+    local previous=self._mp_article_list_view;self._mp_article_list_view=nil
+    if previous then UIManager:close(previous) end
+    local owner_account=self.library_db and self.library_db:accountKey()
+    local owner_epoch=self.discovery_epoch or 0
+    local owner_document=self.ui and self.ui.document
+    local owner_session=self._reader_session_gen
+    local menu
+    local function current()
+        return self._mp_article_list_view==menu and owner_account==(self.library_db and self.library_db:accountKey())
+            and owner_epoch==(self.discovery_epoch or 0) and owner_document==(self.ui and self.ui.document)
+            and owner_session==self._reader_session_gen
+    end
     local items = {}
+    if #articles==0 then items[1]={text=_("No articles."),select_enabled=false} end
     for _i, article in ipairs(articles) do
-        local cached_path = Content.mp_article_cached_path(self.settings, book, article)
+        local title=type(article.title)=="string" and article.title~="" and article.title or _("Article")
+        local cached_path,cache_reason = Content.mp_article_cached_path(self.settings, book, article)
         local is_cached = cached_path ~= nil
         local date_str = ""
         if article.createTime and article.createTime > 0 then
             date_str = os.date("%Y-%m-%d", article.createTime)
         end
         table.insert(items, {
-            text = article.title or _("Article"),
+            text = title,
             post_text = date_str,
-            mandatory = is_cached and _("Cached") or "",
-            callback = self:safeCallback(article.title or _("Article"), function()
+            mandatory = is_cached and (cache_reason=='legacy' and _("Legacy cache") or _("Cached"))
+                or cache_reason=='ambiguous_legacy' and _("Legacy cache needs refresh") or "",
+            callback = self:safeCallback(title, function()
+                if not current() then return end
                 if is_cached then
-                    self:openFile(cached_path)
+                    require('weread.ui.mp_record_recovery').open(self,book,article,cached_path)
                 else
                     self:downloadMPArticleAndRead(book, article)
                 end
             end),
         })
     end
+    if #articles==100 then items[#items+1]={text=_("First 100 articles loaded."),select_enabled=false} end
+    table.insert(items, {
+        text = _("Article cache and versions"),
+        callback = self:safeCallback(_("Article cache and versions"), function()
+            if current() then self:showMPArticleActions(book,articles) end
+        end),
+    })
+    table.insert(items, {
+        text = _("Repair interrupted downloads"),
+        callback = self:safeCallback(_("Repair interrupted downloads"), function()
+            if current() then require('weread.ui.mp_download_recovery').list(self,book,articles) end
+        end),
+    })
+    table.insert(items, {
+        text = _("Export cached article"),
+        callback = self:safeCallback(_("Export cached article"), function()
+            if not current() then return end
+            self:showMPArticleExportList(book, articles)
+        end),
+    })
     table.insert(items, {
         text = _("Refresh article list"),
         callback = self:safeCallback(_("Refresh article list"), function()
+            if not current() then return end
             self:fetchMPArticles(book)
         end),
     })
-    self:showList(book.title or _("Public Account"), items, _("No articles."))
+    menu=self:showList(book.title or _("Public Account"), items, _("No articles."));self._mp_article_list_view=menu
+    if menu then
+        local on_close=menu.onCloseWidget
+        menu.onCloseWidget=function(instance,...)
+            if self._mp_article_list_view==instance then self._mp_article_list_view=nil end
+            if on_close then return on_close(instance,...) end
+        end
+    end
 end
 
 function M:downloadMPArticleAndRead(book, article)
-    if not self:requireLogin(true, false) then
-        return
-    end
-    self:runOnlineTask(_("Download article and read"), function()
-        self:showBusy(T(_("Downloading article: %1"), article.title or ""))
-        local progress_dialog
-        local ok, path_or_err = pcall(function()
-            return Content.fetch_mp_article_html(self.client, self.settings, book, article, {
-                progress = function(current, total)
-                    if not progress_dialog then
-                        self:closeBusy()
-                        progress_dialog = ProgressbarDialog:new{
-                            title = T(_("Downloading images: %1"), article.title or ""),
-                            progress_max = total,
-                        }
-                        progress_dialog:show()
-                        self:refreshUI()
-                    end
-                    progress_dialog:reportProgress(current)
-                end,
-            })
-        end)
-        if progress_dialog then
-            progress_dialog:close()
-        else
-            self:closeBusy()
-        end
-        if not ok then
-            logger.err("download MP article failed:", log_error(path_or_err))
-            self:showInfo(T(_("Download failed:\n%1"), display_error(path_or_err)))
-            return
-        end
-        logger.info(
-            "MP article downloaded:",
-            "images=", self.settings:get("cache").download_mp_images and "embedded" or "removed"
-        )
-        -- Persist the resolved cache directory (set by save_mp_article_html) so the
-        -- article files can still be located after the download directory changes.
-        local book_id = book.book_id or book.bookId
-        if book_id and book.cache_dir then
-            local books = self.settings:get("books", {})
-            local record = books[book_id] or {}
-            record.cache_dir = book.cache_dir
-            books[book_id] = record
-            self.settings:set("books", books)
-            self.settings:flush()
-        end
-        self:openFile(path_or_err)
-    end)
+    return require('weread.ui.mp_download').start(self,book,article)
+end
+
+function M:cancelMPArticleDownload()
+    return require('weread.ui.mp_download').cancel(self)
+end
+
+function M:showMPArticleActions(book,articles)
+    return require('weread.ui.mp_article_actions').list(self,book,articles)
+end
+
+function M:cancelMPArticleActions()
+    return require('weread.ui.mp_article_actions').cancel(self)
+end
+
+function M:cancelMPArticleCleanup()
+    return require('weread.ui.mp_cache_cleanup').cancel(self)
+end
+
+function M:cancelMPDownloadRecovery()
+    return require('weread.ui.mp_download_recovery').cancel(self)
 end
 
 function M:loadChapters(book, callback, force_refresh)
@@ -1443,30 +1759,32 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         _("No chapters."), { items_per_page = perpage })
 end
 
-function M:openFile(path)
+function M:openFile(path, after_open_callback, resume_book)
     if not path or path == "" then
         self:showInfo(_("No cached file."))
         return
     end
-    self:closeWeReadUI()
-    if self.ui.document then
-        self.ui:switchDocument(path)
-    else
-        self.ui:openFile(path)
+    if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
+    local function dispatch(callback)
+        self:closeWeReadUI()
+        if self.ui.document then self.ui:switchDocument(path,nil,callback)
+        else self.ui:openFile(path,nil,nil,nil,callback) end
     end
+    if resume_book and not after_open_callback then return require('weread.ui.read_resume').open(self,path,resume_book,dispatch) end
+    return dispatch(after_open_callback)
 end
 
 function M:openCachedBook(book)
-    self:openFile(self:getFullBookCachePath(book))
+    self:openFile(self:getFullBookCachePath(book),nil,book)
 end
 
 -- Read offline from the best available cache. A complete EPUB wins. Otherwise
 -- choose the cached chapter nearest to the last known chapter/progress, with a
 -- slight preference for the preceding chapter when distances are equal.
-function M:openBookForReading(book)
+function M:openBookForReading(book, quiet)
     local full_path = self:getFullBookCachePath(book)
     if file_exists(full_path) then
-        self:openFile(full_path)
+        self:openFile(full_path,nil,book)
         return true
     end
 
@@ -1482,19 +1800,16 @@ function M:openBookForReading(book)
 
     local candidates = {}
     local target_index
+    local account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
+    if account==nil and self.progress_sync and self.progress_sync._account_key then account=self.progress_sync:_account_key() end
+    local Reading=require('weread.ui.book_reading')
     if type(chapters) == "table" then
+        target_index=Reading.resume_index(chapters,book,nil,account)
         for index, chapter in ipairs(chapters) do
             local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
             local path = book.cached_chapters and book.cached_chapters[uid]
             if file_exists(path) then
                 candidates[#candidates + 1] = { index = index, path = path }
-            end
-            if book.chapter_uid ~= nil
-                and uid == tostring(book.chapter_uid) then
-                target_index = index
-            elseif target_index == nil and book.chapter_idx ~= nil
-                and tonumber(chapter.chapterIdx or chapter.chapterIndex) == tonumber(book.chapter_idx) then
-                target_index = index
             end
         end
         if not target_index and tonumber(book.progress) then
@@ -1514,21 +1829,34 @@ function M:openBookForReading(book)
             if left_precedes ~= right_precedes then return left_precedes end
             return left.index < right.index
         end)
-        self:openFile(candidates[1].path)
+        self:openFile(candidates[1].path,nil,book)
         return true
     end
 
     local fallback_paths = {}
     for uid, path in pairs(book.cached_chapters or {}) do
-        if file_exists(path) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), path = path } end
+        if file_exists(path) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), chapterUid=tostring(uid), path = path } end
     end
     table.sort(fallback_paths, function(left, right) return left.uid < right.uid end)
-    if fallback_paths[1] then
-        self:openFile(fallback_paths[1].path)
+    local fallback=fallback_paths[Reading.resume_index(fallback_paths,book,nil,account) or 1]
+    if fallback then
+        self:openFile(fallback.path,nil,book)
         return true
     end
-    self:showInfo(_("No cached file."))
+    if not quiet then self:showInfo(_("No cached file.")) end
     return false
+end
+
+function M:startBookReading(book, view)
+    if view and self._book_detail_view ~= view then return false end
+    local id = book.book_id or book.bookId
+    local latest = self.settings:get_book(id) or book
+    if self:openBookForReading(latest, true) then return true end
+    return require("weread.ui.book_reading").start(self, latest, view)
+end
+
+function M:cancelBookReading()
+    return require("weread.ui.book_reading").cancel(self)
 end
 
 -- Open a chapter, preferring its cached file and falling back to a download.
@@ -1536,7 +1864,7 @@ function M:openChapter(book, chapter, on_downloaded)
     local chapter_uid = chapter.chapterUid or chapter.chapterId
     local cached = book.cached_chapters and book.cached_chapters[tostring(chapter_uid)]
     if cached and file_exists(cached) then
-        self:openFile(cached)
+        self:openFile(cached,nil,book)
     elseif self.downloader:promotePrefetch(book, chapter) then
         -- The downloader promotes the background task to a visible progress
         -- dialog and opens the chapter as soon as the same task completes.
@@ -1555,11 +1883,23 @@ function M:openProgressTargetChapter(book, chapter)
         return false, "target_chapter_unavailable"
     end
     local chapter_uid = chapter.chapterUid or chapter.chapterId
+    local sync = self.progress_sync
+    local pending, scope = sync and sync.pending_jump, sync and sync:_scope()
+    local function current()
+        return sync and sync:chapter_request_current(pending, scope)
+    end
+    local function open_target(path)
+        if not current() then return false end
+        local handoff = sync:chapter_handoff(path)
+        if not handoff then return false end
+        self:openFile(path, handoff)
+        return true
+    end
+    if not current() then return false, "target_chapter_unavailable" end
     local cached = chapter_uid and book.cached_chapters
         and book.cached_chapters[tostring(chapter_uid)]
     if cached and file_exists(cached) then
-        self:openFile(cached)
-        return true
+        return open_target(cached)
     end
 
     local title = chapter.title
@@ -1573,20 +1913,27 @@ function M:openProgressTargetChapter(book, chapter)
         ok_text = _("Download target chapter"),
         ok_callback = self:safeCallback(_("Download target chapter"), function()
             UIManager:close(confirm)
+            if not current() then return end
             self.downloader:start(book, { chapter }, "chapter", {
                 single_chapter = true,
-                open_on_complete = true,
+                silent_completion = true,
+                offer_read = false,
                 on_complete = function(ok, reason)
-                    if not ok and self.progress_sync then
-                        self.progress_sync:cancel_pending_jump(reason)
+                    if not current() then return end
+                    if not ok then
+                        sync:cancel_pending_jump(reason)
+                    else
+                        -- Both downloader paths finish their job after this
+                        -- callback. Open once its cleanup has completed.
+                        UIManager:scheduleIn(0.1, function() open_target(reason) end)
                     end
                 end,
             })
         end),
         cancel_text = _("Cancel"),
         cancel_callback = function()
-            if self.progress_sync then
-                self.progress_sync:cancel_pending_jump(
+            if current() then
+                sync:cancel_pending_jump(
                     "target_chapter_download_cancelled")
             end
         end,
@@ -1704,64 +2051,95 @@ function M:searchWithUI(keyword)
     end)
 end
 
+function M:showImportedBooks()
+    return require("weread.ui.reader_link").list(self,0)
+end
+
 function M:showPasteReaderURL()
-    local dialog
-    dialog = InputDialog:new{
-        title = _("Paste WeRead reader URL"),
-        input = "https://weread.qq.com/web/reader/",
-        input_type = "text",
-        buttons = {
-            {
-                {
-                    text = _("Cancel"),
-                    id = "close",
-                    callback = self:safeCallback(_("Cancel"), function()
-                        UIManager:close(dialog)
-                    end),
-                },
-                {
-                    text = _("Parse"),
-                    is_enter_default = true,
-                    callback = self:safeCallback(_("Parse"), function()
-                        local url = dialog:getInputText()
-                        UIManager:close(dialog)
-                        self:parseReaderURLWithUI(url)
-                    end),
-                },
-            },
-        },
-    }
-    self:showInputDialog(dialog)
+    return require("weread.ui.reader_link").input(self)
 end
 
 function M:parseReaderURLWithUI(url)
-    if not self:requireLogin(true, false) then
-        return
-    end
-    self:runNetworkAction(_("Parse reader URL"), function()
-        local html = self.client:get_text(url, { referer = url })
-        local book_id = html:match([["bookId"%s*:%s*"([^"]+)"]]) or html:match([["bookId"%s*:%s*(%d+)]])
-        local title = html:match([["title"%s*:%s*"([^"]+)"]]) or _("Unknown title")
-        local psvts = html:match([["psvts"%s*:%s*"([^"]+)"]])
-        local pclts = html:match([["pclts"%s*:%s*"([^"]+)"]])
-        local token = html:match([["token"%s*:%s*"([^"]+)"]])
-        if not book_id then
-            return _("Reader HTML loaded, but bookId was not found.")
-        end
-        local books = self.settings:get("books", {})
-        local record = books[book_id] or {}
-        record.book_id = book_id
-        record.title = title
-        record.reader_url = url
-        record.psvts = psvts
-        record.pclts = pclts
-        record.token = token
-        record.updated_at = os.time()
-        books[book_id] = record
-        self.settings:set("books", books)
-        self.settings:flush()
-        return T(_("Reader URL parsed.\nBook: %1\nbookId: %2"), title, book_id)
-    end)
+    return require("weread.ui.reader_link").start(self,url)
+end
+
+function M:closeReaderLinkUI()
+    return require("weread.ui.reader_link").close(self)
+end
+
+function M:cancelReaderLinkImport()
+    return require("weread.ui.reader_link").cancel(self)
+end
+
+function M:showReadingLanguage()
+    return require("weread.ui.translation").show(self)
+end
+
+function M:cancelReadingLanguage()
+    return require("weread.ui.translation").cancel(self)
+end
+
+function M:onTranslationReadSettings()
+    return require("weread.ui.translation").restore(self)
+end
+
+function M:onPreRenderDocument()
+    return require("weread.ui.translation").pre_render(self)
+end
+
+function M:onTranslationReaderReady()
+    return require("weread.ui.translation").reader_ready(self)
+end
+
+function M:closeReadingLanguageDocument()
+    return require("weread.ui.translation").document_close(self)
+end
+
+function M:showLocalNotesExport()
+    return require("weread.ui.notes_export").show(self)
+end
+
+function M:showMPArticleExport(book,article)
+    return require('weread.ui.mp_export').show(self,book,article)
+end
+
+function M:showMPArticleExportList(book,articles)
+    return require('weread.ui.mp_export').list(self,book,articles)
+end
+
+function M:showCurrentMPArticleExport()
+    return require('weread.ui.mp_export').current(self)
+end
+
+function M:cancelMPArticleExport()
+    return require('weread.ui.mp_export').cancel(self)
+end
+
+function M:showMyCloudMarks(book_id)
+    return require('weread.ui.my_cloud_marks').show(self,book_id)
+end
+
+function M:showMyCloudThoughts(book_id)
+    return require('weread.ui.my_cloud_marks').show(self,book_id,'thoughts')
+end
+function M:showMyCloudBookmarks(book_id)
+    return require('weread.ui.my_cloud_marks').show(self,book_id,'bookmarks')
+end
+
+function M:cancelMyCloudMarks()
+    return require('weread.ui.my_cloud_marks').cancel(self)
+end
+
+function M:showShelfState(book_id)
+    return require('weread.ui.shelf_state').show(self,book_id)
+end
+
+function M:cancelShelfState()
+    return require('weread.ui.shelf_state').cancel(self)
+end
+
+function M:cancelLocalNotesExport()
+    return require("weread.ui.notes_export").cancel(self)
 end
 
 

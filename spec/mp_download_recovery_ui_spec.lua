@@ -1,0 +1,90 @@
+package.path='./?.lua;'..package.path
+local state
+package.preload['ui/uimanager']=function() return {scheduleIn=function(_self,_delay,fn) state.queue[#state.queue+1]=fn end,
+    show=function() end,close=function(_self,view) if view.onCloseWidget then view:onCloseWidget() end end} end
+package.preload['ui/widget/confirmbox']=function() return {new=function(_self,value) return value end} end
+package.preload['weread.lib.plugin_util']=function() return {tr=function(s) return s end,T=function(s,...) local args={...};return (s:gsub('%%(%d+)',function(i) return tostring(args[tonumber(i)]) end)) end} end
+package.preload['weread.lib.content']=function() return {book_resolved_dir=function(_s,_id,book) return book.cache_dir end} end
+package.preload['weread.lib.mp_cache_cleanup']=function() return {acquire=function()
+    if state.no_lock then return nil end
+    state.gate={fd=7,release=function(self) self.fd=nil;state.gate_released=true end};return state.gate
+end} end
+package.preload['weread.lib.mp_download_recovery']=function() return {
+    scan=function() return state.plan end,check=function(value) if state.invalid then error('private data') end;return value end,
+    begin=function(_old,fresh,_nonce,action,gate)
+        if state.changed or fresh.active then error('private stale state') end
+        return {action=action,gate=gate,files=0,bytes=0}
+    end,release=function() state.lease_released=true end,
+    step=function(job)
+        state.steps=state.steps+1
+        if job.action=='clean' then job.files=job.files+1;job.bytes=job.bytes+100 end
+        if state.failed then return false,'changed' end
+        return true,state.more and 'more' or 'done'
+    end} end
+local Recovery=require('weread.ui.mp_download_recovery')
+local checks=0
+local function expect(value,message) checks=checks+1;assert(value,message) end
+local function fixture(status)
+    state={queue={},jobs={},steps=0,account='one',books={MP_WXS_1={cache_dir='/cache'}},plan={items={
+        {nonce=string.rep('1',16),status=status or 'owned',bytes=100,info={modification=1700000000}}}}}
+    local host={ui={document={file='/reader'}},_reader_session_gen=1,discovery_epoch=1,client={},
+        settings={cache_dir='/all',get=function() return state.books end},library_db={accountKey=function() return state.account end},
+        closeWeReadUI=function(self) Recovery.cancel(self);self.discovery_epoch=self.discovery_epoch+1 end,
+        showBusy=function(self,_text,dismiss) self.busy_message={};state.dismiss=dismiss end,closeBusy=function(self) self.busy_message=nil end,
+        showInfo=function(_self,text) state.notice=text end,showList=function(_self,title,rows) return {title=title,item_table=rows} end,
+        mp_recovery_worker={start=function(_self,task,cb) state.jobs[#state.jobs+1]={task=task,cb=cb};return true end,cancel=function() state.cancelled=true end}}
+    local book={book_id='MP_WXS_1',cache_dir='/cache'};local article={reviewId='one',title='Test'}
+    local function tick() local fn=assert(table.remove(state.queue,1));fn() end
+    local function deliver(index) local job=state.jobs[index or #state.jobs];job.cb(job.task()) end
+    return host,book,article,tick,deliver
+end
+local host,book,article,tick,deliver=fixture()
+expect(Recovery.show(host,book,article),'show failed');tick();deliver()
+expect(host._mp_recovery_view and state.steps==0 and not state.gate,'inspection mutated files')
+host._mp_recovery_view.item_table[1].callback();local dialog=host._mp_recovery_confirmation
+expect(dialog and state.steps==0,'inspection skipped confirmation')
+dialog.cancel_callback();expect(state.steps==0 and host.mp_recovery_job,'cancel confirmation deleted files or lost preview')
+host._mp_recovery_view.item_table[1].callback();host._mp_recovery_confirmation.ok_callback();deliver();tick()
+expect(state.steps==1 and state.lease_released and state.gate_released and host._mp_recovery_result,'repair leaked lease or result')
+expect(host._mp_recovery_result.text:find('1 files',1,true),'repair omitted actual count')
+local result=host._mp_recovery_result;result.ok_callback();local new_job=host.mp_recovery_job;result.ok_callback()
+expect(new_job and host.mp_recovery_job==new_job,'old result restarted newer inspection')
+for _,status in ipairs({'unknown','quarantine'}) do
+    host,book,article,tick,deliver=fixture(status);Recovery.show(host,book,article);tick();deliver()
+    host._mp_recovery_view.item_table[1].callback();dialog=host._mp_recovery_confirmation
+    if status=='unknown' then expect(dialog.text:find('continuing confirms',1,true),'unknown quarantine omitted user-state confirmation') end
+    dialog.ok_callback();deliver();tick()
+    expect(state.steps==1 and host._mp_recovery_result and not host._mp_recovery_result.text:find('removed:',1,true),'rename reported deletion')
+end
+for _,change in ipairs({'account','epoch','session','document','file','cache','record','identity'}) do
+    host,book,article,tick,deliver=fixture();Recovery.show(host,book,article);tick();deliver()
+    host._mp_recovery_view.item_table[1].callback();dialog=host._mp_recovery_confirmation
+    if change=='account' then state.account='two' elseif change=='epoch' then host.discovery_epoch=10
+    elseif change=='session' then host._reader_session_gen=10 elseif change=='document' then host.ui.document={file='/reader'}
+    elseif change=='file' then host.ui.document.file='/other' elseif change=='cache' then host.settings.cache_dir='/moved'
+    elseif change=='record' then state.books.MP_WXS_1.cache_dir='/moved' else article.reviewId='changed' end
+    dialog.ok_callback();expect(not state.gate and state.steps==0,'stale confirmation mutated: '..change)
+end
+host,book,article,tick,deliver=fixture();state.plan.active=true;Recovery.show(host,book,article);tick();deliver()
+local menu=host._mp_recovery_view
+expect(menu.item_table[1].select_enabled==false,'other active download did not block repair')
+menu.item_table[1].callback();expect(not host._mp_recovery_confirmation,'disabled repair row opened confirmation')
+host,book,article,tick,deliver=fixture();Recovery.show(host,book,article);tick();deliver();menu=host._mp_recovery_view
+menu:onCloseWidget();menu.item_table[1].callback();expect(not host.mp_recovery_job and not host._mp_recovery_confirmation,'closed preview retained callback')
+for _,failure in ipairs({'no_lock','changed','invalid'}) do
+    host,book,article,tick,deliver=fixture();Recovery.show(host,book,article);tick();deliver()
+    host._mp_recovery_view.item_table[1].callback();state[failure]=true;host._mp_recovery_confirmation.ok_callback()
+    if state.gate then deliver() end
+    expect(state.steps==0 and not host.mp_recovery_job and state.notice,'failed revalidation mutated: '..failure)
+end
+host,book,article,tick,deliver=fixture();Recovery.show(host,book,article);tick();deliver();host._mp_recovery_view.item_table[1].callback()
+host._mp_recovery_confirmation.ok_callback();deliver();state.more=true;tick();state.dismiss();tick()
+expect(state.steps==1 and state.gate_released and state.lease_released and state.notice:find('Repair stopped',1,true),'partial cancel continued or lost count')
+host,book,article,tick,deliver=fixture();Recovery.show(host,book,article);tick();state.plan.items={};deliver()
+expect(not host.mp_recovery_job and state.notice:find('No interrupted downloads',1,true),'empty inspection not explained')
+host,book,article=fixture();Recovery.show(host,book,article);local old_cancel=state.dismiss
+Recovery.show(host,book,article);new_job=host.mp_recovery_job;old_cancel();expect(host.mp_recovery_job==new_job,'old busy callback cancelled new repair')
+host,book,article,tick=fixture();host.mp_download_worker={job={pid=7},runner={done=function() return state.reaped end}}
+Recovery.show(host,book,article);tick();expect(#state.jobs==0,'inspection raced live download')
+state.reaped=true;tick();expect(#state.jobs==1,'inspection did not resume after reap')
+print('PASS: native recovery UI ownership, confirmation and partial results ('..checks..' checks)')

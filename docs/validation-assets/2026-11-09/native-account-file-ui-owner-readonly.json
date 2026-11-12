@@ -1,0 +1,274 @@
+{
+  "result": "PASS",
+  "recorded_at": "2026-11-09T11:53:55.045746+00:00",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "source_base_commit": "a050fcfc5f883400e48050dd64ddfddb05c53ae6",
+  "packaged_production_source_unchanged": true,
+  "package_files": 178,
+  "package_source_manifest_sha256": "48efae8f206702c7f0d40423ab887c5129941e11a7219c93ca89b0ea72bfcb4f",
+  "package_zip_sha256": "1de3005951088ce96e7ecbee882987ab12263a039384b3b7dc94a1560209bf3f",
+  "private_profile_storage": "Linux tmpfs, real files and SQLite; not :memory:",
+  "screenshots": 0,
+  "account_data_writes": 0,
+  "authenticated_api_https": true,
+  "physical_ko2_verified": false,
+  "native_renewal": {
+    "http_401_observed": true,
+    "authentication_posts_attempted": 1,
+    "same_owner_verified": true,
+    "book_count": 139,
+    "keychain_readback_verified": true
+  },
+  "lua_specs": 149,
+  "python_suites": 34,
+  "python_tests": 351,
+  "luacheck_files": 391,
+  "lua_syntax_files": 393,
+  "accepted_painted_views": 16,
+  "accepted_read_gets": 83,
+  "accepted_gets_exclude_prior_debug_and_renewal": true,
+  "profiles": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "report": {
+        "result": "OWNER_FILE_BACKED_UI_READ_VERIFIED",
+        "checked_at": "2026-11-09T11:50:46.928772+00:00",
+        "credentials_written_to_persistent_files": false,
+        "private_data_on_regular_disk": false,
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "screenshots": 0,
+        "web_cookie_rotation_saved": false,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "profile_files_audited": 19,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "request_counts": [
+                1,
+                1
+              ],
+              "failed_line": 0,
+              "progress_http_status": 200,
+              "progress_fetch_result": 4,
+              "progress_parse_result": 1,
+              "progress_shape": 0,
+              "denied_kind": 0,
+              "denied_reason": 0,
+              "cover_redirects": 1,
+              "cover_http_redirects": 0,
+              "redirect_address_kind": 3,
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "credential_file_audit": true,
+              "file_backed_sqlite": true,
+              "bookstore_readback": true,
+              "transport_guard_selftest": true,
+              "progress_display_matches": true,
+              "covers_visible": true,
+              "workers_reaped": true,
+              "preferences_readback": true,
+              "paged_shelf": true,
+              "shelf_books": 139,
+              "shelf_groups": 6,
+              "painted_views": 4,
+              "cover_gets": 13,
+              "progress_gets": 11,
+              "cover_cells": 12,
+              "cover_retries": 0,
+              "progress_snapshots": 11,
+              "known_progress": 11
+            },
+            {
+              "progress_parse_result": 0,
+              "progress_shape": 0,
+              "denied_kind": 0,
+              "denied_reason": 0,
+              "cover_redirects": 0,
+              "cover_http_redirects": 0,
+              "redirect_address_kind": 0,
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "credential_file_audit": true,
+              "file_backed_sqlite": true,
+              "bookstore_readback": true,
+              "transport_guard_selftest": true,
+              "progress_display_matches": true,
+              "covers_visible": true,
+              "workers_reaped": true,
+              "preferences_readback": true,
+              "paged_shelf": true,
+              "shelf_books": 139,
+              "shelf_groups": 6,
+              "painted_views": 4,
+              "cover_gets": 0,
+              "progress_gets": 0,
+              "cover_cells": 12,
+              "cover_retries": 0,
+              "progress_snapshots": 11,
+              "known_progress": 11,
+              "profile_files_audited": 19,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "request_counts": [
+                0,
+                0
+              ],
+              "failed_line": 0,
+              "progress_http_status": 0,
+              "progress_fetch_result": 0
+            }
+          ],
+          "runner_error": "none"
+        },
+        "python_preflight_gets": 3,
+        "same_owner_verified": true,
+        "preflight_stages": [
+          {
+            "stage": "metadata_shelf",
+            "status": 200
+          },
+          {
+            "stage": "metadata",
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "report": {
+        "result": "OWNER_FILE_BACKED_UI_READ_VERIFIED",
+        "checked_at": "2026-11-09T11:51:31.473041+00:00",
+        "credentials_written_to_persistent_files": false,
+        "private_data_on_regular_disk": false,
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "screenshots": 0,
+        "web_cookie_rotation_saved": false,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "credential_file_audit": true,
+              "file_backed_sqlite": true,
+              "bookstore_readback": true,
+              "transport_guard_selftest": true,
+              "progress_display_matches": true,
+              "covers_visible": true,
+              "workers_reaped": true,
+              "preferences_readback": true,
+              "paged_shelf": true,
+              "shelf_books": 139,
+              "shelf_groups": 6,
+              "painted_views": 4,
+              "cover_gets": 26,
+              "progress_gets": 23,
+              "cover_cells": 24,
+              "cover_retries": 1,
+              "progress_snapshots": 23,
+              "known_progress": 23,
+              "profile_files_audited": 31,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "request_counts": [
+                1,
+                1
+              ],
+              "failed_line": 0,
+              "progress_http_status": 200,
+              "progress_fetch_result": 4,
+              "progress_parse_result": 1,
+              "progress_shape": 0,
+              "denied_kind": 0,
+              "denied_reason": 0,
+              "cover_redirects": 1,
+              "cover_http_redirects": 0,
+              "redirect_address_kind": 3
+            },
+            {
+              "cover_gets": 0,
+              "progress_gets": 0,
+              "cover_cells": 24,
+              "cover_retries": 0,
+              "progress_snapshots": 23,
+              "known_progress": 23,
+              "profile_files_audited": 31,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "request_counts": [
+                0,
+                0
+              ],
+              "failed_line": 0,
+              "progress_http_status": 0,
+              "progress_fetch_result": 0,
+              "progress_parse_result": 0,
+              "progress_shape": 0,
+              "denied_kind": 0,
+              "denied_reason": 0,
+              "cover_redirects": 0,
+              "cover_http_redirects": 0,
+              "redirect_address_kind": 0,
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "credential_file_audit": true,
+              "file_backed_sqlite": true,
+              "bookstore_readback": true,
+              "transport_guard_selftest": true,
+              "progress_display_matches": true,
+              "covers_visible": true,
+              "workers_reaped": true,
+              "preferences_readback": true,
+              "paged_shelf": true,
+              "shelf_books": 139,
+              "shelf_groups": 6,
+              "painted_views": 4
+            }
+          ],
+          "runner_error": "none"
+        },
+        "python_preflight_gets": 3,
+        "same_owner_verified": true,
+        "preflight_stages": [
+          {
+            "stage": "metadata_shelf",
+            "status": 200
+          },
+          {
+            "stage": "metadata",
+            "status": 200
+          }
+        ]
+      }
+    }
+  ],
+  "usb_inventory_checked": true,
+  "amazon_or_kindle_usb_matches": 0,
+  "kindle_named_mounts": 0,
+  "linux_probe_credentials_only_in_anonymous_descriptors": true
+}

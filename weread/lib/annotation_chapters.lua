@@ -130,6 +130,8 @@ end
 Chapters.normalize = normalized_chapter_title
 
 function Chapters.documentEnd(document)
+    local End = require("weread.lib.document_text_end")
+    if End.supports(document) then return End.last(document) end
     if not document.getPageCount or not document.getPageXPointer
         or not document.getNextVisibleWordEnd then return nil end
     local ok, xp = pcall(function()

@@ -54,7 +54,7 @@ expect(sync_row and #sync_row == 2,
     "sync and annotation visibility share the penultimate row")
 expect(sync_row and sync_row[1].text == "Sync progress now",
     "the row starts with immediate progress sync")
-expect(sync_row and sync_row[2].text == "Hide underlines and thoughts",
+expect(sync_row and sync_row[2].text == "Hide underlines, thoughts and bookmarks",
     "the row shows the current annotation toggle action")
 expect(shown.buttons[1][1].text == "Chapter list"
         and shown.buttons[1][2].text == "Next chapter",
@@ -76,7 +76,7 @@ expect(#shown.buttons == 4,
     "shared action row remains visible without WeRead book context")
 expect(sync_row and sync_row[1].enabled == false,
     "progress sync is disabled without WeRead book context")
-expect(sync_row and sync_row[2].text == "Show underlines and thoughts",
+expect(sync_row and sync_row[2].text == "Show underlines, thoughts and bookmarks",
     "hidden annotations expose the show action")
 
 print(string.format(

@@ -6,11 +6,11 @@ local function expect(condition, message)
     if not condition then error(message or ("check " .. checks .. " failed")) end
 end
 
-local dialogs = {}
+local dialogs,closed_views = {},{}
 package.preload["ui/uimanager"] = function()
     return {
         show = function(_self, dialog) dialogs[#dialogs + 1] = dialog end,
-        close = function() end,
+        close = function(_self,view) closed_views[#closed_views+1]=view end,
         nextTick = function(_self, callback) callback() end,
         scheduleIn = function(_self, _delay, callback) callback() end,
     }
@@ -56,6 +56,7 @@ package.preload["weread.lib.content"] = function() return {} end
 local cached_covers = {}
 local cover_path_lookups = 0
 local fake_cover_cache = {
+    MAX_IMAGE_BYTES = 3 * 1024 * 1024,
     pathFor = function(_self, book)
         cover_path_lookups = cover_path_lookups + 1
         return cached_covers[book]
@@ -228,7 +229,9 @@ expect(#cover_requests == 9,
 expect(subprocess_runs == 9,
     "cover network and thumbnail work did not run in background subprocesses")
 expect(cover_requests[1].options.skip_cookie == true
-        and cover_requests[1].options.persist_response_cookies == false,
+        and cover_requests[1].options.persist_response_cookies == false
+        and cover_requests[1].options.max_bytes == fake_cover_cache.MAX_IMAGE_BYTES
+        and cover_requests[1].options.sensitive == true,
     "public cover request did not suppress account credentials")
 expect(#shown == 10 and shown[10].data.cover_paths[shelf[1]] ~= nil,
     "cover batch did not refresh the page once with cached paths")
@@ -362,4 +365,119 @@ host.shelf_group_key = "archive:7"
 host:onWeReadAccountChanged()
 expect(host.shelf_groups == nil and host.shelf_group_key == nil, "account switch retained old groups")
 
+host.runOnlineTask = function(_self, _label, callback) pending = callback return true end
+local late_fetches, home_reopened = 0, false
+host.client.get_shelf = function() late_fetches = late_fetches + 1 return { books = {} } end
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+host:closeWeReadUI()
+pending()
+expect(late_fetches == 0 and not home_reopened and not host.shelf_refreshing,
+    "leaving home before a queued refresh still fetched or reopened it")
+local account = "first"
+host.library_db.accountKey = function() return account end
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+account = "second"
+pending()
+expect(late_fetches == 0 and not home_reopened and not host.shelf_refreshing,
+    "queued home refresh crossed the account boundary")
+local jobs, cancelled = {}, 0
+host.client.shelf_authentication = function() return true end
+host.isNetworkConnected = function() return true end
+host.shelf_refresh_worker = {
+    start = function(_self, task, callback) jobs[#jobs + 1] = { task = task, callback = callback } return true end,
+    cancel = function() cancelled = cancelled + 1 end,
+}
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+local old_job = table.remove(jobs, 1)
+host:closeWeReadUI()
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+local fresh_context = host.shelf_refresh_context
+old_job.callback(old_job.task())
+expect(host.shelf_refresh_context == fresh_context and host.shelf_refreshing and late_fetches == 0,
+    "late async shelf result canceled or fetched for a newer view")
+local job = table.remove(jobs, 1)
+job.callback(job.task())
+expect(home_reopened and not host.shelf_refreshing and late_fetches == 1, "current async shelf could not complete")
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1)
+account = "third"
+job.callback(job.task())
+expect(not home_reopened and late_fetches == 1 and not host.shelf_refreshing,
+    "async shelf crossed an account boundary before HTTP")
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1)
+local async_result = job.task()
+shelf_settings.source = "native"
+job.callback(async_result)
+expect(not home_reopened and not host.shelf_refreshing, "result from prior source choice reopened shelf")
+expect(cancelled > 0, "leaving shelf did not cancel native background worker")
+shelf_settings.source = "auto"
+host.showTransientInfo = function() end
+local renewal_callback, renewal_starts, renewal_cancels = nil, 0, 0
+host.native_renewal = {
+    start = function(_self, _options, callback)
+        renewal_starts = renewal_starts + 1
+        renewal_callback = callback
+        return true, { token = renewal_starts }
+    end,
+    cancel = function() renewal_cancels = renewal_cancels + 1 end,
+}
+host.client.get_shelf = function(_self, options)
+    if options.recover_auth then error("shelf_source/native_expired", 0) end
+    return { books = {}, archive = {}, _shelf_source = options.skip_native and "gateway" or "native" }
+end
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(host.shelf_refreshing and renewal_starts == 1 and not home_reopened, "expired shelf did not wait for one renewal")
+renewal_callback(true)
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(home_reopened and not host.shelf_refreshing and host.shelf_active_source == "native", "successful renewal did not retry native shelf")
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task()); renewal_callback(false)
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(home_reopened and host.shelf_active_source == "gateway" and renewal_starts == 2, "failed renewal did not use one permitted fallback")
+shelf_settings.source = "native"
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task()); renewal_callback(false)
+expect(not home_reopened and not host.shelf_refreshing and #jobs == 0, "native-only renewal failure bypassed source policy")
+shelf_settings.source = "auto"
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task())
+local late_renewal = renewal_callback
+host:closeWeReadUI()
+late_renewal(true)
+expect(renewal_cancels > 0 and not home_reopened and #jobs == 0, "cancelled renewal reopened closed shelf")
+-- A dismissed shelf must not be revived by its still-queued group callback.
+host:applyShelfSnapshot(grouped_books,archives)
+host:showShelfView('books')
+local replaced=host.shelf_view
+host:showShelfView('books')
+expect(closed_views[#closed_views]==replaced,'reopening the shelf left the old parent and its popup alive')
+local stale_group=shown[#shown].callbacks.on_select_group
+host:closeWeReadUI()
+local before_stale=#shown
+stale_group(nil)
+expect(#shown==before_stale and not host.shelf_view,'a group callback revived a closed shelf')
+local queued_actions={'on_select_group','on_page_changed','on_switch','on_display_change','on_search','on_refresh','on_sort','on_filter','on_select'}
+for _change_index,change in ipairs({'account','epoch','session','document','snapshot','source','auth'}) do
+    host.ui={};host.settings.get_auth_scope=nil
+    shelf_settings.source='auto'
+    host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+    local callbacks=shown[#shown].callbacks
+    if change=='account' then account=account..'-new'
+    elseif change=='epoch' then host.discovery_epoch=(host.discovery_epoch or 0)+1
+    elseif change=='session' then host._reader_session_gen=(host._reader_session_gen or 0)+1
+    elseif change=='document' then host.ui.document={file='/synthetic.epub'}
+    elseif change=='snapshot' then host:applyShelfSnapshot(grouped_books,archives)
+    elseif change=='source' then shelf_settings.source='native'
+    else host.settings.get_auth_scope=function() return {vid='900000',epoch=2} end end
+    local count=#shown
+    for _action_index,name in ipairs(queued_actions) do callbacks[name](nil) end
+    expect(#shown==count and host.shelf_group_key==nil,'stale shelf actions crossed '..change)
+end
+host.settings.get_auth_scope=nil
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

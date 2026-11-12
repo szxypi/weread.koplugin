@@ -32,6 +32,7 @@ package.preload["logger"] = function()
     return {
         info = function(...) capture("info", ...) end,
         err = function(...) capture("error", ...) end,
+        warn = function(...) capture("warn", ...) end,
     }
 end
 package.preload["socketutil"] = function()
@@ -56,7 +57,17 @@ package.preload["socket.http"] = function()
             requests[#requests + 1] = options
             local response = table.remove(responses, 1)
             if response.raise then error(response.raise) end
-            if options.sink then options.sink(response.body or "") end
+            if response.chunks then
+                response.sink_calls = 0
+                for _, chunk in ipairs(response.chunks) do
+                    response.sink_calls = response.sink_calls + 1
+                    local accepted, sink_err = options.sink(chunk)
+                    if not accepted then return nil, sink_err end
+                end
+                options.sink(nil)
+            elseif options.sink then
+                options.sink(response.body or "")
+            end
             return 1, response.code, response.headers or {}, response.status
         end,
     }
@@ -65,6 +76,7 @@ package.preload["weread.lib.protocol"] = function()
     return {
         USER_AGENT = "WeRead client spec",
         SKILL_VERSION = "test-skill",
+        reader_url = function(id) return "https://weread.qq.com/web/reader/"..tostring(id) end,
         urlencode = function(value)
             return tostring(value):gsub("([^%w%-_%.~])", function(ch)
                 return string.format("%%%02X", ch:byte())
@@ -380,4 +392,306 @@ end)
 expect(not ok and io.open(download_path .. ".part", "rb") == nil,
     "oversized file download did not remove its partial output")
 
+local public_client = Client:new(settings)
+public_client.json_decode = function(_self, text) return { payload = text } end
+responses[#responses + 1] = { body = "categories", code = 200 }
+expect(public_client:get_store_categories().payload == "categories", "categories JSON not decoded")
+local public_request = requests[#requests]
+expect(public_request.url == "https://weread.qq.com/web/categories?rank=1&synckey=0"
+    and public_request.headers.Cookie == nil and public_request.headers.Authorization == nil,
+    "public category request attached authentication or changed endpoint")
+expect(public_request.redirect==false and timeout_calls[#timeout_calls][2]==15,'public categories changed redirect/timeout bounds')
+responses[#responses+1]={body=string.rep('x',4*1024*1024+1),code=200}
+expect(not pcall(public_client.get_store_categories,public_client),'oversized categories were decoded')
+responses[#responses+1]={body='private response sentinel',code=429}
+local category_ok,category_error=pcall(public_client.get_store_categories,public_client)
+expect(not category_ok and category_error=='category_catalog/unavailable','category error exposed response body')
+responses[#responses + 1] = { body = "rank-books", code = 200 }
+expect(public_client:get_category_books("rising", 20, true).payload == "rank-books",
+    "rank books JSON not decoded")
+public_request = requests[#requests]
+expect(public_request.url == "https://weread.qq.com/web/bookListInCategory/rising?rank=1&maxIndex=20"
+    and public_request.headers.Cookie == nil, "rank cursor or authentication incorrect")
+responses[#responses + 1] = { body = "category-books", code = 200 }
+public_client:get_category_books("100000", 0, false)
+expect(requests[#requests].url:find("rank=0&maxIndex=0", 1, true), "category request used ranking flag")
+local before_category_cookies=#merged_cookies
+responses[#responses+1]={body='category-books',code=200,headers={['set-cookie']='wr_skey=XXX-category-cookie'}}
+public_client:get_category_books('100000',0,false)
+expect(#merged_cookies==before_category_cookies,'anonymous book list changed login cookies')
+local large_category={code=200,chunks={string.rep('x',4*1024*1024),'overflow','must-not-read'}}
+responses[#responses+1]=large_category
+local book_list_ok,book_list_error=pcall(public_client.get_category_books,public_client,'100000',0,false)
+expect(not book_list_ok and book_list_error=='category_books/unavailable' and large_category.sink_calls==2,
+    'category response limit did not stop the receiving sink')
+logs={}
+responses[#responses+1]={body='private-category-body',code=429,headers={location='private-category-location'}}
+book_list_ok,book_list_error=pcall(public_client.get_category_books,public_client,'100000',0,false)
+expect(not book_list_ok and book_list_error=='category_books/unavailable' and not table.concat(logs,'\n'):find('private-',1,true),
+    'category failure exposed the response or location')
+local before_invalid = #requests
+expect(not pcall(public_client.get_category_books, public_client, "../../bad", 0), "invalid category path accepted")
+expect(not pcall(public_client.get_category_books, public_client, "rising", -1), "negative cursor accepted")
+expect(not pcall(public_client.get_category_books, public_client, "rising", math.huge), "infinite cursor accepted")
+expect(not pcall(public_client.get_category_books, public_client, "rising", 0.5), "fractional cursor accepted")
+expect(#requests == before_invalid, "invalid category inputs sent HTTP")
+logs = {}
+responses[#responses + 1] = { body = "private-response-token", code = 401, headers = { location = "private-location" } }
+client:request({ url = "https://i.weread.qq.com/login?private-session", skip_cookie = true,
+    sensitive = true, diagnostic_api = "native_login" })
+expect(requests[#requests].sensitive == nil, "sensitivity flag leaked into HTTP library options")
+local sensitive_log = table.concat(logs, "\n")
+expect(sensitive_log:find("native_login", 1, true) and sensitive_log:find("401", 1, true), "redacted diagnostic omitted stage/status")
+expect(not sensitive_log:find("private-", 1, true), "sensitive HTTP response, URL or headers were logged")
+responses[#responses + 1] = { raise = "private-transport-token-url" }
+ok, err = pcall(client.request, client, { url = "https://i.weread.qq.com/login?private-session", skip_cookie = true,
+    sensitive = true, diagnostic_api = "native_login" })
+expect(not ok and not tostring(err):find("private-", 1, true), "sensitive transport exception was exposed")
+expect(not table.concat(logs, "\n"):find("private-", 1, true), "sensitive transport details were logged")
+responses[#responses + 1] = { code = "private-status", body = "private-response" }
+client:request({ url = "https://i.weread.qq.com/login?private-session", sensitive = true, diagnostic_api = "native_login" })
+expect(not table.concat(logs, "\n"):find("private-", 1, true), "unavailable sensitive response leaked diagnostics")
+logs = {}
+client.json_decode = function() error("private-parser-body") end
+ok, err = pcall(client.decode_http_json, client, "private-malformed-payload", {
+    sensitive = true, url = "https://weread.qq.com/?private-session", api_name = "qr_login", code = 200 })
+expect(not ok and not tostring(err):find("private-", 1, true), "sensitive JSON exception leaked body")
+client.json_decode = function() return { errcode = 123, accessToken = "private-token" } end
+client:decode_http_json("private-error-body", { sensitive = true, api_name = "qr_login", code = 200 })
+expect(not table.concat(logs, "\n"):find("private-", 1, true), "sensitive JSON error diagnostics leaked credentials")
+local array_mt = {}
+local function array(items) return setmetatable(items or {},array_mt) end
+local web_data={books=array{{bookId="900001",title="Synthetic"}},archive=array{{bookIds=array()}}}
+client.json_decode=function(_self,value)
+    if value=="[]" then return array() end
+    if value=="broken" then error("private-shelf-body") end
+    return web_data
+end
+local cookie_count=#merged_cookies
+responses[#responses+1]={code=200,body="shelf",headers={["set-cookie"]="ignored=value"}}
+expect(client:get_web_shelf({wr_skey="XXX-cookie-value"})==web_data,"Web shelf payload")
+local web_request=requests[#requests]
+expect(web_request.url=="https://weread.qq.com/web/shelf/sync" and web_request.method=="GET"
+    and web_request.headers.Cookie=="wr_skey=XXX-cookie-value" and #merged_cookies==cookie_count,
+    "Web shelf changed account cookies or request contract")
+expect(type(web_request.create)=="function","HTTPS did not install request-local TLS verification")
+for _,web_code in ipairs({302,401,403,503}) do
+    responses[#responses+1]={code=web_code,body="private-shelf-response"}
+    ok,err=pcall(client.get_web_shelf,client,{})
+    expect(not ok and err=="shelf_source/web_unavailable","Web shelf HTTP failure exposed private data")
+end
+responses[#responses+1]={code=200,body=string.rep("x",4*1024*1024+1)}
+expect(not pcall(client.get_web_shelf,client,{}),"oversized shelf was accepted")
+responses[#responses+1]={code=200,body="broken"}
+ok,err=pcall(client.get_web_shelf,client,{})
+expect(not ok and err=="sensitive_json_invalid","Web shelf parser leaked private input")
+for _,data in ipairs({{books=array(),errcode=1},{books=array(),succ=false},{books={}},
+    {books=array(),archive={}},{books=array(),archive=array{{bookIds={}}}}}) do
+    web_data=data
+    responses[#responses+1]={code=200,body="shelf"}
+    expect(not pcall(client.get_web_shelf,client,{}),"rejected API or empty object was accepted as a shelf")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"Web shelf failure logged private payload")
+local display_data={book={bookId="900001",progress=37.8}}
+client.json_decode=function() return display_data end
+responses[#responses+1]={code=200,body="progress",headers={["set-cookie"]="ignored=value"}}
+expect(client:get_shelf_display_progress("900001",{kind="web",cookies={wr_skey="XXX-display-snapshot"}})==display_data,
+    "Web display progress response")
+local display_request=requests[#requests]
+expect(display_request.method=="GET" and display_request.url=="https://weread.qq.com/web/book/getProgress?bookId=900001"
+    and display_request.headers.Cookie=="wr_skey=XXX-display-snapshot" and display_request.headers.Authorization==nil,
+    "display read did not use captured Web cookies exclusively")
+expect(#merged_cookies==cookie_count,"display read changed live credentials")
+local encoded_display
+client.json_encode=function(_self,data) encoded_display=data return "{}" end
+responses[#responses+1]={code=200,body="progress"}
+client:get_shelf_display_progress("900001",{kind="gateway",api_key="captured-display-key"})
+display_request=requests[#requests]
+expect(display_request.method=="POST" and display_request.headers.Authorization=="Bearer captured-display-key"
+    and display_request.headers.Cookie==nil and encoded_display.api_name=="/book/getprogress"
+    and encoded_display.bookId=="900001" and encoded_display.skill_version=="test-skill","captured gateway contract")
+for _,bad_id in ipairs({"900001&other=value","MP_WXS_test",0,false}) do
+    local before=#requests
+    expect(not pcall(client.get_shelf_display_progress,client,bad_id,{kind="web",cookies={}}) and #requests==before,
+        "invalid display identity sent HTTP")
+end
+for _,response in ipairs({{code=302,body="private-progress"},{code=401,body="private-progress"},
+    {code=429,body="private-progress"},{code=200,body=string.rep("x",65537)},{raise="private-transport-response"}}) do
+    responses[#responses+1]=response
+    ok,err=pcall(client.get_shelf_display_progress,client,"900001",{kind="web",cookies={}})
+    expect(not ok and not tostring(err):find("private-",1,true),"display failure leaked response or exceeded bounds")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"display request logged raw position or private diagnostics")
+responses[#responses+1]={code=401,body='private-progress'}
+ok,err=pcall(client.get_shelf_display_progress,client,'900001',{kind='web',cookies={}})
+expect(not ok and err=='display_progress/login','Web HTTP 401 did not preserve a bounded login reason')
+responses[#responses+1]={code=401,body='private-progress'}
+ok,err=pcall(client.get_shelf_display_progress,client,'900001',{kind='gateway',api_key='captured-display-key'})
+expect(not ok and err=='display_progress/unavailable','gateway failure could trigger Web renewal')
+responses[#responses+1]={code=401,body=string.rep('x',65537)}
+ok,err=pcall(client.get_shelf_display_progress,client,'900001',{kind='web',cookies={}})
+expect(not ok and err=='display_progress/unavailable','oversized reply could trigger credential maintenance')
+responses[#responses+1]={code=401,body='private-progress'}
+local data,kind=client:get_progress_snapshot('900001',{kind='web',cookies={}},{classify_auth=true})
+expect(not data and kind=='web_expired','preflight lost the confirmed numeric HTTP 401')
+responses[#responses+1]={code=200,body='progress'}
+client:get_progress_snapshot('900001',{kind='web',cookies={}},{classify_auth=true,fresh=true})
+expect(requests[#requests].url:match('bookId=900001&_=%d+$'),'synchronization lost its cache-busting query')
+for _i,response in ipairs({{code=403,body='private-progress'},{code=429,body='private-progress'},
+    {code=401,body=string.rep('x',65537)},{raise='web_expired'}}) do
+    responses[#responses+1]=response
+    local called,value,classified=pcall(client.get_progress_snapshot,client,'900001',{kind='web',cookies={}},{classify_auth=true})
+    expect(not called and classified==nil and not tostring(value):find('private-',1,true),'non-401 or transport text forged preflight recovery')
+end
+display_data.book.bookId='CB_SyntheticAlpha'
+responses[#responses+1]={code=200,body='progress'}
+expect(client:get_shelf_display_progress('CB_SyntheticAlpha',{kind='web',cookies={wr_skey='XXX-display-snapshot'}})==display_data,
+    'verified CB display GET was rejected')
+display_request=requests[#requests]
+expect(display_request.method=='GET' and display_request.url=='https://weread.qq.com/web/book/getProgress?bookId=CB_SyntheticAlpha'
+    and display_request.headers.Authorization==nil and display_request.headers.Cookie=='wr_skey=XXX-display-snapshot',
+    'CB display used another route or native authorization')
+local before_cb=#requests
+expect(not pcall(client.get_shelf_display_progress,client,'CB_SyntheticAlpha',{kind='gateway',api_key='captured-display-key'})
+    and #requests==before_cb,'unverified CB gateway request was sent')
+expect(not pcall(client.get_progress_snapshot,client,'CB_SyntheticAlpha',{kind='web',cookies={}},{fresh=true,classify_auth=true})
+    and #requests==before_cb,'display-only CB acceptance expanded synchronization preflight')
+expect(not pcall(client.get_display_book_metadata,client,'CB_SyntheticAlpha',{kind='gateway',api_key='captured-display-key'})
+    and #requests==before_cb,'CB metadata expanded an unverified gateway route')
+for _i,id in ipairs({'CB_','CB_'..string.rep('A',65),'CB_a/b','CB_a?bookId=900001','CB_a_b','CB_a-b'}) do
+    expect(not pcall(client.get_shelf_display_progress,client,id,{kind='web',cookies={}})
+        and #requests==before_cb,'invalid CB identity reached transport')
+end
+local metadata_response={bookId="900001",title="Synthetic metadata",intro="<p>Synthetic introduction</p>",
+    publisher="Synthetic publisher",bookVersion=99,progress=99,psvts="private-clock"}
+local metadata_state='{"reader":{"bookInfo":{"bookId":"900001","title":"Synthetic"}}}'
+client.json_decode=function(_self,value)
+    if value==metadata_state then return {reader={bookInfo=metadata_response}} end
+    if value=="broken" then error("private-metadata-json") end
+    return metadata_response
+end
+responses[#responses+1]={code=200,body="<script>window.__INITIAL_STATE__="..metadata_state..";(function(){})();</script>",
+    headers={["set-cookie"]="ignored=value"}}
+local metadata=client:get_display_book_metadata("900001",{kind="web",cookies={wr_skey="XXX-metadata-snapshot"}})
+local metadata_request=requests[#requests]
+expect(metadata.publisher=="Synthetic publisher" and metadata.bookVersion==nil and metadata.progress==nil and metadata.psvts==nil,
+    "Web metadata escaped display projection")
+expect(metadata_request.method=="GET" and metadata_request.url=="https://weread.qq.com/web/reader/900001"
+    and metadata_request.headers.Cookie=="wr_skey=XXX-metadata-snapshot" and #merged_cookies==cookie_count,
+    "Web metadata changed credentials or route")
+responses[#responses+1]={code=200,body="metadata"}
+metadata=client:get_display_book_metadata("900001",{kind="gateway",api_key="captured-metadata-key"})
+metadata_request=requests[#requests]
+expect(encoded_display.api_name=="/book/info" and metadata_request.headers.Authorization=="Bearer captured-metadata-key"
+    and metadata_request.headers.Cookie==nil and metadata.title=="Synthetic metadata","captured metadata gateway contract")
+metadata_response.bookId='CB_SyntheticMetadata'
+responses[#responses+1]={code=200,body='<script>window.__INITIAL_STATE__='..metadata_state..';(function(){})();</script>'}
+metadata=client:get_display_book_metadata('CB_SyntheticMetadata',{kind='web',cookies={wr_skey='XXX-cb-metadata'}})
+metadata_request=requests[#requests]
+expect(metadata.bookId=='CB_SyntheticMetadata' and metadata.bookVersion==nil and metadata.progress==nil,
+    'CB Web metadata escaped its display projection')
+expect(metadata_request.method=='GET' and metadata_request.url=='https://weread.qq.com/web/reader/CB_SyntheticMetadata'
+    and metadata_request.headers.Cookie=='wr_skey=XXX-cb-metadata' and metadata_request.headers.Authorization==nil,
+    'CB Web metadata changed route or mixed authorization')
+metadata_response.bookId='900001'
+for _,response in ipairs({{code=302,body="private-metadata"},{code=403,body="private-metadata"},
+    {code=200,body=string.rep("x",4*1024*1024+1)},{code=200,body="no initial state"},{raise="private-metadata-transport"}}) do
+    responses[#responses+1]=response
+    ok,err=pcall(client.get_display_book_metadata,client,"900001",{kind="web",cookies={}})
+    expect(not ok and not tostring(err):find("private-",1,true),"metadata failure leaked body or exceeded bounds")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"metadata response entered diagnostics")
+responses[#responses+1]={code=200,body="discovery",headers={["set-cookie"]="ignored=value"}}
+client:get_gateway_discovery("similar",{book_id="900001",cursor=20,session_id="synthetic-session"},"captured-discovery-key")
+local discovery_request=requests[#requests]
+expect(encoded_display.api_name=="/book/similar" and encoded_display.bookId=="900001" and encoded_display.maxIdx==20
+    and encoded_display.count==20 and encoded_display.sessionId=="synthetic-session","gateway discovery payload")
+expect(discovery_request.headers.Authorization=="Bearer captured-discovery-key" and discovery_request.headers.Cookie==nil
+    and #merged_cookies==cookie_count,"gateway discovery isolates credentials and ignores Set-Cookie")
+for _,response in ipairs({{code=302,body="private-discovery"},{code=401,body="private-discovery"},
+    {code=429,body="private-discovery"},{code=200,body=string.rep("x",4*1024*1024+1)},
+    {code=200,body="broken"},{raise="private-discovery-transport"}}) do
+    responses[#responses+1]=response
+    ok,err=pcall(client.get_gateway_discovery,client,"recommend",{},"captured-discovery-key")
+    expect(not ok and not tostring(err):find("private-",1,true),"gateway discovery must redact and bound failures")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"gateway discovery logged response or credentials")
+responses[#responses+1]={code=200,body="statistics",headers={["set-cookie"]="ignored=value"}}
+client:get_gateway_read_stats("monthly",1706716800,"captured-statistics-key")
+local statistics_request=requests[#requests]
+expect(encoded_display.api_name=="/readdata/detail" and encoded_display.mode=="monthly" and encoded_display.baseTime==1706716800
+    and statistics_request.headers.Authorization=="Bearer captured-statistics-key" and statistics_request.headers.Cookie==nil
+    and #merged_cookies==cookie_count,"isolated captured statistics gateway payload")
+for _,response in ipairs({{code=429,body="private-statistics"},{code=302,body="private-statistics"},
+    {code=200,body=string.rep("x",4*1024*1024+1)},{code=200,body="broken"},{raise="private-statistics-transport"}}) do
+    responses[#responses+1]=response
+    ok,err=pcall(client.get_gateway_read_stats,client,"monthly",0,"captured-statistics-key")
+    expect(not ok and not tostring(err):find("private-",1,true),"statistics gateway leaked/accepted oversized or failed response")
+end
+expect(not table.concat(logs,"\n"):find("private-",1,true),"statistics gateway logged private response")
+logs={}
+client.json_decode=function() return {errCode=-2041,errMsg='private-MP-message',info='private-MP-info'} end
+responses[#responses+1]={code=200,body='private-MP-catalog'}
+local mp_data,mp_code=client:get_mp_articles('MP_WXS_900001',0,100,'synthetic-MP-ticket')
+expect(not mp_data and mp_code==-2041,'MP business verification code was lost')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'MP business error exposed response fields')
+for _,method in ipairs({'get_mp_articles','get_mp_content'}) do
+    responses[#responses+1]={code=403,body='private-MP-body',headers={['set-cookie']='private-MP-cookie'}}
+    ok,err=pcall(client[method],client,'MP_WXS_900001')
+    expect(not ok and err=='mp_read/unavailable','MP HTTP error exposed raw body')
+end
+client.json_decode=function() error('private-MP-parser') end
+responses[#responses+1]={code=200,body='private-MP-malformed'}
+ok,err=pcall(client.get_mp_articles,client,'MP_WXS_900001',0,100)
+expect(not ok and err=='sensitive_json_invalid','MP JSON error exposed parser input')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'MP catalog/content diagnostics leaked details')
+
+logs={}
+responses[#responses+1]={code=403,body='private-renewal-body',headers={['set-cookie']='private-renewal-cookie'}}
+ok,err=pcall(client.renew_cookie,client)
+expect(not ok and err=='sensitive_http_unavailable','Web renewal HTTP error exposed credentials')
+responses[#responses+1]={code=200,body='private-renewal-parser-input'}
+ok,err=pcall(client.renew_cookie,client)
+expect(not ok and err=='sensitive_json_invalid','Web renewal JSON error exposed input')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'Web renewal diagnostics exposed fields')
+
+logs={}
+for _,reader_code in ipairs({302,403}) do
+    responses[#responses+1]={code=reader_code,body='private-reader-body',headers={['set-cookie']='private-reader-cookie'}}
+    ok,err=pcall(client.get_text,client,'https://weread.qq.com/web/reader/synthetic',
+        {sensitive=true,diagnostic_api='reader_context'})
+    expect(not ok and err=='sensitive_http_unavailable','sensitive Reader HTTP error exposed body')
+end
+expect(not table.concat(logs,'\n'):find('private-',1,true),'Reader diagnostics exposed private body')
+
+logs={}
+responses[#responses+1]={code=403,body='private-position-upload'}
+ok,err=pcall(client.report_read,client,{},nil,{sensitive=true})
+expect(not ok and err=='sensitive_http_unavailable','position upload exposed private HTTP body')
+responses[#responses+1]={code=200,body='private-position-readback'}
+ok,err=pcall(client.get_web_progress,client,'900001',{sensitive=true})
+expect(not ok and err=='sensitive_json_invalid','position readback exposed private parser input')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'position diagnostics exposed private payload')
+
+responses[#responses+1]={code=200,chunks={'\0abc','def\255'}}
+local binary, binary_code=client:get_binary('https://cdn.example/cover',{max_bytes=8,skip_cookie=true})
+expect(binary=='\0abcdef\255' and binary_code==200,'bounded binary response changed bytes at exact limit')
+expect(requests[#requests].max_bytes==nil,'private binary limit leaked into HTTP transport options')
+local overflow={code=200,chunks={'1234','56789','must-not-read'}}
+responses[#responses+1]=overflow
+ok,err=pcall(client.get_binary,client,'https://cdn.example/cover',{max_bytes=8})
+expect(not ok and err=='binary response exceeds size limit' and overflow.sink_calls==2,
+    'chunked binary overflow was retained or transport did not stop immediately')
+responses[#responses+1]={code=302,chunks={'redirect'},headers={Location='https://other.example/cover'}}
+responses[#responses+1]={code=200,chunks={'12345678'}}
+local redirects=0
+binary=client:get_binary('https://cdn.example/cover',{max_bytes=8,on_redirect=function() redirects=redirects+1 end})
+expect(binary=='12345678' and redirects==1,'redirect body contaminated final bounded bytes or callback was lost')
+local before_binary_invalid=#requests
+for _,limit in ipairs({0,-1,1.5,math.huge,0/0,'invalid'}) do
+    ok=pcall(client.get_binary,client,'https://cdn.example/cover',{max_bytes=limit})
+    expect(not ok and #requests==before_binary_invalid,'invalid binary limit opened the network')
+end
+responses[#responses+1]={code=200,body='legacy binary'}
+expect(client:get_binary('https://cdn.example/cover')=='legacy binary','unbounded legacy binary call changed')
 print(("client_spec: %d checks"):format(checks))

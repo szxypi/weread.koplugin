@@ -1,0 +1,255 @@
+{
+  "lua_syntax_files": 478,
+  "python_compiled_files": 141,
+  "calendar_time_zones": 4,
+  "result": "READER_HISTORY_RECORD_RECOVERY_NATIVE_VERIFIED",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "physical_device": false,
+  "synthetic_only": true,
+  "real_account_requests_attempted": 0,
+  "raw_candidates_preserved_before_provider": true,
+  "actual_core_unprotected_provider_order_reproduced_without_mutating_records": true,
+  "native_history_menu_shown": true,
+  "html_and_epub_explicit_recovery": true,
+  "live_unsaved_current_record_preserved": true,
+  "ordinary_local_files_and_independent_versions_keep_native_route": true,
+  "provider_forced_state_callback_and_nil_holes_preserved": true,
+  "native_ask_prompt_cancel_and_source_change_guarded": true,
+  "actual_suspend_copy_worker_reaped_and_stage_cleaned": true,
+  "reader_profiles": [
+    {
+      "resolution": "600x800",
+      "synthetic_only": true,
+      "first_process_reader_opens": 24,
+      "fresh_process_reader_opens": 4,
+      "recovered_copies": 4,
+      "account_requests": 0,
+      "account_data_writes": 0,
+      "cases": [
+        {
+          "raw_candidates_saved_before_provider": true,
+          "explicit_record_choice": true,
+          "stock_reader_instances": 1,
+          "provider_reads": 1,
+          "kind": "native_history_managed_html_live_notes"
+        },
+        {
+          "raw_candidates_saved_before_provider": true,
+          "explicit_record_choice": true,
+          "stock_reader_instances": 1,
+          "provider_reads": 1,
+          "kind": "native_history_title_html"
+        },
+        {
+          "raw_candidates_saved_before_provider": true,
+          "explicit_record_choice": true,
+          "stock_reader_instances": 1,
+          "provider_reads": 1,
+          "kind": "native_history_epub"
+        },
+        {
+          "raw_candidates_saved_before_provider": true,
+          "explicit_record_choice": true,
+          "stock_reader_instances": 1,
+          "provider_reads": 0,
+          "kind": "direct_forced_epub_switch"
+        },
+        {
+          "current_reader_kept": true,
+          "kind": "cancel_record_confirmation"
+        },
+        {
+          "late_callback_ignored": true,
+          "kind": "cancel_native_open_prompt"
+        },
+        {
+          "current_reader_kept_before_record_choice": true,
+          "kind": "confirm_native_open_prompt"
+        },
+        {
+          "no_switch_or_recovery": true,
+          "kind": "source_changed_during_native_prompt"
+        },
+        {
+          "child_reaped": true,
+          "stage_cleaned": true,
+          "current_reader_kept": true,
+          "kind": "suspend_during_direct_switch_copy"
+        }
+      ],
+      "result": "PASS"
+    },
+    {
+      "resolution": "1264x1680-300dpi",
+      "synthetic_only": true,
+      "first_process_reader_opens": 24,
+      "fresh_process_reader_opens": 4,
+      "recovered_copies": 4,
+      "account_requests": 0,
+      "account_data_writes": 0,
+      "cases": [
+        {
+          "kind": "native_history_managed_html_live_notes",
+          "raw_candidates_saved_before_provider": true,
+          "provider_reads": 1,
+          "stock_reader_instances": 1,
+          "explicit_record_choice": true
+        },
+        {
+          "kind": "native_history_title_html",
+          "raw_candidates_saved_before_provider": true,
+          "provider_reads": 1,
+          "stock_reader_instances": 1,
+          "explicit_record_choice": true
+        },
+        {
+          "kind": "native_history_epub",
+          "raw_candidates_saved_before_provider": true,
+          "provider_reads": 1,
+          "stock_reader_instances": 1,
+          "explicit_record_choice": true
+        },
+        {
+          "kind": "direct_forced_epub_switch",
+          "raw_candidates_saved_before_provider": true,
+          "provider_reads": 0,
+          "stock_reader_instances": 1,
+          "explicit_record_choice": true
+        },
+        {
+          "current_reader_kept": true,
+          "kind": "cancel_record_confirmation"
+        },
+        {
+          "late_callback_ignored": true,
+          "kind": "cancel_native_open_prompt"
+        },
+        {
+          "current_reader_kept_before_record_choice": true,
+          "kind": "confirm_native_open_prompt"
+        },
+        {
+          "no_switch_or_recovery": true,
+          "kind": "source_changed_during_native_prompt"
+        },
+        {
+          "kind": "suspend_during_direct_switch_copy",
+          "child_reaped": true,
+          "stage_cleaned": true,
+          "current_reader_kept": true
+        }
+      ],
+      "result": "PASS"
+    }
+  ],
+  "filemanager_regressions": [
+    {
+      "profile": "mp-reader-fm600-final",
+      "first_process_reader_opens": 14,
+      "fresh_process_reader_opens": 3,
+      "recovered_copies": 3,
+      "result": "PASS"
+    },
+    {
+      "profile": "mp-reader-fmko2-final",
+      "first_process_reader_opens": 14,
+      "fresh_process_reader_opens": 3,
+      "recovered_copies": 3,
+      "result": "PASS"
+    }
+  ],
+  "regular_book_reading_regressions": [
+    "plugin_read_download_and_native_reader",
+    "fresh_offline_reopen",
+    "both_reconnection_choices",
+    "normal_periodic_timed_and_close_source_sync",
+    "source_and_progress_read_recovery",
+    "verified_receipt_save_retry",
+    "shelf_membership_and_before_write401_recovery"
+  ],
+  "lua_spec_groups": 180,
+  "new_adapter_checks": 28,
+  "lua_static_files": 476,
+  "python_offline": {
+    "result": "PASS",
+    "files": 52,
+    "tests": 632
+  },
+  "package_profiles": [
+    {
+      "profile": "mp-reader-600-final",
+      "production_files": 201,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "repaint_errors": 0,
+      "source_manifest_sha256": "4856da29ca807b8912713211fd8a7966a8d70ac887eb774aed9ca350106e17b6",
+      "candidate_sha256": "c0d308532866d843e3c2820eb95ff7ac62a9fc2010a212c3c6eaf8cff27b7a1d"
+    },
+    {
+      "profile": "mp-reader-ko2-final",
+      "production_files": 201,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "repaint_errors": 0,
+      "source_manifest_sha256": "4856da29ca807b8912713211fd8a7966a8d70ac887eb774aed9ca350106e17b6",
+      "candidate_sha256": "2220f4c8603f9b5db9800a52dcdc6c7032eb6f4ee96a6c42c1a32e029cd9079f"
+    },
+    {
+      "profile": "mp-reader-fm600-final",
+      "production_files": 201,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "repaint_errors": 0,
+      "source_manifest_sha256": "4856da29ca807b8912713211fd8a7966a8d70ac887eb774aed9ca350106e17b6",
+      "candidate_sha256": "66db92dd9274098ace2a72ecf2431e81a553b47901a3e8eb9119fd938f12a1ce"
+    },
+    {
+      "profile": "mp-reader-fmko2-final",
+      "production_files": 201,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "repaint_errors": 0,
+      "source_manifest_sha256": "4856da29ca807b8912713211fd8a7966a8d70ac887eb774aed9ca350106e17b6",
+      "candidate_sha256": "8f6a462884ddea4d2ff4e4d4e972bd377904d8b7317b5d6f0c16f2d983b75687"
+    },
+    {
+      "profile": "mp-reader-reading600-final",
+      "production_files": 201,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "repaint_errors": 0,
+      "source_manifest_sha256": "4856da29ca807b8912713211fd8a7966a8d70ac887eb774aed9ca350106e17b6",
+      "candidate_sha256": "f4f6885e78050bac1739d22032119e0461c5952ad02ddb0bff5f4138a7ac720b"
+    },
+    {
+      "profile": "mp-reader-readingko2-final",
+      "production_files": 201,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "repaint_errors": 0,
+      "source_manifest_sha256": "4856da29ca807b8912713211fd8a7966a8d70ac887eb774aed9ca350106e17b6",
+      "candidate_sha256": "a01c60ddfdbc515a3d41497ebf9c9a18e6136d09282231074793b7ffed5a94e9"
+    }
+  ],
+  "code_sha256": {
+    "main.lua": "41c543c7f148f365940f1b8e51ba441d468f68876648a04197c3eb7997a5a35a",
+    "weread/ui/mp_reader_open.lua": "b04ce2e12f720d667a42b52666af29e18a29f6f9c78984bd965e7be7dee6b47b",
+    "weread/lib/reader_lifecycle.lua": "a008c50bab7e31b572f37a30fdd94948595663c88f897747c77dbb2a231f1064",
+    "weread/ui/library.lua": "e766fca9b80d02f93e1aa6093dcd55854c3943d402003f87476e4466452463d1",
+    "weread/lib/i18n.lua": "51e81db390d791b36f149d68b6c2da44d558ccf6f780de3ad8768dc7f442f803",
+    "spec/mp_reader_open_spec.lua": "b3d4f97f40fd553539e60eb8eaa724978f7b5c059f6ef250ac6ce28864ae92c7",
+    "spec/koreader/mp_reader_open_smoke.lua": "3317e4187478dd29ebe540348783dd310f758d0795ba47e349d1e8331d8bccd1",
+    "spec/koreader/mp_legacy_metadata.lua": "c89ee874baf04aa2dc550fb55d07577c7de629eaeb1e64059f321fac15759b2c",
+    "scripts/test_mp_metadata_runtime.py": "f0f2fe806220c329a5dd5832566ee04d929ebad12c1896281e7a38e5da23c196"
+  },
+  "pending": [
+    "directory_and_history_information_prereads",
+    "startup_direct_open",
+    "unidentified_legacy_files",
+    "independent_metadata_archive",
+    "real_notes_and_physical_ko2",
+    "whole_process_kill_and_power_loss",
+    "remaining_roadmap_features",
+    "performance_after_full_feature_acceptance"
+  ]
+}

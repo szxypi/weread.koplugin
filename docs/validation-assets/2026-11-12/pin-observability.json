@@ -1,0 +1,70 @@
+{
+  "result": "PIN_OBSERVABILITY_READ_VERIFIED",
+  "checked_at": "2026-11-12T02:25:53.976712+00:00",
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "gateway_read_posts": 0,
+  "credentials_written_to_files": false,
+  "gateway_key_available": false,
+  "channels": {
+    "native_0": {
+      "books": 140,
+      "pinned": {
+        "missing": 140
+      }
+    },
+    "native_1": {
+      "books": 140,
+      "pinned": {
+        "missing": 140
+      }
+    },
+    "native_2": {
+      "books": 140,
+      "pinned": {
+        "missing": 140
+      }
+    },
+    "web": {
+      "books": 140,
+      "pinned": {
+        "missing": 140
+      }
+    }
+  },
+  "same_members": true,
+  "visible_other_flags_match": true,
+  "observable_pin_channels": [],
+  "native_stages": [
+    {
+      "stage": "pin_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_shelf",
+      "status": 200
+    }
+  ],
+  "web_stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

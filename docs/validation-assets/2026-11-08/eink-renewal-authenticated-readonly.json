@@ -1,0 +1,210 @@
+{
+  "checked_at": "2026-11-08T06:50:55.160846+00:00",
+  "stages": [
+    {
+      "stage": "qr_ticket",
+      "status": 200,
+      "keys": [
+        "expires_in",
+        "signature",
+        "timeStamp"
+      ]
+    },
+    {
+      "stage": "qr_connect",
+      "status": 200,
+      "keys": [
+        "appname",
+        "errcode",
+        "qrcode",
+        "uuid"
+      ]
+    },
+    {
+      "stage": "qr_poll"
+    },
+    {
+      "stage": "qr_poll",
+      "status": 200,
+      "keys": [
+        "wx_code",
+        "wx_errcode"
+      ]
+    },
+    {
+      "stage": "qr_poll",
+      "status": 200,
+      "keys": [
+        "wx_code",
+        "wx_errcode"
+      ]
+    },
+    {
+      "stage": "login",
+      "status": 200,
+      "keys": [
+        "accessToken",
+        "config",
+        "firstLogin",
+        "openId",
+        "pf",
+        "refreshToken",
+        "skey",
+        "user",
+        "userAgreement",
+        "vid",
+        "wxAccessToken"
+      ]
+    },
+    {
+      "stage": "shelf_verify",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "renewal",
+      "status": 200,
+      "keys": [
+        "accessToken",
+        "firstLogin",
+        "openId",
+        "pf",
+        "skey",
+        "user",
+        "vid",
+        "wxAccessToken"
+      ]
+    },
+    {
+      "stage": "renewed_shelf",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    },
+    {
+      "stage": "renewal",
+      "status": 200,
+      "keys": [
+        "accessToken",
+        "firstLogin",
+        "openId",
+        "pf",
+        "skey",
+        "user",
+        "vid",
+        "wxAccessToken"
+      ]
+    },
+    {
+      "stage": "renewed_shelf",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    }
+  ],
+  "probe": "native_renewal",
+  "renewal_attempts": 2,
+  "data_writes_attempted": 0,
+  "shelf_book_count": 139,
+  "initial_shelf_contract": {
+    "books": 139,
+    "invalid_books": 0,
+    "invalid_archives": 0,
+    "display_contract_valid": true,
+    "fields_present": {
+      "author": 139,
+      "cover": 139,
+      "readUpdateTime": 139,
+      "version": 139,
+      "finishReading": 139,
+      "finished": 139,
+      "secret": 139,
+      "format": 139
+    },
+    "version_semantics": "unverified"
+  },
+  "renewal_verified": true,
+  "owner_unchanged": true,
+  "device_reused": true,
+  "access_token_changed": false,
+  "refresh_token_returned": false,
+  "refresh_token_changed": false,
+  "renewed_shelf_contract": {
+    "books": 139,
+    "invalid_books": 0,
+    "invalid_archives": 0,
+    "display_contract_valid": true,
+    "fields_present": {
+      "author": 139,
+      "cover": 139,
+      "readUpdateTime": 139,
+      "version": 139,
+      "finishReading": 139,
+      "finished": 139,
+      "secret": 139,
+      "format": 139
+    },
+    "version_semantics": "unverified"
+  },
+  "verified_renewals": [
+    {
+      "owner_unchanged": true,
+      "device_reused": true,
+      "refresh_token_returned": false,
+      "refresh_token_changed": false,
+      "books": 139
+    },
+    {
+      "owner_unchanged": true,
+      "device_reused": true,
+      "refresh_token_returned": false,
+      "refresh_token_changed": false,
+      "books": 139
+    }
+  ],
+  "renewal_chain_verified": true,
+  "result": "PASS"
+}

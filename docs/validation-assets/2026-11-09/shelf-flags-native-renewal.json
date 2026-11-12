@@ -1,0 +1,49 @@
+{
+  "result": "SAVED_NATIVE_RENEWAL_VERIFIED",
+  "checked_at": "2026-11-08T23:47:51.935395+00:00",
+  "account_data_writes_attempted": 0,
+  "authentication_posts_attempted": 1,
+  "credentials_written_to_files": false,
+  "keychain_pending_readback_verified": true,
+  "same_owner_verified": true,
+  "book_count": 139,
+  "keychain_renewed_readback_verified": true,
+  "access_token_changed": true,
+  "refresh_token_returned": false,
+  "stages": [
+    {
+      "stage": "renewal",
+      "status": 200,
+      "keys": [
+        "accessToken",
+        "firstLogin",
+        "openId",
+        "pf",
+        "skey",
+        "user",
+        "vid",
+        "wxAccessToken"
+      ]
+    },
+    {
+      "stage": "renewed_shelf",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    }
+  ]
+}

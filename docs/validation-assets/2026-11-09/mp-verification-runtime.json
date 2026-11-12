@@ -1,0 +1,47 @@
+{
+  "result": "MP_VERIFICATION_FAILURE_UI_VERIFIED",
+  "checked_at": "2026-11-08T21:07:06.444372+00:00",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "synthetic_only": true,
+  "cases": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "da1995b89ad10d0a75abab7e2b128ca788548aaa4b999e585d56e7de1ab4fb81",
+      "packaged_files": 142,
+      "production_files_match_worktree": true,
+      "one_web_renewal": true,
+      "two_catalog_reads": true,
+      "no_new_qr": true,
+      "cookies_preserved": true,
+      "busy_cleared": true
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "84081095508deae19368e0ff776291a48184cc90ea61d2ed4b4ebf08ac208872",
+      "packaged_files": 142,
+      "production_files_match_worktree": true,
+      "one_web_renewal": true,
+      "two_catalog_reads": true,
+      "no_new_qr": true,
+      "cookies_preserved": true,
+      "busy_cleared": true
+    }
+  ],
+  "limits": [
+    "Real MP catalog remains unverified (-2041)",
+    "No real subscription, article import/export or account data writes",
+    "No physical KO2 validation"
+  ]
+}

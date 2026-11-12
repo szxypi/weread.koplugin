@@ -1,0 +1,253 @@
+{
+  "result": "PASS",
+  "production_initial_sync_enabled": false,
+  "real": {
+    "initial-position-real-prepare600-v1.json": {
+      "result": "NATIVE_INITIAL_POSITION_PREPARED",
+      "checked_at": "2026-11-12T13:38:10.002942+00:00",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "production_upload_enabled": false,
+      "synthetic_only": false,
+      "synthetic_posts": 0,
+      "intent_phase": "prepared",
+      "claimed_posts": 0,
+      "reader": {
+        "result": "PASS",
+        "profile_removed": true,
+        "installed": {
+          "files": 286,
+          "bytes_match": true
+        },
+        "proof": {
+          "native_denied": 0,
+          "failed_line": 0,
+          "visible_point": true,
+          "local_only": true,
+          "background_worker": true,
+          "currentness_verified": true,
+          "integer_percent": true,
+          "parent_native_guard": true
+        }
+      }
+    },
+    "initial-position-real-dry600-v1.json": {
+      "result": "NATIVE_INITIAL_POSITION_DISARMED_VERIFIED",
+      "checked_at": "2026-11-12T13:39:47.427262+00:00",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "production_upload_enabled": false,
+      "synthetic_only": false,
+      "synthetic_posts": 0,
+      "intent_phase": "prepared",
+      "claimed_posts": 0,
+      "reader": {
+        "result": "PASS",
+        "profile_removed": true,
+        "installed": {
+          "files": 286,
+          "bytes_match": true
+        },
+        "proof": {
+          "parent_native_guard": true,
+          "native_denied": 0,
+          "failed_line": 0,
+          "visible_point": true,
+          "local_only": true,
+          "background_worker": true,
+          "currentness_verified": true,
+          "integer_percent": true
+        }
+      }
+    },
+    "initial-position-real-final-dry600-v1.json": {
+      "result": "NATIVE_INITIAL_POSITION_DISARMED_VERIFIED",
+      "checked_at": "2026-11-12T13:43:08.982247+00:00",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "production_upload_enabled": false,
+      "synthetic_only": false,
+      "synthetic_posts": 0,
+      "intent_phase": "prepared",
+      "claimed_posts": 0,
+      "reader": {
+        "result": "PASS",
+        "profile_removed": true,
+        "installed": {
+          "files": 286,
+          "bytes_match": true
+        },
+        "proof": {
+          "native_denied": 0,
+          "failed_line": 0,
+          "visible_point": true,
+          "local_only": true,
+          "background_worker": true,
+          "currentness_verified": true,
+          "integer_percent": true,
+          "parent_native_guard": true
+        }
+      }
+    },
+    "initial-position-real-apply-v1.json": {
+      "result": "NATIVE_INITIAL_POSITION_VERIFIED",
+      "checked_at": "2026-11-12T13:46:29.478283+00:00",
+      "account_data_posts": 1,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "production_upload_enabled": false,
+      "synthetic_only": false,
+      "explicit_success_receipt": true,
+      "readback_attempts": 2,
+      "independent_target_readback": true,
+      "source_catalog_counts_shelf_preserved": true,
+      "first_position_established": true,
+      "original_no_chapter_restored": false,
+      "no_automatic_replay": true,
+      "historical_time_rows": 0,
+      "synthetic_posts": 0,
+      "intent_phase": "retired",
+      "claimed_posts": 1,
+      "reader": {
+        "result": "PASS",
+        "profile_removed": true,
+        "installed": {
+          "files": 286,
+          "bytes_match": true
+        },
+        "proof": {
+          "native_denied": 0,
+          "failed_line": 0,
+          "visible_point": true,
+          "local_only": true,
+          "background_worker": true,
+          "currentness_verified": true,
+          "integer_percent": true,
+          "parent_native_guard": true
+        }
+      }
+    },
+    "initial-position-real-inspect-v1.json": {
+      "result": "NATIVE_INITIAL_POSITION_CURRENT_STATE_VERIFIED",
+      "checked_at": "2026-11-12T13:52:49.812903+00:00",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "private_data_on_regular_disk": false,
+      "production_upload_enabled": false,
+      "synthetic_only": false,
+      "current_state": "target",
+      "independent_observations": 2,
+      "no_automatic_replay": true,
+      "synthetic_posts": 0,
+      "intent_phase": "retired",
+      "claimed_posts": 1
+    }
+  },
+  "mock_cases": [
+    {
+      "mode": "accepted",
+      "contract_passed": true,
+      "result": "NATIVE_INITIAL_POSITION_VERIFIED",
+      "intent_phase": "retired",
+      "synthetic_posts": 1,
+      "explicit_success_receipt": true,
+      "readback_attempts": 1
+    },
+    {
+      "mode": "delayed",
+      "contract_passed": true,
+      "result": "NATIVE_INITIAL_POSITION_VERIFIED",
+      "intent_phase": "retired",
+      "synthetic_posts": 1,
+      "explicit_success_receipt": true,
+      "readback_attempts": 2
+    },
+    {
+      "mode": "noack",
+      "contract_passed": true,
+      "result": "UNVERIFIED",
+      "intent_phase": "pending",
+      "synthetic_posts": 1,
+      "explicit_success_receipt": false,
+      "readback_attempts": 1
+    },
+    {
+      "mode": "rejected",
+      "contract_passed": true,
+      "result": "UNVERIFIED",
+      "intent_phase": "pending",
+      "synthetic_posts": 1,
+      "explicit_success_receipt": false,
+      "readback_attempts": 1
+    },
+    {
+      "mode": "changed_counts",
+      "contract_passed": true,
+      "result": "UNVERIFIED",
+      "intent_phase": "acknowledged",
+      "synthetic_posts": 1,
+      "explicit_success_receipt": true,
+      "readback_attempts": 0
+    }
+  ],
+  "mock_ko2": {
+    "result": "NATIVE_INITIAL_POSITION_VERIFIED",
+    "synthetic_posts": 1,
+    "intent_phase": "retired",
+    "reader_proof": {
+      "failed_line": 0,
+      "visible_point": true,
+      "local_only": true,
+      "background_worker": true,
+      "currentness_verified": true,
+      "integer_percent": true,
+      "parent_native_guard": true,
+      "native_denied": 0
+    }
+  },
+  "retained_scope": {
+    "protocol": "native-first-chapter-raw-30-zero-time-v1",
+    "phase": "retired",
+    "claimed_posts": 1,
+    "once_marker_consumed": true,
+    "original_no_chapter_retained": true,
+    "original_no_chapter_restored": false,
+    "old_consumed_scopes_unchanged": true,
+    "grants_retained": true
+  },
+  "reference_package": {
+    "files": 286,
+    "sha256": "d5502c67b381178d0401c534d6a0ac04c53d1271d7bdb1d7db63dbabbf1e6dc4"
+  },
+  "local_checks": {
+    "python_modules": 126,
+    "python_tests": 1626,
+    "python_skips": 0,
+    "new_python_tests": 22,
+    "lua_groups": 256,
+    "lint_files": 728,
+    "lint_warnings": 0,
+    "lint_errors": 0,
+    "lua_syntax": 730
+  },
+  "limits": [
+    "python_sender_only",
+    "native_no_chapter_baseline_and_journal_not_integrated",
+    "unknown_receipt_native_review_not_integrated",
+    "manual_first_sync_ui_not_enabled",
+    "historical_nonzero_time_case_not_verified",
+    "physical_ko2_not_verified"
+  ],
+  "privacy_checks": {
+    "result": "PASS",
+    "files": 1865,
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "active_test_intents_absent": true,
+    "document_links_checked": 302,
+    "protected_files_unchanged": true
+  }
+}

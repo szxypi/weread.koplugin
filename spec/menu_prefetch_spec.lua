@@ -162,7 +162,7 @@ expect(toggle_action and toggle_action.reader == true
         and toggle_action.general ~= true,
     "annotation visibility action is reader-only")
 expect(toggle_action
-        and toggle_action.title == "WeRead · Toggle underlines and thoughts",
+        and toggle_action.title == "WeRead · Toggle underlines, thoughts and bookmarks",
     "annotation visibility action has a gesture-friendly title")
 local continue_action = registered.weread_continue_annotation_matching
 expect(continue_action
@@ -329,7 +329,7 @@ expect(menu_has(weread_reader_items, "Sync progress now")
     "WeRead book menu retained the local-book annotation submenu")
 local visibility_item
 for _, item in ipairs(weread_reader_items) do
-    if item.text == "Show underlines and thoughts" then visibility_item = item end
+    if item.text == "Show underlines, thoughts and bookmarks" then visibility_item = item end
 end
 expect(visibility_item and not visibility_item.checked_func(),
     "hidden annotation preference should show an unchecked item")
@@ -345,6 +345,8 @@ expect(cache.show_annotations == false and annotation_menu_updates == 1
 
 host.detectWeReadBook = function() return "mp-book" end
 local mp_reader_items = host:getMainMenuItems()
+expect(menu_has(mp_reader_items,"Export article to EPUB") and not menu_has(weread_reader_items,"Export article to EPUB")
+        and not menu_has(local_reader_items,"Export article to EPUB"),"MP export reader menu scope incorrect")
 expect(not menu_has(mp_reader_items, "Sync progress now")
         and menu_has(mp_reader_items, "Book details")
         and menu_has(mp_reader_items, "Underlines and thoughts management"),

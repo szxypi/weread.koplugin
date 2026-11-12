@@ -96,6 +96,10 @@ end
 
 local function log_response(label, context, text)
     context = context or {}
+    if context.sensitive then
+        logger.err(label, "api=", tostring(context.api_name or "unknown"), "status=", tostring(context.code or "unknown"))
+        return
+    end
     text = text or ""
     logger.err(
         label,
@@ -208,6 +212,7 @@ function Client:decode_http_json(text, context)
     local ok, data = pcall(self.json_decode, self, text)
     if not ok then
         log_response("HTTP JSON decode failed:", context, text)
+        if context and context.sensitive then error("sensitive_json_invalid", 0) end
         error(data, 0)
     end
 
@@ -271,6 +276,8 @@ function Client:request(opts)
     req_opts.redirect = false
     local diagnostic_api = req_opts.diagnostic_api
     req_opts.diagnostic_api = nil
+    local sensitive = req_opts.sensitive == true
+    req_opts.sensitive = nil
 
     if self.settings.mock_endpoint then
         -- Only this plugin's requests are redirected. Never forward credentials
@@ -291,9 +298,18 @@ function Client:request(opts)
         is_handle_cookie = false
     end
 
-    local results = { pcall(http.request, req_opts) }
+    local results = { pcall(function()
+        if tostring(req_opts.url):match("^https://") then
+            req_opts.create = function() return require("weread.lib.tls").create(req_opts.url)() end
+        end
+        return http.request(req_opts)
+    end) }
     socketutil:reset_timeout()
     if not results[1] then
+        if sensitive then
+            logger.err("Sensitive HTTP transport failed:", "api=", tostring(diagnostic_api or "unknown"))
+            error("sensitive_request_failed", 0)
+        end
         logger.err(
             "HTTP transport failed:",
             "method=", tostring(req_opts.method),
@@ -317,7 +333,10 @@ function Client:request(opts)
     end
 
     local code = tonumber(raw_code)
-    if code and code >= 400 then
+    if sensitive and (not code or code >= 400) then
+        logger.warn("Sensitive HTTP response failed:", "api=", tostring(diagnostic_api or "unknown"),
+            "code=", tostring(code or "unavailable"))
+    elseif code and code >= 400 then
         log_response("HTTP response failed:", {
             method = req_opts.method,
             url = req_opts.url,
@@ -483,6 +502,7 @@ function Client:post_json(url, data, opts)
     local text, code, resp_headers = self:request(req_opts)
     if code and code >= 200 and code < 300 then
         return self:decode_http_json(text, {
+            sensitive = opts.sensitive == true,
             method = "POST",
             url = url,
             api_name = opts.diagnostic_api,
@@ -490,6 +510,7 @@ function Client:post_json(url, data, opts)
             headers = resp_headers,
         }), code, resp_headers
     end
+    if opts.sensitive then error("sensitive_http_unavailable", 0) end
     error(http_error(self, code, text, resp_headers))
 end
 
@@ -508,6 +529,7 @@ function Client:get_text(url, opts)
     if code and code >= 200 and code < 300 then
         return text, code, resp_headers
     end
+    if opts.sensitive then error("sensitive_http_unavailable", 0) end
     error(http_error(self, code, text, resp_headers))
 end
 
@@ -536,6 +558,7 @@ end
 
 function Client:get_binary(url, opts)
     opts = opts or {}
+    local chunks, bytes, exceeded = {}, 0, false
     local req_opts = merge_req_opts(opts, {
         maxredirects = 5,
         headers = {
@@ -543,10 +566,34 @@ function Client:get_binary(url, opts)
             ["Referer"] = header_value(opts.headers, "Referer") or opts.referer or "https://weread.qq.com/",
         }
     })
+    if opts.max_bytes ~= nil then
+        local limit = tonumber(opts.max_bytes)
+        if not limit or limit < 1 or limit == math.huge or limit ~= math.floor(limit) or opts.sink then
+            error("invalid binary response limit", 0)
+        end
+        req_opts.max_bytes = nil
+        req_opts.sink = function(chunk)
+            if not chunk then return 1 end
+            if exceeded or bytes + #chunk > limit then
+                exceeded = true
+                return nil, "binary response exceeds size limit"
+            end
+            bytes = bytes + #chunk
+            chunks[#chunks + 1] = chunk
+            return 1
+        end
+        req_opts.on_redirect = function(...)
+            if exceeded then error("binary response exceeds size limit", 0) end
+            chunks, bytes = {}, 0
+            if opts.on_redirect then opts.on_redirect(...) end
+        end
+    end
     local text, code, resp_headers = self:request_follow(
         merge_req_opts(req_opts, { url = url, method = "GET" })
     )
+    if exceeded then error("binary response exceeds size limit", 0) end
     if code and code >= 200 and code < 300 then
+        if opts.max_bytes ~= nil then text = table.concat(chunks) end
         return text, code, resp_headers
     end
     error(http_error(self, code, text, resp_headers))
@@ -560,6 +607,8 @@ function Client:renew_cookie()
         -- Do not persist renewal cookies until the response explicitly confirms
         -- success; failed renewals must leave the current credential set intact.
         persist_response_cookies = false,
+        sensitive = true,
+        diagnostic_api = "web_renewal",
     })
     if not WeRead.is_success_response(result) then
         error("Cookie renewal response did not include succ=1")
@@ -603,7 +652,15 @@ function Client:gateway(api_name, params)
     })
 end
 
-function Client:get_shelf()
+function Client:shelf_authentication()
+    return require("weread.lib.shelf_source").ready(self.settings)
+end
+
+function Client:get_shelf(options)
+    return require("weread.lib.shelf_source").fetch(self, options)
+end
+
+function Client:get_gateway_shelf()
     logger.info(
         "shelf sync request:",
         "api=/shelf/sync",
@@ -641,8 +698,108 @@ function Client:get_shelf()
     return result, code, headers
 end
 
+-- Fixed, read-only Web endpoint verified by the owner-login Python prototype.
+-- A child refresh must not persist Set-Cookie or inherit a later login jar.
+function Client:get_web_shelf(cookies)
+    local chunks, bytes, exceeded = {}, 0, false
+    local function sink(chunk)
+        if not chunk then return 1 end
+        bytes = bytes + #chunk
+        if bytes > 4 * 1024 * 1024 then exceeded = true; return nil, "shelf_limit" end
+        chunks[#chunks + 1] = chunk
+        return 1
+    end
+    local _, code, headers = self:request{
+        url = "https://weread.qq.com/web/shelf/sync", method = "GET", sink = sink,
+        skip_cookie = true, persist_response_cookies = false, sensitive = true, diagnostic_api = "web_shelf",
+        timeout = { 10, 20 }, headers = { ["Cookie"] = Cookie.to_header(cookies or {}),
+            ["Referer"] = "https://weread.qq.com/web/shelf", ["Accept"] = "application/json" },
+    }
+    if exceeded or code ~= 200 then error("shelf_source/web_unavailable", 0) end
+    local data = self:decode_http_json(table.concat(chunks), { method = "GET", code = code, headers = headers,
+        sensitive = true, api_name = "web_shelf" })
+    if type(data) ~= "table" or (data.errcode ~= nil and tonumber(data.errcode) ~= 0)
+        or (data.errCode ~= nil and tonumber(data.errCode) ~= 0)
+        or (data.succ ~= nil and data.succ ~= true and tonumber(data.succ) ~= 1) then
+        error("shelf_source/web_unavailable", 0)
+    end
+    local array_mt = getmetatable(self:json_decode("[]"))
+    if array_mt then
+        local function check_empty_array(value)
+            if type(value) == "table" and next(value) == nil and getmetatable(value) ~= array_mt then
+                error("shelf_source/invalid_snapshot", 0)
+            end
+        end
+        for _, value in ipairs({data.books, data.archive}) do
+            check_empty_array(value)
+        end
+        for _, archive in ipairs(type(data.archive) == "table" and data.archive or {}) do
+            if type(archive) == "table" then
+                check_empty_array(archive.bookIds)
+            end
+        end
+    end
+    return data
+end
+
 function Client:get_book_info(book_id)
     return self:gateway("/book/info", { bookId = book_id })
+end
+
+function Client:get_gateway_discovery(kind, options, api_key)
+    options = options or {}
+    local endpoint = ({search="/store/search",recommend="/book/recommend",similar="/book/similar"})[kind]
+    assert(endpoint and type(api_key)=="string" and api_key~="", "discovery/access_required")
+    local payload = {api_name=endpoint,skill_version=WeRead.SKILL_VERSION,count=20,maxIdx=options.cursor or 0,
+        keyword=kind=="search" and options.keyword or nil,scope=kind=="search" and 10 or nil,
+        bookId=kind=="similar" and options.book_id or nil,sessionId=kind=="similar" and options.session_id or nil}
+    local chunks, bytes, exceeded = {}, 0, false
+    local _,code,headers = self:request{url="https://i.weread.qq.com/api/agent/gateway",method="POST",body=self:json_encode(payload),
+        skip_cookie=true,persist_response_cookies=false,sensitive=true,diagnostic_api="discovery",timeout={8,15},
+        headers={Authorization="Bearer "..api_key,["Content-Type"]="application/json"},sink=function(chunk)
+            if not chunk then return 1 end
+            bytes=bytes+#chunk
+            if bytes>4*1024*1024 then exceeded=true;return nil,"discovery_limit" end
+            chunks[#chunks+1]=chunk;return 1
+        end}
+    if exceeded or code~=200 then error("discovery/gateway_unavailable",0) end
+    return self:decode_http_json(table.concat(chunks),{sensitive=true,api_name="discovery",code=code,headers=headers})
+end
+
+-- Public bookstore contracts verified by scripts/verify_bookstore.py.
+function Client:get_store_categories()
+    local url = "https://weread.qq.com/web/categories?rank=1&synckey=0"
+    local chunks, bytes, exceeded = {}, 0, false
+    local _, code, headers = self:request{url=url,method="GET",skip_cookie=true,persist_response_cookies=false,
+        sensitive=true,diagnostic_api="public_categories",timeout={8,15},
+        headers={Accept="application/json",Referer="https://weread.qq.com/web/category/all"},sink=function(chunk)
+            if not chunk then return 1 end
+            bytes=bytes+#chunk
+            if bytes>4*1024*1024 then exceeded=true;return nil,"category_limit" end
+            chunks[#chunks+1]=chunk;return 1
+        end}
+    if exceeded or code~=200 then error("category_catalog/unavailable",0) end
+    return self:decode_http_json(table.concat(chunks),{sensitive=true,api_name="public_categories",code=code,headers=headers})
+end
+
+function Client:get_category_books(category_id, cursor, rank)
+    category_id = tostring(category_id or "")
+    assert(category_id:match("^[%w_%-]+$"), "Invalid bookstore category")
+    cursor = tonumber(cursor) or 0
+    assert(cursor >= 0 and cursor < math.huge and cursor % 1 == 0, "Invalid bookstore cursor")
+    local url = "https://weread.qq.com/web/bookListInCategory/" .. WeRead.urlencode(category_id)
+        .. "?rank=" .. (rank and "1" or "0") .. "&maxIndex=" .. tostring(cursor)
+    local chunks, bytes, exceeded = {}, 0, false
+    local _, code, headers = self:request{url=url,method="GET",skip_cookie=true,persist_response_cookies=false,
+        sensitive=true,diagnostic_api="public_category_books",timeout={8,15},
+        headers={Accept="application/json",Referer="https://weread.qq.com/web/category/"..category_id},sink=function(chunk)
+            if not chunk then return 1 end
+            bytes=bytes+#chunk
+            if bytes>4*1024*1024 then exceeded=true;return nil,"category_books_limit" end
+            chunks[#chunks+1]=chunk;return 1
+        end}
+    if exceeded or code~=200 then error("category_books/unavailable",0) end
+    return self:decode_http_json(table.concat(chunks), {sensitive=true,api_name="public_category_books",code=code,headers=headers})
 end
 
 function Client:get_book_reviews(book_id, review_list_type, count)
@@ -657,19 +814,110 @@ function Client:get_progress(book_id)
     return self:gateway("/book/getprogress", { bookId = book_id })
 end
 
-function Client:get_web_progress(book_id)
+-- Bounded progress reads using captured access. No cookie persistence or
+-- reader synchronization state; errors and raw positions stay out of logs.
+function Client:get_shelf_display_progress(book_id, access, flags)
+    local Access = require("weread.lib.read_access")
+    assert(Access.display_book_id(book_id), "display_progress/invalid_book")
+    if not Access.book_id(book_id) and (type(access) ~= "table" or access.kind ~= "web") then
+        error("display_progress/access_required", 0)
+    end
+    local chunks, bytes, exceeded = {}, 0, false
+    local options = { method = "GET", skip_cookie = true, persist_response_cookies = false,
+        sensitive = true, diagnostic_api = "shelf_progress", timeout = { 5, 10 },
+        headers = { ["Accept"] = "application/json" },
+        sink = function(chunk)
+            if not chunk then return 1 end
+            bytes = bytes + #chunk
+            if bytes > 65536 then exceeded = true; return nil, "progress_limit" end
+            chunks[#chunks + 1] = chunk
+            return 1
+        end }
+    if type(access) == "table" and access.kind == "web" and type(access.cookies) == "table" then
+        options.url = "https://weread.qq.com/web/book/getProgress?bookId=" .. WeRead.urlencode(book_id)
+        if flags and flags.fresh == true then options.url=options.url.."&_="..tostring(os.time()*1000) end
+        options.headers.Cookie = Cookie.to_header(access.cookies)
+        options.headers.Referer = WeRead.reader_url(book_id)
+        options.headers.Origin = "https://weread.qq.com"
+    elseif type(access) == "table" and access.kind == "gateway" and type(access.api_key) == "string" and access.api_key ~= "" then
+        options.url = "https://i.weread.qq.com/api/agent/gateway"
+        options.method = "POST"
+        options.body = self:json_encode({ api_name = "/book/getprogress", skill_version = WeRead.SKILL_VERSION, bookId = book_id })
+        options.headers["Content-Type"] = "application/json"
+        options.headers.Authorization = "Bearer " .. access.api_key
+    else
+        error("display_progress/access_required", 0)
+    end
+    local _, code, headers = self:request(options)
+    if exceeded then error("display_progress/unavailable", 0) end
+    if code == 401 and access.kind == "web" then
+        if flags and flags.classify_auth == true then return nil,"web_expired" end
+        error("display_progress/login", 0)
+    end
+    if code ~= 200 then error("display_progress/unavailable", 0) end
+    return self:decode_http_json(table.concat(chunks), { sensitive = true, api_name = "shelf_progress", code = code, headers = headers })
+end
+function Client:get_progress_snapshot(book_id, access, flags)
+    assert(require("weread.lib.read_access").book_id(book_id), "display_progress/invalid_book")
+    return self:get_shelf_display_progress(book_id, access, flags)
+end
+
+function Client:get_display_book_metadata(book_id, access)
+    local Access = require("weread.lib.read_access")
+    assert(Access.display_book_id(book_id), "book_metadata/invalid_book")
+    if not Access.book_id(book_id) and (type(access) ~= "table" or access.kind ~= "web") then
+        error("book_metadata/access_required", 0)
+    end
+    local chunks, bytes, exceeded = {}, 0, false
+    local options = { method = "GET", skip_cookie = true, persist_response_cookies = false,
+        sensitive = true, diagnostic_api = "book_metadata", timeout = { 10, 20 },
+        headers = { ["Accept"] = "application/json" },
+        sink = function(chunk)
+            if not chunk then return 1 end
+            bytes = bytes + #chunk
+            if bytes > 4 * 1024 * 1024 then exceeded = true; return nil, "metadata_limit" end
+            chunks[#chunks + 1] = chunk
+            return 1
+        end }
+    if type(access) == "table" and access.kind == "web" and type(access.cookies) == "table" then
+        options.url = WeRead.reader_url(book_id)
+        options.headers.Cookie = Cookie.to_header(access.cookies)
+        options.headers.Referer = options.url
+        options.headers.Accept = "text/html"
+    elseif type(access) == "table" and access.kind == "gateway" and type(access.api_key) == "string" and access.api_key ~= "" then
+        options.url = "https://i.weread.qq.com/api/agent/gateway"
+        options.method = "POST"
+        options.body = self:json_encode({ api_name = "/book/info", skill_version = WeRead.SKILL_VERSION, bookId = book_id })
+        options.headers["Content-Type"] = "application/json"
+        options.headers.Authorization = "Bearer " .. access.api_key
+    else error("book_metadata/access_required", 0) end
+    local _, code, headers = self:request(options)
+    if exceeded or code ~= 200 then error("book_metadata/unavailable", 0) end
+    local text = table.concat(chunks)
+    if access.kind == "web" then
+        return require("weread.lib.book_metadata").from_reader(text, book_id, function(value) return self:json_decode(value) end)
+    end
+    return require("weread.lib.book_metadata").normalize(self:decode_http_json(text,
+        { sensitive = true, api_name = "book_metadata", code = code, headers = headers }), book_id)
+end
+
+function Client:get_web_progress(book_id, opts)
+    opts = opts or {}
     local url = "https://weread.qq.com/web/book/getProgress?bookId="
         .. WeRead.urlencode(book_id)
         .. "&_=" .. tostring(os.time() * 1000)
     local text, code, headers = self:get_text(url, {
         accept = "application/json, text/plain, */*",
         referer = WeRead.reader_url(book_id),
+        sensitive = opts.sensitive == true,
     })
     return self:decode_http_json(text, {
         method = "GET",
         url = url,
         code = code,
         headers = headers,
+        sensitive = opts.sensitive == true,
+        api_name = opts.sensitive and "position_readback" or nil,
     })
 end
 
@@ -677,12 +925,26 @@ end
 -- mode: "weekly" | "monthly" | "annually" | "overall"
 -- base_time: optional Unix timestamp; server normalizes it to the period start
 --            (Monday / 1st of month / Jan 1st). Pass 0/nil for the current period.
-function Client:get_read_stats(mode, base_time)
-    local params = { mode = mode or "monthly" }
-    if base_time and tonumber(base_time) and tonumber(base_time) > 0 then
-        params.baseTime = tonumber(base_time)
-    end
-    return self:gateway("/readdata/detail", params)
+function Client:get_read_stats(mode, base_time, selected, options)
+    return require("weread.lib.statistics_source").fetch(self, mode or "monthly", base_time, selected, options)
+end
+
+function Client:get_gateway_read_stats(mode, base_time, api_key)
+    local Data = require("weread.lib.statistics_data")
+    assert(Data.mode(mode) and Data.base(base_time or 0) and type(api_key) == "string" and api_key ~= "", "statistics/access_required")
+    local chunks, bytes, exceeded = {}, 0, false
+    local _, code, headers = self:request{url = "https://i.weread.qq.com/api/agent/gateway", method = "POST",
+        body = self:json_encode{api_name = "/readdata/detail",skill_version = WeRead.SKILL_VERSION,mode = mode,baseTime = base_time or 0},
+        headers = {Authorization = "Bearer " .. api_key,["Content-Type"] = "application/json"},
+        skip_cookie = true,persist_response_cookies = false,sensitive = true,diagnostic_api = "statistics",timeout = {8,15},
+        sink = function(chunk)
+            if not chunk then return 1 end
+            bytes = bytes + #chunk
+            if bytes > 4 * 1024 * 1024 then exceeded = true;return nil,"statistics_limit" end
+            chunks[#chunks + 1] = chunk;return 1
+        end}
+    if exceeded or code ~= 200 then error("statistics/gateway_unavailable",0) end
+    return self:decode_http_json(table.concat(chunks),{sensitive = true,api_name = "statistics",code = code,headers = headers})
 end
 
 function Client:get_mp_articles(book_id, max_idx, count, wr_ticket)
@@ -710,11 +972,15 @@ function Client:get_mp_articles(book_id, max_idx, count, wr_ticket)
     local text, code, resp_headers = self:request({
         url = url,
         method = "GET",
+        sensitive = true,
+        diagnostic_api = "mp_read",
         headers = custom_headers,
     })
 
     if code and code >= 200 and code < 300 then
         local data = self:decode_http_json(text, {
+            sensitive = true,
+            api_name = "mp_catalog",
             method = "GET",
             url = url,
             code = code,
@@ -725,7 +991,7 @@ function Client:get_mp_articles(book_id, max_idx, count, wr_ticket)
         end
         return data, nil
     end
-    error(http_error(self, code, text, resp_headers))
+    error("mp_read/unavailable", 0)
 end
 
 function Client:get_mp_content(review_id, opts)
@@ -747,6 +1013,8 @@ function Client:get_mp_content(review_id, opts)
     local text, code, resp_headers = self:request({
         url = url,
         method = "GET",
+        sensitive = true,
+        diagnostic_api = "mp_read",
         headers = custom_headers,
         timeout = opts.timeout,
     })
@@ -759,16 +1027,27 @@ function Client:get_mp_content(review_id, opts)
             url = url,
         }
     end
-    error(http_error(self, code, text, resp_headers))
+    error("mp_read/unavailable", 0)
 end
 
-function Client:report_read(payload, referer)
+function Client:report_read(payload, referer, opts)
+    opts = opts or {}
     return self:post_json("https://weread.qq.com/web/book/read", payload, {
         referer = referer or "https://weread.qq.com/",
+        sensitive = opts.sensitive == true,
+        diagnostic_api = opts.sensitive and "position_upload" or nil,
     })
 end
 
-function Client:get_chapter_underlines(book_id, chapter_uid)
+function Client:capture_annotation_access()
+    return require("weread.lib.annotation_access").capture(self.settings)
+end
+
+function Client:annotation_access_matches(selected)
+    return require("weread.lib.annotation_access").matches(self.settings, selected)
+end
+
+function Client:get_chapter_underlines(book_id, chapter_uid, selected)
     if not book_id or tostring(book_id) == "" then
         return false, nil, "empty book_id"
     end
@@ -777,10 +1056,7 @@ function Client:get_chapter_underlines(book_id, chapter_uid)
     end
 
     local ok, result = pcall(function()
-        return self:gateway("/book/underlines", {
-            bookId = tostring(book_id),
-            chapterUid = chapter_uid,
-        })
+        return require("weread.lib.annotation_access").fetch(self, "underlines", book_id, chapter_uid, nil, selected)
     end)
     if not ok then
         return false, nil, tostring(result)
@@ -809,7 +1085,7 @@ function Client:build_chapter_review_batches(ranges)
     return batches
 end
 
-function Client:get_chapter_reviews_batch(book_id, chapter_uid, batch)
+function Client:get_chapter_reviews_batch(book_id, chapter_uid, batch, selected)
     if not book_id or tostring(book_id) == "" then
         return false, nil, "empty book_id"
     end
@@ -821,11 +1097,7 @@ function Client:get_chapter_reviews_batch(book_id, chapter_uid, batch)
     end
 
     local ok, result = pcall(function()
-        return self:gateway("/book/readreviews", {
-            bookId = tostring(book_id),
-            chapterUid = chapter_uid,
-            reviews = batch,
-        })
+        return require("weread.lib.annotation_access").fetch(self, "thoughts", book_id, chapter_uid, batch, selected)
     end)
     if not ok then
         return false, nil, tostring(result)
@@ -842,11 +1114,12 @@ function Client:get_chapter_reviews(book_id, chapter_uid, ranges)
     end
 
     local all_reviews = {}
+    local selected = self:capture_annotation_access()
     local batches = self:build_chapter_review_batches(ranges)
     local socket_ok, socket = pcall(require, "socket")
 
     for batch_index, batch in ipairs(batches) do
-        local ok, result = self:get_chapter_reviews_batch(book_id, chapter_uid, batch)
+        local ok, result = self:get_chapter_reviews_batch(book_id, chapter_uid, batch, selected)
         if ok and type(result) == "table" and type(result.reviews) == "table" then
             for _, review in ipairs(result.reviews) do
                 all_reviews[#all_reviews + 1] = review

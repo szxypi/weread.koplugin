@@ -111,7 +111,12 @@ function M:_onXPointerOverlayTap(ges)
     if not overlay or not overlay.enabled or not ges or not ges.pos then
         return false
     end
+    local personal=package.loaded['weread.ui.personal_marks']
+    -- The explicit cloud corner stays tappable in the reader's edge zone;
+    -- text highlights still yield edge taps to page turns.
+    if personal and personal.tap(self,ges,true) then return true end
     if is_page_turn_edge(self, ges.pos) then return false end
+    if personal and personal.tap(self,ges) then return true end
     local record = overlay:hitTest(ges.pos)
     if not record then return false end
     local items = record.items
@@ -221,6 +226,8 @@ end
 
 function M:_invalidateXPointerOverlayLayout()
     if self._xpointer_overlay then self._xpointer_overlay:invalidate() end
+    local personal=package.loaded['weread.ui.personal_marks']
+    if personal then personal.invalidate(self) end
 end
 
 -- CREngine emits UpdatePos after every layout-affecting typography change

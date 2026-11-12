@@ -1,0 +1,112 @@
+{
+  "result": "CLOUD_SOURCE_NAVIGATION_RUNTIME_VERIFIED",
+  "checked_at": "2026-11-08T19:35:43.245305+00:00",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "synthetic_only": true,
+  "cases": [
+    {
+      "suite": "cloud",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "0946b834586a3d9e69dbb85aabc583d2cfef336fc9caaff77ee5298abb87a68b",
+      "production_lua_matches_worktree": true,
+      "checks": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "source_target_visible": true,
+        "cross_chapter_full_book": true,
+        "background_http": true,
+        "independent_archive": true,
+        "retained_original_offset": true,
+        "offline_no_request": true,
+        "rate_no_retry": true,
+        "dismiss_cancelled": true,
+        "suspend_cancelled": true,
+        "account_cancelled": true,
+        "navigator_cancelled": true,
+        "reader_reopen_cancelled": true,
+        "old_queued_upload_cancelled": true,
+        "report_gate_not_granted": true,
+        "missing_chapter_rejected": true,
+        "changed_source_rejected": true,
+        "reading_writes": 0,
+        "upload_verified": false
+      }
+    },
+    {
+      "suite": "cloud",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "933378da1e3fbd9bebe13aaaeb51024d2c7b4649840d0003d450dfddad25d9dd",
+      "production_lua_matches_worktree": true,
+      "checks": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "source_target_visible": true,
+        "cross_chapter_full_book": true,
+        "background_http": true,
+        "independent_archive": true,
+        "retained_original_offset": true,
+        "offline_no_request": true,
+        "rate_no_retry": true,
+        "dismiss_cancelled": true,
+        "suspend_cancelled": true,
+        "account_cancelled": true,
+        "navigator_cancelled": true,
+        "reader_reopen_cancelled": true,
+        "old_queued_upload_cancelled": true,
+        "report_gate_not_granted": true,
+        "missing_chapter_rejected": true,
+        "changed_source_rejected": true,
+        "reading_writes": 0,
+        "upload_verified": false
+      }
+    },
+    {
+      "suite": "core",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "f05b2fc5aaaefdfe7003c80e345805c8ee8648cd6d2ac80a4338a19c7f9b8452",
+      "production_lua_matches_worktree": true
+    },
+    {
+      "suite": "core",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "bcbe0326cbd38951f3658e79d1e43a327e4f7a497557938e5b751403e9cdf69b",
+      "production_lua_matches_worktree": true
+    },
+    {
+      "suite": "local-source",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "e0d18ca1265d49cefe7bebce765124afaa6d815032ede22866416db02e42345b",
+      "production_lua_matches_worktree": true
+    }
+  ]
+}

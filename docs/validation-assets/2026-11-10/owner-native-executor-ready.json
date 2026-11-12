@@ -1,0 +1,358 @@
+{
+  "result": "BOUNDED_NATIVE_EXPERIMENT_EXECUTOR_READY_NO_REAL_WRITE",
+  "production_commit": "b000b0fde4b3f73187e28cc4083dfc45ccfd2e01",
+  "production_changed_in_this_validation": false,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "physical_device": false,
+  "scope": "explicit_source_bound_points_through_actual_read_report_service; general_capture_adapter_unchanged",
+  "real_plugin_write_verified": false,
+  "source_precision_upload_enabled": false,
+  "real_account_data_writes_attempted": 0,
+  "real_authentication_posts_attempted": 0,
+  "synthetic_acknowledgements_in_real_disarmed_check": 0,
+  "credentials_retained_in_original_keychain": true,
+  "prior_position_experiment_authorization_reused": false,
+  "new_real_apply_executed": false,
+  "private_plan_fingerprint_prepared_not_published": true,
+  "planned_maximum_progress_posts": 4,
+  "probe_utf16_delta": 1,
+  "report_elapsed_seconds": 0,
+  "no_automatic_post_replay": true,
+  "fresh_prewrite_get": true,
+  "pending_intent_blocks_new_experiment": true,
+  "unobserved_probe_cannot_resolve_intent": true,
+  "lua_guard_checks": 32,
+  "python_executor_tests": 14,
+  "python_intent_tests": 6,
+  "lua_spec_groups": 167,
+  "python_tests": 552,
+  "lua_static_files": 438,
+  "lua_syntax_files": 440,
+  "namespaces_passed": true,
+  "python_compile_passed": true,
+  "calendar_time_zones": [
+    "UTC",
+    "Asia/Shanghai",
+    "America/New_York",
+    "Pacific/Apia"
+  ],
+  "code_sha256": {
+    "scripts/secure_position_experiment.py": "13dfca8ce14f4a92ec33b71ca05a257e78366826b7bca9b38c712c2da46e3bc7",
+    "scripts/owner_progress_roundtrip_contract.py": "14485dcf55bd9fd185611a6ce4626a352ba02f151f40bc5185e880505633a1c3",
+    "scripts/verify_owner_progress_roundtrip.py": "3402fcd82070720593fe0298c613dbd2876c1ef81e2bf636a1eb7ef8ceea6db4",
+    "scripts/test_secure_position_experiment.py": "b979271d7939bc84dbf5b58a449f273df65b1eb9b20167a152eea56f27137f1d",
+    "scripts/test_owner_progress_roundtrip.py": "732745705659a9dfc65766ed7eed5674296810154e3bfc60d54042d31f9fbe6c",
+    "scripts/owner_progress_preview_contract.py": "d8bf94737903b24431ac6e4ca701472ed89afd49335d60ae3ffd5436fd266c35",
+    "scripts/run_owner_reading_probe.py": "84a1878c540b71502d6a36300ad5eb07e1787323a751b70c6b317231d66fcb74",
+    "scripts/mock_weread.py": "3aef3546a36b370eaa0cab49d758bf5038860fb3557d99eb5902861b5958d6d3",
+    "scripts/test_mock_weread.py": "6a4600f3472805d9ddc5d6224f048ac08bd87d8b7206dcc4a44dda87d15666f4",
+    "scripts/test_discovery_runtime.py": "9cda07375a4c12d3cd1cf0aae1411a5aa1041595909aa95e8b33632872729cb3",
+    "spec/koreader/owner_progress_roundtrip_case.lua": "3ced3c7fb2297a4e8d93c2dad8bc5c047fc05902973110758c7df9dd0c62f84f",
+    "spec/koreader/owner_progress_roundtrip_smoke.lua": "e76cf7eb30561871d596f9d685b211fb3009af41a8cb8c85afa6bff2aa031032",
+    "spec/owner_progress_roundtrip_spec.lua": "b11f67837414bfada8a1d81b72062d3728011762f697e1cf8c276839d5b34807",
+    "spec/koreader/owner_reading_probe.lua": "49da405db5a9a8f4cdc32f66aef398453075c1597a7651f2ff623e5a5ec614bb",
+    "spec/koreader/owner_progress_preview_case.lua": "d2f0e056e1edf9e44c3ef2e84438c638a98968d77c006a3323360107e44e4ce2",
+    "spec/koreader/book_reading_smoke.lua": "1909a7c385869ce9f02e420333663bfaf9ddb3a552ddb31e139e5d070b7f0186"
+  },
+  "keychain_synthetic_storage": {
+    "result": "SYNTHETIC_KEYCHAIN_INTENT_VERIFIED",
+    "actual_macos_keychain": true,
+    "synthetic_only": true,
+    "saved_readback_verified": true,
+    "fresh_instance_pending_verified": true,
+    "repeated_begin_rejected": true,
+    "owned_marker_removed": true,
+    "original_web_and_native_entries_bytes_unchanged": true,
+    "we_read_http_requests": 0,
+    "real_account_data_writes_attempted": 0
+  },
+  "real_disarmed_check": {
+    "result": "OWNER_NATIVE_EXECUTOR_DISARMED_VERIFIED",
+    "checked_at": "2026-11-10T03:39:09.237521+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 0,
+    "private_data_on_regular_disk": false,
+    "screenshots": 0,
+    "intent_state": "none",
+    "real_plugin_write_verified": false,
+    "source_upload_gate_enabled": false,
+    "pending_intent_present": false,
+    "preflight_rotation_saved": false,
+    "planned_post_limit": 4,
+    "probe_utf16_delta": 1,
+    "planned_elapsed_seconds": 0,
+    "recent_read_metadata_may_update": true,
+    "same_position_summary_preserved": true,
+    "ui": {
+      "result": "UNVERIFIED",
+      "tmpfs_profile": true,
+      "profile_removed": true,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "phase": "complete",
+          "anonymous_auth": true,
+          "transport_guard_selftest": true,
+          "plugin_selection": true,
+          "native_reader": true,
+          "source_text_visible": true,
+          "local_source_position_verified": true,
+          "source_navigation_roundtrip": true,
+          "source_dialog_verified": true,
+          "legacy_progress_units_preserved": true,
+          "credential_file_audit": true,
+          "workers_reaped": true,
+          "shelf_books": 139,
+          "pages": 39,
+          "profile_files_audited": 14,
+          "failed_line": 0,
+          "screenshots": 0,
+          "last_http_status": 200,
+          "denied_kind": 0,
+          "denied_route": 0,
+          "denied_flags": 0,
+          "requests": [
+            1,
+            15,
+            5,
+            1,
+            4,
+            1,
+            0
+          ],
+          "position_checkpoint": true,
+          "page_turn": true,
+          "source_receipt_verified": true,
+          "progress_roundtrip": {
+            "result": "UNVERIFIED",
+            "post_statuses": [],
+            "source_points_verified": true,
+            "actual_upload_service": true,
+            "same_position_confirmed": false,
+            "probe_confirmed": false,
+            "probe_seen": false,
+            "restore_acknowledged": false,
+            "restoration_verified": true,
+            "reader_position_restored": true,
+            "source_upload_gate_preserved": true,
+            "safe_resolution": true,
+            "unrelated_position_seen": false,
+            "guard_denied": 0,
+            "posts_attempted": 0,
+            "guard_reads": 3,
+            "disarmed": true,
+            "permission_blocked": true,
+            "synthetic_acknowledgements": 0,
+            "failure": "same_unconfirmed",
+            "failed_line": 110
+          }
+        }
+      ],
+      "runner_error": "experiment_unverified"
+    },
+    "independent_original_position_verified": true,
+    "final_rotation_saved": false,
+    "pre_dispatch_guard_verified": true,
+    "preflight_stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "reader",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "e_0",
+        "status": 200
+      },
+      {
+        "stage": "e_1",
+        "status": 200
+      },
+      {
+        "stage": "e_3",
+        "status": 200
+      },
+      {
+        "stage": "catalog_after",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      }
+    ]
+  },
+  "profiles": [
+    {
+      "profile": "owner-roundtrip-executor-600-final",
+      "files": 189,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "repaint_errors": 0,
+      "sha256": "2ab23b8ba2e84c6e5332f1aea3d82e45506019d4e9ce21a8447f109eadb946cb",
+      "manifest_sha256": "9f7f5514cc35704c41b8cc380150ae75c13076037029159c3941d4900c137276",
+      "executor": {
+        "automatic_write_retries": 0,
+        "result": "PASS",
+        "synthetic_only": true,
+        "cases": [
+          {
+            "probe_seen": true,
+            "result": "PASS",
+            "unrelated_position_seen": false,
+            "posts_attempted": 4,
+            "safe_resolution": true,
+            "restoration_verified": true,
+            "mode": "plain"
+          },
+          {
+            "probe_seen": true,
+            "result": "UNVERIFIED",
+            "unrelated_position_seen": false,
+            "posts_attempted": 4,
+            "safe_resolution": true,
+            "restoration_verified": true,
+            "mode": "probe-noack"
+          },
+          {
+            "probe_seen": true,
+            "result": "UNVERIFIED",
+            "unrelated_position_seen": false,
+            "posts_attempted": 4,
+            "safe_resolution": true,
+            "restoration_verified": true,
+            "mode": "restore-noack"
+          },
+          {
+            "probe_seen": false,
+            "result": "UNVERIFIED",
+            "unrelated_position_seen": false,
+            "posts_attempted": 3,
+            "safe_resolution": false,
+            "restoration_verified": true,
+            "mode": "probe-rejected"
+          },
+          {
+            "probe_seen": false,
+            "result": "UNVERIFIED",
+            "unrelated_position_seen": true,
+            "posts_attempted": 3,
+            "safe_resolution": false,
+            "restoration_verified": false,
+            "mode": "concurrent"
+          }
+        ],
+        "real_account_data_writes_attempted": 0,
+        "authorization_posts": 0
+      }
+    },
+    {
+      "profile": "owner-roundtrip-executor-ko2-final",
+      "files": 189,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "repaint_errors": 0,
+      "sha256": "1821a7a1df9460cc864a714146477dca82cdef010699257f609eb2f234423f6a",
+      "manifest_sha256": "9f7f5514cc35704c41b8cc380150ae75c13076037029159c3941d4900c137276",
+      "executor": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "automatic_write_retries": 0,
+        "cases": [
+          {
+            "result": "PASS",
+            "unrelated_position_seen": false,
+            "posts_attempted": 4,
+            "mode": "plain",
+            "probe_seen": true,
+            "restoration_verified": true,
+            "safe_resolution": true
+          },
+          {
+            "result": "UNVERIFIED",
+            "unrelated_position_seen": false,
+            "posts_attempted": 4,
+            "mode": "probe-noack",
+            "probe_seen": true,
+            "restoration_verified": true,
+            "safe_resolution": true
+          },
+          {
+            "result": "UNVERIFIED",
+            "unrelated_position_seen": false,
+            "posts_attempted": 4,
+            "mode": "restore-noack",
+            "probe_seen": true,
+            "restoration_verified": true,
+            "safe_resolution": true
+          },
+          {
+            "result": "UNVERIFIED",
+            "unrelated_position_seen": false,
+            "posts_attempted": 3,
+            "mode": "probe-rejected",
+            "probe_seen": false,
+            "restoration_verified": true,
+            "safe_resolution": false
+          },
+          {
+            "result": "UNVERIFIED",
+            "unrelated_position_seen": true,
+            "posts_attempted": 3,
+            "mode": "concurrent",
+            "probe_seen": false,
+            "restoration_verified": false,
+            "safe_resolution": false
+          }
+        ],
+        "real_account_data_writes_attempted": 0,
+        "authorization_posts": 0
+      }
+    }
+  ],
+  "real_disarmed_candidate_matches_source": true,
+  "pending": [
+    "new_explicit_real_write_permission_for_native_service_experiment",
+    "actual_plugin_cloud_write_readback",
+    "source_coordinate_upload_adapter",
+    "other_formats_and_chapters",
+    "multi_device",
+    "physical_ko2",
+    "concentrated_performance_after_feature_acceptance"
+  ]
+}

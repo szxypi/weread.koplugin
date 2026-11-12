@@ -1,0 +1,85 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "lua_specs": 118,
+  "python_tests": 214,
+  "luacheck_files": 299,
+  "luacheck_warnings": 0,
+  "lua_syntax_files": 301,
+  "physical_ko2_tested": false,
+  "cases": [
+    {
+      "result": "PASS",
+      "screen": [
+        600,
+        800,
+        167
+      ],
+      "native_repaint_warnings": 0,
+      "installed_files": 146,
+      "installed_files_match_worktree": true,
+      "case": "core_and_reader_context",
+      "download_context": {
+        "cached_epub_unchanged": true,
+        "result": "PASS",
+        "old_session_cleared": true,
+        "http_failure_clean": true,
+        "catalog_failure_preserves_cache": true,
+        "conflicting_alias_no_http": true,
+        "synthetic_only": true,
+        "pending_upload_preserved": true,
+        "fixed_native_guidance": true,
+        "reading_writes": 0,
+        "stale_url_repaired": true,
+        "selected_chapter_preserved": true,
+        "sharing_fields_removed": true,
+        "catalog_referer_canonical": true,
+        "real_wrong_book_http_rejected": true,
+        "no_chapter_fetch_after_mismatch": true
+      }
+    },
+    {
+      "result": "PASS",
+      "screen": [
+        1264,
+        1680,
+        300
+      ],
+      "native_repaint_warnings": 0,
+      "installed_files": 146,
+      "installed_files_match_worktree": true,
+      "case": "core_and_reader_context",
+      "download_context": {
+        "no_chapter_fetch_after_mismatch": true,
+        "synthetic_only": true,
+        "pending_upload_preserved": true,
+        "old_session_cleared": true,
+        "http_failure_clean": true,
+        "catalog_failure_preserves_cache": true,
+        "conflicting_alias_no_http": true,
+        "fixed_native_guidance": true,
+        "result": "PASS",
+        "reading_writes": 0,
+        "cached_epub_unchanged": true,
+        "stale_url_repaired": true,
+        "selected_chapter_preserved": true,
+        "sharing_fields_removed": true,
+        "catalog_referer_canonical": true,
+        "real_wrong_book_http_rejected": true
+      }
+    },
+    {
+      "result": "PASS",
+      "screen": [
+        1264,
+        1680,
+        300
+      ],
+      "native_repaint_warnings": 0,
+      "installed_files": 146,
+      "installed_files_match_worktree": true,
+      "case": "cloud_source_regression"
+    }
+  ]
+}

@@ -19,6 +19,8 @@ local reading_fields = {
     pclts = true,
     pending_upload_position = true,
     pending_upload_reason = true,
+    pending_upload_account = true,
+    source_dispatch = true,
     progress = true,
     psvts = true,
     read_context_updated_at = true,
@@ -35,6 +37,20 @@ local article_fields = {
     mp_articles = true,
     mp_articles_time = true,
 }
+
+-- Reading state has one owner: the latest per-book checkpoint. Metadata
+-- snapshots must neither restore cleared fields nor overwrite newer ones.
+function BookStore.is_reading_field(key)
+    return reading_fields[key] == true
+end
+
+function BookStore.without_reading_state(book)
+    local metadata = {}
+    for key, value in pairs(book) do
+        if not reading_fields[key] then metadata[key] = value end
+    end
+    return metadata
+end
 
 local function basename_safe(value)
     value = tostring(value or ""):gsub("[^%w%._-]", "_")
@@ -98,10 +114,12 @@ local function write_json(path, value)
     local file, err = io.open(tmp_path, "wb")
     if not file then return false, err end
     local write_ok, write_err = file:write(content)
-    file:close()
-    if not write_ok then
+    -- Buffered writes may succeed while fclose reports the actual I/O error.
+    -- Never publish that incomplete state or grant a dispatch receipt for it.
+    local close_ok, close_err = file:close()
+    if not write_ok or not close_ok then
         os.remove(tmp_path)
-        return false, write_err
+        return false, write_err or close_err
     end
     local rename_ok, rename_err = os.rename(tmp_path, path)
     if not rename_ok then
@@ -131,6 +149,22 @@ function BookStore.load(settings, book_id, index)
     book.book_id = book.book_id or book.bookId or tostring(book_id)
     book.cache_dir = dir
     return book
+end
+
+-- Late reader jobs update one bounded state file, never an older in-memory
+-- copy of the global settings, metadata or another book's state.
+function BookStore.patch_reading(settings, book_id, index, patch)
+    if type(index) ~= 'table' or type(patch) ~= 'table' then return false, 'missing book index' end
+    for key in pairs(patch) do if not reading_fields[key] then return false, 'not a reading-state field' end end
+    local path = resolved_dir(settings, book_id, index) .. '/reading_state.json'
+    local state = read_json(path)
+    if not state then
+        local file = io.open(path,'rb')
+        if file then file:close(); return false, 'invalid reading state' end
+        state = {}
+    end
+    for key,value in pairs(patch) do state[key] = value ~= false and value or nil end
+    return write_json(path,state)
 end
 
 function BookStore.save(settings, book_id, book)
@@ -166,6 +200,34 @@ function BookStore.save(settings, book_id, book)
         os.remove(dir .. "/articles.json")
     end
     return true, { cache_dir = dir }
+end
+
+-- Cache removal must not round-trip a stale reading_state.json snapshot. A
+-- closed-reader report may still be patching its journal independently.
+function BookStore.clear_downloads(settings, book_id, index, expected)
+    local dir=resolved_dir(settings,book_id,index)
+    local path=dir..'/metadata.json'
+    local file=io.open(path,'rb');if not file then return false,'unavailable book metadata' end
+    local raw=file:read(2*1024*1024+1);file:close()
+    if not raw or #raw>2*1024*1024 or expected and raw~=expected then return false,'changed book metadata' end
+    local ok,metadata=pcall(decode,raw)
+    if not ok or type(metadata)~='table' or tostring(metadata.book_id or metadata.bookId or '')~=tostring(book_id)
+        or metadata.cached_chapters~=nil and type(metadata.cached_chapters)~='table'
+        or metadata.annotation_documents~=nil and type(metadata.annotation_documents)~='table' then return false,'invalid book metadata' end
+    local function exists(filename)
+        if type(filename)~='string' then return false end
+        local candidate=io.open(filename,'rb');if candidate then candidate:close();return true end;return false
+    end
+    for _i,key in ipairs({'cached_file','cached_full_book'}) do
+        if not exists(metadata[key]) then metadata[key]=nil end
+    end
+    local chapters={}
+    for uid,filename in pairs(metadata.cached_chapters or {}) do if exists(filename) then chapters[uid]=filename end end
+    metadata.cached_chapters=next(chapters) and chapters or nil
+    local annotations={}
+    for filename,value in pairs(metadata.annotation_documents or {}) do if exists(filename) then annotations[filename]=value end end
+    metadata.annotation_documents=next(annotations) and annotations or nil
+    return write_json(path,metadata)
 end
 
 function BookStore.is_minimal_index(books)

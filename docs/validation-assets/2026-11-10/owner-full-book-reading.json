@@ -1,0 +1,495 @@
+{
+  "result": "PASS",
+  "accepted_scope": "selected_real_epub_full_book_plugin_reading_and_offline_reopen",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "production_parent_commit": "16371e2f837cc28f72eef576440b18e7bed41a61",
+  "candidate_sha256": "f454fe7282e580e7c09625abc5dfa73e1af48d23f5a54628aab74a6d5c387113",
+  "production_files": 185,
+  "production_files_equal_current_source": true,
+  "rebuilt_package_files_equal_tested_package": true,
+  "probe_sha256": {
+    "scripts/check_owner_full_book.py": "673e25a9ae0efaaeb5cc5e8381efb29e7002cc20e37e4599ad5ef9a92b9512d4",
+    "scripts/verify_owner_reading.py": "589f3700a9d1d7c75dad42642761ea33ce446cd0d89f8ef12f454ab7dcb73dab",
+    "scripts/run_owner_reading_probe.py": "37165cbe10b6780324400ec0e2c0f4ad48818e86c8e9016ecbe7bbd4656780ed",
+    "scripts/run_persistent_ui_probe.py": "76b3b78741eb7ba483bcaa9bd7bcc1c068c44be8a80f7701199b65c615593bb6",
+    "scripts/verify_web_source_progress.py": "3031d424812abfeb156e6131d46359a081926cb93ca099568a2804dbaf3a8ce0",
+    "spec/koreader/owner_reading_probe.lua": "f530422a50a236d122af080bdacc0016738584438c2a66709ea07ed6d3a89c69"
+  },
+  "profiles": [
+    {
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "result": {
+        "result": "OWNER_NATIVE_READING_VERIFIED",
+        "checked_at": "2026-11-09T23:35:13.650259+00:00",
+        "book_format": "epub",
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "private_data_on_regular_disk": false,
+        "screenshots": 0,
+        "preflight_rotation_saved": false,
+        "reading_scope": "full",
+        "chapters": 30,
+        "source_image_references": 111,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "reader_cookie_snapshot": {
+                "same_header": false,
+                "same_login": false,
+                "checked": false
+              },
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_auth": true,
+              "transport_guard_selftest": true,
+              "plugin_selection": true,
+              "native_reader": true,
+              "source_text_visible": true,
+              "source_receipt_verified": true,
+              "page_turn": true,
+              "position_checkpoint": true,
+              "local_source_position_verified": true,
+              "source_navigation_roundtrip": true,
+              "source_dialog_verified": true,
+              "legacy_progress_units_preserved": true,
+              "credential_file_audit": true,
+              "workers_reaped": true,
+              "shelf_books": 139,
+              "pages": 666,
+              "profile_files_audited": 17,
+              "failed_line": 0,
+              "screenshots": 0,
+              "last_http_status": 200,
+              "denied_kind": 0,
+              "denied_route": 0,
+              "denied_flags": 0,
+              "requests": [
+                1,
+                12,
+                33,
+                1,
+                91,
+                52,
+                0
+              ],
+              "native_images_decoded": 111,
+              "download_error": "none",
+              "download_error_module": "none",
+              "download_error_line": 0,
+              "download_error_chapter": 0,
+              "reader_context_failure": "none",
+              "reader_identity_shape": {
+                "zero": false,
+                "null": false,
+                "field": "none",
+                "kind": "none"
+              },
+              "reader_python_projection": {
+                "valid": false,
+                "reason": "none",
+                "checked": false
+              }
+            },
+            {
+              "native_images_decoded": 111,
+              "download_error": "none",
+              "mode": "reopen",
+              "download_error_line": 0,
+              "result": "PASS",
+              "download_error_chapter": 0,
+              "reader_context_failure": "none",
+              "reader_identity_shape": {
+                "zero": false,
+                "null": false,
+                "field": "none",
+                "kind": "none"
+              },
+              "anonymous_auth": true,
+              "transport_guard_selftest": true,
+              "plugin_selection": true,
+              "native_reader": true,
+              "source_text_visible": true,
+              "source_receipt_verified": true,
+              "page_turn": true,
+              "position_checkpoint": true,
+              "local_source_position_verified": true,
+              "source_navigation_roundtrip": true,
+              "source_dialog_verified": true,
+              "legacy_progress_units_preserved": true,
+              "credential_file_audit": true,
+              "workers_reaped": true,
+              "shelf_books": 139,
+              "pages": 666,
+              "profile_files_audited": 17,
+              "failed_line": 0,
+              "screenshots": 0,
+              "last_http_status": 0,
+              "denied_kind": 0,
+              "denied_route": 0,
+              "denied_flags": 0,
+              "requests": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "reader_cookie_snapshot": {
+                "same_header": false,
+                "same_login": false,
+                "checked": false
+              },
+              "reader_python_projection": {
+                "valid": false,
+                "reason": "none",
+                "checked": false
+              },
+              "download_error_module": "none",
+              "phase": "complete"
+            }
+          ],
+          "runner_error": "none",
+          "full_book": {
+            "chapters": 30,
+            "source_image_references": 111,
+            "local_image_references": 110,
+            "body_image_references": 109,
+            "converted_footnote_images": 2,
+            "unexplained_image_references": 0,
+            "source_text_runs_verified": 2335,
+            "unexplained_text_runs": 0,
+            "packaged_images": 111,
+            "source_hashes_verified": true,
+            "image_references_verified": true,
+            "text_runs_verified": true,
+            "spine_order_verified": true,
+            "zip_crc_verified": true,
+            "fresh_offline_package_identical": true
+          }
+        },
+        "native_rotation_saved": false,
+        "cloud_position_unchanged": true,
+        "same_owner_verified": true,
+        "source_text_matched": true,
+        "fresh_offline_process": true
+      },
+      "preflight_summary": [
+        {
+          "stage": "account",
+          "status": 200,
+          "count": 4
+        },
+        {
+          "stage": "catalog_after",
+          "status": 200,
+          "count": 1
+        },
+        {
+          "stage": "catalog_before",
+          "status": 200,
+          "count": 3
+        },
+        {
+          "stage": "chapter_resource",
+          "status": 200,
+          "count": 1
+        },
+        {
+          "stage": "chapter_resource",
+          "status": 302,
+          "count": 1
+        },
+        {
+          "stage": "e_0",
+          "status": 200,
+          "count": 30
+        },
+        {
+          "stage": "e_1",
+          "status": 200,
+          "count": 30
+        },
+        {
+          "stage": "e_3",
+          "status": 200,
+          "count": 30
+        },
+        {
+          "stage": "progress_after",
+          "status": 200,
+          "count": 2
+        },
+        {
+          "stage": "progress_before",
+          "status": 200,
+          "count": 1
+        },
+        {
+          "stage": "reader",
+          "status": 200,
+          "count": 30
+        },
+        {
+          "stage": "shelf",
+          "status": 200,
+          "count": 1
+        }
+      ]
+    },
+    {
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "result": {
+        "result": "OWNER_NATIVE_READING_VERIFIED",
+        "checked_at": "2026-11-09T23:39:14.735799+00:00",
+        "book_format": "epub",
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "private_data_on_regular_disk": false,
+        "screenshots": 0,
+        "preflight_rotation_saved": false,
+        "reading_scope": "full",
+        "chapters": 30,
+        "source_image_references": 111,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "anonymous_auth": true,
+              "transport_guard_selftest": true,
+              "plugin_selection": true,
+              "native_reader": true,
+              "source_text_visible": true,
+              "source_receipt_verified": true,
+              "page_turn": true,
+              "position_checkpoint": true,
+              "local_source_position_verified": true,
+              "source_navigation_roundtrip": true,
+              "source_dialog_verified": true,
+              "legacy_progress_units_preserved": true,
+              "credential_file_audit": true,
+              "workers_reaped": true,
+              "shelf_books": 139,
+              "pages": 699,
+              "profile_files_audited": 18,
+              "failed_line": 0,
+              "screenshots": 0,
+              "last_http_status": 200,
+              "denied_kind": 0,
+              "denied_route": 0,
+              "denied_flags": 0,
+              "requests": [
+                1,
+                12,
+                33,
+                1,
+                91,
+                52,
+                0
+              ],
+              "reader_cookie_snapshot": {
+                "same_header": false,
+                "same_login": false,
+                "checked": false
+              },
+              "reader_python_projection": {
+                "valid": false,
+                "reason": "none",
+                "checked": false
+              },
+              "reader_identity_shape": {
+                "zero": false,
+                "null": false,
+                "field": "none",
+                "kind": "none"
+              },
+              "download_error_chapter": 0,
+              "native_images_decoded": 111,
+              "download_error_line": 0,
+              "mode": "live",
+              "download_error": "none",
+              "result": "PASS",
+              "download_error_module": "none",
+              "phase": "complete",
+              "reader_context_failure": "none"
+            },
+            {
+              "mode": "reopen",
+              "download_error": "none",
+              "download_error_module": "none",
+              "download_error_line": 0,
+              "phase": "complete",
+              "download_error_chapter": 0,
+              "reader_context_failure": "none",
+              "transport_guard_selftest": true,
+              "plugin_selection": true,
+              "native_reader": true,
+              "source_text_visible": true,
+              "source_receipt_verified": true,
+              "page_turn": true,
+              "position_checkpoint": true,
+              "local_source_position_verified": true,
+              "source_navigation_roundtrip": true,
+              "source_dialog_verified": true,
+              "legacy_progress_units_preserved": true,
+              "credential_file_audit": true,
+              "workers_reaped": true,
+              "shelf_books": 139,
+              "pages": 699,
+              "profile_files_audited": 18,
+              "failed_line": 0,
+              "screenshots": 0,
+              "last_http_status": 0,
+              "denied_kind": 0,
+              "denied_route": 0,
+              "denied_flags": 0,
+              "requests": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "reader_cookie_snapshot": {
+                "same_login": false,
+                "checked": false,
+                "same_header": false
+              },
+              "reader_python_projection": {
+                "checked": false,
+                "valid": false,
+                "reason": "none"
+              },
+              "reader_identity_shape": {
+                "field": "none",
+                "kind": "none",
+                "zero": false,
+                "null": false
+              },
+              "anonymous_auth": true,
+              "native_images_decoded": 111,
+              "result": "PASS"
+            }
+          ],
+          "runner_error": "none",
+          "full_book": {
+            "chapters": 30,
+            "source_image_references": 111,
+            "local_image_references": 110,
+            "body_image_references": 109,
+            "converted_footnote_images": 2,
+            "unexplained_image_references": 0,
+            "source_text_runs_verified": 2335,
+            "unexplained_text_runs": 0,
+            "packaged_images": 111,
+            "source_hashes_verified": true,
+            "image_references_verified": true,
+            "text_runs_verified": true,
+            "spine_order_verified": true,
+            "zip_crc_verified": true,
+            "fresh_offline_package_identical": true
+          }
+        },
+        "native_rotation_saved": false,
+        "cloud_position_unchanged": true,
+        "same_owner_verified": true,
+        "source_text_matched": true,
+        "fresh_offline_process": true
+      },
+      "preflight_summary": [
+        {
+          "stage": "account",
+          "status": 200,
+          "count": 4
+        },
+        {
+          "stage": "catalog_after",
+          "status": 200,
+          "count": 1
+        },
+        {
+          "stage": "catalog_before",
+          "status": 200,
+          "count": 3
+        },
+        {
+          "stage": "chapter_resource",
+          "status": 200,
+          "count": 1
+        },
+        {
+          "stage": "chapter_resource",
+          "status": 302,
+          "count": 1
+        },
+        {
+          "stage": "e_0",
+          "status": 200,
+          "count": 30
+        },
+        {
+          "stage": "e_1",
+          "status": 200,
+          "count": 30
+        },
+        {
+          "stage": "e_3",
+          "status": 200,
+          "count": 30
+        },
+        {
+          "stage": "progress_after",
+          "status": 200,
+          "count": 2
+        },
+        {
+          "stage": "progress_before",
+          "status": 200,
+          "count": 1
+        },
+        {
+          "stage": "reader",
+          "status": 200,
+          "count": 30
+        },
+        {
+          "stage": "shelf",
+          "status": 200,
+          "count": 1
+        }
+      ]
+    }
+  ],
+  "lua_spec_groups": 157,
+  "python_tests": 464,
+  "lua_static_files": 414,
+  "lua_syntax_files": 416,
+  "manual_private_page_review": false,
+  "cloud_annotations_downloaded": false,
+  "physical_device": false,
+  "pending": [
+    "other_real_book_types_and_complex_resources",
+    "authorized_cloud_write_readback",
+    "multi_device",
+    "offline_readtime_transport",
+    "physical_ko2",
+    "concentrated_eink_performance"
+  ]
+}

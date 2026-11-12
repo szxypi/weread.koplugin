@@ -6,6 +6,14 @@ License version 3. See LICENSE for the complete license text.
 
 Third-party material:
 
+- integrations/ssl/cacert.pem
+  Mozilla CA certificate store, converted by curl on 2026-11-05.
+  Licensed under the Mozilla Public License, Version 2.0.
+  See integrations/ssl/LICENSE. Source: https://curl.se/docs/caextract.html
+  The unmodified bundle and its upstream SHA-256 are included for devices
+  without an operating-system CA store. TLS peer and SAN hostname checks
+  apply only to this plugin's HTTPS requests.
+
 - fonts/NotoEmoji-Regular.ttf
   Copyright 2013 Google LLC
   Licensed under the SIL Open Font License, Version 1.1.
@@ -14,3 +22,103 @@ Third-party material:
 This is an unofficial project. It is not affiliated with, endorsed by, or
 sponsored by WeRead, Tencent, or KOReader. All product names and trademarks
 belong to their respective owners.
+
+MiuRead UI migration:
+- weread/lib/home_header_layout.lua is adapted from miuread/home_header_layout.lua.
+- weread/lib/discovery_data.lua adapts book/page normalization from
+  miuread/bookstore_data.lua.
+Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
+Source: https://github.com/miumiupy98-art/miuread-koreader
+
+Source-coordinate protocol research:
+- scripts/verify_source_coordinates.py references MiuRead's wr_co.lua and
+  source_position.lua (MiuRead contributors, AGPL-3.0-only). It compares a public
+  preview and synthetic fixtures with the current official Web Reader parser.
+  Sanitizer-dependent coordinate runs and UTF-16 units were verified against
+  the live parser before implementing weread/lib/source_coordinates.lua. The
+  pure local Lua core does not enable a new progress-writing contract. Local
+  EPUB source binding and chapter-scoped source/DOM conversion are now
+  verified, including cross-block anchors and identical chapters. Production
+  reader integration and read-only cloud navigation now bind matching EPUB
+  sources. scripts/verify_cloud_source_target.py verified real cloud/Reader
+  positions and original text before weread/lib/source_cloud.lua integration
+  on 2026-11-09; independent native Lua HTTPS compared the same projection.
+  Precise real-account write/readback remains pending.
+  Official Web JavaScript is loaded for verification, not redistributed.
+The home/shelf/store navigation is adapted to the original WeRead services.
+
+The monthly grayscale reading-calendar organization in
+weread/ui/read_stats_view.lua is adapted from MiuRead's
+miuread/reading_stats_dialog.lua. Copyright (C) 2026 MiuRead contributors.
+AGPL-3.0-only; source repository as above.
+
+Native authorization protocol prototype:
+- scripts/verify_native_statistics.py and the read-only statistics adapter
+  in weread/lib/native_authorization.lua reference MiuRead's eink_client.lua
+  reading_stats() (AGPL-3.0-only, MiuRead contributors). Four periods and one
+  historical month were verified on real Python responses before Lua
+  integration on 2026-11-09, then compared with native Lua HTTPS. The
+  projection preserves independent server totals and excludes identifiers.
+- scripts/verify_native_metadata.py and the read-only metadata adapter in
+  weread/lib/native_authorization.lua reference MiuRead's eink_client.lua
+  book() (AGPL-3.0-only, MiuRead contributors). Two real metadata responses
+  were verified in Python before Lua integration on 2026-11-09. Display-only
+  totalWords mapping was independently compared with native Lua HTTPS;
+  positions and native source versions are excluded.
+- scripts/verify_native_discovery.py and the read-only bookstore adapter in
+  weread/lib/native_authorization.lua reference MiuRead's eink_client.lua
+  (AGPL-3.0-only, MiuRead contributors). Search, recommendations and similar
+  books were verified against real Python responses on 2026-11-09 before
+  Lua integration. Native Lua HTTPS independently verified pagination;
+  the real personalized recommendation result was empty.
+- weread/lib/native_authorization.lua adapts MiuRead's shelf_client.lua
+  (AGPL-3.0-only, MiuRead contributors), after real owner-scan, login and
+  read-only shelf validation by the Python prototype on 2026-11-08.
+  It implements QR authorization and renewal after real Python validation.
+  The plugin's separate UI, session-bound credential store and memory-pipe
+  worker provide authorization, verified local persistence and cancellation;
+  renewal includes manual entry and one attempt after a native HTTP 401 in
+  shelf, bookstore, metadata or statistics reads,
+  with a checked on-disk pending marker to prevent uncertain-request replay.
+- scripts/verify_eink_login.py adapts the request flow from MiuRead's
+  miuread/shelf_client.lua (AGPL-3.0-only, MiuRead contributors) and references
+  https://github.com/teng-lin/weread-omni/blob/main/src/auth/qrlogin.ts.
+- scripts/verify_eink_readtime.py references MiuRead's miuread/eink_readtime.lua
+  and readtime_protocol.lua (AGPL-3.0-only, MiuRead contributors) for read-only
+  config/feature/position preflight. It does not implement the write/signature
+  algorithm or upload reading time.
+- scripts/verify_eink_renewal.py and scripts/verify_eink_shelf_write.py
+  reference MiuRead's shelf_client.lua and eink_client.lua (AGPL-3.0-only,
+  MiuRead contributors) for renewal and single-book shelf-write prototypes.
+  Two renewals and their read-only shelf checks were owner-verified on
+  2026-11-08 before Lua renewal integration. The shelf-write contract remains
+  unverified and is not integrated into the plugin's Lua API.
+
+Local offline reading-time collection:
+- weread/lib/offline_time_stats.lua adapts native statistics extraction from
+  miuread/readtime_stats.lua (MiuRead contributors, AGPL-3.0-only).
+- The transactional watermarks, conservative restart and uncertain-attempt
+  design in offline_time_store.lua and offline_time.lua reference MiuRead's
+  readtime_outbox.lua/readtime_controller.lua; rewritten for this repository's
+  account databases and offline-only collection on 2026-11-08.
+- The file-bound version rule in book_file_identity.lua references MiuRead's
+  readtime_metadata.lua (MiuRead contributors, AGPL-3.0-only). EPUB provenance
+  encoding, open-document pinning and checkpoint integration are implemented
+  for this repository's download and reader lifecycle.
+Source: https://github.com/miumiupy98-art/miuread-koreader
+
+Official translation research and display model:
+- scripts/verify_translation_preflight.py references MiuRead eink_client.lua and
+  protocol.lua at c1893562aa25a870b8dd076d7be062a3348f823e (MiuRead contributors,
+  AGPL-3.0-only). Member/catalog reads and two existing translated chapter bodies
+  were owner-verified in Python before Lua model comparison on 2026-11-09.
+  The read-only guard forbids server translation-mode changes, generation,
+  trials, purchases and shelf/progress writes, including state-changing GETs.
+- weread/lib/translation.lua adapts MiuRead translation.lua at the same commit
+  (Copyright (C) 2026 MiuRead contributors, AGPL-3.0-only). Fragment-scoped CSS
+  also supports existing EPUBs without extra body attributes. Current id-less
+  adjacent paragraph pairs were verified on actual responses; text gaps,
+  conflicting IDs, media/link controls and recovered markup do not qualify.
+  Display/position model and synthetic native rendering validation are local;
+  reader-menu integration, persistence and generation remain separate work.
+Source: https://github.com/miumiupy98-art/miuread-koreader

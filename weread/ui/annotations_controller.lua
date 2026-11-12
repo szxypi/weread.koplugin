@@ -32,6 +32,7 @@ local ANNOTATION_HIDE_CSS =
 -- this from onReaderReady starts partial rerendering; its seamless reload then
 -- creates a new plugin instance and repeats the same rerender forever.
 function M:onReadSettings()
+    if self.onTranslationReadSettings then self:onTranslationReadSettings() end
     if not self.ui or not self.ui.document or not self:detectWeReadBook() then
         return
     end
@@ -65,6 +66,8 @@ function M:applyAnnotationVisibility()
         return
     end
     local show = self.settings:get("cache").show_annotations ~= false
+    local personal=package.loaded['weread.ui.personal_marks']
+    if personal then personal.update(self) end
     if self._xpointer_overlay then
         self._xpointer_overlay:setEnabled(show)
         if show and self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end
@@ -105,6 +108,10 @@ function M:toggleAnnotationVisibility()
         self._thought_popup_open = nil
     end
     self:applyAnnotationVisibility()
+    local personal=package.loaded['weread.ui.personal_marks']
+    if cache.show_annotations and personal and personal.available(self) then
+        self:showTransientInfo(_('Underlines, thoughts and bookmarks shown'),1);return true
+    end
     if cache.show_annotations and self.ensureAnnotationDisplay then
         local context = self._annotation_context
         local summary = context and self:_annotationSummary(context)
@@ -114,8 +121,8 @@ function M:toggleAnnotationVisibility()
         end
     end
     self:showTransientInfo(cache.show_annotations
-        and _("Underlines and thoughts shown")
-        or _("Underlines and thoughts hidden"), 1)
+        and _("Underlines, thoughts and bookmarks shown")
+        or _("Underlines, thoughts and bookmarks hidden"), 1)
     return true
 end
 

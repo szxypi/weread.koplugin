@@ -9,17 +9,22 @@ on:
 jobs:
   checks:
     name: Basic checks
-    runs-on: ubuntu-latest
+    # Match the Ubuntu LTS used by native runtime validation.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: CI toolchain bootstrap checks
+        run: python3 scripts/test_ci_toolchain.py
+
       - name: Install Lua tooling
+        timeout-minutes: 5
         run: |
-          sudo apt-get update
-          sudo apt-get install -y luajit luarocks ripgrep libsqlite3-0
-          sudo luarocks install luacheck
+          python3 scripts/bootstrap_ci_tools.py --prefix "$RUNNER_TEMP/weread-ci-tools"
+          echo "$RUNNER_TEMP/weread-ci-tools/bin" >> "$GITHUB_PATH"
 
       - name: Lua namespace policy
         run: bash scripts/check_lua_namespace.sh
@@ -38,6 +43,13 @@ jobs:
       - name: Lua unit and component specs
         run: bash scripts/run_lua_specs.sh
 
+      - name: Reading calendar time zones
+        run: |
+          for zone in UTC Asia/Shanghai America/New_York Pacific/Apia; do
+            TZ="$zone" luajit spec/profile_data_spec.lua
+            TZ="$zone" luajit spec/readtime_protocol_spec.lua
+          done
+
       - name: Python syntax check
         run: |
           if [ -d scripts ]; then
@@ -45,7 +57,187 @@ jobs:
           fi
 
       - name: Offline mock service checks
-        run: python3 scripts/test_mock_weread.py
+        run: |
+          python3 scripts/test_book_footnotes.py
+          python3 scripts/test_mock_weread.py
+          python3 scripts/test_process_loss_runtime.py
+          python3 scripts/test_mp_export.py
+          python3 scripts/test_mp_link.py
+          python3 scripts/test_mp_images.py
+          python3 scripts/test_shelf_covers.py
+          python3 scripts/test_shelf_membership.py
+          python3 scripts/test_web_renewal.py
+
+      - name: Native authorization prototype checks
+        run: python3 scripts/test_eink_login.py
+
+      - name: Native renewal prototype checks
+        run: python3 scripts/test_eink_renewal.py
+
+      - name: Native TXT reader boundary checks
+        run: |
+          python3 scripts/test_native_reader_position.py
+          python3 scripts/test_native_reader_trial.py
+          python3 scripts/test_native_timer_trial.py
+          python3 scripts/test_native_close_trial.py
+          python3 scripts/test_native_reader_close.py
+          python3 scripts/test_native_reader_review.py
+          python3 scripts/test_native_reader_recovery.py
+          python3 scripts/test_owner_native_recovery.py
+          python3 scripts/test_owner_cloud_source.py
+          python3 scripts/test_source_remote_position.py
+          python3 scripts/test_owner_unstarted.py
+          python3 scripts/test_native_initial_position.py
+          python3 scripts/test_native_reader_initial.py
+          python3 scripts/test_native_initial_reader.py
+
+      - name: Native shelf-write prototype checks
+        run: |
+          python3 scripts/test_eink_shelf_write.py
+          python3 scripts/test_native_shelf_trial.py
+          python3 scripts/test_native_finish_trial.py
+
+      - name: Offline-time read-only preflight checks
+        run: |
+          python3 scripts/test_eink_readtime.py
+          python3 scripts/test_readtime_upload.py
+          python3 scripts/test_readtime_trial.py
+          python3 scripts/test_readtime_recovery.py
+          python3 scripts/test_readtime_history_capture.py
+
+      - name: Source coordinate prototype checks
+        run: |
+          python3 scripts/test_source_coordinates.py
+          python3 scripts/test_owner_selection_preview.py
+          python3 scripts/test_selection_trial.py
+          python3 scripts/test_highlight_trial.py
+          python3 scripts/test_native_highlight_trial.py
+          python3 scripts/test_mark_edit_contract.py
+          python3 scripts/test_initial_mark_style.py
+          python3 scripts/test_mark_color.py
+          python3 scripts/test_mark_style_trial.py
+          python3 scripts/test_native_mark_style_trial.py
+          python3 scripts/test_nonempty_marks_trial.py
+          python3 scripts/test_bookmark_point.py
+          python3 scripts/test_bookmark_trial.py
+          python3 scripts/test_bookmark_recovery.py
+          python3 scripts/test_bookmark_contract.py
+          python3 scripts/test_native_bookmark_trial.py
+          python3 scripts/test_native_web_handoff.py
+
+      - name: Web source-position read-only preflight checks
+        run: |
+          python3 scripts/test_web_source_progress.py
+          python3 scripts/test_cloud_source_target.py
+          python3 scripts/test_reader_progress.py
+          python3 scripts/test_progress_readback.py
+          python3 scripts/test_position_roundtrip.py
+
+      - name: Saved Web session boundary checks
+        run: python3 scripts/test_secure_weread_session.py
+
+      - name: Saved native session boundary checks
+        run: |
+          python3 scripts/test_secure_native_session.py
+          python3 scripts/test_native_session.py
+          python3 scripts/test_saved_native_renewal.py
+
+      - name: Native statistics prototype checks
+        run: |
+          python3 scripts/test_native_statistics.py
+          python3 scripts/test_owner_statistics.py
+
+      - name: Native bookstore prototype checks
+        run: |
+          python3 scripts/test_native_discovery.py
+          python3 scripts/test_owner_discovery.py
+          python3 scripts/test_category_catalog.py
+          python3 scripts/test_category_books.py
+
+      - name: Native MP catalog prototype checks
+        run: python3 scripts/test_native_mp.py
+
+      - name: Web shelf prototype checks
+        run: |
+          python3 scripts/test_web_shelf_contract.py
+          python3 scripts/test_shelf_flags.py
+          python3 scripts/test_shelf_groups.py
+
+      - name: Display progress prototype checks
+        run: |
+          python3 scripts/test_shelf_progress.py
+          python3 scripts/test_cb_progress.py
+
+      - name: Book metadata prototype checks
+        run: |
+          python3 scripts/test_book_metadata.py
+          python3 scripts/test_reader_link.py
+          python3 scripts/test_reader_context.py
+          python3 scripts/test_translation_preflight.py
+          python3 scripts/test_mp_catalog.py
+
+      - name: Native metadata prototype checks
+        run: |
+          python3 scripts/test_native_metadata.py
+          python3 scripts/test_cb_metadata.py
+          python3 scripts/test_cb_reading.py
+          python3 scripts/test_cb_native_reading.py
+          python3 scripts/test_cb_cloud_position.py
+          python3 scripts/test_cb_source_lens.py
+          python3 scripts/test_cb_sync_limit.py
+          python3 scripts/test_cb_full_reading.py
+          python3 scripts/test_my_cloud_marks.py
+          python3 scripts/test_my_mark_target.py
+          python3 scripts/test_my_mark_span.py
+          python3 scripts/test_my_thought_target.py
+          python3 scripts/test_note_download.py
+          python3 scripts/test_my_cloud_thoughts.py
+          python3 scripts/test_annotation_experiment.py
+          python3 scripts/test_native_thought_trial.py
+          python3 scripts/test_thought_edit_contract.py
+          python3 scripts/test_verify_thought_edit_contract.py
+          python3 scripts/test_inspect_annotation_experiment.py
+          python3 scripts/test_native_annotations.py
+          python3 scripts/test_native_ui.py
+          python3 scripts/test_persistent_ui.py
+          python3 scripts/test_owner_reading.py
+          python3 scripts/test_owner_footnotes.py
+          python3 scripts/test_owner_annotations.py
+          python3 scripts/test_owner_recovery.py
+          python3 scripts/test_owner_progress_preview.py
+          python3 scripts/test_owner_progress_roundtrip.py
+          python3 scripts/test_secure_position_experiment.py
+          python3 scripts/test_source_upload_candidate.py
+          python3 scripts/test_source_currentness.py
+          python3 scripts/test_owner_source_candidate.py
+          python3 scripts/test_owner_native_excerpt.py
+          python3 scripts/test_owner_shelf_membership.py
+          python3 scripts/test_finish_roundtrip.py
+          python3 scripts/test_finish_receipts.py
+          python3 scripts/test_finish_change.py
+          python3 scripts/test_shelf_flag_change.py
+          python3 scripts/test_pin_observability.py
+          python3 scripts/test_native_shelf_flag_trial.py
+          python3 scripts/test_resolve_finish_experiment.py
+          python3 scripts/test_annotation_source_quotes.py
+          python3 scripts/test_txt_reading.py
+          python3 scripts/test_txt_excerpt.py
+          python3 scripts/test_txt_cloud_position.py
+          python3 scripts/test_txt_full_summary.py
+          python3 scripts/test_txt_zero_time.py
+          python3 scripts/test_native_txt_position.py
+          python3 scripts/test_native_txt_roundtrip.py
+          python3 scripts/test_raw_txt_excerpt.py
+          python3 scripts/test_native_position_lua.py
+          python3 scripts/test_native_position_flow.py
+          python3 scripts/test_selection_quote.py
+
+      - name: Bundled TLS trust store integrity
+        working-directory: integrations/ssl
+        run: sha256sum --check cacert.pem.sha256
+
+      - name: Private source parser isolation checks
+        run: python3 scripts/test_source_parser_preflight.py
 
       - name: Release package smoke test
         run: bash scripts/package_release.sh /tmp/weread.koplugin-release-test.zip
@@ -68,6 +260,7 @@ jobs:
           scan() {
             local description="$1"
             local pattern="$2"
+            local search_status=0
 
             if rg -n -P "$pattern" . \
               --glob '!cache/**' \
@@ -75,6 +268,12 @@ jobs:
               --glob '!.git/**'; then
               echo "::error::$description"
               found=1
+            else
+              search_status=$?
+              if [[ "$search_status" -ne 1 ]]; then
+                echo "::error::Sensitive information search failed (exit $search_status)."
+                found=1
+              fi
             fi
           }
 

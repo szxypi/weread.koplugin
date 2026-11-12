@@ -1,0 +1,446 @@
+{
+  "result": "PASS",
+  "scope": "native source highlight color/style/delete with existing marks and thoughts",
+  "runtime": {
+    "koreader": "v2026.07.1",
+    "platform": "Linux ARM64 Ubuntu 24.04",
+    "actual_ui": {
+      "width": 600,
+      "height": 800,
+      "dpi": 167
+    }
+  },
+  "actual": {
+    "result": "PASS",
+    "baseline": {
+      "original_marks": 52,
+      "original_thoughts": 3,
+      "same_chapter_marks": 3,
+      "shelf_books": 140
+    },
+    "same_plan_dry_then_apply": true,
+    "dry_run": {
+      "result": "PASS",
+      "account_data_posts": 0,
+      "independent_steps": 0,
+      "annotation_gets": 12,
+      "annotation_posts": 0,
+      "blocked_posts": 1,
+      "native_denied": 0,
+      "color_controls": false,
+      "style_controls": false,
+      "style_displays": 0,
+      "heartbeat": true,
+      "profile_removed": true,
+      "installed_files": 251,
+      "installed_bytes_match": true,
+      "intent_state": "absent"
+    },
+    "apply": {
+      "result": "PASS",
+      "account_data_posts": 4,
+      "independent_steps": 4,
+      "annotation_gets": 26,
+      "annotation_posts": 4,
+      "blocked_posts": 0,
+      "native_denied": 0,
+      "color_controls": true,
+      "style_controls": true,
+      "style_displays": 2,
+      "heartbeat": true,
+      "profile_removed": true,
+      "installed_files": 251,
+      "installed_bytes_match": true,
+      "intent_state": "absent"
+    },
+    "account_data_posts": 4,
+    "authentication_posts": 0,
+    "original_records_restored": true,
+    "web_and_native_positions_unchanged": true,
+    "chapter_metadata_unchanged": true,
+    "intent_state": "absent",
+    "no_automatic_replay": true,
+    "host_native_gets": 57,
+    "selector_gets": 12,
+    "real_screenshots": 0
+  },
+  "mock_matrix": {
+    "result": "PASS",
+    "runs": [
+      {
+        "case": "normal",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "intent_state": "absent",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "lost-ack",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "intent_state": "absent",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "no-create",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "native_denied": 0,
+        "intent_state": "create_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "no-color",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "native_denied": 0,
+        "intent_state": "color_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "no-style",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 3,
+        "native_denied": 0,
+        "intent_state": "style_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "no-delete",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "intent_state": "delete_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "changed-original",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "native_denied": 0,
+        "intent_state": "create_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "host-loss",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "native_denied": 0,
+        "intent_state": "create_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "host-mismatch",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "native_denied": 0,
+        "intent_state": "create_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "host-lag",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "intent_state": "absent",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "dry-run",
+        "width": 600,
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "native_denied": 0,
+        "intent_state": "absent",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "normal",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "intent_state": "absent",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "lost-ack",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "intent_state": "absent",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "no-create",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "native_denied": 0,
+        "intent_state": "create_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "no-color",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "native_denied": 0,
+        "intent_state": "color_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "no-style",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 3,
+        "native_denied": 0,
+        "intent_state": "style_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "no-delete",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "intent_state": "delete_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "changed-original",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "native_denied": 0,
+        "intent_state": "create_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "host-loss",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "native_denied": 0,
+        "intent_state": "create_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "host-mismatch",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "native_denied": 0,
+        "intent_state": "create_pending",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "host-lag",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "intent_state": "absent",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "case": "dry-run",
+        "width": 1264,
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "native_denied": 0,
+        "intent_state": "absent",
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      }
+    ]
+  },
+  "legacy_regression": {
+    "result": "PASS",
+    "runs": [
+      {
+        "flow": "mark_style",
+        "width": 600,
+        "case": "normal",
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "flow": "mark_style",
+        "width": 600,
+        "case": "dry-run",
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "native_denied": 0,
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "flow": "mark_style",
+        "width": 1264,
+        "case": "normal",
+        "result": "PASS",
+        "mock_data_posts": 4,
+        "native_denied": 0,
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "flow": "mark_style",
+        "width": 1264,
+        "case": "dry-run",
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "native_denied": 0,
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "flow": "highlight",
+        "width": 600,
+        "case": "normal",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "native_denied": 0,
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "flow": "highlight",
+        "width": 600,
+        "case": "dry-run",
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "native_denied": 0,
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "flow": "bookmark",
+        "width": 600,
+        "case": "normal",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "native_denied": 0,
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      },
+      {
+        "flow": "bookmark",
+        "width": 600,
+        "case": "dry-run",
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "native_denied": 0,
+        "profile_removed": true,
+        "workers_reaped": true,
+        "real_account_data_posts": 0
+      }
+    ]
+  },
+  "regression_aggregation": {
+    "initial": "STOPPED_SCHEMA_KEY",
+    "native_cases_already_passed": 5,
+    "correction": "accept existing denied counter name; reuse five receipts; run only three remaining cases",
+    "original_failure_retained": true
+  },
+  "checks": {
+    "python_files": 96,
+    "python_tests": 1182,
+    "python_skips": 0,
+    "lua_specs": 223,
+    "time_zones": 4,
+    "python_compile": 301,
+    "lua_syntax": 629,
+    "result": "PASS"
+  },
+  "lua_static": {
+    "files": 627,
+    "warnings": 0,
+    "errors": 0
+  },
+  "package": {
+    "sha256": "88a994ae6f779c1711c7a42ceaff2353d1c161cc1f2a47f35d08ff89cef09fe1",
+    "production_files": 251,
+    "source_package_bytes_match": true,
+    "production_unchanged_since": "d1cce8f"
+  },
+  "device": {
+    "usb_inventory_checked": true,
+    "kindle_device_connected": false,
+    "target": "Kindle Oasis 2",
+    "koreader_version": "unknown"
+  },
+  "limitations": [
+    "Synthetic UI at KO2 resolution; no physical KO2 acceptance",
+    "No multi-device concurrency, power-loss or complete server-history restoration claim",
+    "Other source formats remain outside this case",
+    "Whole goal remains active; focused performance phase has not begun"
+  ]
+}

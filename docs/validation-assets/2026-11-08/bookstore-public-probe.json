@@ -1,0 +1,73 @@
+{
+  "checked_at": "2026-11-08T01:08:56.536553+00:00",
+  "authenticated": false,
+  "requests": [
+    {
+      "path": "/web/categories?rank=1&synckey=0",
+      "status": 200,
+      "keys": [
+        "data",
+        "synckey"
+      ],
+      "rank_count": 7,
+      "category_count": 194
+    },
+    {
+      "path": "/web/bookListInCategory/rising?rank=1&maxIndex=0",
+      "status": 200,
+      "keys": [
+        "books",
+        "hasMore",
+        "synckey",
+        "totalCount",
+        "uiInfo"
+      ],
+      "book_count": 20,
+      "next_cursor": 20,
+      "has_more": 1
+    },
+    {
+      "path": "/web/bookListInCategory/rising?rank=1&maxIndex=20",
+      "status": 200,
+      "keys": [
+        "books",
+        "hasMore",
+        "synckey",
+        "totalCount",
+        "uiInfo"
+      ],
+      "book_count": 20,
+      "next_cursor": 40,
+      "has_more": 1
+    },
+    {
+      "path": "/web/bookListInCategory/100000?rank=0&maxIndex=0",
+      "status": 200,
+      "keys": [
+        "books",
+        "hasMore",
+        "synckey",
+        "totalCount",
+        "uiInfo"
+      ],
+      "book_count": 20,
+      "next_cursor": 20,
+      "has_more": 1
+    },
+    {
+      "path": "/web/bookListInCategory/100000?rank=0&maxIndex=20",
+      "status": 200,
+      "keys": [
+        "books",
+        "hasMore",
+        "synckey",
+        "totalCount",
+        "uiInfo"
+      ],
+      "book_count": 20,
+      "next_cursor": 40,
+      "has_more": 1
+    }
+  ],
+  "result": "PASS"
+}

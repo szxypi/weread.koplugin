@@ -4,6 +4,8 @@
 
 local logger = require("weread.lib.logger")
 local Crypto = require("weread.lib.crypto")
+local ShelfSnapshot = require("weread.lib.shelf_snapshot")
+local BookStore = require("weread.lib.book_store")
 
 local ok_json, json = pcall(require, "json")
 if not ok_json then
@@ -112,6 +114,18 @@ function LibraryDB:open()
         -- development build. Duplicate-column errors are intentionally ignored.
         pcall(function() db:exec("ALTER TABLE books ADD COLUMN detail_payload TEXT") end)
         db:exec("CREATE INDEX IF NOT EXISTS chapters_position ON chapters(book_id, position)")
+        db:exec([[
+            CREATE TABLE IF NOT EXISTS shelf_progress (
+                book_id TEXT PRIMARY KEY,
+                payload TEXT NOT NULL
+            ) WITHOUT ROWID
+        ]])
+        db:exec([[
+            CREATE TABLE IF NOT EXISTS profile_state (
+                name TEXT PRIMARY KEY,
+                payload TEXT NOT NULL
+            ) WITHOUT ROWID
+        ]])
     end)
     if not schema_ok then
         logger.warn("library_db schema init failed:", schema_err)
@@ -122,6 +136,8 @@ function LibraryDB:open()
 end
 
 function LibraryDB:cacheShelf(books, archives)
+    local snapshot = ShelfSnapshot.metadata(books, os.time())
+    if not snapshot then return false end
     local db = self:open()
     if not db or type(books) ~= "table" then return false end
     local transaction_open = false
@@ -141,16 +157,13 @@ function LibraryDB:cacheShelf(books, archives)
                 shelf_position=excluded.shelf_position,
                 shelf_updated_at=excluded.shelf_updated_at
         ]])
-        local now = os.time()
+        local now = snapshot.cached_at
         for position, book in ipairs(books) do
-            local book_id = book.book_id or book.bookId
+            local book_id = ShelfSnapshot.id(book)
             local payload, encode_err = encode(book)
-            if book_id and payload then
-                local kind = tostring(book_id):match("^MP_WXS_") and "mp" or "book"
-                stmt:reset():bind(tostring(book_id), kind, payload, position, now):step()
-            elseif encode_err then
-                error(encode_err)
-            end
+            if type(payload) ~= "string" then error(encode_err or "invalid shelf payload") end
+            local kind = book_id:match("^MP_WXS_") and "mp" or "book"
+            stmt:reset():bind(book_id, kind, payload, position, now):step()
         end
         close_statement(stmt)
         stmt = nil
@@ -166,6 +179,15 @@ function LibraryDB:cacheShelf(books, archives)
             close_statement(stmt)
             stmt = nil
         end
+        local payload, encode_err = encode(snapshot)
+        if not payload then error(encode_err) end
+        stmt = db:prepare([[
+            INSERT INTO shelf_state (name, payload) VALUES ('membership_snapshot', ?)
+            ON CONFLICT(name) DO UPDATE SET payload=excluded.payload
+        ]])
+        stmt:bind(payload):step()
+        close_statement(stmt)
+        stmt = nil
         db:exec("COMMIT")
         transaction_open = false
     end)
@@ -214,10 +236,85 @@ function LibraryDB:getShelf()
     return ok and books or nil
 end
 
+function LibraryDB:getProfileState(name)
+    local db = self:open()
+    if not db then return nil end
+    local stmt, result
+    local ok = pcall(function()
+        stmt = db:prepare("SELECT payload FROM profile_state WHERE name=?")
+        local row = stmt:reset():bind(name):step()
+        result = row and decode(row[1])
+    end)
+    close_statement(stmt)
+    pcall(function() db:close() end)
+    return ok and result or nil
+end
+
+function LibraryDB:putProfileState(name, value)
+    local payload = encode(value)
+    if not payload then return false end
+    local db = self:open()
+    if not db then return false end
+    local stmt
+    local ok = pcall(function()
+        stmt = db:prepare([[
+            INSERT INTO profile_state (name, payload) VALUES (?, ?)
+            ON CONFLICT(name) DO UPDATE SET payload=excluded.payload
+        ]])
+        stmt:reset():bind(name, payload):step()
+    end)
+    close_statement(stmt)
+    pcall(function() db:close() end)
+    return ok
+end
+
+function LibraryDB:getShelfProgress(ids)
+    local result = {}
+    if type(ids) ~= "table" or #ids == 0 then return result end
+    local db = self:open()
+    if not db then return result end
+    local stmt
+    local ok = pcall(function()
+        stmt = db:prepare("SELECT payload FROM shelf_progress WHERE book_id=?")
+        for _, id in ipairs(ids) do
+            local row = stmt:reset():bind(tostring(id)):step()
+            if row then result[tostring(id)] = decode(row[1]) end
+        end
+    end)
+    close_statement(stmt)
+    pcall(function() db:close() end)
+    return ok and result or {}
+end
+
+function LibraryDB:putShelfProgress(snapshots)
+    if type(snapshots) ~= "table" or #snapshots == 0 then return false end
+    local db = self:open()
+    if not db then return false end
+    local stmt, transaction_open
+    local ok = pcall(function()
+        db:exec("BEGIN")
+        transaction_open = true
+        stmt = db:prepare([[
+            INSERT INTO shelf_progress (book_id, payload) VALUES (?, ?)
+            ON CONFLICT(book_id) DO UPDATE SET payload=excluded.payload
+        ]])
+        for _, snapshot in ipairs(snapshots) do
+            local payload = assert(encode(snapshot))
+            stmt:reset():bind(tostring(assert(snapshot.book_id)), payload):step()
+        end
+        db:exec("COMMIT")
+        transaction_open = false
+    end)
+    close_statement(stmt)
+    if not ok and transaction_open then pcall(function() db:exec("ROLLBACK") end) end
+    pcall(function() db:close() end)
+    return ok
+end
+
 function LibraryDB:putBook(book)
     if type(book) ~= "table" then return false end
     local book_id = book.book_id or book.bookId
-    local payload = encode(book)
+    local payload = encode(BookStore.without_reading_state(book))
     if not book_id or not payload then return false end
     local db = self:open()
     if not db then return false end
@@ -250,10 +347,60 @@ function LibraryDB:getBook(book_id)
     local ok = pcall(function()
         stmt = db:prepare("SELECT COALESCE(detail_payload, payload) FROM books WHERE book_id=?")
         local row = stmt:reset():bind(tostring(book_id)):step()
-        result = row and decode(row[1]) or nil
+        local decoded = row and decode(row[1]) or nil
+        -- Older detail rows may contain a checkpoint copied before a sync.
+        -- Filter on read as well, without rewriting those legacy rows.
+        result = decoded and BookStore.without_reading_state(decoded) or nil
     end)
     close_statement(stmt)
     pcall(function() db:close() end)
+    return ok and result or nil
+end
+
+-- A shelf state must come from the last account shelf snapshot, never an old
+-- detail payload. Opening a book/refreshing its metadata cannot change it.
+function LibraryDB:getShelfEntry(book_id)
+    if type(book_id)~='string' or book_id=='' or #book_id>256 or book_id:find('[%z%c]') then return nil end
+    local db=self:open()
+    if not db then return nil end
+    local stmt,result
+    local ok=pcall(function()
+        stmt=db:prepare([[SELECT CASE WHEN length(CAST(payload AS BLOB))<=262144 THEN payload ELSE NULL END,
+            shelf_updated_at FROM books WHERE book_id=? AND on_shelf=1]])
+        local row=stmt:bind(book_id):step()
+        local book=row and decode(row[1])
+        if type(book)~='table' or tostring(book.book_id or book.bookId or '')~=book_id
+            or book.bookId~=nil and tostring(book.bookId)~=book_id then return end
+        result={book=book,cached_at=tonumber(row[2]) or 0}
+    end)
+    close_statement(stmt);pcall(function() db:close() end)
+    return ok and result or nil
+end
+
+-- Membership and flags share one SQLite read snapshot. An absent row only
+-- means "not on shelf" when a complete validated list was committed with it.
+function LibraryDB:getShelfStatus(book_id)
+    if not ShelfSnapshot.id({bookId=book_id}) or type(book_id)~='string' then return nil end
+    local db=self:open()
+    if not db then return nil end
+    local stmt,result
+    local ok=pcall(function()
+        stmt=db:prepare([[SELECT
+            (SELECT CASE WHEN length(CAST(payload AS BLOB))<=4096 THEN payload ELSE '' END
+                FROM shelf_state WHERE name='membership_snapshot'),
+            (SELECT COUNT(*) FROM books WHERE on_shelf=1),
+            b.on_shelf,b.shelf_updated_at,
+            CASE WHEN length(CAST(b.payload AS BLOB))<=262144 THEN b.payload ELSE NULL END
+            FROM (SELECT 1) AS singleton LEFT JOIN books AS b ON b.book_id=?]])
+        local row=stmt:bind(book_id):step()
+        if not row then return end
+        local present,stamp=ShelfSnapshot.state(decode(row[1]),tonumber(row[2]),
+            tonumber(row[3]),tonumber(row[4]),row[1]==nil)
+        local book=tonumber(row[3])==1 and decode(row[5]) or nil
+        if ShelfSnapshot.id(book)~=book_id then book=nil end
+        result={present=present,cached_at=stamp or (book and tonumber(row[4])),book=book}
+    end)
+    close_statement(stmt);pcall(function() db:close() end)
     return ok and result or nil
 end
 

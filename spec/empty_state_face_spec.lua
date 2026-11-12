@@ -127,6 +127,7 @@ for _, name in ipairs({
     "ui/widget/horizontalgroup",
     "ui/widget/horizontalspan",
     "ui/widget/imagewidget",
+    "ui/widget/textboxwidget",
     "ui/widget/iconwidget",
     "ui/widget/linewidget",
     "ui/widget/overlapgroup",
@@ -307,6 +308,7 @@ expect(large_view.page_count == 100 and #large_view._item_rows == 10,
 books[1]._cached = true
 books[1].finishReading = "1"
 books[1].secret = "1"
+books[1].isTop=true
 local cover_paths = { [books[1]] = "/covers/one.jpg" }
 local cover_view = LibraryView.show({
     mode = "books", books = books, accounts = {},
@@ -336,6 +338,9 @@ expect(cover_view._item_rows[1]._has_private_badge == true
         and cover_view._item_rows[1]._private_badge_size == 24
         and cover_view._item_rows[2]._has_private_badge == false,
     "cover bookshelf private badge did not follow the private-reading state")
+expect(cover_view._item_rows[1]._pinned_badge~=nil and cover_view._item_rows[2]._pinned_badge==nil,'cover pinned badge did not follow explicit state')
+local status=cover_view:itemStatus(books[1])
+expect(status:find('Pinned',1,true) and status:find('Private',1,true) and status:find('Done',1,true),'list status omitted pin/private/completion labels')
 
 -- Plain Widget wrappers must release their owned content on CloseWidget,
 -- without consuming the event before sibling cards can be closed.
@@ -514,12 +519,16 @@ expect(selector.selected.y == 3 and selector.layout[1][1] == selector.custom_tit
     "content tabs are not reachable using vertical five-way navigation")
 selector.item_table[2].callback()
 expect(chosen_group == "archive:1", "group picker used position instead of stable server ID")
+selector_view:showSourceMenu()
+selector=shown[#shown]
 selector.custom_title_bar[2].callback()
 expect(changed_type == "public_account", "content picker lost the public-account action")
 selector_view:showOptions()
 local options_dialog = shown[#shown]
 options_dialog.buttons[3][2].callback()
 expect(display_key == "view_mode" and display_value == "cover", "cover option is missing from the shelf menu")
+selector_view:showOptions()
+options_dialog=shown[#shown]
 options_dialog.buttons[4][2].callback()
 expect(display_key == "paginated" and display_value == false, "continuous-list option is missing")
 selector_view.groups = {}
@@ -534,6 +543,16 @@ local long_selector = shown[#shown]
 expect(long_selector.items_per_page < #long_selector.item_table and long_selector.height <= 800
         and long_selector.page_info.handleEvent == nil,
     "overflowing picker lost pagination or exceeded the screen")
+local before_type=changed_type
+selector.custom_title_bar[2].callback()
+expect(changed_type==before_type,'dismissed source popup still handled a queued tab')
+local old_choice=long_selector.item_table[2].callback
+selector_view:onCloseWidget()
+chosen_group=nil;old_choice()
+expect(chosen_group==nil and not selector_view._shelf_popup,'closed shelf retained or dispatched its popup')
+local before_closed=#shown
+selector_view:showSourceMenu();selector_view:showOptions()
+expect(#shown==before_closed,'closed shelf opened another popup')
 if native_widgets then
     local layout = LibraryView.getLayout(true, 100)
     expect(layout.rows == 3 and layout.page_size == 9, "compact 600x800 shelf did not reclaim a third cover row")

@@ -1,5 +1,8 @@
 local Crypto = require("weread.lib.crypto")
+local FileIdentity = require("weread.lib.book_file_identity")
+local PositionSource = require("weread.lib.position_source")
 local ReaderState = require("weread.lib.reader_state")
+local ReaderContext = require("weread.lib.reader_context")
 local WeRead = require("weread.lib.protocol")
 local logger = require("weread.lib.logger")
 
@@ -8,6 +11,20 @@ local b64chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 -- Forward declarations used by the resumable-download checkpoint helpers.
 local xml_escape
 local body_fragment
+
+local function position_error(saving)
+    local tr = require("weread.lib.i18n").tr
+    error(tr(saving and "Could not save the original chapter data. Check storage and try again."
+        or "Could not verify the downloaded chapter data. Please download again."), 0)
+end
+
+function Content.store_position_source(workspace, book, chapter, source)
+    if not source then return nil end
+    local receipt = PositionSource.store(workspace, source, book.book_id or book.bookId,
+        chapter.chapterUid or chapter.chapterId)
+    if not receipt then position_error(true) end
+    return receipt
+end
 
 local function basename_safe(value)
     value = tostring(value or ""):gsub("[^%w%._-]", "_")
@@ -218,15 +235,6 @@ local function unique_asset_name(used, name, ext)
     return candidate
 end
 
-local function write_file(path, data)
-    local file, err = io.open(path, "wb")
-    if not file then
-        error(err)
-    end
-    file:write(data)
-    file:close()
-end
-
 local function make_path(path)
     local ok, util = pcall(require, "util")
     if ok and util and util.makePath then
@@ -284,6 +292,7 @@ function Content.open_full_download_workspace(settings, book)
         text_dir = text_dir,
         checkpoint_dir = checkpoint_dir,
         rendered_text_dir = rendered_text_dir,
+        book_id = tostring(book_id),
         resumable = true,
     }
 end
@@ -324,17 +333,25 @@ end
 local function read_full_download_checkpoint(path)
     local file = path and io.open(path, "rb")
     if not file then return nil end
-    local data = file:read("*a")
+    local data = file:read(4097)
     local closed = file:close()
-    if not closed then return nil end
+    if not closed or not data or #data > 4096 then return nil end
     local uid = data:match("^uid=([^\n]*)\n")
     local length = tonumber(data:match("\nlength=(%d+)\n"))
     local digest = data:match("\nsha256=([0-9a-f]+)\n")
     if not uid or not length or not digest then return nil end
-    return uid, length, digest
+    local receipt, receipt_count
+    receipt_count = 0
+    for line in data:gmatch("([^\n]*)\n") do
+        local value = line:match("^position_receipt=(.*)$")
+        if value then receipt, receipt_count = value, receipt_count + 1 end
+    end
+    if receipt_count > 1 or (data:find("position_receipt", 1, true)
+        and (receipt_count ~= 1 or #receipt ~= 64 or not receipt:match("^[0-9a-f]+$"))) then return nil end
+    return uid, length, digest, tonumber(data:match("\nsource_version=(%d+)\n")), data:match("\nsource_book=([^\n]*)\n"), receipt
 end
 
-function Content.full_download_chapter_exists(workspace, chapter, chapter_index)
+function Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version)
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local file = path and io.open(path, "rb")
     if not file then return false end
@@ -343,11 +360,15 @@ function Content.full_download_chapter_exists(workspace, chapter, chapter_index)
     if not closed or xhtml:find(workspace_chapter_marker(chapter), 1, true) == nil then
         return false
     end
-    local uid, length, digest = read_full_download_checkpoint(
+    local uid, length, digest, source_version, source_book, receipt = read_full_download_checkpoint(
         Content.full_download_checkpoint_path(workspace, chapter, chapter_index))
     return uid == basename_safe(chapter and chapter.chapterUid or "unknown")
         and length == #xhtml
         and digest == Crypto.sha256_hex(xhtml)
+        and (not source_book or source_book == workspace.book_id)
+        and (not expected_version or expected_version == 0 or source_version == expected_version)
+        and (not receipt or PositionSource.resolve({ workspace = workspace, receipt = receipt },
+            workspace.book_id, chapter.chapterUid or chapter.chapterId) ~= nil)
 end
 
 function Content.load_full_download_chapter(workspace, chapter, chapter_index)
@@ -395,10 +416,12 @@ local function full_download_chapter_xhtml(chapter, chapter_index, xhtml)
 </html>]]
 end
 
-function Content.save_full_download_chapter(workspace, chapter, chapter_index, xhtml)
+function Content.save_full_download_chapter(workspace, chapter, chapter_index, xhtml, source_version, position_receipt)
     local path = Content.full_download_chapter_path(workspace, chapter, chapter_index)
     local checkpoint_path = Content.full_download_checkpoint_path(workspace, chapter, chapter_index)
     if not path or not checkpoint_path then return nil, "missing full-book workspace" end
+    if position_receipt and (type(position_receipt) ~= "string" or #position_receipt ~= 64
+        or not position_receipt:match("^[0-9a-f]+$")) then position_error(false) end
     local chapter_xhtml = full_download_chapter_xhtml(chapter, chapter_index, xhtml)
     local ok, err = atomic_write(path, chapter_xhtml)
     if not ok then error(err or "could not checkpoint chapter") end
@@ -406,8 +429,9 @@ function Content.save_full_download_chapter(workspace, chapter, chapter_index, x
         "uid=" .. basename_safe(chapter and chapter.chapterUid or "unknown"),
         "length=" .. tostring(#chapter_xhtml),
         "sha256=" .. Crypto.sha256_hex(chapter_xhtml),
-        "",
-    }, "\n")
+        "source_version=" .. tostring(FileIdentity.version(source_version)),
+        "source_book=" .. tostring(workspace.book_id or ""),
+    }, "\n") .. "\n" .. (position_receipt and "position_receipt=" .. position_receipt .. "\n" or "")
     ok, err = atomic_write(checkpoint_path, checkpoint)
     if not ok then error(err or "could not checkpoint chapter metadata") end
     return path
@@ -447,10 +471,10 @@ function Content.load_full_download_css(workspace)
     return css
 end
 
-function Content.full_download_completed_chapters(workspace, chapters)
+function Content.full_download_completed_chapters(workspace, chapters, expected_version)
     local completed = {}
     for chapter_index, chapter in ipairs(chapters or {}) do
-        if Content.full_download_chapter_exists(workspace, chapter, chapter_index) then
+        if Content.full_download_chapter_exists(workspace, chapter, chapter_index, expected_version) then
             completed[chapter_index] = true
         end
     end
@@ -932,7 +956,39 @@ local function build_ncx_points(chapters, filename_for)
     return render(tree), play_order
 end
 
-function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
+local function resolve_position_source(reference, book, chapter)
+    if not reference then return nil end
+    local source = PositionSource.resolve(reference, book.book_id or book.bookId, chapter.chapterUid or chapter.chapterId)
+    if not source then position_error(false) end
+    return source
+end
+
+local function append_position_entries(entries, manifest, source, identity, path, digest, seen)
+    local meta = PositionSource.bind(source, identity, path, digest)
+    if not meta then position_error(false) end
+    for _, name in ipairs({ PositionSource.meta_path(source.chapter_uid), PositionSource.path_meta_path(path) }) do
+        entries[#entries + 1] = { name = name, data = meta }
+        manifest[#manifest + 1] = '<item id="position-' .. Crypto.sha256_hex(name) .. '" href="'
+            .. xml_escape(name:sub(7)) .. '" media-type="text/plain"/>'
+    end
+    if not seen[source.raw_sha256] then
+        seen[source.raw_sha256] = true
+        local name = PositionSource.raw_path(source.raw_sha256)
+        entries[#entries + 1] = { name = name, path = source.path, data = source.data }
+        manifest[#manifest + 1] = '<item id="position-raw-' .. source.raw_sha256 .. '" href="'
+            .. xml_escape(name:sub(7)) .. '" media-type="text/plain"/>'
+    end
+end
+
+local function rendered_file_digest(path)
+    local file = path and io.open(path, "rb")
+    local raw = file and file:read(PositionSource.MAX_RENDERED_BYTES + 1)
+    local closed = file and file:close()
+    if not closed or not raw or #raw > PositionSource.MAX_RENDERED_BYTES then position_error(false) end
+    return Crypto.sha256_hex(raw)
+end
+
+function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
@@ -956,6 +1012,16 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
 ]] .. body_fragment(xhtml) .. [[
 </body>
 </html>]]
+    local position_entries = {}
+    local source = resolve_position_source(position_reference, book, chapter)
+    local digest = Crypto.sha256_hex(xhtml)
+    local rendered_digest = source and Crypto.sha256_hex(chapter_xhtml)
+    if source then digest = Crypto.sha256_hex(digest .. ":" .. source.capture_id .. ":" .. rendered_digest) end
+    local identity_text = FileIdentity.encode(book, { chapter }, source_identity, digest)
+    if source then
+        append_position_entries(position_entries, manifest_assets, source, FileIdentity.decode(identity_text),
+            "OEBPS/text/chapter.xhtml", rendered_digest, {})
+    end
     local opf = [[<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0" prefix="dcterms: http://purl.org/dc/terms/">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
@@ -971,6 +1037,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
 <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
 <item id="style" href="style.css" media-type="text/css"/>
 <item id="chapter" href="text/chapter.xhtml" media-type="application/xhtml+xml"/>
+<item id="weread-source" href="weread-source.txt" media-type="text/plain"/>
 ]] .. table.concat(manifest_assets, "\n") .. [[
 </manifest>
 <spine>
@@ -993,15 +1060,17 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
         { name = "OEBPS/content.opf", data = opf },
         { name = "OEBPS/nav.xhtml", data = nav },
         { name = "OEBPS/style.css", data = css },
+        { name = FileIdentity.PATH, data = identity_text },
         { name = "OEBPS/text/chapter.xhtml", data = chapter_xhtml },
     }
+    for _, entry in ipairs(position_entries) do entries[#entries + 1] = entry end
     append_asset_entries(entries, assets)
     write_epub(path, entries)
     Content.register_annotation_document(book, path, { chapter })
     return path
 end
 
-function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix, assets, css, cover_data)
+function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix, assets, css, cover_data, source_identity, position_sources)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
@@ -1018,6 +1087,7 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
         [[<item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>]],
         [[<item id="toc" href="toc.ncx" media-type="application/x-dtbncx+xml"/>]],
         [[<item id="style" href="style.css" media-type="text/css"/>]],
+        [[<item id="weread-source" href="weread-source.txt" media-type="text/plain"/>]],
     }
     local spine_items = {}
     -- Resumable full-book jobs checkpoint ready-to-package XHTML files.  The
@@ -1055,11 +1125,35 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
     end
     append_asset_entries(entries, assets)
 
+    local source_hashes, checkpoint_version, position_bundles = {}, nil, {}
+    local position_uids = {}
     for chapter_index, chapter in ipairs(chapters or {}) do
         local uid = tostring(chapter.chapterUid or chapter_index)
         local filename = string.format("text/chapter-%03d.xhtml", chapter_index)
         local id = item_id("chapter_", uid)
         local title = chapter.title or ("Chapter " .. uid)
+        local reference
+        if workspace_text_dir then
+            local workspace = chapter_bodies.__source_workspace
+            if not Content.full_download_chapter_exists(workspace, chapter, chapter_index) then position_error(false) end
+            local checkpoint = { read_full_download_checkpoint(workspace
+                and Content.full_download_checkpoint_path(workspace, chapter, chapter_index)) }
+            local digest, version = checkpoint[3], checkpoint[4]
+            if checkpoint[6] then reference = { workspace = workspace, receipt = checkpoint[6] } end
+            if checkpoint[5] ~= tostring(book_id) then version = 0 end
+            source_hashes[#source_hashes + 1] = uid .. ":" .. tostring(digest or "unknown")
+            version = FileIdentity.version(version)
+            if checkpoint_version == nil then checkpoint_version = version
+            elseif checkpoint_version ~= version then checkpoint_version = 0 end
+        else
+            source_hashes[#source_hashes + 1] = uid .. ":" .. Crypto.sha256_hex(chapter_bodies[uid] or "")
+            if position_sources and position_sources.receipts then
+                local receipt = position_sources.receipts[uid]
+                if receipt then reference = { workspace = position_sources.workspace, receipt = receipt } end
+            elseif position_sources then reference = position_sources[uid] end
+        end
+        local source = resolve_position_source(reference, book, chapter)
+        local rendered_digest
         if not workspace_text_dir then
             local chapter_xhtml = [[<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -1073,9 +1167,26 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
 </body>
 </html>]]
             table.insert(entries, { name = "OEBPS/" .. filename, data = chapter_xhtml })
+            if source then rendered_digest = Crypto.sha256_hex(chapter_xhtml) end
+        elseif source then
+            rendered_digest = rendered_file_digest(workspace_text_dir .. "/" .. filename:match("[^/]+$"))
+        end
+        if source then
+            if position_uids[uid] then position_error(false) end
+            position_uids[uid] = true
+            source_hashes[#source_hashes] = source_hashes[#source_hashes] .. ":" .. source.capture_id .. ":" .. rendered_digest
+            position_bundles[#position_bundles + 1] = { source = source, path = "OEBPS/" .. filename, digest = rendered_digest }
         end
         table.insert(manifest_items, [[<item id="]] .. id .. [[" href="]] .. filename .. [[" media-type="application/xhtml+xml"/>]])
         table.insert(spine_items, [[<itemref idref="]] .. id .. [["/>]])
+    end
+
+    local identity_text = FileIdentity.encode(book, chapters, source_identity,
+        Crypto.sha256_hex(table.concat(source_hashes, "\n")), checkpoint_version)
+    local seen_raw = {}
+    for _, bundle in ipairs(position_bundles) do
+        append_position_entries(entries, manifest_items, bundle.source, FileIdentity.decode(identity_text),
+            bundle.path, bundle.digest, seen_raw)
     end
 
     local opf = [[<?xml version="1.0" encoding="utf-8"?>
@@ -1126,6 +1237,7 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
 </body>
 </html>]]
     css = css or [[body { line-height: 1.7; margin: 5%; } img { max-width: 100%; }]]
+    table.insert(entries, { name = FileIdentity.PATH, data = identity_text })
     table.insert(entries, { name = "OEBPS/content.opf", data = opf })
     table.insert(entries, { name = "OEBPS/nav.xhtml", data = nav })
     table.insert(entries, { name = "OEBPS/toc.ncx", data = ncx })
@@ -1472,49 +1584,53 @@ function Content.download_remote_images_to_files(client, xhtml, used_names, work
     return body, assets
 end
 
+local function reader_context_error(loading)
+    local tr = require("weread.lib.i18n").tr
+    error(tr(loading and "Could not load this book’s reading page. Check your connection and login, then try again."
+        or "The reading page could not be verified for this book. Refresh the book details and try again."), 0)
+end
+
+local function verified_reader_url(book, chapter_uid)
+    local valid, url = pcall(ReaderContext.url, book, chapter_uid)
+    if not valid then reader_context_error() end
+    return url
+end
+
 function Content.ensure_reader_state(client, book)
-    local book_id = book.book_id or book.bookId
-    local reader_url = book.reader_url or WeRead.reader_url(book_id)
-    local reader_html = client:get_text(reader_url, { referer = reader_url })
-    local state = Content.extract_reader_state(reader_html, function(encoded)
+    local reader_url = verified_reader_url(book)
+    -- A rejected response cannot leave a previously usable download session.
+    book.psvts, book.pclts, book.token = nil, nil, nil
+    local loaded, reader_html = pcall(client.get_text, client, reader_url, { referer = reader_url,
+        sensitive = true, diagnostic_api = "reader_context" })
+    if not loaded then reader_context_error(true) end
+    local valid, state = pcall(ReaderContext.project, book, reader_html, function(encoded)
         return client:json_decode(encoded)
     end)
-    book.book_id = book.book_id or state.book_id or book.bookId
+    if not valid then reader_context_error() end
+    book.book_id = state.book_id
     book.title = book.title or state.title
     book.author = book.author or state.author
-    -- These values belong to one Web Reader session. Never retain a cached
-    -- value when the freshly opened reader omits it (notably pclts).
-    book.psvts = state.psvts
-    book.pclts = state.pclts
-    book.token = state.token
+    book.psvts, book.pclts, book.token = state.psvts, state.pclts, state.token
     book.reader_url = reader_url
-
     ReaderState.apply_to_book(book, state)
-
-    if not book.psvts then
-        error("reader.psvts not found")
-    end
     return state
 end
 
---- Refresh psvts before downloading a chapter (matches per-chapter reader page fetch).
+--- Refresh the same-book context before each chapter download.
 function Content.refresh_reader_state(client, book, chapter)
-    book.psvts = nil
-    local book_id = book.book_id or book.bookId
-    if chapter and chapter.chapterUid then
-        book.reader_url = WeRead.reader_url(book_id, chapter.chapterUid)
-    else
-        book.reader_url = book.reader_url or WeRead.reader_url(book_id)
-    end
-    Content.ensure_reader_state(client, book)
+    book.reader_url = verified_reader_url(book, chapter and chapter.chapterUid)
+    return Content.ensure_reader_state(client, book)
 end
 
 function Content.fetch_catalog(client, book)
     local book_id = book.book_id or book.bookId
-    local reader_url = book.reader_url or WeRead.reader_url(book_id)
-    local catalog = client:post_json("https://weread.qq.com/web/book/chapterInfos", {
+    local reader_url = verified_reader_url(book)
+    local loaded, catalog = pcall(client.post_json, client, "https://weread.qq.com/web/book/chapterInfos", {
         bookIds = { tostring(book_id) },
-    }, { referer = reader_url })
+    }, { referer = reader_url, sensitive = true, diagnostic_api = "chapter_catalog" })
+    if not loaded then
+        error(require("weread.lib.i18n").tr("Could not load this book’s chapter list. Check your connection and login, then try again."), 0)
+    end
     local chapters = Content.readable_chapters(Content.normalize_chapters(catalog, book_id))
     book.chapters = chapters
     return chapters
@@ -1574,7 +1690,8 @@ function Content.fetch_txt_as_xhtml(client, settings, book, chapter)
     if not ok_t1 then t1 = "" end
     local plain = Content.decode_content_shards(t0, t1, "")
     Content.cache_annotation_source(settings, book, chapter, plain, true)
-    return Content.txt_to_xhtml(plain)
+    local source = PositionSource.capture(book, chapter, plain, "web_txt")
+    return Content.txt_to_xhtml(plain), source
 end
 
 function Content.fetch_chapter_xhtml(client, settings, book, chapter)
@@ -1596,11 +1713,13 @@ function Content.fetch_chapter_xhtml(client, settings, book, chapter)
     end
 
     book._content_format = "epub"
-    return Content.decode_content_shards(
+    local raw = Content.decode_content_shards(
         e0,
         Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/e_1"),
         Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/e_3")
     )
+    local source = PositionSource.capture(book, chapter, raw, "web_xhtml")
+    return raw, source
 end
 
 -- True when the text following the literal "0" of a font-size declaration
@@ -1740,7 +1859,8 @@ end
 
 function Content.fetch_chapter_epub(client, settings, book, chapter)
     local book_id = book.book_id or book.bookId
-    local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+    local source_identity = FileIdentity.capture(book)
+    local xhtml, source = Content.fetch_chapter_xhtml(client, settings, book, chapter)
     Content.cache_annotation_source(settings, book, chapter, xhtml)
     local css = Content.fetch_chapter_css(client, settings, book, chapter)
     xhtml, css = apply_chapter_annotations(client, settings, book, chapter, xhtml, css)
@@ -1757,7 +1877,7 @@ function Content.fetch_chapter_epub(client, settings, book, chapter)
             table.insert(assets, a)
         end
     end
-    local path = Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css)
+    local path = Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, source)
     book.cached_chapters = book.cached_chapters or {}
     book.cached_chapters[tostring(chapter.chapterUid)] = path
     book.cached_file = path
@@ -1769,7 +1889,7 @@ end
 
 function Content.fetch_single_chapter_content(client, settings, book, chapter, state)
     state = state or {}
-    local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+    local xhtml, source = Content.fetch_chapter_xhtml(client, settings, book, chapter)
     Content.cache_annotation_source(settings, book, chapter, xhtml)
     if not state.css then
         state.css = Content.fetch_chapter_css(client, settings, book, chapter)
@@ -1790,19 +1910,19 @@ function Content.fetch_single_chapter_content(client, settings, book, chapter, s
             table.insert(chapter_assets, a)
         end
     end
-    return xhtml, chapter_assets
+    return xhtml, chapter_assets, source
 end
 
 -- Split chapter downloading around annotation fetching so the UI can request
 -- thought batches cooperatively instead of blocking inside Thoughts.apply().
 function Content.fetch_single_chapter_source(client, settings, book, chapter, state)
     state = state or {}
-    local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+    local xhtml, source = Content.fetch_chapter_xhtml(client, settings, book, chapter)
     Content.cache_annotation_source(settings, book, chapter, xhtml)
     if not state.css then
         state.css = Content.fetch_chapter_css(client, settings, book, chapter)
     end
-    return xhtml
+    return xhtml, source
 end
 
 function Content.finalize_single_chapter_content(client, settings, book, chapter, xhtml, state)
@@ -1842,45 +1962,55 @@ end
 
 function Content.fetch_chapters_epub(client, settings, book, chapters, options)
     options = options or {}
+    local source_identity = FileIdentity.capture(book)
     local selected = {}
     local bodies = {}
     local assets = {}
     local used_asset_names = {}
     local cache = settings:get("cache", {})
     local css
-    for chapter_index, chapter in ipairs(chapters or {}) do
-        if options.progress then
-            options.progress(chapter_index, #chapters, chapter, "text")
-        end
-        local xhtml = Content.fetch_chapter_xhtml(client, settings, book, chapter)
-    Content.cache_annotation_source(settings, book, chapter, xhtml)
-        if not css then
-            css = Content.fetch_chapter_css(client, settings, book, chapter)
-        end
-        xhtml, css = apply_chapter_annotations(client, settings, book, chapter, xhtml, css)
-        if cache.download_book_images then
+    local workspace = Content.create_download_workspace(settings, book)
+    local receipts = {}
+    local ok, path = pcall(function()
+        for chapter_index, chapter in ipairs(chapters or {}) do
             if options.progress then
-                options.progress(chapter_index, #chapters, chapter, "images")
+                options.progress(chapter_index, #chapters, chapter, "text")
             end
-            local chapter_assets, src_map = Content.download_chapter_assets(client, book, chapter, used_asset_names)
-            for _, asset in ipairs(chapter_assets) do
-                table.insert(assets, asset)
+            local xhtml, source = Content.fetch_chapter_xhtml(client, settings, book, chapter)
+            local uid = tostring(chapter.chapterUid or chapter_index)
+            receipts[uid] = Content.store_position_source(workspace, book, chapter, source)
+            FileIdentity.check(source_identity, book)
+            Content.cache_annotation_source(settings, book, chapter, xhtml)
+            if not css then
+                css = Content.fetch_chapter_css(client, settings, book, chapter)
             end
-            xhtml = Content.rewrite_image_sources(xhtml, src_map)
-            local inline_xhtml, inline_assets = Content.download_remote_images(client, xhtml, used_asset_names)
-            xhtml = inline_xhtml
-            for _, a in ipairs(inline_assets) do
-                table.insert(assets, a)
+            xhtml, css = apply_chapter_annotations(client, settings, book, chapter, xhtml, css)
+            if cache.download_book_images then
+                if options.progress then
+                    options.progress(chapter_index, #chapters, chapter, "images")
+                end
+                local chapter_assets, src_map = Content.download_chapter_assets(client, book, chapter, used_asset_names)
+                for _, asset in ipairs(chapter_assets) do
+                    table.insert(assets, asset)
+                end
+                xhtml = Content.rewrite_image_sources(xhtml, src_map)
+                local inline_xhtml, inline_assets = Content.download_remote_images(client, xhtml, used_asset_names)
+                xhtml = inline_xhtml
+                for _, a in ipairs(inline_assets) do
+                    table.insert(assets, a)
+                end
             end
+            table.insert(selected, chapter)
+            bodies[uid] = xhtml
         end
-        local uid = tostring(chapter.chapterUid or chapter_index)
-        table.insert(selected, chapter)
-        bodies[uid] = xhtml
-    end
-    if #selected == 0 then
-        error("No readable chapter found")
-    end
-    local path = Content.save_book_epub(settings, book, selected, bodies, options.suffix or "book", assets, css)
+        if #selected == 0 then
+            error("No readable chapter found")
+        end
+        return Content.save_book_epub(settings, book, selected, bodies, options.suffix or "book", assets, css, nil, source_identity,
+            { workspace = workspace, receipts = receipts })
+    end)
+    Content.cleanup_download_workspace(workspace)
+    if not ok then error(path, 0) end
     book.cached_chapters = book.cached_chapters or {}
     for chapter_index, chapter in ipairs(selected) do
         book.cached_chapters[tostring(chapter.chapterUid or chapter_index)] = path
@@ -2084,8 +2214,27 @@ end
 function Content.mp_article_path(settings, book, article)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
+    local Identity=require('weread.lib.mp_cache_identity')
+    local key=Identity.key(book,article)
+    local path=key and Identity.path(dir,key)
+    if not path then error(require('weread.lib.plugin_util').tr('This article has no stable identifier. Refresh the article list before downloading.'),0) end
+    return path
+end
+
+function Content.mp_article_legacy_path(settings,book,article)
+    local dir=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
     local title = filename_safe(article.title or "article")
     return dir .. "/" .. title .. ".html"
+end
+
+local function prepare_mp_article_cache(settings,book,article)
+    local Identity=require('weread.lib.mp_cache_identity')
+    local root=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
+    local key=Identity.key(book,article)
+    if not key or not Identity.prepare(root,key) then
+        error(require('weread.lib.plugin_util').tr('Could not save this article cache. The previous cache is kept.'),0)
+    end
+    return root,key
 end
 
 -- MP articles are kept as standalone HTML files, so embedding every image as a
@@ -2114,8 +2263,12 @@ local function mp_article_asset_name(book, article)
     return ".weread-mp-" .. basename_safe(key) .. "-assets"
 end
 
+-- Older title-based HTML refers to this directory beside its original file.
+Content.mp_article_asset_name = mp_article_asset_name
+
 function Content.download_mp_images_to_files(
         client, settings, book, article, body_html, progress)
+    prepare_mp_article_cache(settings,book,article)
     body_html = tostring(body_html or "")
     local html_path = Content.mp_article_path(settings, book, article)
     local article_dir = html_path:match("^(.*)/[^/]+$")
@@ -2209,36 +2362,58 @@ function Content.download_mp_images_to_files(
 end
 
 function Content.mp_article_cached_path(settings, book, article)
-    local html_path = Content.mp_article_path(settings, book, article)
-    local f = io.open(html_path, "r")
-    if f then
-        f:close()
-        return html_path
+    local Identity=require('weread.lib.mp_cache_identity')
+    local root=Content.book_resolved_dir(settings,book.book_id or book.bookId,book)
+    local key=Identity.key(book,article)
+    if key then
+        local current,reason=require('weread.lib.mp_cache_versions').resolve(root,key)
+        if current then return current,'identity' end
+        if reason=='invalid' then return nil,'identity_mismatch' end
     end
-    local epub_path = html_path:gsub("%.html$", ".epub")
-    f = io.open(epub_path, "r")
-    if f then
-        f:close()
-        return epub_path
+    local path=key and Identity.path(root,key)
+    if path then
+        local lfs=require('libs/libkoreader-lfs')
+        if lfs.symlinkattributes(path) then
+            if Identity.valid(root,key) then return path,'identity' end
+            return nil,'identity_mismatch'
+        end
     end
-    return nil
+    local html_path=Content.mp_article_legacy_path(settings,book,article)
+    local legacy_path
+    for _i,legacy in ipairs({html_path,(html_path:gsub('%.html$','.epub'))}) do
+        if require('libs/libkoreader-lfs').symlinkattributes(legacy,'mode')=='file' then
+            local file=io.open(legacy,'rb')
+            if file then file:close();legacy_path=legacy;break end
+        end
+    end
+    if not legacy_path then return nil end
+    local catalog=book.mp_articles
+    if type(catalog)~='table' and type(settings.get)=='function' then
+        local record=settings:get('books',{})[book.book_id or book.bookId]
+        catalog=type(record)=='table' and record.mp_articles or nil
+    end
+    local allowed,reason=Identity.legacy_allowed(book,article,catalog,function(row) return filename_safe(row.title or 'article') end)
+    if not allowed then return nil,reason end
+    return legacy_path,'legacy'
 end
 
-function Content.save_mp_article_html(settings, book, article, body_html)
-    local book_id = book.book_id or book.bookId
-    local dir = Content.book_resolved_dir(settings, book_id, book)
-    -- Pin the real directory on the record so later lookups, moves and cleanup
-    -- can find these files after the download directory changes.
-    book.cache_dir = dir
-    os.execute("mkdir -p " .. string.format("%q", dir))
+function Content.render_mp_article_html(article, body_html, key, revision)
     local title = article.title or "Article"
-    local path = Content.mp_article_path(settings, book, article)
+    local revision_marker = ""
+    if revision ~= nil then
+        assert(type(revision) == "string" and #revision == 16 and revision:match("^[a-f0-9]+$"),
+            "invalid MP cache revision")
+        -- KOReader's hash metadata uses sampled bytes. Put the immutable
+        -- attempt identity in the first sample, including for image-free bodies.
+        revision_marker = '<meta name="weread-mp-cache-revision" content="' .. revision .. '"/>\n'
+    end
     body_html = strip_mp_reader_font_styles(body_html)
     body_html = strip_blank_mp_blocks(body_html)
 
     local html = [[<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
+]] .. require('weread.lib.mp_cache_identity').marker(key) .. revision_marker .. [[
 <meta charset="utf-8"/>
 <title>]] .. xml_escape(title) .. [[</title>
 <style>
@@ -2287,12 +2462,22 @@ p {
 </body>
 </html>]]
 
-    write_file(path, html)
+    return html
+end
+
+function Content.save_mp_article_html(settings, book, article, body_html)
+    local dir,key=prepare_mp_article_cache(settings,book,article)
+    book.cache_dir = dir
+    local html=Content.render_mp_article_html(article,body_html,key)
+    local path=Content.mp_article_path(settings,book,article)
+    local saved=require('weread.lib.mp_cache_identity').write(dir,key,html)
+    if not saved then error(require('weread.lib.plugin_util').tr('Could not save this article cache. The previous cache is kept.'),0) end
     return path
 end
 
 function Content.fetch_mp_article_html(client, settings, book, article, opts)
     opts = opts or {}
+    Content.mp_article_path(settings,book,article) -- Validate the local binding before any request.
     local book_id = article.bookId
     if not book_id or book_id == "" then
         book_id = book.book_id or book.bookId

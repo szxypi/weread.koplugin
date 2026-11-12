@@ -65,7 +65,7 @@ expect(cache.show_annotations == false, "unmatched document could not disable th
 expect(ensure_count == 0, "hiding annotations unexpectedly opened the matching guide")
 expect(apply_count == 1 and flush_count == 1,
     "hidden state was not persisted and applied exactly once")
-expect(popup_close_count == 1 and notice == "Underlines and thoughts hidden",
+expect(popup_close_count == 1 and notice == "Underlines, thoughts and bookmarks hidden",
     "hiding did not close the popup or report the new state")
 
 -- Showing persists the global choice first, then guides an unmatched document.
@@ -83,7 +83,7 @@ host._annotationSummary = function() return { chapters = 1 } end
 host:toggleAnnotationVisibility()
 expect(cache.show_annotations == true and ensure_count == 1,
     "matched document reopened the matching guide")
-expect(notice == "Underlines and thoughts shown",
+expect(notice == "Underlines, thoughts and bookmarks shown",
     "matched document did not report the shown state")
 
 print(("annotation_visibility_spec: %d checks"):format(checks))

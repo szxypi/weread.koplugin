@@ -1,0 +1,29 @@
+{
+  "environment": "official KOReader LuaJIT; Linux ARM64 container",
+  "measure": "separate case scope; retained Lua memory after GC, excluding input source; not peak RSS",
+  "synthetic_only": true,
+  "hardware_verified": false,
+  "cases": [
+    {
+      "source_bytes": 1048576,
+      "angle_expansion": false,
+      "checkpoints": 4096,
+      "retained_extra_kib": 2504.97,
+      "build_lookup_cpu_seconds": 0.2957
+    },
+    {
+      "source_bytes": 2097152,
+      "angle_expansion": false,
+      "checkpoints": 8192,
+      "retained_extra_kib": 4930.38,
+      "build_lookup_cpu_seconds": 0.607
+    },
+    {
+      "source_bytes": 2097152,
+      "angle_expansion": true,
+      "checkpoints": 8192,
+      "retained_extra_kib": 10561.78,
+      "build_lookup_cpu_seconds": 1.7512
+    }
+  ]
+}

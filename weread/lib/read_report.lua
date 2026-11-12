@@ -1,5 +1,8 @@
 local Content = require("weread.lib.content")
 local WeRead = require("weread.lib.protocol")
+local RemoteProgress = require("weread.lib.remote_progress")
+local ProgressReadback = require("weread.lib.progress_readback")
+local _ = require("weread.lib.i18n").tr
 
 local logger = require("weread.lib.logger").scoped("ReadReport")
 
@@ -26,6 +29,14 @@ local CONTEXT_FIELDS = {
     "read_context_updated_at", "read_session_entered_at", "read_session_id",
 }
 
+local TIME_DEFERRED={}
+local function deferred(outcome,ok,value)
+    if ok and getmetatable(value)==TIME_DEFERRED then
+        outcome.deferred_until=value.resume_at
+        return true
+    end
+    return false
+end
 local ReadReport = {}
 ReadReport.__index = ReadReport
 
@@ -120,6 +131,19 @@ local function response_accepted(result, http_code)
     return false, body
 end
 
+local function position_acknowledged(result, code)
+    if tonumber(code) ~= 200 or type(result) ~= "table" then return false end
+    local body = response_body(result)
+    if type(body) ~= "table" then return false end
+    for _i, node in ipairs({ result, body }) do
+        for _j, key in ipairs({ "errcode", "errCode", "errorCode" }) do
+            if node[key] ~= nil and node[key] ~= 0 and node[key] ~= "0" then return false end
+        end
+        if node.succ ~= nil and node.succ ~= true and node.succ ~= 1 and node.succ ~= "1" then return false end
+    end
+    return body.succ == true or body.succ == 1 or body.succ == "1"
+end
+
 local function full_response_body(client, result)
     if type(result) == "table" and client and type(client.json_encode) == "function" then
         local ok, encoded = pcall(function()
@@ -175,10 +199,15 @@ function ReadReport:new(options)
         settings = options.settings,
         client = options.client,
         library_db = options.library_db,
+        coverage = options.coverage,
         scheduler = options.scheduler,
         get_document = options.get_document,
         detect_book = options.detect_book,
         position_provider = options.position_provider,
+        position_preparer = options.position_preparer,
+        source_dispatch = options.source_dispatch,
+        on_source_unconfirmed = options.on_source_unconfirmed,
+        on_source_confirmed = options.on_source_confirmed,
         is_online = options.is_online or function() return true end,
         now = options.now or os.time,
         session_id = tostring({}) .. ":" .. tostring((options.now or os.time)()),
@@ -351,6 +380,7 @@ function ReadReport:stop(reason)
     reason = reason or "unspecified"
     local had_task = self.task ~= nil
     self.generation = self.generation + 1
+    self.preparation=nil
     if self.task then
         self.scheduler:unschedule(self.task)
         self.task = nil
@@ -361,6 +391,7 @@ function ReadReport:stop(reason)
     self.state = reason == "suspend" and "suspended"
         or "stopped"
     self.stop_reason = reason
+    self.deferred_until=nil
     if had_task then
         log("info", "reading time report stopped:",
             "reason=", reason,
@@ -420,7 +451,9 @@ end
 
 function ReadReport:_schedule_next(generation, task)
     if self.generation == generation and self.task == task then
-        self.scheduler:scheduleIn(self:_interval(), task)
+        local delay=self.deferred_until and math.max(.1,self.deferred_until-self.now()) or self:_interval()
+        self.deferred_until=nil
+        self.scheduler:scheduleIn(delay,task)
     end
 end
 
@@ -437,28 +470,60 @@ function ReadReport:_tick(generation, task)
             self:_schedule_next(generation, task)
             return
         end
-        local allow_renewal = self:_renewal_allowed()
-        local spawned, spawn_err = self:_start_job(
-            book_id, allow_renewal, generation, task, position)
-        if spawned then
+        if self.position_preparer and position then
+            if self.preparation then return end
+            local preparation={};self.preparation=preparation
+            self.position_preparer(position,function(plan)
+                if self.preparation~=preparation or self.generation~=generation or self.task~=task then return end
+                self.preparation=nil
+                local prepared,prepare_error=pcall(function()
+                    local checked=self:_precheck()
+                    if not checked or self.job or not plan or not plan.is_current() then
+                        if checked and not self.job then self.state='waiting_for_progress';self:_log_skip('source_position_unavailable') end
+                        self:_schedule_next(generation,task);return
+                    end
+                    self:_dispatch_tick(generation,task,book_id,plan.position,plan.deadline,plan)
+                end)
+                if not prepared then
+                    self:_set_error(prepare_error,'task','read report task failed:')
+                    self:_schedule_next(generation,task)
+                end
+            end)
             return
         end
-        if not self.logged_inline_fallback then
-            log("warn", "read report subprocess unavailable, reporting inline:",
-                tostring(spawn_err))
-            self.logged_inline_fallback = true
-        end
-        local outcome = self:_run_pipeline(book_id, {
-            allow_renewal = allow_renewal,
-            position = position,
-        })
-        self:_apply_outcome(outcome)
-        self:_schedule_next(generation, task)
+        self:_dispatch_tick(generation,task,book_id,position)
     end)
     if not ok then
+        self.preparation=nil
         self:_set_error(err, "task", "read report task failed:")
         self:_schedule_next(generation, task)
     end
+end
+
+function ReadReport:_dispatch_tick(generation,task,book_id,position,source_deadline,plan)
+    local dispatch
+    if source_deadline and self.source_dispatch then
+        if not plan or not plan.is_current() then self:_schedule_next(generation,task); return end
+        dispatch=self.source_dispatch:begin(book_id,position,plan.source_position,'time')
+        if not dispatch then self.state='waiting_for_progress'; self:_schedule_next(generation,task); return end
+        if not plan.is_current() then
+            self.source_dispatch:finish(dispatch,{enter_attempted=false,report_attempted=false})
+            self:_schedule_next(generation,task); return
+        end
+    end
+    local allow_renewal = self:_renewal_allowed()
+    local spawned, spawn_err = self:_start_job(
+        book_id, allow_renewal, generation, task, position,source_deadline,dispatch)
+    if spawned then return end
+    if not self.logged_inline_fallback then
+        log("warn", "read report subprocess unavailable, reporting inline:",tostring(spawn_err))
+        self.logged_inline_fallback = true
+    end
+    local outcome = self:_run_pipeline(book_id, {
+        allow_renewal = allow_renewal, position = position, source_deadline=source_deadline,
+    })
+    if not dispatch or self.source_dispatch:finish(dispatch,outcome) then self:_apply_outcome(outcome) end
+    self:_schedule_next(generation, task)
 end
 
 -- Parent-side gate before any network work. Returns true, book_id when a
@@ -543,13 +608,13 @@ end
 -- Subprocess job management (parent side)
 -- ------------------------------------------------------------------
 
-function ReadReport:_start_job(book_id, allow_renewal, generation, task, position)
+function ReadReport:_start_job(book_id, allow_renewal, generation, task, position,source_deadline,dispatch)
     local runner = self.subprocess
     if not runner then
         return false, "no subprocess support"
     end
     local pid, read_fd = runner.run(function(_pid, child_write_fd)
-        local outcome = self:_child_report(book_id, allow_renewal, position)
+        local outcome = self:_child_report(book_id, allow_renewal, position,source_deadline)
         local ok, encoded = pcall(function()
             return self.client:json_encode(outcome)
         end)
@@ -571,6 +636,7 @@ function ReadReport:_start_job(book_id, allow_renewal, generation, task, positio
         poll_interval = JOB_POLL_INITIAL_SECONDS,
         auth_fingerprint = self:_auth_fingerprint(),
         context_fingerprint = self:_context_fingerprint(book_id),
+        source_dispatch = dispatch,
     }
     job.poll = function()
         self:_poll_job(job, generation, task)
@@ -678,6 +744,7 @@ end
 
 function ReadReport:_apply_job_outcome(job, outcome)
     local book_id = job.book_id
+    if job.source_dispatch and not self.source_dispatch:finish(job.source_dispatch,outcome) then return false end
     if type(outcome) == "table" then
         if type(outcome.auth) == "table" then
             if self:_auth_fingerprint() ~= job.auth_fingerprint then
@@ -716,8 +783,19 @@ function ReadReport:_apply_outcome(outcome)
         self:_set_error("report job returned no result", "job", "read report job failed:")
         return false
     end
+    if type(outcome.deferred_until)=='number' and outcome.deferred_until==outcome.deferred_until
+        and outcome.deferred_until%1==0 and outcome.deferred_until>=self.now()-JOB_TIMEOUT_SECONDS
+        and outcome.deferred_until<=self.now()+86400 then
+        self.deferred_until=outcome.deferred_until
+        self.state='waiting_for_offline_time'
+        return false
+    end
     if outcome.renew_attempted then
         self.last_renew_attempt = self.now()
+    end
+    if outcome.source_unconfirmed and self.on_source_unconfirmed then self.on_source_unconfirmed() end
+    if outcome.source_confirmed and outcome.position_confirmed and outcome.acknowledged and self.on_source_confirmed then
+        self.on_source_confirmed(outcome.remote)
     end
     if outcome.accepted then
         self:_record_success({ synckey = outcome.has_synckey and true or nil })
@@ -738,6 +816,17 @@ function ReadReport:_context_snapshot(book)
 end
 
 function ReadReport:_persist_context(book_id, snapshot)
+    if self.settings.patch_reading_state and self.settings:get_book(book_id) then
+        local patch={}
+        for _i,field in ipairs(CONTEXT_FIELDS) do
+            if field~='title' then
+                if snapshot[field]==nil then patch[field]=false else patch[field]=snapshot[field] end
+            end
+        end
+        local ok,err=self.settings:patch_reading_state(book_id,patch)
+        if not ok then error(err or 'Could not save report context',0) end
+        return
+    end
     local books = self.settings:get("books", {})
     local book = book_record(books, book_id) or { book_id = book_id }
     local changed = false
@@ -768,7 +857,7 @@ end
 -- Child entry point. Neuters settings persistence inside the fork and
 -- captures auth changes (Set-Cookie merges, cookie renewal) so the parent
 -- can persist them from the outcome.
-function ReadReport:_child_report(book_id, allow_renewal, position)
+function ReadReport:_child_report(book_id, allow_renewal, position,source_deadline)
     self._no_persist = true
     self.settings.flush = function() end
     local auth_changed = false
@@ -784,6 +873,7 @@ function ReadReport:_child_report(book_id, allow_renewal, position)
         return self:_run_pipeline(book_id, {
             allow_renewal = allow_renewal,
             position = position,
+            source_deadline=source_deadline,
         })
     end)
     if not ok then
@@ -810,6 +900,8 @@ end
 function ReadReport:_run_pipeline(book_id, opts)
     opts = opts or {}
     local outcome = { accepted = false, renew_attempted = false }
+    if opts.source_deadline then outcome.enter_attempted,outcome.report_attempted=false,false end
+    local source_auth=opts.source_deadline and self:_auth_fingerprint()
 
     local context_ok, book = pcall(function()
         return self:ensure_context(book_id, false)
@@ -820,11 +912,48 @@ function ReadReport:_run_pipeline(book_id, opts)
         outcome.error_prefix = "read report context initialization failed:"
         return outcome
     end
+    if opts.source_deadline then
+        -- The parent verified the native frame before forking. The child uses
+        -- only scalar expiry/auth checks; no inherited native document calls.
+        local attempt={before_dispatch=function()
+            local now=self.now()
+            return now>=opts.source_deadline-30 and now<=opts.source_deadline and self:_auth_fingerprint()==source_auth
+        end}
+        local original_summary=book.summary
+        local snapshot={};for key,value in pairs(book) do snapshot[key]=value end;book=snapshot
+        local sent,result,code=pcall(self._send,self,book_id,book,opts.position,opts.elapsed_seconds,attempt)
+        book.summary=original_summary
+        outcome.book=self:_context_snapshot(book)
+        outcome.enter_attempted,outcome.report_attempted=attempt.enter_attempted==true,attempt.report_attempted==true
+        if deferred(outcome,sent,result) then return outcome end
+        outcome.accepted=sent and position_acknowledged(result,code) or false
+        outcome.acknowledged=outcome.accepted
+        if outcome.accepted then
+            local target=ProgressReadback.expected(book_id,opts.position)
+            local receipt={}
+            self._position_confirmation={receipt=receipt,reads=0,target=target,auth=self:_auth_fingerprint()}
+            local confirmed
+            for _i=1,3 do
+                confirmed=select(2,self:confirm_position(receipt))
+                if confirmed.position_confirmed or not confirmed.confirmation then break end
+            end
+            outcome.accepted=confirmed.position_confirmed==true
+            outcome.position_confirmed,outcome.confirmation_reads=confirmed.position_confirmed,confirmed.confirmation_reads
+            if outcome.position_confirmed then outcome.source_confirmed,outcome.remote=true,confirmed.remote end
+        end
+        if not outcome.accepted then
+            outcome.source_unconfirmed=attempt.enter_attempted==true or attempt.report_attempted==true
+            outcome.error_kind=outcome.source_unconfirmed and 'unconfirmed' or 'position'
+            outcome.error=outcome.source_unconfirmed and 'upload_write_unconfirmed' or 'source_position_changed'
+        end
+        return outcome
+    end
     local ok, result, http_code = pcall(function()
         return self:_send(
             book_id, book, opts.position, opts.elapsed_seconds)
     end)
     outcome.book = self:_context_snapshot(book)
+    if deferred(outcome,ok,result) then return outcome end
     local accepted, accepted_body = response_accepted(result, http_code)
     if ok and accepted then
         outcome.accepted = true
@@ -850,6 +979,7 @@ function ReadReport:_run_pipeline(book_id, opts)
                 book_id, refreshed, opts.position, opts.elapsed_seconds)
         end)
         outcome.book = self:_context_snapshot(refreshed)
+        if deferred(outcome,retry_ok,retry_result) then return outcome end
         local retry_accepted, retry_body = response_accepted(retry_result, retry_code)
         if retry_ok and retry_accepted then
             outcome.accepted = true
@@ -899,6 +1029,7 @@ function ReadReport:_run_pipeline(book_id, opts)
             book_id, final_book, opts.position, opts.elapsed_seconds)
     end)
     outcome.book = self:_context_snapshot(final_book)
+    if deferred(outcome,final_ok,final_result) then return outcome end
     local final_accepted, final_body = response_accepted(final_result, final_code)
     if final_ok and final_accepted then
         outcome.accepted = true
@@ -915,10 +1046,27 @@ function ReadReport:_run_pipeline(book_id, opts)
 end
 
 -- Inline (blocking) report used when subprocess support is unavailable.
-function ReadReport:report_once()
+function ReadReport:report_once(callback)
     local proceed, book_id, position = self:_precheck()
     if not proceed then
         return false
+    end
+    if self.position_preparer and position then
+        if type(callback)~='function' then return false,'source_preparation_required' end
+        return self.position_preparer(position,function(plan)
+            if not plan or not plan.is_current() or not self:_precheck() then callback(false);return end
+            local dispatch
+            if self.source_dispatch then
+                dispatch=self.source_dispatch:begin(book_id,plan.position,plan.source_position,'time')
+                if not dispatch then callback(false); return end
+            end
+            if not plan.is_current() then
+                if dispatch then self.source_dispatch:finish(dispatch,{enter_attempted=false,report_attempted=false}) end
+                callback(false); return
+            end
+            local outcome=self:_run_pipeline(book_id,{position=plan.position,source_deadline=plan.deadline})
+            callback((not dispatch or self.source_dispatch:finish(dispatch,outcome)) and self:_apply_outcome(outcome) or false)
+        end)
     end
     local outcome = self:_run_pipeline(book_id, {
         allow_renewal = self:_renewal_allowed(),
@@ -935,17 +1083,19 @@ function ReadReport:_merge_remote_progress(book_id, book)
     local ok, result = pcall(function()
         return self.client:get_progress(book_id)
     end)
-    if not ok or type(result) ~= "table" then
-        return
+    if not ok or type(result) ~= "table" then return false end
+    local remote, reason, provided = RemoteProgress.project(result, book_id, "gateway")
+    if not remote then
+        log("warn", "Ignored unverified remote progress:", reason)
+        return false
     end
-    local remote = type(result.book) == "table" and result.book or result
-    book.progress = tonumber(remote.progress) or tonumber(book.progress) or 0
-    book.chapter_uid = remote.chapterUid or remote.chapterId or remote.chapter_uid or book.chapter_uid
-    book.chapter_idx = tonumber(remote.chapterIdx or remote.chapterIndex or remote.chapter_idx)
-        or tonumber(book.chapter_idx)
-    book.chapter_offset = tonumber(remote.chapterOffset or remote.chapterPos or remote.offset)
-        or tonumber(book.chapter_offset) or 0
-    book.summary = remote.summary or book.summary or ""
+    -- Keep fresh same-book Reader fields when an optional Gateway field is
+    -- absent; a validated, explicit zero/empty value still replaces it.
+    book.progress = remote.raw_percent
+    for _i, key in ipairs({ "chapter_uid", "chapter_idx", "chapter_offset", "summary" }) do
+        if provided[key] then book[key] = remote[key] end
+    end
+    return true
 end
 
 -- Build (and refresh when stale) the reader context on the given book
@@ -1048,6 +1198,10 @@ function ReadReport:ensure_context(book_id, force)
         -- Forked child: the parent persists the context from the outcome.
         return book
     end
+    if self.settings.patch_reading_state and self.settings:get_book(book_id) then
+        self:_persist_context(book_id,self:_context_snapshot(book))
+        return book
+    end
     books[book_id] = book
     self.settings:set("books", books)
     self.settings:flush()
@@ -1084,7 +1238,10 @@ function ReadReport:build_payload(book_id, elapsed_seconds, book, position)
     }
 end
 
-function ReadReport:_send(book_id, book, position, elapsed_seconds)
+function ReadReport:_send(book_id, book, position, elapsed_seconds, attempt)
+    local function dispatch_current()
+        if attempt and attempt.before_dispatch and attempt.before_dispatch()~=true then error('upload_source_changed',0) end
+    end
     apply_position(book, position)
     if book.pclts == nil or book.pclts == "" or tonumber(book.pclts) == 0 then
         book.pclts = WeRead.e(self.now())
@@ -1093,8 +1250,9 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds)
         book.read_session_id = self.session_id
         book.read_session_entered_at = nil
     end
+    local enter_payload
     if not book.read_session_entered_at then
-        local enter_payload = WeRead.make_enter_read_payload{
+        enter_payload = WeRead.make_enter_read_payload{
             book_id = book_id,
             chapter_uid = book.chapter_uid,
             chapter_idx = tonumber(book.chapter_idx) or 0,
@@ -1105,12 +1263,6 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds)
             psvts = book.psvts,
             pclts = book.pclts,
         }
-        self.client:report_read(
-            enter_payload,
-            book.reader_url or WeRead.reader_url(book_id)
-        )
-        book.read_session_entered_at = self.now()
-        book.read_session_id = self.session_id
     end
     local payload = self:build_payload(
         book_id,
@@ -1118,26 +1270,110 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds)
         book,
         position
     )
-    return self.client:report_read(payload, book.reader_url or WeRead.reader_url(book_id))
+    if self.coverage and (tonumber(payload.rt) or 0) > 0 then
+        -- Web requests authenticate with Cookie, which may differ from the
+        -- gateway/UI account. Missing VID conservatively covers every account.
+        local cookies = self.settings:get("cookies", {})
+        local vid = type(cookies) == "table" and cookies.wr_vid or nil
+        vid = tostring(vid or "")
+        local account = #vid <= 32 and vid:match("^[1-9]%d*$") and require("weread.lib.crypto").sha256_hex(
+            "weread-library:" .. vid):sub(1, 20) or nil
+        dispatch_current()
+        local saved,reason,resume_at=self.coverage:reserve(account,payload.ct,payload.rt)
+        if not saved and reason=='offline_overlap' then return setmetatable({resume_at=resume_at},TIME_DEFERRED) end
+        if not saved then error(_("Could not save reading-time coverage; report was not sent."), 0) end
+    end
+    if enter_payload then
+        dispatch_current()
+        if attempt then attempt.enter_attempted = true end
+        local entered, enter_code = self.client:report_read(
+            enter_payload,
+            book.reader_url or WeRead.reader_url(book_id),
+            attempt and { sensitive = true } or nil
+        )
+        if attempt and not position_acknowledged(entered, enter_code) then
+            error("upload_enter_unconfirmed", 0)
+        end
+        book.read_session_entered_at = self.now()
+        book.read_session_id = self.session_id
+    end
+    dispatch_current()
+    if attempt then attempt.report_attempted = true end
+    return self.client:report_read(payload, book.reader_url or WeRead.reader_url(book_id), attempt and { sensitive = true } or nil)
 end
 
-function ReadReport:upload_position(book_id, position, elapsed_seconds)
+-- This is a separate path from periodic time reports. An uncertain position
+-- write is never refreshed/reposted or followed by an authorization renewal.
+-- The opaque receipt grants only two additional GETs for this exact attempt.
+function ReadReport:confirm_position(receipt)
+    local state = self._position_confirmation
+    local outcome = { accepted = false, acknowledged = true, position_confirmed = false,
+        error_kind = "confirmation_pending", error = "upload_readback_unconfirmed", confirmation = receipt }
+    if not state or state.receipt ~= receipt or state.reads >= 3 or state.auth ~= self:_auth_fingerprint() then
+        outcome.error_kind, outcome.error = "unconfirmed", "upload_readback_unavailable"
+        return false, outcome
+    end
+    state.reads = state.reads + 1
+    local ok, data = pcall(self.client.get_web_progress, self.client, state.target.book_id, { sensitive = true })
+    local checked, remote
+    if ok and state.auth == self:_auth_fingerprint() then checked, remote = ProgressReadback.check(data, state.target) end
+    outcome.confirmation_reads = state.reads
+    if checked and checked.matches then
+        self._position_confirmation = nil
+        outcome.accepted, outcome.position_confirmed, outcome.remote = true, true, remote
+        outcome.error, outcome.error_kind, outcome.confirmation = nil, nil, nil
+        return true, outcome
+    end
+    if state.reads == 3 or state.auth ~= self:_auth_fingerprint() then
+        self._position_confirmation = nil
+        outcome.error_kind, outcome.confirmation = "unconfirmed", nil
+    end
+    return false, outcome
+end
+
+function ReadReport:upload_position(book_id, position, elapsed_seconds, plan)
     if self.job then
         return false, { error = "read_report_busy", error_kind = "busy" }
     end
-    local outcome = self:_run_pipeline(tostring(book_id), {
-        allow_renewal = self:_renewal_allowed(),
-        position = position,
-        elapsed_seconds = elapsed_seconds or 0,
-    })
-    if outcome.renew_attempted then
-        self.last_renew_attempt = self.now()
+    local target, reason = ProgressReadback.expected(book_id, position)
+    if not target or elapsed_seconds ~= nil and elapsed_seconds ~= 0 then
+        return false, { error = reason or "upload_position_invalid", error_kind = "position" }
+    end
+    local function current()
+        if not plan then return true end
+        local same=require('weread.lib.source_upload_candidate').same
+        return type(plan)=='table' and plan.basis=='filtered_xhtml_utf16' and type(plan.is_current)=='function'
+            and same(plan.position,position) and plan.is_current()==true
+    end
+    if not current() then return false,{error='source_position_changed',error_kind='position'} end
+    self._position_confirmation = nil
+    local context_ok, book = pcall(self.ensure_context, self, tostring(book_id), false)
+    if not context_ok then return false, { error = "upload_context_unavailable", error_kind = "context" } end
+    local original_summary=book.summary
+    if plan then local snapshot={};for key,value in pairs(book) do snapshot[key]=value end;book=snapshot end
+    local attempt = {before_dispatch=function()
+        return current() and (not plan or not plan.before_send or plan.before_send()==true) and current()
+    end}
+    local ok, result, code = pcall(self._send, self, tostring(book_id), book, position, 0, attempt)
+    if plan then book.summary=original_summary end
+    local outcome = { accepted = false, acknowledged = false, position_confirmed = false,
+        error = "upload_write_unconfirmed", error_kind = "unconfirmed", enter_attempted = attempt.enter_attempted == true,
+        report_attempted = attempt.report_attempted == true, book = self:_context_snapshot(book) }
+    if plan and not attempt.enter_attempted and not attempt.report_attempted then
+        outcome.error,outcome.error_kind='source_position_changed','position'
+    end
+    if ok and position_acknowledged(result, code) then
+        local receipt = {}
+        self._position_confirmation = { receipt = receipt, reads = 0, target = target, auth = self:_auth_fingerprint() }
+        local confirmed = select(2, self:confirm_position(receipt))
+        for key, value in pairs(confirmed) do outcome[key] = value end
+        if confirmed.accepted then outcome.error, outcome.error_kind = nil, nil end
     end
     if type(outcome.book) == "table" then
-        local ok, err = pcall(function()
+        local persist_ok, err = pcall(function()
             self:_persist_context(tostring(book_id), outcome.book)
         end)
-        if not ok then
+        if not persist_ok then
             log("warn", "persist progress upload context failed:", tostring(err))
         end
     end

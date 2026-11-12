@@ -1,0 +1,234 @@
+{
+  "result": "PASS_CURRENT_SOURCE_PROTOCOL_WITH_RETAINED_FAILED_TRIAL",
+  "scope": "controlled time-only protocol and pure native payload adapter; not historical-ledger upload",
+  "references": {
+    "native_catalog": "https://github.com/teng-lin/weread-omni/blob/88bd2e095d7d7ee423eaadf8f40653e72c5be6d4/docs/endpoints.md",
+    "signature": "https://github.com/AnkioTomas/moon/blob/43b2181da6eb5285b62114da85e1413d2f8464e4/book.koplugin/source/wechat/app.lua",
+    "statistics_units": "https://github.com/Tencent/WeChatReading/blob/main/skills/readdata.md"
+  },
+  "first_trial": {
+    "result": "UNVERIFIED",
+    "authentication_posts": 0,
+    "phase": "apply",
+    "error_type": "ValueError",
+    "reason": "readtime/unrelated_delta",
+    "account_data_posts": 1,
+    "explicit_success_receipt": true,
+    "intent_state": "claimed"
+  },
+  "read_only_diagnosis": {
+    "result": "PASS_READONLY_DIAGNOSIS",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "original_source_and_records_exact": true,
+    "web_and_native_positions_unchanged": true,
+    "counter_baseline_hash_reconstructed": true,
+    "counter_delta": {
+      "readingTime": 2,
+      "recordReadingTime": 0,
+      "ttsTime": 0
+    },
+    "stable_independent_counters": true,
+    "original_trial_result": "UNVERIFIED",
+    "original_receipt_was_explicit_success": true,
+    "original_data_posts": 1,
+    "claimed_intent_retained": true,
+    "monthly_baseline_unavailable_in_original_intent": true,
+    "no_replay": true
+  },
+  "legacy_retirement": {
+    "result": "LEGACY_STOP_RECORDED",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "original_trial_result": "UNVERIFIED",
+    "monthly_baseline_missing": true,
+    "legacy_intent": "retired_consumed_tombstone_retained",
+    "book_counter_delta_verified": 2,
+    "original_records_and_positions_exact": true,
+    "no_old_scope_replay": true,
+    "authentication_credentials_retained": true
+  },
+  "corrected_trial": {
+    "result": "PASS_PROTOCOL",
+    "authentication_posts": 0,
+    "account_data_posts": 1,
+    "controlled_test_seconds": 2,
+    "same_plan_dry_then_apply": true,
+    "dry_run": {
+      "checked_at": "2026-11-11T19:37:48.743119+00:00",
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "current_catalog_version_matched": true,
+      "signature_token_source": "client_default",
+      "controlled_test_seconds": 2,
+      "historical_ledger_rows": 0,
+      "source_snapshot_verified": true,
+      "server_clock_verified": true,
+      "captured_time_zone": "+08:00",
+      "original_records_unchanged": true,
+      "result": "PASS_READONLY",
+      "explicit_success_receipt": false,
+      "book_counter_delta": 0,
+      "monthly_total_delta": 0,
+      "daily_bucket_delta": 0,
+      "web_and_native_positions_unchanged": true,
+      "intent_state": "absent",
+      "no_automatic_replay": true,
+      "pending": [
+        "historical_file_bound_ledger",
+        "web_offline_dispatch_coordination",
+        "native_upload_ui_and_queue",
+        "cross_month_zone_attribution"
+      ]
+    },
+    "apply": {
+      "checked_at": "2026-11-11T19:37:48.743119+00:00",
+      "account_data_posts": 1,
+      "authentication_posts": 0,
+      "current_catalog_version_matched": true,
+      "signature_token_source": "client_default",
+      "controlled_test_seconds": 2,
+      "historical_ledger_rows": 0,
+      "source_snapshot_verified": true,
+      "server_clock_verified": true,
+      "captured_time_zone": "+08:00",
+      "original_records_unchanged": true,
+      "result": "PASS_PROTOCOL",
+      "explicit_success_receipt": true,
+      "book_counter_delta": 2,
+      "monthly_total_delta": 2,
+      "daily_bucket_delta": 2,
+      "web_and_native_positions_unchanged": true,
+      "intent_state": "absent",
+      "no_automatic_replay": true,
+      "pending": [
+        "historical_file_bound_ledger",
+        "web_offline_dispatch_coordination",
+        "native_upload_ui_and_queue",
+        "cross_month_zone_attribution"
+      ],
+      "statistics_calendar_attribution": "same_calendar_date",
+      "read_days_delta_observed": 0
+    },
+    "explicit_success_receipt": true,
+    "intent_state": "absent"
+  },
+  "totals": {
+    "account_data_posts": 2,
+    "controlled_test_seconds": 4,
+    "authentication_posts": 0,
+    "old_scope_replayed": false,
+    "historical_ledger_rows_uploaded": 0
+  },
+  "native_models": {
+    "result": "PASS_READONLY_MODELS",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "models": [
+      {
+        "case": "actual_current_source",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_hour_zone_+00:00",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_hour_zone_+08:00",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_hour_zone_-03:30",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_hour_zone_+05:45",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_hour_zone_+14:00",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_sender_zone_+00:00",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_sender_zone_-05:00",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_sender_zone_+13:00",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_hour_boundary",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      },
+      {
+        "case": "hypothetical_ten_segments",
+        "result": "MATCH",
+        "contains_coordinates": false,
+        "account_data_posts": 0
+      }
+    ],
+    "matched": 11,
+    "original_records_and_positions_unchanged": true,
+    "real_api_writes": 0,
+    "hypothetical_cases_are_not_ledger_uploads": true,
+    "intent_state": "absent"
+  },
+  "native_model_initial_probe": {
+    "result": "UNVERIFIED",
+    "account_data_posts": 0,
+    "reason": "standalone KOReader JSON path not initialized",
+    "corrected_by": "setupkoenv before JSON import",
+    "failure_retained": true
+  },
+  "native_runtime": "KOReader v2026.07.1 Linux ARM64",
+  "checks": {
+    "python_files": 98,
+    "python_tests": 1211,
+    "python_skips": 0,
+    "lua_specs": 224,
+    "time_zones": 4,
+    "readtime_protocol_time_zones": 4,
+    "python_compile": 307,
+    "lua_syntax": 632,
+    "result": "PASS"
+  },
+  "package": {
+    "files": 254,
+    "sha256": "9d043df287fc7814c8d16986c7439af9ce29d9c8ce3c32a39a2e3774c23d1303",
+    "source_package_bytes_match": true,
+    "installed_ui_acceptance": false
+  },
+  "pure_lua_module_sha256": "1d4b8d93f21b885d20ae5732574d7a4e1f5a8322a3d490b6825f051c86e8acdf",
+  "pending": [
+    "historical file-bound ledger validation and source versions",
+    "cross-month and distinct captured/server timezone attribution",
+    "online/offline overlap exclusion and durable queue coordination",
+    "native upload UI, worker, SQLite lifecycle and real native dispatch",
+    "physical KO2 and whole-goal functional acceptance before focused performance work"
+  ]
+}

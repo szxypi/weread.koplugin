@@ -59,13 +59,18 @@ python3 scripts/mock_weread.py --smoke --port 0 \
 1. 用现有打包脚本生成候选 ZIP，解包到独立 `profile/plugins`，写入合成账号。
 2. 启动本地 HTTP 服务；在全局 HTTP 代理不可用时验证直连、书架、目录、正文、划线和想法。
 3. 真实 Content 生成单章 EPUB，真实 ReaderUI 加载插件并渲染第 1/2 页截图。
-4. 真实 Downloader 在 KOReader 事件循环里下载全书，校验 ZIP、六章正文和图片。
-5. 成功退出 0，失败退出非 0；保存 `evidence/smoke.log`、截图、请求日志、候选 ZIP
+4. 使用真实 UI 队列验证账号切换取消旧进度请求、正常上传的磁盘保存与 HTTP 回读，
+   以及休眠回调取消旧上传、唤醒重新比较云端位置。只固定联网状态，服务仍是本地合成数据。
+5. 真实 Downloader 在 KOReader 事件循环里下载全书，校验 ZIP、六章正文和图片。
+6. 成功退出 0，失败退出非 0；保存 `evidence/smoke.log`、截图、请求日志、候选 ZIP
    摘要和 `build.json`。服务随后关闭，不留下后台任务。
 
 这是一组固定冒烟，**不等于 C01–C20 全量验收**，也不包含 ComputerUse 点击。
 失败时先检查 `evidence/smoke.log`。验证未知外部地址被拦截会产生一条预期的 HTTP 501
 错误日志；不要因此忽略其它错误。
+核心冒烟和 `test_discovery_runtime.py` 会将 `[WeRead] forceRePaint failed:`
+视为失败，即使其它断言通过也不能报告成功。关闭详情并取消后台读取时，
+必须立即移除等待窗／停止任务，再由正常界面循环绘制关闭后的页面。
 
 不构建 KOReader 也能快速检查服务端与参考解码器：
 
@@ -74,6 +79,21 @@ python3 scripts/test_mock_weread.py
 ```
 
 该命令已接入普通 CI；真实 KOReader 冒烟仍在本地显式执行。
+
+## 原生离线时长记录验证
+
+使用相同运行环境，并显式加载发行包自带的 statistics 插件：
+
+```bash
+WEREAD_TEST_OFFLINE_TIME=1 python3 scripts/mock_weread.py --smoke --port 0 \
+    --run-dir /tmp/weread-offline-time-01 --koreader /absolute/path/to/koreader \
+    --width 1264 --height 1680 --dpi 300
+```
+
+除原有冒烟外，这项测试实际等待两个 6 秒页面停留和中间 2 秒暂停，使用原生暂停／恢复事件、
+原生统计刷库和账号账本回读。不会修改原生时间元组来加速计时，也不请求生产服务。
+保存离线状态截图，并断言本机计时没有增加 HTTP 时长上报请求。上述像素配置模拟 KO2，
+不代表真机休眠、按键、Wi-Fi、耗电或墨水屏残影验收。
 
 ## 划线想法专项回归
 

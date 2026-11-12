@@ -1,0 +1,243 @@
+{
+  "checked_at": "2026-11-08T08:38:00.087478+00:00",
+  "probe": "web_source_coordinates",
+  "offline_fixtures": 6,
+  "filtered_fixtures": 7,
+  "offline_filtered_models": 28,
+  "account_writes_attempted": 0,
+  "result": "PARTIAL",
+  "lua_verified": true,
+  "lua_cases": 29,
+  "lua_positions": 39,
+  "lua_official_text_nodes": 978,
+  "public_stages": [
+    {
+      "kind": "reader",
+      "status": 200
+    },
+    {
+      "kind": "e_0",
+      "status": 200
+    },
+    {
+      "kind": "e_1",
+      "status": 200
+    },
+    {
+      "kind": "e_3",
+      "status": 200
+    }
+  ],
+  "source_bytes": 887,
+  "source_utf16_units": 774,
+  "public_text_nodes": 67,
+  "source_sha256": "45c99fbeea0da6e3e889bfee518dfb47de1d40344f071f05acf09db062d24906",
+  "reference_assets": [
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/common.8e608efa.js",
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/utils.2f050835.js",
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/10.e8f29f0a.js",
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/2.21e0ad32.js",
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/9.625560b7.js",
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/11.985ad62b.js",
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/35.9bff7c50.js",
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/app.d51b45eb.js",
+    "https://cdn.weread.qq.com/web/wrwebnjlogic/js/9.625560b7.js"
+  ],
+  "browser_version": "157.0.8103.39",
+  "supported_body_tags": [
+    "abbr",
+    "address",
+    "area",
+    "article",
+    "aside",
+    "audio",
+    "b",
+    "bdi",
+    "bdo",
+    "big",
+    "blockquote",
+    "body",
+    "br",
+    "caption",
+    "center",
+    "cite",
+    "code",
+    "col",
+    "colgroup",
+    "dd",
+    "del",
+    "details",
+    "div",
+    "dl",
+    "dt",
+    "em",
+    "font",
+    "footer",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hr",
+    "i",
+    "img",
+    "ins",
+    "li",
+    "mark",
+    "nav",
+    "ol",
+    "p",
+    "pre",
+    "s",
+    "section",
+    "small",
+    "span",
+    "strong",
+    "sub",
+    "sup",
+    "table",
+    "tbody",
+    "td",
+    "tfoot",
+    "th",
+    "thead",
+    "tr",
+    "tt",
+    "u",
+    "ul",
+    "video"
+  ],
+  "verified_filtered_tags": [
+    "a",
+    "figcaption",
+    "figure",
+    "q",
+    "rp",
+    "rt",
+    "ruby",
+    "samp",
+    "source",
+    "strike",
+    "summary",
+    "wbr"
+  ],
+  "filtered_model_verified": true,
+  "filtered_case_count": 29,
+  "filtered_text_nodes": 978,
+  "filtered_statistics": {
+    "surrogate_replacement_nodes": 4,
+    "literal_entity_nodes": 1,
+    "normalized_newline_nodes": 2
+  },
+  "sanitizer_counterexamples": [
+    {
+      "tag": "a",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "figcaption",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "figure",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "q",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "rp",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "rt",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "ruby",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "samp",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "script",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "source",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "strike",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "style",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "summary",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "unknown",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    },
+    {
+      "tag": "wbr",
+      "raw_coordinates_match": false,
+      "stripped_tag_coordinates_match": false,
+      "filtered_run_coordinates_match": true
+    }
+  ],
+  "fixture_text_nodes": [
+    10,
+    33,
+    null,
+    11,
+    9,
+    417
+  ],
+  "browser_authenticated": false,
+  "surrogate_replacement_nodes": 2,
+  "literal_entity_nodes": 1,
+  "public_parser_verified": true,
+  "normalized_newline_nodes": 1,
+  "unsupported_source_fixture_rejections": 1,
+  "progress_mapping_enabled": false,
+  "blocked_browser_requests": 33,
+  "wire_progress_write_verified": false
+}

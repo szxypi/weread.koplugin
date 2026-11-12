@@ -1,0 +1,40 @@
+{
+  "validation": "local_readtime_coverage",
+  "environment": "official KOReader v2026.07.1 Linux ARM64 + local synthetic HTTP",
+  "production_account_used": false,
+  "cloud_time_uploads": 0,
+  "results": [
+    {
+      "screen": "600x800",
+      "preview": {
+        "rows": 2,
+        "seconds": 12,
+        "nonzero_book_version": true,
+        "file_bound_seconds": 12,
+        "unverified_source_seconds": 0,
+        "has_more": false,
+        "uncertain_seconds": 0,
+        "coverage_checked": true,
+        "eligible_seconds": 0,
+        "online_covered_seconds": 12,
+        "coverage_unverified_seconds": 0
+      }
+    },
+    {
+      "screen": "1264x1680",
+      "preview": {
+        "rows": 2,
+        "seconds": 12,
+        "nonzero_book_version": true,
+        "file_bound_seconds": 12,
+        "unverified_source_seconds": 0,
+        "has_more": false,
+        "uncertain_seconds": 0,
+        "coverage_checked": true,
+        "eligible_seconds": 0,
+        "online_covered_seconds": 12,
+        "coverage_unverified_seconds": 0
+      }
+    }
+  ]
+}

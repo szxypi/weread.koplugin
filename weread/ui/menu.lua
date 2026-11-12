@@ -8,6 +8,7 @@ local logger = require("weread.lib.logger")
 local UIManager = require("ui/uimanager")
 local ThoughtPopup = require("weread.ui.thought_popup")
 local WeRead = require("weread.lib.protocol")
+local ProgressInterval = require("weread.lib.progress_interval")
 
 local PluginUtil = require("weread.lib.plugin_util")
 local _ = PluginUtil.tr
@@ -70,7 +71,7 @@ function M:onDispatcherRegisterActions()
     Dispatcher:registerAction("weread_toggle_annotations", {
         category = "none",
         event = "ToggleWeReadAnnotations",
-        title = _("WeRead · Toggle underlines and thoughts"),
+        title = _("WeRead · Toggle underlines, thoughts and bookmarks"),
         reader = true,
     })
     Dispatcher:registerAction("weread_continue_annotation_matching", {
@@ -117,9 +118,31 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _("E-Ink authorization"),
+            keep_menu_open = true,
+            callback = self:safeCallback(_("E-Ink authorization"), function(touchmenu_instance)
+                self._login_menu_instance = touchmenu_instance
+                self.native_authorization:showMenu()
+            end),
+        },
+        {
+            text = _("WeRead home"),
+            callback = self:safeCallback(_("WeRead home"), function() self:showHome() end),
+        },
+        {
+            text = _("Bookstore"),
+            callback = self:safeCallback(_("Bookstore"), function() self:showBookstore() end),
+        },
+        {
             text = _("Bookshelf"),
             callback = self:safeCallback(_("Bookshelf"), function()
                 self:showBookshelf()
+            end),
+        },
+        {
+            text = _("Imported books"),
+            callback = self:safeCallback(_("Imported books"), function()
+                self:showImportedBooks()
             end),
         },
         {
@@ -127,6 +150,10 @@ function M:getMainMenuItems()
             callback = self:safeCallback(_("WeRead favorites"), function()
                 self:showWereadCollection()
             end),
+        },
+        {
+            text = _("My WeRead"),
+            callback = self:safeCallback(_("My WeRead"), function() self:showProfile() end),
         },
         {
             text = _("Search"),
@@ -161,9 +188,69 @@ function M:getMainMenuItems()
 
     if self.ui.document then
         local book_id = self:detectWeReadBook()
-        local reader_items = {}
+        local reader_items = {{
+            text = _("Export local notes"),
+            callback = self:safeCallback(_("Export local notes"), function()
+                self:showLocalNotesExport()
+            end),
+        }}
         if book_id ~= nil then
+            if WeRead.is_mp_book(book_id) then
+                reader_items[#reader_items + 1] = {
+                    text = _("Export article to EPUB"),
+                    callback = self:safeCallback(_("Export article to EPUB"), function() self:showCurrentMPArticleExport() end),
+                }
+            end
+            if require('weread.lib.my_cloud_marks').id(book_id) then
+                local session,document=self._reader_session_gen,self.ui.document
+                local account=self.library_db and self.library_db:accountKey()
+                reader_items[#reader_items+1]={text=_('My cloud highlights'),callback=self:safeCallback(_('My cloud highlights'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        self:showMyCloudMarks(book_id)
+                    end
+                end)}
+                reader_items[#reader_items+1]={text=_('Save cloud bookmark'),callback=self:safeCallback(_('Save cloud bookmark'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        require('weread.ui.selection_thought').open_bookmark(self)
+                    end
+                end)}
+                reader_items[#reader_items+1]={text=_('My cloud bookmarks'),callback=self:safeCallback(_('My cloud bookmarks'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        self:showMyCloudBookmarks(book_id)
+                    end
+                end)}
+            end
+            if require('weread.lib.my_cloud_marks').id(book_id) then
+                local session,document=self._reader_session_gen,self.ui.document
+                local account=self.library_db and self.library_db:accountKey()
+                reader_items[#reader_items+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()
+                    if session==self._reader_session_gen and document==self.ui.document
+                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                        self:showMyCloudThoughts(book_id)
+                    end
+                end)}
+            end
             if not WeRead.is_mp_book(book_id) then
+                reader_items[#reader_items + 1] = {
+                    text = _("Reading language"),
+                    callback = self:safeCallback(_("Reading language"), function() self:showReadingLanguage() end),
+                }
+                reader_items[#reader_items + 1] = {
+                    text = _("Check reading position"),
+                    keep_menu_open = true,
+                    callback = self:safeCallback(_("Check reading position"), function()
+                        self:showReadingPosition()
+                    end),
+                }
+                reader_items[#reader_items + 1] = {
+                    text = _("Open cloud reading position precisely"),
+                    callback = self:safeCallback(_("Open cloud reading position precisely"), function()
+                        self:showCloudSourcePosition()
+                    end),
+                }
                 reader_items[#reader_items + 1] = {
                     text = _("Sync progress now"),
                     keep_menu_open = true,
@@ -181,7 +268,7 @@ function M:getMainMenuItems()
             }
         end
         reader_items[#reader_items + 1] = {
-            text = _("Show underlines and thoughts"),
+            text = _("Show underlines, thoughts and bookmarks"),
             checked_func = function()
                 -- The checkbox reflects the user's display preference.  Annotation
                 -- data may still be downloading (or may be unavailable for this
@@ -191,7 +278,7 @@ function M:getMainMenuItems()
             end,
             keep_menu_open = true,
             check_callback_updates_menu = true,
-            callback = self:safeCallback(_("Show underlines and thoughts"), function(touchmenu_instance)
+            callback = self:safeCallback(_("Show underlines, thoughts and bookmarks"), function(touchmenu_instance)
                 self:toggleAnnotationVisibility()
                 if touchmenu_instance then touchmenu_instance:updateItems() end
             end),
@@ -213,6 +300,24 @@ function M:getMainMenuItems()
     end
 
     return items
+end
+
+function M:setChapterPrefetchEnabled(enabled, touchmenu_instance)
+    enabled = enabled == true
+    local cache = self.settings:get("cache")
+    cache.auto_prefetch_next_chapter = enabled
+    self.settings:set("cache", cache)
+    self.settings:flush()
+    if not enabled then
+        self:cancelAnnotationPrefetch()
+        self.downloader:cancelPrefetch("setting_disabled")
+    elseif self._current_weread_book_id then
+        local book_id = self._current_weread_book_id
+        UIManager:scheduleIn(0.1, function()
+            if self._current_weread_book_id == book_id then self:maybePrefetchNextChapter(book_id) end
+        end)
+    end
+    if touchmenu_instance then touchmenu_instance:updateItems() end
 end
 
 function M:getSettingsMenuItems()
@@ -290,6 +395,10 @@ function M:getSettingsMenuItems()
             end,
         },
         {
+            text = _("Home layout"),
+            callback = self:safeCallback(_("Home layout"), function() self:showHomeLayoutSettings() end),
+        },
+        {
             text = _("Cache management"),
             sub_item_table_func = function()
                 return {
@@ -361,6 +470,14 @@ function M:getSettingsMenuItems()
                                 end
                             end),
                     },
+                    {
+                        text_func = function()
+                            local minutes=ProgressInterval.minutes(self.settings:get("sync").upload_interval_minutes)
+                            return T(_("Timed progress sync: %1"),minutes==0 and _("Off") or T(_("Every %1 minutes"),minutes))
+                        end,
+                        help_text = _("Synchronize changed reading positions after checking the cloud. Sync once first, or enable progress pull on open. Reading time is controlled separately."),
+                        sub_item_table_func = function() return self:getProgressIntervalMenuItems() end,
+                    },
                 }
             end,
         },
@@ -428,24 +545,7 @@ function M:getSettingsMenuItems()
                                         function(touchmenu_instance)
                                             local cache = self.settings:get("cache")
                                             local function apply(enabled)
-                                                cache.auto_prefetch_next_chapter = enabled
-                                                self.settings:set("cache", cache)
-                                                self.settings:flush()
-                                                if not enabled then
-                                                    self:cancelAnnotationPrefetch()
-                                                    self.downloader:cancelPrefetch(
-                                                        "setting_disabled")
-                                                elseif self._current_weread_book_id then
-                                                    local book_id = self._current_weread_book_id
-                                                    UIManager:scheduleIn(0.1, function()
-                                                        if self._current_weread_book_id == book_id then
-                                                            self:maybePrefetchNextChapter(book_id)
-                                                        end
-                                                    end)
-                                                end
-                                                if touchmenu_instance then
-                                                    touchmenu_instance:updateItems()
-                                                end
+                                                self:setChapterPrefetchEnabled(enabled, touchmenu_instance)
                                             end
 
                                             if cache.auto_prefetch_next_chapter == true then
@@ -682,6 +782,7 @@ function M:getSettingsMenuItems()
             text = _("Advanced options"),
             sub_item_table_func = function()
                 return {
+                    require('weread.ui.startup_patch').entry(self),
                     {
                         text = _("Mock service"),
                         sub_item_table_func = function() return self:getMockMenuItems() end,
@@ -1219,6 +1320,26 @@ function M:showEdgeTapRatioPicker(touchmenu_instance)
         buttons = buttons,
     }
     UIManager:show(self._edge_ratio_dialog)
+end
+
+function M:getProgressIntervalMenuItems()
+    local items={}
+    for _i,minutes in ipairs({0,1,5,10,15,30,60}) do
+        local label=minutes==0 and _("Off") or T(_("Every %1 minutes"),minutes)
+        items[#items+1]={text=label,keep_menu_open=true,check_callback_updates_menu=true,
+            checked_func=function()
+                return ProgressInterval.minutes(self.settings:get("sync").upload_interval_minutes)==minutes
+            end,
+            callback=self:safeCallback(label,function(menu)
+                local config=self.settings:get("sync")
+                if ProgressInterval.minutes(config.upload_interval_minutes)==minutes then return end
+                config.upload_interval_minutes=minutes
+                self.settings:set("sync",config);self.settings:flush()
+                if self.progress_sync then self.progress_sync.interval:reschedule() end
+                if menu then menu:updateItems() end
+            end)}
+    end
+    return items
 end
 
 return M

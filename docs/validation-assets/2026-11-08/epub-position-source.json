@@ -1,0 +1,94 @@
+{
+  "runs": [
+    {
+      "full": {
+        "raw_before_images": 6,
+        "file_version": 7,
+        "chapters": 6,
+        "file_id": "b38231c5b666bde53a438970baf9e23e414585a2d7d025f8390b2de929a3009f",
+        "raw_before_footnotes": 6,
+        "background_packaging": true
+      },
+      "extra_routes": {
+        "images_disabled": true,
+        "synchronous_range_chapters": 2,
+        "prefetch_worker_chapters": 1
+      },
+      "reader": {
+        "raw_before_images": true,
+        "file_version": 7,
+        "total_pages": 3,
+        "point_offset": 24,
+        "raw_bytes": 4421,
+        "co": 1395,
+        "file_id": "9ce518b146dd13ce53be5f98b2328582d23c4d8c32fef6c5a1537c3182accd8e",
+        "target_page": 3,
+        "previous_page": 1,
+        "exact_prefix_verified": true,
+        "target_visible": true
+      },
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "progress_mapping_enabled": false,
+      "wire_progress_write_verified": false,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "grayscale": true
+      },
+      "candidate_sha256": "9cf9a3751d9b6f29655a0863e58a998803d5097123ecac8f6ada8aca65df5e27",
+      "candidate_files_match_workspace": 114,
+      "runtime": "KOReader v2026.07.1 Linux ARM64",
+      "status": "PARTIAL"
+    },
+    {
+      "wire_progress_write_verified": false,
+      "extra_routes": {
+        "prefetch_worker_chapters": 1,
+        "images_disabled": true,
+        "synchronous_range_chapters": 2
+      },
+      "full": {
+        "raw_before_images": 6,
+        "file_version": 7,
+        "file_id": "b38231c5b666bde53a438970baf9e23e414585a2d7d025f8390b2de929a3009f",
+        "raw_before_footnotes": 6,
+        "background_packaging": true,
+        "chapters": 6
+      },
+      "reader": {
+        "raw_bytes": 4421,
+        "target_page": 3,
+        "previous_page": 1,
+        "exact_prefix_verified": true,
+        "target_visible": true,
+        "total_pages": 3,
+        "file_version": 7,
+        "file_id": "9ce518b146dd13ce53be5f98b2328582d23c4d8c32fef6c5a1537c3182accd8e",
+        "co": 1395,
+        "raw_before_images": true,
+        "point_offset": 24
+      },
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "progress_mapping_enabled": false,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "candidate_sha256": "204e5d52f8d086d313accc03a45b0186bf40a5dae7c2aabd0ee42174fc2ac98f",
+      "candidate_files_match_workspace": 114,
+      "runtime": "KOReader v2026.07.1 Linux ARM64",
+      "status": "PARTIAL"
+    }
+  ],
+  "remaining": [
+    "chapter-scoped normalized DOM matching across blocks",
+    "production ReaderUI sync integration",
+    "real account write/readback",
+    "Kindle Oasis 2 hardware"
+  ]
+}

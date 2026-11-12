@@ -623,6 +623,23 @@ Returns:
 
 These endpoints are not part of the official skill. They are required for actual readable chapter content.
 
+### 3.0 Public bookstore browsing
+
+Verified without account credentials on 2026-11-08 using `scripts/verify_bookstore.py`.
+The category tree and two consecutive batches of both `rising` and `100000` returned HTTP 200.
+Category identifiers are examples observed during validation, not constants to hardcode.
+
+- `GET https://weread.qq.com/web/categories?rank=1&synckey=0`
+  returns `data[].categories[]` (or category rows), with `CategoryId`, `title`, `type`,
+  and optional `sublist[]`. Text-book categories have type `0`; preserve the hierarchy.
+- `GET https://weread.qq.com/web/bookListInCategory/{categoryId}?rank={0|1}&maxIndex={cursor}`
+  returns `books[].bookInfo`, `books[].searchIdx`, `hasMore` and `totalCount`.
+  Initial cursor is `0`; use the largest returned `searchIdx` for continuation.
+  Use rank `1` for rankings and `0` for publication categories, including subcategories.
+- No Cookie or Bearer authorization is attached by the public browsing client.
+- These are undocumented Web endpoints; a passing probe does not guarantee future stability
+  or authorize content downloads. Readable content uses the existing authenticated flow.
+
 ### 3.1 Reader HTML
 
 Endpoint:

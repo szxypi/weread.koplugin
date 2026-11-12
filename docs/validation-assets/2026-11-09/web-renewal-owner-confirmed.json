@@ -1,0 +1,38 @@
+{
+  "result": "WEB_RENEWAL_VERIFIED",
+  "checked_at": "2026-11-09T02:37:18.068628+00:00",
+  "account_data_writes": 0,
+  "credential_maintenance_posts": 1,
+  "credentials_written_to_files": false,
+  "credentials_retained_until_goal_complete": true,
+  "owner_profile_matches_pinned_vid": true,
+  "renewal_receipt_confirmed": true,
+  "pending_marker_cleared": true,
+  "ticket_present": false,
+  "protection_header_present": false,
+  "shelf_books": 139,
+  "confirmed_cookie_rotation_saved": false,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "web_renewal",
+      "method": "POST",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

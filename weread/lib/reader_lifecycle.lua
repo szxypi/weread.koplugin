@@ -1,5 +1,6 @@
 -- KOReader event lifecycle and reader-state orchestration.
 local Content = require("weread.lib.content")
+local FileIdentity = require("weread.lib.book_file_identity")
 local logger = require("weread.lib.logger").scoped("Prefetch")
 local UIManager = require("ui/uimanager")
 local PluginUtil = require("weread.lib.plugin_util")
@@ -11,6 +12,15 @@ local file_exists = PluginUtil.file_exists
 local log_error = PluginUtil.log_error
 
 local M = {}
+local function selection_action(host,action)
+    local module=package.loaded['weread.ui.selection_thought']
+    if module then module[action](host) end
+end
+local function personal_action(host,action)
+    local module=package.loaded['weread.ui.personal_marks']
+    if action=='attach' then module=require('weread.ui.personal_marks') end
+    if module then module[action](host) end
+end
 
 -- KOReader v2026.03 assumes ReaderHighlight's visible box cache has already
 -- been populated when a tap arrives. During a fast document switch there is a
@@ -65,6 +75,7 @@ function M:onWeReadSyncProgress()
     if not self:requireLogin(true, false) then
         return false
     end
+    if require('weread.ui.native_position_review').open(self) then return true end
     self.progress_sync:sync_now()
     return true
 end
@@ -104,6 +115,23 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    if self.client and self.native_renewal then self.client._native_renewal=self.native_renewal end
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
+    require('weread.ui.chapter_links').detach(self)
+    require('weread.lib.rich_footnotes').detach(self)
+    if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
+    personal_action(self,'detach')
+    if self.cancelShelfCovers then self:cancelShelfCovers() end
+    if self.cancelShelfProgress then self:cancelShelfProgress() end
+    if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
+    if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
+    if self.cancelMPArticleActions then self:cancelMPArticleActions() end
+    if self.cancelWebRenewal then self:cancelWebRenewal() end
+    if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
+    if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
+    if self.cancelMPArticleExport then self:cancelMPArticleExport() end
+    if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
+    if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
     self._reader_session_gen = (self._reader_session_gen or 0) + 1
     local perf = PluginUtil.reader_open_perf
     local opened = perf("reader_ready_begin", nil, "session=", self._reader_session_gen)
@@ -114,6 +142,13 @@ function M:onReaderReady()
     -- Cache it so the per-tap handler (_onThoughtTap) does not have to re-scan
     -- the whole book table on every screen tap.
     self._current_weread_book_id = weread_book_id
+    if weread_book_id then require('weread.lib.rich_footnotes').attach(self) end
+    selection_action(self,'detach')
+    if weread_book_id and self.ui and self.ui.highlight and type(self.ui.highlight.addToHighlightDialog)=='function' then
+        require('weread.ui.selection_thought').attach(self)
+    end
+    if weread_book_id then FileIdentity.read_document(self.ui.document, weread_book_id) end
+    if weread_book_id and self.recordRecentReading then self:recordRecentReading(weread_book_id) end
     if weread_book_id then
         -- Always register the tap interception: even when annotations are hidden
         -- we must intercept taps on thought links to suppress the native footnote
@@ -151,15 +186,23 @@ function M:onReaderReady()
     self:_setupXPointerOverlayPrototype()
     perf("overlay_setup", prepared)
     if self.onUnifiedAnnotationsReady then self:onUnifiedAnnotationsReady() end
+    personal_action(self,'attach')
 
     local annotations_ready = perf("annotations_ready", opened)
+    if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
+    if self.source_navigation then self.source_navigation:cancel() end
+    if self.source_close then self.source_close:on_reader_ready(weread_book_id) end
+    if self.source_position then self.source_position:on_reader_ready() end
     self.progress_sync:on_reader_ready()
+    if weread_book_id then require('weread.ui.chapter_links').attach(self) end
+    if self.onTranslationReaderReady then self:onTranslationReaderReady() end
     local prefetch_session_gen = self._reader_session_gen
     UIManager:scheduleIn(0.2, function()
         if prefetch_session_gen ~= self._reader_session_gen then return end
         self:maybePrefetchNextChapter(weread_book_id)
     end)
     local _started, _title, reason = self.read_report:on_reader_ready()
+    if self.offline_time then self.offline_time:resume() end
     local rr = self.settings:get("read_report")
     if rr.enabled and rr.mode == "auto" and reason == "document_not_weread" then
         self:showTransientInfo(_("Current book is not from WeRead, reading time not reported"), 1)
@@ -169,19 +212,75 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
+    require('weread.ui.chapter_links').view_changed(self)
+    personal_action(self,'update')
+    selection_action(self,'view_changed')
+    if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
+    if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
+    if self.source_navigation then self.source_navigation:on_view_changed() end
+    if self.source_upload then self.source_upload:on_view_changed() end
+    if self.source_position then self.source_position:on_view_changed() end
     self.progress_sync:on_page_update()
     if self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end
 end
 
 function M:onPosUpdate()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
+    require('weread.ui.chapter_links').view_changed(self)
+    personal_action(self,'update')
+    selection_action(self,'view_changed')
+    if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
+    if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
+    if self.source_navigation then self.source_navigation:on_view_changed() end
+    if self.source_upload then self.source_upload:on_view_changed() end
+    if self.source_position then self.source_position:on_view_changed() end
+    self.progress_sync:on_page_update()
     if self._refreshAnnotationOverlay then self:_refreshAnnotationOverlay() end
 end
 
 function M:onCloseDocument()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
+    require('weread.ui.chapter_links').detach(self)
+    require('weread.lib.rich_footnotes').detach(self)
+    if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
+    personal_action(self,'detach')
+    selection_action(self,'detach')
+    require('weread.ui.mp_reader_open').cancel(self)
+    if self._read_resume_token then require('weread.ui.read_resume').on_close(self) end
+    if self.cancelShelfCovers then self:cancelShelfCovers() end
+    if self.cancelShelfProgress then self:cancelShelfProgress() end
+    if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
+    if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
+    if self.cancelMPArticleActions then self:cancelMPArticleActions() end
+    if self.cancelWebRenewal then self:cancelWebRenewal() end
+    if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
+    if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
+    if self.cancelMPArticleExport then self:cancelMPArticleExport() end
+    if self.cancelShelfState then self:cancelShelfState() end
+    if self.closeReadingLanguageDocument then self:closeReadingLanguageDocument() end
+    if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
+    if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
+    if self.closeReaderLinkUI then self:closeReaderLinkUI() end
+    if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
+    if self.cancelProfileRefresh then self:cancelProfileRefresh() end
+    if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
+    if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelBookReading then self:cancelBookReading() end
+    if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
+    if self.source_navigation then self.source_navigation:cancel() end
+    local source_position = self.source_position and self.source_position:current()
+    local close_token,close_position = self.progress_sync:prepare_close(source_position)
+    if self.source_position then self.source_position:stop() end
+    if self.native_renewal then self.native_renewal:cancel() end
+    if self.cancelShelfRefresh then self:cancelShelfRefresh() end
+    if self.native_authorization then self.native_authorization:cancel() end
+    if self.offline_time then self.offline_time:stop("no_book") end
+    FileIdentity.forget(self.ui and self.ui.document)
     -- Capture the immutable local position while the document is still alive.
     -- The network upload is scheduled; stopping ReadReport below also frees any
     -- in-flight report slot before that scheduled upload begins.
-    self.progress_sync:on_close_document()
+    self.progress_sync:on_close_document(source_position,close_token,close_position)
     self._reader_session_gen = (self._reader_session_gen or 0) + 1
     self.downloader:cancelPrefetch("document_closed")
     if self._cancelUnifiedAnnotationSync then self:_cancelUnifiedAnnotationSync() end
@@ -198,6 +297,19 @@ function M:onCloseDocument()
     end
 
     self.read_report:on_close_document()
+end
+
+function M:onShowingReader()
+    if self.cancelBookReading then self:cancelBookReading() end
+    require('weread.ui.mp_file_open').cancel(self)
+    require('weread.ui.mp_reader_open').cancel(self)
+end
+
+function M:onCloseWidget()
+    if self.cancelBookReading then self:cancelBookReading() end
+    require('weread.ui.mp_file_open').detach(self)
+    require('weread.ui.mp_reader_open').detach(self)
+    require('weread.ui.mp_metadata_preview').detach(self)
 end
 
 function M:showPrefetchNotice(text, timeout)
@@ -327,15 +439,77 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
+    require('weread.ui.chapter_links').cancel(self)
+    if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
+    personal_action(self,'suspend')
+    selection_action(self,'cancel')
+    require('weread.ui.mp_reader_open').cancel(self)
+    if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
+    if self.cancelShelfCovers then self:cancelShelfCovers(true) end
+    if self.cancelShelfProgress then self:cancelShelfProgress() end
+    if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
+    if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
+    if self.cancelMPArticleActions then self:cancelMPArticleActions() end
+    if self.cancelWebRenewal then self:cancelWebRenewal() end
+    if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
+    if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
+    if self.cancelMPArticleExport then self:cancelMPArticleExport() end
+    if self.cancelShelfState then self:cancelShelfState() end
+    if self.cancelReadingLanguage then self:cancelReadingLanguage() end
+    if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
+    if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
+    if self.closeReaderLinkUI then self:closeReaderLinkUI() end
+    if self.cancelCloudSourcePosition then self:cancelCloudSourcePosition() end
+    if self.cancelProfileRefresh then self:cancelProfileRefresh() end
+    if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
+    if self.cancelBookMetadata then self:cancelBookMetadata() end
+    if self.cancelBookReading then self:cancelBookReading() end
+    if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
+    if self.source_navigation then self.source_navigation:cancel() end
+    local source_position = self.source_position and self.source_position:current()
+    if self.source_close then self.source_close:cancel() end
+    if self.source_position then self.source_position:pause("suspend") end
+    if self.native_renewal then self.native_renewal:cancel() end
+    if self.cancelShelfRefresh then self:cancelShelfRefresh() end
+    if self.native_authorization then self.native_authorization:cancel() end
+    if self.offline_time then self.offline_time:suspend() end
+    if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     if self._cancelUnifiedAnnotationSync then self:_cancelUnifiedAnnotationSync() end
     self._annotation_pending_prefetch = nil
-    self.progress_sync:on_suspend()
+    self.progress_sync:on_suspend(source_position)
     self.read_report:on_suspend()
 end
 
 function M:onResume()
+    personal_action(self,'wake')
+    if self.resumeShelfCovers then self:resumeShelfCovers() end
     self.progress_sync:on_resume()
+    if self.source_position then self.source_position:resume("suspend") end
     self.read_report:on_resume()
+    if self.offline_time then self.offline_time:resume() end
+    if self.startHomeStatusTimer and self.shelf_view and self.shelf_view.home_layout then
+        self:startHomeStatusTimer(self.shelf_view)
+    end
+end
+
+function M:onReadingPaused()
+    if self.offline_time then self.offline_time:pause() end
+end
+
+function M:onReadingResumed()
+    if self.offline_time then self.offline_time:resume() end
+end
+
+function M:onNetworkConnected()
+    if self.progress_sync then self.progress_sync:on_network_connected() end
+    if self.offline_time then self.offline_time:update("network_connected", true) end
+end
+
+function M:onNetworkDisconnected()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
+    if self.progress_sync then self.progress_sync:on_network_disconnected() end
+    if self.offline_time then self.offline_time:update("network_disconnected", false) end
 end
 
 function M:detectWeReadBook()
@@ -346,6 +520,8 @@ function M:detectWeReadBook()
     if not file then
         return nil
     end
+    if require("weread.lib.notes_export").is_export_path(self.settings,file) then return nil end
+    if require("weread.lib.mp_export").is_export_path(self.settings,file) then return nil end
     local books = self.settings:get("books", {})
     for book_id, book in pairs(books) do
         if type(book) == "table" then
@@ -472,6 +648,7 @@ function M:getChapterInfoFromFile(book, file_path)
 end
 
 function M:onFlushSettings()
+    if self.progress_sync then self.progress_sync:checkpoint_local("settings_flush") end
     if self.settings then
         self.settings:flush()
     end

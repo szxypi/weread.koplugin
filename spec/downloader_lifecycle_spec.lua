@@ -279,10 +279,14 @@ package.preload["ui/trapper"] = function() return trapper end
 downloader.run_online_task = function(_label, callback) callback(); return true end
 local cleanup_calls, completion_calls = 0, 0
 Content.cleanup_download_workspace = function() cleanup_calls = cleanup_calls + 1 end
-local function cancel_job(dl, expected_cleanup)
+local function cancel_job(dl, expected_cleanup, use_api)
     local before_killed = killed
     expect(child_pending and dialog.visible, "network request did not yield to the UI")
-    dialog.options.buttons[1][1].callback()
+    expect(not downloader:cancelJob({}) and not downloader:cancelJob({prefetch=true}),
+        "foreign cancellation affected foreground job")
+    if use_api then expect(downloader:cancelJob(dl), "owned cancel API rejected foreground job")
+    else dialog.options.buttons[1][1].callback() end
+    expect(not downloader:cancelJob(dl), "completed cancellation was reusable")
     expect(killed == before_killed + 1 and child_pending == nil,
         "cancel did not interrupt the in-flight child")
     expect(dl.cancelled and dl.completion_notified and downloader._active_job == nil,
@@ -293,7 +297,7 @@ local function cancel_job(dl, expected_cleanup)
 end
 
 expect(start_selected(), "interruptible preparation did not start")
-cancel_job(downloader._active_job, 0)
+cancel_job(downloader._active_job, 0, true)
 
 for _, stage in ipairs({ "source", "images", "cover" }) do
     local dl = {
@@ -358,4 +362,62 @@ local worker_ok, worker_err = pcall(downloader._runInterruptible, downloader, dl
 expect(not worker_ok and tostring(worker_err):find("could not start download worker", 1, true)
     and not dl.cancelled, "worker launch failure was mistaken for user cancellation")
 
+local owned, other = function() end, function() end
+downloader._active_job = { on_complete = other }
+downloader._pending_start = { options = { on_complete = owned } }
+expect(downloader:cancelRequest(owned) and not downloader._pending_start
+    and not downloader._active_job.cancelled, "queued reading cancellation touched another job")
+downloader._scheduled_start = { pending = { options = { on_complete = owned } } }
+expect(downloader:cancelRequest(owned) and not downloader._scheduled_start, "scheduled reading survived cancellation")
+local owned_job = { on_complete = owned }
+downloader._active_job = owned_job
+expect(downloader:cancelRequest(owned) and owned_job.cancelled, "active reading survived cancellation")
+expect(not downloader:cancelRequest(other), "unknown request cancelled another job")
+local ReadClient = require('weread.lib.download_read_client')
+local original_wrap, wrapped, wraps = ReadClient.wrap, {}, 0
+ReadClient.wrap = function(client)
+    expect(client == downloader.client, 'batch worker received an unrelated transport')
+    wraps = wraps + 1
+    return wrapped
+end
+local worker = { dismissableRunInSubprocess = function(_self, callback) return true, callback() end }
+local before_client = downloader.client
+local value = downloader:_runInterruptible({ trapper = worker, total = 2 }, function(client)
+    expect(client == wrapped, 'batch source task bypassed pacing')
+    return 'batch result'
+end)
+expect(value == 'batch result' and wraps == 1 and downloader.client == before_client, 'batch worker changed the shared UI client')
+downloader:_runInterruptible({ trapper = worker, total = 1 }, function(client)
+    expect(client == before_client and wraps == 1, 'single-chapter task was unnecessarily paced')
+end)
+downloader:_runInterruptible({ total = 2 }, function(client)
+    expect(client == before_client and wraps == 1, 'legacy foreground fallback acquired a sleeping client')
+end)
+expect(not pcall(downloader._runInterruptible, downloader, { trapper = worker, total = 2 }, function(client)
+    expect(client == wrapped, 'failed batch task bypassed pacing')
+    error('synthetic batch failure', 0)
+end), 'batch worker failure was hidden')
+expect(downloader.client == before_client, 'failed worker changed the UI transport')
+ReadClient.wrap = original_wrap
+local lease_releases,lock_completions=0,0
+local cache_guarded=Downloader:new{
+    settings={},client={},require_login=function() return true end,
+    run_online_task=function() return false end,show_info=function() end,show_transient=function() end,refresh_ui=function() end,
+    operation_lock=function() return {release=function() lease_releases=lease_releases+1 end} end,
+}
+expect(not cache_guarded:start({book_id='900001'}, {},'book'), 'offline cache_guarded download started')
+expect(lease_releases==1 and not cache_guarded._active_job,'offline exit leaked book gate')
+cache_guarded.operation_lock=function() return nil,'busy' end
+cache_guarded:start({book_id='900001'},{},'book',{on_complete=function(ok,reason)
+    expect(not ok and reason=='cache_busy','gate rejection changed completion result');lock_completions=lock_completions+1
+end})
+expect(lock_completions==1 and not cache_guarded._active_job and lease_releases==1,'busy cache started or released someone else’s gate')
+cache_guarded.operation_lock=function() return {release=function() lease_releases=lease_releases+1 end} end
+scheduled={}
+expect(cache_guarded:start({book_id='900001'},{{chapterUid=1}},'chapter',{prefetch=true}),'cache_guarded prefetch did not start')
+expect(lease_releases==1 and cache_guarded._active_job.operation_lease,'scheduled prefetch did not retain gate')
+cache_guarded:cancelPrefetch('synthetic_cancel')
+expect(lease_releases==1,'prefetch cancellation released the gate before completion')
+table.remove(scheduled,1)()
+expect(lease_releases==2 and not cache_guarded._active_job,'cancelled scheduled prefetch leaked its gate')
 print(("downloader_lifecycle_spec: %d checks"):format(checks))

@@ -24,6 +24,7 @@ local VerticalSpan = require("ui/widget/verticalspan")
 local Screen = Device.screen
 local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
+local BookReviews = require("weread.lib.book_reviews")
 
 local function _(text) return I18n.tr(text) end
 
@@ -282,7 +283,7 @@ function BookDetailView:content()
     if data.intro and data.intro ~= "" then
         table.insert(content, self:sectionTitle(_("Introduction")))
         table.insert(content, TextBoxWidget:new{
-            text = data.intro,
+            text = BookReviews.plain_text(data.intro),
             face = Font:getFace("cfont", 17),
             width = self.content_width,
         })
@@ -367,6 +368,7 @@ end
 
 function BookDetailView:onCloseWidget()
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
+    if self.on_close then self.on_close() end
 end
 
 function BookDetailView:onClose()
@@ -380,6 +382,7 @@ function M.show(data, callbacks)
     local view = BookDetailView:new{
         data = data,
         on_refresh = callbacks.on_refresh,
+        on_close = callbacks.on_close,
     }
     UIManager:show(view)
     return view

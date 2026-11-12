@@ -1,0 +1,14 @@
+{
+  "checked_at": "2026-11-08T06:33:28.559793+00:00",
+  "stages": [],
+  "probe": "native_renewal",
+  "renewal_attempts": 0,
+  "data_writes_attempted": 0,
+  "result": "PENDING_OWNER_SCAN",
+  "pending": [
+    "owner_scan",
+    "renewal",
+    "renewed_shelf"
+  ],
+  "network_requests": 0
+}

@@ -1,0 +1,47 @@
+{
+  "result": "PASS",
+  "real_account_data_posts": 0,
+  "authentication_posts": 0,
+  "new_independent_scope": true,
+  "old_python_scope_not_reused": true,
+  "python_offline_tests": 17,
+  "synthetic_reader_dimensions": 2,
+  "synthetic_one_request_limit": 1,
+  "cases": [
+    {
+      "mode": "accepted",
+      "result": "NATIVE_INITIAL_READER_VERIFIED",
+      "phase": "retired",
+      "simulated_posts": 1,
+      "success_receipts": 1
+    },
+    {
+      "mode": "delayed",
+      "result": "NATIVE_INITIAL_READER_VERIFIED",
+      "phase": "retired",
+      "simulated_posts": 1,
+      "success_receipts": 1
+    },
+    {
+      "mode": "noack",
+      "result": "UNVERIFIED",
+      "phase": "pending",
+      "simulated_posts": 1,
+      "success_receipts": 0
+    },
+    {
+      "mode": "rejected",
+      "result": "UNVERIFIED",
+      "phase": "pending",
+      "simulated_posts": 1,
+      "success_receipts": 0
+    },
+    {
+      "mode": "changed_counts",
+      "result": "UNVERIFIED",
+      "phase": "acknowledged",
+      "simulated_posts": 1,
+      "success_receipts": 1
+    }
+  ]
+}

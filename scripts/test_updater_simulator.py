@@ -48,12 +48,12 @@ def main():
     ) + "最后一条更新：感谢使用微信读书插件。"
     metadata = dict(tag_name="v9999.9.1", body=notes, assets=[dict(
         name=asset,
-        browser_download_url="https://github.com/finlater/weread.koplugin/releases/download/v9999.9.1/" + asset,
+        browser_download_url="https://github.com/szxypi/weread.koplugin/releases/download/v9999.9.1/" + asset,
         size=(root / "fixtures" / asset).stat().st_size,
     ) for asset in (name, name + ".sha256")])
     (root / "fixtures/release.json").write_text(json.dumps(metadata, ensure_ascii=False))
     (root / "profile/settings.reader.lua").write_text('return { language = "zh_CN", color_rendering = false }\n')
-    environment = dict(KO_HOME=str(root / "profile"), EMULATE_READER="1",
+    environment = dict(KO_HOME=str(root / "profile"), WEREAD_UPDATER_RUNTIME="1", EMULATE_READER="1",
                        EMULATE_READER_W=str(args.width), EMULATE_READER_H=str(args.height),
                        EMULATE_READER_DPI=str(args.dpi), KO_DYLD_PREFIX=str(runtime))
     script = REPO / "spec/koreader/weread_updater_smoke.lua"

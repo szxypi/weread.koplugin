@@ -1,0 +1,20 @@
+{
+  "result": "OFFLINE_ONLY",
+  "checked_at": "2026-11-08T13:21:13.481029+00:00",
+  "stages": [],
+  "account_writes_attempted": 0,
+  "precision_wire_sync_enabled": false,
+  "version_semantics_verified": false,
+  "offline_model_check": true,
+  "network_requests": 0,
+  "pending": [
+    "owner_web_login",
+    "read_only_source_comparison"
+  ],
+  "checks": {
+    "new_python_tests": 18,
+    "total_python_tests": 89,
+    "python_compilation": true,
+    "diff_check": true
+  }
+}

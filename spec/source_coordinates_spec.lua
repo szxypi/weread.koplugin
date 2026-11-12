@@ -1,0 +1,181 @@
+package.path = "./?.lua;" .. package.path
+local Source = require("weread.lib.source_coordinates")
+local checks = 0
+local function eq(actual, expected)
+    checks = checks + 1
+    assert(actual == expected, tostring(actual) .. " ~= " .. tostring(expected))
+end
+local function build(raw, options)
+    local map, err = Source.build(raw, options)
+    assert(map, err)
+    return map
+end
+local function locate(map, text, before, after)
+    local point, err = map:locate(text, before, after)
+    assert(point, err)
+    return point
+end
+
+-- Golden offsets independently observed from the official Web parser. Ignored
+-- tags do not advance a text run; retained tags reset to their original end.
+local raw = '<html><body><p>prefix</p><a>Marker</a><p>suffix</p></body></html>'
+local map = build(raw)
+eq(#map.segments, 3)
+eq(map.segments[1][1], 15)
+eq(map.segments[2][1], 25)
+eq(map.segments[3][1], 41)
+eq(map.segments[2][2], "Marker")
+local point = locate(map, "prefixMarkersuffix")
+eq(point.co, 15)
+eq(point.end_co, 47)
+
+map = build('<html><body><p>before<a href="a > b">outer<q>inner</q>tail</a>after<wbr/>last</p></body></html>')
+eq(#map.segments, 1)
+eq(map.segments[1][2], "beforeouterinnertailafterlast")
+eq(locate(map, "outerinnertailafter").co, 21)
+
+map = build('<html><body><p>before<!--kept comment-->after<a/>tail</p></body></html>')
+eq(map.segments[1][2], "beforeaftertail")
+eq(locate(map, "beforeaftertail").co, 15)
+eq(locate(map, "beforeaftertail").end_co, 30)
+
+map = build('<html><body><p>left > right <3 tail</p></body></html>')
+eq(map.segments[1][2], "left &gt; right &lt;3 tail")
+eq(locate(map, "left > right <3 tail").end_co, 41)
+
+raw = '\239\187\191<html><body><p>abcdefghijklm<a>甲😀乙&amp;丙0123456789</a>tail</p></body></html>'
+map = build(raw)
+point = locate(map, "甲😀乙&丙0123456789")
+eq(point.co, 29)
+eq(point.end_co, 49)
+local anchor = assert(map:anchor(point.co))
+eq(anchor.point_offset, 13)
+eq(anchor.point_unit, "unicode_scalars")
+local reverse, err = map:anchor(point.co + 2)
+eq(reverse, nil)
+eq(err, "source_coordinates/inside_entity_or_scalar")
+
+-- Sparse indexing crosses Unicode/entity boundaries while avoiding a table
+-- for every rune in a long chapter. Anchors near the end retain source units.
+local prefix = string.rep("甲 &amp;😀 ", 2000)
+raw = '<html><body><p>' .. prefix .. 'unique ending anchor for a long chapter</p></body></html>'
+map = build(raw)
+point = locate(map, "unique ending anchor for a long chapter")
+eq(point.co, 15 + 2000 * 10)
+eq(#map.points < 100, true)
+eq(assert(map:anchor(point.co)).co, point.co)
+eq(assert(map:anchor(point.end_co)).point_offset > 0, true)
+
+-- Repeated/overlapping phrases need real context; no nearest-match heuristic.
+map = build('<html><body><p>left same repeated content phrase one</p><p>right same repeated content phrase two</p></body></html>')
+point, err = map:locate("same repeated content phrase")
+eq(point, nil)
+eq(err, "source_coordinates/anchor_ambiguous")
+eq(locate(map, "same repeated content phrase", "right", "two").co,
+    ('<html><body><p>left same repeated content phrase one</p><p>right '):len())
+map = build('<html><body><p>' .. string.rep("x", 40) .. '</p></body></html>')
+point, err = map:locate(string.rep("x", 12))
+eq(point, nil)
+eq(err, "source_coordinates/anchor_ambiguous")
+
+-- Escaping can make a run overlap the next retained-tag coordinate interval.
+-- One co can then denote two places: the reverse direction must refuse it.
+map = build('<html><body><p>' .. string.rep(">", 20) .. '</p><p>abcdefghijklmnop</p></body></html>')
+reverse, err = map:anchor(43)
+eq(reverse, nil)
+eq(err, "source_coordinates/offset_ambiguous")
+
+-- One entity may produce several visible scalars but has only one co interval.
+map = build('<html><body><p>prefix&pair;ordinary ending text</p></body></html>', {
+    decode_entity = function(entity) eq(entity, "&pair;") return "XY" end,
+})
+point, err = map:locate("Yordinary ending text")
+eq(point, nil)
+eq(err, "source_coordinates/inside_entity_or_scalar")
+eq(locate(map, "XYordinary ending text").co, 21)
+
+for _, value in ipairs({ -1, 0.5, math.huge, "42" }) do
+    reverse, err = map:anchor(value)
+    eq(reverse, nil)
+    eq(err, "source_coordinates/invalid_offset")
+end
+point, err = map:locate("short")
+eq(point, nil)
+eq(err, "source_coordinates/anchor_too_short")
+point, err = map:locate(string.rep("a", Source.MAX_ANCHOR_BYTES + 1))
+eq(point, nil)
+eq(err, "source_coordinates/invalid_anchor")
+
+for _, value in ipairs({
+    '<p>no body</p>', '<BODY>upper</BODY>', '<body>incomplete', '<body>one</body><body>two</body>',
+    '<body><![CDATA[text]]></body>', '<body><?processing instruction?></body>',
+    '<body><script>"<p>markup</p>"</script></body>', '<body>bad\0control</body>',
+    '<body>bad\237\160\128surrogate</body>', '<body>&unterminated</body>', '<body>&#0;</body>', '<body>&#xFFFF;</body>',
+    '<body><p title="broken>text</p></body>', string.rep("a", Source.MAX_BYTES + 1),
+}) do
+    local invalid, reason = Source.build(value)
+    eq(invalid, nil)
+    eq(type(reason) == "string" and reason:match("^source_coordinates/[%a_]+$") ~= nil, true)
+end
+
+-- Scalar positions inside a context are converted through actual source
+-- runs; UTF-16 and encoded entities cannot use scalar-offset addition.
+local context = "ABCDE😀&中文FGHIJKLMNOPQRSTUVWXYZ"
+local point_map = build("<body><p>ABCDE😀&amp;中文FGHIJKLMNOPQRSTUVWXYZ</p></body>")
+for _, case in ipairs({ {0,9}, {5,14}, {6,16}, {7,21}, {9,23}, {30,44} }) do
+    eq(assert(point_map:locate_point(context, case[1])).co, case[2])
+end
+for _, invalid in ipairs({-1,31,0.5,"5",math.huge}) do
+    local missing, reason = point_map:locate_point(context, invalid)
+    eq(missing,nil)
+    eq(reason,"source_coordinates/invalid_point")
+end
+local pair_map = build("<body><p>&pair;1234567890abcdefghijklmnop</p></body>", {
+    decode_entity = function() return "XY" end,
+})
+local pair_point, pair_error = pair_map:locate_point("XY1234567890abcdefghijklmnop",1)
+eq(pair_point,nil)
+eq(pair_error,"source_coordinates/inside_entity_or_scalar")
+eq(assert(pair_map:locate_point("XY1234567890abcdefghijklmnop",2)).co,15)
+
+local txt_raw='\239\187\191prefix \r\n  <tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'
+local txt_map=assert(Source.build(txt_raw,{format='web_txt'}))
+local literal='<tag>&amp;😀中文ABCDEFGHIJKLMNOPQRST'
+eq(txt_map.basis,'raw_txt_utf16')
+eq(txt_map.flat,'\239\187\191prefix'..literal)
+local txt_point=assert(txt_map:locate(literal))
+eq(txt_point.co,12)
+eq(txt_point.end_co,46)
+eq(txt_point.basis,'raw_txt_utf16')
+for _i,case in ipairs({{0,12},{10,22},{11,24},{13,26},{33,46}}) do
+    local value=assert(txt_map:locate_point(literal,case[1]))
+    eq(value.co,case[2]);eq(value.basis,'raw_txt_utf16')
+    local txt_reverse=assert(txt_map:anchor(value.co))
+    eq(txt_reverse.basis,'raw_txt_utf16')
+    eq(assert(txt_map:locate_point(txt_reverse.text,txt_reverse.point_offset)).co,value.co)
+end
+eq(select(2,txt_map:anchor(23)),'source_coordinates/inside_entity_or_scalar')
+eq(assert(txt_map:anchor(19)).co,19) -- Literal entity letters have their own source boundaries.
+for _i,bad in ipairs({'','\0','\1','\12','\237\160\128','\255',string.rep('x',Source.MAX_BYTES+1)}) do
+    eq(Source.build(bad,{format='web_txt'}),nil)
+end
+eq(Source.build(txt_raw),nil) -- No implicit format sniffing.
+eq(Source.build(txt_raw,{format='unknown'}),nil)
+
+-- Local concatenated documents retain original UTF-16 offsets across their
+-- wrappers; the default used by cloud validation still rejects them.
+local first='<html><body><p>Uniquely written first body with 中文😀 and &amp;.</p></body></html>'
+local second='<html><head><title>Ignored heading</title></head><body><p>A unique second body marker with enough text.</p></body></html>'
+local multi=first..second
+eq(Source.build(multi),nil)
+local local_map=build(multi,{allow_multiple_bodies=true})
+local marker='A unique second body marker with enough text.'
+local expected=#first+#second:match('^(.-)A unique')-#'中文😀'+4 -- UTF-16 replaces ten UTF-8 bytes with four units.
+eq(locate(local_map,marker).co,expected)
+eq(assert(local_map:anchor(expected)).co,expected)
+for _i,invalid in ipairs({'<body>one<body>nested</body></body>','<body>one</body></body>','<body/>',
+    '<body>open','<!-- <body> --><body>one</body>',string.rep('<body>x</body>',257)}) do
+    eq(Source.build(invalid,{allow_multiple_bodies=true}),nil)
+end
+
+print("source_coordinates_spec: " .. checks .. " checks")

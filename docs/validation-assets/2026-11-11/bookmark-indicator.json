@@ -1,0 +1,303 @@
+{
+  "result": "PASS",
+  "scope": "source-bound native cloud bookmark corner; synthetic account only",
+  "checks": {
+    "python_files": 90,
+    "python_tests": 1084,
+    "python_skips": 0,
+    "lua_specs": 222,
+    "time_zones": 4,
+    "python_compile": 275,
+    "lua_syntax": 623,
+    "result": "PASS",
+    "lint_files": 621,
+    "lint_warnings": 0,
+    "lint_errors": 0,
+    "namespace": "PASS"
+  },
+  "native": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "result": "PASS",
+      "receipts": {
+        "bookmark-indicator-result": {
+          "native_point_verified": true,
+          "page_turn_hides": true,
+          "show_toggle": true,
+          "font_reflow": true,
+          "scroll_visible": true,
+          "corner_tap": true,
+          "synthetic_only": true,
+          "real_account_data_posts": 0,
+          "local_dogear_preserved": true,
+          "result": "PASS"
+        },
+        "bookmark-edit-result": {
+          "original_records_restored": true,
+          "mock_data_posts": 2,
+          "real_account_data_posts": 0,
+          "reader_position_and_notes_preserved": true,
+          "result": "PASS",
+          "native_list_locate": true,
+          "native_delete": true,
+          "duplicate_no_dispatch": true,
+          "missing_preview_supported": true,
+          "lost_receipt_independent_readback": true,
+          "downloaded_file_unchanged": true,
+          "background_workers": true,
+          "durable_intent_before_post": true,
+          "synthetic_only": true,
+          "current_page_source_bound": true
+        },
+        "highlight-edit-result": {
+          "personal_overlay_toggle_and_tap": true,
+          "personal_overlay_font_reflow": true,
+          "synthetic_offline_cache_seeded": true,
+          "native_styles_changed": true,
+          "style_color_and_quote_preserved": true,
+          "result": "PASS",
+          "style_unknown_pending": true,
+          "synthetic_only": true,
+          "real_account_data_posts": 0,
+          "mock_data_posts": 6,
+          "style_lost_receipt_confirmed": true,
+          "downloaded_file_unchanged": true,
+          "lost_receipt_independent_readback": true,
+          "offline_no_write": true,
+          "durable_intent_before_post": true,
+          "background_workers": true,
+          "source_change_refuses_post": true,
+          "native_selection": true,
+          "native_list_delete": true,
+          "reader_position_and_notes_preserved": true,
+          "original_records_restored": true,
+          "linked_thought_delete_refused": true,
+          "pending_no_resend": true,
+          "readonly_recovery": true,
+          "cancel_refuses_commit": true,
+          "personal_overlay_saved_and_deleted": true
+        },
+        "selection-thought-result": {
+          "durable_pending_before_post": true,
+          "optional_native_index_omitted": true,
+          "mock_data_posts": 6,
+          "real_account_data_posts": 0,
+          "result": "PASS",
+          "synthetic_only": true,
+          "actual_selection_menu": true,
+          "cooperative_native_capture": true,
+          "background_source_verification": true,
+          "offline_draft_restore": true,
+          "private_create_edit_delete": true,
+          "changed_source_refuses_post": true,
+          "original_thought_preserved": true,
+          "reader_position_and_notes_preserved": true,
+          "lost_receipt_independent_readback": true,
+          "unknown_result_pending_no_resend": true,
+          "unicode_entities_and_cross_paragraph": true,
+          "cancelled_preparation_keeps_draft": true,
+          "cancelled_source_preflight_prevents_dispatch": true,
+          "web_401_keeps_draft_without_renewal": true
+        },
+        "selection-thought-reopen-result": {
+          "result": "PASS",
+          "synthetic_only": true,
+          "fresh_process": true,
+          "offline_source_restore": true,
+          "local_draft_and_pending_kept": true,
+          "pending_style_kept": true,
+          "cached_personal_highlight_displayed": true,
+          "offline_bookmark_located": true,
+          "offline_http_requests": 0,
+          "automatic_replay": false
+        }
+      },
+      "production_files": 250,
+      "source_package_installed_bytes_match": true,
+      "source_manifest_sha256": "2ba641f9a66f0352c151b3f4a0793ec96344ad5328b33bd332336e5c5cb28664",
+      "package_sha256": "8d63795af0ce22a3f1551fcdbf0ba5734014f6d783282370945f114d69006961",
+      "fresh_process_offline_corner": true,
+      "offline_http_requests": 0,
+      "screenshots": {
+        "page": {
+          "path": "bookmark-indicator-page-600.png",
+          "sha256": "7b4c3f25a364a5572492be213b66261c118a53b7a24d99ff78c5bbc9a87e93ae",
+          "synthetic_only": true
+        },
+        "scroll": {
+          "path": "bookmark-indicator-scroll-600.png",
+          "sha256": "0ece065d0aab9c34d70191693c775d58db3ad6be303b6250a39ae686c4aa9304",
+          "synthetic_only": true
+        },
+        "with-local": {
+          "path": "bookmark-indicator-with-local-600.png",
+          "sha256": "2595aff99411f800a6e1c83721c92229d172f958443c49cb7e8204e7b4bddbe5",
+          "synthetic_only": true
+        },
+        "offline": {
+          "path": "bookmark-indicator-offline-600.png",
+          "sha256": "3e715f02feb6db930d52f26c3c58e311eca39954df43218588064dcb4bf8b44c",
+          "synthetic_only": true
+        }
+      }
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "result": "PASS",
+      "receipts": {
+        "bookmark-indicator-result": {
+          "page_turn_hides": true,
+          "show_toggle": true,
+          "font_reflow": true,
+          "scroll_visible": true,
+          "corner_tap": true,
+          "local_dogear_preserved": true,
+          "result": "PASS",
+          "real_account_data_posts": 0,
+          "synthetic_only": true,
+          "native_point_verified": true
+        },
+        "bookmark-edit-result": {
+          "current_page_source_bound": true,
+          "mock_data_posts": 2,
+          "durable_intent_before_post": true,
+          "downloaded_file_unchanged": true,
+          "reader_position_and_notes_preserved": true,
+          "lost_receipt_independent_readback": true,
+          "native_list_locate": true,
+          "native_delete": true,
+          "duplicate_no_dispatch": true,
+          "missing_preview_supported": true,
+          "original_records_restored": true,
+          "result": "PASS",
+          "background_workers": true,
+          "synthetic_only": true,
+          "real_account_data_posts": 0
+        },
+        "highlight-edit-result": {
+          "native_selection": true,
+          "native_list_delete": true,
+          "offline_no_write": true,
+          "source_change_refuses_post": true,
+          "linked_thought_delete_refused": true,
+          "pending_no_resend": true,
+          "readonly_recovery": true,
+          "cancel_refuses_commit": true,
+          "personal_overlay_saved_and_deleted": true,
+          "personal_overlay_toggle_and_tap": true,
+          "personal_overlay_font_reflow": true,
+          "synthetic_offline_cache_seeded": true,
+          "native_styles_changed": true,
+          "style_color_and_quote_preserved": true,
+          "style_lost_receipt_confirmed": true,
+          "style_unknown_pending": true,
+          "reader_position_and_notes_preserved": true,
+          "lost_receipt_independent_readback": true,
+          "durable_intent_before_post": true,
+          "mock_data_posts": 6,
+          "downloaded_file_unchanged": true,
+          "original_records_restored": true,
+          "result": "PASS",
+          "background_workers": true,
+          "synthetic_only": true,
+          "real_account_data_posts": 0
+        },
+        "selection-thought-result": {
+          "durable_pending_before_post": true,
+          "mock_data_posts": 6,
+          "actual_selection_menu": true,
+          "cooperative_native_capture": true,
+          "background_source_verification": true,
+          "offline_draft_restore": true,
+          "private_create_edit_delete": true,
+          "changed_source_refuses_post": true,
+          "original_thought_preserved": true,
+          "reader_position_and_notes_preserved": true,
+          "lost_receipt_independent_readback": true,
+          "unknown_result_pending_no_resend": true,
+          "unicode_entities_and_cross_paragraph": true,
+          "cancelled_preparation_keeps_draft": true,
+          "cancelled_source_preflight_prevents_dispatch": true,
+          "web_401_keeps_draft_without_renewal": true,
+          "result": "PASS",
+          "optional_native_index_omitted": true,
+          "synthetic_only": true,
+          "real_account_data_posts": 0
+        },
+        "selection-thought-reopen-result": {
+          "result": "PASS",
+          "synthetic_only": true,
+          "fresh_process": true,
+          "offline_source_restore": true,
+          "local_draft_and_pending_kept": true,
+          "pending_style_kept": true,
+          "cached_personal_highlight_displayed": true,
+          "offline_bookmark_located": true,
+          "offline_http_requests": 0,
+          "automatic_replay": false
+        }
+      },
+      "production_files": 250,
+      "source_package_installed_bytes_match": true,
+      "source_manifest_sha256": "2ba641f9a66f0352c151b3f4a0793ec96344ad5328b33bd332336e5c5cb28664",
+      "package_sha256": "d341c42aaec0e63ace53f7e3ef7d25205005658f4ba175ce8c3f1735de07a3ac",
+      "fresh_process_offline_corner": true,
+      "offline_http_requests": 0,
+      "screenshots": {
+        "page": {
+          "path": "bookmark-indicator-page-1264.png",
+          "sha256": "d9b6cc037a3eda03d1183990a5da13cdf09f9b8ca9b563d11ebb2fbe1213dddc",
+          "synthetic_only": true
+        },
+        "scroll": {
+          "path": "bookmark-indicator-scroll-1264.png",
+          "sha256": "24dc9fbd0cb4cb69783506390ceb9411dd428d5facd51c5ab4373a40d67658a3",
+          "synthetic_only": true
+        },
+        "with-local": {
+          "path": "bookmark-indicator-with-local-1264.png",
+          "sha256": "65381cae277638d3eb6716cc3cb3db0da4346ce83ef7fe124c491b1caf3efc30",
+          "synthetic_only": true
+        },
+        "offline": {
+          "path": "bookmark-indicator-offline-1264.png",
+          "sha256": "e387e7bf6a972e1a7aceec45c1736e3ec0ff633789adf5100948b34e87dd2ae1",
+          "synthetic_only": true
+        }
+      }
+    }
+  ],
+  "real_account_data_posts": 0,
+  "authentication_posts": 0,
+  "physical_acceptance": false,
+  "performance_phase_started": false,
+  "goal_complete": false,
+  "prior_native_account_trial": "native-bookmark-trial.json",
+  "ci_known_failure": {
+    "run": 43051080777,
+    "head_sha": "c348ec08a12dfb066f7563b80ff23ad2c3283377",
+    "conclusion": "failure",
+    "stage": "Install Lua tooling",
+    "exit_code": 100,
+    "code_checks_started": false,
+    "direct_official_archive_dns_failed": true,
+    "automatic_replay": false
+  },
+  "privacy_audit": {
+    "python_bookmark_intent_absent": true,
+    "native_bookmark_intent_absent": true,
+    "result": "PASS",
+    "files": 1487,
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "test_intents_absent": true,
+    "python_style_intent_absent": true,
+    "native_style_intent_absent": true,
+    "protected_files_unchanged": true,
+    "document_links_checked": 131
+  }
+}

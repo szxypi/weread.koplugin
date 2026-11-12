@@ -1,0 +1,591 @@
+{
+  "result": "PASS",
+  "base_commit": "db8218104908f3ed69d6baf375fee7c11c812e98",
+  "scope": "One actual unmarked source selection: native private thought create/edit/delete, with independent host checks. Conditional highlight cleanup skipped because none remained",
+  "user_authorized_continuing_goal_scope": true,
+  "authorization_account_data_posts_cap": 4,
+  "all_four_slots_reserved_before_launch": true,
+  "slots_refunded": false,
+  "prior_three_write_grant_reused": false,
+  "actual_account_data_posts": 3,
+  "native_note_posts": 3,
+  "optional_new_mark_cleanup_posts": 0,
+  "new_mark_remained_after_delete": false,
+  "ever_created_associated_mark_not_inferred": true,
+  "original_projected_records_restored": true,
+  "original_shelf_flags_and_exact_positions_unchanged": true,
+  "derived_chapter_metadata_changed": false,
+  "intent_cleared_and_fresh_instance_confirmed": true,
+  "no_automatic_replay": true,
+  "real_cleanup_endpoint_validated": false,
+  "current_candidate_dry_run": {
+    "result": "PASS",
+    "mode": "dry-run",
+    "native_ui": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed_files": 236,
+      "installed_bytes_match": true,
+      "stage": {
+        "requests": [
+          1,
+          12,
+          10,
+          5,
+          10,
+          1,
+          0
+        ],
+        "mode": "live",
+        "result": "PASS",
+        "phase": "complete",
+        "selection_trial": {
+          "native_denied": 0,
+          "phase": "complete",
+          "failed_line": 0,
+          "permit_writes": false,
+          "source_reference": true,
+          "native_controls": true,
+          "exact_creation_body": true,
+          "cache_verified": false,
+          "local_pending_kept": true,
+          "dispatch_blocked": true,
+          "heartbeat": true,
+          "steps": 0,
+          "native_gets": 7,
+          "native_posts": 0,
+          "blocked_posts": 1
+        },
+        "anonymous_auth": true,
+        "transport_guard_selftest": true,
+        "plugin_selection": true,
+        "native_reader": true,
+        "source_text_visible": true,
+        "source_receipt_verified": true,
+        "page_turn": true,
+        "position_checkpoint": true,
+        "local_source_position_verified": true,
+        "source_navigation_roundtrip": true,
+        "source_dialog_verified": true,
+        "legacy_progress_units_preserved": true,
+        "credential_file_audit": true,
+        "workers_reaped": true,
+        "shelf_books": 140,
+        "pages": 41,
+        "profile_files_audited": 16,
+        "failed_line": 0,
+        "screenshots": 0,
+        "last_http_status": 200,
+        "denied_kind": 0,
+        "denied_route": 0,
+        "denied_flags": 0
+      }
+    },
+    "independent_native_steps": 0,
+    "reserved_posts": 0,
+    "cleanup_posts": 0,
+    "original_records_restored": true,
+    "account_data_posts": 0,
+    "original_state_unchanged": true,
+    "derived_chapter_metadata_changed": false,
+    "intent_state": "prepared",
+    "no_automatic_replay": true,
+    "authentication_posts": 0,
+    "native_stages": [
+      {
+        "stage": "selection_trial_baseline_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_baseline_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_baseline_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_baseline_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_metadata",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_independent_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_independent_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_launch_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_launch_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_launch_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_launch_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_blocked_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_blocked_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_blocked_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_blocked_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_final_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_final_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_final_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_final_position",
+        "status": 200
+      }
+    ],
+    "web_stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "reader",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "e_0",
+        "status": 200
+      },
+      {
+        "stage": "e_1",
+        "status": 200
+      },
+      {
+        "stage": "e_3",
+        "status": 200
+      },
+      {
+        "stage": "catalog_after",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      }
+    ],
+    "cleanup_stages": []
+  },
+  "actual_apply": {
+    "result": "PASS",
+    "mode": "apply",
+    "native_ui": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed_files": 236,
+      "installed_bytes_match": true,
+      "stage": {
+        "mode": "live",
+        "result": "PASS",
+        "phase": "complete",
+        "selection_trial": {
+          "native_controls": true,
+          "exact_creation_body": true,
+          "cache_verified": true,
+          "local_pending_kept": false,
+          "dispatch_blocked": false,
+          "heartbeat": true,
+          "steps": 3,
+          "phase": "complete",
+          "failed_line": 0,
+          "native_denied": 0,
+          "blocked_posts": 0,
+          "native_posts": 3,
+          "native_gets": 11,
+          "permit_writes": true,
+          "source_reference": true
+        },
+        "anonymous_auth": true,
+        "transport_guard_selftest": true,
+        "plugin_selection": true,
+        "native_reader": true,
+        "source_text_visible": true,
+        "source_receipt_verified": true,
+        "page_turn": true,
+        "position_checkpoint": true,
+        "local_source_position_verified": true,
+        "source_navigation_roundtrip": true,
+        "source_dialog_verified": true,
+        "legacy_progress_units_preserved": true,
+        "credential_file_audit": true,
+        "workers_reaped": true,
+        "shelf_books": 140,
+        "pages": 41,
+        "profile_files_audited": 16,
+        "failed_line": 0,
+        "screenshots": 0,
+        "last_http_status": 200,
+        "denied_kind": 0,
+        "denied_route": 0,
+        "denied_flags": 0,
+        "requests": [
+          1,
+          12,
+          10,
+          5,
+          10,
+          1,
+          0
+        ]
+      }
+    },
+    "independent_native_steps": 3,
+    "reserved_posts": 4,
+    "cleanup_posts": 0,
+    "original_records_restored": true,
+    "account_data_posts": 3,
+    "original_state_unchanged": true,
+    "derived_chapter_metadata_changed": false,
+    "intent_state": "absent",
+    "no_automatic_replay": true,
+    "authentication_posts": 0,
+    "native_stages": [
+      {
+        "stage": "selection_trial_baseline_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_baseline_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_baseline_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_baseline_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_metadata",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_independent_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_independent_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_launch_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_launch_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_launch_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_launch_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_1_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_1_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_1_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_1_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_2_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_2_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_2_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_2_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_3_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_3_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_3_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_step_3_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_cleanup_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_cleanup_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_cleanup_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_before_cleanup_position",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_final_shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_final_thoughts",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_final_marks",
+        "status": 200
+      },
+      {
+        "stage": "selection_trial_final_position",
+        "status": 200
+      }
+    ],
+    "web_stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "reader",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "e_0",
+        "status": 200
+      },
+      {
+        "stage": "e_1",
+        "status": 200
+      },
+      {
+        "stage": "e_3",
+        "status": 200
+      },
+      {
+        "stage": "catalog_after",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      }
+    ],
+    "cleanup_stages": []
+  },
+  "final_status": {
+    "result": "PASS",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "intent_state": "absent",
+    "reserved_posts": 0,
+    "native_steps": 0,
+    "cleanup_pending": false
+  },
+  "dry_run_ledger": {
+    "gets": 60,
+    "existing_content_read_posts": 20,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "actual_apply_ledger": {
+    "gets": 76,
+    "existing_content_read_posts": 20,
+    "account_data_posts": 3,
+    "authentication_posts": 0
+  },
+  "batch_request_ledger": {
+    "gets": 136,
+    "existing_content_read_posts": 40,
+    "account_data_posts": 3,
+    "authentication_posts": 0
+  },
+  "production_unchanged_during_this_batch": true,
+  "production_files": 236,
+  "production_baseline": "8f6cc30",
+  "production_manifest_source": "cover-titles.json",
+  "production_manifest_file_sha256": "932217cb6fc44a4e33b5bad5c913bc5f5a60d64c7242b860804b78f5764b1380",
+  "candidate_sha256": "47bf0093d422e7c0f8d2187fcc7c112e3a91e8f696e4562693f1c08a9e38d814",
+  "actual_installed_bytes_verified": true,
+  "source_sha256": {
+    "scripts/selection_trial_model.py": "8a58a54e842889cd228346469ec87f67e1ee528af8c85a09d00229a37306386b",
+    "scripts/selection_trial_probe.py": "8a8b860b5ca589bf01c5d6ba5dd3a674f36e27248e347771e10a7fe73ba84da4",
+    "scripts/secure_selection_trial.py": "d514d3ae5e341a23ba904b21aaae51f4afce59cf61b3c672548b30bc8b61ea8d",
+    "scripts/verify_selection_trial.py": "54cea1b6ff249eed3845fb864c5eeb0931203d814ba1941d1d40dab696b85e31",
+    "scripts/run_native_selection_trial.py": "6dc4d1d5de7d6e20e772ffd41e16d24c2e8041a22685fd6151b3d374c5b57773",
+    "scripts/selection_trial_mock.py": "a7b568065313d03ee572a5c64add248e5351cba41daf05a535857a626057b9d6",
+    "scripts/test_selection_trial.py": "12e03fb3cf10e8030c5b414fb1bdf3e12fc2c184bb79012d293e4f0c735d2c34",
+    "scripts/test_selection_trial_runtime.py": "ab73e46ca8de69561ca13ed90239039726a39e2bbac32e81063e5b39c85014a8",
+    "spec/koreader/owner_selection_trial_case.lua": "da973ef85a09967b4f498dbecab017175571b85e39918f479398603954842ac2",
+    "spec/koreader/owner_reading_probe.lua": "2db8c2fefe51c73aea373cd351d40ff9b76b613ed5c056c7f2fde56b26fa90f0",
+    ".github/workflows/ci.yml": "03930b3326bb683961166a6634c4de54714249e507a657490136b80b8c520201",
+    "spec/koreader/native_thought_trial_gate.lua": "4429f0f4b1ba85c72d575e5e0178fd6db4fd962185e234f752c0d3a11f49e1f6",
+    "scripts/verify_annotation_experiment.py": "4b61192c6ea425122df38a2211eb5663def5852ae059f023b2f43092bd8a94eb",
+    "scripts/annotation_experiment_model.py": "36fb5f932760c19c396a26e807d6722c87fbffa7bc6598edcb6de9ef2504eb58"
+  },
+  "readiness_evidence_file_sha256": "d9c52dd285784e11eaea5261e9fd6b92df29c1bf1faabece6aae6206e9040778",
+  "checks": {
+    "python_files": 78,
+    "python_tests": 962,
+    "python_skips": 0,
+    "lua_specs": 211,
+    "time_zones": 4,
+    "python_compile": 235,
+    "lua_syntax": 587,
+    "result": "PASS"
+  },
+  "private_screenshots": 0,
+  "credentials_retained_in_keychain": true,
+  "protected_files_unchanged": [
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md",
+    "main.lua",
+    "_meta.lua"
+  ],
+  "limitations": [
+    "One ordinary numeric XHTML book/chapter/selection, at KO2 resolution in desktop KOReader; not physical device acceptance",
+    "Restoration covers projected original thoughts/marks/chapter metadata/shelf flags and exact native/Web positions, not hidden server sorting or history",
+    "No new matching highlight remained, so no fourth POST; removeBookmark remains unverified for real writes",
+    "More ranges/formats, true concurrency, physical KO2 and full functional goal/performance work remain incomplete"
+  ],
+  "privacy_audit": {
+    "result": "PASS",
+    "files": 1357,
+    "actual_authentication_literals": 0,
+    "short_public_cookie_flags_excluded": [
+      "wr_ql",
+      "wr_pf"
+    ],
+    "credentials_retained": true,
+    "legacy_native_trial_intent_absent": true,
+    "new_selection_trial_intent_absent": true,
+    "new_selection_reserved_posts": 0,
+    "protected_files_unchanged": true,
+    "document_links_checked": 131
+  }
+}

@@ -22,6 +22,12 @@ legacy_pattern='require[[:space:]]*\([[:space:]]*["'\''](lib|ui)\.|package\.(loa
 if rg -n --pcre2 "$legacy_pattern" --glob '*.lua' main.lua _meta.lua weread; then
     echo "error: use weread.lib.* or weread.ui.* for project-owned Lua modules" >&2
     failed=1
+else
+    search_status=$?
+    if [[ "$search_status" -ne 1 ]]; then
+        echo "error: namespace search failed (exit $search_status)" >&2
+        failed=1
+    fi
 fi
 
 if rg -n 'require[[:space:]]*\([[:space:]]*["'\'']logger["'\'']' \
@@ -30,6 +36,12 @@ if rg -n 'require[[:space:]]*\([[:space:]]*["'\'']logger["'\'']' \
     main.lua _meta.lua weread; then
     echo "error: use weread.lib.logger so project log messages receive a consistent prefix" >&2
     failed=1
+else
+    search_status=$?
+    if [[ "$search_status" -ne 1 ]]; then
+        echo "error: logger namespace search failed (exit $search_status)" >&2
+        failed=1
+    fi
 fi
 
 unexpected_modules="$(

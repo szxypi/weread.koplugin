@@ -9,7 +9,6 @@ end
 package.preload["logger"] = function()
     return { info = function() end, warn = function() end, err = function() end }
 end
-package.preload["weread.lib.crypto"] = function() return {} end
 package.preload["weread.lib.reader_state"] = function() return {} end
 package.preload["weread.lib.protocol"] = function()
     return {

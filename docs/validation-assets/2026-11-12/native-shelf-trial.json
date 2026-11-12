@@ -1,0 +1,620 @@
+{
+  "result": "PASS",
+  "scope": "bounded production native shelf add/remove with host readback",
+  "code_head": "e2a32eb59e61c0601bdf5db1b3d1565eb8977bd7",
+  "actual": {
+    "result": "PASS",
+    "phase": "complete",
+    "account_data_posts": 2,
+    "authentication_posts": 0,
+    "no_automatic_replay": true,
+    "code_head": "e2a32eb59e61c0601bdf5db1b3d1565eb8977bd7",
+    "fresh_same_plan_dry_run": {
+      "result": "PASS",
+      "mode": "dry-run",
+      "native_ui": {
+        "result": "PASS",
+        "tmpfs_profile": true,
+        "profile_removed": true,
+        "runner_error": "none",
+        "stage": {
+          "result": "PASS",
+          "phase": "complete",
+          "permit_writes": false,
+          "anonymous_credentials": true,
+          "guard_selftest": true,
+          "native_detail": true,
+          "preview_matches": true,
+          "native_confirmation": true,
+          "worker_heartbeat": true,
+          "cancel_no_post": true,
+          "status_close_cancelled": true,
+          "workers_reaped": true,
+          "credential_audit": true,
+          "local_state_preserved": true,
+          "roundtrip_restored": false,
+          "no_authentication_posts": true,
+          "journal_before_posts": false,
+          "native_cache_readback": false,
+          "shelf_books": 140,
+          "profile_files_audited": 7,
+          "screenshots": 0,
+          "failed_line": 0,
+          "denied_route": 0,
+          "request_counts": [
+            3,
+            1,
+            0,
+            0,
+            0
+          ],
+          "post_statuses": []
+        },
+        "installed": {
+          "files": 250,
+          "bytes_match": true
+        }
+      },
+      "independent_steps": 0,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "reserved_posts": 0,
+      "original_members_flags_groups_restored": true,
+      "intent_state": "absent",
+      "no_automatic_replay": true
+    },
+    "mode": "apply",
+    "native_ui": {
+      "result": "PASS",
+      "tmpfs_profile": true,
+      "profile_removed": true,
+      "runner_error": "none",
+      "stage": {
+        "no_authentication_posts": true,
+        "journal_before_posts": true,
+        "native_cache_readback": true,
+        "shelf_books": 140,
+        "profile_files_audited": 8,
+        "screenshots": 0,
+        "failed_line": 0,
+        "denied_route": 0,
+        "request_counts": [
+          8,
+          1,
+          1,
+          1,
+          0
+        ],
+        "post_statuses": [
+          200,
+          200
+        ],
+        "phase": "complete",
+        "result": "PASS",
+        "permit_writes": true,
+        "anonymous_credentials": true,
+        "guard_selftest": true,
+        "native_detail": true,
+        "preview_matches": true,
+        "native_confirmation": true,
+        "worker_heartbeat": true,
+        "cancel_no_post": true,
+        "status_close_cancelled": true,
+        "workers_reaped": true,
+        "credential_audit": true,
+        "local_state_preserved": true,
+        "roundtrip_restored": true
+      },
+      "installed": {
+        "files": 250,
+        "bytes_match": true
+      }
+    },
+    "independent_steps": 2,
+    "reserved_posts": 2,
+    "original_members_flags_groups_restored": true,
+    "intent_state": "absent",
+    "same_plan_dry_run_passed": true,
+    "package_sha256": "4b0893d5318c37e2f61eb7c83c1775b7eb68fe39d696ead1f418f3d605b63156",
+    "host_stages": [
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "search",
+        "status": 200
+      },
+      {
+        "stage": "discovery_metadata",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      }
+    ]
+  },
+  "matrix": {
+    "result": "PASS",
+    "cases": [
+      {
+        "screen": 600,
+        "case": "normal",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 600,
+        "case": "dry-run",
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 600,
+        "case": "lost-ack",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "no-add",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "no-remove",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "changed-flag",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "changed-group",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "host-loss",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "normal",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 1264,
+        "case": "dry-run",
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 1264,
+        "case": "lost-ack",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "no-add",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "no-remove",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "changed-flag",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "changed-group",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "host-loss",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      }
+    ],
+    "real_data_posts": 0
+  },
+  "legacy": [
+    {
+      "screen": 600,
+      "report": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "stages": [
+          {
+            "result": "PASS",
+            "tmpfs_profile": true,
+            "profile_removed": true,
+            "runner_error": "none",
+            "stage": {
+              "phase": "complete",
+              "permit_writes": false,
+              "anonymous_credentials": true,
+              "guard_selftest": true,
+              "native_detail": true,
+              "preview_matches": true,
+              "native_confirmation": true,
+              "worker_heartbeat": true,
+              "cancel_no_post": true,
+              "status_close_cancelled": true,
+              "workers_reaped": true,
+              "credential_audit": true,
+              "local_state_preserved": true,
+              "roundtrip_restored": false,
+              "no_authentication_posts": true,
+              "journal_before_posts": false,
+              "native_cache_readback": false,
+              "shelf_books": 25,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "failed_line": 0,
+              "denied_route": 0,
+              "request_counts": [
+                3,
+                1,
+                0,
+                0,
+                0
+              ],
+              "post_statuses": [],
+              "result": "PASS"
+            }
+          },
+          {
+            "result": "PASS",
+            "tmpfs_profile": true,
+            "profile_removed": true,
+            "runner_error": "none",
+            "stage": {
+              "screenshots": 0,
+              "failed_line": 0,
+              "denied_route": 0,
+              "request_counts": [
+                8,
+                1,
+                1,
+                1,
+                0
+              ],
+              "post_statuses": [
+                200,
+                200
+              ],
+              "result": "PASS",
+              "phase": "complete",
+              "permit_writes": true,
+              "anonymous_credentials": true,
+              "guard_selftest": true,
+              "native_detail": true,
+              "preview_matches": true,
+              "native_confirmation": true,
+              "worker_heartbeat": true,
+              "cancel_no_post": true,
+              "status_close_cancelled": true,
+              "workers_reaped": true,
+              "credential_audit": true,
+              "local_state_preserved": true,
+              "roundtrip_restored": true,
+              "no_authentication_posts": true,
+              "journal_before_posts": true,
+              "native_cache_readback": true,
+              "shelf_books": 25,
+              "profile_files_audited": 8
+            }
+          }
+        ],
+        "real_account_requests_attempted": 0
+      }
+    },
+    {
+      "screen": 1264,
+      "report": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "stages": [
+          {
+            "result": "PASS",
+            "tmpfs_profile": true,
+            "profile_removed": true,
+            "runner_error": "none",
+            "stage": {
+              "result": "PASS",
+              "phase": "complete",
+              "permit_writes": false,
+              "anonymous_credentials": true,
+              "guard_selftest": true,
+              "native_detail": true,
+              "preview_matches": true,
+              "native_confirmation": true,
+              "worker_heartbeat": true,
+              "cancel_no_post": true,
+              "status_close_cancelled": true,
+              "workers_reaped": true,
+              "credential_audit": true,
+              "local_state_preserved": true,
+              "roundtrip_restored": false,
+              "no_authentication_posts": true,
+              "journal_before_posts": false,
+              "native_cache_readback": false,
+              "shelf_books": 25,
+              "profile_files_audited": 7,
+              "screenshots": 0,
+              "failed_line": 0,
+              "denied_route": 0,
+              "request_counts": [
+                3,
+                1,
+                0,
+                0,
+                0
+              ],
+              "post_statuses": []
+            }
+          },
+          {
+            "result": "PASS",
+            "tmpfs_profile": true,
+            "profile_removed": true,
+            "runner_error": "none",
+            "stage": {
+              "native_confirmation": true,
+              "worker_heartbeat": true,
+              "cancel_no_post": true,
+              "status_close_cancelled": true,
+              "workers_reaped": true,
+              "credential_audit": true,
+              "local_state_preserved": true,
+              "roundtrip_restored": true,
+              "no_authentication_posts": true,
+              "journal_before_posts": true,
+              "native_cache_readback": true,
+              "shelf_books": 25,
+              "profile_files_audited": 8,
+              "screenshots": 0,
+              "failed_line": 0,
+              "denied_route": 0,
+              "request_counts": [
+                8,
+                1,
+                1,
+                1,
+                0
+              ],
+              "post_statuses": [
+                200,
+                200
+              ],
+              "result": "PASS",
+              "phase": "complete",
+              "permit_writes": true,
+              "anonymous_credentials": true,
+              "guard_selftest": true,
+              "native_detail": true,
+              "preview_matches": true
+            }
+          }
+        ],
+        "real_account_requests_attempted": 0
+      }
+    }
+  ],
+  "checks": {
+    "python_files": 91,
+    "python_tests": 1102,
+    "python_skips": 0,
+    "lua_specs": 222,
+    "time_zones": 4,
+    "python_compile": 280,
+    "lua_syntax": 623,
+    "result": "PASS",
+    "lint_files": 621,
+    "lint_warnings": 0,
+    "lint_errors": 0,
+    "namespace": "PASS"
+  },
+  "read_only_preflight": {
+    "result": "PASS",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "reserved_posts": 0,
+    "screenshots": 0,
+    "shelf_books": 140,
+    "target_absent": true,
+    "metadata_verified": true,
+    "full_flags_and_groups_bound": true,
+    "credentials_retained": true,
+    "intent_state": "absent",
+    "host_stages": [
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "search",
+        "status": 200
+      },
+      {
+        "stage": "discovery_metadata",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      }
+    ]
+  },
+  "first_real_dry_run": {
+    "result": "PASS",
+    "mode": "dry-run",
+    "native_ui": {
+      "result": "PASS",
+      "tmpfs_profile": true,
+      "profile_removed": true,
+      "runner_error": "none",
+      "stage": {
+        "post_statuses": [],
+        "result": "PASS",
+        "phase": "complete",
+        "permit_writes": false,
+        "anonymous_credentials": true,
+        "guard_selftest": true,
+        "native_detail": true,
+        "preview_matches": true,
+        "native_confirmation": true,
+        "worker_heartbeat": true,
+        "cancel_no_post": true,
+        "status_close_cancelled": true,
+        "workers_reaped": true,
+        "credential_audit": true,
+        "local_state_preserved": true,
+        "roundtrip_restored": false,
+        "no_authentication_posts": true,
+        "journal_before_posts": false,
+        "native_cache_readback": false,
+        "shelf_books": 140,
+        "profile_files_audited": 7,
+        "screenshots": 0,
+        "failed_line": 0,
+        "denied_route": 0,
+        "request_counts": [
+          3,
+          1,
+          0,
+          0,
+          0
+        ]
+      },
+      "installed": {
+        "files": 250,
+        "bytes_match": true
+      }
+    },
+    "independent_steps": 0,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "reserved_posts": 0,
+    "original_members_flags_groups_restored": true,
+    "intent_state": "absent",
+    "no_automatic_replay": true,
+    "host_stages": [
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "search",
+        "status": 200
+      },
+      {
+        "stage": "discovery_metadata",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      },
+      {
+        "stage": "discovery_shelf",
+        "status": 200
+      }
+    ]
+  },
+  "one_shot_marker": {
+    "state": "consumed",
+    "result": "PASS",
+    "intent_state": "absent"
+  },
+  "source_package_installed_files": 250,
+  "source_package_installed_bytes_match": true,
+  "package_sha256": "4b0893d5318c37e2f61eb7c83c1775b7eb68fe39d696ead1f418f3d605b63156",
+  "private_data": {
+    "real_screenshots": 0,
+    "real_ids_titles_credentials_and_full_shelf_in_public_files": false,
+    "development_logins_retained": true
+  },
+  "physical_acceptance": false,
+  "goal_complete": false,
+  "performance_phase_started": false,
+  "server_history_restoration_guaranteed": false,
+  "ci_at_code_head": {
+    "run": 43056541630,
+    "head_sha": "e2a32eb59e61c0601bdf5db1b3d1565eb8977bd7",
+    "conclusion": "failure",
+    "stage": "Install Lua tooling",
+    "exit_code": 100,
+    "code_checks_started": false,
+    "official_archive_dns_failure": true
+  },
+  "privacy_audit": {
+    "python_bookmark_intent_absent": true,
+    "native_bookmark_intent_absent": true,
+    "result": "PASS",
+    "files": 1494,
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "test_intents_absent": true,
+    "python_style_intent_absent": true,
+    "native_style_intent_absent": true,
+    "protected_files_unchanged": true,
+    "document_links_checked": 145
+  }
+}
