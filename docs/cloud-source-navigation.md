@@ -4,6 +4,10 @@
 使用当前账号的 Web 登录读取云端位置，在后台核对原文后，由 KOReader 原生引擎跳转。
 不要求 Skill 密钥，不打开网页界面；这是读取与本地导航，不改变阅读进度上传协议。
 
+后续已增加[独立 TXT 原文分支](native-position-review.md#txt-的云端选择)：同书／章标记、两份原文分片、
+前后云端位置及原始 TXT UTF-16 模型分别核对；与下述 XHTML 模型按格式绑定，不能交叉解释。
+真实 Python／Lua／KOReader HTTPS 的完整 TXT 目标比较及两尺寸实际云端选择通过，实体 KO2 仍待验收。
+
 ## 协议验证先于接入
 
 `scripts/verify_cloud_source_target.py` 先通过真实账号验证，随后才实现 `source_cloud.lua`：

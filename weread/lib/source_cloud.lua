@@ -37,19 +37,21 @@ local function check_reader(id,first,reader)
         or not same(first,position(reader.progress,id)) then fail('reader_mismatch') end
 end
 
-function M.project(id,before,reader,raw,after)
+function M.project(id,before,reader,raw,after,format)
+    format=format or 'web_xhtml'
+    if format~='web_xhtml' and format~='web_txt' then fail('source_invalid') end
     id=Access.book_id(id)
     if not id then fail('invalid_book') end
     local first,last=position(before,id),position(after,id)
     if not same(first,last) then fail('target_changed') end
     check_reader(id,first,reader)
     if type(raw)~='string' or #raw<1 or #raw>Source.MAX_BYTES then fail('source_invalid') end
-    local map=Coordinates.build(raw)
+    local map=Coordinates.build(raw,{format=format})
     local anchor=map and map:anchor(first.chapter_offset)
     local reverse=anchor and map:locate_point(anchor.text,anchor.point_offset)
     if not reverse or reverse.co~=first.chapter_offset then fail('target_unavailable') end
     return {book_id=id,chapter_uid=first.chapter_uid,chapter_offset=first.chapter_offset,percent=first.percent,
-        raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw,basis='filtered_xhtml_utf16',upload_verified=false}
+        raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw,basis=Source.coordinate_basis(format),upload_verified=false}
 end
 
 local function transport(client,id,selected)
@@ -92,14 +94,20 @@ function M.fetch(client,id,selected)
         or reader.psvts:find('[^!-~]') then fail('reader_invalid') end
     check_reader(id,first,reader)
     local params=Protocol.make_content_params(id,first.chapter_uid,reader.psvts,{sc=1})
-    local parts={}
-    for _,name in ipairs({'e_0','e_1','e_3'}) do
-        parts[#parts+1]=request('https://weread.qq.com/web/book/chapter/'..name,params,4*1024*1024,false,referer)
+    local first_part=request('https://weread.qq.com/web/book/chapter/e_0',params,4*1024*1024,false,referer)
+    local format,parts='web_xhtml',{first_part}
+    if first_part:match('^%s*{') then
+        require('weread.lib.source_currentness').txt_marker(client,first_part,id,first.chapter_uid)
+        format,parts='web_txt',{}
+        for _i,name in ipairs({'t_0','t_1'}) do parts[#parts+1]=request('https://weread.qq.com/web/book/chapter/'..name,params,4*1024*1024,false,referer) end
+        parts[3]=''
+    else
+        for _i,name in ipairs({'e_1','e_3'}) do parts[#parts+1]=request('https://weread.qq.com/web/book/chapter/'..name,params,4*1024*1024,false,referer) end
     end
     local valid,raw=pcall(require('weread.lib.content').decode_content_shards,unpack(parts))
     if not valid then fail('source_invalid') end
     local after=request(url,nil,65536,true,referer)
-    local target=M.project(id,before,reader,raw,after)
+    local target=M.project(id,before,reader,raw,after,format)
     current()
     return target
 end
@@ -109,7 +117,7 @@ function M.remote(value)
         or not number(value.chapter_offset,Source.MAX_BYTES*8) or value.chapter_offset%1~=0
         or not number(value.percent,100) or type(value.raw_sha256)~='string' or #value.raw_sha256~=64
         or not value.raw_sha256:match('^[0-9a-f]+$') or not number(value.raw_bytes,Source.MAX_BYTES) or value.raw_bytes<1
-        or value.raw_bytes%1~=0 or value.basis~='filtered_xhtml_utf16' or value.upload_verified~=false then return nil end
+        or value.raw_bytes%1~=0 or not Source.is_coordinate_basis(value.basis) or value.upload_verified~=false then return nil end
     local out={}
     for _,key in ipairs({'book_id','chapter_uid','chapter_offset','percent','raw_sha256','raw_bytes','basis','upload_verified'}) do out[key]=value[key] end
     out.book_id,out.chapter_uid=Access.book_id(value.book_id),Access.book_id(value.chapter_uid)
@@ -197,7 +205,7 @@ function M.bind(input,remote,read_archive)
     local ok,result=pcall(function()
         if type(input)~='table' or type(input.identity)~='table' or type(remote)~='table'
             or remote.book_id~=input.book_id or not Access.book_id(remote.chapter_uid)
-            or remote.basis~='filtered_xhtml_utf16' or remote.upload_verified~=false
+            or not Source.is_coordinate_basis(remote.basis) or remote.upload_verified~=false
             or not number(remote.chapter_offset,Source.MAX_BYTES*8) or remote.chapter_offset%1~=0 then return {error='target_invalid'} end
         local Archive=require('weread.lib.source_archive')
         local Identity=require('weread.lib.book_file_identity')
@@ -209,14 +217,14 @@ function M.bind(input,remote,read_archive)
         if not identity or identity.file_id~=input.identity.file_id or identity.book_id~=input.book_id
             or not record or record.file_id~=identity.file_id or record.book_id~=input.book_id
             or record.chapter_uid~=remote.chapter_uid or record.raw_sha256~=remote.raw_sha256
-            or record.raw_bytes~=remote.raw_bytes or record.format~='web_xhtml' then return {error='source_changed'} end
-        local target={chapter_offset=remote.chapter_offset,basis='filtered_xhtml_utf16',upload_verified=false}
+            or record.raw_bytes~=remote.raw_bytes or Source.coordinate_basis(record.format)~=remote.basis then return {error='source_changed'} end
+        local target={chapter_offset=remote.chapter_offset,basis=remote.basis,upload_verified=false}
         for _,key in ipairs({'book_id','chapter_uid','file_id','book_version','raw_sha256','render_path'}) do target[key]=record[key] end
         local prepared=require('weread.lib.source_position_worker').prepare_target({file=input.file,book_id=input.book_id,
             chapter_uid=record.chapter_uid,render_path=record.render_path,identity=input.identity,metadata=metadata,
             target=target,request_id=input.request_id},read_archive)
         if not prepared.position then return {error=prepared.error or 'target_unavailable'} end
-        return {position=prepared.position,metadata=metadata,request_id=input.request_id}
+        return {position=prepared.position,metadata=metadata,request_id=input.request_id,remote=M.remote(remote)}
     end)
     return ok and result or {error='target_unavailable'}
 end

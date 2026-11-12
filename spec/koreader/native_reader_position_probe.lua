@@ -37,7 +37,7 @@ local ok,reason=pcall(function()
     assert(require('weread.lib.mock_environment').save{enabled=true,host='127.0.0.1',port=port})
     local Settings=require('weread.lib.settings');local settings=Settings:new()
     assert(settings.mock_endpoint=='http://127.0.0.1:'..port)
-    local reopen=arg[1]=='reopen'
+    local reopen=arg[1]=='reopen' or arg[1]=='review-reopen'
     if not reopen then
         local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         settings:set('sync',sync)
@@ -79,6 +79,20 @@ local ok,reason=pcall(function()
     report.reader_from_shelf=reader.document.file:match('%.epub$')~=nil
     local sync=plugin.progress_sync;local id=assert(plugin:detectWeReadBook())
     if reopen then
+        if arg[1]=='review-reopen' then
+            local kind=assert(os.getenv('WEREAD_NATIVE_REVIEW_CASE'))
+            local archived=kind=='local' or kind=='cloud'
+            local pending=plugin.source_upload:_native().service:pending()
+            local db=assert(plugin.library_db:open());local count=tonumber(db:rowexec('SELECT COUNT(*) FROM native_position_write_history'))
+            local raw=archived and db:rowexec('SELECT payload FROM native_position_write_history');db:close()
+            local history=raw and json.decode(raw)
+            assert(count==(archived and 1 or 0) and (archived and not pending or not archived and pending and pending.phase=='pending'))
+            assert(not archived or history.phase=='pending','offline recovery history claimed ACK')
+            assert((plugin.settings:get_book(id).pending_upload_position~=nil)==not archived)
+            report.review_reopen={kind=kind,journal_idle=archived,unknown_history=archived,pending_preserved=not archived,
+                local_intent=not archived,history_rows=count}
+            report.phase,report.result='complete','PASS';clean(reader);reader:onClose(false);return
+        end
         local pending=assert(plugin.source_upload:_native().service:pending())
         assert(pending.phase=='pending' and plugin.settings:get_book(id).pending_upload_position and not sync.verified)
         report.pending_reopened=true;report.phase,report.result='complete','PASS';clean(reader);reader:onClose(false);return
@@ -120,6 +134,15 @@ local ok,reason=pcall(function()
     assert(saved.last_local_position.chapter_offset==local_before.chapter_offset and uploaded.source_position.chapter_offset==local_before.source_position.chapter_offset)
     assert(not uploaded.summary and not saved.last_local_position.summary and not saved.last_remote_position.summary)
     report.manual,report.original_local_units,report.summary_not_in_checkpoints=true,true,true
+    if arg[1]=='review' then
+        report.review_case={kind=assert(os.getenv('WEREAD_NATIVE_REVIEW_CASE')),unknown_retained=false,review_worker=false,
+            cancelled=false,storage_preserved=false,archived_unknown=false,newer_local_kept=false,fresh_choice=false,
+            new_request=false,cloud_choice=false,workers_reaped=false,failed_line=0}
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'native_reader_review_case.lua')(
+            reader,plugin,pump,clean,counters,pids,report.review_case)
+        report.source_workers,report.workers_reaped=true,true
+        report.phase,report.result='complete','PASS';return
+    end
     if arg[1]=='close' then
         report.close_case={kind=assert(os.getenv('WEREAD_NATIVE_CLOSE_CASE')),document_closed=false,archive_worker=false,
             workers_reaped=false,no_closed_document_calls=false,confirmed=false,unknown_retained=false,cancelled=false,

@@ -24,6 +24,9 @@ local function run(self,callback,write)
         db:exec([[CREATE TABLE IF NOT EXISTS native_position_write_state (
             id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL,payload TEXT NOT NULL
             CHECK(length(CAST(payload AS BLOB))<=16384))]])
+        db:exec([[CREATE TABLE IF NOT EXISTS native_position_write_history (
+            id TEXT PRIMARY KEY CHECK(length(id)=32),revision INTEGER NOT NULL,
+            payload TEXT NOT NULL CHECK(length(CAST(payload AS BLOB))<=2048))]])
         if write then db:exec('BEGIN IMMEDIATE');transaction=true end
         assert(account==self.library:accountKey(),'native_position_store/account')
         local value=callback(db,account)
@@ -89,6 +92,26 @@ function M:finish(record,phase)
     return run(self,function(db,account)
         local previous=read(self,db,account)
         assert(matches(previous,record) and previous.phase==phase and previous.revision==record.revision,'native_position_store/replaced')
+        return save(self,db,previous,{phase='idle'})
+    end,true)~=nil
+end
+-- Archiving is an explicit local choice after a fresh read-only review. The
+-- old phase stays truthful; no ACK is invented, no source point is applied.
+function M:archive(record,observation)
+    local O=require('weread.lib.native_position_observation')
+    if not O.valid(observation) or not record or not C.valid(record.metadata)
+        or observation.point.book_id~=record.metadata.book_id then return false end
+    return run(self,function(db,account)
+        local previous=read(self,db,account)
+        assert(matches(previous,record) and previous.phase==record.phase and previous.revision==record.revision,'native_position_store/replaced')
+        local value={schema=1,account=account,id=record.id,revision=record.revision,epoch=record.epoch,phase=record.phase,
+            metadata_sha256=C.hash(record.metadata),cloud_sha256=O.hash(observation),
+            current_matches_target=P.equal(observation.point,record.metadata.desired)}
+        local raw=self.codec:json_encode(value);assert(type(raw)=='string' and #raw<=2048,'native_position_store/history')
+        statement(db,'INSERT INTO native_position_write_history(id,revision,payload) VALUES(?,?,?)',record.id,record.revision,raw)
+        local saved=statement(db,'SELECT payload FROM native_position_write_history WHERE id=?',record.id)
+        assert(saved and saved[1]==raw,'native_position_store/history_readback')
+        statement(db,'DELETE FROM native_position_write_history WHERE id NOT IN (SELECT id FROM native_position_write_history ORDER BY revision DESC LIMIT 32)')
         return save(self,db,previous,{phase='idle'})
     end,true)~=nil
 end

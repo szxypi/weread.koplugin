@@ -225,13 +225,24 @@ function ProgressSync:_begin_source_transition(reason)
     self.dirty,self.state=false,'unverified'
 end
 
-function ProgressSync:accept_cloud_source_target(position,sync_choice)
-    if type(position)~='table' or position.basis~='filtered_xhtml_utf16' or position.upload_verified~=false
+function ProgressSync:accept_cloud_source_target(position,sync_choice,checked_remote)
+    if type(position)~='table' or not Source.is_coordinate_basis(position.basis) or position.upload_verified~=false
         or position.book_id~=tostring(self.detect_book() or '') then return false end
     local held=self:current_source_target()
     if not held or held.basis~=position.basis then return false end
     for _,key in ipairs({'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path'}) do
         if held[key]~=position[key] then return false end
+    end
+    local selected
+    if position.basis=='raw_txt_utf16' then
+        local remote=require('weread.lib.source_cloud').remote(checked_remote)
+        if not remote or remote.basis~=position.basis or remote.book_id~=position.book_id or remote.chapter_uid~=position.chapter_uid
+            or remote.chapter_offset~=position.chapter_offset or remote.raw_sha256~=position.raw_sha256 then return false end
+        local book=self.get_book(position.book_id)
+        local index=type(book)=='table' and SourceCandidate.chapter_index(self.get_chapters(book),position.chapter_uid)
+        if not index then return false end
+        selected={book_id=remote.book_id,chapter_uid=remote.chapter_uid,chapter_idx=index,chapter_offset=remote.chapter_offset,
+            percent=remote.percent,raw_percent=remote.percent,has_chapter_index=true,has_chapter_offset=true,source='web'}
     end
     self:_clear_verified('cloud_source_selected')
     self:_discard_pending_upload(position.book_id)
@@ -241,7 +252,7 @@ function ProgressSync:accept_cloud_source_target(position,sync_choice)
         if local_position then
             local_position.source_position=copy(held)
             self.source_local_anchor=copy(held)
-            self:_mark_verified(position.book_id,'cloud_source_selected',local_position,self.remote_position)
+            self:_mark_verified(position.book_id,'cloud_source_selected',local_position,selected or self.remote_position)
         end
     end
     return true
@@ -1593,6 +1604,19 @@ function ProgressSync:sync_now()
     if self.file_resume and self.on_before_navigate then pcall(self.on_before_navigate) end
     self.file_resume=nil
     return self:_pull({ manual = true })
+end
+
+function ProgressSync:begin_native_review()
+    self:checkpoint_local('native_position_review')
+    self:_invalidate_pull()
+    self:_clear_verified('native_position_review')
+    self.state='unverified'
+end
+
+function ProgressSync:compare_after_native_review()
+    -- Retiring an old journal row does not discard newer local movement.
+    -- A difference requires a new choice, even with conflict prompts disabled.
+    return self:_pull({manual=true,force_choice=true})
 end
 
 function ProgressSync:position_for_report(book_id)

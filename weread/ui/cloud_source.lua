@@ -219,7 +219,7 @@ function M.start(host,resume,options)
         local called,opened=pcall(host.openSourcePosition,host,position,function(applied,reason)
             if not current(host,job,true) then if host.cloud_source_request==job then M.cancel(host) end return end
             if applied and host.progress_sync then
-                local saved,accepted=pcall(host.progress_sync.accept_cloud_source_target,host.progress_sync,applied,job.sync_choice)
+                local saved,accepted=pcall(host.progress_sync.accept_cloud_source_target,host.progress_sync,applied,job.sync_choice,result.remote)
                 if not saved or accepted~=true then
                     job.navigation=nil;M.cancel(host)
                     host:showInfo(_('Cloud position opened, but sync state could not be saved. Check storage before syncing.'));return

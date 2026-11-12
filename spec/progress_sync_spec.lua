@@ -2036,6 +2036,49 @@ test('failed close freezing retains intent without trying live preparation after
     eq(f.values.books.book.pending_upload_position~=nil,true,'failed freeze discarded local intent')
 end)
 
+test('native review preserves current intent and requires a fresh choice with prompts disabled',function()
+    for _i,choice in ipairs({'local','cloud'}) do
+        local f=fixture({bookId='book',progress=50,chapterUid=33,chapterIdx=3,chapterOffset=100})
+        f.values.sync.pull_on_open=false;f.values.sync.ask_on_conflict=false
+        f.sync:on_reader_ready();f.drain()
+        local old=assert(f.sync:capture_local());f.sync:_mark_verified('book','fixture',old,{})
+        f.sync.dirty=true;f.sync:checkpoint_local('older_pending')
+        f.document.page=40;f.sync:begin_native_review()
+        eq(f.values.books.book.pending_upload_position.percent,40,'review erased new movement')
+        eq(f.sync.verified,false,'review retained old sender authority')
+        eq(#f.uploads,0,'begin review sent a request')
+        assert(f.sync:compare_after_native_review());f.drain()
+        eq(#f.choices,1,'review reused automatic keep-local policy')
+        eq(#f.uploads,0,'archive comparison sent before new choice')
+        eq(f.values.books.book.pending_upload_position.percent,40,'comparison erased current local intent')
+        if choice=='local' then f.choices[1].keep_local();eq(#f.uploads,1,'new explicit local choice could not sync')
+        else f.choices[1].use_remote();eq(#f.uploads,0,'cloud choice sent a write') end
+    end
+end)
+
+test('raw TXT cloud choice accepts only the applied held source and keeps source units',function()
+    local point={book_id='41',chapter_uid='22',chapter_offset=1200,file_id=string.rep('a',64),book_version=7,
+        raw_sha256=string.rep('b',64),render_path='OEBPS/text/chapter.xhtml',basis='raw_txt_utf16',upload_verified=false}
+    local f=fixture({}, {get_source_position=function() return point end})
+    f.sync.prepare_upload=function() error('cloud choice dispatched local upload') end
+    f.sync.current_source_target=function() return point end
+    f.sync.get_chapters=function(book) assert(type(book)=='table');return chapters end
+    f.sync.detect_book=function() return '41' end;f.values.books['41']=f.values.books.book;f.values.books['41'].book_id='41'
+    f.sync.current_book_id='41';f.sync.dirty=true;f.sync:checkpoint_local('pending_before_cloud')
+    local wrong={};for k,v in pairs(point) do wrong[k]=v end;wrong.basis='unknown'
+    eq(f.sync:accept_cloud_source_target(wrong,true),false,'unknown source unit accepted')
+    wrong.basis='raw_txt_utf16';wrong.chapter_offset=1201
+    eq(f.sync:accept_cloud_source_target(wrong,true),false,'wrong applied TXT target accepted')
+    local remote={book_id='41',chapter_uid='22',chapter_offset=1200,percent=25,raw_sha256=point.raw_sha256,raw_bytes=2000,basis='raw_txt_utf16',upload_verified=false}
+    eq(f.sync:accept_cloud_source_target(point,true),false,'local TXT target gained cloud authority without a checked remote')
+    eq(f.sync:accept_cloud_source_target(point,true,remote),true,'exact applied TXT target rejected')
+    eq(f.sync.verified,true,'explicit raw cloud choice did not complete verification')
+    eq(f.sync.source_local_anchor.basis,'raw_txt_utf16','TXT source basis replaced')
+    eq(f.sync.source_local_anchor.chapter_offset,1200,'TXT source point replaced by local proportional point')
+    eq(f.values.books['41'].pending_upload_position,nil,'applied cloud choice retained old local intent')
+    eq(#f.uploads,0,'cloud choice posted a position')
+end)
+
 print(string.format(
     "progress_sync_spec: %d checks, %d failure(s)", checks, failures))
 os.exit(failures == 0 and 0 or 1)

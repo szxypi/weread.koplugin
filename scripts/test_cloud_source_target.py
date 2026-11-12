@@ -10,7 +10,8 @@ from unittest.mock import patch
 from mock_weread import shards
 from test_web_source_progress import Opener,BOOK,VID
 from verify_cloud_source_target import inspect,main,project
-from verify_web_source_progress import PreflightError,WebSourceProbe
+from verify_web_source_progress import PreflightError
+from verify_cloud_source_target import WebSourceProbe
 
 SOURCE='<html><body><p>Private source canary: unique local target.</p></body></html>'
 POINT=dict(bookId=BOOK,chapterUid=2,chapterOffset=20,progress=32)
@@ -71,6 +72,32 @@ class CloudTargetTests(unittest.TestCase):
         self.assertEqual(len(opener.calls),6)
         self.assertEqual([call[0].get_method() for call in opener.calls],['GET','GET','POST','POST','POST','GET'])
         self.assertFalse(any('/read'==call[0].full_url[-5:] for call in opener.calls))
+
+    def test_raw_txt_coordinates_preserve_literal_tags_entities_and_scalars(self):
+        raw='Literal <tag>&amp; raw TXT. 中文😀 next unique sentence.'
+        for offset in (0,8,19):
+            point=dict(POINT,chapterOffset=offset);reader=deepcopy(READER);reader['progress']=dict(book=point)
+            value=project(BOOK,dict(book=point),reader,raw,dict(book=point),'web_txt')
+            self.assertEqual(value['basis'],'raw_txt_utf16');self.assertEqual(value['chapter_offset'],offset)
+        point=dict(POINT,chapterOffset=len(raw[:raw.index('😀')].encode('utf-16-le'))//2+1)
+        reader['progress']=dict(book=point)
+        with self.assertRaises(PreflightError):project(BOOK,dict(book=point),reader,raw,dict(book=point),'web_txt')
+    def test_txt_marker_then_two_raw_shards_use_same_six_read_boundary(self):
+        raw='Literal <tag>&amp; raw source with enough unique context.'
+        point=dict(POINT,chapterOffset=8);reader=deepcopy(READER);reader['progress']=dict(book=point)
+        html=('<script>window.__INITIAL_STATE__='+json.dumps(dict(reader=reader))+';(function(){})();</script>').encode()
+        encoded=shards(raw,count=2)
+        opener=Opener([dict(book=point),html,json.dumps(dict(bookId=BOOK,chapterUid=2)).encode(),encoded[0].encode(),encoded[1].encode(),dict(book=point)])
+        probe=WebSourceProbe(opener);probe.vid,probe.authenticated=VID,True
+        target,sample=inspect(probe,BOOK)
+        self.assertEqual(target['basis'],'raw_txt_utf16');self.assertEqual(sample['source'],raw)
+        self.assertEqual(len(opener.calls),6);self.assertTrue(opener.calls[3][0].full_url.endswith('/t_0'))
+    def test_foreign_txt_marker_stops_before_raw_shards(self):
+        html=('<script>window.__INITIAL_STATE__='+json.dumps(dict(reader=READER))+';(function(){})();</script>').encode()
+        opener=Opener([dict(book=POINT),html,json.dumps(dict(bookId='900099',chapterUid=2)).encode()])
+        probe=WebSourceProbe(opener);probe.vid,probe.authenticated=VID,True
+        with self.assertRaises(PreflightError):inspect(probe,BOOK)
+        self.assertEqual(len(opener.calls),3)
 
     def test_child_failure_is_generic_and_never_echoes_private_output(self):
         probe,_opener=self.ready()

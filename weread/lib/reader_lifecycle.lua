@@ -75,6 +75,7 @@ function M:onWeReadSyncProgress()
     if not self:requireLogin(true, false) then
         return false
     end
+    if require('weread.ui.native_position_review').open(self) then return true end
     self.progress_sync:sync_now()
     return true
 end
@@ -114,6 +115,7 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     require('weread.ui.chapter_links').detach(self)
     require('weread.lib.rich_footnotes').detach(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
@@ -209,6 +211,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
     require('weread.ui.chapter_links').view_changed(self)
     personal_action(self,'update')
     selection_action(self,'view_changed')
@@ -222,6 +225,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
     require('weread.ui.chapter_links').view_changed(self)
     personal_action(self,'update')
     selection_action(self,'view_changed')
@@ -235,6 +239,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     require('weread.ui.chapter_links').detach(self)
     require('weread.lib.rich_footnotes').detach(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
@@ -433,6 +438,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     require('weread.ui.chapter_links').cancel(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'suspend')
@@ -500,6 +506,7 @@ function M:onNetworkConnected()
 end
 
 function M:onNetworkDisconnected()
+    local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     if self.progress_sync then self.progress_sync:on_network_disconnected() end
     if self.offline_time then self.offline_time:update("network_disconnected", false) end
 end

@@ -165,7 +165,7 @@ expect(not resolved.position and resolved.chapter.chapterUid==uid and resolved.r
     and bad_count==1,'missing matching cache did not yield bounded download target/deduplicate paths')
 local txt_target={};for key,value in pairs(target) do txt_target[key]=value end
 txt_target.basis='raw_txt_utf16'
-expect(not Cloud.remote(txt_target),'local TXT model activated unverified cloud coordinate semantics')
+expect(Cloud.remote(txt_target) and not Cloud.bind(input,txt_target,archive).position,'TXT basis matched an XHTML archive')
 local cb_target=copy(target);cb_target.book_id='CB_SyntheticReading'
 expect(not Cloud.remote(cb_target) and not pcall(Cloud.project,cb_target.book_id,before,reader,raw,before),
     'local CB reading expanded unverified cloud coordinates')

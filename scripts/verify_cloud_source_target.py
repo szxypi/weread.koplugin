@@ -14,9 +14,16 @@ from urllib.parse import urlencode
 from fetch_weread_epub import decode_content_shards,make_content_params,read_reader_state,reader_url_for
 from secure_weread_session import SessionStore,StoreError
 from verify_source_coordinates import CoordinateError,FilteredSource
-from verify_web_source_progress import BASE,PreflightError,WebSourceProbe,identifier,position
+from verify_web_source_progress import BASE,PreflightError,WebSourceProbe as BaseProbe,identifier,position
 
 MAX_SOURCE=2*1024*1024
+
+
+class WebSourceProbe(BaseProbe):
+    def guard(self,stage,url,body):
+        if stage in ('t_0','t_1') and url==BASE+'/web/book/chapter/'+stage:
+            return super().guard('e_0',BASE+'/web/book/chapter/e_0',body)
+        return super().guard(stage,url,body)
 
 
 def checked_position(value,book_id):
@@ -38,20 +45,30 @@ def check_reader(book_id,first,reader):
     if checked_position(reader.get('progress'),book_id)!=first:raise PreflightError('cloud_reader_mismatch')
 
 
-def project(book_id,before,reader,source,after):
+def project(book_id,before,reader,source,after,source_format='web_xhtml'):
     book_id=identifier(book_id)
     first,last=checked_position(before,book_id),checked_position(after,book_id)
     if first!=last:raise PreflightError('cloud_target_changed')
     check_reader(book_id,first,reader)
     if not isinstance(source,str) or not 0<len(source.encode())<=MAX_SOURCE:raise PreflightError('cloud_source_invalid')
     try:
-        model=FilteredSource(source)
-        anchor=model.anchor_at(first['offset'])
-        if model.locate(anchor)[0]!=first['offset']:raise CoordinateError('target mismatch')
+        if source_format=='web_txt':
+            from txt_coordinates import PlainSource
+            model=PlainSource(source)
+            if not model.visible:raise CoordinateError('target mismatch')
+            positions=[model.starts[i] for i in model.visible]+[model.ends[model.visible[-1]]]
+            if first['offset'] not in positions:raise CoordinateError('target mismatch')
+            at=positions.index(first['offset'])
+            if model.locate_point(model.flat,at)!=first['offset']:raise CoordinateError('target mismatch')
+        elif source_format=='web_xhtml':
+            model=FilteredSource(source)
+            anchor=model.anchor_at(first['offset'])
+            if model.locate(anchor)[0]!=first['offset']:raise CoordinateError('target mismatch')
+        else:raise CoordinateError('source format')
     except CoordinateError:raise PreflightError('cloud_target_unavailable') from None
     return dict(book_id=book_id,chapter_uid=first['chapter'],chapter_offset=first['offset'],percent=first['percent'],
                 raw_sha256=hashlib.sha256(source.encode()).hexdigest(),raw_bytes=len(source.encode()),
-                basis='filtered_xhtml_utf16',upload_verified=False)
+                basis='raw_txt_utf16' if source_format=='web_txt' else 'filtered_xhtml_utf16',upload_verified=False)
 
 
 def inspect(probe,book_id):
@@ -69,15 +86,22 @@ def inspect(probe,book_id):
     check_reader(probe.book_id,first,reader)
     params=make_content_params(probe.book_id,probe.chapter,state.psvts,sc=1)
     try:
-        source=decode_content_shards(*(probe.request(name,BASE+'/web/book/chapter/'+name,params,as_json=False)
-                                      for name in ('e_0','e_1','e_3')))
+        e0=probe.request('e_0',BASE+'/web/book/chapter/e_0',params,as_json=False)
+        source_format='web_xhtml'
+        if e0.lstrip().startswith('{'):
+            from verify_txt_reading import fallback_marker
+            if not fallback_marker(e0,probe.book_id,probe.chapter):raise PreflightError('cloud_source_invalid')
+            source_format='web_txt'
+            parts=[probe.request(name,BASE+'/web/book/chapter/'+name,params,as_json=False) for name in ('t_0','t_1')]+['']
+        else:parts=[e0]+[probe.request(name,BASE+'/web/book/chapter/'+name,params,as_json=False) for name in ('e_1','e_3')]
+        source=decode_content_shards(*parts)
     except PreflightError:raise
     except Exception:raise PreflightError('cloud_source_invalid') from None
     after=probe.request('progress_after',url)
-    target=project(probe.book_id,before,reader,source,after)
+    target=project(probe.book_id,before,reader,source,after,source_format)
     # Only the relevant Reader fields cross the private comparison pipe.
     sample=dict(book_id=probe.book_id,before=before,after=after,source=source,
-                reader={name:reader[name] for name in ('bookInfo','currentChapter','progress')},expected=target)
+                reader={name:reader[name] for name in ('bookInfo','currentChapter','progress')},expected=target,source_format=source_format)
     return target,sample
 
 
@@ -116,6 +140,7 @@ def main(argv=None):
             probe.verify_account();store.save(probe)
             report.update(same_owner_rechecked=True,keychain_readback_verified=True)
             if args.official_parser:
+                if target['basis']!='filtered_xhtml_utf16':raise PreflightError('cloud_parser_format_unavailable')
                 from source_parser_preflight import verify_source
                 checked=verify_source(sample['source'],target['chapter_offset'])
                 if not checked.get('official_parser_target_present'):raise PreflightError('cloud_parser_target_unverified')

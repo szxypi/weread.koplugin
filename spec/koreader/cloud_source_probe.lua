@@ -13,7 +13,7 @@ local ok,result=pcall(function()
     local payload=json.decode(input);input=nil
     local sample=payload.sample
     local Cloud=require('weread.lib.source_cloud')
-    local output={model=Cloud.project(sample.book_id,sample.before,sample.reader,sample.source,sample.after)}
+    local output={model=Cloud.project(sample.book_id,sample.before,sample.reader,sample.source,sample.after,sample.source_format)}
     if payload.credentials then
         local credentials=payload.credentials
         local scope={vid=credentials.vid,epoch=1}
@@ -24,7 +24,8 @@ local ok,result=pcall(function()
         local Protocol=require('weread.lib.protocol')
         local allowed={['https://weread.qq.com/web/book/getProgress?bookId='..sample.book_id]='GET',
             [Protocol.reader_url(sample.book_id,output.model.chapter_uid)]='GET'}
-        for _,name in ipairs({'e_0','e_1','e_3'}) do allowed['https://weread.qq.com/web/book/chapter/'..name]='POST' end
+        local shards=sample.source_format=='web_txt' and {'e_0','t_0','t_1'} or {'e_0','e_1','e_3'}
+        for _,name in ipairs(shards) do allowed['https://weread.qq.com/web/book/chapter/'..name]='POST' end
         function client:request(options)
             assert(allowed[options.url]==options.method,'cloud_read_scope_required')
             reads=reads+1;assert(reads<=6)

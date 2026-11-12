@@ -1,6 +1,19 @@
 local I18n = {}
 
 local zh = {
+    ["Review previous sync"] = "核对上次同步",
+    ["Previous book"] = "上次同步的书籍",
+    ["Check cloud position"] = "核对云端位置",
+    ["Checking the current cloud position…"] = "正在核对当前云端位置…",
+    ["Archive and compare again"] = "封存并重新比较",
+    ["Keep pending record"] = "保留待核对记录",
+    ["A progress sync is still running. Wait for it to finish, then check again."] = "进度同步仍在进行，请完成后再核对。",
+    ["A previous position sync for “%1” needs review. Check the current cloud state without resending the old request?"] = "“%1”的上次进度同步需要核对。是否只读取当前云端状态？不会重发上次请求。",
+    ["Current cloud position for “%1”: %2%. Archiving keeps the old request result and your local position; it does not resend or undo anything. A delayed cloud change may still arrive."] = "“%1”当前云端进度：%2%。封存会保留上次请求结果和本机位置，不重发或撤销请求；服务端仍可能稍后变化。",
+    ["The previous request has no confirmed receipt. A matching cloud position does not prove that request succeeded."] = "上次请求没有明确成功回执。云端位置相同，也不能据此判定上次请求成功。",
+    ["Check E-Ink login in account settings, then check the pending position again."] = "请在账号设置中检查墨水屏登录状态，再核对待确认的位置。",
+    ["Cloud reading state changed during the check. The previous record and local position are kept. Check again."] = "核对时云端阅读状态发生了变化。上次记录和本机位置已保留，请重新核对。",
+    ["Could not check or archive the previous sync. The record and local position are kept. Check network, login and storage, then try again."] = "无法核对或封存上次同步。记录和本机位置已保留，请检查网络、登录及存储后重试。",
     ["The cloud position changed while preparing this upload. Your local position is kept. Sync again to compare positions."] = "准备同步时云端位置发生了变化。本机位置已保留，请重新同步以核对位置。",
     ["E-ink authorization is unavailable for syncing this position. Your local position is kept. Check E-ink login in account settings, then sync again."] = "本次同步所需的墨水屏授权不可用。本机位置已保留，请在账号设置中检查墨水屏登录状态后重新同步。",
     ["Checking chapter link…"] = "正在核对章节链接…",
