@@ -152,7 +152,7 @@ class InitialPositionTests(unittest.TestCase):
         names=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore',
                'FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore',
                'NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore',
-               'ReadtimeTrialStore','MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
+               'ReadtimeTrialStore','CrossDayTrialStore','MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
         with ExitStack() as stack:
             factories={n:stack.enter_context(patch.object(shared,n)) for n in names}
             for factory in factories.values():factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)

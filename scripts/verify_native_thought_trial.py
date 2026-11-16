@@ -26,6 +26,7 @@ from secure_initial_mark_style import InitialMarkStyleStore
 from secure_mark_color import MarkColorStore
 from secure_nonempty_marks_trial import NonemptyMarksStore
 from secure_readtime_trial import ReadtimeTrialStore
+from cross_day_trial import TrialStore as CrossDayTrialStore
 from secure_bookmark_trial import BookmarkTrialStore
 from secure_finish_experiment import FinishExperimentStore
 from secure_shelf_experiment import ShelfExperimentStore
@@ -139,6 +140,8 @@ def run(probe,credentials,store,receipt,command,*,armed=False,expected=None,mock
 
 
 def readtime_pending():
+    state,_receipt=CrossDayTrialStore().read()
+    if state is not None and state['phase']!='retired':return True
     for version in (1,2):
         state,_receipt=ReadtimeTrialStore(version=version).read()
         if state is not None and state['phase']!='retired':return True

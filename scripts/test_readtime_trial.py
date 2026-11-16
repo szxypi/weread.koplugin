@@ -126,12 +126,17 @@ class TrialTests(unittest.TestCase):
         with self.assertRaises(StoreError):store.read()
 
     def test_pending_time_trial_blocks_all_old_scope_exclusions(self):
-        factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
+        factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','MarkStyleTrialStore','HighlightTrialStore','BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore','CrossDayTrialStore')
         with ExitStack() as stack:
             mocks={name:stack.enter_context(patch.object(shared,name)) for name in factories}
             for factory in mocks.values():factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)
             self.assertFalse(shared.other_pending());mocks['ReadtimeTrialStore'].return_value.read.return_value=({'phase':'claimed'},None)
             self.assertTrue(shared.other_pending(exclude_native_highlight=True,exclude_bookmark=True,exclude_native_bookmark=True,exclude_native_shelf=True,exclude_native_finish=True,exclude_mark_color=True))
+            mocks['ReadtimeTrialStore'].return_value.read.return_value=(None,None)
+            for phase in ('prepared','claimed','acknowledged','verified','retired'):
+                mocks['CrossDayTrialStore'].return_value.read.return_value=({'phase':phase},None)
+                self.assertEqual(shared.other_pending(exclude_native_highlight=True,exclude_bookmark=True,exclude_native_bookmark=True,
+                    exclude_native_shelf=True,exclude_native_finish=True,exclude_mark_color=True),phase!='retired')
 
     def test_stats_baseline_and_zone_are_bound_before_claim(self):
         for kind in ('statistics','zone'):
@@ -174,7 +179,8 @@ class TrialTests(unittest.TestCase):
             'book_counter_delta_verified','monthly_baseline_missing','original_trial_unverified','no_replay'),True)
         retired=store.retire_legacy(r,audit);self.assertEqual(store.read()[0]['phase'],'retired');self.assertIsNotNone(backend.data)
         empty=ReadtimeTrialStore(Backend())
-        with patch.object(shared,'ReadtimeTrialStore',side_effect=lambda version:store if version==1 else empty):self.assertFalse(shared.readtime_pending())
+        with patch.object(shared,'ReadtimeTrialStore',side_effect=lambda version:store if version==1 else empty),patch.object(shared,'CrossDayTrialStore') as cross:
+            cross.return_value.read.return_value=(None,None);self.assertFalse(shared.readtime_pending())
         for action in (lambda:store.reserve(plan),lambda:store.advance(retired,'verified'),lambda:store.finish(retired),lambda:store.retire_legacy(r,audit)):
             with self.assertRaises(StoreError):action()
         with self.assertRaises(ValueError):ReadtimeTrialStore(Backend()).reserve(plan)

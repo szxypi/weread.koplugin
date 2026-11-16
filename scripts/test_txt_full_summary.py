@@ -143,7 +143,7 @@ class FullSummaryTests(unittest.TestCase):
         import verify_native_thought_trial as shared
         factories=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore',
             'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','MarkStyleTrialStore','HighlightTrialStore',
-            'BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore')
+            'BookmarkTrialStore','InitialMarkStyleStore','MarkColorStore','NonemptyMarksStore','ReadtimeTrialStore','CrossDayTrialStore')
         with ExitStack() as stack:
             mocks={k:stack.enter_context(patch.object(shared,k)) for k in factories}
             for value in mocks.values():value.return_value.pending.return_value=False;value.return_value.read.return_value=(None,None)

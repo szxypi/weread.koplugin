@@ -77,6 +77,7 @@ class ScopeTests(unittest.TestCase):
             colors=contexts.enter_context(patch.object(shared,'MarkColorStore'))
             nonempty=contexts.enter_context(patch.object(shared,'NonemptyMarksStore'))
             readtime=contexts.enter_context(patch.object(shared,'ReadtimeTrialStore'))
+            contexts.enter_context(patch.object(shared,'CrossDayTrialStore')).return_value.read.return_value=(None,None)
             flags=contexts.enter_context(patch.object(shared,'FlagTrialStore'))
             native_flags=contexts.enter_context(patch.object(shared,'NativeFlagTrialStore'))
             txt_full=contexts.enter_context(patch.object(shared,'TxtFullSummaryStore'))

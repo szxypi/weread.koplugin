@@ -194,7 +194,7 @@ class DispatchTests(unittest.TestCase):
         import verify_native_thought_trial as shared
         names=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore','NativeFinishTrialStore',
             'FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore','NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore',
-            'NonemptyMarksStore','ReadtimeTrialStore','MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
+            'NonemptyMarksStore','ReadtimeTrialStore','CrossDayTrialStore','MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
         with ExitStack() as stack:
             factories={name:stack.enter_context(patch.object(shared,name)) for name in names}
             for factory in factories.values():factory.return_value.pending.return_value=False;factory.return_value.read.return_value=(None,None)

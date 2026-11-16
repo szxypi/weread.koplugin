@@ -88,6 +88,7 @@ class BookmarkContractTests(unittest.TestCase):
                 colors=contexts.enter_context(patch.object(task,'MarkColorStore'))
                 nonempty=contexts.enter_context(patch.object(task,'NonemptyMarksStore'))
                 readtime=contexts.enter_context(patch.object(task,'ReadtimeTrialStore'))
+                contexts.enter_context(patch.object(task,'CrossDayTrialStore')).return_value.read.return_value=(None,None)
                 flags=contexts.enter_context(patch.object(task,'FlagTrialStore'))
                 native_flags=contexts.enter_context(patch.object(task,'NativeFlagTrialStore'))
                 txt_full=contexts.enter_context(patch.object(task,'TxtFullSummaryStore'))
