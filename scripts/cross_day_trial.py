@@ -14,7 +14,7 @@ from verify_native_statistics import period
 PROTOCOL='cross-day-real-capture-two-second-cst-once-v1'
 HASHES={'capture_record_sha256','request_sha256','grant_sha256','statistics_sha256'}
 FIELDS={'protocol','capture','created_at'}|HASHES
-PHASES={'prepared':0,'claimed':1,'acknowledged':1,'verified':1,'retired':1}
+PHASES={'prepared':0,'claimed':1,'acknowledged':1,'verified':1,'retired':1,'closed_unverified':1}
 TRANSITIONS={('prepared','claimed'),('claimed','acknowledged'),('acknowledged','verified'),('verified','retired')}
 
 
@@ -51,6 +51,23 @@ def expected_months(before,capture,created_at):
     return [dict(target,**{month:dict(stat,readDays=stat['readDays']+delta)}) for delta in (0,1)]
 
 
+def validate_closure(value,plan):
+    fields={'protocol','plan_sha256','prior_record_sha256','observations_sha256','checked_at','independent_reads',
+        'was_acknowledged','original_trial_unverified','replay_forbidden','baseline_digest_exact','capture_unchanged',
+        'source_positions_catalog_versions_exact','book_counter_delta','historical_day_delta','dispatch_day_delta',
+        'removed_zero_buckets','read_days_delta'}
+    fixed=('was_acknowledged','original_trial_unverified','replay_forbidden','baseline_digest_exact','capture_unchanged',
+        'source_positions_catalog_versions_exact')
+    if (not isinstance(value,dict) or set(value)!=fields or value['protocol']!='cross-day-zero-removal-readonly-audit-v1'
+            or value['plan_sha256']!=digest(plan) or any(not isinstance(value[k],str) or not re.fullmatch('[a-f0-9]{64}',value[k])
+                for k in ('prior_record_sha256','observations_sha256'))
+            or not integer(value['checked_at'],plan['created_at'],4102444800) or any(value[k] is not True for k in fixed)
+            or any(type(value[k]) is not int or value[k]!=v for k,v in [('independent_reads',2),('book_counter_delta',2),
+                ('historical_day_delta',2),('dispatch_day_delta',0)])
+            or not integer(value['removed_zero_buckets'],0,2) or not integer(value['read_days_delta'],0,1)):
+        raise StoreError('cross_trial/closure')
+
+
 class TrialStore:
     service='org.codex.weread.goal-cross-day-time-trial-v1'
     def __init__(self,backend=None,lock=None):
@@ -64,10 +81,16 @@ class TrialStore:
         try:
             if not isinstance(raw,bytes) or not 0<len(raw)<=16384:raise ValueError()
             v=json.loads(raw)
-            if (not isinstance(v,dict) or set(v)!={'schema','scope','attempt','phase','posts','plan'} or type(v['schema']) is not int or v['schema']!=1
+            fields={'schema','scope','attempt','phase','posts','plan'}
+            if isinstance(v,dict) and v.get('phase')=='closed_unverified':fields=fields|{'closure'}
+            if (not isinstance(v,dict) or set(v)!=fields or type(v['schema']) is not int or v['schema']!=1
                     or v['scope']!=ACCOUNT or v['phase'] not in PHASES or type(v['posts']) is not int or v['posts']!=PHASES[v['phase']]
                     or not isinstance(v['attempt'],str) or not re.fullmatch('[a-f0-9]{32}',v['attempt'])):raise ValueError()
-            validate(v['plan']);return v,raw
+            validate(v['plan'])
+            if v['phase']=='closed_unverified':
+                validate_closure(v['closure'],v['plan']);prior=deepcopy(v);del prior['closure'];prior['phase']='acknowledged'
+                if digest(prior)!=v['closure']['prior_record_sha256']:raise ValueError()
+            return v,raw
         except (TypeError,ValueError,KeyError):raise StoreError('cross_trial/invalid') from None
 
     def read(self):
@@ -93,3 +116,13 @@ class TrialStore:
             value,raw=self._load()
             if not isinstance(receipt,Receipt) or receipt.raw!=raw or value is None or value['phase']!=before:raise StoreError('cross_trial/replaced')
             value['phase'],value['posts']=after,PHASES[after];return self._write(value)
+
+    def close_unverified(self,receipt,audit):
+        """Keep original ACK, plan and consumed count; never mark it verified."""
+        with self.lock():
+            value,raw=self._load()
+            if not isinstance(receipt,Receipt) or value is None or value['phase']!='acknowledged' or receipt.raw!=raw:
+                raise StoreError('cross_trial/replaced')
+            validate_closure(audit,value['plan'])
+            if audit['prior_record_sha256']!=digest(value):raise StoreError('cross_trial/replaced')
+            value['phase']='closed_unverified';value['closure']=audit;return self._write(value)

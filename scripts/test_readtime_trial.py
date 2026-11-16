@@ -133,10 +133,10 @@ class TrialTests(unittest.TestCase):
             self.assertFalse(shared.other_pending());mocks['ReadtimeTrialStore'].return_value.read.return_value=({'phase':'claimed'},None)
             self.assertTrue(shared.other_pending(exclude_native_highlight=True,exclude_bookmark=True,exclude_native_bookmark=True,exclude_native_shelf=True,exclude_native_finish=True,exclude_mark_color=True))
             mocks['ReadtimeTrialStore'].return_value.read.return_value=(None,None)
-            for phase in ('prepared','claimed','acknowledged','verified','retired'):
+            for phase in ('prepared','claimed','acknowledged','verified','retired','closed_unverified'):
                 mocks['CrossDayTrialStore'].return_value.read.return_value=({'phase':phase},None)
                 self.assertEqual(shared.other_pending(exclude_native_highlight=True,exclude_bookmark=True,exclude_native_bookmark=True,
-                    exclude_native_shelf=True,exclude_native_finish=True,exclude_mark_color=True),phase!='retired')
+                    exclude_native_shelf=True,exclude_native_finish=True,exclude_mark_color=True),phase not in ('retired','closed_unverified'))
 
     def test_stats_baseline_and_zone_are_bound_before_claim(self):
         for kind in ('statistics','zone'):

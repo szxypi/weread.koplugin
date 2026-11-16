@@ -141,7 +141,7 @@ def run(probe,credentials,store,receipt,command,*,armed=False,expected=None,mock
 
 def readtime_pending():
     state,_receipt=CrossDayTrialStore().read()
-    if state is not None and state['phase']!='retired':return True
+    if state is not None and state['phase'] not in ('retired','closed_unverified'):return True
     for version in (1,2):
         state,_receipt=ReadtimeTrialStore(version=version).read()
         if state is not None and state['phase']!='retired':return True

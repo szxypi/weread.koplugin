@@ -106,6 +106,8 @@ jobs:
           python3 scripts/test_readtime_history_capture.py
           python3 scripts/test_readtime_cross_day.py
           python3 scripts/test_readtime_cross_day_upload.py
+          python3 scripts/test_readtime_statistics.py
+          python3 scripts/test_cross_day_audit.py
 
       - name: Source coordinate prototype checks
         run: |
