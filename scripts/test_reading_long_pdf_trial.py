@@ -1,6 +1,6 @@
 """A fixed text-rich PDF has its own immutable, no-replay scope."""
 import hashlib,unittest
-from reading_long_pdf_trial import BODY_SHA256_LONG,BODY_SIZE,Journal,MappingJournal,SERVICE,check,prepare,validate_long
+from reading_long_pdf_trial import BODY_SHA256_LONG,BODY_SIZE,Journal,MappingJournal,FullTextJournal,SERVICE,check,prepare,validate_long
 from reading_pdf_trial import SERVICE as PDF_SERVICE
 from synthetic_pdf_trial import validate_pdf
 from synthetic_upload_pdf import build_reading
@@ -36,6 +36,16 @@ class LongPDFTrialTest(unittest.TestCase):
             fixture_builder=build_reading,prepare_plan=prepare,check_plan=check,fixture_extension='pdf',readback_tries=9,notify_receipt=target.record)
         self.assertEqual(report['result'],'PDF_IMPORT_AND_SOURCE_VERIFIED');self.assertEqual(tuple(probe.attempts.values()),(1,1,1,1))
         self.assertEqual(journal.read()[0]['phase'],'restored');self.assertIsNotNone(target.backend.load())
+
+    def test_full_text_has_its_own_no_replay_scope(self):
+        journal=FullTextJournal(Backend());target=TargetReceipt('pdf',Backend(),scope='pdf-full-text');probe=FakeProbe()
+        options=dict(apply=True,sleep=lambda _:None,now=lambda:1000,fixture_builder=build_reading,
+            prepare_plan=prepare,check_plan=check,fixture_extension='pdf',readback_tries=9,notify_receipt=target.record)
+        report=run(probe,journal,credentials(),lambda _:True,lambda _:True,**options)
+        self.assertEqual(report['result'],'PDF_IMPORT_AND_SOURCE_VERIFIED');self.assertEqual(journal.read()[0]['phase'],'restored')
+        self.assertIsNotNone(target.backend.load());self.assertEqual(tuple(probe.attempts.values()),(1,1,1,1))
+        again=run(probe,journal,credentials(),lambda _:True,lambda _:True,**options)
+        self.assertEqual(again['reason'],'synthetic_epub/already_reserved');self.assertEqual(tuple(probe.attempts.values()),(1,1,1,1))
 
 
 if __name__=='__main__':unittest.main()

@@ -45,3 +45,13 @@ class MappingJournal(BaseJournal):
             path=Path(tempfile.gettempdir())/('codex-long-pdf-page-mapping-'+ACCOUNT+'.lock')
             lock=lock or (lambda:project_lock(path))
         super().__init__(backend=backend,lock=lock,validator=validate_long)
+
+
+class FullTextJournal(BaseJournal):
+    """A separate one-shot scope for every line of the synthetic PDF."""
+    def __init__(self,backend=None,lock=None):
+        if backend is None:
+            backend=MacKeychain(service='org.codex.weread.goal-long-pdf-full-text-v1',account=ACCOUNT)
+            path=Path(tempfile.gettempdir())/('codex-long-pdf-full-text-'+ACCOUNT+'.lock')
+            lock=lock or (lambda:project_lock(path))
+        super().__init__(backend=backend,lock=lock,validator=validate_long)

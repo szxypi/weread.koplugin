@@ -1,6 +1,6 @@
 """Original-page markers must occur exactly once and in document order."""
 import unittest
-from verify_pdf_page_mapping import MARKERS,MappingFullProbe,markers,ordered
+from verify_pdf_page_mapping import FULL_MARKERS,MARKERS,MappingFullProbe,markers,ordered
 
 
 class PDFMappingTest(unittest.TestCase):
@@ -32,6 +32,14 @@ class PDFMappingTest(unittest.TestCase):
         probe.set_cookie('wr_vid','900000');probe.set_cookie('wr_skey','private-cookie');probe.opener=Opener(values)
         result=probe.prepare(1,expected_book_id=FIRST)
         self.assertEqual(result['book_id'],FIRST);self.assertEqual(probe.completed,2);self.assertTrue(ordered(probe.page_markers))
+    def test_full_text_requires_all_92_lines_once_in_order(self):
+        self.assertEqual(len(FULL_MARKERS),92)
+        first='<body>'+''.join('<p>'+v+'</p>' for v in FULL_MARKERS[:46])+'</body>'
+        second='<body>'+''.join('<p>'+v+'</p>' for v in FULL_MARKERS[46:])+'</body>'
+        self.assertTrue(ordered([markers(first,FULL_MARKERS),markers(second,FULL_MARKERS)],FULL_MARKERS))
+        self.assertFalse(ordered([markers(first.replace(FULL_MARKERS[20],''),FULL_MARKERS),markers(second,FULL_MARKERS)],FULL_MARKERS))
+        self.assertFalse(ordered([markers(first,FULL_MARKERS),markers(second+second,FULL_MARKERS)],FULL_MARKERS))
+        with self.assertRaises(ValueError):markers(first,('private',))
 
 
 if __name__=='__main__':unittest.main()

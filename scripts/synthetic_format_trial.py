@@ -51,12 +51,12 @@ class Journal(BaseJournal):
 class TargetReceipt:
     """Persist the exact acknowledged identity before waiting for shelf visibility."""
     def __init__(self,extension,backend=None,scope='reading'):
-        if scope not in ('reading','native-ui','long-pdf','pdf-mapping','near-ui','exact-ui','exact-ui-v2'):raise ValueError('synthetic_format/scope')
-        if (extension not in FORMATS and not (extension=='pdf' and scope in ('native-ui','long-pdf','pdf-mapping'))
+        if scope not in ('reading','native-ui','long-pdf','pdf-mapping','pdf-full-text','near-ui','exact-ui','exact-ui-v2'):raise ValueError('synthetic_format/scope')
+        if (extension not in FORMATS and not (extension=='pdf' and scope in ('native-ui','long-pdf','pdf-mapping','pdf-full-text'))
                 and not (extension=='epub' and scope in ('near-ui','exact-ui','exact-ui-v2')) or scope=='long-pdf' and extension!='pdf'
-                or scope=='pdf-mapping' and extension!='pdf' or scope in ('near-ui','exact-ui','exact-ui-v2') and extension!='epub'):raise ValueError('synthetic_format/extension')
+                or scope in ('pdf-mapping','pdf-full-text') and extension!='pdf' or scope in ('near-ui','exact-ui','exact-ui-v2') and extension!='epub'):raise ValueError('synthetic_format/extension')
         self.phase='launched' if scope in ('native-ui','near-ui','exact-ui','exact-ui-v2') else 'notify_pending'
-        suffix={'reading':'-target-v1','native-ui':'-native-ui-target-v1','long-pdf':'-long-reading-target-v1','pdf-mapping':'-page-mapping-target-v1',
+        suffix={'reading':'-target-v1','native-ui':'-native-ui-target-v1','long-pdf':'-long-reading-target-v1','pdf-mapping':'-page-mapping-target-v1','pdf-full-text':'-full-text-target-v1',
                 'near-ui':'-near-ui-target-v1','exact-ui':'-exact-ui-target-v1','exact-ui-v2':'-exact-ui-target-v2'}[scope]
         self.backend=backend if backend is not None else MacKeychain(service='org.codex.weread.goal-synthetic-'+extension+suffix,account=ACCOUNT)
 

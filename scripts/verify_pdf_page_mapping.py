@@ -10,6 +10,8 @@ from verify_translation_preflight import save_refreshed_web_session
 
 MARKERS=(TEXT,'Page 1 line 45 contains self-authored text for native reading checks.',
          SECOND,'Page 2 line 45 contains self-authored text for native reading checks.')
+FULL_MARKERS=(TEXT,)+tuple(f'Page 1 line {i:02d} contains self-authored text for native reading checks.' for i in range(1,46))+(SECOND,)+tuple(
+    f'Page 2 line {i:02d} contains self-authored text for native reading checks.' for i in range(1,46))
 
 
 class BodyText(HTMLParser):
@@ -27,17 +29,19 @@ class BodyText(HTMLParser):
         if not self.skip:self.parts.append(text)
 
 
-def markers(source):
+def markers(source,expected=MARKERS):
+    if expected not in (MARKERS,FULL_MARKERS):raise ValueError('pdf_mapping/markers')
     parser=BodyText();parser.feed(source);text=' '.join(''.join(parser.parts).split())
-    return [text.find(value) if text.count(value)<=1 else -2 for value in MARKERS]
+    return [text.find(value) if text.count(value)<=1 else -2 for value in expected]
 
 
-def ordered(rows):
+def ordered(rows,expected=MARKERS):
+    if expected not in (MARKERS,FULL_MARKERS):return False
     if (not isinstance(rows,list) or not rows or len(rows)>4
-            or any(not isinstance(row,list) or len(row)!=len(MARKERS) or any(type(value) is not int or value < -1 for value in row) for row in rows)):
+            or any(not isinstance(row,list) or len(row)!=len(expected) or any(type(value) is not int or value < -1 for value in row) for row in rows)):
         return False
     positions=[]
-    for index in range(len(MARKERS)):
+    for index in range(len(expected)):
         matches=[(chapter,row[index]) for chapter,row in enumerate(rows) if row[index]>=0]
         if len(matches)!=1:return False
         positions.append(matches[0])
@@ -47,8 +51,9 @@ def ordered(rows):
 class MappingFullProbe(CbFullReadingProbe):
     MAX_CHAPTERS=4
     MAX_TOTAL_BYTES=4*1024*1024
-    def __init__(self):
-        super().__init__(interval=1);self.page_markers=[];self._parts={}
+    def __init__(self,expected=MARKERS):
+        if expected not in (MARKERS,FULL_MARKERS):raise ValueError('pdf_mapping/markers')
+        super().__init__(interval=1);self.expected=expected;self.page_markers=[];self._parts={}
     def request(self,*args,**kwargs):
         result=super().request(*args,**kwargs);stage=args[0]
         if stage=='e_0':self._parts={'e_0':result}
@@ -56,12 +61,14 @@ class MappingFullProbe(CbFullReadingProbe):
         elif stage=='e_3':
             self._parts['e_3']=result
             raw=decode_content_shards(self._parts['e_0'],self._parts['e_1'],self._parts['e_3'])
-            self.page_markers.append(markers(raw));self._parts.clear()
+            self.page_markers.append(markers(raw,self.expected));self._parts.clear()
         return result
 
 
-def verify(target):
+def verify(target,*,full_text=False):
     if not cb_id(target):raise ValueError('pdf_mapping/target')
+    if type(full_text) is not bool:raise ValueError('pdf_mapping/scope')
+    expected=FULL_MARKERS if full_text else MARKERS
     store=SessionStore();saved=store.load();owner=saved['vid'];web=full=None
     try:
         web=CbReadingProbe();web.vid=saved['vid'];web.allowed={target}
@@ -73,19 +80,19 @@ def verify(target):
                 or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
                 or not all(v is True for v in web.last_checks.values())):
             raise ValueError('pdf_mapping/source')
-        rows=[markers(sample['source'])];count=len(sample['chapters'])
+        rows=[markers(sample['source'],expected)];count=len(sample['chapters'])
         save_refreshed_web_session(store,saved,web);web.samples.clear();web.close();web=None
-        if not ordered(rows) and 2<=count<=4:
+        if not ordered(rows,expected) and 2<=count<=4:
             saved.clear();saved=store.load()
             if saved['vid']!=owner:raise ValueError('pdf_mapping/owner_changed')
-            full=MappingFullProbe();full.vid=saved['vid']
+            full=MappingFullProbe(expected);full.vid=saved['vid']
             for key,value in saved['cookies'].items():full.set_cookie(key,value)
             full.verify_account();full.prepare(ids.index(target)+1,expected_book_id=target);full.verify_account()
             if (set(full.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
                     or not all(v is True for v in full.last_checks.values())):raise ValueError('pdf_mapping/changed')
             rows=full.page_markers;save_refreshed_web_session(store,saved,full)
-        if not ordered(rows):raise ValueError('pdf_mapping/unverified')
-        return dict(result='PDF_PAGE_CONTENT_MAPPING_VERIFIED',original_pages=2,converted_chapters_checked=len(rows),
+        if not ordered(rows,expected):raise ValueError('pdf_mapping/unverified')
+        return dict(result='PDF_FULL_TEXT_MAPPING_VERIFIED' if full_text else 'PDF_PAGE_CONTENT_MAPPING_VERIFIED',original_pages=2,converted_chapters_checked=len(rows),
                     target_bound=True,original_page_markers_ordered=True,cloud_position_unchanged=True,
                     account_data_writes=0,authentication_posts=0)
     finally:
