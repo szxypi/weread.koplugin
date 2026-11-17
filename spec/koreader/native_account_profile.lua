@@ -15,6 +15,7 @@ function M.start(home,grant,count,mock_cookies)
         return '/proc/self/fd/'..fd
     end
     local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=grant.vid,name=''},cookies=mock_cookies or {},api_key=''}
+    M.auth=auth
     local auth_path=anonymous(auth);local saved={};for key,value in pairs(grant) do saved[key]=value end
     saved.epoch,saved.verified_at,saved.book_count=1,os.time(),count
     local grant_path=anonymous{revision=1,authorization=saved}
@@ -40,5 +41,10 @@ function M.start(home,grant,count,mock_cookies)
     end
     assert(home:match('^/dev/shm/'))
 end
-function M.close() for _i,fd in ipairs(M.fds) do ffi.C.close(fd) end;M.fds={} end
+function M.setWebCookies(owner,cookies)
+    if not M.auth or tostring(M.auth.account.user_vid)~=tostring(owner) or type(cookies)~='table'
+        or tostring(cookies.wr_vid or '')~=tostring(owner) then return false end
+    M.auth.cookies=cookies;return true
+end
+function M.close() for _i,fd in ipairs(M.fds) do ffi.C.close(fd) end;M.fds={};M.auth=nil end
 return M

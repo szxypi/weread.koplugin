@@ -50,6 +50,21 @@ class UITrialTest(unittest.TestCase):
             validate_input(payload,False,None)
             for bad in (dict(payload,body_base64=base64.b64encode(b'other').decode()),dict(payload,name=NAME)):
                 with self.subTest(ext=ext),self.assertRaises(ValueError):validate_input(bad,False,None)
+    def test_same_session_requires_armed_fixture_and_all_live_proofs(self):
+        from synthetic_upload_epub import build_reading
+        payload=dict(credentials=credentials(),name='KOReaderSynthetic-0123456789abcdef.epub',shelf_books=3,
+            rpc_token='a'*32,permit_writes=True,fixture='reading_epub',body_base64=base64.b64encode(build_reading()).decode('ascii'),same_session=True)
+        validate_input(payload,True,None)
+        for bad in (dict(payload,permit_writes=False),dict(payload,fixture='epub'),dict(payload,combined_upload=True)):
+            with self.assertRaises(ValueError):validate_input(bad,True,None)
+        proof=stage(True);proof.update(continuous_reading=True,read_text_visible=True,read_page_turn=True,source_bytes_bound=True,
+                                      web_cookies={'wr_vid':'900000','wr_skey':'mock_key'})
+        self.assertEqual(validate_stage(proof,True,same_session=True),proof)
+        for key in ('continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'):
+            bad=dict(proof);bad[key]=False
+            with self.assertRaises(ValueError):validate_stage(bad,True,same_session=True)
+        with self.assertRaises(ValueError):validate_stage(proof,True)
+
     def test_rich_pdf_requires_fixed_fixture_and_complete_local_read_proof(self):
         from synthetic_upload_rich_pdf import build
         payload=dict(credentials=credentials(),name='KOReaderSynthetic-0123456789abcdef.pdf',shelf_books=3,

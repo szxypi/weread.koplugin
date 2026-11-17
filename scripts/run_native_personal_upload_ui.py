@@ -13,11 +13,13 @@ FLAGS={'permit_writes','chooser','cancel_no_request','heartbeat','journal_idle',
 COUNTS={'native_gets':17,'credential_gets':1,'puts':1,'notifies':1,'denied':0,'screenshots':0,'failed_line':10000}
 
 
-def validate_stage(value,armed,*,combined=False,local_original=False):
+def validate_stage(value,armed,*,combined=False,local_original=False,same_session=False):
     fields=FLAGS|set(COUNTS)|{'result','phase'}|({'target'} if armed else set())
-    if combined:fields|={'continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'}
+    if combined or same_session:fields|={'continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'}
+    if same_session:fields.add('web_cookies')
     if local_original:fields|={'local_original_opened','local_pdf_pages','cloud_unbound'}
-    if type(combined) is not bool or type(local_original) is not bool or (combined or local_original) and not armed or combined and local_original:raise ValueError('native_upload_ui/stage')
+    if (type(combined) is not bool or type(local_original) is not bool or type(same_session) is not bool
+        or (combined or local_original or same_session) and not armed or sum((combined,local_original,same_session))>1):raise ValueError('native_upload_ui/stage')
     if (not isinstance(value,dict) or set(value)!=fields or value['result']!='PASS' or value['phase']!='complete'
             or value['permit_writes'] is not armed or any(type(value[k]) is not bool for k in FLAGS)
             or any(type(value[k]) is not int or not 0<=value[k]<=limit for k,limit in COUNTS.items())
@@ -26,7 +28,8 @@ def validate_stage(value,armed,*,combined=False,local_original=False):
             or value['failed_line'] or (value['native_gets']<2 if armed else value['native_gets']!=0)
             or any(value[k]!=(1 if armed else 0) for k in ('credential_gets','puts','notifies'))
             or armed and not valid_book(value['target'])
-            or combined and any(value[k] is not True for k in ('continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'))
+            or (combined or same_session) and any(value[k] is not True for k in ('continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'))
+            or same_session and not isinstance(value['web_cookies'],dict)
             or local_original and any(value[k] is not True for k in ('local_original_opened','local_pdf_pages','cloud_unbound'))):raise ValueError('native_upload_ui/stage')
     return value
 
@@ -40,8 +43,10 @@ def validate_input(value,armed,mock_port):
     exact=isinstance(value,dict) and value.get('fixture')=='exact_epub'
     combined=isinstance(value,dict) and value.get('combined_fixture') is True
     combined_upload=isinstance(value,dict) and value.get('combined_upload') is True
+    same_session=isinstance(value,dict) and value.get('same_session') is True
     if combined:fields.add('combined_fixture')
     if combined_upload:fields.add('combined_upload')
+    if same_session:fields.add('same_session')
     fmt=value.get('fixture') if isinstance(value,dict) and value.get('fixture') in ('pdf','mobi','azw3','rich_pdf') else None
     extension='pdf' if fmt=='rich_pdf' else fmt
     if epub or reading_epub:fields|={'fixture','body_base64'}
@@ -53,7 +58,8 @@ def validate_input(value,armed,mock_port):
     validate_credentials(value['credentials'])
     if combined and (mock_port is None or not armed or not reading_epub):raise ValueError('native_upload_ui/input')
     if combined_upload and (not reading_epub or combined):raise ValueError('native_upload_ui/input')
-    if reading_epub and not (combined or combined_upload):raise ValueError('native_upload_ui/input')
+    if same_session and (not armed or not reading_epub or combined or combined_upload):raise ValueError('native_upload_ui/input')
+    if reading_epub and not (combined or combined_upload or same_session):raise ValueError('native_upload_ui/input')
     if epub:
         from synthetic_upload_epub import build
         if value['body_base64']!=base64.b64encode(build()).decode('ascii'):raise ValueError('native_upload_ui/fixture')

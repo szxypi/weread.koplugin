@@ -16,3 +16,13 @@ class Journal(BaseJournal):
             path=Path(tempfile.gettempdir())/('codex-native-combined-upload-read-'+ACCOUNT+'.lock')
             lock=lock or (lambda:project_lock(path))
         super().__init__(backend=backend,lock=lock,validator=validate_reading)
+
+
+class SameSessionJournal(BaseJournal):
+    """Independent, one-shot target for the continuous live reader session."""
+    def __init__(self,backend=None,lock=None):
+        if backend is None:
+            backend=MacKeychain(service='org.codex.weread.goal-native-same-session-read-v1',account=ACCOUNT)
+            path=Path(tempfile.gettempdir())/('codex-native-same-session-read-'+ACCOUNT+'.lock')
+            lock=lock or (lambda:project_lock(path))
+        super().__init__(backend=backend,lock=lock,validator=validate_reading)

@@ -34,7 +34,7 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     elif fixture=='exact_epub':
         from exact_limit_epub_trial import validate_exact
         validate_exact(plan)
-    elif fixture=='reading_epub':
+    elif fixture in ('reading_epub','reading_epub_same'):
         from reading_epub_trial import validate_reading
         validate_reading(plan)
     elif fixture=='rich_pdf':
@@ -52,7 +52,7 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     if fixture=='epub':
         from synthetic_upload_epub import build
         payload.update(fixture='epub',body_base64=base64.b64encode(build()).decode('ascii'))
-    elif fixture=='reading_epub':
+    elif fixture in ('reading_epub','reading_epub_same'):
         from synthetic_upload_epub import build_reading
         payload.update(fixture='reading_epub',body_base64=base64.b64encode(build_reading()).decode('ascii'),combined_upload=True)
     elif fixture in ('large_epub','near_epub','exact_epub'):payload['fixture']=fixture
@@ -67,7 +67,7 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode();framed=str(len(raw)).encode()+b'\n'+raw
     args=['docker','exec','-i','-w','/source','weread-validation','timeout','--signal=TERM','--kill-after=10','1000' if fixture in ('near_epub','exact_epub') else '165',
         'python3','scripts/run_native_personal_upload_ui.py','--koreader','/validation/runtime/lib/koreader',
-        '--candidate','/validation/pdf-original-ui-1264-v4/candidate.zip' if fixture=='rich_pdf' else '/validation/large-delay-ui-1264-v1/candidate.zip','--width','1264','--height','1680','--dpi','300']
+        '--candidate','/validation/pdf-original-ui-1264-v4/candidate.zip' if fixture=='rich_pdf' else '/validation/pdf-original-manual-ui-1264-v2/candidate.zip' if fixture=='reading_epub_same' else '/validation/large-delay-ui-1264-v1/candidate.zip','--width','1264','--height','1680','--dpi','300']
     if armed:args.append('--armed')
     result=subprocess.run(args,input=framed,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=1020 if fixture in ('near_epub','exact_epub') else 190,check=False)
     prefix=('WEREAD_NATIVE_THOUGHT_'+token+'_RESULT=').encode()

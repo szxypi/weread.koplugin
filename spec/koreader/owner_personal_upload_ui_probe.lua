@@ -7,7 +7,7 @@ local json=require('json')
 local report={result='UNVERIFIED',phase='init',permit_writes=false,chooser=false,cancel_no_request=false,
     heartbeat=false,journal_idle=false,cache_verified=false,file_unchanged=false,credential_audit=false,
     guard_selftest=false,native_gets=0,credential_gets=0,puts=0,notifies=0,denied=0,screenshots=0,failed_line=0}
-local input,token,profile,plugin,counters,memory,target,combined
+local input,token,profile,plugin,counters,memory,target,combined,same_session,reading
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'));assert(ffi.os=='Linux' and home:match('^/dev/shm/weread%-upload%-ui%-[%w_]+/profile$'))
     local length=assert(io.stdin:read('*l'));assert(length:match('^[1-9]%d*$') and #length<=6)
@@ -15,7 +15,7 @@ local ok,reason=pcall(function()
     token=assert(input.rpc_token);assert(type(token)=='string' and token:match('^[a-f0-9]+$') and #token==32)
     local grant=assert(input.credentials);local name=assert(input.name);local armed=input.permit_writes
     local mock=tonumber(os.getenv('WEREAD_UPLOAD_UI_MOCK_PORT') or '')
-    combined=input.combined_fixture==true
+    combined=input.combined_fixture==true;same_session=input.same_session==true
     local large=input.fixture=='large_epub';local near=input.fixture=='near_epub';local exact=input.fixture=='exact_epub'
     local reading_epub=input.fixture=='reading_epub'
     local external=large or near or exact;local epub=input.fixture=='epub' or reading_epub or external
@@ -26,7 +26,8 @@ local ok,reason=pcall(function()
     local format=format_fixtures[input.fixture] and input.fixture or nil
     assert(type(armed)=='boolean' and armed==(os.getenv('WEREAD_UPLOAD_UI_ARMED')=='1'))
     assert(not combined or mock and armed and reading_epub and grant.vid=='900000' and grant.accessToken=='mock-native-access')
-    if combined then report.continuous_reading=false;report.read_text_visible=false;report.read_page_turn=false;report.source_bytes_bound=false end
+    assert(not same_session or armed and reading_epub and not combined)
+    if combined or same_session then report.continuous_reading=false;report.read_text_visible=false;report.read_page_turn=false;report.source_bytes_bound=false end
     if input.fixture=='rich_pdf' and armed then report.local_original_opened=false;report.local_pdf_pages=false;report.cloud_unbound=false end
     assert(type(input.shelf_books)=='number' and input.shelf_books%1==0 and input.shelf_books>=1 and input.shelf_books<=5000)
     local extension=format=='rich_pdf' and 'pdf' or format or (epub and 'epub' or 'txt')
@@ -84,14 +85,15 @@ local ok,reason=pcall(function()
     local reading_enabled,read_requests=false,0
     function Client:request(opts)
         local h=opts.headers or {};local kind
-        if combined and reading_enabled and target=='CB_SyntheticResume' then
+        if (combined or same_session) and reading_enabled and (same_session or target=='CB_SyntheticResume') then
             local url=opts.url or '';local allowed=false
             if opts.method=='GET' and not opts.body then
                 allowed=url=='https://weread.qq.com/web/shelf/sync'
                     or url=='https://weread.qq.com/web/book/getProgress?bookId='..target
-                    or url==protocol.reader_url(target) or url=='https://weread.qq.com/mock/illustration.png'
+                    or url==protocol.reader_url(target) or (not same_session or mock) and url=='https://weread.qq.com/mock/illustration.png'
                     or url==base..'/book/info?bookId='..protocol.urlencode(target) and h.vid==grant.vid and h.accessToken==grant.accessToken
-                for uid=1,6 do if url==protocol.reader_url(target,tostring(uid)) then allowed=true end end
+                if not same_session then for uid=1,6 do if url==protocol.reader_url(target,tostring(uid)) then allowed=true end end end
+                if same_session and reading and url==protocol.reader_url(target,reading.chapter_uid) then allowed=true end
             elseif opts.method=='POST' and type(opts.body)=='string' and #opts.body<=16384 then
                 local decoded,payload=pcall(json.decode,opts.body)
                 if decoded and type(payload)=='table' then
@@ -100,7 +102,7 @@ local ok,reason=pcall(function()
                     else
                         local shard=url:match('^https://weread%.qq%.com/web/book/chapter/([et]_%d)$')
                         allowed=shard and ({e_0=true,e_1=true,e_2=true,e_3=true,t_0=true,t_1=true})[shard]
-                            and payload.b==protocol.e(target)
+                            and payload.b==protocol.e(target) and (not same_session or payload.c==protocol.e(reading.chapter_uid))
                     end
                 end
             end
@@ -189,6 +191,19 @@ local ok,reason=pcall(function()
         pump(function() return not plugin._personal_upload_ui and beat end);report.heartbeat=true
         assert(target and Journal:new(plugin.settings,plugin.client):read(scope).phase=='idle');report.journal_idle=true
         local status=assert(plugin.library_db:getShelfStatus(target));assert(status.present==true);report.cache_verified=true
+        if same_session then
+            io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..token..'_STEP='..json.encode{seq=1,target=target}..'\n');io.stdout:flush()
+            local line=assert(io.stdin:read('*l'));assert(#line<=16384)
+            local gate=json.decode(line);assert(type(gate)=='table' and gate.seq==1 and gate.ok==true and type(gate.payload)=='table')
+            reading=gate.payload
+            assert(reading.book_id==target and tostring(reading.vid)==grant.vid and reading.cb_reading==true
+                and reading.combined_upload_read==true and reading.source_format=='web_xhtml'
+                and type(reading.chapter_uid)=='string' and reading.chapter_uid:match('^[1-9]%d*$')
+                and type(reading.source_text)=='string' and #reading.source_text>=32 and #reading.source_text<=128
+                and type(reading.source_raw_sha256)=='string' and #reading.source_raw_sha256==64
+                and reading.source_raw_sha256:match('^[a-f0-9]+$') and type(reading.cookies)=='table')
+            assert(profile.setWebCookies(grant.vid,reading.cookies));plugin.settings:set('cookies',reading.cookies)
+        end
         if format=='rich_pdf' then
             local info=UI:getTopmostVisibleWidget();if info and info~=FM.instance and info.text then UI:close(info) end
             local original=require('weread.lib.personal_original');assert(original.resolve(plugin,target)==path)
@@ -205,7 +220,7 @@ local ok,reason=pcall(function()
             assert(not current:detectWeReadBook());current.settings.cache_dir=cache
             report.cloud_unbound=true;report.local_original_opened=true;reader:onClose(false)
         end
-        if combined then
+        if combined or same_session then
             reading_enabled=true
             local Reader=require('apps/reader/readerui')
             plugin:showBookshelf();local view=assert(plugin.shelf_view);local index
@@ -225,16 +240,17 @@ local ok,reason=pcall(function()
             assert(pressed);pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document end)
             local reader=Reader.instance;assert(reader.weread:detectWeReadBook()==target)
             local document=reader.document;assert(document.file:sub(1,#home)==home and document:getPageCount()>1)
-            local source_receipt=assert(require('weread.lib.position_source').read_document(document,target,'1'))
-            assert(source_receipt.format=='web_xhtml' and source_receipt.raw_bytes==11797
-                and source_receipt.raw_sha256=='1eb9fd7f6ac033fc0f757b361b5c01414863e7f67c355871a175192e7369a8b9')
+            local source_receipt=assert(require('weread.lib.position_source').read_document(document,target,same_session and reading.chapter_uid or '1'))
+            assert(source_receipt.format=='web_xhtml' and (same_session and source_receipt.raw_sha256==reading.source_raw_sha256
+                or not same_session and source_receipt.raw_bytes==11797 and source_receipt.raw_sha256=='1eb9fd7f6ac033fc0f757b361b5c01414863e7f67c355871a175192e7369a8b9'))
             report.source_bytes_bound=true
-            local matches=assert(document:findAllText('This synthetic chapter verifies',false,0,4,false,0));assert(matches[1] and matches[1].start)
+            local matches=assert(document:findAllText(same_session and reading.source_text or 'This synthetic chapter verifies',false,0,4,false,0));assert(matches[1] and matches[1].start)
             local last=assert(document:findAllText('Passage 48 has an individual opening',false,0,4,false,0));assert(last[1] and last[1].start)
             reader.rolling:onGotoXPointer(matches[1].start);UI:handleInput();assert(document:isXPointerInCurrentPage(matches[1].start))
             report.read_text_visible=true
             local next_page=reader:getCurrentPage()==1 and 2 or 1;reader.rolling:onGotoPage(next_page);UI:handleInput()
             assert(reader:getCurrentPage()==next_page);report.read_page_turn=true;report.continuous_reading=true
+            if same_session then report.web_cookies=reader.weread.settings:get('cookies',{}) end
             reader:onClose(false)
         end
     end
@@ -249,6 +265,11 @@ local ok,reason=pcall(function()
             elseif info.mode=='file' then
                 assert(info.size<=16*1024*1024);local file=assert(io.open(full,'rb'));local bytes=file:read('*a');file:close()
                 for _i,value in ipairs({grant.accessToken,grant.refreshToken,grant.deviceId}) do assert(not bytes:find(value,1,true)) end
+                if same_session and reading then
+                    for _j,jar in ipairs({reading.cookies,report.web_cookies or {}}) do for key,value in pairs(jar) do
+                        if key~='wr_vid' and type(value)=='string' and #value>=8 then assert(not bytes:find(value,1,true)) end
+                    end end
+                end
             else error('upload_ui/profile_entry',0) end
         end end
     end
