@@ -63,7 +63,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--koreader", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source", "quick-search", "book-search", "cached-search"), default="precision",
+    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source", "quick-search", "book-search", "cached-search", "home-local-recent"), default="precision",
                         help="fractional navigation (default), source/DOM mapping, live reader-state capture, or chapter handoff")
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
@@ -134,7 +134,8 @@ def main():
                 probe = {"precision": "position_precision_smoke.lua", "source-dom": "source_dom_smoke.lua",
                          "source-state": "source_position_smoke.lua", "navigation": "progress_navigation_smoke.lua",
                          "cloud-source": "cloud_source_smoke.lua", "quick-search": "quick_search_smoke.lua",
-                         "book-search": "book_search_ui_smoke.lua", "cached-search": "cached_search_ui_smoke.lua"}[args.probe]
+                         "book-search": "book_search_ui_smoke.lua", "cached-search": "cached_search_ui_smoke.lua",
+                         "home-local-recent": "home_local_recent_smoke.lua"}[args.probe]
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / probe)],
                                         cwd=runtime, env=environment, stdout=out, stderr=subprocess.STDOUT, timeout=120)
             if result.returncode == 0 and args.probe == 'quick-search':
@@ -143,6 +144,12 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_QUICK_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline search reopen failed; inspect isolated runtime log'
+            if result.returncode == 0 and args.probe == 'home-local-recent':
+                server.shutdown();thread.join()
+                with (root / 'evidence/reopen.log').open('w') as out:
+                    reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                        env=environment | {'WEREAD_TEST_HOME_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                assert reopened.returncode==0, 'offline home reopen failed; inspect isolated runtime log'
             if result.returncode == 0 and args.probe == 'cached-search' and args.cached_no_catalog:
                 server.shutdown();thread.join()
                 with (root / 'evidence/reopen.log').open('w') as out:
@@ -158,6 +165,15 @@ def main():
         if result.returncode == 0:
             raw=log.read_bytes()
             assert b'[WeRead] forceRePaint failed:' not in raw, 'native repaint failed; inspect the isolated runtime log'
+            if args.probe == 'home-local-recent':
+                marker=b'\nWEREAD_HOME_LOCAL_RECENT='
+                for reopened,content in ((False,raw),(True,(root/'evidence/reopen.log').read_bytes())):
+                    assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
+                    value=json.loads(content.split(marker,1)[1].splitlines()[0])
+                    assert value==dict(result='PASS',reopen=reopened,home_selection=True,account_isolation=True,
+                                       shelf_unchanged=True,saved_page=True,requests=0), 'native home result mismatch'
+                request_log=root/'evidence/requests.jsonl'
+                assert not request_log.exists() or not request_log.read_bytes(), 'local home made a mock request'
             if args.probe == 'cached-search':
                 marker=b'\nWEREAD_CACHED_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing cached search result'

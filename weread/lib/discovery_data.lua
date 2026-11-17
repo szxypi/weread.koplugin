@@ -1,6 +1,7 @@
 -- Book/page normalization adapted from MiuRead's bookstore_data.lua.
 -- Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only; see NOTICE.
 local M = { PAGE_SIZE = 20, CACHE_TTL = 15 * 60 }
+local Access = require('weread.lib.read_access')
 
 local function number(value)
     local n = tonumber(value)
@@ -105,17 +106,46 @@ end
 
 -- Sort a copy: the cloud shelf's ordering and group membership must not change.
 function M.recent(books, saved, account, limit)
-    local result = {}
+    local result, seen = {}, {}
+    saved=type(saved)=='table' and saved or {}
     for _, book in ipairs(books or {}) do
-        local local_book = (saved or {})[book.bookId or book.book_id] or {}
-        local local_time = local_book.recent_read_account == account and account ~= nil
-            and (number(local_book.recent_read_at) or 0) or 0
-        local recent_time = math.max(number(book.readUpdateTime) or 0, local_time)
-        if recent_time > 0 then
-            local copy = {}
-            for key, value in pairs(book) do copy[key] = value end
-            copy._recent_time = recent_time
-            result[#result + 1] = copy
+        local id=type(book)=='table' and text(book.bookId or book.book_id) or ''
+        if id~='' and not seen[id] then
+            seen[id]=true
+            local local_book=saved[id] or saved[tonumber(id)]
+            local owned=type(local_book)=='table' and account~=nil and account~=''
+                and local_book.recent_read_account==account
+                and (local_book._library_account_key==nil or local_book._library_account_key==account)
+                and (local_book.book_id==nil or text(local_book.book_id)==id)
+                and (local_book.bookId==nil or text(local_book.bookId)==id)
+            local local_time=owned and (number(local_book.recent_read_at) or 0) or 0
+            local recent_time=math.max(number(book.readUpdateTime) or 0,local_time)
+            if recent_time>0 then
+                local copy={};for key,value in pairs(book) do copy[key]=value end
+                copy._recent_time=recent_time;result[#result+1]=copy
+            end
+        end
+    end
+    -- Books opened from the store may never have been added to the cloud
+    -- shelf. Only the owning account's explicit local reading event can add
+    -- them here; never move them into the shelf or copy internal state.
+    if type(account)=='string' and account~='' then
+        local function field(value,maximum)
+            local result_text=text(value)
+            return #result_text<=maximum and not result_text:find('[%z%c]') and result_text or ''
+        end
+        for key,book in pairs(saved) do
+            local id=type(book)=='table' and Access.display_book_id(book.book_id or book.bookId or key)
+            local time=type(book)=='table' and number(book.recent_read_at)
+            if id and tostring(key)==id and not seen[id] and time and time>0 and book.recent_read_account==account
+                and (book._library_account_key==nil or book._library_account_key==account)
+                and (book.book_id==nil or text(book.book_id)==id) and (book.bookId==nil or text(book.bookId)==id) then
+                local title=field(book.title,2048)
+                if title:match('^%s*$') then title=id end
+                result[#result+1]={bookId=id,title=title,author=field(book.author,2048),cover=field(book.cover,4096),
+                    category=field(book.category,2048),_recent_time=time}
+                seen[id]=true
+            end
         end
     end
     table.sort(result, function(a, b)

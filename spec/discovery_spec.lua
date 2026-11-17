@@ -32,6 +32,38 @@ local saved_reading = { c = { recent_read_at = 30, recent_read_account = "a" } }
 expect(Data.recent(books, saved_reading, "a")[1].bookId == "c", "offline reading missing from home")
 expect(#Data.recent(books, saved_reading, "b") == 2, "local reading leaked across accounts")
 expect(books[1]._recent_time == nil, "recent metadata mutated cloud shelf")
+local off_shelf={
+    ['900001']={book_id='900001',title='Local book',author='Local author',recent_read_at=50,recent_read_account='a',_library_account_key='a'},
+    ['CB_LocalBook']={book_id='CB_LocalBook',title='Imported local book',recent_read_at=40,recent_read_account='a'},
+    ['900002']={book_id='900002',title='Other account',recent_read_at=60,recent_read_account='b',_library_account_key='b'},
+    ['900003']={book_id='900004',title='Mismatched record',recent_read_at=70,recent_read_account='a'},
+    ['MP_WXS_123']={book_id='MP_WXS_123',title='Article container',recent_read_at=80,recent_read_account='a'},
+    ['900005']={book_id='900005',title='Foreign metadata',recent_read_at=90,recent_read_account='a',_library_account_key='b'},
+}
+local recent_local=Data.recent(books,off_shelf,'a')
+expect(#recent_local==4 and recent_local[1].bookId=='900001' and recent_local[2].bookId=='CB_LocalBook',
+    'recent reading omitted an off-shelf local book or accepted a foreign or mismatched record')
+expect(recent_local[1].title=='Local book' and recent_local[1].author=='Local author'
+    and not recent_local[1].pending_upload_position and not off_shelf['900001']._recent_time,
+    'local recent reading exposed internal state or modified its source')
+expect(#Data.recent(books,off_shelf,nil)==2,'signed-out home displayed another account\'s local records')
+expect(#Data.recent(books,off_shelf,'b')==3,'home showed other-account local reading')
+local edge_shelf={{bookId='900001',title='Cloud title',readUpdateTime=1},
+    {bookId='900001',title='Duplicate',readUpdateTime=2}}
+local edge_saved={
+    ['900001']={book_id='900001',title='Private local title',recent_read_at=100,recent_read_account='a'},
+    ['900002']={book_id='900002',bookId='900003',recent_read_at=99,recent_read_account='a'},
+    ['900004']={book_id='900004',title='invalid\nname',recent_read_at=98,recent_read_account='a'},
+    ['900005']={book_id='900005',recent_read_at=math.huge,recent_read_account='a'},
+    ['900006']={book_id='900006',recent_read_at=0/0,recent_read_account='a'},
+    ['900007']={book_id='900007',recent_read_at=-1,recent_read_account='a'},
+}
+local edge=Data.recent(edge_shelf,edge_saved,'a')
+expect(#edge==2 and edge[1].title=='Cloud title' and edge[2].title=='900004',
+    'recent books failed identity deduplication or safe local display fallback')
+expect(#Data.recent({},off_shelf,'')==0 and #Data.recent({},edge_saved,nil)==0,
+    'unscoped recent readings appeared on home')
+expect(#Data.recent({},off_shelf,'a',1)==2,'invalid home limit changed the configured default')
 for _, width in ipairs({ 120, 320, 600, 1072, 1440 }) do
     local layout = Header.arrange(width, {
         { key = "back", width = 72 }, { key = "title", width = 200 },
