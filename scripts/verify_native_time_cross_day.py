@@ -157,7 +157,8 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
             or groups.read() != (group, group_token) or old.read() != (old_state, old_token)):
         raise ValueError('native_cross_day/state_changed')
     return {'result': 'CROSS_DAY_READONLY_VERIFIED', 'seconds': plan['seconds'],
-            'exact_capture_and_fixture_bound': True, 'both_positions_source_counts_and_original_shelf_exact': True,
+            'exact_capture_and_fixture_bound': True, 'fixture_in_captured_baseline': baseline_includes_fixture,
+            'both_positions_source_counts_and_original_shelf_exact': True,
             'two_statistics_reads_stable': True, 'observed_months': len(months), 'server_clock_after_boundary': True,
             'account_data_posts': 0, 'authentication_posts': 0,
             'historical_accounting_verified': False, 'dispatch_capability': False}

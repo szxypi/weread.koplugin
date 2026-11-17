@@ -1,0 +1,1 @@
+{"result": "SYNTHETIC_NATIVE_RPC_VERIFIED", "synthetic_only": true, "account_data_posts": 0, "authentication_posts": 0, "historical_accounting_verified": false, "profile_removed": true, "native_selection_and_signing": true, "durable_claim_before_reply": true, "tampered_selection_blocked": true, "lost_reply_never_replayed": true, "duplicate_claim_blocked": true, "scenarios": 4}
