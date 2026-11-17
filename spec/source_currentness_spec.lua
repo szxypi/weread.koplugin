@@ -69,6 +69,14 @@ end
 local client,state=fixture()
 local result=Check.fetch(client,expected)
 expect(Check.packet(result,expected) and #state.requests==8,'fixed eight reads did not bind selected source')
+local checked=0;local check_client,check_state=fixture()
+Check.fetch(check_client,expected,nil,nil,{verify_catalog=function(value)
+    checked=checked+1;expect(value[1].book.bookVersion==3,'catalog observer received another response')
+end})
+expect(checked==2 and #check_state.requests==8,'catalog observer skipped a boundary')
+check_client,check_state=fixture()
+expect(not pcall(Check.fetch,check_client,expected,nil,nil,{verify_catalog=function() error('synthetic version mismatch') end})
+    and #check_state.requests==2,'version rejection fetched source bytes')
 for index,options in ipairs(state.requests) do
     expect(options.sensitive and options.skip_cookie and options.persist_response_cookies==false
         and not options.headers.Authorization and options.headers.Cookie:find('synthetic-current-cookie',1,true),'read lost frozen access scope')

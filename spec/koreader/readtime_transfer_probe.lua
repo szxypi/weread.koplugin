@@ -27,7 +27,7 @@ local function fixture(name)
     local selection=assert(Contract.select(rows,assert(coverage:preview(account,rows)),now))
     assert(selection.seconds==40)
     local journal=Journal:new{coverage=coverage,ledger=ledger,codec=codec}
-    local record=assert(journal:begin(account,selection,{request_hash=string.rep('d',64)}))
+    local record=assert(journal:begin(account,selection,{request_hash=string.rep('d',64),seconds=selection.seconds}))
     return ledger,coverage,journal,record
 end
 local function spawn(callback)
@@ -67,7 +67,7 @@ assert(ledger:summary(account).pending==40 and ledger:summary(account).covered==
 assert(collect(spawn(function() return journal:claim(record) and 'CLAIMED' or 'DENIED' end))=='DENIED')
 assert(coverage:reserve(account,now-50,30))
 ledger,coverage,journal,record=fixture('settle')
-assert(journal:claim(record));assert(journal:outcome(record,true))
+assert(journal:claim(record));assert(journal:acknowledge(record));assert(journal:outcome(record,true,{readbacks=2,seconds=40,observations_hash=string.rep('e',64),removed_zero_buckets=0,read_days_delta=0,checked_at=os.time(),source_unchanged=true,positions_unchanged=true}))
 assert(ledger:settle_confirmed(account,record.rows,record.attempt))
 assert(journal:recover(account));assert(journal:recover(account))
 assert(ledger:summary(account).confirmed==40 and ledger:summary(account).covered==20)

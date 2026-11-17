@@ -50,11 +50,11 @@ function Coverage:_access(callback)
             CREATE TABLE IF NOT EXISTS coverage_meta (name TEXT PRIMARY KEY,value INTEGER NOT NULL) WITHOUT ROWID;
             CREATE TABLE IF NOT EXISTS offline_time_records (
                 attempt TEXT PRIMARY KEY,scope TEXT NOT NULL,phase TEXT NOT NULL,metadata TEXT NOT NULL,
-                rows TEXT NOT NULL,request_hash TEXT NOT NULL,created INTEGER NOT NULL
+                rows TEXT NOT NULL,request_hash TEXT NOT NULL,created INTEGER NOT NULL,evidence TEXT NOT NULL DEFAULT ''
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS offline_time_account ON offline_time_records(scope,phase);
             CREATE UNIQUE INDEX IF NOT EXISTS offline_time_active ON offline_time_records(scope)
-                WHERE phase IN ('prepared','claimed','unknown','confirmed');
+                WHERE phase IN ('prepared','claimed','acknowledged','unknown','confirmed');
             CREATE TABLE IF NOT EXISTS offline_time_seals (
                 scope TEXT NOT NULL,attempt TEXT NOT NULL,start_time INTEGER NOT NULL,end_time INTEGER NOT NULL,
                 PRIMARY KEY(scope,attempt,start_time)
@@ -62,6 +62,17 @@ function Coverage:_access(callback)
             CREATE INDEX IF NOT EXISTS offline_time_end ON offline_time_seals(scope,end_time);]])
         db:exec("BEGIN IMMEDIATE")
         transaction = true
+        local evidence=false
+        for _i,column in ipairs(query(db,'PRAGMA table_info(offline_time_records)')) do if column[2]=='evidence' then evidence=true end end
+        if not evidence then db:exec("ALTER TABLE offline_time_records ADD COLUMN evidence TEXT NOT NULL DEFAULT ''") end
+        -- Older installations did not have an ACK-only phase. Upgrade its
+        -- uniqueness gate under the same writer lock before any queue access.
+        local active=query(db,"SELECT sql FROM sqlite_master WHERE type='index' AND name='offline_time_active'")[1]
+        if not active or not tostring(active[1]):find("'acknowledged'",1,true) then
+            db:exec([[DROP INDEX IF EXISTS offline_time_active;
+                CREATE UNIQUE INDEX offline_time_active ON offline_time_records(scope)
+                WHERE phase IN ('prepared','claimed','acknowledged','unknown','confirmed');]])
+        end
         local now = self.now()
         if not integer(now, 1, 4102444800) then error("invalid_clock") end
         query(db, "INSERT OR IGNORE INTO coverage_meta VALUES('tracked_since',?)", now)

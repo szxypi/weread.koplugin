@@ -2,7 +2,17 @@
 -- transitions commit first; a possibly dispatched request is never released.
 local C=require('weread.lib.readtime_transfer_contract')
 local M={};M.__index=M
-local PHASES={prepared=true,claimed=true,unknown=true,confirmed=true,retired=true}
+local PHASES={prepared=true,claimed=true,acknowledged=true,unknown=true,confirmed=true,settled=true,retired=true,retired_acknowledged=true}
+local function audit_valid(audit,seconds)
+    if type(audit)~='table' then return false end
+    local fields={readbacks=true,seconds=true,observations_hash=true,removed_zero_buckets=true,read_days_delta=true,
+        checked_at=true,source_unchanged=true,positions_unchanged=true}
+    for key in pairs(audit) do if not fields[key] then return false end end
+    for key in pairs(fields) do if audit[key]==nil then return false end end
+    return audit.readbacks==2 and audit.seconds==seconds and C.integer(seconds,1,600) and C.hash(audit.observations_hash)
+        and C.integer(audit.removed_zero_buckets,0,62) and C.integer(audit.read_days_delta,0,1)
+        and C.integer(audit.checked_at,1,4102444800) and audit.source_unchanged==true and audit.positions_unchanged==true
+end
 local function query(db,sql,...)
     local statement=db:prepare(sql);local args={...}
     local ok,result=pcall(function()
@@ -25,10 +35,19 @@ function M:_decode(row)
     local metadata,rows=self.codec:json_decode(row[4]),self.codec:json_decode(row[5])
     assert(type(metadata)=='table' and metadata.request_hash==row[6] and C.array(rows,1,100))
     local seen={};for _i,item in ipairs(rows) do assert(C.row(item) and not seen[item.id]);seen[item.id]=true end
-    return {attempt=row[1],account=row[2],phase=row[3],metadata=metadata,rows=rows,request_hash=row[6],created=tonumber(row[7])}
+    local evidence
+    if row[8] and row[8]~='' then evidence=self.codec:json_decode(row[8]);assert(type(evidence)=='table','evidence_invalid') end
+    if evidence then
+        assert(type(evidence)=='table' and evidence.request_hash==row[6] and C.integer(evidence.ack_at,tonumber(row[7]),4102444800))
+        for key in pairs(evidence) do assert(key=='request_hash' or key=='ack_at' or key=='audit') end
+        if evidence.audit then assert(audit_valid(evidence.audit,metadata.seconds) and evidence.audit.checked_at>=evidence.ack_at) end
+    end
+    if row[3]=='acknowledged' or row[3]=='retired_acknowledged' then assert(evidence,'ack_missing') end
+    if row[3]=='settled' then assert(evidence and evidence.audit,'confirmation_missing') end
+    return {attempt=row[1],account=row[2],phase=row[3],metadata=metadata,rows=rows,request_hash=row[6],created=tonumber(row[7]),evidence=evidence}
 end
 function M:_record(db,attempt)
-    return self:_decode(query(db,'SELECT attempt,scope,phase,metadata,rows,request_hash,created FROM offline_time_records WHERE attempt=?',attempt)[1])
+    return self:_decode(query(db,'SELECT attempt,scope,phase,metadata,rows,request_hash,created,evidence FROM offline_time_records WHERE attempt=?',attempt)[1])
 end
 function M:_matches(found,record,phase)
     return found and found.account==record.account and found.attempt==record.attempt and found.request_hash==record.request_hash
@@ -38,8 +57,8 @@ end
 function M:read(account)
     if not C.account(account) then return nil,'account_unavailable' end
     return self.coverage:_access(function(db)
-        local rows=query(db,[[SELECT attempt,scope,phase,metadata,rows,request_hash,created FROM offline_time_records
-            WHERE scope=? AND phase IN ('prepared','claimed','unknown','confirmed')]],account)
+        local rows=query(db,[[SELECT attempt,scope,phase,metadata,rows,request_hash,created,evidence FROM offline_time_records
+            WHERE scope=? AND phase IN ('prepared','claimed','acknowledged','unknown','confirmed')]],account)
         assert(#rows<=1,'corrupt');return {record=self:_decode(rows[1])}
     end)
 end
@@ -61,7 +80,7 @@ function M:begin(account,selection,metadata)
     if not C.account(account) or type(selection)~='table' or type(metadata)~='table' or not C.hash(metadata.request_hash) then return nil,'invalid' end
     return self.coverage:_access(function(db,since)
         assert(C.array(selection.rows,1,100) and C.array(selection.parts,1,100),'invalid')
-        assert(#query(db,"SELECT attempt FROM offline_time_records WHERE scope=? AND phase IN ('prepared','claimed','unknown','confirmed')",account)==0,'pending')
+        assert(#query(db,"SELECT attempt FROM offline_time_records WHERE scope=? AND phase IN ('prepared','claimed','acknowledged','unknown','confirmed')",account)==0,'pending')
         assert(#query(db,'SELECT attempt FROM offline_time_records LIMIT 50000')<50000,'full')
         assert(tonumber(query(db,'SELECT COUNT(*) FROM offline_time_seals')[1][1])+#selection.parts<=50000,'full')
         assert(C.digest(selection.rows)==selection.rows_hash and C.digest(selection.parts)==selection.parts_hash,'changed')
@@ -82,7 +101,7 @@ function M:begin(account,selection,metadata)
         local claimed=assert(self.ledger:claim_parts(account,selection.rows,selection.parts,attempt,covered),'ledger')
         local encoded_metadata,encoded_rows=self.codec:json_encode(metadata),self.codec:json_encode(claimed)
         assert(#encoded_metadata<=65536 and #encoded_rows<=65536,'limit')
-        query(db,'INSERT INTO offline_time_records VALUES(?,?,?,?,?,?,?)',attempt,account,'prepared',encoded_metadata,encoded_rows,metadata.request_hash,self.now())
+        query(db,'INSERT INTO offline_time_records(attempt,scope,phase,metadata,rows,request_hash,created) VALUES(?,?,?,?,?,?,?)',attempt,account,'prepared',encoded_metadata,encoded_rows,metadata.request_hash,self.now())
         for _i,row in ipairs(claimed) do query(db,'INSERT INTO offline_time_seals VALUES(?,?,?,?)',account,attempt,row.start_time,row.start_time+row.duration) end
         return assert(self:_record(db,attempt))
     end)
@@ -94,11 +113,27 @@ function M:claim(record)
         query(db,"UPDATE offline_time_records SET phase='claimed' WHERE attempt=?",record.attempt);return true
     end)
 end
-function M:outcome(record,confirmed)
-    if type(confirmed)~='boolean' then return false end
+function M:acknowledge(record)
     return self.coverage:_access(function(db)
         assert(self:_matches(self:_record(db,record.attempt),record,'claimed'),'replaced')
-        query(db,'UPDATE offline_time_records SET phase=? WHERE attempt=?',confirmed and 'confirmed' or 'unknown',record.attempt)
+        local stamp=self.now();assert(C.integer(stamp,record.created,4102444800),'clock')
+        local evidence=self.codec:json_encode{request_hash=record.request_hash,ack_at=stamp}
+        query(db,"UPDATE offline_time_records SET phase='acknowledged',evidence=? WHERE attempt=?",evidence,record.attempt);return true
+    end)
+end
+-- A receipt is saved first. Only the caller's independent accounting checks
+-- can promote that ACK to confirmed; receipt loss remains unknown forever.
+function M:outcome(record,confirmed,audit)
+    if type(confirmed)~='boolean' then return false end
+    return self.coverage:_access(function(db)
+        local found=self:_record(db,record.attempt)
+        assert(self:_matches(found,record,confirmed and 'acknowledged' or 'claimed'),'replaced')
+        if confirmed then
+            assert(found.evidence and audit_valid(audit,record.metadata.seconds) and audit.checked_at>=found.evidence.ack_at
+                and self.now()>=audit.checked_at and self.now()-audit.checked_at<=5,'audit')
+            found.evidence.audit=audit
+            query(db,"UPDATE offline_time_records SET phase='confirmed',evidence=? WHERE attempt=?",self.codec:json_encode(found.evidence),record.attempt)
+        else query(db,"UPDATE offline_time_records SET phase='unknown' WHERE attempt=?",record.attempt) end
         return true
     end)
 end
@@ -112,7 +147,8 @@ function M:cancel_prepared(record)
 end
 function M:settle(record)
     return self.coverage:_access(function(db)
-        assert(self:_matches(self:_record(db,record.attempt),record,'confirmed'),'replaced')
+        local found=self:_record(db,record.attempt)
+        assert(self:_matches(found,record,'confirmed') and found.evidence and found.evidence.audit,'replaced')
         assert(self.ledger:settle_confirmed(record.account,record.rows,record.attempt)==true,'ledger')
         -- Successful intervals merge into a permanent no-duplicate union.
         for _i,row in ipairs(record.rows) do
@@ -124,15 +160,16 @@ function M:settle(record)
             query(db,'INSERT INTO offline_time_seals VALUES(?,?,?,?)',record.account,'',first,last)
         end
         query(db,'DELETE FROM offline_time_seals WHERE scope=? AND attempt=?',record.account,record.attempt)
-        query(db,'DELETE FROM offline_time_records WHERE attempt=?',record.attempt);return true
+        -- Retain the immutable request and its ACK/readback audit for review.
+        query(db,"UPDATE offline_time_records SET phase='settled' WHERE attempt=?",record.attempt);return true
     end)
 end
 function M:retire_unknown(record)
     return self.coverage:_access(function(db)
         local found=self:_record(db,record.attempt)
-        assert(self:_matches(found,record) and (found.phase=='unknown' or found.phase=='claimed'),'replaced')
+        assert(self:_matches(found,record) and (found.phase=='unknown' or found.phase=='claimed' or found.phase=='acknowledged'),'replaced')
         assert(self.ledger:mark_unknown(record.account,record.rows,record.attempt)==true,'ledger')
-        query(db,"UPDATE offline_time_records SET phase='retired' WHERE attempt=?",record.attempt);return true
+        query(db,'UPDATE offline_time_records SET phase=? WHERE attempt=?',found.phase=='acknowledged' and 'retired_acknowledged' or 'retired',record.attempt);return true
     end)
 end
 -- Reopening never retries a dispatch. A prepared record is provably unsent;
@@ -141,7 +178,10 @@ function M:recover(account)
     local record,reason=self:pending(account);if reason then return nil,reason end
     if not record then return true end
     if record.phase=='prepared' then return self:cancel_prepared(record) end
-    if record.phase=='confirmed' then return self:settle(record) end
+    if record.phase=='confirmed' then
+        if not record.evidence or not record.evidence.audit then return nil,'unverified_confirmation' end
+        return self:settle(record)
+    end
     return true
 end
 return M

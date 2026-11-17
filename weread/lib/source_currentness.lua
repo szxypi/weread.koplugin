@@ -119,7 +119,7 @@ function M.packet_txt(value,expected)
     if checked then checked.basis='raw_txt_utf16' end
     return checked
 end
-function M.fetch(client,expected,selected,format)
+function M.fetch(client,expected,selected,format,options)
     format=format or 'web_xhtml'
     if format~='web_xhtml' and format~='web_txt' then fail('format') end
     expected=M.expected(expected);if not expected then fail('expected') end
@@ -158,6 +158,7 @@ function M.fetch(client,expected,selected,format)
     local url='https://weread.qq.com/web/book/chapterInfos'
     local body={bookIds={expected.book_id}}
     local before=request(url,body,4*1024*1024,true)
+    if options and options.verify_catalog then options.verify_catalog(before) end
     local index=M.catalog(before,expected.book_id,expected.chapter_uid)
     if index~=expected.chapter_idx then fail('catalog_changed') end
     local html=request(referer,nil,4*1024*1024,false)
@@ -181,6 +182,7 @@ function M.fetch(client,expected,selected,format)
     local decoded,raw=pcall(require('weread.lib.content').decode_content_shards,unpack(parts))
     if not decoded then fail('source_invalid') end
     local after=request(url,body,4*1024*1024,true)
+    if options and options.verify_catalog then options.verify_catalog(after) end
     account()
     current()
     local result=M.project(expected,before,reader,raw,after)
