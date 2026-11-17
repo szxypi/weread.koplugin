@@ -78,12 +78,19 @@ def main(argv=None):
                     raise ValueError('owner_search/native')
                 value=json.loads(out.split(FRAME,1)[1].splitlines()[0])
                 flags=('native_menu','search_result_verified','source_navigation','workers_reaped')
-                if (not isinstance(value,dict) or set(value)!={'result',*flags,'account_gets','search_gets','denied_requests'}
+                missing=payload.get('download_missing') is True
+                extra={'download_confirmed','cancel_without_download','downloaded_source_verified','credential_audit',
+                    'download_gets','catalog_posts','content_posts'} if missing else set()
+                if (not isinstance(value,dict) or set(value)!={'result',*flags,'account_gets','search_gets','denied_requests',*extra}
                         or value['result']!='PASS' or any(value[k] is not True for k in flags)
                         or type(value['account_gets']) is not int or value['account_gets']<1
                         or type(value['search_gets']) is not int or value['account_gets']!=value['search_gets']
                         or type(value['denied_requests']) is not int or value['denied_requests']!=0):
                     raise ValueError('owner_search/result')
+                if missing and (any(value[k] is not True for k in ('download_confirmed','cancel_without_download',
+                        'downloaded_source_verified','credential_audit'))
+                        or any(type(value[k]) is not int or value[k]<1 for k in ('download_gets','catalog_posts','content_posts'))):
+                    raise ValueError('owner_search/download')
                 report.update(result='PASS',ui=value)
             finally:
                 if child.poll() is None:

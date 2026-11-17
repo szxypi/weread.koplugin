@@ -51,6 +51,9 @@ local ok,result=pcall(function()
     end
     local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
     local counters=ffi.cast('int *',memory)
+    local download_counters=counters+16
+    local missing=input.download_missing==true
+    if missing then assert(type(input.local_chapter)=='string' and input.local_chapter~=input.chapter) end
     local Protocol=require('weread.lib.protocol');local allowed={}
     for _i,cursor in ipairs(input.allowed) do
         local url='https://weread.qq.com/web/book/search_v2?'..Protocol.sorted_query({bookId=input.book,
@@ -59,7 +62,25 @@ local ok,result=pcall(function()
     end
     local account_url='https://weread.qq.com/api/userInfo?userVid='..Protocol.urlencode(input.owner)
     local Client=require('weread.lib.client');local request=Client.request
+    local gate
+    if missing then
+        local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+        gate=dofile(fixtures..'note_download_transport.lua'):new({book_id=input.book,owner=input.owner,
+            chapters={{chapter_uid=input.chapter}}},'live',download_counters,tonumber(ffi.C.getpid()))
+    end
     function Client:request(options)
+        if gate and download_counters[5]==1 then
+            local kind=gate:classify(self,options)
+            local limits={4,1,8}
+            if not kind or download_counters[kind]>=limits[kind] or tonumber(ffi.C.getpid())==gate.parent then
+                counters[2]=counters[2]+1;error('owner_search_download_scope',0)
+            end
+            download_counters[0]=download_counters[0]+1;download_counters[kind]=download_counters[kind]+1
+            options.sensitive,options.diagnostic_api=true,'note_download_source'
+            local body,code,headers,status=request(self,options)
+            if tonumber(code)~=200 then download_counters[6]=download_counters[6]+1 end
+            return body,code,headers,status
+        end
         if options.method~='GET' or options.body~=nil or not options.sensitive or not options.skip_cookie then
             counters[2]=counters[2]+1;error('owner_search_scope',0)
         end
@@ -79,14 +100,20 @@ local ok,result=pcall(function()
     assert(#Loader.enabled_plugins==1)
     local settings=Settings:new();local Content=require('weread.lib.content')
     local Source=require('weread.lib.position_source');local Identity=require('weread.lib.book_file_identity')
-    local chapter
-    for _i,row in ipairs(input.chapters) do if tostring(row.chapterUid)==input.chapter then chapter=row end end
-    assert(chapter)
+    local chapter,local_chapter
+    for _i,row in ipairs(input.chapters) do
+        if tostring(row.chapterUid)==input.chapter then chapter=row end
+        if tostring(row.chapterUid)==input.local_chapter then local_chapter=row end
+    end
+    assert(chapter and (not missing or local_chapter))
     local book={book_id=input.book,bookId=input.book,title='阅读样本',bookVersion=0,chapters=input.chapters,cached_chapters={}}
-    local sources={[input.chapter]=assert(Source.capture(book,chapter,input.source,'web_xhtml'))}
-    local bodies={[input.chapter]=input.source}
-    local file=Content.save_book_epub(settings,book,{chapter},bodies,'owner-search',{},nil,nil,Identity.capture(book),sources)
-    book.cached_file=file;book.cached_chapters[input.chapter]=file
+    local initial_uid=missing and input.local_chapter or input.chapter
+    local initial_chapter=missing and local_chapter or chapter
+    local initial_source=missing and '<html><body><p>本地测试章节。</p></body></html>' or input.source
+    local sources={[initial_uid]=assert(Source.capture(book,initial_chapter,initial_source,'web_xhtml'))}
+    local bodies={[initial_uid]=initial_source}
+    local file=Content.save_book_epub(settings,book,{initial_chapter},bodies,'owner-search',{},nil,nil,Identity.capture(book),sources)
+    book.cached_file=file;book.cached_chapters[initial_uid]=file
     settings:set('books',{[input.book]=book});settings:flush()
     assert(Content.save_catalog_cache(Client:new(settings),settings,book,input.chapters))
     phase='reader'
@@ -130,7 +157,8 @@ local ok,result=pcall(function()
     assert(target.chapter_offset==input.start and target.upload_verified==false)
     local row=assert(require('weread.lib.book_search_target').row(input.book,selected))
     local bound=require('weread.lib.my_mark_target').resolve(book,file,row,1)
-    if not bound.position then navigation_diagnostic='bind_failed';error('bind_failed',0) end
+    if missing then assert(not bound.position)
+    elseif not bound.position then navigation_diagnostic='bind_failed';error('bind_failed',0) end
     local reported=false
     local report_code='other'
     local translate=require('weread.lib.i18n').tr
@@ -152,7 +180,22 @@ local ok,result=pcall(function()
     end
     local prefix=not owner.state.finished and owner.state.pages<128 and 1 or 0
     local item=assert(owner.menu.item_table[index+prefix]);phase='navigate';owner.menu:onMenuSelect(item)
+    local cancelled=false
+    if missing then
+        wait(function() return owner.navigation and owner.navigation.confirm end)
+        local confirm=owner.navigation.confirm
+        assert(download_counters[0]==0);confirm.cancel_callback();UI:close(confirm)
+        assert(not owner.navigation and download_counters[0]==0);cancelled=true
+        owner.menu:onMenuSelect(item)
+        wait(function() return owner.navigation and owner.navigation.confirm end)
+        assert(download_counters[0]==0);confirm=owner.navigation.confirm
+        download_counters[5]=1;confirm.ok_callback()
+    end
     wait(function()
+        if missing then
+            local current=require('apps/reader/readerui').instance
+            if current and current.weread and current~=reader then reader=current;plugin=current.weread end
+        end
         local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
         if owner.navigation and owner.navigation.confirm then navigation_diagnostic='confirm'
         elseif owner.navigation then navigation_diagnostic='working'
@@ -162,12 +205,44 @@ local ok,result=pcall(function()
         else navigation_diagnostic='inactive' end
         return not owner.navigation and plugin.source_navigation and plugin.source_navigation.state=='ready'
             and held and held.chapter_uid==input.chapter and held.chapter_offset==target.chapter_offset
-    end,15)
+    end,missing and 90 or 15)
+    download_counters[5]=0
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(not plugin.progress_sync.verified and not plugin.read_report.job and counters[2]==0)
     wait(function() for _i,pid in ipairs(workers) do if not require('ffi/util').isSubProcessDone(pid) then return false end end;return true end)
-    return {result='PASS',native_menu=true,search_result_verified=true,source_navigation=true,
+    local value={result='PASS',native_menu=true,search_result_verified=true,source_navigation=true,
         workers_reaped=true,account_gets=tonumber(counters[0]),search_gets=tonumber(counters[1]),denied_requests=tonumber(counters[2])}
+    if missing then
+        local point=assert(plugin.progress_sync:current_source_target())
+        local snapshot=assert(Source.document_metadata(reader.document,input.book,point.chapter_uid,point.render_path))
+        assert(snapshot.record.raw_sha256==require('weread.lib.crypto').sha256_hex(input.source))
+        local stored=assert(plugin.settings:get_book(input.book))
+        assert(stored.cached_chapters[input.chapter]==reader.document.file and reader.document.file~=file)
+        assert(download_counters[6]==0 and download_counters[1]>0 and download_counters[2]>0 and download_counters[3]>0)
+        local current_cookies=plugin.settings:get('cookies',{})
+        local lfs=require('libs/libkoreader-lfs')
+        local function audit(dir)
+            for entry in lfs.dir(dir) do
+                if entry~='.' and entry~='..' and not (dir==home and entry=='plugins') then
+                    local path=dir..'/'..entry;local stat=assert(lfs.symlinkattributes(path))
+                    if stat.mode=='directory' then audit(path) else
+                        assert(stat.mode=='file' and stat.size<=16*1024*1024)
+                        local f=assert(io.open(path,'rb'));local bytes=f:read('*a');f:close()
+                        for _i,cookies in ipairs({input.cookies,current_cookies}) do
+                            for key,secret in pairs(cookies) do
+                                if key~='wr_vid' and type(secret)=='string' and #secret>=8 then assert(not bytes:find(secret,1,true)) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        audit(home)
+        value.download_confirmed=true;value.cancel_without_download=cancelled;value.downloaded_source_verified=true
+        value.credential_audit=true;value.download_gets=tonumber(download_counters[1])
+        value.catalog_posts=tonumber(download_counters[2]);value.content_posts=tonumber(download_counters[3])
+    end
+    return value
 end)
 print('\nWEREAD_OWNER_BOOK_SEARCH_UI='..json.encode(ok and result or {result='UNVERIFIED',phase=phase,navigation_diagnostic=navigation_diagnostic}))
 os.exit(ok and result.result=='PASS' and 0 or 1)

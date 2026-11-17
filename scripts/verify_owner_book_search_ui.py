@@ -37,17 +37,25 @@ def invoke(payload,container,runtime,source,candidate,width,height,dpi):
             or type(value['authentication_posts']) is not int or value['authentication_posts']!=0):
         raise ValueError('owner_ui/report')
     ui=value['ui'];flags=('native_menu','search_result_verified','source_navigation','workers_reaped')
-    if (not isinstance(ui,dict) or set(ui)!={'result',*flags,'account_gets','search_gets','denied_requests'}
+    missing=payload.get('download_missing') is True
+    extra={'download_confirmed','cancel_without_download','downloaded_source_verified','credential_audit',
+        'download_gets','catalog_posts','content_posts'} if missing else set()
+    if (not isinstance(ui,dict) or set(ui)!={'result',*flags,'account_gets','search_gets','denied_requests',*extra}
             or ui['result']!='PASS' or any(ui[k] is not True for k in flags)
             or type(ui['account_gets']) is not int or not 1<=ui['account_gets']<=len(payload['allowed'])
             or type(ui['search_gets']) is not int or ui['search_gets']!=ui['account_gets']
             or type(ui['denied_requests']) is not int or ui['denied_requests']!=0):
         raise ValueError('owner_ui/report')
+    if missing and (any(ui[k] is not True for k in ('download_confirmed','cancel_without_download',
+            'downloaded_source_verified','credential_audit'))
+            or any(type(ui[k]) is not int or ui[k]<1 for k in ('download_gets','catalog_posts','content_posts'))):
+        raise ValueError('owner_ui/download_report')
     return value
 
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--missing-chapter',action='store_true',help='also validate confirmed read-only download')
     parser.add_argument('--container',default='weread-validation');parser.add_argument('--runtime',default='/validation/runtime/lib/koreader')
     parser.add_argument('--source',default='/source');parser.add_argument('--candidate',default='/validation/book-search-cached600-v5/candidate.zip')
     args=parser.parse_args(argv)
@@ -111,6 +119,10 @@ def main(argv=None):
         cookies={c.name:c.value for c in web.cookies if c.name in {'wr_vid','wr_skey','wr_rt','wr_ql','wr_pf'}}
         payload=dict(owner=web.vid,cookies=cookies,book=book,chapter=web.chapter,chapters=safe_chapters,
             source=original,keyword=keyword,start=start,finish=finish,allowed=allowed)
+        if args.missing_chapter:
+            other=next((uid for uid in ids if uid!=web.chapter),None)
+            if other is None:raise ValueError('owner_ui/no_other_chapter')
+            payload.update(download_missing=True,local_chapter=other)
         phase='native_ui';stages=[]
         for width,height,dpi in ((600,800,167),(1264,1680,300)):
             stages.append(invoke(payload,args.container,args.runtime,args.source,args.candidate,width,height,dpi))
