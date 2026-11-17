@@ -12,6 +12,8 @@ package.preload['weread.lib.mp_catalog']=function() return {MAX_RESULT=2*1024*10
     capture=function() return not state.invalid and {book_id='MP_WXS_42'} end,
     matches=function() return not state.auth_changed end,
     read=function() if state.worker_error then error('private error') end;return {ok=true,articles=state.new} end,
+    read_latest=function() return {ok=true,articles=state.new} end,
+    merge_latest=function(saved,rows) return {rows[1],saved[1]} end,
     rows=function(rows) if state.bad_rows then error('private invalid') end;return rows end} end
 local Catalog=require('weread.ui.mp_catalog')
 local checks=0
@@ -26,10 +28,10 @@ local function fixture()
         showBusy=function(self,_text,fn) self.busy_message={};state.dismiss=fn end,closeBusy=function(self) self.busy_message=nil end,
         showInfo=function(_self,text) state.notice=text end,getCachedMPArticles=function() return state.cached end,
         showMPArticleList=function(_self,book,rows) state.shown={book=book,rows=rows} end,
-        cacheMPArticles=function(_self,id,rows)
+        cacheMPArticles=function(_self,id,rows,options)
             expect(id=='MP_WXS_42','cache account changed')
             if state.store_failed then error('private SQLite detail') end
-            state.saves=state.saves+1;state.cached=rows;state.record.mp_articles=rows
+            state.saves=state.saves+1;state.cached=rows;state.record.mp_articles=rows;state.latest=options and options.latest
         end,
         mp_catalog_worker={start=function(_self,task,callback) if state.start_failed then return false end;state.jobs[#state.jobs+1]={task=task,callback=callback};return true end,
             cancel=function() state.cancelled=true end}}
@@ -40,6 +42,11 @@ end
 local host,book,deliver=fixture();expect(Catalog.start(host,book),'did not start');book.title='mutated';state.record.progress=.8;state.record.pending_upload_position.offset=12;deliver()
 expect(state.saves==1 and state.shown.rows==state.new and state.shown.book.title=='Captured' and not host.busy_message and not host.mp_catalog_job,'success lost snapshot or loading')
 expect(state.record.progress==.8 and state.record.pending_upload_position.offset==12,'fresh local state overwritten')
+host,book,deliver=fixture();state.new={{reviewId='latest'}};expect(Catalog.start(host,book,{latest=true}),'latest request did not start')
+deliver();expect(state.latest and #state.cached==2 and state.cached[1].reviewId=='latest' and state.cached[2].reviewId=='old','latest lost saved articles')
+host,book,deliver=fixture();state.new={{reviewId='latest'}};Catalog.start(host,book,{latest=true})
+state.cached={{reviewId='added-while-loading'}};deliver()
+expect(state.cached[2].reviewId=='added-while-loading','latest overwrote a concurrent catalog update')
 for _,change in ipairs({'account','epoch','document','file','session','cache','auth','move','timeout','clock'}) do
     host,book,deliver=fixture();Catalog.start(host,book)
     if change=='account' then state.account='two' elseif change=='epoch' then host.discovery_epoch=5

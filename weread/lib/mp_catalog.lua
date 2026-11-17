@@ -89,6 +89,50 @@ function M.project(data,book_id)
     end
     return {ok=true,articles=M.rows(rows,book_id)}
 end
+-- The cover endpoint returns at most the newest article, never a full catalog.
+function M.project_latest(data,book_id)
+    if type(data)~='table' or type(book_id)~='string' or #book_id>27 or not book_id:match('^MP_WXS_[1-9]%d*$') then fail() end
+    local code=data.errCode
+    if code==nil then code=data.errcode end
+    if code==nil then code=0 end
+    if type(code)~='number' or code%1~=0 or code<-2147483648 or code>2147483647
+        or data.errCode~=nil and data.errcode~=nil and data.errCode~=data.errcode then fail() end
+    if code~=0 then return {ok=false,kind=code==-2041 and 'verification' or code==-2012 and 'login' or 'unavailable'} end
+    local id=identifier(data.reviewId);local title=text(data.title,4096)
+    local suffix=id:sub(#book_id+2)
+    if id:sub(1,#book_id+1)~=book_id..'_' or suffix=='' or not suffix:match('^[A-Za-z0-9_%-]+$') or title=='' then fail() end
+    return {ok=true,articles=M.rows({{reviewId=id,bookId=book_id,title=title}},book_id)}
+end
+function M.merge_latest(saved,latest,book_id)
+    if saved==nil then saved={} end
+    array(saved,Identity.MAX_CATALOG);array(latest,1)
+    if #latest~=1 then fail() end
+    local wanted=Identity.key({book_id=book_id},latest[1]);if not wanted then fail() end
+    local result,found={},false
+    for _i,row in ipairs(saved) do
+        if type(row)~='table' then fail() end
+        local key=Identity.key({book_id=book_id},row);if not key then fail() end
+        if key==wanted then found=true end
+        result[#result+1]=row
+    end
+    if not found then
+        if #result>=Identity.MAX_CATALOG then fail() end
+        table.insert(result,1,latest[1])
+    end
+    return result
+end
+function M.read_latest(client,input)
+    local chunks,bytes,overflow={},0,false
+    local _,code=client:request{url='https://weread.qq.com/api/mp/cover?bookId='..Protocol.urlencode(input.book_id),
+        method='GET',headers={Cookie=Cookie.to_header(input.access.web.cookies),Accept='application/json, text/plain, */*',Referer='https://weread.qq.com/'},
+        skip_cookie=true,persist_response_cookies=false,sensitive=true,diagnostic_api='mp_latest',timeout={10,20},sink=function(chunk)
+            if chunk then bytes=bytes+#chunk;if bytes>M.MAX_RESULT then overflow=true;return nil,'response_limit' end;chunks[#chunks+1]=chunk end
+            return 1
+        end}
+    if overflow then fail() end
+    if code~=200 then return {ok=false,kind=code==401 and 'login' or 'unavailable'} end
+    return M.project_latest(client:json_decode(table.concat(chunks)),input.book_id)
+end
 function M.read(client,input)
     local chunks,bytes,overflow={},0,false
     local request_headers={Cookie=Cookie.to_header(input.access.web.cookies),Accept='application/json, text/plain, */*',Referer='https://weread.qq.com/'}

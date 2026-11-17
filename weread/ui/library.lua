@@ -1378,7 +1378,7 @@ function M:showMPAccount(book)
         return
     end
     if not self:requireLogin(true, false) then return end
-    self:fetchMPArticles(book)
+    self:fetchMPLatest(book)
 end
 
 function M:rememberMPAccount(book)
@@ -1405,6 +1405,10 @@ function M:fetchMPArticles(book)
     return require('weread.ui.mp_catalog').start(self,book)
 end
 
+function M:fetchMPLatest(book)
+    return require('weread.ui.mp_catalog').start(self,book,{latest=true})
+end
+
 function M:cancelMPArticleCatalog()
     return require('weread.ui.mp_catalog').cancel(self)
 end
@@ -1422,11 +1426,12 @@ function M:getCachedMPArticles(book_id)
     return nil
 end
 
-function M:cacheMPArticles(book_id, articles)
+function M:cacheMPArticles(book_id, articles, options)
     local books = self.settings:get("books", {})
     books[book_id] = books[book_id] or {}
     books[book_id].mp_articles = articles
     books[book_id].mp_articles_time = os.time()
+    books[book_id].mp_latest_only = options and options.latest==true or nil
     self.settings:set("books", books)
     self.settings:flush()
 end
@@ -1472,6 +1477,10 @@ function M:showMPArticleList(book, articles)
         })
     end
     if #articles==100 then items[#items+1]={text=_("First 100 articles loaded."),select_enabled=false} end
+    local record=self.settings:get('books',{})[book.book_id or book.bookId]
+    if type(record)=='table' and record.mp_latest_only then
+        items[#items+1]={text=_("Latest article and saved articles; earlier articles may be unavailable."),select_enabled=false}
+    end
     table.insert(items, {
         text = _("Article cache and versions"),
         callback = self:safeCallback(_("Article cache and versions"), function()
@@ -1492,10 +1501,10 @@ function M:showMPArticleList(book, articles)
         end),
     })
     table.insert(items, {
-        text = _("Refresh article list"),
-        callback = self:safeCallback(_("Refresh article list"), function()
+        text = _("Refresh latest article"),
+        callback = self:safeCallback(_("Refresh latest article"), function()
             if not current() then return end
-            self:fetchMPArticles(book)
+            self:fetchMPLatest(book)
         end),
     })
     menu=self:showList(book.title or _("Public Account"), items, _("No articles."));self._mp_article_list_view=menu

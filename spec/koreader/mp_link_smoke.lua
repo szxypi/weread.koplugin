@@ -64,7 +64,31 @@ if not reopen then
     end
     change('Subscribe');change('Unsubscribe')
     if plugin._shelf_state_menu then UI:close(plugin._shelf_state_menu) end
-    view=assert(plugin.shelf_view);choose('Imported articles');menu=assert(plugin._mp_link_menu)
+    local book={book_id='MP_WXS_900098',title='合成公众号'}
+    assert(not plugin:getCachedMPArticles(book.book_id),'new account unexpectedly has a cached list')
+    plugin:showMPAccount(book);pump(function() return not plugin.mp_catalog_job end)
+    local first=assert(plugin._mp_article_list_view)
+    assert(first.item_table[1].text=='合成导入文章标题','new public account did not load latest article')
+    local saved=assert(plugin:getCachedMPArticles(book.book_id))
+    saved[#saved+1]={reviewId='MP_WXS_900098_old',bookId=book.book_id,title='已有文章'}
+    plugin:cacheMPArticles(book.book_id,saved,{latest=true})
+    assert(plugin:fetchMPLatest(book));pump(function() return not plugin.mp_catalog_job end)
+    local articles=assert(plugin._mp_article_list_view)
+    assert(articles.item_table[1].text=='合成导入文章标题' and articles.item_table[2].text=='已有文章','latest erased saved article')
+    local notice=false
+    for _i,item in ipairs(articles.item_table) do
+        if item.text==require('weread.lib.i18n').tr('Latest article and saved articles; earlier articles may be unavailable.') then notice=true end
+    end
+    assert(notice and plugin.settings:get('books',{})[book.book_id].mp_latest_only,'latest was presented as complete history')
+    plugin:closeWeReadUI();plugin:showShelfView('public_account');view=assert(plugin.shelf_view)
+    choose('Imported articles');menu=assert(plugin._mp_link_menu)
+else
+    local book={book_id='MP_WXS_900098',title='合成公众号'}
+    plugin:showMPAccount(book)
+    local articles=assert(plugin._mp_article_list_view)
+    assert(articles.item_table[1].text=='合成导入文章标题' and articles.item_table[2].text=='已有文章','offline latest cache was lost')
+    plugin:closeWeReadUI();plugin:showShelfView('public_account');view=assert(plugin.shelf_view)
+    choose('Imported articles');menu=assert(plugin._mp_link_menu)
 end
 local opened;plugin.openFile=function(_self,path) opened=path end
 menu:onMenuSelect(menu.item_table[1]);pump(function() return opened~=nil or not plugin.mp_download_job and not plugin.mp_records_job end)

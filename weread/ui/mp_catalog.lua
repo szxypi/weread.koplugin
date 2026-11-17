@@ -34,9 +34,11 @@ local function failed(host,book,kind)
         or kind=='login' and _('WeRead could not refresh the public-account credential. Please scan the QR code again.')
         or _('Could not refresh the article list. Saved articles are kept. Please check the network and try again.'))
 end
-function M.start(host,book)
+function M.start(host,book,options)
+    options=options or {}
+    local latest=options.latest==true
     if not host:requireLogin(true,false) then return false end
-    if not host:isNetworkConnected() then host:showOffline(_('Refresh article list'));return false end
+    if not host:isNetworkConnected() then host:showOffline(_(latest and 'Refresh latest article' or 'Refresh article list'));return false end
     host:closeWeReadUI()
     local owner=scope(host)
     local captured,input=pcall(Model.capture,host.settings,book)
@@ -57,12 +59,14 @@ function M.start(host,book)
     end
     local run
     run=function()
-    local ok,started=pcall(host.mp_catalog_worker.start,host.mp_catalog_worker,function() return Model.read(host.client,input) end,function(result)
+    local ok,started=pcall(host.mp_catalog_worker.start,host.mp_catalog_worker,function()
+        return (latest and Model.read_latest or Model.read)(host.client,input)
+    end,function(result)
         if host.mp_catalog_job~=job then return end
         local age=os.time()-job.started
         if not current(host,owner,input) or age<0 or age>120 then M.cancel(host);return end
-        local latest=host.settings:get('books',{})[input.book_id]
-        if type(latest)=='table' and latest.cache_dir and latest.cache_dir~='' and latest.cache_dir~=selected.cache_dir then M.cancel(host);return end
+        local latest_record=host.settings:get('books',{})[input.book_id]
+        if type(latest_record)=='table' and latest_record.cache_dir and latest_record.cache_dir~='' and latest_record.cache_dir~=selected.cache_dir then M.cancel(host);return end
         if type(result)=='table' and result.ok~=true and result.kind=='login' and not job.renew_attempted then
             job.renew_attempted=true
             local started,request=require('weread.ui.web_renewal').run(host,{is_current=function()
@@ -88,10 +92,14 @@ function M.start(host,book)
         if type(result)~='table' or result.ok~=true then stop(type(result)=='table' and result.kind);return end
         local valid,articles=pcall(Model.rows,result.articles,input.book_id)
         if not valid then stop();return end
+        if latest then
+            valid,articles=pcall(Model.merge_latest,host:getCachedMPArticles(input.book_id),articles,input.book_id)
+            if not valid then stop();return end
+        end
         M.cancel(host)
         -- cacheMPArticles re-reads the latest record instead of replacing it with
         -- the pre-request book, so concurrent progress and pending intent survive.
-        local saved=pcall(host.cacheMPArticles,host,input.book_id,articles)
+        local saved=pcall(host.cacheMPArticles,host,input.book_id,articles,{latest=latest})
         if not saved then
             restore(host,selected)
             host:showInfo(_('Could not save the refreshed article list. Please check available storage.'));return

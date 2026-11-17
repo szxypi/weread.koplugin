@@ -298,6 +298,9 @@ class MockServer(ThreadingHTTPServer):
                     mpInfo=dict(title=("合成目录文章甲" if index == 0 else "合成目录文章乙") if len(ids) == 2 else f"合成目录第{index+1}篇 "+"目录文字"*100),
                     private="not retained")) for index, identity in enumerate(ids)])])
             return 200, dict(errCode=-2041, errMsg="Synthetic MP verification unavailable")
+        if path == "/api/mp/cover" and method == "GET":
+            if query!={'bookId':['MP_WXS_900098']}:raise ValueError('invalid synthetic latest article')
+            return 200,dict(reviewId='MP_WXS_900098_synthetic_article',title='合成导入文章标题')
         if path == "/web/mp/content" and method == "GET":
             if query == {"reviewId": ["MP_WXS_900098_synthetic_article"]}:
                 return 200, '<html><head><meta property="og:title" content="合成导入文章标题"/></head><body><div id="js_content"><p>合成导入文章正文</p></div><script>ignored()</script></body></html>'

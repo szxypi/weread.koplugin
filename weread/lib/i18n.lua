@@ -1,6 +1,8 @@
 local I18n = {}
 
 local zh = {
+    ["Refresh latest article"] = "刷新最新文章",
+    ["Latest article and saved articles; earlier articles may be unavailable."] = "显示最新文章与已保存文章，较早文章可能无法获取。",
     ["Import article link"] = "导入公众号文章链接",
     ["Imported articles"] = "已导入的文章",
     ["No imported articles."] = "暂无已导入的文章。",

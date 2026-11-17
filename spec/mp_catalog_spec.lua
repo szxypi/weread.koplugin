@@ -59,4 +59,25 @@ local array_mt={};client.json_decode=function(_self,value) if value=='[]' then r
 expect(not pcall(Model.read,client,input),'empty object accepted as valid empty reviews array')
 client.json_decode=function(_self,value) if value=='[]' then return setmetatable({},array_mt) end;return {reviews=setmetatable({},array_mt)} end
 expect(Model.read(client,input).ok,'typed empty array not accepted')
+local latest=Model.project_latest({reviewId='MP_WXS_42_latest_1',title='Newest',private='discard'},'MP_WXS_42')
+expect(latest.ok and latest.articles[1].title=='Newest' and not latest.articles[1].private,'latest article was not normalized')
+for _,value in ipairs({{}, {reviewId='MP_WXS_43_latest_1',title='Wrong account'},
+    {reviewId='MP_WXS_42_',title='Missing suffix'},{reviewId='MP_WXS_42_latest/unsafe',title='Bad id'},
+    {reviewId='MP_WXS_42_latest_1',title=''},{reviewId='MP_WXS_42_latest_1',title='bad\nvalue'}}) do
+    expect(not pcall(Model.project_latest,value,'MP_WXS_42'),'invalid latest response accepted')
+end
+expect(Model.project_latest({errCode=-2041},'MP_WXS_42').kind=='verification','latest business error mistaken for empty catalog')
+local old={{reviewId='MP_WXS_42_old',bookId='MP_WXS_42',title='Saved'}}
+local merged=Model.merge_latest(old,latest.articles,'MP_WXS_42')
+expect(#merged==2 and merged[1].title=='Newest' and merged[2]==old[1] and #old==1,'latest merge erased or mutated saved rows')
+expect(#Model.merge_latest(merged,latest.articles,'MP_WXS_42')==2,'repeat latest duplicated an article')
+expect(not pcall(Model.merge_latest,{{title='ambiguous'}},latest.articles,'MP_WXS_42'),'unidentified cached row discarded')
+client={json_decode=function() return {reviewId='MP_WXS_42_latest_1',title='Newest'} end,
+    request=function(_self,opts)
+        expect(opts.url=='https://weread.qq.com/api/mp/cover?bookId=MP_WXS_42' and opts.method=='GET'
+            and opts.skip_cookie and opts.persist_response_cookies==false and opts.sensitive,'latest route or session safety changed')
+        expect(opts.headers.Cookie=='wr_skey=XXX' and not opts.headers['x-wr-ticket'] and not opts.headers['x-wrpa-0'],'unneeded authorization headers sent')
+        opts.sink('{}');return nil,200
+    end}
+state.changed=false;expect(Model.read_latest(client,input).ok,'latest network model rejected valid result')
 print('PASS: bounded readonly MP catalog ('..checks..' checks)')
