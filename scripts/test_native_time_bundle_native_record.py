@@ -13,9 +13,10 @@ from native_time_bundle_selection import expected,native_digest
 from native_time_bundle_supervisor import NativeBoundSupervisor
 from native_time_capture_evidence import account_key
 from secure_highlight_trial import Receipt
-from test_native_time_bundle_evidence import evidence_fixture
+from test_native_time_bundle_evidence import evidence_fixture,synthetic_catalog
 from test_native_time_bundle_gate import fixture,gate
 from test_secure_native_session import Backend
+from source_currentness import catalog
 
 
 def make_record(bundle,grant,before,body,path):
@@ -23,7 +24,7 @@ def make_record(bundle,grant,before,body,path):
     source={'expected':{'book_id':p['book_id'],'chapter_uid':p['chapter_uid'],'chapter_idx':p['chapter_idx'],
                         'raw_sha256':p['raw_sha256'],'raw_bytes':raw_bytes},'format':p['format'],
             'metadata_hash':meta_hash,'ref':{'file':str(path),'chapter_uid':p['chapter_uid'],'chapter_idx':p['chapter_idx']},
-            'catalog_stamp':'c'*64}
+            'catalog_stamp':catalog([synthetic_catalog(p)],p['book_id'],p['chapter_uid'])[1]}
     metadata={'protocol':'native-historical-time-cst-v1','position_contract':'historical-time-point-presence-v1',
               'book_id':p['book_id'],'file_id':p['file_id'],'book_version':p['book_version'],'seconds':p['seconds'],
               'day':day(p['start_time']),'created_at':body['books'][0]['timestamp'],'device_hash':native_digest(grant['deviceId']),
@@ -54,7 +55,7 @@ class NativeRecordTests(unittest.TestCase):
         self.assertNotEqual(self.record['rows'][0]['id'],self.selection['rows'][0]['id'])
 
     def test_each_unrelated_change_is_rejected(self):
-        for key in ('native_hash','web_hash','shelf_hash','counts','months','source','source_metadata','file',
+        for key in ('native_hash','web_hash','shelf_hash','counts','months','source','source_metadata','catalog','file',
                     'device','seconds','day','stamp','request','row','account','phase','extra'):
             with self.subTest(key=key):
                 original=deepcopy(self.record);m=self.record['metadata']
@@ -63,6 +64,7 @@ class NativeRecordTests(unittest.TestCase):
                 elif key=='months':next(iter(m['months'].values()))['totalReadTime']+=1
                 elif key=='source':m['source']['expected']['raw_sha256']='f'*64
                 elif key=='source_metadata':m['source']['metadata_hash']='f'*64
+                elif key=='catalog':m['source']['catalog_stamp']='f'*64
                 elif key=='file':m['source']['ref']['file']+='x'
                 elif key=='device':m['device_hash']='f'*64
                 elif key=='seconds':m['seconds']+=1

@@ -24,7 +24,9 @@
       "baseline_sealed_before_claim": true,
       "preflight_evidence_bound": true,
       "native_baseline_mismatch_blocked": true,
-      "scenarios": 15
+      "catalog_stamp_mismatch_blocked": true,
+      "optional_text_parity": true,
+      "scenarios": 17
     },
     {
       "display": "1264x1680",
@@ -48,7 +50,9 @@
       "baseline_sealed_before_claim": true,
       "preflight_evidence_bound": true,
       "native_baseline_mismatch_blocked": true,
-      "scenarios": 15
+      "catalog_stamp_mismatch_blocked": true,
+      "optional_text_parity": true,
+      "scenarios": 17
     }
   ]
 }

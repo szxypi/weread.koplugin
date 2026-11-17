@@ -76,7 +76,7 @@ def validate_record(bundle,grant,evidence,selection,body,record,source_path,now)
                      'ref':{'file':str(source_path),'chapter_uid':p['chapter_uid'],'chapter_idx':p['chapter_idx']}}
     if not isinstance(source,dict) or set(source)!=set(expected_source)|{'catalog_stamp'}:
         raise ValueError('native_record/source')
-    if (not isinstance(source['catalog_stamp'],str) or not re.fullmatch('[a-f0-9]{64}',source['catalog_stamp'])
+    if (not isinstance(source['catalog_stamp'],str) or source['catalog_stamp']!=evidence.catalog_stamp(bundle,grant)
             or not equivalent({k:source[k] for k in expected_source},expected_source)):
         raise ValueError('native_record/source')
     stamp=body['books'][0].get('timestamp');request_hash=native_digest(body)

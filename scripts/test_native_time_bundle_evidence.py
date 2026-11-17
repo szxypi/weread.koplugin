@@ -15,17 +15,42 @@ from test_native_time_bundle_accounting import example
 from test_native_time_bundle_gate import fixture,gate
 from test_native_time_bundle_supervisor import observed
 from test_secure_native_session import Backend
+from verify_native_time_capture import XhtmlSource
+from verify_owner_reading import ReadingPreflight
 import verify_native_time_cross_day as preflight
+
+
+def synthetic_catalog(plan):
+    return {'bookId':plan['book_id'],'book':{'bookVersion':plan['book_version']},
+            'updated':[{'chapterUid':plan['chapter_uid'],'chapterIdx':plan['chapter_idx']}]}
+
+
+def synthetic_pairs(record):
+    return [[[deepcopy(record)],[deepcopy(record)]],[[deepcopy(record)],[deepcopy(record)]]]
 
 
 def evidence_fixture():
     bundle,grant,before,_samples,now=example()
     report=observed(completed_at=now);report['observed_months']=len(before['months'])
-    evidence=PreflightEvidence(bundle,grant,report,before['snapshot'],before['months'])
+    record=synthetic_catalog(bundle['plan'])
+    evidence=PreflightEvidence(bundle,grant,report,before['snapshot'],before['months'],synthetic_pairs(record))
     return bundle,grant,before,report,now,evidence
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_reader_keeps_full_before_and_after_catalog_responses_in_memory(self):
+        bundle,_grant,_before,_report,_now,_evidence=evidence_fixture();record=synthetic_catalog(bundle['plan'])
+        before={'data':[deepcopy(record),deepcopy(record)]};after={'data':[deepcopy(record)]}
+        web=XhtmlSource.__new__(XhtmlSource);web.book_id=bundle['plan']['book_id']
+        with patch.object(ReadingPreflight,'request',side_effect=[before,after]):
+            web.request('catalog_before','synthetic');web.request('catalog_after','synthetic')
+        before['data'].pop();after['data'].clear()
+        self.assertEqual(len(web._time_catalog_pair[0]['data']),2)
+        self.assertEqual(len(web._time_catalog_pair[1]['data']),1)
+        fresh=XhtmlSource.__new__(XhtmlSource);fresh.book_id=bundle['plan']['book_id']
+        with patch.object(ReadingPreflight,'request',return_value={'data':[record]}),self.assertRaisesRegex(ValueError,'catalog_order'):
+            fresh.request('catalog_after','synthetic')
+
     def test_copy_and_representation_do_not_expose_private_observations(self):
         bundle,grant,before,report,_now,evidence=evidence_fixture()
         self.assertEqual(repr(evidence),'<PreflightEvidence private>')
@@ -45,8 +70,25 @@ class EvidenceTests(unittest.TestCase):
             else:evidence._value[1]['snapshot']['counts']['ttsTime']+=1
             with self.subTest(mode=mode),self.assertRaises(ValueError):
                 if mode in ('report','snapshot','months'):
-                    PreflightEvidence(bundle,grant,report,before['snapshot'],before['months'])
+                    record=synthetic_catalog(bundle['plan'])
+                    PreflightEvidence(bundle,grant,report,before['snapshot'],before['months'],synthetic_pairs(record))
                 else:evidence.for_bundle(bundle,grant)
+
+    def test_catalog_requires_two_matching_records_and_original_chapter_index(self):
+        for mode in ('missing','missing_inner','changed_version','changed_index','wrong_book','duplicate_chapter','duplicate_book','error_response','changed_stamp'):
+            bundle,grant,before,report,_now,_evidence=evidence_fixture();record=synthetic_catalog(bundle['plan'])
+            records=synthetic_pairs(record)
+            if mode=='missing':records=records[:1]
+            elif mode=='missing_inner':records[0]=records[0][:1]
+            elif mode=='changed_version':records[1][1][0]['book']['bookVersion']+=1
+            elif mode=='changed_index':records[1][1][0]['updated'][0]['chapterIdx']+=1
+            elif mode=='wrong_book':records[0][0][0]['bookId']='900002'
+            elif mode=='duplicate_chapter':records[1][1][0]['updated']*=2
+            elif mode=='duplicate_book':records[0][0].append(deepcopy(record))
+            elif mode=='error_response':records[0][0]={'errcode':1,'data':[record]}
+            else:records[1][1][0]['updated'][0]['version']=1
+            with self.subTest(mode=mode),self.assertRaisesRegex(ValueError,'bundle_evidence/catalog'):
+                PreflightEvidence(bundle,grant,report,before['snapshot'],before['months'],records)
 
     def test_supervisor_preserves_evidence_through_claim(self):
         bundle,grant,before,_report,now,evidence=evidence_fixture();_b,_g,body,_n=fixture()
@@ -100,7 +142,8 @@ class EvidenceTests(unittest.TestCase):
         group_result=dict(phase='create_claimed',dispatched=True,native_fixture_present=True,web_fixture_present=True,
                           native_group_present=False,web_group_present=False)
         original=dict(native_original_state_unchanged=True,web_original_state_unchanged=True,old_group_absent=True)
-        web=Mock();web.book_id=plan['book_id'];web.chapter=plan['chapter_uid']
+        web=Mock();web.book_id=plan['book_id'];web.chapter=plan['chapter_uid'];web.record=synthetic_catalog(plan)
+        web._time_catalog_pair=synthetic_pairs(web.record)[0]
         uploads,groups,olds,receipt=Mock(),Mock(),Mock(),Mock()
         groups.read.return_value=(group,'g');olds.read.return_value=(old,'o')
         observations=[before['months'][key] for key in sorted(before['months'],key=int)]*2
@@ -112,11 +155,20 @@ class EvidenceTests(unittest.TestCase):
             stack.enter_context(patch.object(preflight,'inspect',return_value=group_result))
             stack.enter_context(patch.object(preflight,'inspect_original',return_value=original))
             snapshots=stack.enter_context(patch.object(preflight,'xhtml_snapshot',return_value=deepcopy(before['snapshot'])))
-            stack.enter_context(patch.object(preflight,'project_statistics',side_effect=observations))
+            projection=stack.enter_context(patch.object(preflight,'project_statistics',side_effect=observations))
             result=preflight.run(saved,grant,store,lambda:True,web,api_factory=lambda *args:Mock(),
                                  statistics_factory=Mock,clock=lambda:now,sleep=lambda _:None,
                                  baseline_includes_fixture=True,private_evidence=True)
-        self.assertEqual(snapshots.call_count,2)
+            self.assertEqual(snapshots.call_count,2)
+            projection.side_effect=observations
+            def change_catalog(_book):
+                web.record=synthetic_catalog(plan);web.record['updated'][0]['version']=1
+                web._time_catalog_pair=synthetic_pairs(web.record)[0]
+            web.inspect.side_effect=change_catalog
+            with self.assertRaisesRegex(ValueError,'bundle_evidence/catalog'):
+                preflight.run(saved,grant,store,lambda:True,web,api_factory=lambda *args:Mock(),
+                              statistics_factory=Mock,clock=lambda:now,sleep=lambda _:None,
+                              baseline_includes_fixture=True,private_evidence=True)
         report,snapshot,months=result.for_bundle(bundle,grant)
         self.assertEqual((snapshot,months),(before['snapshot'],before['months']))
         self.assertEqual(report['completed_at'],now)

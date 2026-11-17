@@ -128,7 +128,7 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
     stats = statistics_factory()
     started_at=int(clock());previous_at=started_at;current_month = period('monthly', started_at)[0]
     months = sorted({period('monthly', plan['start_time'])[0], current_month})
-    observations = []
+    observations = [];catalog_pairs=[]
     for index in range(2):
         if index:
             sleep(2)
@@ -138,6 +138,7 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
             raise ValueError('native_cross_day/clock')
         previous_at=observed_at
         sample = xhtml_snapshot(web, api, grant)
+        if private_evidence:catalog_pairs.append(deepcopy(web._time_catalog_pair))
         checks = {'complete_baseline_matches': digest(sample) == plan['baseline_sha256'],
                   'version_matches': sample['version'] == plan['book_version'],
                   'source_matches': sample['source'] == plan['raw_sha256'],
@@ -179,7 +180,7 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
             'historical_accounting_verified': False, 'dispatch_capability': False}
     if private_evidence:
         from native_time_bundle_evidence import PreflightEvidence
-        return PreflightEvidence(state,grant,report,sample,observations[-1])
+        return PreflightEvidence(state,grant,report,sample,observations[-1],catalog_pairs)
     return report
 
 

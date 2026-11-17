@@ -4,6 +4,7 @@ from copy import deepcopy
 from annotation_experiment_model import digest
 from native_time_bundle_accounting import baseline
 from readtime_upload_model import integer
+from source_currentness import catalog
 
 
 class PreflightEvidence:
@@ -12,7 +13,7 @@ class PreflightEvidence:
     This protects against accidental mutation and disclosure, not hostile code
     running in the same process. Authenticity comes from the scoped reader.
     """
-    def __init__(self,bundle,grant,report,snapshot,months):
+    def __init__(self,bundle,grant,report,snapshot,months,catalog_pairs):
         flags=('exact_capture_and_fixture_bound','fixture_in_captured_baseline',
                'both_positions_source_counts_and_original_shelf_exact','two_statistics_reads_stable','server_clock_after_boundary')
         fields=set(flags)|{'result','seconds','observed_months','completed_at','account_data_posts',
@@ -26,7 +27,16 @@ class PreflightEvidence:
                 or report['historical_accounting_verified'] is not False or report['dispatch_capability'] is not False):
             raise ValueError('bundle_evidence/report')
         original=baseline(bundle,grant,snapshot,months,report['completed_at'])
-        self._value=deepcopy((report,original))
+        p=bundle['plan']
+        if (not isinstance(catalog_pairs,list) or len(catalog_pairs)!=2
+                or any(not isinstance(pair,list) or len(pair)!=2 for pair in catalog_pairs)):
+            raise ValueError('bundle_evidence/catalog')
+        try:
+            results=[catalog(payload,p['book_id'],p['chapter_uid']) for pair in catalog_pairs for payload in pair]
+        except (ValueError,TypeError,KeyError,StopIteration):raise ValueError('bundle_evidence/catalog') from None
+        if any(value!=results[0] for value in results[1:]) or results[0][0]!=p['chapter_idx']:
+            raise ValueError('bundle_evidence/catalog')
+        self._value=deepcopy((report,original,results[0][1]))
         self._bundle_hash=digest(bundle);self._grant_hash=digest(grant)
         self._value_hash=digest(self._value)
 
@@ -36,7 +46,11 @@ class PreflightEvidence:
     def for_bundle(self,bundle,grant):
         if (digest(bundle)!=self._bundle_hash or digest(grant)!=self._grant_hash
                 or digest(self._value)!=self._value_hash):raise ValueError('bundle_evidence/changed')
-        report,original=deepcopy(self._value)
+        report,original,_catalog_stamp=deepcopy(self._value)
         if baseline(bundle,grant,original['snapshot'],original['months'],report['completed_at'])!=original:
             raise ValueError('bundle_evidence/changed')
         return report,original['snapshot'],original['months']
+
+    def catalog_stamp(self,bundle,grant):
+        self.for_bundle(bundle,grant)
+        return self._value[2]

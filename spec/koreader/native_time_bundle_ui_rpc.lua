@@ -10,7 +10,7 @@ local input=json.decode(assert(io.stdin:read(tonumber(length))))
 assert(input.owner=='900000' and input.book_id=='900001' and input.grant.vid=='900000'
     and input.grant.accessToken=='mock-native-access' and input.grant.refreshToken=='mock-native-refresh'
     and input.guest=='synthetic-guest' and input.config=='synthetic-config')
-assert(input.mode=='success' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source')
+assert(input.mode=='success' or input.mode=='optional_text' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source' or input.mode=='tamper_native_catalog')
 assert(type(input.token)=='string' and #input.token==32 and input.token:match('^[a-f0-9]+$'))
 assert(type(arg[1])=='string' and type(arg[2])=='string' and type(arg[3])=='string' and type(arg[4])=='string')
 local worked,reason=pcall(function()
@@ -86,9 +86,12 @@ source_db:exec('CREATE TABLE synthetic_source_calls(id INTEGER PRIMARY KEY)');so
 local A=require('weread.lib.readtime_accounting');local Stats=require('weread.lib.read_stats')
 local captured_day=A.day(input.start_time);local captured_month=Stats.period_start('monthly',input.start_time)
 local applied=false;local sent=0
+local success=input.mode=='success' or input.mode=='optional_text'
 local function progress()
-    return {timestamp=os.time(),book={bookId=input.book_id,chapterUid=tonumber(input.chapter_uid),chapterIdx=input.chapter_idx,
+    local result={timestamp=os.time(),book={bookId=input.book_id,chapterUid=tonumber(input.chapter_uid),chapterIdx=input.chapter_idx,
         chapterOffset=12,progress=3,readingTime=20+(applied and input.seconds or 0),recordReadingTime=0,ttsTime=0}}
+    if input.mode=='optional_text' then result.book.summary='合成摘要😀';result.book.chapterTitle='合成章节' end
+    return result
 end
 function client:get_progress_snapshot(book,access)
     assert(book==input.book_id and access.cookies.wr_vid == input.owner);return progress()
@@ -109,7 +112,8 @@ function client:request(options)
         elseif input.mode=='tamper_native_counts' then record.metadata.counts.ttsTime=1
         elseif input.mode=='tamper_native_months' then record.metadata.months[tostring(captured_month)].totalReadTime=999
         elseif input.mode=='tamper_native_shelf' then record.metadata.shelf_hash=string.rep('f',64)
-        elseif input.mode=='tamper_native_source' then record.metadata.source.expected.raw_sha256=string.rep('f',64) end
+        elseif input.mode=='tamper_native_source' then record.metadata.source.expected.raw_sha256=string.rep('f',64)
+        elseif input.mode=='tamper_native_catalog' then record.metadata.source.catalog_stamp=string.rep('f',64) end
         if not rpc('claim',{body=body,selection=selected,record=record}) then error('synthetic_ui/claim_denied',0) end
         sent=sent+1
         if input.mode=='lost_reply' then error('synthetic_ui/lost_reply',0) end
@@ -179,7 +183,7 @@ pump(function() return host._offline_time_detail~=nil end)
 local detail=host._offline_time_detail;assert(#detail.buttons==2 and detail.buttons[2][1].callback)
 detail.buttons[2][1].callback()
 pump(function() return host._offline_time_detail~=nil and service.job==nil end)
-local result_label=input.mode=='success' and 'This batch is independently confirmed in cloud reading time.'
+local result_label=success and 'This batch is independently confirmed in cloud reading time.'
     or input.mode=='tamper_selection' and 'Could not complete this operation. Saved records are kept.'
     or 'Cloud accounting is not confirmed. The request is kept and will not be sent again.'
 assert(host._offline_time_detail.title==require('weread.lib.i18n').tr(result_label),'synthetic_ui/dialog')
@@ -200,16 +204,16 @@ if input.mode=='no_delta' then
 end
 local summary=assert(ledger:summary(account));local pending=journal:pending(account)
 local phase=pending and pending.phase or 'none'
-local expected_phase=(input.mode=='success' or input.mode=='tamper_selection') and 'none' or input.mode=='no_ack' and 'unknown' or input.mode=='no_delta' and 'acknowledged' or 'claimed'
+local expected_phase=(success or input.mode=='tamper_selection') and 'none' or input.mode=='no_ack' and 'unknown' or input.mode=='no_delta' and 'acknowledged' or 'claimed'
 assert(phase==expected_phase,'synthetic_ui/pending')
-assert(summary.confirmed==(input.mode=='success' and input.seconds or 0),'synthetic_ui/confirmed')
+assert(summary.confirmed==(success and input.seconds or 0),'synthetic_ui/confirmed')
 assert(summary.pending==(input.mode=='tamper_selection' and input.seconds or 0),'synthetic_ui/remaining')
-assert(summary.in_flight==((input.mode~='success' and input.mode~='tamper_selection') and input.seconds or 0),'synthetic_ui/in_flight')
+assert(summary.in_flight==((not success and input.mode~='tamper_selection') and input.seconds or 0),'synthetic_ui/in_flight')
 assert(not host._offline_time_transfer_lock and not service.job)
 local count_db=sqlite.open(coverage.path);local count_query=count_db:prepare('SELECT COUNT(*) FROM synthetic_source_calls')
 local source_reads=tonumber(assert(count_query:step())[1]);count_query:close();count_db:close()
-assert(source_reads>=(input.mode=='tamper_selection' and 0 or (input.mode=='success' or input.mode=='no_delta') and 2 or 1))
-if input.mode=='success' then
+assert(source_reads>=(input.mode=='tamper_selection' and 0 or (success or input.mode=='no_delta') and 2 or 1))
+if success then
     assert(#task_results==1 and task_results[1].kind=='confirmed' and task_results[1].attempted==true
         and task_results[1].acknowledged==true and task_results[1].stable_reads==2 and task_results[1].readbacks>=2)
     local settled=assert(journal:get(account,task_results[1].attempt))

@@ -47,6 +47,10 @@ class XhtmlSource(ReadingPreflight):
     def request(self,stage,url,body=None,**options):
         value=super().request(stage,url,body,**options)
         if stage in ('catalog_before','catalog_after'):
+            if stage=='catalog_before':self._time_catalog_pair=[deepcopy(value)]
+            else:
+                if len(getattr(self,'_time_catalog_pair',[]))!=1:raise ValueError('native_capture/catalog_order')
+                self._time_catalog_pair.append(deepcopy(value))
             self.record,self.chapters=normalize_chapter_infos(value,self.book_id)
         return value
     def select_shelf_book(self):
