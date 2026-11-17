@@ -2,9 +2,9 @@
   "result": "BOUNDED_ADDITIONAL_PUBLIC_DISCOVERY_NO_MISSING_PROSE",
   "based_on_head": "7b6a44b79d86f8590bbd99b1330e7a9ab05fd91f",
   "additional_fixed_queries": 9,
-  "discovery_runs": 19,
-  "chapter_checks": 74,
-  "checks_with_existing_translation": 74,
+  "discovery_runs": 22,
+  "chapter_checks": 85,
+  "checks_with_existing_translation": 85,
   "untranslated_content_candidates": 0,
   "structural_chapters_skipped": 2,
   "alternate_queries_readonly_only": true,
@@ -23,10 +23,11 @@
   "whole_goal_complete": false,
   "unavailable_searches": 1,
   "unavailable_not_counted_as_absence": true,
-  "discovery_scenarios": 19,
+  "discovery_scenarios": 22,
   "book_offset_supported": true,
   "book_offset_readonly_only": true,
   "book_offset_maximum": 19,
   "book_offset_exhausted_cases": 2,
-  "book_offset_tests": 4
+  "book_offset_tests": 4,
+  "empty_eligible_chapter_batches": 2
 }
