@@ -47,8 +47,10 @@ function M.prepare(reader, plugin)
     local config_report = plugin.settings:get('read_report')
     config_report.enabled, config_report.mode, config_report.interval_seconds = true, 'auto', 30
     plugin.settings:set('read_report', config_report); plugin.settings:flush()
-    write('process-loss-checkpoint', {book_id=id,path=reader.document.file,xpointer=reader.document:getXPointer(),
-        page=reader:getCurrentPage(),position=position,source=point})
+    local state_path=plugin.settings:get_book(id).cache_dir..'/.weread-accounts/'..
+        plugin.settings:account_state_scope()..'/reading_state.json'
+    write('process-loss-checkpoint', {book_id=id,path=reader.document.file,state_path=state_path,
+        xpointer=reader.document:getXPointer(),page=reader:getCurrentPage(),position=position,source=point})
     local_request(plugin, '/__process_loss_arm', {case=case,kind=kind})
     if case=='before-state-commit' then
         local patch=plugin.settings.patch_reading_state
@@ -61,7 +63,7 @@ function M.prepare(reader, plugin)
             return result,err
         end
         rawset(os,'rename',function(from,to)
-            if journal and from==to..'.tmp' and to==plugin.settings:get_book(id).cache_dir..'/reading_state.json' then
+            if journal and from==to..'.tmp' and to==state_path then
                 -- The actual production file has been fully written/closed;
                 -- hold before publishing it, without inventing a receipt.
                 write('process-loss-ready',{case=case,kind=kind,dispatch_id=journal.id,parent_pid=tonumber(require('ffi').C.getpid())})

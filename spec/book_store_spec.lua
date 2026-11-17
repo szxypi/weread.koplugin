@@ -203,6 +203,64 @@ expect(loaded.title == "Metadata only"
     and loaded.progress == nil and loaded.mp_articles == nil,
     "removed split state reappeared after reload")
 
+-- The same cached book may be read by two accounts. A's legacy state must
+-- stay intact while B saves, clears, and reloads an independent checkpoint.
+local owner_a,owner_b=string.rep('a',20),string.rep('b',20)
+ok,index=BookStore.save(settings,'book/42',{book_id='book/42',cache_dir=index.cache_dir,
+    title='Legacy shared book',recent_read_account=owner_a,_library_account_key=owner_a,
+    last_local_position={percent=31},pending_upload_position={percent=32},pending_upload_reason='old',
+    source_dispatch={account=owner_a,id='old-uncertainty'}})
+expect(ok,'legacy account fixture could not be saved')
+local old_state=bytes(index.cache_dir..'/reading_state.json')
+local active=owner_b
+local scoped={cache_dir=root,account_state_scope=function() return active end}
+local foreign=BookStore.load(scoped,'book/42',index)
+expect(not foreign.pending_upload_position and not foreign.last_local_position and not foreign.source_dispatch,
+    'another account inherited legacy checkpoints')
+expect(BookStore.patch_reading(scoped,'book/42',index,{pending_upload_position={percent=61},
+    pending_upload_account=owner_b,last_local_position={percent=62},last_local_account=owner_b}),
+    'second account checkpoint was not saved')
+local own_b=BookStore.load(scoped,'book/42',index)
+expect(own_b.pending_upload_position.percent==61 and own_b.last_local_position.percent==62,
+    'second account checkpoint did not reload')
+own_b._library_account_key=owner_b;own_b.recent_read_account=nil
+expect(BookStore.save(scoped,'book/42',own_b),'second account metadata update failed')
+local scoped_path=index.cache_dir..'/.weread-accounts/'..owner_b..'/reading_state.json'
+local scoped_before=bytes(scoped_path);failed_path=scoped_path
+rawset(io,'open',close_failure_open)
+local scoped_saved,scoped_error=BookStore.patch_reading(scoped,'book/42',index,{pending_upload_position={percent=99}})
+rawset(io,'open',real_open)
+expect(not scoped_saved and scoped_error=='synthetic delayed I/O failure' and bytes(scoped_path)==scoped_before
+    and not exists(scoped_path..'.tmp') and bytes(index.cache_dir..'/reading_state.json')==old_state,
+    'failed account checkpoint changed existing or legacy data')
+local snapshot_path=index.cache_dir..'/.weread-accounts/legacy_metadata.json'
+local snapshot_before,metadata_before=bytes(snapshot_path),bytes(index.cache_dir..'/metadata.json')
+local bad_snapshot=assert(io.open(snapshot_path,'wb'));bad_snapshot:write('broken snapshot');bad_snapshot:close()
+expect(not BookStore.save(scoped,'book/42',own_b) and bytes(snapshot_path)=='broken snapshot'
+    and bytes(index.cache_dir..'/metadata.json')==metadata_before and bytes(scoped_path)==scoped_before,
+    'corrupt legacy snapshot allowed metadata or account state to be overwritten')
+local restore_snapshot=assert(io.open(snapshot_path,'wb'));restore_snapshot:write(snapshot_before);restore_snapshot:close()
+active=owner_a
+local own_a=BookStore.load(scoped,'book/42',index)
+expect(own_a.pending_upload_position.percent==32 and own_a.last_local_position.percent==31
+    and own_a.source_dispatch.id=='old-uncertainty','first account legacy checkpoint was lost')
+expect(BookStore.patch_reading(scoped,'book/42',index,{pending_upload_position=false,pending_upload_reason=false}),
+    'first account checkpoint could not be cleared')
+expect(not BookStore.load(scoped,'book/42',index).pending_upload_position,'cleared legacy checkpoint reappeared')
+active=owner_b;own_b=BookStore.load(scoped,'book/42',index)
+expect(own_b.pending_upload_position.percent==61 and bytes(index.cache_dir..'/reading_state.json')==old_state,
+    'first account update altered the other account or the legacy file')
+local corrupt_scoped=assert(io.open(scoped_path,'wb'));corrupt_scoped:write('broken account state');corrupt_scoped:close()
+expect(not BookStore.patch_reading(scoped,'book/42',index,{progress=99})
+    and bytes(scoped_path)=='broken account state' and bytes(index.cache_dir..'/reading_state.json')==old_state,
+    'corrupt account state was replaced or fell back to legacy')
+local account_dir=index.cache_dir..'/.weread-accounts/'
+for _,owner in ipairs({owner_a,owner_b}) do
+    os.remove(account_dir..owner..'/reading_state.json');os.remove(account_dir..owner)
+end
+os.remove(account_dir..'legacy_metadata.json')
+os.remove(account_dir)
+os.remove(index.cache_dir..'/reading_state.json')
 os.remove(index.cache_dir .. "/metadata.json")
 os.remove(index.cache_dir)
 os.remove(root)

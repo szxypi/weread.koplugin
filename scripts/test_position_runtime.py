@@ -183,8 +183,8 @@ def main():
                     content=(root/'evidence'/filename).read_bytes()
                     assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
                     value=json.loads(content.split(marker,1)[1].splitlines()[0])
-                    assert value==dict(result='PASS',reopen=reopened,legacy_pending_preserved=True,
-                                       legacy_position_preserved=True,foreign_hidden=True,requests=0), 'account ownership mismatch'
+                    assert value==dict(result='PASS',reopen=reopened,independent_pending=True,
+                                       independent_position=True,independent_dispatch=True,requests=0), 'account ownership mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'local home made a mock request'
             if args.probe == 'cached-search':

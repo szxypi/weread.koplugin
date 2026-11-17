@@ -175,7 +175,9 @@ def run_process_loss(runtime, fixture, environment, log, server, root):
     saved = saved[0]
     if not committed:
         checkpoint = json.loads((root / 'evidence/process-loss-checkpoint.json').read_text())
-        old = json.loads((Path(checkpoint['path']).parent / 'reading_state.json').read_text())
+        state_path=Path(checkpoint['state_path'])
+        assert state_path.is_relative_to(root/'profile') and state_path.name=='reading_state.json'
+        old = json.loads(state_path.read_text())
         assert not old.get('source_dispatch') and old['pending_upload_position'] == saved['pending_upload_position']
         assert server.armed and not server.applied, 'uncommitted journal allowed an HTTP write'
     assert saved['source_dispatch']['kind'] == ('time' if server.kind == 'periodic' else 'position')

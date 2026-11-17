@@ -275,6 +275,15 @@ function Settings:get_book_indexes()
     return type(value)=='table' and value or nil
 end
 
+-- Match the library database's stable account key without exposing a VID in
+-- reading-state paths. Signed-out reading has a separate local namespace.
+function Settings:account_state_scope()
+    local account=self:get('account',{})
+    local vid=type(account)=='table' and account.user_vid
+    if vid==nil or tostring(vid)=='' then return 'anonymous' end
+    return require('weread.lib.crypto').sha256_hex('weread-library:'..tostring(vid)):sub(1,20)
+end
+
 -- Hydrate one indexed book without loading unrelated per-book collections.
 function Settings:get_book(book_id)
     local indexes=self.store:readSetting("books", {})

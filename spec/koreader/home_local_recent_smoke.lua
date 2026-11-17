@@ -56,7 +56,6 @@ end
 FM:showFiles(home)
 local plugin=host();local account=assert(plugin.library_db:accountKey())
 if switch or switch_reopen then
-    local Reading=require('weread.ui.book_reading');local Progress=require('weread.lib.shelf_progress')
     -- Mock settings intentionally reset to account 900000 on construction;
     -- select the second synthetic account again in the fresh process.
     if switch_reopen then
@@ -70,36 +69,71 @@ if switch or switch_reopen then
         book.last_local_position={book_id=id,chapter_uid='1',percent=33}
         book.pending_upload_position={book_id=id,chapter_uid='1',percent=33}
         book.pending_upload_account=nil;book.pending_upload_reason='synthetic-legacy'
-        plugin.settings:set('books',books);plugin.settings:flush()
+        book.source_dispatch={account=account,id='synthetic-original-dispatch'}
+        -- Recreate an old-version on-disk record, retaining the normal book
+        -- index and EPUB while forcing the legacy migration path.
+        local legacy_dir=assert(book.cache_dir)
+        os.remove(legacy_dir..'/.weread-accounts/'..account..'/reading_state.json')
+        os.remove(legacy_dir..'/.weread-accounts/legacy_metadata.json')
+        assert(require('weread.lib.book_store').save({cache_dir=plugin.settings.cache_dir},id,book))
+        assert(plugin.settings:get_book(id).pending_upload_position.percent==33)
         plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},
             cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
         assert(plugin.settings:get_auth_scope(true).vid=='900002','synthetic account switch not persisted')
         assert(plugin.library_db:accountKey()~=account)
         assert(plugin:recordRecentReading(id))
+        local foreign=assert(plugin.settings:get_book(id))
+        assert(not foreign.pending_upload_position and not foreign.last_local_position and not foreign.source_dispatch,
+            'second account inherited original reading state')
+        local current=assert(plugin.library_db:accountKey())
+        assert(plugin.settings:patch_reading_state(id,{pending_upload_position={book_id=id,chapter_uid='1',percent=61},
+            pending_upload_account=current,last_local_position={book_id=id,chapter_uid='1',percent=62},last_local_account=current,
+            source_dispatch={account=current,id='synthetic-second-dispatch'}}))
+        plugin:showBookRecord(assert(plugin.settings:get_book(id)),{verified_metadata=true})
+        -- The mock always installs account 900000 on new Settings instances.
+        -- Re-select B for the ReaderUI instance created by the normal button.
+        local Settings=require('weread.lib.settings');local construct=Settings.new
+        function Settings:new(...)
+            local value=construct(self,...)
+            value:update_auth({account={user_vid='900002',name='Other synthetic'},
+                cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+            return value
+        end
+        press(assert(plugin._book_detail_view),'▤ Read')
+        pump(function() return Reader.instance and Reader.instance.weread
+            and Reader.instance.weread.progress_sync.current_book_id==id end)
+        local reader=Reader.instance
+        reader.rolling:onGotoPage(5);tick();reader.weread.progress_sync:on_page_update()
+        close_reader();Settings.new=construct
+        local after=assert(plugin.settings:get_book(id))
+        assert(after.pending_upload_position and after.last_local_position and after.pending_upload_account==current,
+            'second account reading did not save its own checkpoint')
+        local f=assert(io.open(evidence..'/account-second-checkpoint.json','wb'))
+        f:write(json.encode({pending=after.pending_upload_position.percent,position=after.last_local_position.percent}));f:close()
     end
     local book=assert(plugin.settings:get_book(id));local current=assert(plugin.library_db:accountKey())
-    assert(book.recent_read_account~=current and book.home_recent_account==current and book.pending_upload_account==nil)
-    assert(book.last_local_position.percent==33 and book.pending_upload_position.percent==33
-        and book.pending_upload_reason=='synthetic-legacy','home event changed legacy checkpoints')
-    local positions=Reading.local_positions(book,current)
-    assert(not next(positions[1]) and not next(positions[2]),'foreign legacy position was selected')
-    assert(Progress.display(book,{percent=12},current,id)==12,'foreign pending progress was shown')
+    local f=assert(io.open(evidence..'/account-second-checkpoint.json','rb'));local checkpoint=json.decode(f:read('*a'));f:close()
+    assert(book.home_recent_account==current and book.pending_upload_account==current)
+    assert(book.last_local_position.percent==checkpoint.position and book.pending_upload_position.percent==checkpoint.pending
+        and book.source_dispatch.id=='synthetic-second-dispatch','second account checkpoint was not preserved')
     if switch_reopen then
         plugin.settings:update_auth({account={user_vid='900000',name='Synthetic'},
             cookies={wr_vid='900000',wr_skey='synthetic-home-session'}},{replace_cookies=true})
         assert(plugin.settings:get_auth_scope(true).vid=='900000','synthetic account restoration not persisted')
         local original=assert(plugin.library_db:accountKey())
-        assert(original==book.recent_read_account and Reading.local_positions(book,original)[1].percent==33)
-        assert(Progress.display(book,{percent=12},original,id)==33,'original account lost pending checkpoint')
+        book=assert(plugin.settings:get_book(id))
+        assert(original==book.recent_read_account and book.last_local_position.percent==33
+            and book.pending_upload_position.percent==33 and book.source_dispatch.id=='synthetic-original-dispatch',
+            'original account lost its reading state')
         plugin.settings:update_auth({account={},cookies={}},{replace_cookies=true})
         assert(plugin:recordRecentReading(id))
         book=assert(plugin.settings:get_book(id))
-        assert(book.home_recent_account=='' and book.recent_read_account==original
-            and book.pending_upload_position.percent==33,'signed-out event changed original ownership')
+        assert(book.home_recent_account=='' and not book.pending_upload_position and not book.source_dispatch,
+            'signed-out event inherited an account checkpoint')
     end
     assert(requests[0]==0)
     print('\nWEREAD_HOME_ACCOUNT_SWITCH='..json.encode({result='PASS',reopen=switch_reopen,
-        legacy_pending_preserved=true,legacy_position_preserved=true,foreign_hidden=true,requests=0}))
+        independent_pending=true,independent_position=true,independent_dispatch=true,requests=0}))
     os.exit(0)
 end
 local path,xpointer

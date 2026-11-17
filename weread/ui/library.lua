@@ -1097,7 +1097,15 @@ function M:showBookRecord(book, options)
     local saved = books[book_id] or {}
     if account_key and saved._library_account_key
         and saved._library_account_key ~= account_key then
-        saved = keep_local_cache(saved)
+        local previous=saved
+        saved = keep_local_cache(previous)
+        -- Account-scoped settings already project only this account's reading
+        -- state; changing metadata ownership must not erase that checkpoint.
+        if self.settings.account_state_scope then
+            for key,value in pairs(previous) do
+                if BookStore.is_reading_field(key) then saved[key]=value end
+            end
+        end
     end
     local cached = self.library_db and self.library_db:getBook(book_id) or nil
     for key, value in pairs(cached or {}) do
