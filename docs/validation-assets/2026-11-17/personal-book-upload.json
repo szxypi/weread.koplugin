@@ -515,5 +515,26 @@
     "synthetic_same_session_600x800": "PASS",
     "synthetic_same_session_1264x1680": "PASS",
     "refused_identity_gate_stopped_reader": true
+  },
+  "real_account_manual_local_pdf_reading": {
+    "screens": [
+      "600x800_167dpi",
+      "1264x1680_300dpi"
+    ],
+    "existing_shelf_book_selected_privately": true,
+    "manual_confirmation_and_cancel_verified": true,
+    "local_pdf_association_and_native_reader_verified": true,
+    "cloud_identity_and_progress_not_bound": true,
+    "file_content_match_not_claimed": true,
+    "network_requests_from_isolated_reader": 0,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "native_shelf_members_flags_groups_unchanged": true,
+    "native_progress_unchanged": true,
+    "prior_scopes_and_credentials_unchanged": true,
+    "temporary_profiles_removed": true,
+    "private_data_on_regular_disk": false,
+    "screenshots": 0,
+    "physical_kindle_tested": false
   }
 }
