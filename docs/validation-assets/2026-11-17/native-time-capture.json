@@ -54,9 +54,9 @@
   "historical_upload_tested": false,
   "future_write_granted": false,
   "python_modules": 136,
-  "python_tests": 1726,
+  "python_tests": 1729,
   "python_skips": 0,
-  "new_python_tests": 11,
+  "new_python_tests": 14,
   "lua_spec_groups": 265,
   "catalog_version_checks": 24,
   "book_reading_checks": 72,
@@ -75,5 +75,9 @@
   "preceding_natural_expiry_authentication_posts": 1,
   "old_real_capture_consumed_scopes_unchanged": true,
   "remote_ci_verified": false,
-  "actual_python_native_lua_presence_matches": true
+  "actual_python_native_lua_presence_matches": true,
+  "large_archive_max_bytes": 2097152,
+  "keychain_chunk_bytes": 49152,
+  "chunked_archive_roundtrip_and_faults": true,
+  "real_prior_archive_limit_stop_retained": true
 }

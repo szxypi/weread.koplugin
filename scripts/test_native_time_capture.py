@@ -1,11 +1,11 @@
 """Real-clock/native-ledger provenance boundaries; no account or Keychain."""
 from contextlib import redirect_stdout,redirect_stderr
 from copy import deepcopy
-import base64,hashlib,io,json,stat,unittest,zipfile
+import base64,hashlib,io,json,os,stat,unittest,zipfile
 from unittest.mock import patch
 from urllib.parse import quote
 from annotation_experiment_model import canonical
-from native_time_capture import NativeCaptureStore,SERVICE,PROTOCOL,validate,next_cst_day
+from native_time_capture import NativeCaptureStore,SERVICE,PROTOCOL,CHUNK_BYTES,validate,next_cst_day
 from readtime_history_capture import SERVICE as OLD_SERVICE
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
@@ -35,6 +35,19 @@ def capture(format="web_txt"):
     return dict(protocol=PROTOCOL,owner='900000',format=format,baseline_sha256='c'*64,device_sha256='a'*64,book_id='900001',chapter_uid='2',chapter_idx=2,book_version=7,
         file_id=file_id,raw_sha256=sha(raw),rows=[row],start_time=start,ended_at=start+6,monotonic_elapsed_ms=6050,seconds=6,
         not_before=next_cst_day(start)+1,archive_base64=base64.b64encode(archive).decode(),archive_sha256=sha(archive))
+
+
+def large_capture():
+    p=capture();out=io.BytesIO()
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(p['archive_base64']))) as old,zipfile.ZipFile(out,'w',compression=zipfile.ZIP_DEFLATED) as z:
+        for entry in old.infolist():z.writestr(entry,old.read(entry))
+        z.writestr('OEBPS/fonts/synthetic.bin',os.urandom(180000))
+    p['archive_base64']=base64.b64encode(out.getvalue()).decode();p['archive_sha256']=sha(out.getvalue());return p
+
+def bundle():
+    backend=Backend();chunks={}
+    factory=lambda index:chunks.setdefault(index,Backend())
+    return NativeCaptureStore(backend,chunk_backend=factory),backend,chunks,factory
 
 
 def payload():
@@ -115,6 +128,37 @@ class CaptureTests(unittest.TestCase):
             self.assertEqual(task.full_point(empty,'900001',kind)['summary'],{'present':True,'value':''})
             changed=deepcopy(raw);changed['book']['chapterIdx']=True
             with self.assertRaises(ValueError):task.full_point(changed,'900001',kind)
+    def test_chunked_archive_exact_roundtrip_across_store_reopen(self):
+        p=large_capture();store,backend,chunks,factory=bundle();receipt=store.capture(p)
+        raw=json.loads(backend.data);self.assertEqual(raw['schema'],2);self.assertNotIn('archive_base64',raw['plan'])
+        self.assertEqual(len(chunks),4);self.assertTrue(all(0<len(v.data)<=CHUNK_BYTES for v in chunks.values()))
+        reopened=NativeCaptureStore(backend,chunk_backend=factory)
+        self.assertEqual(reopened.read()[0]['plan'],p);self.assertEqual(reopened.read()[1],receipt)
+        self.assertLess(len(backend.data),65536)
+        with self.assertRaises(StoreError):reopened.capture(p)
+        chunks[2].data=b'corrupt'
+        with self.assertRaises(StoreError):reopened.read()
+    def test_partial_chunk_and_manifest_failures_remain_preserved_no_overwrite(self):
+        p=large_capture()
+        for failure in ('second_chunk','manifest'):
+            store,backend,chunks,factory=bundle()
+            if failure=='second_chunk':factory(2).save=lambda _raw:(_ for _ in ()).throw(OSError('synthetic storage error'))
+            else:backend.save=lambda _raw:None
+            with self.subTest(failure=failure),self.assertRaises((StoreError,OSError)):store.capture(p)
+            self.assertIsNone(backend.data);original=chunks[1].data
+            with self.assertRaises(StoreError):store.capture(p)
+            self.assertEqual(chunks[1].data,original)
+    def test_corrupt_chunk_descriptors_and_missing_backend_are_rejected(self):
+        p=large_capture();store,backend,chunks,factory=bundle();store.capture(p);original=backend.data
+        for change in ('index','bytes','hash','extra'):
+            record=json.loads(original)
+            if change=='extra':record['chunks'][0]['extra']=1
+            else:record['chunks'][0][{'index':'index','bytes':'bytes','hash':'sha256'}[change]]=True
+            backend.data=canonical(record)
+            with self.subTest(change=change),self.assertRaises(StoreError):store.read()
+        backend.data=original
+        with self.assertRaises(StoreError):NativeCaptureStore(backend).read()
+        with self.assertRaises(StoreError):NativeCaptureStore(Backend()).capture(p)
     def test_payload_rejects_grants_other_operations_and_mock_mismatch(self):
         runner.payload_valid(payload())
         for key,value in [('native_grant',{}),('full_manifest',[]),('selection_preview',{}),('source_format','html')]:

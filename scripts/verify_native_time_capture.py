@@ -98,7 +98,7 @@ def execute(payload,command):
     from native_trial_pipe import stop
     try:
         out,_err=child.communicate(json.dumps(payload,separators=(',',':')).encode(),timeout=220)
-        if not isinstance(out,bytes) or len(out)>2*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_capture/frame')
+        if not isinstance(out,bytes) or len(out)>4*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_capture/frame')
         result=json.loads(out.split(FRAME)[1]);validate_cookies(result['cookies'],payload['vid'])
         if child.returncode or result.get('result')!='PASS' or result.get('profile_removed') is not True:
             safe={k:result[k] for k in ('diagnostic','capture_failed_line','failure_type','failure_reason') if k in result}
@@ -160,7 +160,8 @@ def main(argv=None):
                         status,value=server.route('GET',url,{})[:2];self.report['stages'].append(dict(stage=stage,status=status))
                         if status!=200:raise ValueError('native_capture/mock')
                         return value
-                store=NativeCaptureStore(Backend());web=MockSource();web.vid=grant['vid'];web.set_cookie('wr_vid',web.vid);web.set_cookie('wr_skey','mock_key');factory=MockNative
+                chunks={}
+                store=NativeCaptureStore(Backend(),chunk_backend=lambda index:chunks.setdefault(index,Backend()));web=MockSource();web.vid=grant['vid'];web.set_cookie('wr_vid',web.vid);web.set_cookie('wr_skey','mock_key');factory=MockNative
             else:
                 store=NativeCaptureStore()
                 if store.read()!=(None,None):raise ValueError('native_capture/already_captured')

@@ -5,7 +5,7 @@ from pathlib import Path
 from run_persistent_ui_probe import extract_candidate,run_child
 from run_owner_reading_probe import check_installed
 from verify_owner_reading import FRAME,PHASES,validate_stage,validate_cookies
-from native_time_capture import validate,hashed
+from native_time_capture import validate,hashed,MAX_ARCHIVE
 
 
 def payload_valid(p,mock_port=None):
@@ -22,14 +22,14 @@ def payload_valid(p,mock_port=None):
 
 
 def decode(raw,payload):
-    if not isinstance(raw,bytes) or len(raw)>2*1024*1024 or raw.count(FRAME)!=1:raise ValueError('native_capture/frame')
+    if not isinstance(raw,bytes) or len(raw)>4*1024*1024 or raw.count(FRAME)!=1:raise ValueError('native_capture/frame')
     envelope=json.loads(raw.split(FRAME)[1]);stage=envelope['report'];addon=stage.pop('native_time_capture')
     validate_stage(stage,'live')
     if stage['result']!='PASS':raise ValueError('native_capture/reader')
     flags={'real_statistics','actual_clock','exact_source','ledger_reopened','same_day_deferred'}
     if (not isinstance(addon,dict) or set(addon)!=flags|{'phase','seconds','rows','archive_bytes','failed_line'}
             or addon['phase']!='complete' or type(addon['failed_line']) is not int or addon['failed_line']!=0 or any(addon[k] is not True for k in flags)
-            or any(type(addon[k]) is not int or not low<=addon[k]<=high for k,low,high in (('seconds',5,12),('rows',1,12),('archive_bytes',1,32768)))):
+            or any(type(addon[k]) is not int or not low<=addon[k]<=high for k,low,high in (('seconds',5,12),('rows',1,12),('archive_bytes',1,MAX_ARCHIVE)))):
         raise ValueError('native_capture/stage')
     captured=validate(envelope['candidate_private']);cfg=payload['native_time_capture']
     if (any(captured[k]!=payload[k] for k in ('book_id','chapter_uid')) or captured['owner']!=payload['vid']

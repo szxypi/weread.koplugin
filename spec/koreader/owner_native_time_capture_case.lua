@@ -46,8 +46,8 @@ return function(input)
         assert(C.digest(assert(restored:pending(account)))==C.digest(rows))
         local queued=assert(require('weread.lib.readtime_transfer_queue'):new{ledger=restored,coverage=coverage}:select(account,nil,{historical=true}))
         assert(queued.selection==false,'capture unexpectedly historical on its actual day')
-        local file=assert(io.open(reader.document.file,'rb'));local archive=file:read(32769);file:close()
-        assert(archive and #archive>0 and #archive<=32768)
+        local file=assert(io.open(reader.document.file,'rb'));local archive=file:read(2*1024*1024+1);file:close()
+        assert(archive and #archive>0 and #archive<=2*1024*1024)
         self.captured={protocol='native-statistics-epub-historical-window-v1',owner=input.vid,format=input.source_format,device_sha256=cfg.device_sha256,baseline_sha256=cfg.baseline_sha256,
             book_id=input.book_id,chapter_uid=input.chapter_uid,chapter_idx=chapter_idx,book_version=identity.book_version,
             file_id=identity.file_id,raw_sha256=input.source_raw_sha256,rows=rows,start_time=start,ended_at=last,

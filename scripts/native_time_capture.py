@@ -12,7 +12,8 @@ from secure_highlight_trial import Receipt
 
 SERVICE='org.codex.weread.goal-native-statistics-time-capture-v1'
 PROTOCOL='native-statistics-epub-historical-window-v1'
-MAX_ARCHIVE=32768
+MAX_ARCHIVE=2*1024*1024
+CHUNK_BYTES=48*1024
 FIELDS={'protocol','owner','format','baseline_sha256','device_sha256','book_id','chapter_uid','chapter_idx','book_version','file_id','raw_sha256',
         'rows','start_time','ended_at','monotonic_elapsed_ms','seconds','not_before','archive_base64','archive_sha256'}
 ROW_FIELDS={'id','book_id','start_time','duration','time_zone','book_version','file_id','version_source'}
@@ -70,7 +71,8 @@ def validate(p):
     return p
 
 class NativeCaptureStore:
-    def __init__(self,backend=None,lock=None):
+    def __init__(self,backend=None,lock=None,chunk_backend=None):
+        self.chunk_backend=chunk_backend or ((lambda index:MacKeychain(service=SERVICE+'.archive-'+str(index),account=ACCOUNT)) if backend is None else None)
         self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
         path=Path(tempfile.gettempdir())/('codex-native-statistics-time-capture-'+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
@@ -80,7 +82,26 @@ class NativeCaptureStore:
         try:
             if not isinstance(raw,bytes) or not 0<len(raw)<=65536:raise ValueError()
             v=json.loads(raw)
-            if set(v)!={'schema','scope','phase','plan'} or type(v['schema']) is not int or v['schema']!=1 or v['scope']!=ACCOUNT or v['phase']!='captured':raise ValueError()
+            if type(v) is not dict or type(v.get('schema')) is not int or v.get('scope')!=ACCOUNT or v.get('phase')!='captured':raise ValueError()
+            if v['schema']==1:
+                if set(v)!={'schema','scope','phase','plan'}:raise ValueError()
+            elif v['schema']==2:
+                if set(v)!={'schema','scope','phase','plan','chunks'} or not self.chunk_backend or 'archive_base64' in v['plan']:raise ValueError()
+                chunks=v['chunks']
+                if not isinstance(chunks,list) or not 1<=len(chunks)<=(MAX_ARCHIVE+CHUNK_BYTES-1)//CHUNK_BYTES:raise ValueError()
+                blobs=[];size=0
+                for index,item in enumerate(chunks,1):
+                    if (not isinstance(item,dict) or set(item)!={'index','bytes','sha256'} or type(item['index']) is not int or item['index']!=index
+                            or not integer(item['bytes'],1,CHUNK_BYTES) or not hashed(item['sha256'])):raise ValueError()
+                    blob=self.chunk_backend(index).load()
+                    if not isinstance(blob,bytes) or len(blob)!=item['bytes'] or hashlib.sha256(blob).hexdigest()!=item['sha256']:raise ValueError()
+                    if index<len(chunks) and len(blob)!=CHUNK_BYTES:raise ValueError()
+                    size+=len(blob)
+                    if size>MAX_ARCHIVE:raise ValueError()
+                    blobs.append(blob)
+                v['plan']['archive_base64']=base64.b64encode(b''.join(blobs)).decode()
+                del v['chunks'];v['schema']=1
+            else:raise ValueError()
             validate(v['plan']);return v,raw
         except Exception:raise StoreError('native_capture/invalid') from None
     def read(self):
@@ -90,7 +111,20 @@ class NativeCaptureStore:
         validate(plan)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('native_capture/already_captured')
+            if self.chunk_backend and self.chunk_backend(1).load() is not None:raise StoreError('native_capture/orphan_archive')
             raw=canonical(dict(schema=1,scope=ACCOUNT,phase='captured',plan=plan))
+            if len(raw)>65536:
+                if not self.chunk_backend:raise StoreError('native_capture/chunk_backend_required')
+                archive=base64.b64decode(plan['archive_base64'],validate=True)
+                pieces=[archive[first:first+CHUNK_BYTES] for first in range(0,len(archive),CHUNK_BYTES)]
+                if any(self.chunk_backend(i).load() is not None for i in range(1,len(pieces)+1)):raise StoreError('native_capture/orphan_archive')
+                descriptors=[]
+                for index,blob in enumerate(pieces,1):
+                    backend=self.chunk_backend(index);backend.save(blob)
+                    if backend.load()!=blob:raise StoreError('native_capture/chunk_readback')
+                    descriptors.append(dict(index=index,bytes=len(blob),sha256=hashlib.sha256(blob).hexdigest()))
+                metadata={k:v for k,v in plan.items() if k!='archive_base64'}
+                raw=canonical(dict(schema=2,scope=ACCOUNT,phase='captured',plan=metadata,chunks=descriptors))
             if len(raw)>65536:raise StoreError('native_capture/size')
             self.backend.save(raw)
             if self.backend.load()!=raw:raise StoreError('native_capture/readback')
