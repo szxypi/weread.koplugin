@@ -6,7 +6,7 @@ from translation_generation import bind,validate,generation_body,mode_query,stat
 from secure_translation_generation import TranslationGenerationStore
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
-from verify_translation_generation import main,Native,Web,inspect
+from verify_translation_generation import main,Native,Web,inspect,snapshot
 from verify_translation_preflight import TranslationWebProbe,TranslationError
 from verify_translation_preflight import catalog
 from verify_eink_login import BASE
@@ -185,6 +185,10 @@ class GuardTest(unittest.TestCase):
         api=TranslationWebProbe();sample={'expected':{'chapters':[{'uid':1,'wordCount':1000,'free_or_owned':False}]}}
         with self.assertRaises(TranslationError):api.inspect_content(sample,1)
         self.assertIsNone(api.content_sample);api.close()
+    def test_offset_requires_saved_access_and_is_not_recheck_override(self):
+        for args in (['--chapter-offset','1'],['--saved-session','--chapter-offset','-1'],
+                ['--saved-session','--chapter-offset','20000'],['--saved-session','--dry-run','--chapter-offset','1']):
+            with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
 
 
 class InspectionTest(unittest.TestCase):
@@ -221,6 +225,73 @@ class InspectionTest(unittest.TestCase):
         with patch('verify_translation_generation.snapshot',return_value=self.baseline):
             plan=inspect(self.api,self.web,self.grant,{})
             with self.assertRaisesRegex(ValueError,'plan_changed'):inspect(self.api,self.web,dict(self.grant,accessToken='changed'),{},plan)
+    def test_later_chapter_batch_remains_bounded_and_uses_actual_text(self):
+        self.model['chapters']=[dict(self.model['chapters'][0],uid=n) for n in range(1,11)]
+        self.web.inspect_content.return_value['nonempty_translation_blocks']=1;report={}
+        with patch('verify_translation_generation.snapshot') as observed:
+            with self.assertRaisesRegex(ValueError,'no_missing_sample'):inspect(self.api,self.web,self.grant,report,chapter_offset=4)
+        self.assertEqual([c.args[1] for c in self.web.inspect_content.call_args_list],[5,6,7,8])
+        self.assertEqual(report['candidate_chapters_checked'],4);self.assertEqual(report['existing_translation_chapters'],4)
+        self.assertEqual(report['untranslated_content_candidates'],0);observed.assert_not_called()
+    def test_offset_applies_after_permission_filter(self):
+        self.model['chapters']=[dict(self.model['chapters'][0],uid=n,free_or_owned=n%2==1) for n in range(1,20)]
+        self.web.inspect_content.return_value['nonempty_translation_blocks']=1
+        with self.assertRaisesRegex(ValueError,'no_missing_sample'):inspect(self.api,self.web,self.grant,{},chapter_offset=4)
+        self.assertEqual([c.args[1] for c in self.web.inspect_content.call_args_list],[9,11,13,15])
+    def test_exhausted_batch_does_not_repeat_previous_chapters(self):
+        with patch('verify_translation_generation.snapshot') as observed:
+            with self.assertRaisesRegex(ValueError,'no_missing_sample'):inspect(self.api,self.web,self.grant,{},chapter_offset=4)
+        self.web.inspect_content.assert_not_called();observed.assert_not_called()
+    def test_invalid_offset_stops_before_any_network(self):
+        for offset in (-1,20000,True,'4',None):
+            with self.subTest(offset=offset),self.assertRaisesRegex(ValueError,'chapter_offset'):inspect(self.api,self.web,self.grant,{},chapter_offset=offset)
+        self.api.inspect.assert_not_called();self.web.inspect_content.assert_not_called()
+    def test_stored_plan_rechecks_exact_uid_without_chapter_offset(self):
+        with patch('verify_translation_generation.snapshot',return_value=self.baseline):
+            plan=inspect(self.api,self.web,self.grant,{})
+            self.web.inspect_content.reset_mock()
+            self.assertEqual(inspect(self.api,self.web,self.grant,{},plan),plan)
+        self.assertEqual([c.args[1] for c in self.web.inspect_content.call_args_list],[1,1])
+    def test_unrecorded_report_does_not_claim_complete_counts(self):
+        baseline=dict(kind='explicit-unrecorded-translation-baseline-v1',native=dict(counters={'reported':0}),web=dict(counters={}))
+        report={}
+        with patch('verify_translation_generation.snapshot',return_value=baseline):inspect(self.api,self.web,self.grant,report)
+        self.assertEqual(report['baseline_kind'],'explicit_unrecorded');self.assertFalse(report['native_complete_counters_verified'])
+        self.assertNotIn('positions_counts_shelf_stable',report);self.assertEqual(report['reported_time_fields'],dict(native=1,web=0))
+
+
+class BaselineTest(unittest.TestCase):
+    def call(self,native,remote):
+        api,web=Mock(),Mock();web.book_id='900001'
+        api.request.side_effect=[native,{'synthetic':'shelf'}];web.request.side_effect=[remote,{'synthetic':'shelf'}]
+        with patch('verify_translation_generation.state_hash',return_value='a'*64):return snapshot(api,web,{})
+    def absent(self):return dict(bookId='900001',book=dict(readingTime=0,title='Synthetic'),canFreeRead=1,timestamp=100)
+    def recorded(self):return dict(bookId='900001',progress=0,chapterUid=0,chapterOffset=0,readingTime=0,recordReadingTime=0,ttsTime=0)
+    def test_explicit_absence_is_distinct_and_never_a_zero_point(self):
+        value=self.call(self.absent(),self.absent())
+        self.assertEqual(value['kind'],'explicit-unrecorded-translation-baseline-v1')
+        for source in ('native','web'):
+            self.assertFalse(value[source]['position_present']);self.assertNotIn('position',value[source])
+            self.assertEqual(list(value[source]['counters'].values()),[0])
+        self.assertNotIn('counts',value)
+    def test_absent_counter_changes_and_presence_changes_are_observable(self):
+        baseline=self.call(self.absent(),self.absent())
+        for book in (dict(readingTime=1,title='Synthetic'),dict(title='Synthetic')):
+            self.assertNotEqual(self.call(dict(self.absent(),book=book),self.absent()),baseline)
+    def test_mixed_presence_does_not_authorize_a_plan(self):
+        for native,web in ((self.absent(),self.recorded()),(self.recorded(),self.absent())):
+            with self.assertRaisesRegex(ValueError,'mixed_position_presence'):self.call(native,web)
+    def test_empty_errors_unknown_or_cross_book_are_not_absent_baselines(self):
+        for bad in ({},dict(self.absent(),bookId='900002'),dict(self.absent(),errcode=0),dict(self.absent(),book=dict(readingTime=None))):
+            with self.assertRaises(ValueError):self.call(bad,self.absent())
+    def test_existing_record_keeps_complete_native_counter_requirement(self):
+        for key in ('readingTime','recordReadingTime','ttsTime'):
+            native=self.recorded();native.pop(key)
+            with self.assertRaisesRegex(ValueError,'initial_position/counts'):self.call(native,self.recorded())
+        value=self.call(self.recorded(),self.recorded())
+        self.assertEqual(value['counts'],dict(readingTime=0,recordReadingTime=0,ttsTime=0));self.assertNotIn('kind',value)
+    def test_changed_timestamp_alone_is_not_an_invented_position_change(self):
+        self.assertEqual(self.call(self.absent(),self.absent()),self.call(dict(self.absent(),timestamp=101),dict(self.absent(),timestamp=102)))
 
 
 if __name__=='__main__':unittest.main()

@@ -7,9 +7,8 @@ from secure_native_session import NativeSessionStore
 from secure_translation_generation import TranslationGenerationStore
 from native_time_capture import NativeCaptureStore
 from verify_translation_preflight import save_refreshed_web_session
-from verify_translation_generation import Native,Web,position
-from verify_reader_progress import find_node,identity
-from native_initial_position import COUNTERS
+from verify_translation_generation import Native,Web
+from translation_observation import observation
 from shelf_flag_change_contract import state_hash
 from verify_eink_login import BASE
 from verify_web_source_progress import BASE as WEB
@@ -22,37 +21,6 @@ FRAME=b'\nWEREAD_TRANSLATION_OWNER_RUNNER='
 
 def synthetic_source():
     return '<html><body><h1>Chapter One</h1>'+''.join('<p>Original paragraph '+str(i)+'. '+('Unique synthetic original sentence. '*8)+'</p><p class="wr-translation">译文段落 '+str(i)+'。'+('独立原生显示。'*8)+'</p>' for i in range(1,13))+'</body></html>'
-
-
-def observation(raw,book,kind):
-    """Read-only evidence only; missing progress/counters never become zeros."""
-    try:node=find_node(raw,book)
-    except ValueError as error:
-        if str(error)!='progress_not_found':raise
-        # Observed explicit unrecorded-book envelope. Do not admit arbitrary
-        # empty/error responses or grant any upload/initialization capability.
-        if (not isinstance(raw,dict) or set(raw)!={'bookId','book','canFreeRead','timestamp'}
-                or identity(raw['bookId'])!=book or not isinstance(raw['book'],dict) or not raw['book']
-                or 'bookId' in raw['book'] and identity(raw['book']['bookId'])!=book
-                or type(raw['canFreeRead']) is not int or raw['canFreeRead'] not in (0,1)
-                or type(raw['timestamp']) is not int or not 0<=raw['timestamp']<=2**53-1
-                or len(json.dumps(raw).encode())>256*1024):raise ValueError('translation_owner/unknown_absence') from None
-        counters={}
-        def collect(value,path=()):
-            if len(path)>8:raise ValueError('translation_owner/unknown_absence')
-            if isinstance(value,dict):
-                for key,item in value.items():
-                    if key in COUNTERS:
-                        if type(item) is not int or not 0<=item<=2**53-1:raise ValueError('translation_owner/counters')
-                        counters[json.dumps(path+(key,),separators=(',',':'))]=item
-                    collect(item,path+(key,))
-            elif isinstance(value,list):
-                for index,item in enumerate(value):collect(item,path+(index,))
-        collect(raw['book'])
-        return dict(position_present=False,book=raw['book'],can_free_read=raw['canFreeRead'],counters=counters)
-    counters={k:node[k] for k in COUNTERS if k in node}
-    if any(type(v) is not int or not 0<=v<=2**53-1 for v in counters.values()):raise ValueError('translation_owner/counters')
-    return dict(position_present=True,position=position(raw,book,kind),counters=counters)
 
 
 def snapshot(api,web,grant):

@@ -1,0 +1,62 @@
+{
+  "result": "PASS_GENUINE_MISSING_TRANSLATION_READONLY_FULL_GOAL_ACTIVE",
+  "based_on_head": "3724c6fb2fb957cd5b232ada586f3e2585d3c07f",
+  "chapter_batch_limit_per_book": 4,
+  "chapter_offset_bound": 19999,
+  "selected_offset": 12,
+  "checked_candidate_chapters": 1,
+  "explicit_paying_member": true,
+  "explicit_free_or_owned": true,
+  "source_has_actual_original": true,
+  "source_has_nonempty_translation": false,
+  "source_read_twice": true,
+  "catalog_read_twice": true,
+  "baseline_read_twice": true,
+  "baseline_kind": "explicit_unrecorded",
+  "both_endpoints_position_present": false,
+  "reported_time_fields": {
+    "native": 1,
+    "web": 1
+  },
+  "missing_not_zero_filled": true,
+  "all_three_counters_verified": false,
+  "recorded_position_requires_complete_native_counters": true,
+  "mixed_position_presence_rejected": true,
+  "original_source_catalog_fields_shelf_stable": true,
+  "initial_unverified_result_retained": true,
+  "preceding_batch_offsets": [
+    4,
+    8
+  ],
+  "preceding_batch_checked": [
+    8,
+    5
+  ],
+  "preceding_batch_existing_translations": [
+    8,
+    5
+  ],
+  "shelf_language_filter_candidates": 0,
+  "shelf_language_filter_not_exhaustive": true,
+  "default_offline": true,
+  "new_generation_intent_saved": false,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "translation_mode_requests": 0,
+  "generation_requests": 0,
+  "trial_activations": 0,
+  "purchases": 0,
+  "private_data_on_regular_disk": false,
+  "real_screenshots": 0,
+  "new_unit_tests": 13,
+  "translation_generation_unit_tests": 47,
+  "python_modules": 139,
+  "python_tests": 1802,
+  "python_skips": 0,
+  "production_files": 298,
+  "production_changes": false,
+  "package_sha256": "d5766d470f8b804a956a98dcf25e3b623efb198ac97f98d2da97f91e4a7feb1b",
+  "real_generation_protocol_verified": false,
+  "native_generation_integrated": false,
+  "whole_goal_complete": false
+}
