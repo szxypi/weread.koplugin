@@ -15,6 +15,7 @@ package.preload['weread.lib.shelf_membership_write']=function() return {members=
 package.preload['weread.lib.personal_upload']=function() return {MAX_RESULT=8*1024*1024,
     capture=function(path) local name=path:match('^/synthetic/(book%.[Tt][Xx][Tt])$') or path:match('^/synthetic/(book%.[Pp][Dd][Ff])$');if name then return {path=path,name=name,size=8} end end,
     run=function() return state.result end} end
+package.preload['weread.lib.personal_original']=function() return {remember=function(_host,_id,input) state.linked=input.path;return not state.fail_link end} end
 package.preload['weread.lib.personal_upload_journal']=function() return {new=function() return {
     read=function() return state.record end,
     begin=function(_self,_scope,path,size)
@@ -61,7 +62,13 @@ host=fixture();expect(Module.open(host),'text chooser did not open')
 host._personal_upload_ui.chooser.onConfirm('/synthetic/book.txt')
 expect(not host._personal_upload_ui.dialog.text:find('may change PDF layout',1,true),'PDF warning affected another format')
 host._personal_upload_ui.dialog.cancel_callback()
-local choose,deliver;host,choose,deliver=fixture();choose();expect(state.record.phase=='pending' and #state.jobs==1,'intent was not reserved before worker')
+local test={fixture()};host=test[1];local deliver=test[3];expect(Module.open(host),'PDF success chooser did not open')
+host._personal_upload_ui.chooser.onConfirm('/synthetic/book.PDF');host._personal_upload_ui.dialog.ok_callback();deliver()
+expect(state.linked=='/synthetic/book.PDF' and state.notice:find('without cloud sync',1,true),'confirmed PDF did not link with local-only guidance')
+test={fixture()};host=test[1];deliver=test[3];state.fail_link=true;expect(Module.open(host),'PDF failed-link chooser did not open')
+host._personal_upload_ui.chooser.onConfirm('/synthetic/book.PDF');host._personal_upload_ui.dialog.ok_callback();deliver()
+expect(state.record.phase=='idle' and state.notice:find('could not be linked',1,true),'link failure misreported the upload')
+local choose;host,choose,deliver=fixture();choose();expect(state.record.phase=='pending' and #state.jobs==1,'intent was not reserved before worker')
 deliver();expect(state.record.phase=='idle' and state.saved==1 and state.applied and not host._personal_upload_ui,'verified upload not settled')
 for _,kind in ipairs({'unconfirmed','bad_result','cache_failure','finish_failure','start_failure','cancel','stale','account','epoch'}) do
     host,choose,deliver=fixture()

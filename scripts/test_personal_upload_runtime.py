@@ -3,6 +3,7 @@
 import argparse,os,subprocess,threading
 from pathlib import Path
 from mock_weread import MockServer,prepare
+from synthetic_upload_rich_pdf import build as build_pdf
 
 REPO=Path(__file__).resolve().parent.parent
 def main():
@@ -12,6 +13,7 @@ def main():
     root,runtime=a.run_dir.resolve(),a.koreader.resolve();server=MockServer(0)
     try:
         prepare(root,runtime,server.server_port,a.width,a.height,a.dpi);(root/'xdg').mkdir(mode=0o700)
+        (root/'profile/SyntheticUpload.pdf').write_bytes(build_pdf())
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         env=os.environ|dict(KO_HOME=str(root/'profile'),WEREAD_EVIDENCE=str(root/'evidence'),XDG_RUNTIME_DIR=str(root/'xdg'),
             LD_LIBRARY_PATH=str(runtime/'libs'),SDL_VIDEODRIVER='dummy',
@@ -23,9 +25,9 @@ def main():
                 result=subprocess.run(['./luajit',str(REPO/'spec/koreader/personal_upload_smoke.lua')],cwd=runtime,env=env,
                     stdout=out,stderr=subprocess.STDOUT,timeout=120)
             if result.returncode:print(log.read_text());raise SystemExit(result.returncode)
-            assert server.request_totals[('/cos/getcredential','')]==3
-            assert server.request_totals[('/synthetic/object','')]==3
-            assert server.request_totals[('/cos/notify','')]==3
+            assert server.request_totals[('/cos/getcredential','')]==4
+            assert server.request_totals[('/synthetic/object','')]==4
+            assert server.request_totals[('/cos/notify','')]==4
             assert server.request_totals[('/web/book/read','')]==0
             assert server.request_totals[('/login','native_renewal')]==0
             print(f'PASS: native personal upload and pending recovery; {a.width}x{a.height}')

@@ -115,6 +115,10 @@ function M:handleEndOfBook(status_self)
 end
 
 function M:onReaderReady()
+    local local_file=self.ui and self.ui.document and self.ui.document.file
+    if self._personal_original_local_only~=local_file then
+        self._personal_original_local_only=require('weread.lib.personal_original').take(local_file) and local_file or nil
+    end
     if self.client and self.native_renewal then self.client._native_renewal=self.native_renewal end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     require('weread.ui.chapter_links').detach(self)
@@ -528,6 +532,7 @@ function M:detectWeReadBook()
     if not file then
         return nil
     end
+    if self._personal_original_local_only==file then return nil end
     if require("weread.lib.notes_export").is_export_path(self.settings,file) then return nil end
     if require("weread.lib.mp_export").is_export_path(self.settings,file) then return nil end
     local books = self.settings:get("books", {})

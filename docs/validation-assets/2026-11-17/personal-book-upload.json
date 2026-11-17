@@ -447,5 +447,21 @@
     "cloud_position_unchanged": true,
     "original_shelf_members_flags_and_groups_restored": true,
     "previous_test_scopes_and_native_grant_unchanged": true
+  },
+  "synthetic_native_pdf_original_local_reading": {
+    "screens": [
+      "600x800_167dpi",
+      "1264x1680_300dpi"
+    ],
+    "packaged_plugin_upload_and_detail_action": true,
+    "account_scoped_local_association_reopened": true,
+    "replaced_file_rejected": true,
+    "local_only_after_cache_configuration_changes": true,
+    "two_page_pdf_original_readable": true,
+    "visual_fixture_columns_and_images_checked": true,
+    "cloud_reading_state_writes": 0,
+    "original_bytes_unchanged_by_read": true,
+    "real_account_end_to_end_tested": false,
+    "physical_kindle_tested": false
   }
 }

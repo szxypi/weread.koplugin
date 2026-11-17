@@ -1167,6 +1167,21 @@ function M:showBookMenu(book)
             end
         end)}
     end
+    local original=require('weread.lib.personal_original')
+    local original_account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
+    local original_session=self._reader_session_gen
+    if original.resolve(self,tostring(book_id)) then
+        actions[#actions+1]={text=_('Read original PDF (local only, no cloud sync)'),
+            callback=self:safeCallback(_('Read original PDF'),function()
+                if self._book_detail_view~=view or not original_account
+                    or original_account~=self.library_db:accountKey() or original_session~=self._reader_session_gen then return end
+                local path=original.resolve(self,tostring(book_id))
+                if not path then self:showInfo(_('The local original PDF is unavailable or has changed.'));return end
+                if not original.arm(path) then return end
+                local opened,err=pcall(self.openFile,self,path)
+                if not opened then original.disarm(path);error(err) end
+            end)}
+    end
     if has_cache then
         actions[#actions + 1] = {
             text = _("Clear book cache"),

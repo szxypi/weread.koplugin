@@ -94,9 +94,17 @@ local function start(host,ctx,input)
             if confirmed(result) then
                 local saved,accepted=pcall(host.library_db.cacheShelf,host.library_db,result.snapshot.books,result.snapshot.archive)
                 local finished=saved and accepted and ctx.journal:finish(selected.scope,record)
-                if finished then host:applyShelfSnapshot(result.snapshot.books,result.snapshot.archive) end
-                M.cancel(host);host:showInfo(finished and _('Book uploaded and verified in the cloud bookshelf.')
-                    or _('The uploaded book was found, but the local confirmation could not be saved. Check the pending record.'))
+                local notice=finished and _('Book uploaded and verified in the cloud bookshelf.')
+                    or _('The uploaded book was found, but the local confirmation could not be saved. Check the pending record.')
+                if finished then
+                    host:applyShelfSnapshot(result.snapshot.books,result.snapshot.archive)
+                    if input.name:lower():match('%.pdf$') then
+                        local ok,linked=pcall(function() return require('weread.lib.personal_original').remember(host,result.book_id,input) end)
+                        notice=ok and linked and _('Book uploaded. Its original PDF is available in book details for local reading without cloud sync.')
+                            or _('Book uploaded, but its original PDF could not be linked for local reading.')
+                    end
+                end
+                M.cancel(host);host:showInfo(notice)
                 return
             end
             local unsent=type(result)=='table' and result.put_attempted==false and result.notify_attempted==false

@@ -259,8 +259,9 @@ class MockServer(ThreadingHTTPServer):
             epub=hashlib.sha256(synthetic_epub()).hexdigest()
             large_epub=hashlib.sha256(synthetic_large_epub()).hexdigest()
             from synthetic_pdf_trial import BODY_SHA256 as pdf
+            from reading_rich_pdf_trial import BODY_SHA256_RICH as rich_pdf
             from synthetic_format_trial import FORMATS
-            accepted=(small,large,big,epub,large_epub,pdf,FORMATS['mobi'][1],FORMATS['azw3'][1])
+            accepted=(small,large,big,epub,large_epub,pdf,rich_pdf,FORMATS['mobi'][1],FORMATS['azw3'][1])
             if self.combined_upload_read:
                 from reading_epub_trial import BODY_SHA256_READING
                 accepted+=(BODY_SHA256_READING,)

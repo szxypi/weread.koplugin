@@ -71,4 +71,33 @@ pump(function() return not plugin._personal_upload_ui end)
 assert(responsive and Journal:new(plugin.settings,plugin.client):read(scope).phase=='idle','large streaming upload blocked UI or stayed pending')
 assert(plugin.library_db:getShelfStatus('CB_uploadlarge').present==true,'large uploaded book missing')
 f=assert(io.open(path,'rb'));assert(f:read('*a')==content);f:close()
-plugin:closeWeReadUI();print('PASS: native chooser, upload, unknown receipt and explicit review')
+-- Upload a real synthetic PDF, then use the plugin book detail action to
+-- open the unchanged local original without assigning a WeRead cloud identity.
+close_info();path=home..'/SyntheticUpload.pdf';local pdf_body=assert(io.open(path,'rb'));content=pdf_body:read('*a');pdf_body:close()
+confirmation=choose();confirmation.ok_callback();pump(function() return not plugin._personal_upload_ui end)
+assert(Journal:new(plugin.settings,plugin.client):read(scope).phase=='idle','PDF upload not settled')
+local original=require('weread.lib.personal_original')
+assert(original.resolve(plugin,'CB_uploadpdf')==path,'verified PDF upload did not persist its original association')
+local reopened={settings=plugin.settings,library_db=require('weread.lib.library_db'):new(plugin.settings)}
+assert(original.resolve(reopened,'CB_uploadpdf')==path,'new database instance lost local PDF association')
+close_info();plugin:showBookMenu{book_id='CB_uploadpdf',title='合成 PDF',chapters={}}
+local detail=assert(plugin._book_detail_view);local action
+for _,row in ipairs(detail.data.actions or {}) do
+    if row.text==require('weread.lib.i18n').tr('Read original PDF (local only, no cloud sync)') then action=row end
+end
+assert(action,'local original PDF action missing from book details')
+UI:forceRePaint();Device.screen:shot(evidence..'/original-pdf-action.png');action.callback()
+local Reader=require('apps/reader/readerui')
+pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==path end)
+local reader=Reader.instance;local active=assert(reader.weread)
+assert(not active:detectWeReadBook() and not active.progress_sync.current_book_id,'local original gained cloud sync identity')
+local saved_cache=active.settings.cache_dir;active.settings.cache_dir=home
+assert(not active:detectWeReadBook(),'local-only session acquired cloud identity after cache configuration changed')
+active.settings.cache_dir=saved_cache
+assert(reader.document:getPageCount()==2,'native PDF reader did not open both original pages')
+UI:forceRePaint();Device.screen:shot(evidence..'/original-pdf-reader.png')
+local after=assert(io.open(path,'rb'));assert(after:read('*a')==content,'opening the local PDF changed its bytes');after:close()
+assert(os.rename(path,path..'.moved'));local replacement=assert(io.open(path,'wb'));replacement:write('different synthetic PDF');replacement:close()
+assert(not original.resolve(reopened,'CB_uploadpdf'),'replaced local file retained an old association')
+os.remove(path);assert(os.rename(path..'.moved',path))
+print('PASS: native chooser, upload, explicit review and plugin original PDF reader without cloud binding')
