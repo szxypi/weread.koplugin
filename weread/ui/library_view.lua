@@ -950,8 +950,10 @@ function LibraryView:showSourceMenu(menu_mode)
             items[#items+1]={text=_('Select multiple groups'),mandatory=#(self.group_keys or {})>0 and '✓' or '',
                 callback=select(function() self:showMultiGroupMenu() end)}
         end
-        for _, group in ipairs(self.groups or {}) do
-            add_group(group.key, group.label, #group.books)
+        for _index, group in ipairs(self.groups or {}) do
+            local label = group.label
+            if not ShelfGroups.unique(self.groups, group.key) then label = T(_('Unavailable: %1'), label) end
+            add_group(group.key, label, #group.books)
         end
     else
         items[1] = {

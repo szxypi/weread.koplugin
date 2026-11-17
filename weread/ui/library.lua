@@ -264,7 +264,7 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
             end
         end
     end
-    if self.shelf_group_key and not ShelfGroups.find(self.shelf_groups, self.shelf_group_key) then
+    if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups, self.shelf_group_key) then
         self.shelf_group_key = nil
         if self.shelf_view_pages then self.shelf_view_pages.books = 1 end
     end
@@ -688,7 +688,12 @@ function M:showShelfView(mode, keyword, old_view, options)
         end
         return result
     end
-    local group = ShelfGroups.find(self.shelf_groups, self.shelf_group_key)
+    local group = ShelfGroups.unique(self.shelf_groups, self.shelf_group_key)
+    if self.shelf_group_key and not group then
+        self.shelf_group_key = nil
+        self.shelf_view_pages.books = 1
+        options.prepared_shelf, options.page = nil, nil
+    end
     local multi=self.shelf_multi_groups or {}
     local grouped,multi_state=ShelfGroups.selected(self.shelf_groups,multi,self.shelf_regular)
     local multi_label=#multi>0 and (multi_state=='selected' and T(_('%1 groups'),tostring(#multi))
@@ -796,7 +801,10 @@ function M:showShelfView(mode, keyword, old_view, options)
         end,
         on_select_group = function(key)
             if not current() then return end
-            if key and not ShelfGroups.find(self.shelf_groups, key) then return end
+            if key and not ShelfGroups.unique(self.shelf_groups, key) then
+                self:showInfo(_('This group is unavailable. Refresh the bookshelf and try again.'))
+                return
+            end
             if #multi>0 and not save_group_selection(self,{}) then
                 self:showInfo(_('Could not save the selected groups.'));return
             end

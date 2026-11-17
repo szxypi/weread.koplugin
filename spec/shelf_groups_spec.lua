@@ -72,6 +72,9 @@ expect(selection==nil and state=='unavailable','incomplete snapshot narrowed the
 local ambiguous=Groups.list({{archiveId=1,name='A',bookIds={'one'}},{archiveId=1,name='B',bookIds={'two'}}},books)
 expect(not Groups.unique(ambiguous,'archive:1') and select(2,Groups.selected(ambiguous,{'archive:1'},books))=='unavailable',
     'duplicate archive identifier was treated as unique')
+local same_name=Groups.list({{archiveId=1,name='Reading',bookIds={'one'}},{archiveId=2,name='Reading',bookIds={'two'}}},books)
+expect(Groups.unique(same_name,'archive:1').books[1]==books[1] and Groups.unique(same_name,'archive:2').books[1]==books[2],
+    'groups with the same name but distinct identifiers were conflated')
 local normalized=Groups.normalize({'archive:2','archive:1'})
 expect(normalized[1]=='archive:1' and normalized[2]=='archive:2','stored selection was not canonical')
 expect(not Groups.normalize({'archive:1','archive:1'}) and not Groups.normalize({[1]='archive:1',[3]='archive:2'})

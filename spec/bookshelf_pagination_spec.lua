@@ -321,10 +321,28 @@ expect(#shown[#shown].data.group_keys==2,'returning to an account lost its selec
 shown[#shown].callbacks.on_select_group(nil)
 expect(#profiles['account-a'].shelf_multi_groups_v1.keys==0 and #shown[#shown].data.group_keys==0,'all books did not clear persistent selection')
 host.library_db=nil;host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
-groups=host.shelf_groups
 shown[#shown].callbacks.on_select_group("archive:7")
 expect(shown[#shown].data.mode == "books" and #shown[#shown].data.books == 20
         and shown[#shown].data.group_label == "History", "group created a separate content mode")
+local duplicate_archives={
+    {archiveId=7,name='First',bookIds={'1'}},
+    {archiveId=7,name='Second',bookIds={'2'}},
+}
+host:applyShelfSnapshot(grouped_books,duplicate_archives);host:showShelfView('books')
+expect(host.shelf_group_key==nil and #shown[#shown].data.books==30,
+    'ambiguous refreshed group kept filtering the bookshelf')
+local count_before_duplicate=#shown
+shown[#shown].callbacks.on_select_group('archive:7')
+expect(#shown==count_before_duplicate and host.shelf_group_key==nil
+    and host.info=='This group is unavailable. Refresh the bookshelf and try again.',
+    'ambiguous group selection opened the first matching group')
+host.shelf_group_key='archive:7'
+host:showShelfView('books',nil,nil,{page=2,prepared_shelf={books={grouped_books[1]},accounts={}}})
+expect(host.shelf_group_key==nil and shown[#shown].data.page==1 and #shown[#shown].data.books==30,
+    'ambiguous stored selection reused a stale prepared shelf')
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+shown[#shown].callbacks.on_select_group('archive:7')
+groups=host.shelf_groups
 shown[#shown].callbacks.on_page_changed(2)
 expect(host.shelf_groups == groups and shown[#shown].data.page == 2,
     "paging rebuilt groups or lost the selected page")

@@ -149,6 +149,23 @@ reset();local all_view=plugin.shelf_view;plugin:applyShelfSnapshot(books,{})
 plugin:showShelfView('books',nil,all_view);all_view=plugin.shelf_view;all_view:showSourceMenu('books')
 local all_picker=assert(all_view._shelf_popup);assert(#all_picker.item_table==1,'empty group shelf offered an unavailable multi-group picker')
 UI:close(all_picker)
+reset();local initial=plugin.shelf_view
+local duplicate_archives={{archiveId=777,name='重复甲',bookIds={books[1].bookId}},
+    {archiveId=777,name='重复乙',bookIds={books[2].bookId}}}
+plugin:applyShelfSnapshot(books,duplicate_archives);plugin:showShelfView('books',nil,initial)
+local duplicate_view=assert(plugin.shelf_view);duplicate_view:showSourceMenu('books')
+local duplicate_menu=assert(duplicate_view._shelf_popup);local duplicate_row=assert(duplicate_menu.item_table[3])
+assert(duplicate_row.text==require('ffi/util').template(require('weread.lib.i18n').tr('Unavailable: %1'),'重复甲'))
+UI:forceRePaint();Device.screen:shot(evidence..'/duplicate-group-selector.png')
+local old_info=plugin.showInfo;local warning
+plugin.showInfo=function(_self,text) warning=text end
+duplicate_menu:onMenuSelect(duplicate_row)
+pump(function() return warning~=nil end)
+assert(warning==require('weread.lib.i18n').tr('This group is unavailable. Refresh the bookshelf and try again.')
+    and plugin.shelf_view==duplicate_view and not plugin.shelf_group_key and #duplicate_view.books==48,
+    'ambiguous group was selected or did not report the problem')
+plugin.showInfo=old_info
+reset()
 if mode=='live' then
     reset();local source=assert(plugin.shelf_view);source:showSourceMenu('books')
     local picker=assert(source._shelf_popup);local multiple=assert(picker.item_table[2])
