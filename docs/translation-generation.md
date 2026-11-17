@@ -69,6 +69,11 @@ Python 重新实现单章计划及回执解释，没有迁移上游自动续期�
 真实模式／生成各执行一次，生成返回停止但不可用，记录保留且不可重放，见[派发结果](translation-dispatch.md)。
 新增 11 项样本检查，修正后的分批检查排除该版权页；没有再发送修改请求。
 
+只读发现现可选择若干固定的公开英文书搜索词；每次仍最多两本书、每书四章，并保留免费／已购和正文筛选。
+额外搜索不能准备或复核写入计划。对五个额外搜索词及三个后续批次的 31 次章节检查均读到了现成译文，尚未找到合格的缺失正文；
+这一抽样结果不代表其他书籍或未检查章节的状态。已消费的版权页试验记录保持不变。
+[只读发现记录](validation-assets/2026-11-17/translation-prose-discovery.json)。
+
 默认离线：
 
 ```sh
@@ -81,6 +86,7 @@ python3 scripts/test_translation_generation.py
 ```sh
 python3 scripts/verify_translation_generation.py --saved-session
 python3 scripts/verify_translation_generation.py --saved-session --chapter-offset 12
+python3 scripts/verify_translation_generation.py --saved-session --query 'Moby Dick' --chapter-offset 4
 ```
 
 `--prepare` 只在两轮原文、目录、位置、计数及书架一致后保存不可覆盖计划；

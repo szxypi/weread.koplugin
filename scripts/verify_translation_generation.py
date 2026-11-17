@@ -12,7 +12,7 @@ from secure_weread_session import SessionStore
 from secure_native_session import NativeSessionStore
 from secure_translation_generation import TranslationGenerationStore
 from translation_generation import bind,validate
-from verify_translation_preflight import TranslationProbe,TranslationWebProbe,PLATFORM,membership,catalog,catalog_body,save_refreshed_web_session
+from verify_translation_preflight import TranslationProbe,TranslationWebProbe,PLATFORM,membership,catalog,catalog_body,save_refreshed_web_session,PUBLIC_QUERY,PUBLIC_QUERIES
 from verify_eink_login import BASE
 from verify_web_source_progress import BASE as WEB
 from translation_observation import position,observation
@@ -22,7 +22,7 @@ from translation_source import chapter_title,structural_title,admit_source
 
 
 class Native(TranslationProbe):
-    def __init__(self):super().__init__();self.reads=0
+    def __init__(self,*,public_query=PUBLIC_QUERY):super().__init__(public_query=public_query);self.reads=0
     def guard(self,stage,url,body):
         if self.reads>=128:raise ValueError('translation_generation/read_limit')
         if stage=='progress' and body is None and any(url==BASE+'/book/getProgress?'+urlencode(dict(bookId=book)) for book in self.allowed_ids):return
@@ -117,10 +117,12 @@ def inspect(api,web,grant,report,expected=None,*,chapter_offset=0):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--chapter-offset',type=int,default=0)
+    parser.add_argument('--query',choices=PUBLIC_QUERIES,default=PUBLIC_QUERY)
     mode=parser.add_mutually_exclusive_group();mode.add_argument('--prepare',action='store_true');mode.add_argument('--dry-run',action='store_true')
     args=parser.parse_args(argv)
     if (args.prepare or args.dry_run) and not args.saved_session:parser.error('saved access required')
     if not 0<=args.chapter_offset<=19999 or args.chapter_offset and (not args.saved_session or args.dry_run):parser.error('bounded discovery offset requires saved access, not a stored-plan recheck')
+    if args.query!=PUBLIC_QUERY and (not args.saved_session or args.prepare or args.dry_run):parser.error('additional public searches are read-only discovery only')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
         translation_mode_requests=0,generation_requests=0,authentication_posts=0,trial_activations=0,purchases=0,private_data_on_regular_disk=False)
     saved=grant=web=api=None
@@ -129,7 +131,7 @@ def main(argv=None):
             resource.setrlimit(resource.RLIMIT_CORE,(0,0));saved=SessionStore().load();grant=NativeSessionStore().load(saved['vid'])
             web=Web();web.vid=saved['vid']
             for k,v in saved['cookies'].items():web.set_cookie(k,v)
-            web.verify_account();api=Native();store=TranslationGenerationStore();state,_receipt=store.read()
+            web.verify_account();api=Native(public_query=args.query);store=TranslationGenerationStore();state,_receipt=store.read()
             if args.prepare and state is not None:raise ValueError('translation_generation/consumed')
             if args.dry_run and (not state or state['phase']!='prepared'):raise ValueError('translation_generation/not_prepared')
             plan=inspect(api,web,grant,report,state['plan'] if args.dry_run else None,chapter_offset=args.chapter_offset)

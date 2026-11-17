@@ -25,6 +25,7 @@ from fetch_weread_epub import reader_url_for,make_content_params,weread_sign,sor
 
 PLATFORM='wechat_wx-2001-android-100-weread'
 PUBLIC_QUERY='Pride and Prejudice'
+PUBLIC_QUERIES=(PUBLIC_QUERY,'Moby Dick','The Wonderful Wizard of Oz','The Time Machine','The Moonstone','The War of the Worlds')
 
 
 class TranslationError(ValueError): pass
@@ -191,17 +192,19 @@ class TranslationWebProbe(WebSourceProbe):
 
 
 class TranslationProbe(NativeProbe):
-    def __init__(self,opener=None):
+    def __init__(self,opener=None,*,public_query=PUBLIC_QUERY):
+        if public_query not in PUBLIC_QUERIES:raise TranslationError('translation/public_query_invalid')
         super().__init__(opener)
-        self.allowed_ids=set();self.samples=[]
+        self.allowed_ids=set();self.samples=[];self.public_query=public_query
 
     def guard(self,stage,url,body):
+        if self.public_query not in PUBLIC_QUERIES:raise TranslationError('translation/public_query_invalid')
         parsed=urlsplit(url);query=parse_qs(parsed.query,keep_blank_values=True)
         if parsed.scheme!='https' or parsed.netloc!='i.weread.qq.com' or parsed.fragment:
             raise TranslationError('translation/request_outside_scope')
         if stage=='shelf' and parsed.path=='/shelf/sync' and not query and body is None: return
         if stage=='member' and parsed.path=='/pay/memberCardSummary' and query=={'pf':[PLATFORM]} and body is None: return
-        if stage=='public_english' and parsed.path=='/store/search' and query=={'keyword':[PUBLIC_QUERY],'scope':['10'],'count':['20'],'maxIdx':['0']} and body is None: return
+        if stage=='public_english' and parsed.path=='/store/search' and query=={'keyword':[self.public_query],'scope':['10'],'count':['20'],'maxIdx':['0']} and body is None: return
         if stage=='book' and parsed.path=='/book/info' and set(query)=={'bookId'} and len(query['bookId'])==1 and query['bookId'][0] in self.allowed_ids and body is None: return
         if stage=='catalog' and parsed.path=='/book/chapterInfos' and not query and isinstance(body,dict):
             for key in self.allowed_ids:
@@ -221,7 +224,7 @@ class TranslationProbe(NativeProbe):
         member=membership(member_raw)
         keys=[]
         if public_english:
-            raw=self.request('public_english',BASE+'/store/search?'+urlencode(dict(keyword=PUBLIC_QUERY,scope=10,count=20,maxIdx=0)),credentials=credentials)
+            raw=self.request('public_english',BASE+'/store/search?'+urlencode(dict(keyword=self.public_query,scope=10,count=20,maxIdx=0)),credentials=credentials)
             found=page('search',raw)['books']
             for row in found:
                 title=row['title']

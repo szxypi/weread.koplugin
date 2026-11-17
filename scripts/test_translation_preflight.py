@@ -132,6 +132,18 @@ class TranslationPreflightTest(unittest.TestCase):
         for limit in (0,4,True):
             with self.subTest(limit=limit),self.assertRaises(TranslationError): probe.inspect({},limit)
         self.assertEqual(probe.report['stages'],[])
+    def test_additional_public_search_is_explicit_and_whitelisted(self):
+        from urllib.parse import urlencode
+        from verify_translation_preflight import PUBLIC_QUERIES
+        for query in PUBLIC_QUERIES:
+            probe=TranslationProbe(public_query=query)
+            probe.guard('public_english',BASE+'/store/search?'+urlencode(dict(keyword=query,scope=10,count=20,maxIdx=0)),None)
+        probe=TranslationProbe(public_query='Moby Dick')
+        with self.assertRaises(TranslationError):probe.guard('public_english',BASE+'/store/search?'+urlencode(dict(keyword='other',scope=10,count=20,maxIdx=0)),None)
+        probe.public_query='other'
+        with self.assertRaises(TranslationError):probe.guard('public_english',BASE+'/store/search?'+urlencode(dict(keyword='other',scope=10,count=20,maxIdx=0)),None)
+        for query in ('other',None,True):
+            with self.assertRaises(TranslationError):TranslationProbe(public_query=query)
 
 
 if __name__=='__main__': unittest.main()

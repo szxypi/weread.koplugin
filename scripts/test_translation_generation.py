@@ -189,6 +189,10 @@ class GuardTest(unittest.TestCase):
         for args in (['--chapter-offset','1'],['--saved-session','--chapter-offset','-1'],
                 ['--saved-session','--chapter-offset','20000'],['--saved-session','--dry-run','--chapter-offset','1']):
             with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
+    def test_alternate_queries_cannot_prepare_or_recheck_or_run_offline(self):
+        for args in (['--query','Moby Dick'],['--saved-session','--prepare','--query','Moby Dick'],
+                ['--saved-session','--dry-run','--query','Moby Dick'],['--saved-session','--query','not permitted']):
+            with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
 
 
 class InspectionTest(unittest.TestCase):
