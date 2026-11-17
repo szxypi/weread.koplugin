@@ -36,13 +36,15 @@ def validate(plan):
 
 
 class Text(HTMLParser):
-    def __init__(self):super().__init__(convert_charrefs=True);self.text=[];self.hidden=0
+    def __init__(self):super().__init__(convert_charrefs=True);self.text=[];self.hidden=0;self.body=0
     def handle_starttag(self,tag,attrs):
-        if tag in ('script','style'):self.hidden+=1
+        if tag=='body':self.body+=1
+        if tag in ('script','style','head'):self.hidden+=1
     def handle_endtag(self,tag):
-        if tag in ('script','style'):self.hidden=max(0,self.hidden-1)
+        if tag=='body':self.body=max(0,self.body-1)
+        if tag in ('script','style','head'):self.hidden=max(0,self.hidden-1)
     def handle_data(self,value):
-        if not self.hidden:self.text.append(value)
+        if self.body and not self.hidden:self.text.append(value)
 
 
 def bind(owner,grant,member,catalog,chapter,source,baseline):
@@ -51,12 +53,13 @@ def bind(owner,grant,member,catalog,chapter,source,baseline):
             or not isinstance(catalog,dict) or catalog.get('format')!='epub' or not identity(catalog.get('book_id'))
             or not integer(catalog.get('version')) or not isinstance(chapter,dict)
             or not isinstance(catalog.get('chapters'),list) or sum(row==chapter for row in catalog['chapters'])!=1
+            or sum(isinstance(row,dict) and row.get('uid')==chapter.get('uid') for row in catalog['chapters'])!=1
             or not integer(chapter.get('uid'),1) or chapter.get('free_or_owned') is not True
             or not integer(chapter.get('wordCount'),200,9007199254740991)
             or not isinstance(source,str) or not 200<=len(source.encode())<=2*1024*1024
             or not isinstance(baseline,dict) or not baseline):fail('admission')
     if content_summary(source)['nonempty_translation_blocks']:fail('already_available')
-    text=Text();text.feed(source);text.close()
+    text=Text();text.feed(source if re.search(r'<(?:html|body)(?:\s|>)',source,re.I) else '<body>'+source+'</body>');text.close()
     if len(''.join(text.text).strip())<100:fail('empty_original')
     version=chapter.get('translateVersion',0)
     if not integer(version):fail('version')

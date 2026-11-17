@@ -47,13 +47,17 @@ class PlanTest(unittest.TestCase):
         with self.assertRaises(ValueError):self.plan()
         self.catalog['chapters']=[]
         with self.assertRaises(ValueError):self.plan()
+        self.catalog['chapters']=[self.chapter,dict(self.chapter,wordCount=2000)]
+        with self.assertRaises(ValueError):self.plan()
     def test_content_not_metadata_decides_missing_translation(self):
         self.chapter.update(hasTranslated=True,transWordCount=900)
         self.plan()
         self.source+='<p class="wr-translation">现有译文</p>'
         with self.assertRaisesRegex(ValueError,'already_available'):self.plan()
     def test_original_text_and_format_required(self):
-        for source in ('','<script>'+'x'*500+'</script>','<p>'+(' '*500)+'</p>'):
+        for source in ('','<script>'+'x'*500+'</script>','<p>'+(' '*500)+'</p>',
+                '<html><head><title>'+'x'*500+'</title></head><body></body></html>',
+                '<html><head><title>'+'x'*500+'</title></head></html>'):
             self.source=source
             with self.subTest(source=source[:12]),self.assertRaises(ValueError):self.plan()
         self.setUp();self.catalog['format']='pdf'
