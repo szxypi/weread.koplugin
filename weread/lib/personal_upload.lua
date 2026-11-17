@@ -105,7 +105,9 @@ function M.run(client,settings,selected,input,journal,record,guard)
         local protected=Members.protected(before,id);if not protected then fail('preflight') end
         local expected={};for _i,value in ipairs(members) do expected[#expected+1]=value end;expected[#expected+1]=id;table.sort(expected)
         local expected_digest=Members.digest(expected)
-        for attempt=1,5 do
+        -- Cloud conversion may expose the new book only after several seconds.
+        -- Keep polling read-only in the cancellable worker; never resend notify.
+        for attempt=1,9 do
             if attempt>1 then require('socket').sleep(.5*(attempt-1)) end
             if not current() then fail('changed') end
             local after=Members.fetch(client,settings,selected);local observed=assert(Members.members(after))

@@ -33,11 +33,12 @@ def read_source(saved,target,*,sleep=time.sleep):
 
 
 def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=time.sleep,now=time.time,
-        fixture_builder=build,prepare_plan=prepare,check_plan=check):
+        fixture_builder=build,prepare_plan=prepare,check_plan=check,fixture_extension='epub'):
     report=dict(result='UNVERIFIED',phase='preflight',credential_requests=0,cos_put_attempts=0,notify_posts=0,cleanup_posts=0,
                 authentication_posts=0,source_verified=False)
     try:
-        baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.epub';body=fixture_builder()
+        if fixture_extension not in ('epub','pdf'):raise ValueError('synthetic_epub/extension')
+        baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.'+fixture_extension;body=fixture_builder()
         plan=prepare_plan(credentials,baseline,name);check_plan(plan,credentials,probe.shelf(credentials))
         if not grant_check(credentials):raise ValueError('synthetic_epub/grant')
         if journal.read()[0] is not None:raise ValueError('synthetic_epub/already_reserved')
@@ -85,7 +86,7 @@ def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=t
         check_plan(plan,credentials,probe.shelf(credentials),target,False)
         if not grant_check(credentials):raise ValueError('synthetic_epub/grant')
         journal.advance(receipt,'restored');report['phase']='restored'
-        report['result']='EPUB_IMPORT_AND_SOURCE_VERIFIED' if report['source_verified'] else 'EPUB_IMPORTED_SOURCE_UNVERIFIED'
+        report['result']=fixture_extension.upper()+('_IMPORT_AND_SOURCE_VERIFIED' if report['source_verified'] else '_IMPORTED_SOURCE_UNVERIFIED')
     except Exception as error:
         known={'synthetic_epub/grant','synthetic_epub/already_reserved','synthetic_epub/put_unconfirmed','synthetic_epub/notify_unconfirmed',
                'synthetic_epub/import_unconfirmed','synthetic_epub/cleanup_unconfirmed'}

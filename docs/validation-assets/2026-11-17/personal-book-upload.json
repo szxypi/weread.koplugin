@@ -117,7 +117,29 @@
   },
   "real_account_full_native_ui_tested": true,
   "epub_real_account_native_ui_tested": true,
-  "pdf_mobi_azw3_real_account_tested": false,
   "server_storage_and_history_restored": false,
-  "physical_kindle_tested": false
+  "physical_kindle_tested": false,
+  "real_account_synthetic_pdf_test": {
+    "fixture_bytes": 965,
+    "fixture_pages": 2,
+    "zero_write_preview": true,
+    "credential_requests": 1,
+    "cos_put_attempts": 1,
+    "notify_posts": 1,
+    "initial_shelf_confirmation": "unverified_within_original_timeout",
+    "later_independent_shelves_matched_unique_synthetic_item": true,
+    "cloud_source_matches_fixture": true,
+    "cloud_position_unchanged_during_read": true,
+    "native_reader_entered": true,
+    "native_current_chapter_page_count": 1,
+    "native_page_turn_and_offline_reopen_verified": false,
+    "cleanup_posts": 1,
+    "cleanup_acknowledged_and_independently_verified": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "authentication_posts": 0,
+    "previous_scopes_and_native_grant_unchanged": true,
+    "native_upload_ui_tested": false
+  },
+  "pdf_real_account_native_ui_tested": false,
+  "mobi_azw3_real_account_tested": false
 }

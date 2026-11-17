@@ -2,6 +2,7 @@
 import contextlib,io,json
 from secure_weread_session import SessionStore
 from synthetic_upload_epub import TEXT
+from synthetic_upload_pdf import TEXT as PDF_TEXT
 from verify_cb_progress import cb_id,cb_ids
 from verify_cb_reading import BASE,CbReadingProbe
 from verify_cb_native_reading import main as native_main
@@ -14,8 +15,9 @@ COMMAND=['docker','exec','-i','-w','/source','-e','LD_LIBRARY_PATH=/validation/r
     '--width','1264','--height','1680','--dpi','300','--cb-reading']
 
 
-def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation=None,diagnostics=None):
+def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation=None,diagnostics=None,expected_source_text=TEXT):
     if not cb_id(target):raise ValueError('uploaded_reading/target')
+    if expected_source_text not in (TEXT,PDF_TEXT):raise ValueError('uploaded_reading/source_scope')
     store=store or SessionStore();probe_factory=probe_factory or CbReadingProbe;read_native=read_native or native_main
     save_rotation=save_rotation or save_refreshed_web_session;saved=probe=None
     try:
@@ -27,7 +29,7 @@ def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation
         out=io.StringIO()
         with contextlib.redirect_stdout(out):
             code=read_native(['--saved-session','--book-index',str(index),'--lua-command',*COMMAND],
-                expected_book_id=target,expected_source_text=TEXT)
+                expected_book_id=target,expected_source_text=expected_source_text)
         raw=out.getvalue()
         if len(raw)>1024*1024:raise ValueError('uploaded_reading/report')
         report=json.loads(raw)
@@ -51,7 +53,7 @@ def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation
                 or report.get('source_format')!='web_xhtml' or report.get('account_data_posts')!=0 or report.get('authentication_posts')!=0
                 or report.get('private_data_on_regular_disk') is not False or report.get('screenshots')!=0):
             raise ValueError('uploaded_reading/unverified')
-        return dict(result='UPLOADED_EPUB_NATIVE_READING_VERIFIED',target_bound=True,source_text_matched=True,
+        return dict(result='UPLOADED_'+('PDF' if expected_source_text==PDF_TEXT else 'EPUB')+'_NATIVE_READING_VERIFIED',target_bound=True,source_text_matched=True,
             cloud_position_unchanged=True,fresh_offline_process=True,account_data_posts=0,authentication_posts=0,
             verified_cookie_rotation_saved=rotated is True)
     finally:

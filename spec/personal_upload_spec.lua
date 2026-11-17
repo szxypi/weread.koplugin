@@ -10,7 +10,10 @@ package.preload['ffi/sha2']=function()
     end
     return sha
 end
-package.preload['socket']=function() return {sleep=function() end} end
+package.preload['socket']=function() return {sleep=function(delay)
+    state.sleeps=state.sleeps+1;state.waited=state.waited+delay
+    if state.cancel_at_sleep==state.sleeps then state.guard_changed=true end
+end} end
 package.preload['libs/libkoreader-lfs']=function() return {symlinkattributes=function() return state.info end} end
 package.preload['weread.lib.native_authorization']=function() return {new=function(_self,_client,options)
     return {_request=function(_auth,stage,_url,_body,_credentials,_timeout,dispatch)
@@ -36,7 +39,7 @@ local function shelf(present,changed)
     return {books=books,archive={}}
 end
 local function fixture()
-    state={info={mode='file',dev=1,ino=2,size=8,modification=1,change=1},requests=0,notifies=0,reads=0}
+    state={info={mode='file',dev=1,ino=2,size=8,modification=1,change=1},requests=0,notifies=0,reads=0,sleeps=0,waited=0}
     write('abcdefgh')
     local input=assert(Task.capture(path));local selected={scope={vid='900000'},credentials={vid='900000'},renewal_pending=false}
     local journal={owns=function() return not state.journal_changed end}
@@ -53,7 +56,7 @@ local function fixture()
         end}
     Members.fetch=function()
         state.reads=state.reads+1
-        return shelf(state.reads>1,state.foreign and state.reads>1)
+        return shelf(state.reads>(state.appear_after or 1),state.foreign and state.reads>1)
     end
     function state.run() return Task.run(client,{},selected,input,journal,{},function() return not state.guard_changed end) end
     return input
@@ -70,6 +73,12 @@ fixture();state.notify_conflict=true;result=state.run()
 expect(result.kind=='unconfirmed' and result.notify_attempted and state.notifies==1,'conflicting error response was confirmed')
 fixture();state.foreign=true;result=state.run()
 expect(result.kind=='unconfirmed' and state.notifies==1,'foreign shelf change was confirmed')
+fixture();state.appear_after=7;result=state.run()
+expect(result.kind=='confirmed' and state.reads==8 and state.requests==1 and state.notifies==1,'delayed import was not confirmed')
+fixture();state.appear_after=100;result=state.run()
+expect(result.kind=='unconfirmed' and state.reads==10 and state.waited==18 and state.requests==1 and state.notifies==1,'unavailable import was retried or waited without bound')
+fixture();state.appear_after=100;state.cancel_at_sleep=3;result=state.run()
+expect(result.kind=='unconfirmed' and state.reads==4 and state.requests==1 and state.notifies==1,'cancelled readback continued or resent')
 fixture();state.stale=true;result=state.run()
 expect(result.kind=='unavailable' and state.requests==0 and state.notifies==0,'stale account sent upload')
 local input=fixture();state.info.size=9;expect(not Task.matches(input),'changed file identity accepted')
