@@ -462,7 +462,12 @@
     "cloud_reading_state_writes": 0,
     "original_bytes_unchanged_by_read": true,
     "real_account_end_to_end_tested": true,
-    "physical_kindle_tested": false
+    "physical_kindle_tested": false,
+    "manual_existing_book_association": true,
+    "manual_confirmation_and_cancel_verified": true,
+    "manual_file_content_match_not_asserted": true,
+    "manual_cloud_writes": 0,
+    "manual_stale_account_session_guards": true
   },
   "real_account_native_pdf_original_local_reading": {
     "screen": "1264x1680_300dpi",

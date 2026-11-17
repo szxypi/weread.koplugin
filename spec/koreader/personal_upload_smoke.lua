@@ -80,7 +80,26 @@ local original=require('weread.lib.personal_original')
 assert(original.resolve(plugin,'CB_uploadpdf')==path,'verified PDF upload did not persist its original association')
 local reopened={settings=plugin.settings,library_db=require('weread.lib.library_db'):new(plugin.settings)}
 assert(original.resolve(reopened,'CB_uploadpdf')==path,'new database instance lost local PDF association')
-close_info();plugin:showBookMenu{book_id='CB_uploadpdf',title='合成 PDF',chapters={}}
+-- An older book can be explicitly linked; the confirmation explains that the
+-- plugin cannot establish that the selected PDF matches the cloud book.
+close_info();plugin:showBookMenu{book_id='CB_previous',title='合成旧书',chapters={}}
+local previous=assert(plugin._book_detail_view);local choose_original
+for _,row in ipairs(previous.data.actions or {}) do
+    if row.text==require('weread.lib.i18n').tr('Choose or change local PDF') then choose_original=row end
+end
+assert(choose_original and not original.resolve(plugin,'CB_previous'),'old book unexpectedly linked')
+local function manual_confirm()
+    choose_original.callback();local selector=assert(plugin._personal_original_attach.chooser)
+    selector:onMenuHold({path=path});assert(selector.button_dialog).buttons[1][2].callback()
+    pump(function() return plugin._personal_original_attach and plugin._personal_original_attach.dialog end)
+    return assert(plugin._personal_original_attach.dialog)
+end
+local manual=manual_confirm();assert(manual.text:find('无法核实',1,true) and manual.text:find('不会同步',1,true))
+UI:forceRePaint();Device.screen:shot(evidence..'/original-pdf-manual-confirm.png');manual.cancel_callback()
+assert(not original.resolve(plugin,'CB_previous'),'cancelled manual selection created a link')
+manual=manual_confirm();manual.ok_callback()
+assert(original.resolve(plugin,'CB_previous')==path,'confirmed manual selection was not saved')
+close_info();plugin:closeWeReadUI();plugin:showBookMenu{book_id='CB_uploadpdf',title='合成 PDF',chapters={}}
 local detail=assert(plugin._book_detail_view);local action
 for _,row in ipairs(detail.data.actions or {}) do
     if row.text==require('weread.lib.i18n').tr('Read original PDF (local only, no cloud sync)') then action=row end

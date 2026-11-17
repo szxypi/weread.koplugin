@@ -123,6 +123,7 @@ function M:closeWeReadUI()
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPLink then self:cancelMPLink() end
     if self.cancelPersonalUpload then self:cancelPersonalUpload() end
+    if self.cancelPersonalOriginal then self:cancelPersonalOriginal() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelMPArticleActions then self:cancelMPArticleActions() end
     if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
@@ -1170,6 +1171,12 @@ function M:showBookMenu(book)
     local original=require('weread.lib.personal_original')
     local original_account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
     local original_session=self._reader_session_gen
+    if type(book_id)=='string' and book_id:match('^CB_[A-Za-z0-9]+$') and original_account then
+        actions[#actions+1]={text=_('Choose or change local PDF'),callback=self:safeCallback(_('Choose a local PDF'),function()
+            if self._book_detail_view==view and original_account==self.library_db:accountKey()
+                and original_session==self._reader_session_gen then require('weread.ui.personal_original').start(self,book,view) end
+        end)}
+    end
     if original.resolve(self,tostring(book_id)) then
         actions[#actions+1]={text=_('Read original PDF (local only, no cloud sync)'),
             callback=self:safeCallback(_('Read original PDF'),function()
@@ -1433,6 +1440,9 @@ function M:cancelMPLink()
     return require('weread.ui.mp_link').cancel(self)
 end
 
+function M:cancelPersonalOriginal()
+    if self._personal_original_attach then require('weread.ui.personal_original').cancel(self) end
+end
 function M:cancelPersonalUpload()
     if not self._personal_upload_ui then return end
     return require('weread.ui.personal_upload').cancel(self)

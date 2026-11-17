@@ -135,6 +135,7 @@ function M:onReaderReady()
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPLink then self:cancelMPLink() end
     if self.cancelPersonalUpload then self:cancelPersonalUpload() end
+    if self.cancelPersonalOriginal then self:cancelPersonalOriginal() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
@@ -266,6 +267,7 @@ function M:onCloseDocument()
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPLink then self:cancelMPLink() end
     if self.cancelPersonalUpload then self:cancelPersonalUpload() end
+    if self.cancelPersonalOriginal then self:cancelPersonalOriginal() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.closeReadingLanguageDocument then self:closeReadingLanguageDocument() end
@@ -466,6 +468,7 @@ function M:onSuspend()
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPLink then self:cancelMPLink() end
     if self.cancelPersonalUpload then self:cancelPersonalUpload() end
+    if self.cancelPersonalOriginal then self:cancelPersonalOriginal() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
