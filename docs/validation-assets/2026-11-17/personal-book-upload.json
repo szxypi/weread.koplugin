@@ -11,6 +11,17 @@
     "original_shelf_members_flags_and_groups_restored": true,
     "previous_test_scopes_and_saved_grant_unchanged": true
   },
+  "real_account_native_executor_test": {
+    "synthetic_txt_files": 1,
+    "temporary_credential_requests": 1,
+    "cos_put_attempts": 1,
+    "notify_posts": 1,
+    "independent_cleanup_posts": 1,
+    "authentication_posts": 0,
+    "import_and_removal_independently_verified": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_saved_grant_unchanged": true
+  },
   "synthetic_packaged_native_ui": {
     "600x800": "PASS",
     "1264x1680_300dpi": "PASS",
@@ -18,7 +29,7 @@
     "unknown_receipt_pending_review": true,
     "source_file_unchanged": true
   },
-  "real_account_native_upload_tested": false,
+  "real_account_full_native_ui_tested": false,
   "other_formats_real_account_tested": false,
   "server_storage_and_history_restored": false,
   "physical_kindle_tested": false
