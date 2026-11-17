@@ -37,8 +37,9 @@ function M.cancel(host)
     if job.web_request then require('weread.ui.web_renewal').cancel(host,job.web_request) end
     if job.busy and job.busy==host.busy_message then host:closeBusy() end
 end
-local function failed(host)
-    host:showInfo(_('Could not download this article. Check login, network and storage, then try again. The previous cache is kept.'))
+local function failed(host,kind)
+    host:showInfo(kind=='verification' and _('WeRead may require verification for public-account access. Complete any verification on the WeRead website, or try again later. Cached articles remain available.')
+        or _('Could not download this article. Check login, network and storage, then try again. The previous cache is kept.'))
 end
 function M.start(host,book,article,options)
     if not host:requireLogin(true,false) then return false end
@@ -52,7 +53,7 @@ function M.start(host,book,article,options)
     local job={owner=owner,input=input,stage=stage,started=os.time()};host.mp_download_job=job
     host:showBusy(_('Downloading article…\nTap or press a key to cancel.'),function() if host.mp_download_job==job then M.cancel(host) end end)
     job.busy=host.busy_message
-    local function stop() M.cancel(host);failed(host) end
+    local function stop(kind) M.cancel(host);failed(host,kind) end
     if not host.mp_download_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UIManager,codec=host.client} end)
         if not ok then stop();return false end;host.mp_download_worker=worker
@@ -73,6 +74,7 @@ function M.start(host,book,article,options)
         local records=host.settings:get('books',{})
         local latest=records[input.book_id]
         if type(latest)=='table' and latest.cache_dir and latest.cache_dir~='' and latest.cache_dir~=input.root then M.cancel(host);return end
+        if type(result)=='table' and result.ok~=true and result.kind=='verification' then stop('verification');return end
         if type(result)=='table' and result.ok~=true and result.kind=='login' and not job.renew_attempted then
             job.renew_attempted=true
             active_stage:cleanup();job.stage=nil

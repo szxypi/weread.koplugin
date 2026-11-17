@@ -30,7 +30,7 @@ local function restore(host,book)
 end
 local function failed(host,book,kind)
     restore(host,book)
-    host:showInfo(kind=='verification' and _('Public-account verification is temporarily unavailable. Cached articles can still be read. Please try again later.')
+    host:showInfo(kind=='verification' and _('WeRead may require verification for public-account access. Complete any verification on the WeRead website, or try again later. Cached articles remain available.')
         or kind=='login' and _('WeRead could not refresh the public-account credential. Please scan the QR code again.')
         or _('Could not refresh the article list. Saved articles are kept. Please check the network and try again.'))
 end

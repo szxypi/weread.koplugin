@@ -107,7 +107,7 @@ return function(plugin, count, flush_tasks, home, pump_until)
     plugin:fetchMPArticles({book_id="MP_WXS_900001",title="合成公众号"})
     flush_tasks();pump_until(function() return not plugin.mp_catalog_job end)
     local mp_info=UIManager:getTopmostVisibleWidget()
-    assert(mp_info.text==require("weread.lib.i18n").tr("Public-account verification is temporarily unavailable. Cached articles can still be read. Please try again later."),
+    assert(mp_info.text==require("weread.lib.i18n").tr("WeRead may require verification for public-account access. Complete any verification on the WeRead website, or try again later. Cached articles remain available."),
         "MP verification response incorrectly requested another login")
     assert(count("/web/mp/articles")==mp_reads+1 and count("/web/login/renewal")==renewals
         and count("/api/auth/getLoginUid")==auth_uid_reads,"MP failure renewed credentials, repeated its read or started a new QR")

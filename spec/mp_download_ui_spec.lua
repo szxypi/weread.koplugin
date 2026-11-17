@@ -63,6 +63,11 @@ for _,change in ipairs({'offline','logged_out','invalid','no_space','start_faile
 end
 host,deliver=fixture();Download.start(host,{},{});deliver(1,{error='private-error'})
 expect(not state.opened and state.cleanups==1 and not state.notice:find('private-error',1,true),'worker error leaked or published')
+host,deliver=fixture();Download.start(host,{},{});deliver(1,{ok=false,kind='verification'})
+expect(not state.opened and not host.mp_download_job and not host.busy_message and state.cleanups==1
+    and state.commits==0 and not state.renewals and #state.jobs==1
+    and state.notice:find('verification',1,true) and state.notice:find('website',1,true)
+    and state.notice:find('Cached articles remain available',1,true),'verification failed to preserve cache or prompted a retry')
 host,deliver=fixture();Download.start(host,{},{});state.store_failed=true;deliver()
 expect(state.commits==1 and not state.opened and not host.mp_download_job and not host.busy_message and state.cleanups==0
     and state.notice:find('article was downloaded',1,true) and not state.notice:find('private SQLite',1,true),'metadata failure crashed or deleted complete cache')
