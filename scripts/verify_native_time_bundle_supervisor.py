@@ -52,7 +52,7 @@ def main(argv=None):
             with tempfile.TemporaryDirectory(prefix='weread-native-gate-',dir='/dev/shm') as directory:
                 root=Path(directory);path=root/'journal';lock=root/'journal.lock'
                 task=DispatchGate(FileBackend(path),lambda:project_lock(lock),clock=lambda:now,zone=lambda:'+08:00')
-                supervisor=Supervisor(task,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,observed)
+                supervisor=Supervisor(task,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,lambda:observed(completed_at=now))
                 stage='prepare';supervisor.prepare()
                 stage='select';supervisor.select(selection)
                 stage='claim';receipt=supervisor.claim(request,selection)

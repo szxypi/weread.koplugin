@@ -160,6 +160,7 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
             'exact_capture_and_fixture_bound': True, 'fixture_in_captured_baseline': baseline_includes_fixture,
             'both_positions_source_counts_and_original_shelf_exact': True,
             'two_statistics_reads_stable': True, 'observed_months': len(months), 'server_clock_after_boundary': True,
+            'completed_at': int(clock()),
             'account_data_posts': 0, 'authentication_posts': 0,
             'historical_accounting_verified': False, 'dispatch_capability': False}
 

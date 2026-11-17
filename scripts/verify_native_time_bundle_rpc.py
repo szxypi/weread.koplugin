@@ -23,7 +23,7 @@ def scenario(runtime,source,root,mode):
     capture,grant,_body,now=fixture();p=capture['plan'];selection=expected(capture)
     path=root/(mode+'.journal');lock=root/(mode+'.lock')
     gate=DispatchGate(FileBackend(path),lambda:project_lock(lock),clock=lambda:now,zone=lambda:'+08:00')
-    guard=Supervisor(gate,Capture(capture),capture,grant,'synthetic-guest','synthetic-config',lambda:True,observed)
+    guard=Supervisor(gate,Capture(capture),capture,grant,'synthetic-guest','synthetic-config',lambda:True,lambda:observed(completed_at=now))
     guard.prepare();token=secrets.token_hex(16)
     payload={'owner':p['owner'],'book_id':p['book_id'],'grant':grant,'guest':'synthetic-guest','config':'synthetic-config',
              'mode':mode,'token':token,'rows':selection['rows'],'parts':selection['parts'],'now':now}

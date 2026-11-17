@@ -10,16 +10,16 @@ from secure_weread_session import StoreError
 from test_native_time_bundle_gate import fixture,gate
 
 
-def observed(seconds=6):
+def observed(seconds=6,completed_at=None):
     return dict(result='CROSS_DAY_READONLY_VERIFIED',seconds=seconds,exact_capture_and_fixture_bound=True,
         fixture_in_captured_baseline=True,both_positions_source_counts_and_original_shelf_exact=True,
         two_statistics_reads_stable=True,server_clock_after_boundary=True,account_data_posts=0,authentication_posts=0,
-        historical_accounting_verified=False,dispatch_capability=False)
+        historical_accounting_verified=False,dispatch_capability=False,completed_at=completed_at)
 
 
 def fixture_guard():
     capture,grant,body,now=fixture();gatekeeper=gate(now);store=Mock();receipt=Receipt(b'synthetic-capture')
-    store.read.return_value=(capture,receipt);current=Mock(return_value=True);preflight=Mock(return_value=observed())
+    store.read.return_value=(capture,receipt);current=Mock(return_value=True);preflight=Mock(return_value=observed(completed_at=now))
     task=Supervisor(gatekeeper,store,capture,grant,'synthetic-guest','synthetic-config',current,preflight)
     return task,gatekeeper,store,current,preflight,capture,grant,body
 
@@ -37,11 +37,22 @@ class SupervisorTests(unittest.TestCase):
     def test_incomplete_or_wrong_preflight_does_not_reserve(self):
         flags=('exact_capture_and_fixture_bound','fixture_in_captured_baseline',
                'both_positions_source_counts_and_original_shelf_exact','two_statistics_reads_stable','server_clock_after_boundary')
-        for field in (*flags,'result','seconds','account_data_posts','authentication_posts','historical_accounting_verified','dispatch_capability'):
+        for field in (*flags,'result','seconds','account_data_posts','authentication_posts','historical_accounting_verified','dispatch_capability','completed_at'):
             task,gatekeeper,_store,_current,preflight,_capture,_grant,_body=fixture_guard()
-            value=observed();value[field]=None;preflight.return_value=value
+            value=observed(completed_at=_body['books'][0]['timestamp']);value[field]=None;preflight.return_value=value
             with self.subTest(field=field),self.assertRaises(ValueError):task.prepare()
             self.assertEqual(gatekeeper.read(),(None,None))
+
+
+    def test_expired_preflight_stops_before_selection_or_reservation(self):
+        task,gatekeeper,_store,_current,preflight,capture,_grant,body=fixture_guard();now=body['books'][0]['timestamp']
+        for stamp in (now-30,now+1):
+            preflight.return_value=observed(completed_at=stamp)
+            with self.subTest(stamp=stamp),self.assertRaises(ValueError):task.prepare()
+            self.assertEqual(gatekeeper.read(),(None,None))
+        preflight.return_value=observed(completed_at=now);task.prepare();gatekeeper.clock=lambda:now+30
+        with self.assertRaisesRegex(ValueError,'bundle_supervisor/preflight_expired'):task.select(expected(capture))
+        self.assertEqual(gatekeeper.read(),(None,None))
 
     def test_wrong_selection_or_replaced_capture_cannot_claim(self):
         for mode in ('selection','capture','current','grant','token'):
@@ -77,7 +88,7 @@ class SupervisorTests(unittest.TestCase):
     def test_expiry_after_claim_refuses_release_and_keeps_claim(self):
         task,gatekeeper,_store,_current,_preflight,capture,_grant,body=fixture_guard()
         selection=expected(capture);task.prepare();task.select(selection)
-        now=body['books'][0]['timestamp'];ticks=iter((now,now,now,now,now+30));gatekeeper.clock=lambda:next(ticks)
+        now=body['books'][0]['timestamp'];ticks=iter((now,now,now,now,now,now,now+30));gatekeeper.clock=lambda:next(ticks)
         with self.assertRaisesRegex(ValueError,'bundle_gate/clock'):task.claim(body,selection)
         self.assertEqual(gatekeeper.read()[0]['phase'],'claimed')
 
