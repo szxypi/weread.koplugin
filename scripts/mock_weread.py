@@ -451,13 +451,17 @@ class MockServer(ThreadingHTTPServer):
                 if control['finished_mark_mode']=='empty':return 200,''
                 return 200,dict(status=1)
             if path in {'/shelf/add','/shelf/delete'} and method=='POST':
-                if set(data)!={'bookIds'} or not isinstance(data['bookIds'],list) or len(data['bookIds'])!=1 or not re.fullmatch(r'[1-9][0-9]{0,19}',str(data['bookIds'][0])):
+                if not isinstance(data.get('bookIds'),list) or len(data['bookIds'])!=1:
                     raise ValueError('invalid single-book membership request')
                 identity=str(data['bookIds'][0])
+                ordinary=set(data)=={'bookIds'} and re.fullmatch(r'[1-9][0-9]{0,19}',identity)
+                account=(set(data)=={'bookIds','albumIds','archiveIds'} and data['albumIds']==data['archiveIds']==[]
+                         and re.fullmatch(r'MP_WXS_[1-9][0-9]{0,19}',identity))
+                if not ordinary and not account:raise ValueError('invalid single-book membership request')
                 if path=='/shelf/add':
                     self.shelf_removed.discard(identity)
                     if not any(str(book['bookId'])==identity for book in BOOKS):
-                        self.shelf_added[identity]=dict(bookId=identity,title='合成新增书籍',author='合成作者',version=700)
+                        self.shelf_added[identity]=dict(bookId=identity,title='合成公众号' if account else '合成新增书籍',author='合成作者',version=700)
                 else:
                     self.shelf_removed.add(identity);self.shelf_added.pop(identity,None)
                 return 200,{} if control['shelf_membership_mode']=='noack' else dict(succ=1)

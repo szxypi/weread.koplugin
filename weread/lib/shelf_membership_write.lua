@@ -7,7 +7,18 @@ local Source=require('weread.lib.shelf_source')
 local Snapshot=require('weread.lib.shelf_snapshot')
 local M={}
 function M.book_id(value)
-    return type(value)=='string' and #value<=20 and value:match('^[1-9]%d*$') and value or nil
+    return type(value)=='string' and ((#value<=20 and value:match('^[1-9]%d*$'))
+        or (#value<=27 and value:match('^MP_WXS_[1-9]%d*$'))) and value or nil
+end
+function M.is_account(value) return M.book_id(value)~=nil and value:match('^MP_WXS_')~=nil end
+local function array(value)
+    if type(value)~='table' then return false end
+    local count=0
+    for key in pairs(value) do
+        if type(key)~='number' or key%1~=0 or key<1 or key>#value then return false end
+        count=count+1
+    end
+    return count==#value
 end
 function M.members(snapshot)
     if type(snapshot)~='table' or not Snapshot.metadata(snapshot.books,0) then return nil end
@@ -28,6 +39,26 @@ function M.expected(plan)
     for _i,id in ipairs(plan.members) do if id~=plan.book_id then members[#members+1]=id end end
     if plan.operation=='add' then members[#members+1]=plan.book_id end
     table.sort(members);return M.digest(members)
+end
+-- Account writes additionally protect visible flags and groups of other items.
+function M.protected(snapshot,id)
+    if type(snapshot)~='table' or not array(snapshot.books) or not array(snapshot.archive) then return nil end
+    local clean={books={},archive={}}
+    for _i,book in ipairs(snapshot.books) do if Snapshot.id(book)~=id then clean.books[#clean.books+1]=book end end
+    for _i,group in ipairs(snapshot.archive) do
+        if type(group)~='table' then return nil end
+        local row={};for key,value in pairs(group) do row[key]=value end
+        for _j,field in ipairs({'bookIds','albumIds'}) do
+            if row[field]~=nil then
+                if not array(row[field]) then return nil end
+                local values={};for _k,value in ipairs(row[field]) do if tostring(value)~=id then values[#values+1]=value end end
+                row[field]=values
+            end
+        end
+        clean.archive[#clean.archive+1]=row
+    end
+    local ok,value=pcall(require('weread.lib.shelf_flag_change_contract').state_hash,clean)
+    return ok and value or nil
 end
 function M.fetch(client,settings,selected)
     assert(selected and not selected.renewal_pending and Access.matches(settings,selected),'shelf_membership/access_changed')
@@ -51,6 +82,9 @@ function M.run(client,settings,selected,plan,owns)
         if first.native_expired then result.kind='login';return end
         local fresh=assert(first.snapshot)
         local members=assert(M.members(fresh))
+        if M.is_account(plan.book_id) then
+            assert(type(plan.protected_digest)=='string' and M.protected(fresh,plan.book_id)==plan.protected_digest,'shelf_membership/changed')
+        end
         local before=M.contains(fresh,plan.book_id)
         if before==(plan.operation=='add') then result.kind='noop';result.snapshot=fresh;return end
         if before~=plan.before or M.digest(members)~=plan.members_digest then
@@ -73,6 +107,7 @@ function M.run(client,settings,selected,plan,owns)
             if read then
                 local observed=M.contains(snapshot,plan.book_id)==(plan.operation=='add')
                 local same=M.digest(assert(M.members(snapshot)))==M.expected(plan)
+                if M.is_account(plan.book_id) then same=same and M.protected(snapshot,plan.book_id)==plan.protected_digest end
                 result.snapshot=snapshot
                 if observed then
                     result.confirmed=acknowledged==true and same

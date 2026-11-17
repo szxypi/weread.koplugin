@@ -148,15 +148,24 @@ function Auth:read_shelf(credentials)
     return shelf
 end
 
--- Single-book membership writes verified by the owner's bounded Python
--- add/readback/remove/readback experiment on 2026-11-10. Never renew or retry.
+-- Numeric-book and public-account membership writes independently verified by
+-- bounded owner roundtrips. Never renew or retry a dispatched operation.
 function Auth:write_shelf_membership(credentials, book_id, operation, on_dispatch)
-    if type(book_id)~='string' or #book_id>20 or not book_id:match('^[1-9]%d*$')
+    local numeric=type(book_id)=='string' and #book_id<=20 and book_id:match('^[1-9]%d*$')
+    local account=type(book_id)=='string' and #book_id<=27 and book_id:match('^MP_WXS_[1-9]%d*$')
+    if not numeric and not account
         or operation~='add' and operation~='remove' then fail('shelf_write','invalid') end
     if type(credentials)~='table' or vid(credentials.vid)~=self.expected_vid
         or not text(credentials.accessToken,8192) then fail('shelf_write','invalid_credentials') end
     local path=operation=='add' and '/shelf/add' or '/shelf/delete'
-    return self:_request('shelf_write',BASE..path,{bookIds={book_id}},credentials,nil,on_dispatch)
+    local body={bookIds={book_id}}
+    if account then
+        local ok,empty=pcall(self.client.json_decode,self.client,'[]')
+        local encoded,wire=pcall(self.client.json_encode,self.client,empty)
+        if not ok or type(empty)~='table' or next(empty)~=nil or not encoded or wire~='[]' then fail('shelf_write','invalid_array') end
+        body.albumIds,body.archiveIds=empty,empty
+    end
+    return self:_request('shelf_write',BASE..path,body,credentials,nil,on_dispatch)
 end
 
 -- Read-only bookstore queries verified by verify_native_discovery.py.

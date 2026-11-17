@@ -50,6 +50,10 @@ function M:prepare(book_id,guard,callback,resolve)
         local plan={snapshot=snapshot,book_id=book_id,before=Task.contains(snapshot,book_id),resolving=resolve==true}
         plan.operation=plan.before and 'remove' or 'add'
         job.input={book_id=book_id,before=plan.before,operation=plan.operation,members=members,members_digest=Task.digest(members)}
+        if Task.is_account(book_id) then
+            job.input.protected_digest=Task.protected(snapshot,book_id)
+            if not job.input.protected_digest then callback(nil,'unavailable');return end
+        end
         self.preview,self.preview_job=plan,job;callback(plan)
     end)
     if not called or not started then self:cancel();return false,'unavailable' end
@@ -91,6 +95,7 @@ function M:commit(plan,callback)
         local confirmed=valid and observed_members and result.attempted and result.confirmed==true and result.acknowledged==true
             and Task.contains(result.snapshot,input.book_id)==(input.operation=='add')
             and Task.digest(observed_members)==Task.expected(input)
+            and (not Task.is_account(input.book_id) or Task.protected(result.snapshot,input.book_id)==input.protected_digest)
         local unsent=valid and result.attempted==false and ({noop=true,changed=true,unavailable=true,login=true})[result.kind]
         local finished=(confirmed or unsent) and journal:finish(selected.scope,record)
         callback(valid and result or {kind='unconfirmed',attempted=true},finished==true,selected)

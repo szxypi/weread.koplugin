@@ -41,6 +41,12 @@ local function cache(host,snapshot)
     if ok and saved then host:applyShelfSnapshot(snapshot.books,snapshot.archive);return true end
     return false
 end
+local function redraw_account_shelf(host,account,saved)
+    local view=host.shelf_view
+    if account and saved and view and host.showShelfView then
+        host:showShelfView('public_account',host.shelf_search_keyword,view,{page=view.page})
+    end
+end
 function M.open(host,id,resolving)
     M.cancel(host)
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
@@ -98,11 +104,17 @@ function M.open(host,id,resolving)
         local book=host.library_db:getBook(plan.book_id)
         local title=type(book)=='table' and book.title or _('Selected book')
         if type(title)~='string' or title=='' or #title>4096 then title=_('Selected book') end
+        local account=require('weread.lib.shelf_membership_write').is_account(plan.book_id)
         local text,label
         if plan.resolving then
             text=T(plan.before and _('“%1” is currently in the cloud bookshelf. Keep this current state and finish checking the previous change?')
                 or _('“%1” is currently outside the cloud bookshelf. Keep this current state and finish checking the previous change?'),title)
             label=_('Accept current shelf state')
+        elseif account and plan.before then
+            text=_('Unsubscribe from this public account? Downloaded articles and local reading records are kept.')
+            label=_('Unsubscribe')
+        elseif account then
+            text=_('Subscribe to this public account?');label=_('Subscribe')
         elseif plan.before then
             text=T(_('Remove “%1” from the cloud bookshelf? Downloaded files and local reading progress are kept.'),title)
             label=_('Remove from cloud bookshelf')
@@ -116,7 +128,7 @@ function M.open(host,id,resolving)
                 if plan.resolving then
                     local accepted=host.shelf_membership:accept_current(plan)
                     local saved=accepted and cache(host,plan.snapshot)
-                    M.cancel(host);require('weread.ui.shelf_state').show(host,plan.book_id)
+                    M.cancel(host);redraw_account_shelf(host,account,saved);require('weread.ui.shelf_state').show(host,plan.book_id)
                     host:showInfo(accepted and (saved and _('The current bookshelf state is confirmed.')
                         or _('The cloud bookshelf was checked, but its local snapshot could not be saved. Refresh shelf status.')) or error_text('storage'))
                     return
@@ -126,11 +138,12 @@ function M.open(host,id,resolving)
                     if not current(host,ctx) then return end
                     if finished and result.kind=='login' and result.attempted==false then recover(used);return end
                     local saved=cache(host,result.snapshot)
-                    M.cancel(host);require('weread.ui.shelf_state').show(host,plan.book_id)
+                    M.cancel(host);redraw_account_shelf(host,account,saved);require('weread.ui.shelf_state').show(host,plan.book_id)
                     local message
                     if not finished then message=error_text('unconfirmed')
                     elseif result.kind=='confirmed' or result.kind=='noop' then
-                        message=saved and (plan.operation=='add' and _('Added to the cloud bookshelf.') or _('Removed from the cloud bookshelf.'))
+                        message=saved and (account and (plan.operation=='add' and _('Public account subscribed.') or _('Public account unsubscribed.'))
+                            or plan.operation=='add' and _('Added to the cloud bookshelf.') or _('Removed from the cloud bookshelf.'))
                             or _('The cloud bookshelf was checked, but its local snapshot could not be saved. Refresh shelf status.')
                     elseif result.kind=='changed' then message=_('The bookshelf changed after confirmation. No change was sent. Check its current state and try again.')
                     else message=error_text('unavailable') end

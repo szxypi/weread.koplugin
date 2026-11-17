@@ -781,6 +781,9 @@ function M:showShelfView(mode, keyword, old_view, options)
         on_imported_mp_links = not options.on_select and function()
             if current() then require('weread.ui.mp_link').list(self,view,current) end
         end or nil,
+        on_manage_mp_accounts = not options.on_select and function()
+            if current() then require('weread.ui.mp_link').accounts(self,view,current) end
+        end or nil,
         on_select = function(book, selected_mode)
             if not current() then return end
             if options.on_select then

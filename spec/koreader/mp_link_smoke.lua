@@ -45,6 +45,27 @@ if not reopen then
 else choose('Imported articles') end
 local menu=assert(plugin._mp_link_menu);assert(#menu.item_table==1 and menu.item_table[1].text=='合成导入文章标题','imported article title missing')
 UI:forceRePaint();Device.screen:shot(evidence..(reopen and '/imported-offline.png' or '/imported.png'))
+if not reopen then
+    UI:close(menu);choose('Manage public account subscriptions')
+    local accounts=assert(plugin._mp_link_menu);assert(#accounts.item_table==1,'public-account manager missing imported account')
+    accounts:onMenuSelect(accounts.item_table[1])
+    local function change(label)
+        local state=assert(plugin._shelf_state_menu);local action
+        for _i,row in ipairs(state.item_table) do
+            if row.text==require('weread.lib.i18n').tr('Change cloud membership') then action=row end
+        end
+        assert(action,'subscription status action missing');state:onMenuSelect(action)
+        pump(function() return plugin._shelf_membership_ui and plugin._shelf_membership_ui.dialog end)
+        local dialog=assert(plugin._shelf_membership_ui.dialog)
+        assert(dialog.ok_text==require('weread.lib.i18n').tr(label),'wrong subscription confirmation')
+        dialog.ok_callback();pump(function() return not plugin._shelf_membership_ui end)
+        assert(not plugin.shelf_membership:pending(),'confirmed subscription remained pending')
+        local notice=UI:getTopmostVisibleWidget();if notice and notice.text then UI:close(notice) end
+    end
+    change('Subscribe');change('Unsubscribe')
+    if plugin._shelf_state_menu then UI:close(plugin._shelf_state_menu) end
+    view=assert(plugin.shelf_view);choose('Imported articles');menu=assert(plugin._mp_link_menu)
+end
 local opened;plugin.openFile=function(_self,path) opened=path end
 menu:onMenuSelect(menu.item_table[1]);pump(function() return opened~=nil or not plugin.mp_download_job and not plugin.mp_records_job end)
 assert(opened,'imported article did not open')

@@ -53,6 +53,44 @@ function M.list(host,owner,current)
         end
     end
 end
+function M.accounts(host,owner,current)
+    if not current() then return end
+    local account=host.library_db and host.library_db:accountKey()
+    local rows=Store.list(host.library_db,account)
+    if not rows then text_error(host);return end
+    local selected,entries={},{}
+    local function add(id,title,detail)
+        if not require('weread.lib.shelf_membership_write').is_account(id) or selected[id] then return end
+        selected[id]=true;entries[#entries+1]={id=id,title=title,detail=detail}
+    end
+    for _i,book in ipairs(host.shelf_mp or {}) do
+        if type(book)=='table' then add(book.book_id or book.bookId,book.title or _('Public Account'),'') end
+    end
+    for _i,row in ipairs(rows) do
+        local saved=host.settings:get('books',{})[row.book_id]
+        local title=type(saved)=='table' and type(saved.title)=='string' and saved.title~='' and saved.title
+            or _('Public account from imported article')
+        add(row.book_id,title,row.title)
+    end
+    if #entries==0 then host:showInfo(_('No public accounts to manage.'));return end
+    local items,menu={}
+    for _,entry in ipairs(entries) do
+        items[#items+1]={text=entry.title,post_text=entry.detail,callback=function()
+            if not current() or host._mp_link_menu~=menu or host.library_db:accountKey()~=account then return end
+            require('weread.ui.shelf_state').show(host,entry.id)
+        end}
+    end
+    if host._mp_link_menu then UI:close(host._mp_link_menu) end
+    menu=host:showList(_('Manage public account subscriptions'),items,_('No public accounts to manage.'))
+    host._mp_link_menu=menu
+    if menu then
+        local previous=menu.onCloseWidget
+        menu.onCloseWidget=function(instance,...)
+            if host._mp_link_menu==instance then host._mp_link_menu=nil end
+            if previous then return previous(instance,...) end
+        end
+    end
+end
 function M.start(host,owner,current,url)
     if not current() then return false end
     M.cancel(host)

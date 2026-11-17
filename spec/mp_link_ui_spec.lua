@@ -13,6 +13,7 @@ package.preload['weread.lib.mp_link_store']=function() return {
     list=function(_db,account) return account==state.account and state.rows end} end
 package.preload['weread.lib.content']=function() return {mp_article_cached_path=function() return state.cached and '/cached' end} end
 package.preload['weread.ui.mp_record_recovery']=function() return {open=function() state.opened=true end} end
+package.preload['weread.ui.shelf_state']=function() return {show=function(_host,id) state.managed=id end} end
 local Module=require('weread.ui.mp_link')
 local n=0
 local function expect(value,label) n=n+1;assert(value,label) end
@@ -38,6 +39,9 @@ state.items[1].callback();expect(state.downloaded,'selected article did not ente
 state.downloaded=nil;state.cached=true;state.items[1].callback();expect(state.opened and not state.downloaded,'cache not reopened')
 local old_item=state.items[1];host._mp_link_menu.onCloseWidget(host._mp_link_menu);state.opened=false;old_item.callback()
 expect(not state.opened and not state.downloaded,'closed article list remained active')
+Module.accounts(host,{},current);expect(#state.items==1 and state.items[1].post_text=='Article title','imported account missing')
+state.items[1].callback();expect(state.managed=='MP_WXS_42','account status not opened')
+local old_account=state.items[1];state.managed=nil;state.account='two';old_account.callback();expect(not state.managed,'stale account action remained active')
 for _,change in ipairs({'account','view','credentials','expired'}) do
     host,current,deliver=fixture();Module.start(host,{},current,'valid')
     if change=='account' then state.account='two' elseif change=='view' then state.alive=false

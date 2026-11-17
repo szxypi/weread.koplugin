@@ -31,6 +31,7 @@ def main():
                 if reopen:assert server.request_totals==before,'offline reopen sent HTTP'
             assert server.request_totals[('/mp/getreviewid','')]==1,'lookup count mismatch'
             assert server.request_totals[('/web/mp/content','')]==2,'title and article body count mismatch'
+            assert server.request_totals[('/shelf/add','')]==server.request_totals[('/shelf/delete','')]==1,'subscription roundtrip count mismatch'
             assert server.request_totals[('/web/book/read','')]==0,'reading state changed'
             print(f'PASS: packaged article import and offline reopen; {a.width}x{a.height}')
         finally:server.shutdown();thread.join()

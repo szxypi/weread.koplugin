@@ -14,9 +14,9 @@ local function fixture(queue,operation)
     local grant={vid='900000',accessToken='synthetic-access'}
     local store={read=function() return grant,f.revision,nil,false end}
     local settings={get_auth_scope=function() return {vid='900000',epoch=1} end,auth_scope_matches=function() return f.valid end}
-    local response
-    local client={json_encode=function(_self,body) f.bodies[#f.bodies+1]=body;return 'encoded' end,
-        json_decode=function() if response.invalid then error('private JSON') end;return response.data or response end,
+    local response,empty={},{}
+    local client={json_encode=function(_self,body) if body==empty then return '[]' end;f.bodies[#f.bodies+1]=body;return 'encoded' end,
+        json_decode=function(_self,value) if value=='[]' then return empty end;if response.invalid then error('private JSON') end;return response.data or response end,
         request=function(_self,options)
             expect(options.skip_cookie and options.persist_response_cookies==false and options.sensitive,'membership request leaked shared Web state')
             expect(options.headers.vid=='900000' and options.headers.accessToken=='synthetic-access' and not options.headers.Cookie,'captured owner/grant lost')
@@ -73,4 +73,26 @@ for _i,id in ipairs({'MP_1','0','42/other',string.rep('1',21)}) do
     expect(not pcall(auth.write_shelf_membership,auth,f.selected.credentials,id,'add') and #f.requests==0,'nonordinary target reached HTTP')
 end
 expect(not pcall(auth.write_shelf_membership,auth,f.selected.credentials,'42','finish') and #f.requests==0,'unverified markstatus API was exposed')
+local target='MP_WXS_42'
+f=fixture({shelf('41'),{succ=1},shelf('41',target)})
+f.plan.book_id=target;f.plan.protected_digest=Task.protected(shelf('41'),target)
+r=f.run();expect(r.confirmed and f.requests[2].url=='https://i.weread.qq.com/shelf/add','account subscription not confirmed')
+expect(f.bodies[1].bookIds[1]==target and #f.bodies[1].albumIds==0 and #f.bodies[1].archiveIds==0,'account request lost verified arrays')
+f=fixture({shelf('41',target),{succ=1},shelf('41')},'remove')
+f.plan.book_id=target;f.plan.members=Task.members(shelf('41',target));f.plan.members_digest=Task.digest(f.plan.members)
+f.plan.protected_digest=Task.protected(shelf('41',target),target)
+r=f.run();expect(r.confirmed and f.requests[2].url=='https://i.weread.qq.com/shelf/delete','account unsubscribe failed')
+local altered=shelf('41',target);altered.books[1].secret=1
+f=fixture({shelf('41'),{succ=1},altered});f.plan.book_id=target;f.plan.protected_digest=Task.protected(shelf('41'),target)
+r=f.run();expect(r.attempted and not r.confirmed and r.kind=='unconfirmed','unrelated flag change was confirmed')
+f=fixture({shelf('41'),{},shelf('41',target)});f.plan.book_id=target;f.plan.protected_digest=Task.protected(shelf('41'),target)
+r=f.run();expect(r.attempted and not r.confirmed and r.kind=='unconfirmed' and #f.requests==3,'unknown account receipt was replayed or confirmed')
+f=fixture({shelf('41')});f.plan.book_id=target;f.plan.protected_digest=string.rep('0',64)
+r=f.run();expect(not r.attempted and #f.requests==1,'changed protected snapshot reached HTTP')
+for _,id in ipairs({'MP_WXS_0','MP_WXS_42/extra','MP_WXS_'..string.rep('9',21)}) do
+    expect(not Task.book_id(id),'invalid public account accepted')
+end
+f=fixture({});f.client.json_decode=function() return {} end;f.client.json_encode=function() return '{}' end
+auth=Auth:new(f.client,{expected_vid='900000'})
+expect(not pcall(auth.write_shelf_membership,auth,f.selected.credentials,target,'add') and #f.requests==0,'untyped empty arrays reached transport')
 print(('shelf_membership_write_spec: %d checks'):format(checks))

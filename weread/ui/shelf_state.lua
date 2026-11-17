@@ -52,7 +52,7 @@ function M.show(host,id)
         items[#items+1]={text=_('No saved shelf snapshot for this book.'),select_enabled=false}
     end
     local menu
-    if host.shelf_membership and id:match('^[1-9]%d*$') and #id<=20 then
+    if host.shelf_membership and require('weread.lib.shelf_membership_write').book_id(id) then
         items[#items+1]={text=_('Change cloud membership'),callback=function()
             if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_membership_write').open(host,id) end
         end}
