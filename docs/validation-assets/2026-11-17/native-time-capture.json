@@ -1,0 +1,53 @@
+{
+  "result": "PASS_SYNTHETIC_CAPTURE_FULL_GOAL_ACTIVE",
+  "based_on_head": "dfa429f431df410033703f6954c4925214aa1566",
+  "source_version_from_fresh_catalogue_only": true,
+  "old_file_and_ledger_not_relabelled": true,
+  "missing_or_conflicting_versions_remain_unknown": true,
+  "immutable_new_scope_distinct_from_old_capture": true,
+  "archive_and_native_rows_retained": true,
+  "screens": [
+    {
+      "screen": "600",
+      "seconds": 6,
+      "rows": 1,
+      "real_statistics": true,
+      "sqlite_reopened": true,
+      "same_day_deferred": true,
+      "profile_removed": true,
+      "installed_files": 295
+    },
+    {
+      "screen": "ko2",
+      "seconds": 6,
+      "rows": 1,
+      "real_statistics": true,
+      "sqlite_reopened": true,
+      "same_day_deferred": true,
+      "profile_removed": true,
+      "installed_files": 295
+    }
+  ],
+  "normal_reading_and_offline_progress_screens": [
+    600,
+    1264
+  ],
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "real_account_captured": false,
+  "historical_upload_tested": false,
+  "future_write_granted": false,
+  "python_modules": 136,
+  "python_tests": 1724,
+  "python_skips": 0,
+  "new_python_tests": 9,
+  "lua_spec_groups": 264,
+  "catalog_version_checks": 24,
+  "book_reading_checks": 72,
+  "lua_syntax": 756,
+  "lint_files": 754,
+  "lint_warnings": 0,
+  "package_files": 295,
+  "package_sha256": "ab39a20397cdcdd666d7fa7112accbefa9bada6a544b11a411417694e3f8753e",
+  "whole_goal_complete": false
+}

@@ -8,7 +8,7 @@ package.preload["ui/uimanager"] = function()
     end }
 end
 package.preload["weread.lib.plugin_util"] = function() return { tr = function(text) return text end } end
-local saved_catalogs = 0
+local saved_catalogs,source_version = 0,0
 local catalog = { { chapterUid = 1, chapterIdx = 1, title = "One", wordCount = 100 },
     { chapterUid = 2, chapterIdx = 2, title = "Two", wordCount = 100 } }
 package.preload["weread.lib.content"] = function() return {
@@ -16,7 +16,7 @@ package.preload["weread.lib.content"] = function() return {
         book.token = "private-synthetic-token"
         return { progress = { chapterUid = 2 }, current_chapter = { chapterUid = 1 } }
     end,
-    fetch_catalog = function() return catalog end,
+    fetch_catalog = function() return catalog,source_version end,
     save_catalog_cache = function() saved_catalogs = saved_catalogs + 1; return true end,
 } end
 local Reading = require("weread.ui.book_reading")
@@ -159,4 +159,19 @@ for _i,id in ipairs({'CB_','CB_'..string.rep('a',65),'CB_a/b','CB_a_b','MP_WXS_s
     host,state=fixture()
     expect(not Reading.start(host,{book_id=id}) and not state.job and state.downloads==0,'invalid CB reading started work')
 end
+-- A fresh catalogue version belongs only to the new download, never the
+-- mutable book record or existing cache/ledger identity.
+source_version=7;host,state=fixture()
+local latest=host.settings:get_book('900001');latest.bookVersion=99;latest.cached_file='/cache/old-source.epub'
+Reading.start(host,book);result=state.job.task();expect(result.source_version==7,'worker dropped observed source version')
+state.job.complete(result)
+expect(state.download.book.bookVersion==7 and latest.bookVersion==99,'new source reused shelf version or relabelled old cache')
+expect(state.download.book~=latest and latest.cached_file=='/cache/old-source.epub','new download mutated the existing source record')
+state.download.options.on_complete(true,'/cache/new-source.epub');tasks[1]()
+for _i,value in ipairs({true,'7',-1,2147483648,1.5}) do
+    host,state=fixture();Reading.start(host,book);result=state.job.task();result.source_version=value;state.job.complete(result)
+    expect(state.downloads==0 and not host.busy_message,'malformed source version reached downloader')
+end
+source_version=0;host,state=fixture();Reading.start(host,book);state.job.complete(state.job.task())
+expect(state.download.book.bookVersion==0,'missing catalogue version fell back to display metadata')
 print(("book_reading_spec: %d checks"):format(checks))

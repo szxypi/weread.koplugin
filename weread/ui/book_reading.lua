@@ -130,7 +130,8 @@ function M.start(host, book, view)
         local copy = { book_id = id, title = book.title, author = book.author, reader_url = book.reader_url }
         local state = Content.ensure_reader_state(host.client, copy)
         local progress, chapter = state.progress or {}, state.current_chapter or {}
-        return { book_id = id, chapters = M.catalog(Content.fetch_catalog(host.client, copy)), auth = auth_result(),
+        local chapters,version=Content.fetch_catalog(host.client,copy)
+        return { book_id = id, chapters = M.catalog(chapters), source_version=version or 0, auth = auth_result(),
             remote = { chapter_uid = progress.chapterUid or chapter.chapterUid,
                 chapter_idx = progress.chapterIdx or chapter.chapterIdx } }
     end, function(result)
@@ -138,7 +139,8 @@ function M.start(host, book, view)
         if host.book_reading_context ~= context then return end
         if not current() or WorkerSettings.fingerprint(host.settings) ~= context.fingerprint then M.cancel(host); return end
         local chapters = type(result) == "table" and result.book_id == id and M.catalog(result.chapters)
-        if not chapters then fail(); return end
+        if not chapters or type(result.source_version)~='number' or result.source_version%1~=0
+            or result.source_version<0 or result.source_version>2147483647 then fail();return end
         if result.auth and not WorkerSettings.merge(host.settings, context.fingerprint, result.auth) then fail(); return end
         local latest = host.settings:get_book(id) or book
         local target = M.choose(chapters, latest, result.remote, context.account)
@@ -149,6 +151,7 @@ function M.start(host, book, view)
         end)
         if not saved then fail(); return end
         close_busy(host, context)
+        local download_book
         context.complete = function(success, path)
             if host.book_reading_context ~= context then return end
             if not success or not current() then M.cancel(host); return end
@@ -157,10 +160,14 @@ function M.start(host, book, view)
                 if host.book_reading_context ~= context then return end
                 if not current() then M.cancel(host); return end
                 host.book_reading_context = nil
-                host:openFile(path,nil,latest)
+                host:openFile(path,nil,download_book)
             end)
         end
-        local launched, accepted = pcall(host.downloader.start, host.downloader, latest, { target }, "chapter", {
+        -- Bind only this new download to the catalogue just read. Existing
+        -- cached files/ledger identities are never relabelled from metadata.
+        download_book={};for key,value in pairs(latest) do download_book[key]=value end
+        download_book.bookVersion=result.source_version
+        local launched, accepted = pcall(host.downloader.start, host.downloader, download_book, { target }, "chapter", {
             single_chapter = true, offer_read = false, silent_completion = true, on_complete = context.complete,
         })
         if not launched then fail() elseif not accepted then M.cancel(host) end

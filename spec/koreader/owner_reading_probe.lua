@@ -155,6 +155,9 @@ local ok,reason=pcall(function()
         elseif input.cloud_mock_port then
             assert(input.raw_cloud_preview and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key')
             value.mock_endpoint='http://127.0.0.1:'..input.cloud_mock_port
+        elseif input.time_capture_mock_port then
+            assert(input.native_time_capture and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key')
+            value.mock_endpoint='http://127.0.0.1:'..input.time_capture_mock_port
         elseif input.reader_mock_port then
             local grant=input.native_grant
             assert((reader_trial_mode or timer_trial_mode or close_trial_mode or native_recovery_mode or initial_reader_mode) and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
@@ -176,7 +179,7 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
-        if full or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview or input.native_source_excerpt or input.selection_preview then
+        if full or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview or input.native_source_excerpt or input.selection_preview or input.native_time_capture then
             local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
@@ -187,7 +190,11 @@ local ok,reason=pcall(function()
     pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
     mapping_bytes=full and 4096+4*1024*1024 or 4096
     local memory=ffi.C.mmap(nil,mapping_bytes,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1));counters=ffi.cast('int *',memory)
-    if input.annotations then
+    if input.native_time_capture then
+        assert(mode=='live' and input.source_format=='web_txt' and not full and arg[2] and arg[2]:match('/owner_native_time_capture_case%.lua$'))
+        candidate_case=dofile(arg[2])(input,counters)
+        report.native_time_capture=candidate_case.report
+    elseif input.annotations then
         assert(not full and arg[2])
         annotation_case=dofile(arg[2])(input,mode,counters)
         report.annotations=annotation_case.report
@@ -521,8 +528,8 @@ local ok,reason=pcall(function()
     local Common=require('weread.ui.common')
     Common.isNetworkOnline,Common.isNetworkConnected=function() return mode=='live' end,function() return mode=='live' end
     local Loader=require('pluginloader');Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
-    for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
-    assert(#Loader.enabled_plugins==1)
+    for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' or input.native_time_capture and entry.name=='statistics' then Loader:_load{entry} end end
+    assert(#Loader.enabled_plugins==(input.native_time_capture and 2 or 1))
     package.path=source..'/?.lua;'..package.path
     local FM,Reader=require('apps/filemanager/filemanager'),require('apps/reader/readerui')
     local socket=require('socket')

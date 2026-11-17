@@ -1633,7 +1633,7 @@ function Content.fetch_catalog(client, book)
     end
     local chapters = Content.readable_chapters(Content.normalize_chapters(catalog, book_id))
     book.chapters = chapters
-    return chapters
+    return chapters,require('weread.lib.catalog_source_version').read(catalog,tostring(book_id))
 end
 
 function Content.fetch_chapter_shard(client, _settings, book, chapter, endpoint)
