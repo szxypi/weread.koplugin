@@ -97,7 +97,7 @@ class NativeCrossDayTests(unittest.TestCase):
         original_result = dict(native_original_state_unchanged=True, web_original_state_unchanged=True, old_group_absent=True)
         stable_stat = dict(baseTime=1, readTimes={'1':5}, totalReadTime=5, readDays=1)
 
-        def run_case(*, samples=None, statistics=None, changed_store=False, now=None, includes_fixture=False, end_clock=None, clock_sequence=None):
+        def run_case(*, samples=None, statistics=None, changed_store=False, now=None, includes_fixture=False, end_clock=None, clock_sequence=None, second_read=None, drift=None):
             clock = plan['not_before'] if now is None else now
             clock_source=Mock(side_effect=clock_sequence) if clock_sequence is not None else ((lambda:clock) if end_clock is None else Mock(side_effect=[clock]*6+[end_clock]))
             month_count = len({task.period('monthly', plan['start_time'])[0], task.period('monthly', clock)[0]})
@@ -106,6 +106,11 @@ class NativeCrossDayTests(unittest.TestCase):
             uploads, groups, olds, receipt = Mock(), Mock(), Mock(), Mock()
             groups.read.return_value = (group, 'g'); olds.read.return_value = (old, 'o')
             web = Mock(); web.book_id = plan['book_id']; web.chapter = plan['chapter_uid']
+            web.inspect.return_value=second_read if second_read is not None else {'cloud_position_stable':True,'catalog_stable':True}
+            if drift:
+                def inspect(_book):
+                    setattr(web,drift,'900009');return {'cloud_position_stable':True,'catalog_stable':True}
+                web.inspect.side_effect=inspect
             api, stats = Mock(), Mock()
             api_factory = Mock(return_value=api)
             with ExitStack() as stack:
@@ -134,6 +139,13 @@ class NativeCrossDayTests(unittest.TestCase):
         changed_stat = deepcopy(stable_stat); changed_stat['totalReadTime'] += 1
         with self.assertRaisesRegex(ValueError, 'native_cross_day/statistics_changed'): run_case(statistics=[stable_stat, changed_stat])
         with self.assertRaisesRegex(ValueError, 'native_cross_day/state_changed'): run_case(changed_store=True)
+        for name in ('cloud_position_stable','catalog_stable'):
+            report={'cloud_position_stable':True,'catalog_stable':True};report[name]=False
+            with self.subTest(name=name),self.assertRaisesRegex(ValueError,'native_cross_day/second_read_changed'):
+                run_case(second_read=report)
+        for name in ('book_id','chapter'):
+            with self.subTest(name=name),self.assertRaisesRegex(ValueError,'native_cross_day/second_read_changed'):
+                run_case(drift=name)
         with self.assertRaisesRegex(ValueError, 'native_cross_day/clock'): run_case(end_clock=plan['not_before']+86400)
         with self.assertRaisesRegex(ValueError, 'native_cross_day/clock'): run_case(end_clock=plan['not_before']-1)
         current=plan['not_before']+5

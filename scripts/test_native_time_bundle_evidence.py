@@ -143,6 +143,7 @@ class EvidenceTests(unittest.TestCase):
                           native_group_present=False,web_group_present=False)
         original=dict(native_original_state_unchanged=True,web_original_state_unchanged=True,old_group_absent=True)
         web=Mock();web.book_id=plan['book_id'];web.chapter=plan['chapter_uid'];web.record=synthetic_catalog(plan)
+        web.inspect.return_value={'cloud_position_stable':True,'catalog_stable':True}
         web._time_catalog_pair=synthetic_pairs(web.record)[0]
         uploads,groups,olds,receipt=Mock(),Mock(),Mock(),Mock()
         groups.read.return_value=(group,'g');olds.read.return_value=(old,'o')
@@ -164,6 +165,7 @@ class EvidenceTests(unittest.TestCase):
             def change_catalog(_book):
                 web.record=synthetic_catalog(plan);web.record['updated'][0]['version']=1
                 web._time_catalog_pair=synthetic_pairs(web.record)[0]
+                return {'cloud_position_stable':True,'catalog_stable':True}
             web.inspect.side_effect=change_catalog
             with self.assertRaisesRegex(ValueError,'bundle_evidence/catalog'):
                 preflight.run(saved,grant,store,lambda:True,web,api_factory=lambda *args:Mock(),

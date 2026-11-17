@@ -132,7 +132,11 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
     for index in range(2):
         if index:
             sleep(2)
-            web.inspect(web.book_id)
+            checked=web.inspect(web.book_id)
+            if (not isinstance(checked,dict) or checked.get('cloud_position_stable') is not True
+                    or checked.get('catalog_stable') is not True or web.book_id!=plan['book_id']
+                    or web.chapter!=plan['chapter_uid']):
+                raise ValueError('native_cross_day/second_read_changed')
         observed_at=int(clock())
         if observed_at<plan['not_before'] or observed_at<previous_at or day(observed_at)!=day(started_at):
             raise ValueError('native_cross_day/clock')
