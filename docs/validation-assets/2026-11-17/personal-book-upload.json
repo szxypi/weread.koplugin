@@ -491,5 +491,29 @@
     "previous_test_scopes_and_native_grant_unchanged": true,
     "physical_kindle_tested": false,
     "local_original_page_count_verified": true
+  },
+  "real_account_same_session_upload_and_cloud_reading": {
+    "screen": "1264x1680_300dpi",
+    "fixture_bytes": 13601,
+    "same_plan_zero_write_preview": true,
+    "packaged_plugin_menu_chooser_confirmation": true,
+    "same_live_session_upload_shelf_download_read_and_page_turn": true,
+    "target_bound_and_all_49_synthetic_passages_independently_verified_before_reading": true,
+    "downloaded_source_receipt_matched": true,
+    "native_credential_requests": 1,
+    "native_cos_put_attempts": 1,
+    "native_notify_posts": 1,
+    "independent_cleanup_posts": 1,
+    "authentication_posts": 0,
+    "reader_account_data_writes": 0,
+    "cloud_position_unchanged": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_native_grant_unchanged": true,
+    "web_owner_verified": true,
+    "private_profile_removed": true,
+    "offline_reopen_in_this_run": false,
+    "synthetic_same_session_600x800": "PASS",
+    "synthetic_same_session_1264x1680": "PASS",
+    "refused_identity_gate_stopped_reader": true
   }
 }
