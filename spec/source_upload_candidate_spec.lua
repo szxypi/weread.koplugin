@@ -34,6 +34,15 @@ for _i,bad in ipairs({{chapterUid=11},{chapterUid=11,chapterIdx=true},{chapterUi
     expect(not Candidate.project(point,'ABCDEFGHIJKLMNOPQRST',{bad},37),'ambiguous catalog accepted')
 end
 expect(not Candidate.project(point,'ABCDEFGHIJKLMNOPQRST',{chapter,chapter},37),'duplicate UID accepted')
+for _i,catalog in ipairs({chapters,{{chapterUid=11,chapterIdx=0},{chapterUid=12,chapterIdx=1}},
+    {{chapterUid=11,chapterIdx=1,chapter_idx=2},{chapterUid=12,chapterIdx=1}},
+    {{chapterUid=11,chapterIdx=0},{chapterUid=11,chapterIdx=0}},
+    {{chapterUid=11,chapterIdx=0},{chapterUid=12,chapterId=13,chapterIdx=1}}}) do
+    local indexes=Candidate.chapter_indices(catalog)
+    for _j,uid in ipairs({'11','12','13'}) do
+        expect((indexes and indexes[uid] or nil)==Candidate.chapter_index(catalog,uid),'bulk index disagrees with single lookup')
+    end
+end
 for _i,percent in ipairs({-1,101,.5,0/0,math.huge,'37',true}) do
     expect(not Candidate.project(point,'ABCDEFGHIJKLMNOPQRST',chapters,percent),'invalid percent accepted')
 end

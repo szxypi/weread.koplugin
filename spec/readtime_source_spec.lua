@@ -51,6 +51,39 @@ for _i,change in ipairs({function(v) v[2]=F.clone(v[1]) end,function(v) v[1].boo
     local value=F.clone(catalog);change(value);expect(M.version(value,'42')==nil)
 end
 expect(M.references({},chapters)==nil)
+-- More than 128 cached references are scanned in bounded background pages.
+-- The matching file is deliberately after the old limit.
+local many,cache={},{}
+for i=1,160 do
+    local uid=i==155 and 7 or i+100
+    many[i]={chapterUid=uid,chapterIdx=i==155 and 0 or i}
+    cache[tostring(uid)]=i==155 and '/synthetic.epub' or '/missing-'..i..'.epub'
+end
+local many_book={cached_chapters=cache}
+local probe=fixture();local reads=probe.options.read_archive
+probe.options.read_archive=function(file,wanted) if file~='/synthetic.epub' then return nil end;return reads(file,wanted) end
+local cursor,found,pages=1,nil,0
+repeat
+    local page=M.scan_page(many_book,many,selection,nil,cursor,probe.options);pages=pages+1
+    if page.kind=='found' then found=page.reference;break end
+    expect(page.kind=='more' and page.cursor>cursor);cursor=page.cursor
+until pages>10
+expect(found and found.chapter_uid=='7' and found.chapter_idx==0 and pages==5)
+expect(M.scan_page(many_book,many,selection,result,129,probe.options).kind=='found')
+local wrong=F.clone(result);wrong.ref.file='/other.epub'
+expect(M.scan_page(many_book,many,selection,wrong,129,probe.options).kind=='more')
+local changed_selection=F.clone(selection);changed_selection.file_id=string.rep('f',64)
+expect(M.scan_page(many_book,many,changed_selection,nil,129,probe.options).kind=='more')
+local duplicate=F.clone(many);duplicate[156]=F.clone(duplicate[155])
+expect(M.scan_page(many_book,duplicate,selection,nil,129,probe.options).kind=='more')
+local invalid=F.clone(many);invalid[2].chapterId=99999
+expect(M.scan_page(many_book,invalid,selection,nil,129,probe.options).kind=='unavailable')
+expect(M.scan_page(many_book,many,selection,nil,0,probe.options).kind=='unavailable')
+local largest={};for i=1,10000 do largest[i]={chapterUid=i==10000 and 7 or i+100,chapterIdx=i==10000 and 0 or i} end
+local last_match=M.scan_page({cached_chapters={['7']='/synthetic.epub'}},largest,selection,nil,9985,probe.options)
+expect(last_match.kind=='found' and last_match.reference.chapter_uid=='7','last supported catalog entry was skipped')
+local first_full=M.scan_page({cached_full_book='/synthetic.epub'},chapters,selection,nil,1,probe.options)
+expect(first_full.kind=='found' and first_full.reference.file=='/synthetic.epub','full-book source did not get priority')
 if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     local ffi=require('ffi');require('ffi/posix_h')
     local path=os.tmpname();local fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)

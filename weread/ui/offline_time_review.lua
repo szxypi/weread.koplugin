@@ -186,33 +186,78 @@ transfer=function(host,context,mode,input)
             return require('weread.lib.readtime_transfer_lease').acquire(host,book,current)
         end
     end
-    local references
+    local references,book,chapters
     if online then
         local id=input.book_id or input.metadata.book_id
-        local book=host.settings:get_book(id)
-        local chapters=book and book.chapters
+        book=host.settings:get_book(id)
+        chapters=book and book.chapters
         if type(chapters)~='table' or #chapters==0 then chapters=host.library_db:getChapters(id) end
-        references=require('weread.lib.readtime_source').references(book,chapters)
-        if not references then host:showInfo(_('Download source needs verification'));load(host,context,'summary',{});return end
+        if type(chapters)~='table' or #chapters<=126 then
+            references=require('weread.lib.readtime_source').references(book,chapters)
+            if not references then host:showInfo(_('Download source needs verification'));load(host,context,'summary',{});return end
+        end
     end
     host:showBusy(_(online and 'Checking and transferring saved time...' or 'Updating saved time...'),function() M.close(host) end)
     context.busy=host.busy_message
-    local started,reason=host.offline_time_transfer_service:start(mode,context.account,input,references,current,function(result)
-        if not owns(host,context) or result.kind=='cancelled' then M.close(host);return end
+    local function start(refs)
+        if not current() then M.close(host);return end
+        local started,reason=host.offline_time_transfer_service:start(mode,context.account,input,refs,current,function(result)
+            if not owns(host,context) or result.kind=='cancelled' then M.close(host);return end
+            if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
+            local labels={confirmed='This batch is independently confirmed in cloud reading time.',
+                saved_confirmation='Cloud accounting is confirmed. Finish local bookkeeping from the review menu.',
+                completed='Local records updated. Original transfer evidence is kept.',
+                unconfirmed='Cloud accounting is not confirmed. The request is kept and will not be sent again.',
+                unavailable='Could not complete this operation. Saved records are kept.',login='Log in again before checking saved time.'}
+            dialog(host,context,_(labels[result.kind] or labels.unconfirmed),function() load(host,context,'summary',{}) end)
+        end)
+        if not started then
+            if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
+            local label=reason=='position_pending' and 'Review the unfinished position synchronization for this book first.'
+                or reason=='busy' and 'Another synchronization is running. Try again after it finishes.'
+                or reason=='login' and 'Log in again before checking saved time.' or 'Could not complete this operation. Saved records are kept.'
+            dialog(host,context,_(label),function() load(host,context,'summary',{}) end)
+        end
+    end
+    if not online or references then start(references);return end
+    local operation={};context.operation=operation
+    local selection=mode=='send' and input or input.metadata
+    local previous=mode=='resolve' and input.metadata.source or nil
+    local worker=host.offline_time_review_worker
+    local scan
+    scan=function(cursor)
+        if not current() or context.operation~=operation then
+            if host._offline_time_review==context and context.operation==operation then M.close(host) end
+            return
+        end
+        local page={};context.source_page=page
+        local ran,started=pcall(worker.start,worker,function()
+            return require('weread.lib.readtime_source').scan_page(book,chapters,selection,previous,cursor)
+        end,function(result)
+            if context.source_page~=page then return end
+            context.source_page=nil
+            if not current() or context.operation~=operation then
+                if host._offline_time_review==context and context.operation==operation then M.close(host) end
+                return
+            end
+            if type(result)=='table' and result.kind=='found' and type(result.reference)=='table' then
+                start({result.reference})
+            elseif type(result)=='table' and result.kind=='more' and result.cursor==cursor+32 and result.cursor<=#chapters+2 then
+                scan(result.cursor)
+            else
+                if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
+                host:showInfo(_('Download source needs verification'));load(host,context,'summary',{})
+            end
+        end)
+        if not ran or not started then
+            if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
+            host:showInfo(_('Download source needs verification'));load(host,context,'summary',{})
+        end
+    end
+    if worker and type(worker.start)=='function' then scan(1)
+    else
         if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
-        local labels={confirmed='This batch is independently confirmed in cloud reading time.',
-            saved_confirmation='Cloud accounting is confirmed. Finish local bookkeeping from the review menu.',
-            completed='Local records updated. Original transfer evidence is kept.',
-            unconfirmed='Cloud accounting is not confirmed. The request is kept and will not be sent again.',
-            unavailable='Could not complete this operation. Saved records are kept.',login='Log in again before checking saved time.'}
-        dialog(host,context,_(labels[result.kind] or labels.unconfirmed),function() load(host,context,'summary',{}) end)
-    end)
-    if not started then
-        if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
-        local label=reason=='position_pending' and 'Review the unfinished position synchronization for this book first.'
-            or reason=='busy' and 'Another synchronization is running. Try again after it finishes.'
-            or reason=='login' and 'Log in again before checking saved time.' or 'Could not complete this operation. Saved records are kept.'
-        dialog(host,context,_(label),function() load(host,context,'summary',{}) end)
+        host:showInfo(_('Download source needs verification'));load(host,context,'summary',{})
     end
 end
 load=function(host,context,kind,args)

@@ -5,6 +5,37 @@ local function identifier(value)
     if type(value)=='number' and value%1==0 then value=tostring(value) end
     return type(value)=='string' and #value<=20 and value:match('^[1-9]%d*$') and value or nil
 end
+-- Build the same unambiguous UID/index mapping as chapter_index in one pass.
+-- A malformed identifier anywhere invalidates the catalog; a malformed or
+-- duplicated index invalidates that UID only, as in chapter_index.
+function M.chapter_indices(chapters)
+    if type(chapters)~='table' or #chapters<1 or #chapters>10000 then return nil end
+    local indexes,counts={},{}
+    for _i,row in ipairs(chapters) do
+        if type(row)~='table' then return nil end
+        local id
+        for _j,key in ipairs({'chapterUid','chapterId','chapter_uid'}) do
+            if row[key]~=nil then
+                local value=identifier(row[key])
+                if not value or id and id~=value then return nil end
+                id=value
+            end
+        end
+        if not id then return nil end
+        counts[id]=(counts[id] or 0)+1
+        local index,valid=nil,true
+        for _j,key in ipairs({'chapterIdx','chapterIndex','chapter_idx'}) do
+            local value=row[key]
+            if value~=nil then
+                if type(value)~='number' or value%1~=0 or value<0 or value>1000000
+                    or index and index~=value then valid=false;break end
+                index=value
+            end
+        end
+        if counts[id]==1 and valid then indexes[id]=index else indexes[id]=nil end
+    end
+    return indexes
+end
 function M.chapter_index(chapters,uid)
     if type(chapters)~='table' or #chapters<1 or #chapters>10000 then return nil end
     local selected,count=nil,0

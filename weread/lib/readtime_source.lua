@@ -5,7 +5,8 @@ local Identity=require('weread.lib.book_file_identity')
 local Source=require('weread.lib.position_source')
 local Archive=require('weread.lib.source_archive')
 local Current=require('weread.lib.source_currentness')
-local Index=require('weread.lib.source_upload_candidate').chapter_index
+local Candidate=require('weread.lib.source_upload_candidate')
+local Index=Candidate.chapter_index
 local Crypto=require('weread.lib.crypto')
 local M={}
 function M.references(book,chapters)
@@ -59,6 +60,33 @@ local function local_source(selection,ref,read)
     if not verified then return nil end
     return {expected={book_id=selection.book_id,chapter_uid=ref.chapter_uid,chapter_idx=ref.chapter_idx,
         raw_sha256=meta.raw_sha256,raw_bytes=meta.raw_bytes},format=meta.format,metadata_hash=Crypto.sha256_hex(initial[meta_path]),ref=ref}
+end
+-- Run only in a background worker. Each call examines a bounded page and
+-- returns no source text; later dispatch independently verifies the match.
+function M.scan_page(book,chapters,selection,previous,cursor,options)
+    options=options or {}
+    if type(book)~='table' or not C.array(chapters,1,10000) or type(selection)~='table'
+        or not C.id(selection.book_id) or not C.hash(selection.file_id)
+        or not C.integer(selection.book_version,1,2147483647)
+        or not C.integer(cursor,1,#chapters+2) then return {kind='unavailable'} end
+    local indexes=Candidate.chapter_indices(chapters)
+    if not indexes then return {kind='unavailable'} end
+    local last=math.min(cursor+31,#chapters+2)
+    for position=cursor,last do
+        local chapter=chapters[position<=2 and 1 or position-2]
+        local uid=tostring(chapter.chapterUid or chapter.chapterId or chapter.chapter_uid or '')
+        local idx=indexes[uid]
+        local path=position==1 and book.cached_full_book or position==2 and book.cached_file
+            or position>2 and type(book.cached_chapters)=='table' and book.cached_chapters[uid]
+        if type(path)=='string' and path~='' and #path<=4096 and not path:find('%z') and idx~=nil then
+            local ref={file=path,chapter_uid=uid,chapter_idx=idx}
+            if (not previous or type(previous)=='table' and type(previous.ref)=='table' and C.digest(ref)==C.digest(previous.ref))
+                and local_source(selection,ref,options.read_archive or Archive.read) then
+                return {kind='found',reference=ref}
+            end
+        end
+    end
+    return last<#chapters+2 and {kind='more',cursor=last+1} or {kind='unavailable'}
 end
 function M.observe(client,selected,selection,references,previous,options)
     options=options or {};local read=options.read_archive or Archive.read

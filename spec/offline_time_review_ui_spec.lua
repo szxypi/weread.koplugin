@@ -95,12 +95,48 @@ selected.buttons[2][1].callback();eq(dispatched.mode,'send');eq(dispatched.scope
 eq(dispatched.guard(),true);eq(host.busy_message~=nil,true)
 dispatched.callback({kind='unconfirmed'});eq(host.busy_message,nil)
 eq(host._offline_time_detail.title,'Cloud accounting is not confirmed. The request is kept and will not be sent again.')
+-- Large catalogs are checked in bounded workers before the transfer service.
+-- Cancelled or stale workers must not dispatch, nor close a newer view.
+local source=require('weread.lib.readtime_source');local old_scan=source.scan_page
+local many={};for i=1,160 do many[i]={chapterUid=i,chapterIdx=i-1} end
+host.settings.get_book=function() return {cached_file='/synthetic/book.epub',chapters=many} end
+local scan_calls=0
+source.scan_page=function(_book,_chapters,selection,previous,cursor)
+    scan_calls=scan_calls+1;eq(selection.file_id,string.rep('f',64));eq(previous,nil)
+    if cursor<129 then return {kind='more',cursor=cursor+32} end
+    return {kind='found',reference={file='/synthetic/book.epub',chapter_uid='1',chapter_idx=0}}
+end
+dispatched=nil;Review.show(host);deliver();choose('Check saved time');deliver()
+host._offline_time_detail.buttons[2][1].callback();eq(dispatched,nil)
+local first_scan=#jobs;deliver();local next_scan=#jobs
+jobs[first_scan].callback({kind='more',cursor=33});eq(#jobs,next_scan)
+for _i=1,4 do deliver() end
+eq(scan_calls,5);eq(dispatched.mode,'send');eq(#dispatched.refs,1);eq(dispatched.refs[1].file,'/synthetic/book.epub')
+jobs[#jobs].callback({kind='found',reference={file='/synthetic/book.epub',chapter_uid='1',chapter_idx=0}})
+eq(dispatched.mode,'send')
+dispatched.callback({kind='unconfirmed'});eq(C.digest(ledger:pending(account)),original)
+dispatched=nil;Review.show(host);deliver();choose('Check saved time');deliver()
+host._offline_time_detail.buttons[2][1].callback();local old_scan_job=#jobs
+host.busy_message.cancel();Review.show(host);deliver();eq(host._offline_time_menu.title,'Offline reading time')
+deliver(old_scan_job);eq(dispatched,nil);eq(host._offline_time_menu.title,'Offline reading time')
+source.scan_page=function() return {kind='unavailable'} end
+Review.show(host);deliver();choose('Check saved time');deliver()
+host._offline_time_detail.buttons[2][1].callback();deliver()
+eq(dispatched,nil);eq(host.info,'Download source needs verification');deliver()
+eq(host._offline_time_menu.title,'Offline reading time');eq(C.digest(ledger:pending(account)),original)
+source.scan_page=function() return {kind='more',cursor=33} end
+Review.show(host);deliver();choose('Check saved time');deliver()
+host._offline_time_detail.buttons[2][1].callback();owner=string.rep('b',20);deliver()
+eq(host._offline_time_review,nil);eq(dispatched,nil);owner=account
+source.scan_page=old_scan
+host.settings.get_book=function() return {cached_file='/synthetic/book.epub',chapters={{chapterUid=7,chapterIdx=0}}} end
 -- Saved ACK views offer GET-only verification and explicit uncertain retention.
 local attempt='offtime-v1:'..string.rep('d',32)
 assert(coverage:_access(function(db)
     local q=db:prepare('INSERT INTO offline_time_records(attempt,scope,phase,metadata,rows,request_hash,created,evidence) VALUES(?,?,?,?,?,?,?,?)')
     local row=assert(ledger:review_page(account,'pending',0,nil,1)).rows[1].source
-    q:bind(attempt,account,'acknowledged',Json.encode{book_id='42',seconds=2,request_hash=string.rep('b',64)},Json.encode{row},
+    q:bind(attempt,account,'acknowledged',Json.encode{book_id='42',seconds=2,request_hash=string.rep('b',64),
+        source={ref={file='/synthetic/book.epub',chapter_uid='1',chapter_idx=0}}},Json.encode{row},
         string.rep('b',64),100,Json.encode{request_hash=string.rep('b',64),ack_at=101}):step();q:close();return true
 end))
 Review.show(host);deliver();choose('Review unfinished transfer');deliver()
@@ -110,5 +146,14 @@ eq(host._offline_time_detail.buttons[3][1].text,'Keep as uncertain and continue'
 host._offline_time_detail.buttons[2][1].callback();eq(dispatched.mode,'resolve');eq(dispatched.input.attempt,attempt)
 local late=dispatched.callback;host._reader_session_gen=session+1;late({kind='confirmed'})
 eq(host._offline_time_review,nil);eq(host._offline_time_detail,nil);eq(host.busy_message,nil)
+host._reader_session_gen=session;host.settings.get_book=function() return {chapters=many} end
+source.scan_page=function(_book,_chapters,_selection,previous,cursor)
+    eq(previous.ref.file,'/synthetic/book.epub');eq(cursor,1)
+    return {kind='found',reference=previous.ref}
+end
+dispatched=nil;Review.show(host);deliver();choose('Review unfinished transfer');deliver()
+host._offline_time_detail.buttons[2][1].callback();eq(dispatched,nil);deliver()
+eq(dispatched.mode,'resolve');eq(dispatched.refs[1].file,'/synthetic/book.epub')
+source.scan_page=old_scan
 Review.close(host);os.execute('rm -rf '..string.format('%q',root))
 print('offline_time_review_ui_spec: '..checks..' checks')

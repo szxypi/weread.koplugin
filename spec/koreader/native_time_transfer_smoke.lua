@@ -74,8 +74,56 @@ return function(reader,flush_tasks,fixture_dir)
     expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2 and not f.journal:pending(f.account))
     expect(not host._offline_time_transfer_lock and not host.offline_time_transfer_service.job)
     reports[#reports+1]='confirmed'
+    -- A source after 128 cached references is found by actual background
+    -- workers and libarchive, then checked again by the normal sender.
+    f=setup('no_delta')
+    local Identity=require('weread.lib.book_file_identity');local Source=require('weread.lib.position_source')
+    local Crypto=require('weread.lib.crypto');local Current=require('weread.lib.source_currentness')
+    local raw='<html><body><p>Synthetic historical source.</p></body></html>'
+    local book,chapter={bookId='42',bookVersion=7},{chapterUid=7,chapterIdx=0}
+    local identity_raw=Identity.encode(book,{chapter},Identity.capture(book),Crypto.sha256_hex(raw),7)
+    local identity=assert(Identity.decode(identity_raw));local captured=assert(Source.capture(book,chapter,raw,'web_xhtml'))
+    local archive_meta=assert(Source.bind(captured,identity,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(raw)))
+    local archive_path=f.root..'/verified.epub';local ffi=require('ffi');require('ffi/posix_h')
+    local fd=ffi.C.open(archive_path,ffi.C.O_WRONLY+ffi.C.O_CREAT+ffi.C.O_TRUNC,420);assert(fd>=0)
+    local writer=require('weread.lib.epub_export_writer').new(fd)
+    local members={[Identity.PATH]=identity_raw,[Source.meta_path('7')]=archive_meta,
+        [Source.raw_path(captured.raw_sha256)]=raw,['OEBPS/text/chapter.xhtml']=raw}
+    for name,value in pairs(members) do writer:add(name,value,#value,false) end
+    assert(writer:close());assert(ffi.C.close(fd)==0)
+    local db_many=require('lua-ljsqlite3/init').open(f.ledger:path(f.account))
+    local update=db_many:prepare('UPDATE windows SET file_id=?');update:bind(identity.file_id):step();update:close();db_many:close()
+    local many,cache={},{}
+    for i=1,160 do
+        local uid=i==155 and 7 or i+100
+        many[i]={chapterUid=uid,chapterIdx=i==155 and 0 or i}
+        cache[tostring(uid)]=i==155 and archive_path or f.root..'/missing-'..i..'.epub'
+    end
+    host.settings.get_book=function(settings,id)
+        if id=='42' then return {cached_chapters=cache,chapters=many} end
+        return original.get_book(settings,id)
+    end
+    f.options.observe_source=function(client,web,selection,refs,previous)
+        expect(selection.file_id==identity.file_id and #refs==1 and refs[1].file==archive_path)
+        return require('weread.lib.readtime_source').observe(client,web,selection,refs,previous,{fetch=function(_client,expected,_web,_format,options)
+            local catalog={{bookId='42',book={bookVersion=7},updated=many}};options.verify_catalog(catalog)
+            return Current.project(expected,catalog,{book_id='42',psvts='synthetic-session',current_chapter=chapter},raw,catalog)
+        end})
+    end
+    -- Cancel a live source scan before any transfer is claimed or sent.
+    select_batch();button(2)
+    local scan_job=assert(host.offline_time_review_worker.job);local scan_pid=scan_job.pid
+    host:closeOfflineTimeUI();pump(function() return require('ffi/util').isSubProcessDone(scan_pid) end)
+    expect(f.posts_count()==0 and f.ledger:summary(f.account).pending==2 and not f.journal:pending(f.account))
+    reports[#reports+1]='many_sources_cancel_before_send'
+    select_batch();button(2);detail();local saved=assert(f.journal:pending(f.account))
+    expect(saved.phase=='acknowledged' and f.posts_count()==1)
+    f.posts=1;f.mode=nil;f.applied=true
+    show();choose('Review unfinished transfer');detail();button(2);detail()
+    expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2 and not f.journal:pending(f.account))
+    reports[#reports+1]='many_sources_read_only_recovery'
     -- A later GET-only inspection settles the saved ACK without another POST.
-    f=setup('no_delta');select_batch();button(2);detail();local saved=assert(f.journal:pending(f.account))
+    f=setup('no_delta');select_batch();button(2);detail();saved=assert(f.journal:pending(f.account))
     expect(saved.phase=='acknowledged' and f.posts_count()==1);local metadata=C.digest(saved.metadata)
     f.posts=1;f.mode=nil;f.applied=true
     show();choose('Review unfinished transfer');detail();shot('acknowledged');button(2);detail()
