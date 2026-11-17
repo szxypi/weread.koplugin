@@ -4,15 +4,18 @@ import argparse,base64,json,os,secrets,signal,subprocess,tempfile,time
 from pathlib import Path
 
 from native_time_bundle_gate import DispatchGate
-from native_time_bundle_supervisor import Supervisor
+from native_time_bundle_audit_store import AuditStore
+from native_time_bundle_supervisor import AuditedSupervisor
 from native_trial_pipe import Frames,reply,stop,write_initial
 from run_persistent_ui_probe import extract_candidate
 from process_loss_runtime import enable_subreaper,kill_reader_session,session_members
 from secure_highlight_trial import Receipt
 from secure_native_session import project_lock
 from secure_weread_session import StoreError
-from test_native_time_bundle_gate import FileBackend,fixture
+from test_native_time_bundle_accounting import example
+from test_native_time_bundle_gate import FileBackend
 from test_native_time_bundle_supervisor import observed
+from verify_native_statistics import period
 
 
 class Capture:
@@ -36,7 +39,7 @@ def reap_session(session):
 
 
 def scenario(runtime,source,candidate,root,mode,width,height,dpi):
-    captured,grant,_body,_now=fixture();p=captured['plan']
+    captured,grant,before,_samples,_now=example();p=captured['plan']
     if (p['owner'],p['book_id'],grant['accessToken'],grant['refreshToken'])!=('900000','900001','mock-native-access','mock-native-refresh'):
         raise ValueError('synthetic_ui/input')
     folder=root/mode;folder.mkdir(mode=0o700);home=folder/'profile';plugins=home/'plugins';plugins.mkdir(parents=True)
@@ -46,7 +49,13 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi):
     ledger=folder/'ledger';ledger.mkdir(mode=0o700)
     journal=folder/'gate';lock=folder/'gate.lock'
     gate=DispatchGate(FileBackend(journal),lambda:project_lock(lock),clock=time.time,zone=lambda:'+08:00')
-    guard=Supervisor(gate,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,lambda:observed(completed_at=int(time.time())));guard.prepare()
+    month=period('monthly',int(time.time()))[0]
+    old_month=str(period('monthly',p['start_time'])[0])
+    before['months']={old_month:before['months'][old_month]}
+    before['months'].setdefault(str(month),dict(baseTime=month,readTimes={},totalReadTime=0,readDays=0))
+    audit=AuditStore(FileBackend(folder/'audit'),lambda:project_lock(folder/'audit.lock'),clock=time.time)
+    guard=AuditedSupervisor(gate,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,
+        lambda:observed(completed_at=int(time.time())),audit_store=audit,snapshot=before['snapshot'],months=before['months']);guard.prepare()
     token=secrets.token_hex(16);payload={k:v for k,v in p.items() if k!='archive_base64'}
     payload.update(grant=grant,guest='synthetic-guest',config='synthetic-config',mode=mode,token=token)
     env=dict(os.environ,KO_HOME=str(home),TZ='Asia/Shanghai',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
@@ -83,6 +92,13 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi):
         stop(child)
         reap_session(child.pid)
     state,_=gate.read();phase=state['phase'] if state else 'none'
+    audit_state,audit_receipt=audit.read()
+    if (audit_state is not None)!=(phase!='none') or (audit_receipt is not None)!=(phase!='none'):
+        raise ValueError('synthetic_ui/audit')
+    if audit_state:
+        saved,_,audit_gate,_=audit.inspect(captured,grant,gate)
+        if saved['snapshot']!=before['snapshot'] or saved['months']!=before['months'] or audit_gate['phase']!=phase:
+            raise ValueError('synthetic_ui/audit')
     expected_events={
         'success':[('selection',True,None),('claim',True,None),('ack',True,None)],
         'tamper_selection':[('selection',False,'bundle_selection/mismatch')],
@@ -134,7 +150,8 @@ def main(argv=None):
                     scenario(runtime,source,candidate,root,mode,args.width,args.height,args.dpi)
                 report.update(result='SYNTHETIC_NATIVE_UI_RPC_VERIFIED',native_menu=True,background_service=True,correct_dialogs=True,workers_reaped=True,archive_verified=True,
                               durable_claim_before_reply=True,modified_selection_blocked=True,modified_body_blocked=True,
-                              lost_and_duplicate_not_replayed=True,no_ack_and_worker_death_not_replayed=True,ack_readonly_recovery_not_replayed=True,scenarios=8)
+                              lost_and_duplicate_not_replayed=True,no_ack_and_worker_death_not_replayed=True,ack_readonly_recovery_not_replayed=True,
+                              baseline_sealed_before_claim=True,scenarios=8)
     except Exception as error:
         report.update(result='UNVERIFIED',synthetic_failure_mode=mode,synthetic_failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_ui/child_'):

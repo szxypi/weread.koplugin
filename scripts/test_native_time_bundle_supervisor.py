@@ -76,7 +76,7 @@ class SupervisorTests(unittest.TestCase):
 
 
     def test_state_changes_around_claim_never_release_permission(self):
-        for count,expected_phase in ((2,None),(3,None),(4,'prepared'),(5,'claimed')):
+        for count,expected_phase in ((2,None),(3,None),(4,'prepared'),(5,'prepared'),(6,'claimed')):
             task,gatekeeper,_store,current,_preflight,capture,_grant,body=fixture_guard()
             selection=expected(capture);task.prepare();task.select(selection)
             current.side_effect=[True]*(count-1)+[False]
@@ -88,7 +88,7 @@ class SupervisorTests(unittest.TestCase):
     def test_expiry_after_claim_refuses_release_and_keeps_claim(self):
         task,gatekeeper,_store,_current,_preflight,capture,_grant,body=fixture_guard()
         selection=expected(capture);task.prepare();task.select(selection)
-        now=body['books'][0]['timestamp'];ticks=iter((now,now,now,now,now,now,now+30));gatekeeper.clock=lambda:next(ticks)
+        now=body['books'][0]['timestamp'];ticks=iter((now,now,now,now,now,now,now,now+30));gatekeeper.clock=lambda:next(ticks)
         with self.assertRaisesRegex(ValueError,'bundle_gate/clock'):task.claim(body,selection)
         self.assertEqual(gatekeeper.read()[0]['phase'],'claimed')
 

@@ -21,6 +21,7 @@
       "lost_and_duplicate_not_replayed": true,
       "no_ack_and_worker_death_not_replayed": true,
       "ack_readonly_recovery_not_replayed": true,
+      "baseline_sealed_before_claim": true,
       "scenarios": 8
     },
     {
@@ -42,6 +43,7 @@
       "lost_and_duplicate_not_replayed": true,
       "no_ack_and_worker_death_not_replayed": true,
       "ack_readonly_recovery_not_replayed": true,
+      "baseline_sealed_before_claim": true,
       "scenarios": 8
     }
   ]

@@ -58,6 +58,12 @@ class Supervisor:
         self.selection_hash=digest(selection)
         self.phase='selected'
 
+    def _before_claim(self,reserved):
+        pass
+
+    def _before_release(self):
+        pass
+
     def claim(self,body,selection):
         if self.phase!='selected' or not self._fresh():raise ValueError('bundle_supervisor/state')
         if not self._recent():raise ValueError('bundle_supervisor/preflight_expired')
@@ -70,8 +76,11 @@ class Supervisor:
         # permission to the native request. An exception never implies no write.
         reserved=self.gate.reserve(self.bundle,self.grant)
         if not self._fresh():raise ValueError('bundle_supervisor/stale_before_claim')
+        self._before_claim(reserved)
+        if not self._fresh() or not self._recent():raise ValueError('bundle_supervisor/stale_before_claim')
         self.dispatch_receipt=self.gate.claim(reserved,self.bundle,self.grant,body,self.guest,self.config_token)
         self.phase='claimed'
+        self._before_release()
         if not self._fresh():raise ValueError('bundle_supervisor/stale_after_claim')
         if not self._recent():raise ValueError('bundle_supervisor/preflight_expired')
         self.gate.assert_claim_current(self.dispatch_receipt,self.bundle,self.grant,body,self.guest,self.config_token)
@@ -83,3 +92,30 @@ class Supervisor:
         self.dispatch_receipt=self.gate.acknowledge(self.dispatch_receipt,response)
         self.phase='acknowledged'
         return self.dispatch_receipt
+
+
+class AuditedSupervisor(Supervisor):
+    """Seal a private baseline before releasing a claim; no network transport.
+
+    Baseline provenance remains the responsibility of a future scoped preflight.
+    This class is not connected to the real-account sender.
+    """
+    def __init__(self,*args,audit_store,snapshot,months,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.audit_store=audit_store
+        self.snapshot,self.months=deepcopy(snapshot),deepcopy(months)
+        self.audit_receipt=None
+
+    def _check_audit(self,phase,gate_receipt):
+        saved,receipt,state,current=self.audit_store.inspect(self.bundle,self.grant,self.gate)
+        if (receipt!=self.audit_receipt or state['phase']!=phase or current!=gate_receipt
+                or saved['prepared_at']!=self.preflight_at or saved['snapshot']!=self.snapshot
+                or saved['months']!=self.months):
+            raise ValueError('bundle_supervisor/audit_changed')
+
+    def _before_claim(self,reserved):
+        self.audit_receipt=self.audit_store.seal(self.bundle,self.grant,self.gate,self.snapshot,self.months,self.preflight_at)
+        self._check_audit('prepared',reserved)
+
+    def _before_release(self):
+        self._check_audit('claimed',self.dispatch_receipt)
