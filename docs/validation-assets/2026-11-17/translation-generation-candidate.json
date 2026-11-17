@@ -1,5 +1,5 @@
 {
-  "result": "PASS_GENUINE_MISSING_TRANSLATION_READONLY_FULL_GOAL_ACTIVE",
+  "result": "RECLASSIFIED_COPYRIGHT_NOT_TRANSLATABLE_ENGLISH_PROSE",
   "based_on_head": "3724c6fb2fb957cd5b232ada586f3e2585d3c07f",
   "chapter_batch_limit_per_book": 4,
   "chapter_offset_bound": 19999,
@@ -58,5 +58,13 @@
   "package_sha256": "d5766d470f8b804a956a98dcf25e3b623efb198ac97f98d2da97f91e4a7feb1b",
   "real_generation_protocol_verified": false,
   "native_generation_integrated": false,
-  "whole_goal_complete": false
+  "whole_goal_complete": false,
+  "original_recorded_result": "PASS_GENUINE_MISSING_TRANSLATION_READONLY_FULL_GOAL_ACTIVE",
+  "source_is_translation_prose_candidate": false,
+  "original_source_structure_not_checked": true,
+  "readonly_observations_retained_as_facts": true,
+  "later_mode_generation_requests_consumed": true,
+  "later_generation_result": "stopped_unavailable",
+  "positive_generation_not_verified": true,
+  "structural_and_english_prose_admission_added": true
 }

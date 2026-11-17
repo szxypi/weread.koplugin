@@ -6,10 +6,10 @@ Reference: c1893562aa25a870b8dd076d7be062a3348f823e, MiuRead contributors,
 Copyright (C) 2026, AGPL-3.0-only. No upstream polling/retry code is copied.
 """
 from copy import deepcopy
-from html.parser import HTMLParser
 import re
 from annotation_experiment_model import digest,canonical
 from verify_translation_preflight import content_summary
+from translation_source import admit_source
 
 PROTOCOL='native-official-single-chapter-translation-v1'
 MAX_RESPONSE=24*1024
@@ -35,19 +35,7 @@ def validate(plan):
     return deepcopy(plan)
 
 
-class Text(HTMLParser):
-    def __init__(self):super().__init__(convert_charrefs=True);self.text=[];self.hidden=0;self.body=0
-    def handle_starttag(self,tag,attrs):
-        if tag=='body':self.body+=1
-        if tag in ('script','style','head'):self.hidden+=1
-    def handle_endtag(self,tag):
-        if tag=='body':self.body=max(0,self.body-1)
-        if tag in ('script','style','head'):self.hidden=max(0,self.hidden-1)
-    def handle_data(self,value):
-        if self.body and not self.hidden:self.text.append(value)
-
-
-def bind(owner,grant,member,catalog,chapter,source,baseline):
+def bind(owner,grant,member,catalog,chapter,source,baseline,*,chapter_title=None):
     if (not identity(owner) or not isinstance(grant,dict) or grant.get('vid')!=owner
             or not isinstance(member,dict) or member.get('paying') is not True
             or not isinstance(catalog,dict) or catalog.get('format')!='epub' or not identity(catalog.get('book_id'))
@@ -59,8 +47,7 @@ def bind(owner,grant,member,catalog,chapter,source,baseline):
             or not isinstance(source,str) or not 200<=len(source.encode())<=2*1024*1024
             or not isinstance(baseline,dict) or not baseline):fail('admission')
     if content_summary(source)['nonempty_translation_blocks']:fail('already_available')
-    text=Text();text.feed(source if re.search(r'<(?:html|body)(?:\s|>)',source,re.I) else '<body>'+source+'</body>');text.close()
-    if len(''.join(text.text).strip())<100:fail('empty_original')
+    admit_source(source,chapter_title)
     version=chapter.get('translateVersion',0)
     if not integer(version):fail('version')
     return validate(dict(protocol=PROTOCOL,owner=owner,book_id=catalog['book_id'],chapter_uid=chapter['uid'],

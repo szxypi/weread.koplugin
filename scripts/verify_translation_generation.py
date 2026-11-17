@@ -18,6 +18,7 @@ from verify_web_source_progress import BASE as WEB
 from translation_observation import position,observation
 from native_initial_position import counts
 from shelf_flag_change_contract import state_hash
+from translation_source import chapter_title,structural_title,admit_source
 
 
 class Native(TranslationProbe):
@@ -60,11 +61,17 @@ def inspect(api,web,grant,report,expected=None,*,chapter_offset=0):
     api.inspect(grant,2,True)
     if api.member['paying'] is not True:raise ValueError('translation_generation/member_required')
     report.update(paying_member_verified=True,sampled_books=len(api.samples),candidate_chapters_checked=0,
-        existing_translation_chapters=0,empty_content_chapters=0,untranslated_content_candidates=0,chapter_offset=chapter_offset)
+        existing_translation_chapters=0,empty_content_chapters=0,untranslated_content_candidates=0,chapter_offset=chapter_offset,
+        structural_chapters_skipped=0,structural_sources_skipped=0,nonprose_sources_skipped=0)
     for sample in api.samples:
         model=sample['expected']
         if expected and model['book_id']!=expected['book_id']:continue
         safe=[row for row in model['chapters'] if row['free_or_owned'] and type(row.get('wordCount')) is int and row['wordCount']>=200 and row['uid']>0]
+        nonstructural=[]
+        for row in safe:
+            if structural_title(chapter_title(sample,row['uid'])):report['structural_chapters_skipped']+=1
+            else:nonstructural.append(row)
+        safe=nonstructural
         safe.sort(key=lambda row:(row.get('transWordCount',0)>0,row['uid']))
         if expected:safe=[row for row in safe if row['uid']==expected['chapter_uid']]
         else:safe=safe[chapter_offset:chapter_offset+4]
@@ -78,21 +85,29 @@ def inspect(api,web,grant,report,expected=None,*,chapter_offset=0):
                 if expected:raise ValueError('translation_generation/content_changed')
                 continue
             report['untranslated_content_candidates']+=1
+            title=chapter_title(sample,row['uid'])
+            try:admit_source(content['source'],title)
+            except ValueError as error:
+                if str(error)=='translation_generation/not_english_prose':report['nonprose_sources_skipped']+=1;continue
+                if str(error)=='translation_generation/structural_source':report['structural_sources_skipped']+=1;continue
+                raise
             baseline=snapshot(api,web,grant)
-            plan=bind(web.vid,grant,api.member,model,row,content['source'],baseline)
+            plan=bind(web.vid,grant,api.member,model,row,content['source'],baseline,chapter_title=title)
             # Independently repeat metadata/catalog and content; never label
             # the first response a fresh source witness for itself.
             info=api.request('book',BASE+'/book/info?'+urlencode(dict(bookId=model['book_id'])),credentials=grant)
-            again=catalog(api.request('catalog',BASE+'/book/chapterInfos',body=catalog_body(model['book_id']),credentials=grant),model['book_id'],info)
+            again_raw=api.request('catalog',BASE+'/book/chapterInfos',body=catalog_body(model['book_id']),credentials=grant)
+            again=catalog(again_raw,model['book_id'],info)
             if again!=model:raise ValueError('translation_generation/catalog_changed')
             web.inspect_content(sample,row['uid'])
             if not web.content_sample or digest(web.content_sample['source'])!=plan['source_sha256'] or snapshot(api,web,grant)!=baseline:
                 raise ValueError('translation_generation/baseline_changed')
+            admit_source(web.content_sample['source'],chapter_title(dict(book_id=model['book_id'],source=again_raw),row['uid']))
             if expected and plan!=validate(expected):raise ValueError('translation_generation/plan_changed')
             unrecorded=baseline.get('kind')=='explicit-unrecorded-translation-baseline-v1'
             report.update(source_has_original_only=True,source_read_twice=True,position_presence_reported_fields_shelf_stable=True,
                 baseline_kind='explicit_unrecorded' if unrecorded else 'recorded',native_complete_counters_verified=not unrecorded,
-                explicit_free_or_owned=True,chapter_count_in_plan=1)
+                explicit_free_or_owned=True,chapter_count_in_plan=1,english_prose_sample_verified=True)
             if not unrecorded:report['positions_counts_shelf_stable']=True
             else:report['reported_time_fields']={k:len(baseline[k]['counters']) for k in ('native','web')}
             return plan

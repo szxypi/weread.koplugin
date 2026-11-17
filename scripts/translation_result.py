@@ -48,12 +48,15 @@ class OriginalText(TranslationText):
         if self.stack and self.stack[-1][1] is None and not any(row[0] in ('head','script','style') for row in self.stack):self.text.append(value)
 
 
-def original_signature(source):
+def original_text(source):
     content_summary(source)  # Apply the same byte/depth limits before parsing.
     parser=OriginalText();parser.feed(source);parser.close()
     text=re.sub(r'\s+',' ',''.join(parser.text)).strip()
     if len(text)<100:raise ValueError('translation_result/empty_original')
-    return digest(text)
+    return text
+
+
+def original_signature(source):return digest(original_text(source))
 
 
 def catalog_result(before,after,uid):
