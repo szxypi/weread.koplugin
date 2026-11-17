@@ -8,9 +8,11 @@ import unittest
 from unittest.mock import patch
 
 from cloud_group_contract import create_request, delete_request, digest, project
+from cloud_group_binding import Binding
 from cloud_group_journal import Journal
 from test_cloud_group_journal import Memory
 from test_cloud_group_trial import shelf
+from test_secure_native_session import credentials
 from verify_cloud_group_trial import ScopedNative, main
 from verify_eink_login import NativeProbe, ProbeError
 
@@ -46,6 +48,10 @@ class ScopedTransportTest(unittest.TestCase):
                       ScopedNative(self.journal,self.grant,lambda:True,lambda:False)):
             with self.assertRaises(ProbeError):probe.post('/shelf/archive',body)
             self.assertEqual(probe.write_attempts,0)
+        changed={'vid':'42','accessToken':'different-synthetic-token'}
+        probe=ScopedNative(self.journal,changed,lambda:True,lambda:True)
+        with self.assertRaises(ProbeError):probe.post('/shelf/archive',body)
+        self.assertEqual(probe.write_attempts,0)
 
     def test_offline_default_does_not_open_credentials_or_network(self):
         with patch('verify_cloud_group_trial.SessionStore') as session,patch('verify_cloud_group_trial.NativeSessionStore') as native,redirect_stdout(io.StringIO()):
@@ -104,6 +110,31 @@ class ScopedTransportTest(unittest.TestCase):
         self.assertTrue(result['native_other_state_unchanged'] and result['web_other_state_unchanged'])
         self.assertNotIn(name,output.getvalue());self.assertNotIn('synthetic-token',output.getvalue())
         self.assertNotIn('"97"',output.getvalue());pending.assert_not_called()
+
+    def test_renewed_same_device_inspects_but_other_device_cannot(self):
+        original=credentials();journal=Journal(backend=Memory());binding=Binding(backend=Memory())
+        before_native,before_web=project(shelf(True)),project(shelf(False));name='KOReader-Test-'+'a'*24
+        token=journal.begin(original['vid'],digest(original),name,digest(before_native),digest(before_web))
+        token=journal.advance(token,'create_claimed');journal.close_unchanged(token,[(before_native,before_web),(before_native,before_web)])
+        state,token=journal.read();binding.bind(state,token,original)
+        for same in (True,False):
+            grant=deepcopy(original);grant['accessToken']='synthetic-new-access'
+            if not same:grant['deviceId']='eink334691225'+'2'*19
+            saved={'vid':original['vid'],'cookies':{'wr_skey':'synthetic-cookie'}}
+            native=SimpleNamespace(shelf=lambda:deepcopy(shelf(True)),write_attempts=0,report={'stages':[]},
+                                   post=lambda *_args:self.fail('inspection sent a write'))
+            web=SimpleNamespace(vid=None,set_cookie=lambda *_args:None,verify_account=lambda:None,
+                                request=lambda *_args:deepcopy(shelf(False)),close=lambda:None)
+            output=io.StringIO()
+            with self.subTest(same=same),patch('verify_cloud_group_trial.Journal',return_value=journal),\
+                 patch('verify_cloud_group_trial.Binding',return_value=binding),patch('verify_cloud_group_trial.SessionStore') as session,\
+                 patch('verify_cloud_group_trial.NativeSessionStore') as native_store,patch('verify_cloud_group_trial.WebFlagsProbe',return_value=web),\
+                 patch('verify_cloud_group_trial.ScopedNative',return_value=native),\
+                 patch('verify_cloud_group_trial.save_refreshed_web_session',return_value=False),redirect_stdout(output):
+                session.return_value.load.return_value=saved;native_store.return_value.load.return_value=grant
+                self.assertEqual(main(['--saved-session','--inspect']),0 if same else 1)
+            result=json.loads(output.getvalue());self.assertEqual(result['result'],'INSPECTED' if same else 'UNVERIFIED')
+            if same:self.assertTrue(result['same_device_binding_used'])
 
 
 if __name__=='__main__':unittest.main()

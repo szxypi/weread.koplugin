@@ -6,7 +6,7 @@
   "native_delete_posts": 0,
   "create_replayed": false,
   "immediate_dual_channel_readbacks": 3,
-  "later_independent_dual_channel_readbacks": 8,
+  "later_independent_dual_channel_readbacks": 10,
   "no_matching_group_observed": true,
   "observed_shelf_members_flags_groups_and_native_albums_unchanged": true,
   "web_session_key_read_only_client_shelf_http_status": 401,
@@ -16,5 +16,9 @@
   "private_values_in_repository": false,
   "production_cloud_group_ui_implemented": false,
   "physical_kindle_tested": false,
-  "post_closure_read_only_inspection_verified": true
+  "post_closure_read_only_inspection_verified": true,
+  "native_renewal_maintenance_authentication_posts": 1,
+  "native_expiry_verified_by_python_and_lua": true,
+  "sealed_scope_unchanged_after_renewal": true,
+  "same_device_post_renewal_read_only_inspection": true
 }

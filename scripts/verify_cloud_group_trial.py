@@ -9,6 +9,7 @@ import argparse
 import json
 
 from cloud_group_contract import create_request, delete_request, digest, inspect_closed
+from cloud_group_binding import Binding
 from cloud_group_journal import Journal
 from cloud_group_trial import Trial
 from secure_native_session import NativeSessionStore
@@ -55,9 +56,9 @@ class ScopedNative(NativeProbe):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
-    mode=parser.add_mutually_exclusive_group();mode.add_argument('--preview',action='store_true');mode.add_argument('--apply',action='store_true');mode.add_argument('--status',action='store_true');mode.add_argument('--close-unchanged',action='store_true');mode.add_argument('--inspect',action='store_true')
+    mode=parser.add_mutually_exclusive_group();mode.add_argument('--preview',action='store_true');mode.add_argument('--apply',action='store_true');mode.add_argument('--status',action='store_true');mode.add_argument('--close-unchanged',action='store_true');mode.add_argument('--inspect',action='store_true');mode.add_argument('--bind-inspection',action='store_true')
     args=parser.parse_args(argv)
-    if args.saved_session != bool(args.preview or args.apply or args.status or args.close_unchanged or args.inspect):parser.error('saved session requires one explicit mode')
+    if args.saved_session != bool(args.preview or args.apply or args.status or args.close_unchanged or args.inspect or args.bind_inspection):parser.error('saved session requires one explicit mode')
     report=dict(result='OFFLINE_ONLY',data_posts=0,authentication_posts=0,private_values_saved_to_files=False,no_automatic_replay=True)
     saved=grant=web=native=None
     try:
@@ -68,7 +69,7 @@ def main(argv=None):
             else:
                 if args.apply and journal.read()[0] is not None:
                     report['phase']='scope_consumed';raise ValueError('group_scope_consumed')
-                if not (args.preview or args.inspect) and not no_other_pending():raise ValueError('group_pending')
+                if not (args.preview or args.inspect or args.bind_inspection) and not no_other_pending():raise ValueError('group_pending')
                 webstore=SessionStore();saved=webstore.load();owner=saved['vid'];nativestore=NativeSessionStore();grant=nativestore.load(owner)
                 web=WebFlagsProbe();web.vid=owner
                 for key,value in saved['cookies'].items():web.set_cookie(key,value)
@@ -80,10 +81,15 @@ def main(argv=None):
                     web.verify_account()
                     return dict(native=native.shelf(),web=web.request('shelf','https://weread.qq.com/web/shelf/sync'))
                 trial=Trial(journal,read_pair,native.post,current)
-                if args.inspect:
-                    state,_token=journal.read()
-                    if not state or state['phase'] not in ('create_claimed','closed_unverified') or state['owner']!=owner or state['grant_hash']!=digest(grant):
+                if args.bind_inspection:
+                    state,token=journal.read();Binding().bind(state,token,grant)
+                    report.update(result='INSPECTION_BOUND',phase=state['phase'],same_owner_verified=True)
+                elif args.inspect:
+                    state,token=journal.read()
+                    if not state or state['phase'] not in ('create_claimed','closed_unverified') or state['owner']!=owner:
                         raise ValueError('group_scope')
+                    bound=state['grant_hash']!=digest(grant)
+                    if bound and not Binding().matches(state,token,grant):raise ValueError('group_scope')
                     first=trial._read(require_match=False);second=trial._read(require_match=False)
                     if first!=second:raise ValueError('group_changed')
                     left=inspect_closed(first[0],state['name'],state['native_before'])
@@ -93,7 +99,7 @@ def main(argv=None):
                         native_other_state_unchanged=left['other_state_unchanged'],web_other_state_unchanged=right['other_state_unchanged'],
                         same_group_when_visible=bool(left['ident'] and left['ident']==right['ident']),
                         native_empty_books=left['empty_books'],native_album_ids_visible=left['albums_visible'],native_empty_albums=left['empty_albums'],
-                        two_matching_readbacks=True)
+                        two_matching_readbacks=True,same_device_binding_used=bound)
                 elif args.close_unchanged:
                     state,token=journal.read()
                     if not state or state['phase']!='create_claimed' or state['owner']!=owner or state['grant_hash']!=digest(grant):
@@ -121,7 +127,7 @@ def main(argv=None):
         if grant:grant.clear()
         if saved:saved.clear()
     print(json.dumps(report,ensure_ascii=False))
-    return 0 if report['result'] in ('OFFLINE_ONLY','PREVIEW_VERIFIED','PASS','STATUS','CLOSED_UNVERIFIED','INSPECTED') else 1
+    return 0 if report['result'] in ('OFFLINE_ONLY','PREVIEW_VERIFIED','PASS','STATUS','CLOSED_UNVERIFIED','INSPECTED','INSPECTION_BOUND') else 1
 
 
 if __name__=='__main__':raise SystemExit(main())
