@@ -1,0 +1,11 @@
+-- Open and render a self-authored synthetic upload fixture in KOReader CRE.
+require('setupkoenv')
+local home,path=assert(os.getenv('KO_HOME')),assert(arg[1])
+assert(home:match('^/dev/shm/') and path:match('^/dev/shm/'))
+G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
+local Device=require('device');require('document/canvascontext'):init(Device)
+local document=assert(require('document/documentregistry'):openDocument(path))
+assert(document:loadDocument());document:setFontFace('Noto Sans');document:setFontSize(Device.screen:scaleBySize(24));document:render()
+local text=assert(document:getTextFromXPointer('/body'))
+assert(document:getPageCount()>=1 and text:find('This synthetic chapter verifies',1,true))
+document:close();print('PASS: synthetic upload EPUB rendered by KOReader CRE')

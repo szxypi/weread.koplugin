@@ -53,8 +53,8 @@ def prepare(credentials,source,name,body):
                          grant_sha256=hash_value(credentials),**data))
 
 
-def check(plan,credentials,source,target=None,expected=False):
-    validate(plan)
+def check(plan,credentials,source,target=None,expected=False,*,validator=validate):
+    validator(plan)
     if type(expected) is not bool or credentials.get('vid')!=plan['owner'] or hash_value(credentials)!=plan['grant_sha256']:
         raise ValueError('personal_upload/grant')
     data=projection(source,target);present=data.pop('present')
@@ -67,10 +67,11 @@ class Receipt:raw:bytes
 
 
 class Journal:
-    def __init__(self,backend=None,lock=None):
+    def __init__(self,backend=None,lock=None,validator=None):
         self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
         path=Path(tempfile.gettempdir())/('codex-personal-upload-'+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
+        self.validate=validator or validate
     def _read(self):
         raw=self.backend.load()
         if raw is None:return None,None
@@ -81,7 +82,7 @@ class Journal:
                     or type(v['schema']) is not int or v['schema']!=1 or v['scope']!=ACCOUNT
                     or not isinstance(v['attempt'],str) or re.fullmatch('[a-f0-9]{32}',v['attempt']) is None
                     or v['phase'] not in ('prepared','credential_pending','credential_ready','upload_pending','uploaded','notify_pending','imported','cleanup_pending','restored')):raise ValueError()
-            validate(v['plan'])
+            self.validate(v['plan'])
             if v['phase'] in ('imported','cleanup_pending','restored'):
                 if not valid_book(v['target']):raise ValueError()
             elif v['target'] is not None:raise ValueError()
@@ -94,7 +95,7 @@ class Journal:
         with self.lock():
             value,raw=self._read();return value,Receipt(raw) if raw else None
     def reserve(self,plan):
-        validate(plan)
+        self.validate(plan)
         with self.lock():
             if self._read()[0] is not None:raise StoreError('personal_upload/already_reserved')
             raw=canonical(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),phase='prepared',plan=plan,target=None,object_sha256=None))

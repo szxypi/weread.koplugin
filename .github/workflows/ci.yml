@@ -71,6 +71,9 @@ jobs:
           python3 scripts/test_personal_upload_trial.py
           python3 scripts/test_native_personal_upload_trial.py
           python3 scripts/test_native_personal_upload_ui_trial.py
+          python3 scripts/test_synthetic_upload_epub.py
+          python3 scripts/test_synthetic_epub_trial.py
+          python3 scripts/test_verify_synthetic_epub_upload.py
           python3 scripts/test_mp_images.py
           python3 scripts/test_shelf_covers.py
           python3 scripts/test_shelf_membership.py

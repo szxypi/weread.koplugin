@@ -43,7 +43,7 @@ class Probe(NativeProbe):
             raise ValueError('personal_upload/ownership')
         return state
     def credential(self,credentials,receipt):
-        state=self.owns('credential_pending',credentials,receipt);name=state['plan']['name'][:-4]
+        state=self.owns('credential_pending',credentials,receipt);name=state['plan']['name'].rsplit('.',1)[0]
         url=BASE+'/cos/getcredential?'+urlencode(dict(name=name,**{'from':''}));self.allowed=('credential',url,None)
         try:return self.request('credential',url,credentials=credentials)
         finally:self.allowed=None
