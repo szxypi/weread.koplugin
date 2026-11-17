@@ -1955,12 +1955,37 @@ end
 -- slight preference for the preceding chapter when distances are equal.
 function M:openBookForReading(book, quiet, options)
     local full_path = self:getFullBookCachePath(book)
+    local book_id = book.book_id or book.bookId
+    local hint=book.unindexed_resume
+    local account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
+    if account==nil and self.progress_sync and self.progress_sync._account_key then account=self.progress_sync:_account_key() end
+    local hint_valid=not (options and options.skip_unindexed_resume) and hint and self.settings
+        and require('weread.lib.unindexed_resume').valid(hint,tostring(book_id),account,self.settings:get('auth_epoch',0))
+    if hint_valid then
+        local chapters=book.chapters
+        if type(chapters)~='table' or #chapters==0 then
+            chapters=self.library_db and self.library_db:getChapters(book_id)
+        end
+        if type(chapters)~='table' or #chapters==0 then
+            chapters=Content.load_catalog_cache(self.client,self.settings,book)
+        end
+        if type(chapters)~='table' or #chapters==0 then
+            local path=type(book.cached_chapters)=='table' and (book.cached_chapters[hint.chapter_uid]
+                or book.cached_chapters[tonumber(hint.chapter_uid)])
+            if file_exists(path) then
+                if options and options.check_only then return true end
+                if require('weread.ui.unindexed_resume').start(self,book,hint,path) then return true end
+                self:showInfo(_('Could not verify the saved chapter. Search downloaded chapters again or choose another chapter.'))
+                return true
+            end
+            if options and options.prefer_exact then return false,'resume_not_cached',hint.chapter_uid end
+        end
+    end
     if file_exists(full_path) then
         if not (options and options.check_only) then self:openFile(full_path,nil,book) end
         return true
     end
 
-    local book_id = book.book_id or book.bookId
     local chapters = book.chapters
     if type(chapters) ~= "table" and self.library_db then
         chapters = self.library_db:getChapters(book_id)
@@ -1972,8 +1997,6 @@ function M:openBookForReading(book, quiet, options)
 
     local candidates = {}
     local target_index
-    local account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
-    if account==nil and self.progress_sync and self.progress_sync._account_key then account=self.progress_sync:_account_key() end
     local Reading=require('weread.ui.book_reading')
     if options and options.prefer_exact then
         local uid=Reading.resume_uid(chapters,book,account)
@@ -2058,6 +2081,8 @@ function M:startBookReading(book, view)
 end
 
 function M:cancelBookReading()
+    local unindexed=package.loaded['weread.ui.unindexed_resume']
+    if unindexed then unindexed.cancel(self) end
     local warning=package.loaded['weread.ui.missing_resume']
     if warning then warning.cancel(self) end
     return require("weread.ui.book_reading").cancel(self)

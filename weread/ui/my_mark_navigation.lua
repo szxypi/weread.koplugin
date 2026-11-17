@@ -75,13 +75,13 @@ local function open_bound(host,owner,job,result,current)
         local called,opened=pcall(next_host.openSourcePosition,next_host,result.position,function(applied)
             if next_host._read_resume_active~=active then return end
             next_host._read_resume_active=nil
-            local saved,accepted=pcall(sync.finish_file_resume,sync,frame,applied~=nil)
+            local saved,accepted=pcall(sync.finish_file_resume,sync,frame,applied~=nil,applied)
             if not saved or not accepted then
                 next_host:showInfo(_('Reading position opened, but it could not be saved. Check storage before continuing.'))
             elseif not applied then
                 failed()
             elseif frame.local_only then
-                next_host:showInfo(_('Chapter list unavailable. This file keeps its own position; the previous bookshelf position and pending sync are preserved. Refresh the chapter list and reopen the book before syncing.'))
+                next_host:showInfo(_('Chapter list unavailable. This chapter will reopen from the bookshelf; the previous pending sync is preserved. Refresh the chapter list before syncing.'))
             end
         end)
         if not called or not opened then

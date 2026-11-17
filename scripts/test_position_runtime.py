@@ -137,6 +137,10 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_CACHED_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline downloaded chapter reopen failed; inspect isolated runtime log'
+                with (root / 'evidence/stale.log').open('w') as out:
+                    stale=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                        env=environment | {'WEREAD_TEST_CACHED_STALE':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                assert stale.returncode==0, 'offline changed chapter fallback failed; inspect isolated runtime log'
         finally:
             if thread.is_alive():server.shutdown();thread.join()
         if result.returncode == 0:
@@ -157,6 +161,10 @@ def main():
                     assert reopened.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened
                     value=json.loads(reopened.split(marker,1)[1].splitlines()[0])
                     assert value==dict(result='PASS',file_position=True,pending_preserved=True), 'offline reopen result mismatch'
+                    stale=(root/'evidence/stale.log').read_bytes();marker=b'\nWEREAD_CACHED_SEARCH_STALE='
+                    assert stale.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in stale
+                    value=json.loads(stale.split(marker,1)[1].splitlines()[0])
+                    assert value==dict(result='PASS',cancel_preserved=True,explicit_fallback=True), 'changed chapter result mismatch'
             if args.probe == 'quick-search':
                 marker=b'\nWEREAD_QUICK_SEARCH_RESULT='
                 for reopened,content in ((False,raw),(True,(root/'evidence/reopen.log').read_bytes())):

@@ -42,6 +42,7 @@ local ok, index = BookStore.save(settings, "book/42", {
     progress = 37,
     chapter_uid = 9,
     pending_upload_account = "synthetic-account-key",
+    unindexed_resume = {chapter_uid='9'},
     source_dispatch = { schema = 1, id = "synthetic-receipt", account = "synthetic-account-key" },
     mp_articles = { { title = "Fixture article" } },
     chapters = { { chapterUid = 9 } },
@@ -74,9 +75,11 @@ local metadata_only = BookStore.without_reading_state(loaded)
 expect(metadata_only.title == loaded.title and metadata_only.cache_dir == loaded.cache_dir,
     "metadata filtering lost ordinary fields or cache paths")
 expect(metadata_only.progress == nil and metadata_only.pending_upload_account == nil
-    and metadata_only.source_dispatch == nil and loaded.progress == 37 and loaded.source_dispatch.id == "synthetic-receipt",
+    and metadata_only.source_dispatch == nil and metadata_only.unindexed_resume==nil
+    and loaded.progress == 37 and loaded.source_dispatch.id == "synthetic-receipt",
     "metadata filtering retained reading state or mutated its caller")
 expect(BookStore.is_reading_field("pending_upload_position") and BookStore.is_reading_field("source_dispatch")
+    and BookStore.is_reading_field('unindexed_resume')
     and not BookStore.is_reading_field("title") and not BookStore.is_reading_field("cache_dir"),
     "metadata/checkpoint ownership is inconsistent")
 expect(loaded.title == "Fixture book" and loaded.author == "Fixture author",
@@ -90,6 +93,8 @@ state_file:close()
 expect(state.pending_upload_account == "synthetic-account-key", "pending owner escaped the reading-state file")
 expect(state.source_dispatch.id == "synthetic-receipt" and loaded.source_dispatch.id == "synthetic-receipt",
     "dispatch journal did not survive per-book reading-state storage")
+expect(state.unindexed_resume.chapter_uid=='9' and loaded.unindexed_resume.chapter_uid=='9',
+    'local-only resume hint was not stored with reading state')
 expect(loaded.mp_articles[1].title == "Fixture article",
     "article data did not round-trip")
 expect(loaded.chapters == nil,

@@ -171,7 +171,8 @@ function ProgressSync:begin_file_resume(options)
     local saved=self.get_book(id) or {}
     local owner=saved.pending_upload_account or saved.recent_read_account
     local frame={scope=self:_scope(),baseline=copy(baseline),marker=self:_navigation_marker(),
-        had_pending=type(saved.pending_upload_position)=='table' and owner==self:_account_key(),local_only=local_only or nil}
+        had_pending=type(saved.pending_upload_position)=='table' and owner==self:_account_key(),local_only=local_only or nil,
+        auth_epoch=self.settings:get('auth_epoch',0)}
     self.current_book_id,self.checkpoint_account=id,self:_account_key()
     self.local_position,self.dirty=copy(baseline),false
     self.file_resume=frame
@@ -185,13 +186,20 @@ function ProgressSync:_file_resume_unchanged(frame)
         and self:_navigation_marker()==frame.marker)
 end
 
-function ProgressSync:finish_file_resume(frame, applied)
+function ProgressSync:finish_file_resume(frame, applied, source_position)
     if self.file_resume~=frame or not self:_session_current(frame.scope) then return false end
     -- Without a catalogue there is no safe whole-book position to checkpoint.
     -- Keep the previous local/pending records and stop automatic sync for the
     -- rest of this reader session. KOReader still owns this file's page state.
     if frame.local_only then
         self.state='unverified'
+        if applied then
+            if frame.auth_epoch~=self.settings:get('auth_epoch',0) then return false end
+            local hint=require('weread.lib.unindexed_resume').make(source_position,frame.scope.book_id,
+                frame.scope.account,frame.auth_epoch)
+            if not hint then return false end
+            self:_persist(frame.scope.book_id,{unindexed_resume=hint})
+        end
         return true
     end
     if not applied then
@@ -329,6 +337,13 @@ end
 function ProgressSync:_persist(book_id, patch)
     book_id = tostring(book_id or "")
     if book_id == "" or type(patch) ~= "table" then return false end
+    if type(patch.last_local_position)=='table' and patch.unindexed_resume==nil then
+        local saved=self.get_book(book_id)
+        if type(saved)=='table' and require('weread.lib.unindexed_resume').valid(saved.unindexed_resume,
+            book_id,self:_account_key(),self.settings:get('auth_epoch',0)) then
+            patch=copy(patch);patch.unindexed_resume=false
+        end
+    end
     if self.settings.patch_reading_state then
         local ok,err=self.settings:patch_reading_state(book_id,copy(patch))
         if not ok then error(err or 'Could not save reading state',0) end

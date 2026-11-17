@@ -48,22 +48,25 @@ def main():
                 EMULATE_BB_TYPE='BB8',EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),
                 EMULATE_READER_DPI=str(args.dpi))
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/owner_catalog_free_search_ui.lua'
-            child=subprocess.Popen([str(runtime/'luajit'),str(probe)],cwd=runtime,env=env,stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
-            try:
-                out,err=child.communicate(payload,timeout=180)
-                marker=b'\nWEREAD_OWNER_CATALOG_FREE_UI='
-                if (child.returncode or len(out)>8*1024*1024 or out.count(marker)!=1
-                        or b'[WeRead] forceRePaint failed:' in out+err):raise ValueError('native')
-                value=json.loads(out.split(marker,1)[1].splitlines()[0])
-                if value!=dict(result='PASS',native_navigation=True,prior_position_preserved=True,offline=True):
-                    raise ValueError('result')
-                report.update(result='PASS',native_navigation=True,prior_position_preserved=True,offline=True)
-            finally:
-                if child.poll() is None:
-                    try:kill_reader_session(child)
-                    except (ProcessLookupError,RuntimeError):pass
-                stop(child);reap(child.pid)
+            for reopened in (False,True):
+                child=subprocess.Popen([str(runtime/'luajit'),str(probe)],cwd=runtime,
+                    env=env | {'WEREAD_OWNER_UNINDEXED_REOPEN':'1' if reopened else '0'},stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
+                try:
+                    out,err=child.communicate(payload,timeout=180)
+                    marker=b'\nWEREAD_OWNER_CATALOG_FREE_UI='
+                    if (child.returncode or len(out)>8*1024*1024 or out.count(marker)!=1
+                            or b'[WeRead] forceRePaint failed:' in out+err):raise ValueError('native')
+                    value=json.loads(out.split(marker,1)[1].splitlines()[0])
+                    expected=dict(result='PASS',prior_position_preserved=True,offline=True)
+                    expected['bookshelf_resume' if reopened else 'native_navigation']=True
+                    if value!=expected:raise ValueError('result')
+                finally:
+                    if child.poll() is None:
+                        try:kill_reader_session(child)
+                        except (ProcessLookupError,RuntimeError):pass
+                    stop(child);reap(child.pid)
+            report.update(result='PASS',native_navigation=True,bookshelf_resume=True,prior_position_preserved=True,offline=True)
     except Exception:
         pass
     finally:report['profile_removed']=root is not None and not root.exists()

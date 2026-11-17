@@ -11,6 +11,7 @@ local reading_fields = {
     chapter_offset = true,
     chapter_uid = true,
     last_local_position = true,
+    unindexed_resume = true,
     last_pull_at = true,
     last_remote_position = true,
     last_sync_error = true,

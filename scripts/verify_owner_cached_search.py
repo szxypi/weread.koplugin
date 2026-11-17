@@ -56,7 +56,7 @@ def main():
                 if child.returncode or len(child.stdout)>65536:raise ValueError('native_ui')
                 value=json.loads(child.stdout)
                 if value!=dict(result='PASS',profile_removed=True,installed_bytes_match=True,
-                               native_navigation=True,prior_position_preserved=True,offline=True):raise ValueError('native_ui')
+                               native_navigation=True,bookshelf_resume=True,prior_position_preserved=True,offline=True):raise ValueError('native_ui')
             report['native_ui_screens']=2
         web.verify_account()
         report.update(result='PASS',source_checked=1,position_and_catalog_unchanged=True)

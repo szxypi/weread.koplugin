@@ -22,6 +22,36 @@ local ok=pcall(function()
     local Content=require('weread.lib.content');local Source=require('weread.lib.position_source')
     local Identity=require('weread.lib.book_file_identity');local settings=require('weread.lib.settings'):new()
     assert(not settings.mock_endpoint)
+    if os.getenv('WEREAD_OWNER_UNINDEXED_REOPEN')=='1' then
+        local book=assert(settings:get_book(input.book));local path=assert(book.cached_chapters[input.chapter])
+        local file=assert(io.open(home..'/resume-xpointer.txt','rb'));local xpointer=file:read('*a');file:close()
+        assert(#xpointer>0 and #xpointer<4096)
+        local ffi=require('ffi');pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
+        local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
+        local requests=ffi.cast('int *',memory);requests[0]=0
+        local Client=require('weread.lib.client')
+        function Client:request() requests[0]=requests[0]+1;error('offline_network_request',0) end
+        local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
+        local socket=require('socket');local FM=require('apps/filemanager/filemanager')
+        FM:showFiles(home);UI:shiftScheduledTasksBy(-1e9);UI:handleInput()
+        local host=assert(FM.instance.weread);assert(host:startBookReading(book))
+        local Reader=require('apps/reader/readerui');local deadline=socket.gettime()+90
+        while not (Reader.instance and Reader.instance.document and Reader.instance.document.file==path
+            and Reader.instance.weread and Reader.instance.weread.progress_sync.file_resume) do
+            UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01);assert(socket.gettime()<deadline,'reopen_timeout')
+        end
+        local reader=Reader.instance
+        assert(reader.document:isXPointerInCurrentPage(xpointer) and reader.weread.progress_sync.file_resume.local_only
+            and not reader.weread.progress_sync.verified)
+        local saved=assert(reader.weread.settings:get_book(input.book))
+        assert(saved.pending_upload_position.chapter_uid==input.local_chapter and saved.pending_upload_position.chapter_offset==19
+            and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid==input.local_chapter)
+        assert(reader.weread.progress_sync:sync_now()==false and requests[0]==0)
+        reader.weread:onFlushSettings();reader:onClose(false)
+        assert(requests[0]==0)
+        result={result='PASS',bookshelf_resume=true,prior_position_preserved=true,offline=true}
+        return
+    end
     local book={book_id=input.book,bookId=input.book,bookVersion=0,title='合成标题',cached_chapters={}}
     local chapters={{chapterUid=input.local_chapter,title='合成章节'}, {chapterUid=input.chapter,title='本地章节'}}
     local bodies={[input.local_chapter]='<html><body><p>合成本地起始章节。</p></body></html>',[input.chapter]=input.source}
@@ -78,8 +108,10 @@ local ok=pcall(function()
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(plugin.progress_sync.file_resume and plugin.progress_sync.file_resume.local_only and not plugin.progress_sync.verified)
     local alert=assert(UI:getTopmostVisibleWidget())
-    assert(alert.text==require('weread.lib.i18n').tr('Chapter list unavailable. This file keeps its own position; the previous bookshelf position and pending sync are preserved. Refresh the chapter list and reopen the book before syncing.'))
+    assert(alert.text==require('weread.lib.i18n').tr('Chapter list unavailable. This chapter will reopen from the bookshelf; the previous pending sync is preserved. Refresh the chapter list before syncing.'))
     assert(plugin.progress_sync:sync_now()==false and requests[0]==0)
+    local xpointer=assert(plugin.progress_sync.source_anchor.xpointer)
+    local output=assert(io.open(home..'/resume-xpointer.txt','wb'));assert(output:write(xpointer));assert(output:close())
     plugin:onFlushSettings();reader:onClose(false)
     local saved=assert(settings:get_book(input.book))
     assert(saved.pending_upload_position.chapter_uid==input.local_chapter and saved.pending_upload_position.chapter_offset==19

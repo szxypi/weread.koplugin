@@ -21,9 +21,15 @@ local Source=require('weread.lib.position_source')
 local Identity=require('weread.lib.book_file_identity')
 local settings=require('weread.lib.settings'):new()
 assert(settings.mock_endpoint and settings.data_dir:match('/weread%-mock$'))
-if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' then
+if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_STALE')=='1' then
+    local stale=os.getenv('WEREAD_TEST_CACHED_STALE')=='1'
     local persisted=assert(settings:get_book(book_id))
     local path=assert(persisted.cached_chapters['2'])
+    if stale then
+        assert(persisted.unindexed_resume.raw_sha256~=string.rep('f',64))
+        persisted.unindexed_resume.raw_sha256=string.rep('f',64)
+        assert(settings:patch_reading_state(book_id,{unindexed_resume=persisted.unindexed_resume}))
+    end
     local input=assert(io.open(evidence..'/cached-synthetic-xpointer.txt','rb'))
     local xpointer=input:read('*a');input:close();assert(#xpointer>0 and #xpointer<4096)
     local Client=require('weread.lib.client')
@@ -33,13 +39,50 @@ if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' then
     local requests=ffi.cast('int *',memory);requests[0]=0
     function Client:request() requests[0]=requests[0]+1;error('offline reopen attempted a network request') end
     local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
-    local reader=require('apps/reader/readerui'):new{dimen=Device.screen:getSize(),
-        document=require('document/documentregistry'):openDocument(path)}
-    UI:show(reader);UI:shiftScheduledTasksBy(-1e9);UI:handleInput()
+    local socket=require('socket');local FM=require('apps/filemanager/filemanager')
+    FM:showFiles(home);UI:shiftScheduledTasksBy(-1e9);UI:handleInput()
+    local host=assert(FM.instance.weread)
+    assert(host:startBookReading(persisted))
+    local Reader=require('apps/reader/readerui');local deadline=socket.gettime()+45
+    if stale then
+        local label=require('weread.lib.i18n').tr('Could not verify the saved chapter. Open the previous reading position instead?')
+        local function confirmation()
+            while true do
+                UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
+                assert(socket.gettime()<deadline,'stale chapter confirmation timed out')
+                local dialog=UI:getTopmostVisibleWidget()
+                if dialog and dialog.text==label then return dialog end
+            end
+        end
+        local dialog=confirmation();assert(not Reader.instance);dialog.cancel_callback()
+        assert(not Reader.instance and not host._unindexed_resume_job)
+        assert(host:startBookReading(assert(host.settings:get_book(book_id))))
+        dialog=confirmation();assert(not Reader.instance);dialog.ok_callback()
+        local previous=assert(persisted.cached_chapters['1'])
+        while not (Reader.instance and Reader.instance.document and Reader.instance.document.file==previous) do
+            UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01);assert(socket.gettime()<deadline,'fallback timed out')
+        end
+        local saved=assert(Reader.instance.weread.settings:get_book(book_id))
+        assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_reason=='synthetic_pending')
+        assert(requests[0]==0,'offline fallback attempted a network request')
+        print('\nWEREAD_CACHED_SEARCH_STALE='..require('json').encode({result='PASS',cancel_preserved=true,explicit_fallback=true}))
+        os.exit(0)
+    end
+    while not (Reader.instance and Reader.instance.document and Reader.instance.document.file==path
+        and Reader.instance.weread and Reader.instance.weread.progress_sync.file_resume) do
+        UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01);assert(socket.gettime()<deadline,'bookshelf reopen timed out')
+    end
+    local reader=Reader.instance
     assert(reader.document:isXPointerInCurrentPage(xpointer),'reopened chapter lost its saved page')
+    assert(reader.weread.progress_sync.file_resume.local_only and not reader.weread.progress_sync.verified)
     local saved=assert(reader.weread.settings:get_book(book_id))
     assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_position.chapter_offset==19
         and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid=='1')
+    assert(saved.unindexed_resume.chapter_uid=='2')
+    assert(reader.weread.progress_sync:sync_now()==false)
+    reader.weread:onFlushSettings();reader:onClose(false)
+    saved=assert(settings:get_book(book_id))
+    assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_reason=='synthetic_pending')
     assert(requests[0]==0,'offline reopen attempted a network request')
     print('\nWEREAD_CACHED_SEARCH_REOPEN='..require('json').encode({result='PASS',file_position=true,pending_preserved=true}))
     os.exit(0)

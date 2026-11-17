@@ -1824,16 +1824,19 @@ test('successful file resume carries local intent without approving a cloud writ
 end)
 
 test('catalog-free file resume keeps prior intent and suppresses synchronization',function()
-    local f=fixture({}, {get_chapters=function() return nil end})
-    local saved=f.values.books.book
-    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    local f=fixture({}, {book_id='41',get_chapters=function() return nil end})
+    local saved=f.values.books['41']
+    local old={book_id='41',chapter_uid=33,chapter_offset=100,percent=50}
     saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
     f.sync:on_reader_ready()
     eq(f.sync:begin_file_resume(),nil,'ordinary file resume unexpectedly accepted a missing catalog')
     local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
     eq(frame.local_only,true,'catalog-free navigation was not scoped to local state')
     f.drain();f.document.page=40;f.sync:on_page_update()
-    eq(f.sync:finish_file_resume(frame,true),true,'catalog-free navigation could not finish')
+    local point={book_id='41',chapter_uid='22',file_id=string.rep('a',64),raw_sha256=string.rep('b',64),
+        basis='filtered_xhtml_utf16',upload_verified=false}
+    eq(f.sync:finish_file_resume(frame,true,point),true,'catalog-free navigation could not finish')
+    eq(saved.unindexed_resume.chapter_uid,'22','local-only chapter selection was not saved')
     eq(f.sync:checkpoint_local('after_jump'),nil,'catalog-free point was checkpointed as a complete progress')
     eq(f.sync:sync_now(),false,'manual synchronization proceeded without a catalog')
     eq(f.sync:_upload_snapshot(old,'guard',false),false,'direct upload bypassed the local-only guard')
@@ -1854,9 +1857,10 @@ end)
 
 test('catalog-free manual sync may resume only after a real catalog is available',function()
     local available=false
-    local f=fixture({}, {get_chapters=function() return available and chapters or nil end})
+    local f=fixture({}, {book_id='41',get_chapters=function() return available and chapters or nil end})
     local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
-    assert(f.sync:finish_file_resume(frame,true))
+    assert(f.sync:finish_file_resume(frame,true,{book_id='41',chapter_uid='22',file_id=string.rep('a',64),
+        raw_sha256=string.rep('b',64),basis='filtered_xhtml_utf16',upload_verified=false}))
     local called=0
     f.sync._pull=function(_self,options) called=called+1;eq(options.manual,true,'sync was not explicit');return true end
     eq(f.sync:sync_now(),false,'sync proceeded while catalog was absent')
@@ -1864,6 +1868,32 @@ test('catalog-free manual sync may resume only after a real catalog is available
     available=true
     eq(f.sync:sync_now(),true,'explicit sync did not resume after catalog was restored')
     eq(called,1,'restored catalog did not start exactly one explicit comparison')
+end)
+
+test('new indexed progress clears only its own catalog-free chapter hint',function()
+    local f=fixture({}, {book_id='41'})
+    local point={book_id='41',chapter_uid='22',file_id=string.rep('a',64),raw_sha256=string.rep('b',64),
+        basis='filtered_xhtml_utf16',upload_verified=false}
+    local make=require('weread.lib.unindexed_resume').make
+    local own=assert(make(point,'41',f.sync:_account_key(),0))
+    local saved=f.values.books['41'];saved.unindexed_resume=own
+    f.sync:_persist('41',{verified_source='fixture'})
+    eq(saved.unindexed_resume,own,'unrelated reading state discarded the selected chapter')
+    f.sync:_persist('41',{last_local_position={book_id='41',chapter_uid='33',percent=50}})
+    eq(saved.unindexed_resume,nil,'new indexed local progress kept a stale chapter preference')
+    local foreign=assert(make(point,'41',string.rep('d',20),0));saved.unindexed_resume=foreign
+    f.sync:_persist('41',{last_local_position={book_id='41',chapter_uid='33',percent=50}})
+    eq(saved.unindexed_resume,foreign,'a different account discarded the prior selection')
+end)
+
+test('a login change cannot save a stale catalog-free selection',function()
+    local f=fixture({}, {book_id='41',get_chapters=function() return nil end})
+    local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
+    f.values.auth_epoch=1
+    local point={book_id='41',chapter_uid='22',file_id=string.rep('a',64),raw_sha256=string.rep('b',64),
+        basis='filtered_xhtml_utf16',upload_verified=false}
+    eq(f.sync:finish_file_resume(frame,true,point),false,'a stale login session persisted a chapter')
+    eq(f.values.books['41'].unindexed_resume,nil,'stale navigation changed the local chapter hint')
 end)
 
 test('file resume refreshes automatic comparison only after success and under its current scope',function()
