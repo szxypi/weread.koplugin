@@ -111,8 +111,12 @@ function M.choose(host,ctx,path)
     if not current(host,ctx) then return end
     local captured,input=pcall(Model.capture,path)
     if not captured or not input then M.cancel(host);host:showInfo(_('Choose an EPUB, PDF, MOBI, TXT or AZW3 file up to 200 MiB.'));return end
+    local text=T(_('Upload “%1” to your cloud bookshelf?\n\nThe original file remains on this device.'),input.name)
+    if input.name:lower():match('%.pdf$') then
+        text=text..'\n\n'.._('WeRead conversion may change PDF layout or omit images.')
+    end
     local dialog
-    dialog=Confirm:new{text=T(_('Upload “%1” to your cloud bookshelf?\n\nThe original file remains on this device.'),input.name),
+    dialog=Confirm:new{text=text,
         ok_text=_('Upload'),cancel_callback=function() if current(host,ctx) then M.cancel(host) end end,
         ok_callback=function()
             if not current(host,ctx) or ctx.dialog~=dialog then return end

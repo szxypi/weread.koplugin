@@ -33,7 +33,14 @@ local function choose()
     pump(function() return plugin._personal_upload_ui and plugin._personal_upload_ui.dialog~=nil end)
     return assert(plugin._personal_upload_ui.dialog)
 end
-local confirmation=choose();confirmation.cancel_callback()
+local text_path=path
+path=home..'/SyntheticWarning.PDF';f=assert(io.open(path,'wb'));assert(f:write('%PDF-1.4 synthetic'));f:close()
+local confirmation=choose()
+assert(confirmation.text:find('微信读书转换 PDF 时可能改变排版或丢失图片。',1,true),'native PDF conversion warning missing')
+UI:forceRePaint();Device.screen:shot(evidence..'/upload-pdf-warning.png');confirmation.cancel_callback()
+assert(Journal:new(plugin.settings,plugin.client):read(scope).phase=='idle','PDF warning cancel created pending upload')
+os.remove(path);path=text_path
+confirmation=choose();confirmation.cancel_callback()
 assert(Journal:new(plugin.settings,plugin.client):read(scope).phase=='idle','cancel created a pending upload')
 confirmation=choose();UI:forceRePaint();Device.screen:shot(evidence..'/upload-confirm.png');confirmation.ok_callback()
 pump(function() return not plugin._personal_upload_ui end)
