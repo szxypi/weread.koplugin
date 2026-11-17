@@ -337,6 +337,11 @@ end
 function ProgressSync:_persist(book_id, patch)
     book_id = tostring(book_id or "")
     if book_id == "" or type(patch) ~= "table" then return false end
+    -- A home visit and a reading checkpoint have different owners. Never let
+    -- an older, shared recent-reading field claim a newly captured position.
+    if type(patch.last_local_position)=='table' then
+        patch=copy(patch);patch.last_local_account=self:_account_key() or ''
+    end
     if type(patch.last_local_position)=='table' and patch.unindexed_resume==nil then
         local saved=self.get_book(book_id)
         if type(saved)=='table' and require('weread.lib.unindexed_resume').valid(saved.unindexed_resume,

@@ -50,6 +50,12 @@ expect(Reading.resume_index(projected,{chapter_uid=1,last_local_position={chapte
     'last local chapter lost to refreshed book metadata')
 expect(Reading.resume_index(projected,{chapter_uid=1,recent_read_account='other',last_local_position={chapter_uid=2}},nil,'owner')==1,
     'foreign last local chapter was used')
+expect(Reading.resume_index(projected,{chapter_uid=1,recent_read_account='owner',last_local_account='other',
+    last_local_position={chapter_uid=2}},nil,'owner')==1,'recent event transferred a foreign last local position')
+expect(Reading.resume_index(projected,{chapter_uid=1,recent_read_account='other',last_local_account='owner',
+    last_local_position={chapter_uid=2}},nil,'owner')==2,'explicit local-position owner was ignored')
+expect(Reading.resume_index(projected,{chapter_uid=1,recent_read_account='owner',last_local_account='',
+    last_local_position={chapter_uid=2}},nil,'owner')==1,'unowned local position inherited a legacy owner')
 local duplicates = assert(Reading.catalog({
     { chapterUid=1, chapterIdx=0, title='One' },
     { chapterUid=2, chapterIdx=0, title='Two' },

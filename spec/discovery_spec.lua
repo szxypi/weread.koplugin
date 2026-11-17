@@ -161,13 +161,18 @@ shown.callbacks.on_close()
 expect(plugin.shelf_view == nil, "close left stale discovery view")
 local persisted, flushed
 plugin.settings = {
-    get = function() return { a = { book_id = "a" } } end,
-    set = function(_self, _key, value) persisted = value end,
+    patch_reading_state = function(_self,id,value) expect(id=='a','recent event addressed the wrong book');persisted=value;return true end,
+    set = function() error('recent event rewrote all books') end,
     flush = function() flushed = true end,
 }
 plugin:recordRecentReading("a")
-expect(flushed and persisted.a.recent_read_at > 0 and persisted.a.recent_read_account == "account-b",
-    "local reading was not persisted with account identity")
+expect(not flushed and persisted.home_recent_at > 0 and persisted.home_recent_account == "account-b"
+    and persisted.recent_read_account==nil, "recent event overwrote legacy position ownership")
+local legacy={book_id='900001',recent_read_at=30,recent_read_account='a',home_recent_at=40,home_recent_account='b'}
+expect(Data.recent({}, {['900001']=legacy},'b')[1].bookId=='900001'
+    and #Data.recent({}, {['900001']=legacy},'a')==0,'new home event did not supersede its legacy event')
+legacy.home_recent_account=''
+expect(#Data.recent({}, {['900001']=legacy},'a')==0,'signed-out event revived a legacy account')
 
 -- A successful network read must remain visible when saving the shelf fails.
 local cached={{bookId='old',title='Old',readUpdateTime=10}}

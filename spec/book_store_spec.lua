@@ -111,6 +111,13 @@ expect(patched.progress==38 and not patched.source_dispatch and patched.chapter_
 metadata_file=assert(io.open(index.cache_dir..'/metadata.json','rb'))
 expect(metadata_file:read('*a')==metadata_bytes,'late reading patch rewrote metadata');metadata_file:close()
 expect(not BookStore.patch_reading(settings,'book/42',index,{title='late stale title'}),'reading patch changed non-state data')
+expect(BookStore.patch_reading(settings,'book/42',index,{home_recent_at=100,home_recent_account='',last_local_account='owner'}),
+    'account-scoped home and local-position checkpoint failed')
+patched=BookStore.load(settings,'book/42',index)
+expect(patched.home_recent_at==100 and patched.home_recent_account=='' and patched.last_local_account=='owner'
+    and patched.pending_upload_account=='synthetic-account-key','recent reading changed unrelated pending ownership')
+metadata_file=assert(io.open(index.cache_dir..'/metadata.json','rb'))
+expect(metadata_file:read('*a')==metadata_bytes,'recent event rewrote metadata');metadata_file:close()
 
 -- An error delayed until fclose must not replace the committed checkpoint.
 local state_path=index.cache_dir..'/reading_state.json'

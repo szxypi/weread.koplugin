@@ -150,6 +150,12 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_HOME_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline home reopen failed; inspect isolated runtime log'
+                for flag,filename in (('WEREAD_TEST_HOME_ACCOUNT_SWITCH','account-switch.log'),
+                                      ('WEREAD_TEST_HOME_ACCOUNT_REOPEN','account-reopen.log')):
+                    with (root/'evidence'/filename).open('w') as out:
+                        checked=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                            env=environment | {flag:'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                    assert checked.returncode==0, 'offline account ownership check failed; inspect isolated runtime log'
             if result.returncode == 0 and args.probe == 'cached-search' and args.cached_no_catalog:
                 server.shutdown();thread.join()
                 with (root / 'evidence/reopen.log').open('w') as out:
@@ -172,6 +178,13 @@ def main():
                     value=json.loads(content.split(marker,1)[1].splitlines()[0])
                     assert value==dict(result='PASS',reopen=reopened,home_selection=True,account_isolation=True,
                                        shelf_unchanged=True,saved_page=True,requests=0), 'native home result mismatch'
+                marker=b'\nWEREAD_HOME_ACCOUNT_SWITCH='
+                for reopened,filename in ((False,'account-switch.log'),(True,'account-reopen.log')):
+                    content=(root/'evidence'/filename).read_bytes()
+                    assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
+                    value=json.loads(content.split(marker,1)[1].splitlines()[0])
+                    assert value==dict(result='PASS',reopen=reopened,legacy_pending_preserved=True,
+                                       legacy_position_preserved=True,foreign_hidden=True,requests=0), 'account ownership mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'local home made a mock request'
             if args.probe == 'cached-search':

@@ -2,7 +2,9 @@
 -- The second process has no server and reuses only the isolated test profile.
 require('setupkoenv')
 local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDENCE'))
-local reopen=os.getenv('WEREAD_TEST_HOME_REOPEN')=='1'
+local switch=os.getenv('WEREAD_TEST_HOME_ACCOUNT_SWITCH')=='1'
+local switch_reopen=os.getenv('WEREAD_TEST_HOME_ACCOUNT_REOPEN')=='1'
+local reopen=os.getenv('WEREAD_TEST_HOME_REOPEN')=='1' or switch or switch_reopen
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
 G_reader_settings:saveSetting('language','zh_CN')
@@ -53,6 +55,53 @@ local function press(view,label)
 end
 FM:showFiles(home)
 local plugin=host();local account=assert(plugin.library_db:accountKey())
+if switch or switch_reopen then
+    local Reading=require('weread.ui.book_reading');local Progress=require('weread.lib.shelf_progress')
+    -- Mock settings intentionally reset to account 900000 on construction;
+    -- select the second synthetic account again in the fresh process.
+    if switch_reopen then
+        plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},
+            cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+    end
+    if switch then
+        local books=plugin.settings:get('books',{});local book=assert(books[id])
+        book.recent_read_account=account;book.recent_read_at=10
+        book.home_recent_account=nil;book.home_recent_at=nil;book.last_local_account=nil
+        book.last_local_position={book_id=id,chapter_uid='1',percent=33}
+        book.pending_upload_position={book_id=id,chapter_uid='1',percent=33}
+        book.pending_upload_account=nil;book.pending_upload_reason='synthetic-legacy'
+        plugin.settings:set('books',books);plugin.settings:flush()
+        plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},
+            cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+        assert(plugin.settings:get_auth_scope(true).vid=='900002','synthetic account switch not persisted')
+        assert(plugin.library_db:accountKey()~=account)
+        assert(plugin:recordRecentReading(id))
+    end
+    local book=assert(plugin.settings:get_book(id));local current=assert(plugin.library_db:accountKey())
+    assert(book.recent_read_account~=current and book.home_recent_account==current and book.pending_upload_account==nil)
+    assert(book.last_local_position.percent==33 and book.pending_upload_position.percent==33
+        and book.pending_upload_reason=='synthetic-legacy','home event changed legacy checkpoints')
+    local positions=Reading.local_positions(book,current)
+    assert(not next(positions[1]) and not next(positions[2]),'foreign legacy position was selected')
+    assert(Progress.display(book,{percent=12},current,id)==12,'foreign pending progress was shown')
+    if switch_reopen then
+        plugin.settings:update_auth({account={user_vid='900000',name='Synthetic'},
+            cookies={wr_vid='900000',wr_skey='synthetic-home-session'}},{replace_cookies=true})
+        assert(plugin.settings:get_auth_scope(true).vid=='900000','synthetic account restoration not persisted')
+        local original=assert(plugin.library_db:accountKey())
+        assert(original==book.recent_read_account and Reading.local_positions(book,original)[1].percent==33)
+        assert(Progress.display(book,{percent=12},original,id)==33,'original account lost pending checkpoint')
+        plugin.settings:update_auth({account={},cookies={}},{replace_cookies=true})
+        assert(plugin:recordRecentReading(id))
+        book=assert(plugin.settings:get_book(id))
+        assert(book.home_recent_account=='' and book.recent_read_account==original
+            and book.pending_upload_position.percent==33,'signed-out event changed original ownership')
+    end
+    assert(requests[0]==0)
+    print('\nWEREAD_HOME_ACCOUNT_SWITCH='..json.encode({result='PASS',reopen=switch_reopen,
+        legacy_pending_preserved=true,legacy_position_preserved=true,foreign_hidden=true,requests=0}))
+    os.exit(0)
+end
 local path,xpointer
 if not reopen then
     local chapters={{chapterUid='1',chapterIdx=1,title='合成章节',wordCount=1000}}
@@ -74,7 +123,7 @@ if not reopen then
     plugin:closeWeReadUI();plugin:showBookRecord(book,{verified_metadata=true})
     press(assert(plugin._book_detail_view),'▤ Read')
     pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==path end)
-    pump(function() local b=Reader.instance.weread.settings:get_book(id);return b and b.recent_read_account==account end)
+    pump(function() local b=Reader.instance.weread.settings:get_book(id);return b and b.home_recent_account==account end)
     local reader=Reader.instance;assert(reader.document:getPageCount()>3)
     reader.rolling:onGotoPage(3);tick();xpointer=assert(reader.document:getXPointer())
     close_reader()

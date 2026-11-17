@@ -12,6 +12,11 @@ local function text(value)
     return (type(value) == "string" or type(value) == "number") and tostring(value) or ""
 end
 
+local function recent_event(book)
+    if book.home_recent_account~=nil then return book.home_recent_account,number(book.home_recent_at) end
+    return book.recent_read_account,number(book.recent_read_at)
+end
+
 function M.book(row)
     if type(row) ~= "table" then return end
     local b = row
@@ -113,12 +118,14 @@ function M.recent(books, saved, account, limit)
         if id~='' and not seen[id] then
             seen[id]=true
             local local_book=saved[id] or saved[tonumber(id)]
+            local event_account,event_time
+            if type(local_book)=='table' then event_account,event_time=recent_event(local_book) end
             local owned=type(local_book)=='table' and account~=nil and account~=''
-                and local_book.recent_read_account==account
+                and event_account==account
                 and (local_book._library_account_key==nil or local_book._library_account_key==account)
                 and (local_book.book_id==nil or text(local_book.book_id)==id)
                 and (local_book.bookId==nil or text(local_book.bookId)==id)
-            local local_time=owned and (number(local_book.recent_read_at) or 0) or 0
+            local local_time=owned and (event_time or 0) or 0
             local recent_time=math.max(number(book.readUpdateTime) or 0,local_time)
             if recent_time>0 then
                 local copy={};for key,value in pairs(book) do copy[key]=value end
@@ -136,8 +143,9 @@ function M.recent(books, saved, account, limit)
         end
         for key,book in pairs(saved) do
             local id=type(book)=='table' and Access.display_book_id(book.book_id or book.bookId or key)
-            local time=type(book)=='table' and number(book.recent_read_at)
-            if id and tostring(key)==id and not seen[id] and time and time>0 and book.recent_read_account==account
+            local event_account,time
+            if type(book)=='table' then event_account,time=recent_event(book) end
+            if id and tostring(key)==id and not seen[id] and time and time>0 and event_account==account
                 and (book._library_account_key==nil or book._library_account_key==account)
                 and (book.book_id==nil or text(book.book_id)==id) and (book.bookId==nil or text(book.bookId)==id) then
                 local title=field(book.title,2048)

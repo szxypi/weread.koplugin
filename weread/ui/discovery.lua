@@ -110,13 +110,11 @@ function M:showDiscoveryPage(tab, books, options)
 end
 
 function M:recordRecentReading(book_id)
-    local books = self.settings:get("books", {})
-    local book = books[book_id]
-    if not book then return end
-    book.recent_read_at = os.time()
-    book.recent_read_account = self.library_db:accountKey()
-    self.settings:set("books", books)
-    self.settings:flush()
+    -- Keep the legacy field untouched: older local and pending positions may
+    -- still depend on it for their account identity.
+    return self.settings:patch_reading_state(book_id, {
+        home_recent_at = os.time(), home_recent_account = self.library_db:accountKey() or '',
+    })
 end
 
 function M:showHome(refresh_progress, refreshed_shelf)

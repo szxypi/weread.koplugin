@@ -46,7 +46,8 @@ function M.local_positions(local_book, account)
     local id=local_book.book_id or local_book.bookId
     local pending=local_hint(local_book.pending_upload_position,id,
         local_book.pending_upload_account or local_book.recent_read_account,account)
-    local recent=local_hint(local_book.last_local_position,id,local_book.recent_read_account,account)
+    local recent=local_hint(local_book.last_local_position,id,
+        local_book.last_local_account or local_book.recent_read_account,account)
     return {pending,recent}
 end
 

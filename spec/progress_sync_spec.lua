@@ -1886,6 +1886,16 @@ test('new indexed progress clears only its own catalog-free chapter hint',functi
     eq(saved.unindexed_resume,foreign,'a different account discarded the prior selection')
 end)
 
+test('local checkpoints record their owner independently of legacy recency',function()
+    local f=fixture({}, {book_id='41'})
+    local saved=f.values.books['41'];saved.recent_read_account='previous-owner'
+    f.sync:_persist('41',{last_local_position={book_id='41',chapter_uid='33',percent=50}})
+    eq(saved.last_local_account,f.sync:_account_key(),'new local position did not capture its account')
+    eq(saved.recent_read_account,'previous-owner','local checkpoint changed legacy pending ownership')
+    f.values.account={};f.sync:_persist('41',{last_local_position={book_id='41',chapter_uid='11',percent=20}})
+    eq(saved.last_local_account,'','signed-out position inherited an older account')
+end)
+
 test('a login change cannot save a stale catalog-free selection',function()
     local f=fixture({}, {book_id='41',get_chapters=function() return nil end})
     local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
