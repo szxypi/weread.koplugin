@@ -17,7 +17,7 @@ def launch(credentials,target,shelf_books,*,width,height,dpi):
     raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode();framed=str(len(raw)).encode()+b'\n'+raw
     command=['docker','exec','-i','-w','/source','weread-validation','timeout','--signal=TERM','--kill-after=10','165',
         'python3','scripts/run_native_personal_upload_ui.py','--koreader','/validation/runtime/lib/koreader',
-        '--candidate','/validation/pdf-original-manual-ui-1264-v2/candidate.zip','--width',str(width),'--height',str(height),'--dpi',str(dpi)]
+        '--candidate','/validation/pdf-original-unlink-ui-1264-v1/candidate.zip','--width',str(width),'--height',str(height),'--dpi',str(dpi)]
     child=subprocess.run(command,input=framed,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=190,check=False)
     prefix=('WEREAD_NATIVE_THOUGHT_'+token+'_RESULT=').encode()
     frames=[line[len(prefix):] for line in child.stdout.splitlines() if line.startswith(prefix)]
@@ -29,5 +29,5 @@ def launch(credentials,target,shelf_books,*,width,height,dpi):
         or type(value['installed']['files']) is not int or not 1<=value['installed']['files']<=1000):raise ValueError('manual_pdf/child')
     stage=validate_stage(value['stage'],False,manual_original=True)
     return dict(result='MANUAL_LOCAL_PDF_NATIVE_VERIFIED',profile_removed=True,credential_audit=stage['credential_audit'],
-        local_selection_confirmed=True,cancel_preserved=True,local_reader_opened=True,cloud_identity_absent=True,
+        local_selection_confirmed=True,cancel_preserved=True,unlink_cancel_preserved=True,local_unlinked=True,original_preserved=True,local_reader_opened=True,cloud_identity_absent=True,
         account_data_writes=0,authentication_posts=0,network_requests=0,screenshots=0)

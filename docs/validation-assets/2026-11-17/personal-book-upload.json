@@ -471,7 +471,20 @@
     "unlink_cancel_and_confirm": true,
     "unlink_preserves_original_and_other_association": true,
     "sqlite_stale_confirmation_preserved": true,
-    "unlink_real_account_tested": false
+    "unlink_real_account_tested": true
+  },
+  "real_account_local_pdf_unlink": {
+    "screens": ["600x800_167dpi", "1264x1680_300dpi"],
+    "disposable_local_profiles_removed": true,
+    "unlink_cancel_and_confirm": true,
+    "original_file_preserved": true,
+    "native_shelf_members_flags_groups_unchanged": true,
+    "native_progress_unchanged": true,
+    "local_network_requests": 0,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "screenshots": 0,
+    "physical_kindle_tested": false
   },
   "real_account_native_pdf_original_local_reading": {
     "screen": "1264x1680_300dpi",

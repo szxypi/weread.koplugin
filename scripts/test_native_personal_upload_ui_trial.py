@@ -73,9 +73,9 @@ class UITrialTest(unittest.TestCase):
         for bad in (dict(payload,permit_writes=True),dict(payload,manual_target='42'),dict(payload,fixture='pdf')):
             with self.assertRaises(ValueError):validate_input(bad,False,None)
         proof=stage(False);proof.update(manual_confirmation=True,manual_cancel_safe=True,manual_linked=True,
-                                       manual_pdf_pages=True,manual_cloud_unbound=True)
+                                       manual_pdf_pages=True,manual_cloud_unbound=True,manual_unlink_cancel_safe=True,manual_unlinked=True)
         self.assertEqual(validate_stage(proof,False,manual_original=True),proof)
-        for key in ('manual_confirmation','manual_cancel_safe','manual_linked','manual_pdf_pages','manual_cloud_unbound'):
+        for key in ('manual_confirmation','manual_cancel_safe','manual_linked','manual_pdf_pages','manual_cloud_unbound','manual_unlink_cancel_safe','manual_unlinked'):
             bad=dict(proof);bad[key]=False
             with self.assertRaises(ValueError):validate_stage(bad,False,manual_original=True)
         with self.assertRaises(ValueError):validate_stage(proof,False)

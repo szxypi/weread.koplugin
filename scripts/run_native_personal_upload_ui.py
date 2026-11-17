@@ -18,7 +18,7 @@ def validate_stage(value,armed,*,combined=False,local_original=False,same_sessio
     if combined or same_session:fields|={'continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'}
     if same_session:fields.add('web_cookies')
     if local_original:fields|={'local_original_opened','local_pdf_pages','cloud_unbound'}
-    if manual_original:fields|={'manual_confirmation','manual_cancel_safe','manual_linked','manual_pdf_pages','manual_cloud_unbound'}
+    if manual_original:fields|={'manual_confirmation','manual_cancel_safe','manual_linked','manual_pdf_pages','manual_cloud_unbound','manual_unlink_cancel_safe','manual_unlinked'}
     if (type(combined) is not bool or type(local_original) is not bool or type(same_session) is not bool
         or type(manual_original) is not bool or (combined or local_original or same_session) and not armed
         or manual_original and armed or sum((combined,local_original,same_session,manual_original))>1):raise ValueError('native_upload_ui/stage')
@@ -33,7 +33,7 @@ def validate_stage(value,armed,*,combined=False,local_original=False,same_sessio
             or (combined or same_session) and any(value[k] is not True for k in ('continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'))
             or same_session and not isinstance(value['web_cookies'],dict)
             or local_original and any(value[k] is not True for k in ('local_original_opened','local_pdf_pages','cloud_unbound'))
-            or manual_original and any(value[k] is not True for k in ('manual_confirmation','manual_cancel_safe','manual_linked','manual_pdf_pages','manual_cloud_unbound'))):raise ValueError('native_upload_ui/stage')
+            or manual_original and any(value[k] is not True for k in ('manual_confirmation','manual_cancel_safe','manual_linked','manual_pdf_pages','manual_cloud_unbound','manual_unlink_cancel_safe','manual_unlinked'))):raise ValueError('native_upload_ui/stage')
     return value
 
 

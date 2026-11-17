@@ -11,7 +11,7 @@ from test_secure_native_session import credentials
 class ManualPDFTrialTest(unittest.TestCase):
     def test_validates_proof_and_sends_private_inputs_only_on_stdin(self):
         proof=stage(False);proof.update(manual_confirmation=True,manual_cancel_safe=True,manual_linked=True,
-                                        manual_pdf_pages=True,manual_cloud_unbound=True)
+                                        manual_pdf_pages=True,manual_cloud_unbound=True,manual_unlink_cancel_safe=True,manual_unlinked=True)
         result=dict(result='PASS',profile_removed=True,installed=dict(files=308,bytes_match=True),stage=proof)
         def fake(command,**kwargs):
             self.assertNotIn(credentials()['accessToken'],' '.join(command));self.assertNotIn('CB_synthetic',' '.join(command))
@@ -22,7 +22,7 @@ class ManualPDFTrialTest(unittest.TestCase):
         with patch('native_manual_pdf_trial.subprocess.run',side_effect=fake):
             observed=launch(credentials(),'CB_synthetic',3,width=600,height=800,dpi=167)
         self.assertEqual(observed['result'],'MANUAL_LOCAL_PDF_NATIVE_VERIFIED');self.assertEqual(observed['network_requests'],0)
-        for key in ('manual_linked','manual_cloud_unbound'):
+        for key in ('manual_linked','manual_cloud_unbound','manual_unlink_cancel_safe','manual_unlinked'):
             bad=deepcopy(result);bad['stage'][key]=False
             def rejected(command,**kwargs):
                 _,raw=kwargs['input'].split(b'\n',1);payload=json.loads(raw)
