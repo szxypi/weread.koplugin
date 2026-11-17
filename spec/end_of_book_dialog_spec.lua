@@ -19,11 +19,12 @@ end
 
 local Dialog = require("weread.ui.end_of_book_dialog")
 
-local bookstore_searches, file_searches = 0, 0
+local bookstore_searches, file_searches, book_searches = 0, 0, 0
 local callbacks = {
     on_bookshelf = function() end,
     on_search = function() bookstore_searches = bookstore_searches + 1 end,
     on_search_current = function() file_searches = file_searches + 1 end,
+    on_search_book = function() book_searches = book_searches + 1 end,
     on_book_details = function() end,
     on_read_stats = function() end,
     on_sync_progress = function() end,
@@ -38,6 +39,7 @@ Dialog.show({
     enable_book_details = false,
     enable_sync_progress = true,
     enable_search_current = true,
+    enable_search_book = true,
     annotations_visible = true,
 }, callbacks)
 
@@ -69,10 +71,11 @@ expect(shown.buttons[2][1].enabled == false
         and sync_row[1].enabled == true,
     "book details and progress sync reflect their availability")
 expect(shown.buttons[3][2].text == "Search bookstore"
-        and shown.buttons[4][1].text == "Search current file" and shown.buttons[4][1].enabled == true,
+        and shown.buttons[4][1].text == "Search current file" and shown.buttons[4][1].enabled == true
+        and shown.buttons[4][2].text == "Search entire book" and shown.buttons[4][2].enabled == true,
     "bookstore and current document search have distinct actions")
-shown.buttons[3][2].callback();shown.buttons[4][1].callback()
-expect(bookstore_searches==1 and file_searches==1,
+shown.buttons[3][2].callback();shown.buttons[4][1].callback();shown.buttons[4][2].callback()
+expect(bookstore_searches==1 and file_searches==1 and book_searches==1,
     "each search button delegates to the corresponding action")
 
 Dialog.show({
@@ -83,7 +86,7 @@ Dialog.show({
 sync_row = shown and shown.buttons[#shown.buttons - 1]
 expect(#shown.buttons == 5,
     "shared action row remains visible without WeRead book context")
-expect(shown.buttons[3][1].enabled == false,
+expect(shown.buttons[3][1].enabled == false and shown.buttons[3][2].enabled == false,
     "current file search is disabled without a native search module")
 expect(sync_row and sync_row[1].enabled == false,
     "progress sync is disabled without WeRead book context")

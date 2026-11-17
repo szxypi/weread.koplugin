@@ -163,6 +163,7 @@ function M:closeWeReadUI()
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelMPArticleActions then self:cancelMPArticleActions() end
     if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
+    if self.cancelBookSearch then self:cancelBookSearch() end
     if self.cancelShelfState then self:cancelShelfState() end
     if self.cancelReadingLanguage then self:cancelReadingLanguage() end
     if self.cancelLocalNotesExport then self:cancelLocalNotesExport() end
@@ -2331,6 +2332,11 @@ end
 
 function M:cancelMyCloudMarks()
     return require('weread.ui.my_cloud_marks').cancel(self)
+end
+
+function M:cancelBookSearch()
+    local search=package.loaded['weread.ui.book_search']
+    if search then return search.cancel(self) end
 end
 
 function M:showShelfState(book_id)

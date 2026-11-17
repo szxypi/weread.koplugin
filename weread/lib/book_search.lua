@@ -72,7 +72,7 @@ function M.accept(state, data)
     if not dense(rows,MAX_ROWS) or data.scrollDownHasMore==1 and #rows==0 then
         return nil,'invalid_response'
     end
-    local hits,new_seen,previous={}, {},nil
+    local hits,new_seen,previous,hit_bytes={}, {},nil,0
     for _i,row in ipairs(rows) do
         local uid=type(row)=='table' and identity(row.chapterUid)
         if not uid or not state.order[uid] or not offset(row.posBegin) or not offset(row.posEnd)
@@ -90,6 +90,8 @@ function M.accept(state, data)
             if word.word==state.keyword then
                 local key=uid..':'..string.format('%.0f',word.posBegin)..':'..string.format('%.0f',word.posEnd)
                 if not state.seen[key] and not new_seen[key] then
+                    hit_bytes=hit_bytes+#row.text+#word.word
+                    if #hits>=1000 or hit_bytes>2*1024*1024 then return nil,'limit' end
                     new_seen[key]=true
                     hits[#hits+1]={chapter_uid=uid,start=word.posBegin,finish=word.posEnd,
                         text=word.word,context=row.text,source_verified=false}

@@ -156,12 +156,25 @@ def main(argv=None):
             if target_process.stdout.count(marker)!=1:raise ValueError('target_model')
             report['target_model']=json.loads(target_process.stdout.split(marker)[1])
             if target_process.returncode:raise ValueError('target_model')
-            first_keys=set()
-            for row in pages[0].get('results',[]):
+            first_uid=str(chapters[0].get('chapterUid'))
+            if first_uid not in catalog_ids:raise ValueError('first_chapter')
+            web.search_url=BASE+'/web/book/search_v2?'+urlencode({'bookId':book,'chapterUid':first_uid,'keyword':repeated,
+                'posBegin':0,'posEnd':0,'mode':'scrollDown','count':50})
+            report['search_gets']+=1
+            first_page=web.request('search_probe',web.search_url)
+            first_rows=first_page.get('results',[]);first_flag=first_page.get('scrollDownHasMore')
+            if not isinstance(first_rows,list) or len(first_rows)>200 or type(first_flag) is not int or first_flag not in (0,1):
+                raise ValueError('first_page')
+            first_keys=set();first_in_catalog=True
+            for row in first_rows:
+                if not isinstance(row,dict) or not isinstance(row.get('matchWords'),list):raise ValueError('first_page')
+                first_in_catalog=first_in_catalog and str(row.get('chapterUid')) in catalog_ids
                 for item in row['matchWords']:
                     if item.get('word')==repeated and type(item.get('posBegin')) is int and type(item.get('posEnd')) is int:
                         first_keys.add(str(row['chapterUid'])+':'+str(item['posBegin'])+':'+str(item['posEnd']))
-            http_payload=dict(book=book,keyword=repeated,first=web.chapter,chapters=payload['chapters'],
+            report.update(first_chapter_search=True,first_chapter_rows=len(first_rows),
+                first_chapter_has_more=first_flag==1,first_chapter_rows_in_catalog=first_in_catalog)
+            http_payload=dict(book=book,keyword=repeated,first=first_uid,chapters=payload['chapters'],
                 cookies={c.name:c.value for c in web.cookies if c.name in {'wr_vid','wr_skey','wr_rt','wr_ql','wr_pf'}},
                 expected_keys=list(first_keys))
             http_command=['docker','exec','-i','-w',args.runtime,args.container,'sh','-c',

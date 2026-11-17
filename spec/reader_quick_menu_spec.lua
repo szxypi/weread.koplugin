@@ -3,6 +3,10 @@
 package.path = "./?.lua;" .. package.path
 
 local dialog_options, dialog_callbacks
+local searched_book
+package.preload['weread.ui.book_search'] = function()
+    return {open=function(_host,id) searched_book=id end}
+end
 package.preload["weread.ui.end_of_book_dialog"] = function()
     return { show = function(options, callbacks)
         dialog_options = options
@@ -142,6 +146,25 @@ dialog_callbacks.on_toggle_annotations()
 expect(annotations_toggled,
     "quick menu annotation button delegates to the shared visibility toggle")
 
+context_books['123']={book_id='123',title='Synthetic'}
+context_host.ensureChaptersLoaded=function() return {{chapterUid='1',title='First'}} end
+context_host.getChapterInfoFromFile=function() return 1,nil,false end
+expect(context_host:showEndOfBookDialog('123') and dialog_options.enable_search_book==true,
+    'numeric WeRead book enables whole-book search')
+dialog_callbacks.on_search_book()
+expect(searched_book=='123','whole-book search opens for the current book')
+searched_book=nil;local old_doc=context_host.ui.document;context_host.ui.document={file='/other.epub'}
+dialog_callbacks.on_search_book();context_host.ui.document=old_doc
+expect(searched_book==nil,'delayed whole-book search ignores a changed document')
+context_host._reader_session_gen=1;dialog_callbacks.on_search_book();context_host._reader_session_gen=nil
+expect(searched_book==nil,'delayed whole-book search ignores a changed reader session')
+local auth_epoch=1
+context_host.settings.get_auth_scope=function() return {vid='123',epoch=auth_epoch} end
+context_host.settings.auth_scope_matches=function(_self,scope) return scope.epoch==auth_epoch end
+context_host:showEndOfBookDialog('123');auth_epoch=2;dialog_callbacks.on_search_book()
+expect(searched_book==nil,'delayed whole-book search ignores a changed account session')
+context_host.settings.get_auth_scope=nil;context_host.settings.auth_scope_matches=nil
+
 context_books["mp-book"] = { book_id = "mp-book", title = "Article" }
 context_host.ensureChaptersLoaded = function()
     error("public account quick menu must not load regular book chapters")
@@ -151,7 +174,7 @@ expect(context_host:showEndOfBookDialog("mp-book"),
 expect(dialog_options.enable_book_details == true
         and dialog_options.enable_chapter_list == false
         and dialog_options.enable_next_chapter == false
-        and dialog_options.enable_sync_progress == false,
+        and dialog_options.enable_sync_progress == false and dialog_options.enable_search_book == false,
     "public account articles only enable supported contextual actions")
 notice = nil
 dialog_callbacks.on_sync_progress()

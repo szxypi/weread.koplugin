@@ -42,6 +42,8 @@ function M:showEndOfBookDialog(book_id)
     local search = reader_ui and reader_ui.search
     local file_path = document and document.file
     if not file_path then return false end
+    local reader_session = self._reader_session_gen or 0
+    local search_scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
 
     local books = self.settings:get("books", {})
     local book = book_id and (books[tostring(book_id)] or books[book_id]) or nil
@@ -77,6 +79,7 @@ function M:showEndOfBookDialog(book_id)
         enable_book_details = book ~= nil,
         enable_sync_progress = is_regular_weread_book,
         enable_search_current = type(search) == "table" and type(search.onShowFulltextSearchInput) == "function",
+        enable_search_book = is_regular_weread_book and tostring(book_id):match('^[1-9]%d*$') ~= nil,
         annotations_visible = annotations_visible,
     }, {
         on_bookshelf = function()
@@ -89,6 +92,15 @@ function M:showEndOfBookDialog(book_id)
             if self.ui == reader_ui and reader_ui.document == document and document.file == file_path and reader_ui.search == search
                 and type(search) == "table" and type(search.onShowFulltextSearchInput) == "function" then
                 search:onShowFulltextSearchInput()
+            end
+        end,
+        on_search_book = function()
+            local current_scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+            local same_scope = search_scope and self.settings:auth_scope_matches(search_scope)
+                or not search_scope and not current_scope
+            if self.ui == reader_ui and reader_ui.document == document and document.file == file_path
+                and (self._reader_session_gen or 0)==reader_session and same_scope then
+                require('weread.ui.book_search').open(self,tostring(book_id),chapters)
             end
         end,
         on_chapter_list = function()

@@ -92,11 +92,18 @@ function M.show(opts, callbacks)
     })
 
     -- KOReader searches the open document, which may be a single chapter.
-    table.insert(buttons, {{
-        text = _("Search current file"),
-        enabled = opts.enable_search_current == true,
-        callback = function() dismiss_then(callbacks.on_search_current) end,
-    }})
+    table.insert(buttons, {
+        {
+            text = _("Search current file"),
+            enabled = opts.enable_search_current == true,
+            callback = function() dismiss_then(callbacks.on_search_current) end,
+        },
+        {
+            text = _("Search entire book"),
+            enabled = opts.enable_search_book == true,
+            callback = function() dismiss_then(callbacks.on_search_book) end,
+        },
+    })
 
     -- Penultimate row: progress sync and the shared annotation visibility
     -- toggle. Keep both visible; unsupported context is represented by a

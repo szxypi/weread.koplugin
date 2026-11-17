@@ -102,7 +102,8 @@ function M.start(host,owner,row,is_current)
     local frozen={}
     for _i,key in ipairs({'type','chapterUid','markText','range','reviewId','bookmarkId','abstract','bookId'}) do frozen[key]=row[key] end
     local job={started=os.time(),location=reader_location(host),row=frozen,request_id=1,
-        failed_label=owner.thoughts and 'Could not locate this thought quote in the original text. Try downloading the chapter again.'
+        failed_label=owner.search_results and 'Could not locate this search result in the original text. Try downloading the chapter again.'
+            or owner.thoughts and 'Could not locate this thought quote in the original text. Try downloading the chapter again.'
             or row.type==0 and 'Could not locate this bookmark in the original text. Try downloading the chapter again.'
             or 'Could not locate this highlight in the original text. Try downloading the chapter again.'}
     owner.navigation=job
@@ -125,7 +126,8 @@ function M.start(host,owner,row,is_current)
     job.worker=worker
     local book=host.settings:get_book(owner.id) or {book_id=owner.id,title=''}
     local function busy()
-        host:showBusy(_(owner.thoughts and 'Locating thought quote…' or row.type==0 and 'Locating cloud bookmark…' or 'Locating saved highlight…'),
+        host:showBusy(_(owner.search_results and 'Locating search result…' or owner.thoughts and 'Locating thought quote…'
+            or row.type==0 and 'Locating cloud bookmark…' or 'Locating saved highlight…'),
             function() if owner.navigation==job then M.cancel(host,owner) end end)
         job.busy=host.busy_message
     end
@@ -192,7 +194,8 @@ function M.start(host,owner,row,is_current)
         close_busy(host,job)
         local confirm
         confirm=require('ui/widget/confirmbox'):new{
-            text=_(owner.thoughts and 'No matching downloaded chapter. Download it and locate this thought quote?'
+            text=_(owner.search_results and 'No matching downloaded chapter. Download it and locate this search result?'
+                or owner.thoughts and 'No matching downloaded chapter. Download it and locate this thought quote?'
                 or row.type==0 and 'No matching downloaded chapter. Download it and locate this bookmark?'
                 or 'No matching downloaded chapter. Download it and locate this highlight?'),
             ok_text=_('Download target chapter'),cancel_text=_('Cancel'),keep_dialog_open=true,
