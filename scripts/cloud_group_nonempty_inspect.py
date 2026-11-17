@@ -1,12 +1,18 @@
 """Read-only inspection of an interrupted fixture/group experiment."""
 from cloud_group_contract import digest, project
+from cloud_group_nonempty_workflow import strip_fixture
 from personal_upload_trial import hash_value
 
 
-def inspect(journal, fixture, grant, current, read_pair):
+def _same_scope(state, token, grant, read_binding):
+    return state['owner']==grant['vid'] and (state['grant_hash']==digest(grant)
+        or read_binding is not None and read_binding.matches(state,token,grant))
+
+
+def inspect(journal, fixture, grant, current, read_pair, read_binding=None):
     """Return booleans only; never reconstruct or re-dispatch a request."""
     state, token=journal.read(); upload,_=fixture()
-    if (not state or current() is not True or state['owner']!=grant['vid'] or state['grant_hash']!=digest(grant)
+    if (not state or current() is not True or not _same_scope(state,token,grant,read_binding)
             or upload['phase']!='imported' or state['target']!=upload['target'] or state['upload_attempt']!=upload['attempt']
             or state['upload_plan_hash']!=hash_value(upload['plan'])):
         raise ValueError('group_inspect/binding')
@@ -27,3 +33,25 @@ def inspect(journal, fixture, grant, current, read_pair):
         result[key+'_group_has_only_fixture']=row is not None and row['bookIds']==[state['target']]
         result[key+'_baseline_unchanged']=digest(observed)==state[key+'_before']
     return result
+
+
+def inspect_original(old_journal, group_journal, fixture, grant, current, read_pair, old_guard, read_binding=None):
+    """Compare each channel to the pre-upload shelf after removing only the fixture."""
+    old_guard(False)
+    old,old_token=old_journal.read(); group,group_token=group_journal.read(); upload,upload_token=fixture()
+    if (not old or old['phase']!='closed_unverified' or old['owner']!=grant['vid']
+            or not group or not _same_scope(group,group_token,grant,read_binding)
+            or group['target']!=upload['target'] or group['upload_attempt']!=upload['attempt']
+            or group['upload_plan_hash']!=hash_value(upload['plan']) or current() is not True):
+        raise ValueError('group_inspect/binding')
+    samples=[]
+    for _ in range(2):
+        raw=read_pair()
+        if not isinstance(raw,dict) or set(raw)!={'native','web'}:raise ValueError('group_inspect/read')
+        samples.append(tuple(strip_fixture(raw[key],upload['target']) for key in ('native','web')))
+    if (samples[0]!=samples[1] or current() is not True or old_journal.read()!=(old,old_token)
+            or group_journal.read()!=(group,group_token) or fixture()!=(upload,upload_token)):
+        raise ValueError('group_inspect/changed')
+    return dict(native_original_state_unchanged=digest(samples[1][0])==old['native_before'],
+                web_original_state_unchanged=digest(samples[1][1])==old['web_before'],
+                old_group_absent=True)

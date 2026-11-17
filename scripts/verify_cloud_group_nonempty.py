@@ -7,9 +7,10 @@ from pathlib import Path
 import resource
 
 from cloud_group_binding import Binding
+from cloud_group_nonempty_binding import Binding as NonemptyBinding
 from cloud_group_fixture import Journal as UploadJournal, binding
 from cloud_group_journal import Journal as OldJournal
-from cloud_group_nonempty_inspect import inspect
+from cloud_group_nonempty_inspect import inspect, inspect_original
 from cloud_group_nonempty_journal import Journal as GroupJournal
 from cloud_group_nonempty_transport import ScopedNative
 from cloud_group_nonempty_workflow import execute
@@ -43,8 +44,9 @@ def main(argv=None):
     modes=parser.add_mutually_exclusive_group()
     modes.add_argument('--preview',action='store_true');modes.add_argument('--apply',action='store_true')
     modes.add_argument('--status',action='store_true');modes.add_argument('--inspect',action='store_true')
+    modes.add_argument('--bind-inspection',action='store_true')
     args=parser.parse_args(argv)
-    if args.saved_session != bool(args.preview or args.apply or args.status or args.inspect):
+    if args.saved_session != bool(args.preview or args.apply or args.status or args.inspect or args.bind_inspection):
         parser.error('saved session requires one explicit mode')
     report=dict(result='OFFLINE_ONLY',data_posts=0,authentication_posts=0,no_automatic_replay=True)
     resource.setrlimit(resource.RLIMIT_CORE,(0,0));saved=grant=web=native=probe=None
@@ -65,11 +67,16 @@ def main(argv=None):
                 def read_pair():
                     web.verify_account()
                     return dict(native=native.shelf(),web=web.request('shelf','https://weread.qq.com/web/shelf/sync'))
-                guard=Guard(OldJournal(),Binding(),grant,current,read_pair)
+                old=OldJournal();guard=Guard(old,Binding(),grant,current,read_pair)
                 native=ScopedNative(groups,lambda:binding(uploads,receipt.backend),grant,current,no_other_pending,
                                     lambda:bool(guard.check(False)))
-                if args.inspect:
-                    report.update(inspect(groups,lambda:binding(uploads,receipt.backend),grant,current,read_pair))
+                if args.bind_inspection:
+                    state,token=groups.read();NonemptyBinding().bind(state,token,grant)
+                    report.update(result='INSPECTION_BOUND',phase=state['phase'])
+                elif args.inspect:
+                    readonly=NonemptyBinding()
+                    report.update(inspect(groups,lambda:binding(uploads,receipt.backend),grant,current,read_pair,readonly))
+                    report.update(inspect_original(old,groups,lambda:binding(uploads,receipt.backend),grant,current,read_pair,guard.check,readonly))
                 else:
                     if (uploads.read()[0] is not None or groups.read()[0] is not None or receipt.backend.load() is not None
                             or MARKER.exists() or no_other_pending() is not True):raise ValueError('group_scope')
@@ -96,7 +103,7 @@ def main(argv=None):
         if grant:grant.clear()
         if saved:saved.clear()
     print(json.dumps(report,ensure_ascii=False))
-    return 0 if report['result'] in ('OFFLINE_ONLY','STATUS','READ_ONLY_PREVIEW','PASS','INSPECTED') else 1
+    return 0 if report['result'] in ('OFFLINE_ONLY','STATUS','READ_ONLY_PREVIEW','PASS','INSPECTED','INSPECTION_BOUND') else 1
 
 
 if __name__=='__main__':raise SystemExit(main())

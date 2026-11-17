@@ -44,6 +44,7 @@ def execute(*, upload_probe, upload_journal, group_journal, target_receipt, gran
             if pending() is not True or current() is not True: return False
             trial = Trial(group_journal, bound, read_pair, post, current, **({'sleep':sleep} if sleep else {}))
             result = trial.run(); report['group_posts'] = result['data_posts']; report['group_phase'] = result['phase']
+            report['group_create_acknowledged'] = result['create_ack']; report['group_delete_acknowledged'] = result['delete_ack']
             if result['result'] != 'PASS': return False
             group, _ = group_journal.read()
             state, _ = bound()

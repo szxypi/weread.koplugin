@@ -8,6 +8,7 @@ from cloud_group_contract import digest, project
 from cloud_group_fixture import Journal as UploadJournal, binding
 from cloud_group_journal import Journal as OldJournal
 from cloud_group_nonempty_journal import Journal as GroupJournal
+from cloud_group_nonempty_inspect import inspect_original
 from cloud_group_nonempty_transport import ScopedNative
 from cloud_group_nonempty_workflow import execute
 from cloud_group_old_guard import Guard
@@ -69,10 +70,10 @@ class FullTransportTest(unittest.TestCase):
         result=execute(upload_probe=probe,upload_journal=uploads,group_journal=groups,target_receipt=receipt,
             grant=grant,current=lambda:True,old_guard=guard.check,read_pair=service.pair,post=native.post,pending=lambda:True,
             read_content=lambda _:True,apply=True,sleep=lambda _:None,now=lambda:1000)
-        return result,service,uploads,groups
+        return result,service,uploads,groups,old,receipt
 
     def test_success_exact_requests_and_final_state(self):
-        result,service,uploads,groups=self.run_case('ok')
+        result,service,uploads,groups,_,_=self.run_case('ok')
         self.assertEqual(result['result'],'PASS');self.assertEqual(uploads.read()[0]['phase'],'restored')
         for path in ('/cos/getcredential','/prefix/synthetic-book','/cos/notify','/shelf/archive','/shelf/deleteArchive','/shelf/delete'):
             self.assertEqual(service.calls.count(path),1)
@@ -81,10 +82,18 @@ class FullTransportTest(unittest.TestCase):
     def test_unknown_group_stops_fixture_cleanup(self):
         for mode in ('missing','lost'):
             with self.subTest(mode=mode):
-                result,service,uploads,groups=self.run_case(mode)
+                result,service,uploads,groups,_,_=self.run_case(mode)
                 self.assertEqual(result['result'],'UNVERIFIED');self.assertEqual(service.calls.count('/shelf/archive'),1)
                 self.assertNotIn('/shelf/deleteArchive',service.calls);self.assertNotIn('/shelf/delete',service.calls)
                 self.assertEqual(uploads.read()[0]['phase'],'imported');self.assertEqual(groups.read()[0]['phase'],'create_claimed')
+
+    def test_read_only_comparison_ignores_only_the_known_fixture(self):
+        _,service,uploads,groups,old,receipt=self.run_case('missing');grant=credentials()
+        guard=Guard(old,None,grant,lambda:True,service.pair)
+        def check():return inspect_original(old,groups,lambda:binding(uploads,receipt.backend),grant,lambda:True,service.pair,guard.check)
+        result=check();self.assertTrue(result['native_original_state_unchanged'] and result['web_original_state_unchanged'])
+        service.shelf['books'][0]['secret']=1
+        result=check();self.assertFalse(result['native_original_state_unchanged']);self.assertFalse(result['web_original_state_unchanged'])
 
 
 if __name__=='__main__':unittest.main()
