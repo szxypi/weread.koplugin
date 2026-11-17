@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "native_synthetic_warning_cancel_preserves_pending_position": true,
+  "native_synthetic_confirm_opens_cache": true,
+  "native_synthetic_online_target_download_and_offline_reopen": true,
+  "actual_account_isolated_warning_cancel_and_target_download": true,
+  "actual_account_fallback": "synthetic placeholder in temporary profile",
+  "actual_account_cloud_position_unchanged": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "private_screenshots": 0,
+  "synthetic_screenshots": 2,
+  "temporary_profiles_removed": true,
+  "physical_kindle_tested": false
+}

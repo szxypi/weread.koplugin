@@ -59,6 +59,13 @@ local function press(view,label)
     end
     error('missing cached reading action',0)
 end
+local function fallback_warning(accept)
+    local dialog=assert(UI:getTopmostVisibleWidget())
+    assert(dialog.ok_text==tr('Read cached copy') and dialog.ok_callback and dialog.cancel_callback)
+    if not accept then UI:forceRePaint();Device.screen:shot(evidence..'/resume-warning.png') end
+    if accept then dialog.ok_callback() else dialog.cancel_callback() end
+    tick()
+end
 local function book(host) return assert(host.settings:get_book(id)) end
 local function patch(host,values)
     local books=host.settings:get('books',{});local latest=book(host)
@@ -136,7 +143,7 @@ local report={result='PASS',synthetic_only=true,content_format=format,chapter_fi
     pending_priority=false,last_local_priority=false,foreign_owner_ignored=false,native_position_restored=false,
     missing_catalog_uid=false,ambiguous_index_uses_last_local=false,
     explicit_cached_copy=false,missing_resume_chapter_downloaded=false,
-    offline_missing_target_fallback=false,home_missing_target_downloaded=false,
+    offline_missing_target_fallback=false,home_missing_target_downloaded=false,fallback_warning_cancel_preserved=false,
     full_download=false,full_source_records=false,full_native_navigation=false}
 if cb_resume then report.cb_reading=true end
 for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog','duplicate_index'}) do
@@ -195,11 +202,18 @@ local function omit_target()
         recent_read_account=saved.pending_upload_account,cached_chapters={['2']=first}})
 end
 omit_target()
-host,view=detail();press(view,'Read cached copy')
+host,view=detail();press(view,'Read cached copy');fallback_warning(true)
 pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==first end)
 report.explicit_cached_copy=true;close_reader()
 omit_target()
-host,view=detail();offline=true;press(view,'▤ Read')
+host,view=detail();offline=true;press(view,'▤ Read');fallback_warning(false)
+local after_cancel=book(host)
+assert(not Reader.instance and after_cancel.pending_upload_position.book_id==id
+    and after_cancel.pending_upload_position.chapter_uid==4 and after_cancel.pending_upload_position.chapter_idx==4
+    and after_cancel.pending_upload_position.percent==70 and after_cancel.pending_upload_account==saved.pending_upload_account
+    and after_cancel.last_local_position.chapter_uid==last_local.chapter_uid)
+report.fallback_warning_cancel_preserved=true
+press(view,'▤ Read');fallback_warning(true)
 pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==first end)
 report.offline_missing_target_fallback=true;close_reader();offline=false
 omit_target()

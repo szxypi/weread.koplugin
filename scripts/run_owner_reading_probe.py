@@ -52,8 +52,10 @@ def main(argv=None):
     parser.add_argument('--mock-port',type=int)
     parser.add_argument('--cb-mock-port',type=int,help='Synthetic CB reading fixture only')
     parser.add_argument('--missing-resume',action='store_true')
+    parser.add_argument('--resume-warning',action='store_true')
     parser.add_argument('--resume-mock-port',type=int,help='Synthetic missing-resume fixture only')
     args = parser.parse_args(argv)
+    if args.resume_warning and not args.missing_resume:parser.error('--resume-warning requires --missing-resume')
     if args.missing_resume and (args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
             or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
             or args.selection_thought_preview or args.mock_port is not None or args.cb_mock_port is not None):
@@ -88,6 +90,9 @@ def main(argv=None):
         if (not (payload.get('missing_resume_probe') is None or payload.get('missing_resume_probe') is True)
                 or args.missing_resume != (payload.get('missing_resume_probe') is True)
                 or payload.get('resume_mock_port')!=args.resume_mock_port):
+            raise ValueError('input_limit')
+        if (not (payload.get('resume_warning_probe') is None or payload.get('resume_warning_probe') is True)
+                or args.resume_warning != (payload.get('resume_warning_probe') is True)):
             raise ValueError('input_limit')
         if args.resume_mock_port is not None and (payload.get('vid')!='900000' or payload.get('book_id')!='900001'
                 or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}):raise ValueError('input_limit')
@@ -201,7 +206,8 @@ def main(argv=None):
                 envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters,
                                    **({'cb_reading': True,'cb_full_book':args.cb_full_book} if cb_reading else {}),
                                    **({'single_page': True} if args.cb_single_page else {}),
-                                   **({'missing_resume': True} if args.missing_resume else {}))
+                                   **({'missing_resume': True} if args.missing_resume else {}),
+                                   **({'resume_warning': True} if args.resume_warning else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview or args.native_source_excerpt: candidate_private.append(envelope['candidate_private'])

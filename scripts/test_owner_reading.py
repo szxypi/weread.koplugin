@@ -63,6 +63,16 @@ class OwnerReadingTests(unittest.TestCase):
                      ['--missing-resume','--saved-session','--book-format','txt','--lua-command','synthetic']):
             with self.subTest(args=args), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):probe.main(args)
 
+    def test_resume_warning_requires_live_cancel_proof(self):
+        value=envelope()
+        for part in value['report']['stages']:part['missing_resume_verified']=True
+        value['report']['stages'][0]['resume_warning_verified']=True
+        probe.decode_envelope(frame(value),OWNER,missing_resume=True,resume_warning=True)
+        value['report']['stages'][0]['resume_warning_verified']=False
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(value),OWNER,missing_resume=True,resume_warning=True)
+        with self.assertRaises(ValueError):probe.validate_stage(stage(),'live',resume_warning=True)
+        with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):probe.main(['--resume-warning'])
+
     def test_missing_resume_includes_only_observed_valid_personal_book_ids(self):
         preflight=probe.MissingResumePreflight()
         shelf={'books':[{'bookId':'123'},{'bookId':'CB_Valid1'},{'bookId':'CB_Valid1'},
@@ -76,7 +86,7 @@ class OwnerReadingTests(unittest.TestCase):
     def test_missing_resume_runner_rejects_incompatible_modes(self):
         from run_owner_reading_probe import main
         common=['--koreader','/synthetic','--candidate','/synthetic.zip']
-        for args in (['--missing-resume','--progress-roundtrip'],['--missing-resume','--cb-reading'],
+        for args in (['--missing-resume','--progress-roundtrip'],['--missing-resume','--cb-reading'],['--resume-warning'],
                      ['--resume-mock-port','1234'],['--missing-resume','--resume-mock-port','0']):
             with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(common+args)
 

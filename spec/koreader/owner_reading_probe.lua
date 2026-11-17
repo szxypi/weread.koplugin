@@ -96,6 +96,9 @@ local ok,reason=pcall(function()
     assert(input.diagnostic_read_pacing==nil or input.diagnostic_read_pacing==true and cb_full)
     local diagnostic_pacing=input.diagnostic_read_pacing==true
     local missing_resume=input.missing_resume_probe==true
+    local resume_warning=input.resume_warning_probe==true
+    assert(input.resume_warning_probe==nil or resume_warning and missing_resume)
+    if resume_warning and mode=='live' then report.resume_warning_verified=false end
     assert(input.missing_resume_probe==nil or missing_resume and not cb_reading and not input.full_manifest
         and input.source_format=='web_xhtml' and not input.annotations and not input.progress_preview
         and not input.progress_roundtrip and not input.source_upload_preview and not input.selection_preview)
@@ -566,7 +569,8 @@ local ok,reason=pcall(function()
         return follow(self,options,...)
     end
     local Common=require('weread.ui.common')
-    Common.isNetworkOnline,Common.isNetworkConnected=function() return mode=='live' end,function() return mode=='live' end
+    local forced_offline=false
+    Common.isNetworkOnline,Common.isNetworkConnected=function() return mode=='live' and not forced_offline end,function() return mode=='live' and not forced_offline end
     local Loader=require('pluginloader');Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
     for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' or input.native_time_capture and entry.name=='statistics' then Loader:_load{entry} end end
     assert(#Loader.enabled_plugins==(input.native_time_capture and 2 or 1))
@@ -679,10 +683,25 @@ local ok,reason=pcall(function()
             and checked.pending_upload_position.chapter_uid==input.chapter_uid)
     end
     local label=require('weread.lib.plugin_util').tr(full and mode=='live' and '⇩ Download full book' or '▤ Read')
+    local tr=require('weread.lib.plugin_util').tr
     local pressed=false
     for _i,buttons in ipairs({detail._action_buttons or {},detail._footer_actions or {}}) do
         for _j,button in ipairs(buttons) do
-            if button.text==label then assert(button.enabled~=false);button.callback();pressed=true;break end
+            if button.text==label then
+                assert(button.enabled~=false)
+                if resume_warning and mode=='live' then
+                    forced_offline=true;button.callback()
+                    local warning=assert(plugin._missing_resume_confirmation)
+                    assert(UI:getTopmostVisibleWidget()==warning.dialog and warning.dialog.ok_text==tr('Read cached copy'))
+                    warning.dialog.cancel_callback();assert(not plugin._missing_resume_confirmation and not Reader.instance)
+                    local unchanged=assert(plugin.settings:get_book(input.book_id))
+                    assert(unchanged.pending_upload_position.book_id==input.book_id
+                        and unchanged.pending_upload_position.chapter_uid==input.chapter_uid
+                        and unchanged.cached_chapters[fallback_uid]==fallback_path)
+                    forced_offline=false;report.resume_warning_verified=true
+                end
+                button.callback();pressed=true;break
+            end
         end
         if pressed then break end
     end

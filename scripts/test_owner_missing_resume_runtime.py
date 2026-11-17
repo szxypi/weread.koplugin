@@ -32,12 +32,12 @@ def main():
             source_sample_offset=FilteredSource(raw).locate(text)[0],source_format='web_xhtml',
             source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest(),
             shelf_ids=[str(row['bookId']) for row in shelf if cb_id(row['bookId']) or identifier(str(row['bookId']))],shelf_books=len(shelf),
-            cookies=dict(wr_vid='900000',wr_skey='mock_key'),missing_resume_probe=True,resume_mock_port=server.server_port)
+            cookies=dict(wr_vid='900000',wr_skey='mock_key'),missing_resume_probe=True,resume_warning_probe=True,resume_mock_port=server.server_port)
         command=['python3',str(repo/'scripts/run_owner_reading_probe.py'),'--koreader',str(args.koreader),'--candidate',str(archive),
             '--width',str(args.width),'--height',str(args.height),'--dpi',str(args.dpi),
-            '--missing-resume','--resume-mock-port',str(server.server_port)]
+            '--missing-resume','--resume-warning','--resume-mock-port',str(server.server_port)]
         child=subprocess.run(command,input=json.dumps(payload).encode(),capture_output=True,timeout=400,env=os.environ.copy())
-        envelope=decode_envelope(child.stdout,'900000',missing_resume=True);report=envelope['report']
+        envelope=decode_envelope(child.stdout,'900000',missing_resume=True,resume_warning=True);report=envelope['report']
         (root/'result.json').write_text(json.dumps(report,indent=2)+'\n')
         if child.returncode or report['result']!='PASS':raise ValueError('missing_resume_native_unverified')
         for (path,_body),count in server.request_totals.items():

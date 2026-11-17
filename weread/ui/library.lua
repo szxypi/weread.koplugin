@@ -1294,7 +1294,7 @@ function M:showBookMenu(book)
         actions[#actions+1]={text=_('Read cached copy'),callback=self:safeCallback(_('Read cached copy'),function()
             if not cache_scope or not cache_scope() or self._book_detail_view~=view then return end
             local latest=self.settings:get_book(book_id) or book
-            self:openBookForReading(latest)
+            self:readCachedCopy(latest,view)
         end)}
     end
     if has_cache then
@@ -1947,7 +1947,7 @@ end
 function M:openBookForReading(book, quiet, options)
     local full_path = self:getFullBookCachePath(book)
     if file_exists(full_path) then
-        self:openFile(full_path,nil,book)
+        if not (options and options.check_only) then self:openFile(full_path,nil,book) end
         return true
     end
 
@@ -1971,7 +1971,7 @@ function M:openBookForReading(book, quiet, options)
         local target=uid and book.cached_chapters and book.cached_chapters[uid]
         if uid and not file_exists(target) then
             for _id,path in pairs(book.cached_chapters or {}) do
-                if file_exists(path) then return false,'resume_not_cached' end
+                if file_exists(path) then return false,'resume_not_cached',uid end
             end
         end
     end
@@ -2001,7 +2001,7 @@ function M:openBookForReading(book, quiet, options)
             if left_precedes ~= right_precedes then return left_precedes end
             return left.index < right.index
         end)
-        self:openFile(candidates[1].path,nil,book)
+        if not (options and options.check_only) then self:openFile(candidates[1].path,nil,book) end
         return true
     end
 
@@ -2012,26 +2012,45 @@ function M:openBookForReading(book, quiet, options)
     table.sort(fallback_paths, function(left, right) return left.uid < right.uid end)
     local fallback=fallback_paths[Reading.resume_index(fallback_paths,book,nil,account) or 1]
     if fallback then
-        self:openFile(fallback.path,nil,book)
+        if not (options and options.check_only) then self:openFile(fallback.path,nil,book) end
         return true
     end
     if not quiet then self:showInfo(_("No cached file.")) end
     return false
 end
 
+function M:readCachedCopy(book,view)
+    if view and self._book_detail_view~=view then return false end
+    local id=book.book_id or book.bookId
+    local latest=self.settings:get_book(id) or book
+    local opened,reason,uid=self:openBookForReading(latest,true,{prefer_exact=true})
+    if opened then return true end
+    if reason=='resume_not_cached' then return require('weread.ui.missing_resume').show(self,id,view,uid) end
+    self:showInfo(_('No cached file.'))
+    return false
+end
+
 function M:startBookReading(book, view)
     if view and self._book_detail_view ~= view then return false end
+    local warning=package.loaded['weread.ui.missing_resume']
+    if warning then warning.cancel(self) end
     local id = book.book_id or book.bookId
     local latest = self.settings:get_book(id) or book
     local online
     if self.isNetworkConnected then online=self:isNetworkConnected()
     elseif self.isNetworkOnline then online=self:isNetworkOnline() end
     local exact=online and require('weread.lib.shelf_source').web_access(self.settings)~=nil
-    if self:openBookForReading(latest, true, {prefer_exact=exact}) then return true end
+    local opened,reason,uid=self:openBookForReading(latest,true,{prefer_exact=true})
+    if opened then return true end
+    if reason=='resume_not_cached' and not exact then
+        return require('weread.ui.missing_resume').show(self,id,view,uid)
+    end
     return require("weread.ui.book_reading").start(self, latest, view)
 end
 
 function M:cancelBookReading()
+    local warning=package.loaded['weread.ui.missing_resume']
+    if warning then warning.cancel(self) end
     return require("weread.ui.book_reading").cancel(self)
 end
 

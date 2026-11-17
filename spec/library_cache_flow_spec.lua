@@ -2,19 +2,23 @@ package.path = "./?.lua;" .. package.path
 
 local existing_paths = {}
 local catalog_save_count = 0
+local last_dialog
 local function empty_module() return {} end
 package.preload["weread.lib.book_reviews"] = function()
     return { format_date = function() return "" end }
 end
 package.preload["weread.ui.book_reviews_view"] = empty_module
 package.preload["ui/widget/buttondialog"] = empty_module
-package.preload["ui/widget/confirmbox"] = empty_module
+package.preload["ui/widget/confirmbox"] = function() return {new=function(_self,value) return value end} end
 package.preload["ui/widget/infomessage"] = empty_module
 package.preload["ui/widget/inputdialog"] = empty_module
 package.preload["ui/widget/progressbardialog"] = empty_module
 package.preload["ui/widget/textviewer"] = empty_module
 package.preload["ui/uimanager"] = function()
-    return { scheduleIn = function(_self, _delay, callback) callback() end }
+    return { scheduleIn = function(_self, _delay, callback) callback() end,
+        show=function(_self,dialog) last_dialog=dialog end,
+        close=function(_self,dialog) if dialog.onCloseWidget then dialog:onCloseWidget() end end,
+        nextTick=function(_self,callback) callback() end }
 end
 package.preload["weread.lib.logger"] = function()
     return { info = function() end, warn = function() end, err = function() end }
@@ -278,11 +282,18 @@ do
     expect(host:startBookReading(target,view) and preparation and preparation.book==target and not opened_path,
         'online Read opened a nearby chapter instead of preparing the missing resume chapter')
     online=false;opened_path,preparation=nil,nil
-    expect(host:startBookReading(target,view) and opened_path=='/cache/1.epub' and not preparation,
-        'offline Read did not preserve its cached fallback')
+    expect(host:startBookReading(target,view) and not opened_path and not preparation and last_dialog,
+        'offline Read did not warn before its cached fallback')
+    local declined=last_dialog;declined.cancel_callback()
+    expect(not opened_path and not host._missing_resume_confirmation,'declining fallback opened a chapter')
+    expect(host:startBookReading(target,view) and last_dialog~=declined,'fallback warning was not reopened')
+    last_dialog.ok_callback()
+    expect(opened_path=='/cache/1.epub' and not preparation,'confirmed offline fallback did not open cache')
     online=true;authenticated=false;opened_path,preparation=nil,nil
-    expect(host:startBookReading(target,view) and opened_path=='/cache/1.epub' and not preparation,
-        'Read without Web access did not preserve its cached fallback')
+    expect(host:startBookReading(target,view) and not opened_path and not preparation,
+        'Read without Web access did not warn before fallback')
+    last_dialog.ok_callback()
+    expect(opened_path=='/cache/1.epub','confirmed fallback without Web access did not open cache')
     authenticated=true;target.cached_chapters['3']='/cache/3.epub';existing_paths['/cache/3.epub']=true
     opened_path,preparation=nil,nil
     expect(host:startBookReading(target,view) and opened_path=='/cache/3.epub' and not preparation,
@@ -294,6 +305,22 @@ do
     target.pending_upload_account='another-owner';opened_path,preparation=nil,nil
     expect(host:startBookReading(target,view) and opened_path=='/cache/1.epub' and not preparation,
         'a foreign pending UID caused a download')
+    target.pending_upload_account=nil;online=false;opened_path=nil
+    expect(host:startBookReading(target,view) and not opened_path,'missing target did not show a warning')
+    local pending_dialog=last_dialog;current_owner='account-b';pending_dialog.ok_callback();current_owner='account-a'
+    expect(not opened_path,'warning callback crossed account boundary')
+    host:cancelBookReading();opened_path=nil
+    expect(host:startBookReading(target,view),'missing target warning did not open')
+    pending_dialog=last_dialog;target.pending_upload_position.chapter_uid=2;pending_dialog.ok_callback()
+    expect(not opened_path,'changed missing target opened a stale cached choice')
+    target.pending_upload_position.chapter_uid=3
+    expect(host:startBookReading(target,view),'warning was not shown before closing the page')
+    pending_dialog=last_dialog;host:cancelBookReading();pending_dialog.ok_callback()
+    expect(not opened_path and not host._missing_resume_confirmation,'closed warning retained an active callback')
+    expect(host:startBookReading(target,view),'warning was not shown before cache changed')
+    target.cached_chapters['3']='/cache/3.epub';last_dialog.ok_callback()
+    expect(opened_path=='/cache/3.epub','newly cached exact chapter was not preferred after warning')
+    target.cached_chapters['3']=nil
     source.web_access=old_web_access;host.isNetworkConnected=nil
 end
 local detail_data
