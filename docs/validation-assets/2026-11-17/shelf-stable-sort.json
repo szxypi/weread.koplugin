@@ -1,0 +1,14 @@
+{
+  "scope": "stable shelf sorting for equal reading times and titles",
+  "component_cases": ["ascending and descending time", "ascending and descending title", "equal values", "pinned precedence", "mixed and missing times", "source shelf unchanged"],
+  "native_runtime": {
+    "resolutions": [[600, 800], [1264, 1680]],
+    "host": "PluginLoader and FileManager",
+    "synthetic_books": 48,
+    "cases": ["equal reading times", "equal titles", "pinned precedence", "page change"],
+    "fresh_offline_process": true,
+    "http_requests": 0
+  },
+  "physical_kindle_verified": false,
+  "result": "PASS"
+}

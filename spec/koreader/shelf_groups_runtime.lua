@@ -95,6 +95,29 @@ search_dialog:setInputText('   ');search_dialog.buttons[1][2].callback()
 pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
 assert(plugin.shelf_search_keyword==nil and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-123456',
     'whitespace-only search did not restore the selected group')
+-- Real paged shelf: equal values keep original order within pinned/unpinned
+-- sections after page changes and after switching the sort field.
+local tied,expected,pinned,unpinned={},{},{},{}
+for index=1,48 do
+    local book={bookId='SYN-TIE-'..index,title='相同合成书名',readUpdateTime=1700000000,isTop=index%7==0 and 1 or 0}
+    tied[#tied+1]=book;local bucket=book.isTop==1 and pinned or unpinned;bucket[#bucket+1]=book
+end
+for _,book in ipairs(pinned) do expected[#expected+1]=book end
+for _,book in ipairs(unpinned) do expected[#expected+1]=book end
+plugin:applyShelfSnapshot(tied,{})
+local shelf_options=plugin.settings:get('shelf');shelf_options.sort_order='time_desc';plugin.settings:set('shelf',shelf_options)
+plugin:showShelfView('books',nil,nil,{page=1});local tied_view=assert(plugin.shelf_view)
+for index,book in ipairs(expected) do assert(tied_view.books[index]==book,'equal time changed shelf order') end
+assert(tied_view.page_size<#expected);local page_size=tied_view.page_size
+tied_view.on_page_changed(2);pump(function() return plugin.shelf_view and plugin.shelf_view~=tied_view end)
+tied_view=plugin.shelf_view;assert(tied_view.page==2)
+for index,book in ipairs(tied_view:getVisibleBooks()) do
+    assert(book==expected[page_size+index],'equal-time page changed shelf order')
+end
+shelf_options.sort_order='name_desc';plugin.settings:set('shelf',shelf_options)
+plugin:showShelfView('books',nil,tied_view,{page=1});tied_view=plugin.shelf_view
+for index,book in ipairs(expected) do assert(tied_view.books[index]==book,'equal title changed shelf order') end
+UI:forceRePaint()
 reset();local view=plugin.shelf_view;view:showOptions();local old=assert(view._shelf_popup)
 local old_choice=old.buttons[1][1].callback
 view:showSourceMenu();local replacement=assert(view._shelf_popup)
@@ -181,6 +204,6 @@ end
 if mode=='live' then file=assert(io.open(manifest_path,'wb'));assert(file:write(json.encode(manifest)));file:close() end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
-report.portal=portal;report.search_sparse_fields=true
+report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

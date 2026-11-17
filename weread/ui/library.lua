@@ -969,27 +969,29 @@ sortBooks = function(books, sort_order)
     if sort_order == "default" or not sort_order then
         return ShelfFlags.pinned_first(books)
     end
-    local sorted = {}
+    local by_time = sort_order == "time_desc" or sort_order == "time_asc"
+    local by_name = sort_order == "name_asc" or sort_order == "name_desc"
+    if not by_time and not by_name then return ShelfFlags.pinned_first(books) end
+    local descending = sort_order == "time_desc" or sort_order == "name_desc"
+    local entries, sorted = {}, {}
     for i, book in ipairs(books) do
-        sorted[i] = book
+        local value
+        if by_time then
+            value = tonumber(book.readUpdateTime)
+            if not value or value ~= value or value == math.huge or value == -math.huge then value = 0 end
+        else
+            value = type(book.title) == "string" and book.title or ""
+        end
+        entries[i] = { book = book, value = value, index = i }
     end
-    if sort_order == "time_desc" then
-        table.sort(sorted, function(a, b)
-            return (a.readUpdateTime or 0) > (b.readUpdateTime or 0)
-        end)
-    elseif sort_order == "time_asc" then
-        table.sort(sorted, function(a, b)
-            return (a.readUpdateTime or 0) < (b.readUpdateTime or 0)
-        end)
-    elseif sort_order == "name_asc" then
-        table.sort(sorted, function(a, b)
-            return (a.title or "") < (b.title or "")
-        end)
-    elseif sort_order == "name_desc" then
-        table.sort(sorted, function(a, b)
-            return (a.title or "") > (b.title or "")
-        end)
-    end
+    -- Lua's table.sort is not stable. Preserve the shelf order for equal
+    -- values, including the many books with no recent-reading timestamp.
+    table.sort(entries, function(a, b)
+        if a.value == b.value then return a.index < b.index end
+        if descending then return a.value > b.value end
+        return a.value < b.value
+    end)
+    for i, entry in ipairs(entries) do sorted[i] = entry.book end
     return ShelfFlags.pinned_first(sorted)
 end
 

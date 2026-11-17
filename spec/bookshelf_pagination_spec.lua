@@ -548,4 +548,39 @@ host.shelf_group_key=nil
 host:showShelfView('books','mixed author')
 expect(#shown[#shown].data.books==1 and shown[#shown].data.books[1].bookId=='outside',
     'search did not retain case-insensitive author matching and active filters')
+
+-- Equal sort values must preserve shelf order across pages and pinned groups.
+local tied,pinned,rest={},{},{}
+for index=1,24 do
+    local book={bookId=tostring(index),title='Same title',readUpdateTime=1700000000,isTop=index%7==0 and 1 or 0}
+    tied[#tied+1]=book
+    local bucket=book.isTop==1 and pinned or rest;bucket[#bucket+1]=book
+end
+local stable={};for _,book in ipairs(pinned) do stable[#stable+1]=book end
+for _,book in ipairs(rest) do stable[#stable+1]=book end
+host.shelf_regular=tied;host.shelf_groups={};host.shelf_group_key=nil;host.shelf_multi_groups={}
+for _,order in ipairs({'time_desc','time_asc','name_asc','name_desc'}) do
+    shelf_settings.sort_order=order
+    for _=1,2 do
+        host:showShelfView('books',nil,nil,{page=2})
+        local result=shown[#shown].data.books
+        expect(#result==#stable,'sort lost books')
+        for index,book in ipairs(stable) do expect(result[index]==book,'equal sort changed shelf order for '..order) end
+    end
+end
+for index,book in ipairs(tied) do expect(book.bookId==tostring(index),'sort changed the source shelf') end
+local mixed={
+    {bookId='a',title='A',readUpdateTime=40}, {bookId='b',title='B',readUpdateTime=10},
+    {bookId='c',title='C',readUpdateTime=40}, {bookId='d',title='D'},
+    {bookId='e',title='E',readUpdateTime='12'}, {bookId='f',title='F',readUpdateTime='bad'},
+    {bookId='g',title='G',readUpdateTime=math.huge},
+}
+host.shelf_regular=mixed
+for _,case in ipairs({{'time_desc',{'a','c','e','b','d','f','g'}},
+                      {'time_asc',{'d','f','g','b','e','a','c'}}}) do
+    shelf_settings.sort_order=case[1];host:showShelfView('books')
+    for index,id in ipairs(case[2]) do
+        expect(shown[#shown].data.books[index].bookId==id,'mixed time sort changed ordering or rejected an old value')
+    end
+end
 print(("bookshelf_pagination_spec: %d checks"):format(checks))
