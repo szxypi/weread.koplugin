@@ -15,9 +15,10 @@ COMMAND=['docker','exec','-i','-w','/source','-e','LD_LIBRARY_PATH=/validation/r
     '--width','1264','--height','1680','--dpi','300','--cb-reading']
 
 
-def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation=None,diagnostics=None,expected_source_text=TEXT):
+def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation=None,diagnostics=None,expected_source_text=TEXT,pdf_multipage=False):
     if not cb_id(target):raise ValueError('uploaded_reading/target')
     if expected_source_text not in (TEXT,PDF_TEXT):raise ValueError('uploaded_reading/source_scope')
+    if type(pdf_multipage) is not bool or pdf_multipage and expected_source_text!=PDF_TEXT:raise ValueError('uploaded_reading/source_scope')
     store=store or SessionStore();probe_factory=probe_factory or CbReadingProbe;read_native=read_native or native_main
     save_rotation=save_rotation or save_refreshed_web_session;saved=probe=None
     try:
@@ -27,7 +28,7 @@ def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation
         if target not in ids:raise ValueError('uploaded_reading/target_missing')
         rotated=save_rotation(store,saved,probe);index=ids.index(target)+1
         out=io.StringIO()
-        single_page=expected_source_text==PDF_TEXT
+        single_page=expected_source_text==PDF_TEXT and not pdf_multipage
         command=COMMAND+(['--cb-single-page'] if single_page else [])
         with contextlib.redirect_stdout(out):
             code=read_native(['--saved-session','--book-index',str(index),'--lua-command',*command],

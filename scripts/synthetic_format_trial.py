@@ -51,10 +51,10 @@ class Journal(BaseJournal):
 class TargetReceipt:
     """Persist the exact acknowledged identity before waiting for shelf visibility."""
     def __init__(self,extension,backend=None,scope='reading'):
-        if scope not in ('reading','native-ui'):raise ValueError('synthetic_format/scope')
-        if extension not in FORMATS and not (extension=='pdf' and scope=='native-ui'):raise ValueError('synthetic_format/extension')
-        self.phase='notify_pending' if scope=='reading' else 'launched'
-        suffix='-target-v1' if scope=='reading' else '-native-ui-target-v1'
+        if scope not in ('reading','native-ui','long-pdf'):raise ValueError('synthetic_format/scope')
+        if extension not in FORMATS and not (extension=='pdf' and scope in ('native-ui','long-pdf')) or scope=='long-pdf' and extension!='pdf':raise ValueError('synthetic_format/extension')
+        self.phase='launched' if scope=='native-ui' else 'notify_pending'
+        suffix='-target-v1' if scope=='reading' else '-native-ui-target-v1' if scope=='native-ui' else '-long-reading-target-v1'
         self.backend=backend if backend is not None else MacKeychain(service='org.codex.weread.goal-synthetic-'+extension+suffix,account=ACCOUNT)
 
     def record(self,journal,receipt,plan,target):

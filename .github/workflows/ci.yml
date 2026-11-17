@@ -82,6 +82,7 @@ jobs:
           python3 scripts/test_synthetic_pdf_trial.py
           python3 scripts/test_synthetic_format_trial.py
           python3 scripts/test_native_format_ui_trial.py
+          python3 scripts/test_reading_long_pdf_trial.py
           python3 scripts/test_mp_images.py
           python3 scripts/test_shelf_covers.py
           python3 scripts/test_shelf_membership.py
