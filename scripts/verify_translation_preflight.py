@@ -25,7 +25,8 @@ from fetch_weread_epub import reader_url_for,make_content_params,weread_sign,sor
 
 PLATFORM='wechat_wx-2001-android-100-weread'
 PUBLIC_QUERY='Pride and Prejudice'
-PUBLIC_QUERIES=(PUBLIC_QUERY,'Moby Dick','The Wonderful Wizard of Oz','The Time Machine','The Moonstone','The War of the Worlds')
+PUBLIC_QUERIES=(PUBLIC_QUERY,'Moby Dick','The Wonderful Wizard of Oz','The Time Machine','The Moonstone','The War of the Worlds',
+    'Little Women','Treasure Island','The Invisible Man','A Tale of Two Cities')
 
 
 class TranslationError(ValueError): pass

@@ -1,10 +1,10 @@
 {
   "result": "BOUNDED_ADDITIONAL_PUBLIC_DISCOVERY_NO_MISSING_PROSE",
   "based_on_head": "7b6a44b79d86f8590bbd99b1330e7a9ab05fd91f",
-  "additional_fixed_queries": 5,
-  "discovery_runs": 8,
-  "chapter_checks": 31,
-  "checks_with_existing_translation": 31,
+  "additional_fixed_queries": 9,
+  "discovery_runs": 12,
+  "chapter_checks": 50,
+  "checks_with_existing_translation": 50,
   "untranslated_content_candidates": 0,
   "structural_chapters_skipped": 2,
   "alternate_queries_readonly_only": true,
@@ -20,5 +20,7 @@
   "python_modules": 142,
   "python_tests": 1866,
   "positive_generation_protocol_verified": false,
-  "whole_goal_complete": false
+  "whole_goal_complete": false,
+  "unavailable_searches": 1,
+  "unavailable_not_counted_as_absence": true
 }
