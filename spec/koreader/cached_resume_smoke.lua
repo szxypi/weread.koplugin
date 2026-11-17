@@ -135,6 +135,8 @@ local catalog=assert(host.library_db:getChapters(id))
 local report={result='PASS',synthetic_only=true,content_format=format,chapter_files=2,full_chapters=6,
     pending_priority=false,last_local_priority=false,foreign_owner_ignored=false,native_position_restored=false,
     missing_catalog_uid=false,ambiguous_index_uses_last_local=false,
+    explicit_cached_copy=false,missing_resume_chapter_downloaded=false,
+    offline_missing_target_fallback=false,home_missing_target_downloaded=false,
     full_download=false,full_source_records=false,full_native_navigation=false}
 if cb_resume then report.cb_reading=true end
 for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog','duplicate_index'}) do
@@ -186,6 +188,33 @@ for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog','dupl
     close_reader()
 end
 host=assert(FM.instance.weread);assert(host.library_db:putChapters(id,catalog))
+local function omit_target()
+    patch(assert(FM.instance.weread),{chapters=false,chapter_uid=4,chapter_idx=4,
+        pending_upload_position={book_id=id,chapter_uid=4,chapter_idx=4,percent=70},
+        pending_upload_account=saved.pending_upload_account,last_local_position=last_local,
+        recent_read_account=saved.pending_upload_account,cached_chapters={['2']=first}})
+end
+omit_target()
+host,view=detail();press(view,'Read cached copy')
+pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==first end)
+report.explicit_cached_copy=true;close_reader()
+omit_target()
+host,view=detail();offline=true;press(view,'▤ Read')
+pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==first end)
+report.offline_missing_target_fallback=true;close_reader();offline=false
+omit_target()
+current=select(2,read_from_shelf(second))
+assert(book(current).cached_chapters['4']==second,'missing target chapter was not added to the cache')
+report.missing_resume_chapter_downloaded=true;close_reader()
+omit_target()
+host=assert(FM.instance.weread);host:closeWeReadUI();host:showHome()
+local home_view=assert(host.shelf_view);local recent
+for _i,row in ipairs(home_view.books) do if tostring(row.bookId or row.book_id)==id then recent=row end end
+assert(recent and recent._cached,'missing cached book on home')
+home_view.on_select(recent,'books')
+pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==second end)
+assert(book(Reader.instance.weread).cached_chapters['4']==second,'home did not download the missing chapter')
+report.home_missing_target_downloaded=true;close_reader()
 local handoff_position
 if os.getenv('WEREAD_TEST_RESUME_HANDOFF')=='1' then
     current=select(2,read_from_shelf())

@@ -63,6 +63,7 @@ local shown_book
 local opened_path
 local single_download_options
 local single_download_refreshed = false
+local current_owner='account-a'
 local host = {
     settings = {
         get = function(_self, key, default)
@@ -76,7 +77,7 @@ local host = {
         flush = function() end,
     },
     library_db = {
-        accountKey = function() return "account-a" end,
+        accountKey = function() return current_owner end,
         getBook = function() return db_detail end,
         putBook = function(_self, book) written_book = book return true end,
         getChapters = function() return db_chapters end,
@@ -264,6 +265,37 @@ books["99"] = uncached
 db_chapters = nil
 expect(host:startBookReading({ book_id = "99", title = "Stale" }, view)
     and preparation.book == uncached and preparation.view == view, "uncached Read did not prepare the latest record")
+do
+    local source=require('weread.lib.shelf_source')
+    local old_web_access=source.web_access
+    local authenticated,online=true,true
+    source.web_access=function() return authenticated and {} or nil end
+    host.isNetworkConnected=function() return online end
+    local target={book_id='55',chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3}},
+        pending_upload_position={book_id='55',chapter_uid=3},cached_chapters={['1']='/cache/1.epub'}}
+    books['55']=target;existing_paths['/cache/1.epub']=true
+    opened_path,preparation=nil,nil
+    expect(host:startBookReading(target,view) and preparation and preparation.book==target and not opened_path,
+        'online Read opened a nearby chapter instead of preparing the missing resume chapter')
+    online=false;opened_path,preparation=nil,nil
+    expect(host:startBookReading(target,view) and opened_path=='/cache/1.epub' and not preparation,
+        'offline Read did not preserve its cached fallback')
+    online=true;authenticated=false;opened_path,preparation=nil,nil
+    expect(host:startBookReading(target,view) and opened_path=='/cache/1.epub' and not preparation,
+        'Read without Web access did not preserve its cached fallback')
+    authenticated=true;target.cached_chapters['3']='/cache/3.epub';existing_paths['/cache/3.epub']=true
+    opened_path,preparation=nil,nil
+    expect(host:startBookReading(target,view) and opened_path=='/cache/3.epub' and not preparation,
+        'online Read unnecessarily fetched an already cached exact chapter')
+    target.cached_chapters['3']=nil;target.chapters=nil;db_chapters=nil
+    opened_path,preparation=nil,nil
+    expect(host:startBookReading(target,view) and preparation and not opened_path,
+        'missing catalog caused an uncached pending UID to be ignored')
+    target.pending_upload_account='another-owner';opened_path,preparation=nil,nil
+    expect(host:startBookReading(target,view) and opened_path=='/cache/1.epub' and not preparation,
+        'a foreign pending UID caused a download')
+    source.web_access=old_web_access;host.isNetworkConnected=nil
+end
 local detail_data
 package.preload['weread.ui.book_detail_view']=function() return {show=function(data) detail_data=data;return {} end} end
 local detail_book={book_id='42',title='Synthetic book',chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3}},
@@ -280,4 +312,21 @@ expect(detail_data.status_line=='Full book cached','full download without a cata
 detail_book.full_path=nil;detail_book.chapters={{chapterUid=1},{chapterUid=2},{chapterUid=3}}
 Library.showBookMenu(host,detail_book)
 expect(detail_data.status_line=='Cached 2/3 chapters','partial download lost the count status')
+local cached_action
+for _,action in ipairs(detail_data.actions) do if action.text=='Read cached copy' then cached_action=action end end
+expect(cached_action~=nil,'partial cache has no explicit cached reading action')
+opened_path=nil;cached_action.callback()
+expect(opened_path=='/cache/1.epub','cached reading action did not open an available chapter')
+host._book_detail_view={};opened_path=nil;cached_action.callback()
+expect(not opened_path,'stale cached reading action opened a book')
+Library.showBookMenu(host,detail_book);cached_action=nil
+for _,action in ipairs(detail_data.actions) do if action.text=='Read cached copy' then cached_action=action end end
+current_owner='account-b';opened_path=nil;cached_action.callback()
+expect(not opened_path,'cached reading action crossed account boundary');current_owner='account-a'
+detail_book.cached_chapters={unknown='/cache/unknown.epub'}
+Library.showBookMenu(host,detail_book);cached_action=nil
+for _,action in ipairs(detail_data.actions) do if action.text=='Read cached copy' then cached_action=action end end
+expect(cached_action~=nil,'cached chapter missing from an old catalog has no manual reading action')
+opened_path=nil;cached_action.callback()
+expect(opened_path=='/cache/unknown.epub','manual reading could not open a chapter outside the old catalog')
 print(("library_cache_flow_spec: %d checks"):format(checks))

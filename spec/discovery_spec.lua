@@ -117,7 +117,7 @@ plugin.getShelfCoverCache = function() return { pathFor = function() return nil 
 plugin.cancelShelfCovers = function(self) self.shelf_cover_generation=(self.shelf_cover_generation or 0)+1 end
 plugin.isBookDownloaded = function() return true end
 plugin.fetchVisibleShelfCovers = function(_self, _view, _books, options) fetched = options end
-plugin.openBookForReading = function(_self, book) opened = book end
+plugin.startBookReading = function(_self, book) opened = book end
 plugin.closeWeReadUI = function(self) self.shelf_view = nil self.discovery_epoch = self.discovery_epoch + 1 end
 plugin:showDiscoveryPage("home", { { bookId = "a" } }, { title = "Home" })
 expect(shown.data.portal and #shown.data.navigation == 4, "home navigation missing")

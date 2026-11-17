@@ -70,6 +70,15 @@ expect(Reading.resume_index(duplicates,{pending_upload_position={chapter_idx=0}}
     'ambiguous index was treated as an exact chapter')
 expect(Reading.resume_index(duplicates,{pending_upload_position={chapter_idx=3}},nil,'owner')==3,
     'unique index did not remain usable')
+expect(Reading.resume_uid(nil,{book_id='900001',pending_upload_position={book_id='900001',chapter_uid=9}},'owner')=='9',
+    'missing catalog discarded the pending UID')
+expect(Reading.resume_uid(projected,{book_id='900001',pending_upload_position={chapter_idx=1},
+    last_local_position={chapter_uid=2}},'owner')=='1','unique pending index lost precedence over later UID')
+expect(Reading.resume_uid(duplicates,{pending_upload_position={chapter_idx=0},last_local_position={chapter_uid=2}},'owner')=='2',
+    'ambiguous index masked later UID')
+expect(Reading.resume_uid(projected,{book_id='900001',pending_upload_account='other',
+    pending_upload_position={chapter_uid=1},last_local_position={chapter_uid=2}},'owner')=='2',
+    'foreign pending UID was selected')
 
 local function fixture()
     tasks, saved_catalogs = {}, 0

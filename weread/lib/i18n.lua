@@ -310,6 +310,7 @@ local zh = {
     ["About reading record recovery"] = "阅读记录恢复说明",
     ["No saved reading records for this article."] = "这篇文章没有已保留的阅读记录。",
     ["Read cached article"] = "阅读缓存文章",
+    ["Read cached copy"] = "阅读已缓存章节",
     ["Current cache"] = "当前缓存",
     ["Previous cache"] = "此前缓存",
     ["Version %1 · %2"] = "版本 %1 · %2",

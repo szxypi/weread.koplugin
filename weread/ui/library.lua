@@ -1139,15 +1139,18 @@ function M:showBookMenu(book)
     local is_full_cached = file_exists(cached_path)
     local has_cache = self:bookRecordHasDownload(saved)
     book.cached_full_book = is_full_cached and cached_path or nil
-    local cached_chapter_count = 0
+    local cached_chapter_count,any_cached_chapter = 0,false
     local catalog_uids,seen_paths={},{}
     for _i,chapter in ipairs(book.chapters or {}) do
         local uid=chapter.chapterUid or chapter.chapterId
         if uid~=nil then catalog_uids[tostring(uid)]=true end
     end
     for uid, path in pairs(saved.cached_chapters or {}) do
-        if (type(book.chapters)~='table' or catalog_uids[tostring(uid)]) and not seen_paths[path] and file_exists(path) then
-            cached_chapter_count = cached_chapter_count + 1;seen_paths[path]=true
+        if file_exists(path) then
+            any_cached_chapter=true
+            if (type(book.chapters)~='table' or catalog_uids[tostring(uid)]) and not seen_paths[path] then
+                cached_chapter_count = cached_chapter_count + 1;seen_paths[path]=true
+            end
         end
     end
     local total_chapters = type(book.chapters) == "table" and #book.chapters or nil
@@ -1195,7 +1198,7 @@ function M:showBookMenu(book)
     if words then metadata[#metadata + 1] = { text = words } end
     add_row("ISBN", book.isbn, _("Rating"), rating)
 
-    local view
+    local view,cache_scope
     local open_chapter_list = self:safeCallback(_("Chapter list"), function()
         self:showChapterList(book, function()
             local latest = self.settings:get("books", {})[book_id] or book
@@ -1287,6 +1290,13 @@ function M:showBookMenu(book)
                 if not opened then original.disarm(path);error(err) end
             end)}
     end
+    if any_cached_chapter and not is_full_cached then
+        actions[#actions+1]={text=_('Read cached copy'),callback=self:safeCallback(_('Read cached copy'),function()
+            if not cache_scope or not cache_scope() or self._book_detail_view~=view then return end
+            local latest=self.settings:get_book(book_id) or book
+            self:openBookForReading(latest)
+        end)}
+    end
     if has_cache then
         actions[#actions + 1] = {
             text = _("Clear book cache"),
@@ -1352,6 +1362,7 @@ function M:showBookMenu(book)
         end,
     })
     self._book_detail_view = view
+    cache_scope=require('weread.ui.page_scope').capture(self,self.shelf_view)
     return view
 end
 
@@ -1933,7 +1944,7 @@ end
 -- Read offline from the best available cache. A complete EPUB wins. Otherwise
 -- choose the cached chapter nearest to the last known chapter/progress, with a
 -- slight preference for the preceding chapter when distances are equal.
-function M:openBookForReading(book, quiet)
+function M:openBookForReading(book, quiet, options)
     local full_path = self:getFullBookCachePath(book)
     if file_exists(full_path) then
         self:openFile(full_path,nil,book)
@@ -1955,6 +1966,15 @@ function M:openBookForReading(book, quiet)
     local account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
     if account==nil and self.progress_sync and self.progress_sync._account_key then account=self.progress_sync:_account_key() end
     local Reading=require('weread.ui.book_reading')
+    if options and options.prefer_exact then
+        local uid=Reading.resume_uid(chapters,book,account)
+        local target=uid and book.cached_chapters and book.cached_chapters[uid]
+        if uid and not file_exists(target) then
+            for _id,path in pairs(book.cached_chapters or {}) do
+                if file_exists(path) then return false,'resume_not_cached' end
+            end
+        end
+    end
     if type(chapters) == "table" then
         target_index=Reading.resume_index(chapters,book,nil,account)
         for index, chapter in ipairs(chapters) do
@@ -2003,7 +2023,11 @@ function M:startBookReading(book, view)
     if view and self._book_detail_view ~= view then return false end
     local id = book.book_id or book.bookId
     local latest = self.settings:get_book(id) or book
-    if self:openBookForReading(latest, true) then return true end
+    local online
+    if self.isNetworkConnected then online=self:isNetworkConnected()
+    elseif self.isNetworkOnline then online=self:isNetworkOnline() end
+    local exact=online and require('weread.lib.shelf_source').web_access(self.settings)~=nil
+    if self:openBookForReading(latest, true, {prefer_exact=exact}) then return true end
     return require("weread.ui.book_reading").start(self, latest, view)
 end
 

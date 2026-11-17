@@ -75,7 +75,7 @@ function M:showDiscoveryPage(tab, books, options)
         on_select = Scope.guard(current, function(book)
             if tab == "home" and book._cached then
                 local stored = self.settings:get("books", {})[book.bookId or book.book_id] or book
-                self:openBookForReading(stored)
+                self:startBookReading(stored)
             else self:showBookRecord(book) end
         end),
         on_page_changed = redraw,
