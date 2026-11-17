@@ -11,7 +11,7 @@ from verify_translation_preflight import save_refreshed_web_session
 
 COMMAND=['docker','exec','-i','-w','/source','-e','LD_LIBRARY_PATH=/validation/runtime/lib/koreader/libs','-e','SDL_VIDEODRIVER=dummy',
     'weread-validation','timeout','--signal=TERM','--kill-after=10','340','python3','scripts/run_owner_reading_probe.py',
-    '--koreader','/validation/runtime/lib/koreader','--candidate','/validation/pdf-delay-ui-1264-v1/candidate.zip',
+    '--koreader','/validation/runtime/lib/koreader','--candidate','/validation/large-delay-ui-1264-v1/candidate.zip',
     '--width','1264','--height','1680','--dpi','300','--cb-reading']
 
 

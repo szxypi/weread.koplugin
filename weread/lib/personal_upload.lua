@@ -105,9 +105,10 @@ function M.run(client,settings,selected,input,journal,record,guard)
         local protected=Members.protected(before,id);if not protected then fail('preflight') end
         local expected={};for _i,value in ipairs(members) do expected[#expected+1]=value end;expected[#expected+1]=id;table.sort(expected)
         local expected_digest=Members.digest(expected)
-        -- Cloud conversion may expose the new book only after several seconds.
-        -- Keep polling read-only in the cancellable worker; never resend notify.
-        for attempt=1,9 do
+        -- Larger imports can take longer to appear after a successful notify.
+        -- Poll only the shelf in the cancellable worker; never resend the upload.
+        local max_attempts=input.size>=100*1024*1024 and 16 or 9
+        for attempt=1,max_attempts do
             if attempt>1 then require('socket').sleep(.5*(attempt-1)) end
             if not current() then fail('changed') end
             local after=Members.fetch(client,settings,selected);local observed=assert(Members.members(after))

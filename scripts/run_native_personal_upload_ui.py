@@ -10,7 +10,7 @@ from run_persistent_ui_probe import extract_candidate
 from verify_eink_renewal import validate_credentials
 
 FLAGS={'permit_writes','chooser','cancel_no_request','heartbeat','journal_idle','cache_verified','file_unchanged','credential_audit','guard_selftest'}
-COUNTS={'native_gets':10,'credential_gets':1,'puts':1,'notifies':1,'denied':0,'screenshots':0,'failed_line':10000}
+COUNTS={'native_gets':17,'credential_gets':1,'puts':1,'notifies':1,'denied':0,'screenshots':0,'failed_line':10000}
 
 
 def validate_stage(value,armed):
@@ -31,10 +31,11 @@ def validate_input(value,armed,mock_port):
     epub=isinstance(value,dict) and value.get('fixture')=='epub'
     large=isinstance(value,dict) and value.get('fixture')=='large_epub'
     near=isinstance(value,dict) and value.get('fixture')=='near_epub'
+    exact=isinstance(value,dict) and value.get('fixture')=='exact_epub'
     fmt=value.get('fixture') if isinstance(value,dict) and value.get('fixture') in ('pdf','mobi','azw3') else None
     if epub:fields|={'fixture','body_base64'}
     if fmt:fields|={'fixture','body_base64'}
-    if large or near:fields.add('fixture')
+    if large or near or exact:fields.add('fixture')
     if (not isinstance(value,dict) or set(value)!=fields or value['permit_writes'] is not armed or value.get('mock_port')!=mock_port
             or not isinstance(value['rpc_token'],str) or re.fullmatch('[a-f0-9]{32}',value['rpc_token']) is None
             or type(value['shelf_books']) is not int or not 1<=value['shelf_books']<=5000):raise ValueError('native_upload_ui/input')
@@ -48,9 +49,9 @@ def validate_input(value,armed,mock_port):
         expected=build_pdf() if fmt=='pdf' else build_format(fmt)
         if value['body_base64']!=base64.b64encode(expected).decode('ascii'):raise ValueError('native_upload_ui/fixture')
     if mock_port is None:
-        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.'+(fmt if fmt else 'epub' if epub or large or near else 'txt')
+        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.'+(fmt if fmt else 'epub' if epub or large or near or exact else 'txt')
         if not isinstance(value['name'],str) or re.fullmatch(pattern,value['name']) is None:raise ValueError('native_upload_ui/input')
-    elif (value['name']!=('SyntheticUpload.'+fmt if fmt else 'SyntheticNearEpub.epub' if near else 'SyntheticLargeEpub.epub' if large else 'SyntheticUploadEpub.epub' if epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
+    elif (value['name']!=('SyntheticUpload.'+fmt if fmt else 'SyntheticExactEpub.epub' if exact else 'SyntheticNearEpub.epub' if near else 'SyntheticLargeEpub.epub' if large else 'SyntheticUploadEpub.epub' if epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
           refreshToken='mock-native-refresh',deviceId='eink334691225'+'1'*19)):raise ValueError('native_upload_ui/mock')
 
 
@@ -80,16 +81,19 @@ def main(argv=None):
                 if len(book)!=BODY_SIZE or hashlib.sha256(book).hexdigest()!=BODY_SHA256_LARGE:raise ValueError('native_upload_ui/fixture')
                 with (profile/payload['name']).open('xb') as stream:stream.write(book)
                 del book
-            if payload.get('fixture')=='near_epub':
+            if payload.get('fixture') in ('near_epub','exact_epub'):
                 import hashlib
                 from near_limit_epub_trial import BODY_SHA256_NEAR,BODY_SIZE
-                from synthetic_near_limit_epub import write_fixture
+                from exact_limit_epub_trial import BODY_SHA256_EXACT,BODY_SIZE as EXACT_SIZE
+                from synthetic_near_limit_epub import write_fixture,write_exact_fixture
+                is_exact=payload['fixture']=='exact_epub';expected_size=EXACT_SIZE if is_exact else BODY_SIZE
+                expected_digest=BODY_SHA256_EXACT if is_exact else BODY_SHA256_NEAR
                 with (profile/payload['name']).open('x+b') as stream:
-                    write_fixture(stream)
-                    if stream.tell()!=BODY_SIZE:raise ValueError('native_upload_ui/fixture')
+                    (write_exact_fixture if is_exact else write_fixture)(stream)
+                    if stream.tell()!=expected_size:raise ValueError('native_upload_ui/fixture')
                     stream.seek(0);digest=hashlib.sha256()
                     for part in iter(lambda:stream.read(65536),b''):digest.update(part)
-                    if digest.hexdigest()!=BODY_SHA256_NEAR:raise ValueError('native_upload_ui/fixture')
+                    if digest.hexdigest()!=expected_digest:raise ValueError('native_upload_ui/fixture')
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(root/'xdg'),LD_LIBRARY_PATH=str(runtime/'libs'),SDL_VIDEODRIVER='dummy',
                 EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_UPLOAD_UI_ARMED='1' if args.armed else '0')
@@ -98,7 +102,7 @@ def main(argv=None):
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/owner_personal_upload_ui_probe.lua'
             child=subprocess.Popen([str(runtime/'luajit'),str(probe)],env=env,cwd=runtime,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
             try:
-                write_initial(child.stdin,payload);kind,stage=Frames(child.stdout,payload['rpc_token'],timeout=900 if payload.get('fixture')=='near_epub' else 140).next()
+                write_initial(child.stdin,payload);kind,stage=Frames(child.stdout,payload['rpc_token'],timeout=900 if payload.get('fixture') in ('near_epub','exact_epub') else 140).next()
                 if kind!='RESULT':raise ValueError('native_upload_ui/frame')
                 result['stage']=stage
                 if child.wait(timeout=10):raise ValueError('native_upload_ui/child')

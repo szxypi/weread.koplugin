@@ -255,7 +255,8 @@ class MockServer(ThreadingHTTPServer):
             accepted=(small,large,big,epub,large_epub,pdf,FORMATS['mobi'][1],FORMATS['azw3'][1])
             if self.near_upload_fixture:
                 from near_limit_epub_trial import BODY_SHA256_NEAR
-                accepted+=(BODY_SHA256_NEAR,)
+                from exact_limit_epub_trial import BODY_SHA256_EXACT
+                accepted+=(BODY_SHA256_NEAR,BODY_SHA256_EXACT)
             if not isinstance(data,dict) or set(data)!={'synthetic_sha256'} or data['synthetic_sha256'] not in accepted:raise ValueError('invalid synthetic COS object')
             if data['synthetic_sha256'] in (large,big,large_epub):time.sleep(.35)
             return 200,b''
@@ -549,7 +550,7 @@ class MockServer(ThreadingHTTPServer):
                 return 200, dict(signature="mock-native-ticket", timeStamp=1700000000, expires_in=180)
             if path=='/cos/getcredential' and method=='GET':
                 if query not in ({'name':['SyntheticUpload']},{'name':['SyntheticLarge']},{'name':['SyntheticBig']},{'name':['SyntheticUploadEpub']},{'name':['SyntheticLargeEpub']},
-                                 {'name':['SyntheticUpload'],'from':['']},{'name':['SyntheticLarge'],'from':['']},{'name':['SyntheticBig'],'from':['']},{'name':['SyntheticUploadEpub'],'from':['']},{'name':['SyntheticLargeEpub'],'from':['']}) and not (self.near_upload_fixture and query in ({'name':['SyntheticNearEpub']},{'name':['SyntheticNearEpub'],'from':['']})):
+                                 {'name':['SyntheticUpload'],'from':['']},{'name':['SyntheticLarge'],'from':['']},{'name':['SyntheticBig'],'from':['']},{'name':['SyntheticUploadEpub'],'from':['']},{'name':['SyntheticLargeEpub'],'from':['']}) and not (self.near_upload_fixture and query in ({'name':['SyntheticNearEpub']},{'name':['SyntheticNearEpub'],'from':['']},{'name':['SyntheticExactEpub']},{'name':['SyntheticExactEpub'],'from':['']})):
                     raise ValueError('invalid synthetic upload name')
                 return 200,dict(bucket='synthetic-12345',ObjectName='/synthetic/object',Response=dict(ExpiredTime=int(time.time())+300,
                     Credentials=dict(TmpSecretId='synthetic-id',TmpSecretKey='synthetic-key',Token='synthetic-token')))
@@ -559,9 +560,9 @@ class MockServer(ThreadingHTTPServer):
                                  {'name':['SyntheticBig.txt'],'path':['/synthetic/object'],'cancel':['0']},
                                  {'name':['SyntheticLargeEpub.epub'],'path':['/synthetic/object'],'cancel':['0']},
                                  {'name':['SyntheticUploadEpub.epub'],'path':['/synthetic/object'],'cancel':['0']},
-                                 *({'name':['SyntheticUpload.'+ext],'path':['/synthetic/object'],'cancel':['0']} for ext in ('pdf','mobi','azw3'))) and not (self.near_upload_fixture and query=={'name':['SyntheticNearEpub.epub'],'path':['/synthetic/object'],'cancel':['0']}) or data!={}:
+                                 *({'name':['SyntheticUpload.'+ext],'path':['/synthetic/object'],'cancel':['0']} for ext in ('pdf','mobi','azw3'))) and not (self.near_upload_fixture and query in ({'name':['SyntheticNearEpub.epub'],'path':['/synthetic/object'],'cancel':['0']},{'name':['SyntheticExactEpub.epub'],'path':['/synthetic/object'],'cancel':['0']})) or data!={}:
                     raise ValueError('invalid synthetic upload notification')
-                identity=('CB_uploadNearEpub' if query['name']==['SyntheticNearEpub.epub'] else 'CB_uploadlarge' if query['name']==['SyntheticLarge.txt'] else
+                identity=('CB_uploadExactEpub' if query['name']==['SyntheticExactEpub.epub'] else 'CB_uploadNearEpub' if query['name']==['SyntheticNearEpub.epub'] else 'CB_uploadlarge' if query['name']==['SyntheticLarge.txt'] else
                           'CB_uploadBig' if query['name']==['SyntheticBig.txt'] else
                           'CB_uploadLargeEpub' if query['name']==['SyntheticLargeEpub.epub'] else
                           'CB_uploadEpub' if query['name']==['SyntheticUploadEpub.epub'] else

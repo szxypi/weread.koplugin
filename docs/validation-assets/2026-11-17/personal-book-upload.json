@@ -107,7 +107,7 @@
     "temporary_profile_removed": true
   },
   "plugin_maximum_bytes": 209715200,
-  "maximum_size_real_account_tested": false,
+  "maximum_size_real_account_tested": true,
   "synthetic_packaged_native_ui": {
     "600x800": "PASS",
     "1264x1680_300dpi": "PASS",
@@ -308,5 +308,36 @@
     "synthetic_native_ui_600x800": "PASS",
     "synthetic_native_ui_1264x1680": "PASS"
   },
-  "near_limit_real_account_tested": true
+  "near_limit_real_account_tested": true,
+  "real_account_exact_limit_epub_first_test": {
+    "fixture_bytes": 209715200,
+    "native_ui_initial_outcome": "unverified",
+    "subsequent_independent_native_and_web_shelves_matched_unique_synthetic_item": true,
+    "cloud_source_matches_fixture": true,
+    "cleanup_posts": 1,
+    "cleanup_acknowledged_and_independently_verified": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "unconfirmed_cause_identified": false,
+    "upload_authentication_posts": 0,
+    "earlier_fresh_401_native_lua_witness_and_single_renewal": true
+  },
+  "real_account_native_ui_exact_limit_epub_second_test": {
+    "screen": "1264x1680_300dpi",
+    "fixture_bytes": 209715200,
+    "same_plan_zero_write_preview": true,
+    "packaged_plugin_menu_chooser_confirmation": true,
+    "background_ui_heartbeat": true,
+    "temporary_credential_requests": 1,
+    "cos_put_attempts": 1,
+    "notify_posts": 1,
+    "independent_cleanup_posts": 1,
+    "authentication_posts": 0,
+    "cloud_source_matches_fixture": true,
+    "catalog_and_cloud_position_unchanged_during_read": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_native_grant_unchanged": true,
+    "temporary_profile_removed": true,
+    "synthetic_native_ui_600x800": "PASS",
+    "synthetic_native_ui_1264x1680": "PASS"
+  }
 }

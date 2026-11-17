@@ -3,11 +3,12 @@ import zipfile
 from synthetic_upload_epub import FILES
 
 PADDING_BYTES=199*1024*1024
+EXACT_PADDING_BYTES=200*1024*1024-2348
 CHUNK=b'L'*65536
 
 
 def _write(output,padding_bytes):
-    if type(padding_bytes) is not int or not 1<=padding_bytes<=PADDING_BYTES:raise ValueError('near_epub/size')
+    if type(padding_bytes) is not int or not 1<=padding_bytes<=EXACT_PADDING_BYTES:raise ValueError('near_epub/size')
     files=dict(FILES)
     files['EPUB/package.opf']=files['EPUB/package.opf'].replace(b'</manifest>',
         b'<item id="padding" href="padding.txt" media-type="text/plain"/></manifest>')
@@ -25,3 +26,7 @@ def _write(output,padding_bytes):
 
 def write_fixture(output):
     _write(output,PADDING_BYTES)
+
+
+def write_exact_fixture(output):
+    _write(output,EXACT_PADDING_BYTES)

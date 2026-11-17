@@ -5,6 +5,10 @@ package.preload['ffi/sha2']=function()
     local sha={};sha.sha1=function(value) return tostring(#value) end
     sha.hmac=function(_kind,key,value) return string.rep('a',40)..#key..#value end
     sha.sha256=function()
+        if state.simulated_large then
+            local size=0
+            return function(value) if value then size=size+#value;return end;return tostring(size) end
+        end
         local bytes={}
         return function(value) if value then bytes[#bytes+1]=value;return end;return table.concat(bytes) end
     end
@@ -27,7 +31,14 @@ package.preload['weread.lib.native_authorization']=function() return {new=functi
     end,cancel=function() end}
 end} end
 local Task=require('weread.lib.personal_upload')
-Task.open_file=function(input) return io.open(input.path,'rb') end
+Task.open_file=function(input)
+    if state.simulated_large then
+        local remaining=input.size;local chunk=string.rep('x',65536)
+        return {read=function() if remaining<=0 then return nil end;local n=math.min(remaining,#chunk);remaining=remaining-n;return chunk:sub(1,n) end,
+            seek=function() remaining=input.size;return 0 end,close=function() end}
+    end
+    return io.open(input.path,'rb')
+end
 local Members=require('weread.lib.shelf_membership_write')
 local checks=0
 local function expect(value,label) checks=checks+1;assert(value,label) end
@@ -79,6 +90,17 @@ fixture();state.appear_after=100;result=state.run()
 expect(result.kind=='unconfirmed' and state.reads==10 and state.waited==18 and state.requests==1 and state.notifies==1,'unavailable import was retried or waited without bound')
 fixture();state.appear_after=100;state.cancel_at_sleep=3;result=state.run()
 expect(result.kind=='unconfirmed' and state.reads==4 and state.requests==1 and state.notifies==1,'cancelled readback continued or resent')
+fixture();state.simulated_large=true;state.info.size=100*1024*1024;state.appear_after=12
+local delayed=assert(Task.capture(path));local delayed_selected={scope={vid='900000'},credentials={vid='900000'},renewal_pending=false}
+local large_client={json_decode=function() return {} end,json_encode=function() return '{}' end,
+    request=function(_self,opts) state.requests=state.requests+1;while opts.source() do end;return nil,200 end}
+local large_journal={owns=function() return true end}
+result=Task.run(large_client,{},delayed_selected,delayed,large_journal,{},function() return not state.guard_changed end)
+expect(result.kind=='confirmed' and state.reads==13 and state.waited==33 and state.requests==1 and state.notifies==1,'large delayed import was not confirmed')
+fixture();state.simulated_large=true;state.info.size=100*1024*1024;state.appear_after=100
+delayed=assert(Task.capture(path))
+result=Task.run(large_client,{},delayed_selected,delayed,large_journal,{},function() return not state.guard_changed end)
+expect(result.kind=='unconfirmed' and state.reads==17 and state.waited==60 and state.requests==1 and state.notifies==1,'large readback was unbounded or resent')
 fixture();state.stale=true;result=state.run()
 expect(result.kind=='unavailable' and state.requests==0 and state.notifies==0,'stale account sent upload')
 local input=fixture();state.info.size=9;expect(not Task.matches(input),'changed file identity accepted')

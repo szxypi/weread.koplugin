@@ -41,5 +41,25 @@ class NearLimitTest(unittest.TestCase):
         again=run(probe,journal,credentials(),lambda _:True,lambda _:True,probe.spawn,**kwargs)
         self.assertEqual(again['reason'],'epub_ui/already_reserved');self.assertEqual((probe.spawns,probe.cleanups),(1,1))
 
+    def test_exact_boundary_uses_its_own_scope_and_fixed_fixture(self):
+        from exact_limit_epub_trial import BODY_SHA256_EXACT,BODY_SIZE as EXACT_SIZE,Journal as ExactJournal,JournalV2
+        from exact_limit_epub_trial import check as check_exact,prepare as prepare_exact,validate_exact
+        from near_limit_epub_trial import SERVICE as NEAR_SERVICE
+        from exact_limit_epub_trial import SERVICE as EXACT_SERVICE
+        self.assertNotEqual(NEAR_SERVICE,EXACT_SERVICE);self.assertEqual(EXACT_SIZE,200*1024*1024)
+        plan=prepare_exact(credentials(),source(),NAME);self.assertEqual(plan['body_sha256'],BODY_SHA256_EXACT)
+        self.assertTrue(check_exact(plan,credentials(),source()))
+        with self.assertRaises(ValueError):validate_exact(dict(plan,body_sha256=BODY_SHA256_NEAR))
+        payload=dict(credentials=credentials(),name=NAME,shelf_books=3,rpc_token='a'*32,permit_writes=False,fixture='exact_epub')
+        validate_input(payload,False,None)
+        journal=ExactJournal(Backend());target=TargetReceipt('epub',Backend(),scope='exact-ui');probe=FakeProbe()
+        result=run(probe,journal,credentials(),lambda _:True,lambda _:True,probe.spawn,apply=True,sleep=lambda _:None,
+            prepare_plan=prepare_exact,check_plan=check_exact,readback_tries=9,notify_receipt=target.record)
+        self.assertEqual(result['result'],'NATIVE_EPUB_UI_AND_SOURCE_VERIFIED');self.assertEqual((probe.spawns,probe.cleanups),(1,1))
+        self.assertEqual(journal.read()[0]['phase'],'restored');self.assertIsNotNone(target.backend.load())
+        next_journal=JournalV2(Backend());next_receipt=TargetReceipt('epub',Backend(),scope='exact-ui-v2')
+        self.assertIsNone(next_journal.read()[0]);self.assertIsNone(next_receipt.backend.load())
+        with self.assertRaises(ValueError):TargetReceipt('mobi',Backend(),scope='exact-ui-v2')
+
 
 if __name__=='__main__':unittest.main()
