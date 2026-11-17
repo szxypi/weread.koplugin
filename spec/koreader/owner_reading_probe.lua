@@ -95,6 +95,11 @@ local ok,reason=pcall(function()
     assert(not cb_full or cb_reading and type(input.full_manifest)=='table')
     assert(input.diagnostic_read_pacing==nil or input.diagnostic_read_pacing==true and cb_full)
     local diagnostic_pacing=input.diagnostic_read_pacing==true
+    local missing_resume=input.missing_resume_probe==true
+    assert(input.missing_resume_probe==nil or missing_resume and not cb_reading and not input.full_manifest
+        and input.source_format=='web_xhtml' and not input.annotations and not input.progress_preview
+        and not input.progress_roundtrip and not input.source_upload_preview and not input.selection_preview)
+    if missing_resume then report.missing_resume_verified=false end
     if cb_reading then report.source_match_reason='none' end
     if cb_full then report.cb_handoff={full_to_single=false,single_to_full=false,different_files=false,
         same_source=false,position_preserved=false,cloud_unverified=false} end
@@ -146,7 +151,10 @@ local ok,reason=pcall(function()
     local Settings=require('weread.lib.settings');local new_settings=Settings.new
     function Settings:new()
         local value=new_settings(self);assert(not value.mock_endpoint)
-        if input.cb_mock_port then
+        if input.resume_mock_port then
+            assert(missing_resume and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key')
+            value.mock_endpoint='http://127.0.0.1:'..input.resume_mock_port
+        elseif input.cb_mock_port then
             assert(input.cb_reading==true and input.vid=='900000' and input.book_id=='CB_SyntheticResume'
                 and input.cookies.wr_vid=='900000' and input.cookies.wr_skey=='mock_key')
             value.mock_endpoint='http://127.0.0.1:'..input.cb_mock_port
@@ -347,10 +355,13 @@ local ok,reason=pcall(function()
         if options.method=='GET' and not options.body then
             if options.url=='https://weread.qq.com/web/shelf/sync' then return 1 end
             if progress_urls[options.url] then return 2 end
-            if (input.progress_roundtrip or input.native_source_excerpt) and options.sensitive == true then
+            if (input.progress_roundtrip or input.native_source_excerpt or missing_resume) and options.sensitive == true then
                 local id, stamp=options.url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=([1-9]%d*)&_=(%d+)$')
+                if missing_resume and not id then
+                    id,stamp=options.url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=(CB_[A-Za-z0-9]+)&_=(%d+)$')
+                end
                 if id==input.book_id and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 then return 2 end
-                if input.native_source_excerpt and id and progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id]
+                if (input.native_source_excerpt or missing_resume) and id and progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id]
                     and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000
                     and options.diagnostic_api=='shelf_progress' and options.skip_cookie==true
                     and options.persist_response_cookies==false and h.Cookie==Cookie.to_header(cookies)
@@ -390,6 +401,26 @@ local ok,reason=pcall(function()
         assert(not classify(test,{url=url,method='POST',headers={},body='{}'}))
     end
     assert(not classify(test,{url=root_url,method='GET',headers={Cookie='invalid'}}))
+    if missing_resume then
+        local other_id
+        for _i,id in ipairs(input.shelf_ids) do if id~=input.book_id then other_id=id;break end end
+        assert(other_id)
+        local check={url='https://weread.qq.com/web/book/getProgress?bookId='..other_id..'&_='..tostring(os.time()*1000),
+            method='GET',sensitive=true,skip_cookie=true,persist_response_cookies=false,diagnostic_api='shelf_progress',
+            headers={Cookie=Cookie.to_header(input.cookies),Referer=Protocol.reader_url(other_id)}}
+        assert((classify(test,check)==2)==(mode=='live'))
+        check.headers.Cookie='invalid';assert(not classify(test,check))
+        check.headers.Cookie=Cookie.to_header(input.cookies);check.diagnostic_api='other';assert(not classify(test,check))
+        for _i,id in ipairs(input.shelf_ids) do
+            if id:match('^CB_[A-Za-z0-9]+$') then
+                check.url='https://weread.qq.com/web/book/getProgress?bookId='..id..'&_='..tostring(os.time()*1000)
+                check.diagnostic_api='shelf_progress';check.headers.Referer=Protocol.reader_url(id)
+                assert((classify(test,check)==2)==(mode=='live'))
+                check.url='https://weread.qq.com/web/book/getProgress?bookId=CB_'..string.rep('Z',65)..'&_='..tostring(os.time()*1000)
+                assert(not classify(test,check));break
+            end
+        end
+    end
     local params=Protocol.make_content_params(input.book_id,input.chapter_uid,'synthetic-probe-only',{sc=1})
     local content_request={url='https://weread.qq.com/web/book/chapter/e_0',method='POST',
         headers={Referer=chapter_url},body=json.encode(params)}
@@ -632,6 +663,21 @@ local ok,reason=pcall(function()
     report.phase='detail'
     pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
     local detail=assert(plugin._book_detail_view)
+    local fallback_uid=input.chapter_uid=='99999999999999999999' and '99999999999999999998' or '99999999999999999999'
+    local fallback_path=home..'/synthetic-resume-fallback.epub'
+    local fallback_marker='Synthetic fallback; never a real book.\n'
+    if missing_resume and mode=='live' then
+        local file=assert(io.open(fallback_path,'wb'));assert(file:write(fallback_marker));assert(file:close())
+        local saved=plugin.settings:get('books',{});local selected=assert(saved[input.book_id])
+        assert(not selected.cached_full_book and (not selected.cached_chapters or not next(selected.cached_chapters)))
+        selected.cached_chapters={[fallback_uid]=fallback_path}
+        selected.pending_upload_position={book_id=input.book_id,chapter_uid=input.chapter_uid}
+        selected.pending_upload_account=assert(plugin.library_db:accountKey())
+        saved[input.book_id]=selected;plugin.settings:set('books',saved);plugin.settings:flush()
+        local checked=assert(plugin.settings:get_book(input.book_id))
+        assert(checked.cached_chapters[fallback_uid]==fallback_path and not checked.cached_chapters[input.chapter_uid]
+            and checked.pending_upload_position.chapter_uid==input.chapter_uid)
+    end
     local label=require('weread.lib.plugin_util').tr(full and mode=='live' and '⇩ Download full book' or '▤ Read')
     local pressed=false
     for _i,buttons in ipairs({detail._action_buttons or {},detail._footer_actions or {}}) do
@@ -652,6 +698,11 @@ local ok,reason=pcall(function()
     local book=assert(plugin.settings:get_book(input.book_id))
     if full then assert(book.cached_full_book==document.file)
     else assert(book.cached_chapters and book.cached_chapters[input.chapter_uid]==document.file) end
+    if missing_resume then
+        local fallback=assert(io.open(fallback_path,'rb'));local marker=fallback:read('*a');fallback:close()
+        assert(marker==fallback_marker and book.cached_chapters[fallback_uid]==fallback_path and document.file~=fallback_path)
+        report.missing_resume_verified=true
+    end
     local source_receipt=assert(require('weread.lib.position_source').read_document(document,input.book_id,input.chapter_uid))
     assert(source_receipt.format==input.source_format and source_receipt.raw_sha256==input.source_raw_sha256)
     report.source_receipt_verified=true

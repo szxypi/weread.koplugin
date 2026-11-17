@@ -56,7 +56,9 @@ CB_SOURCE_REASONS = {'none', 'walk_diverged', 'anchor_ambiguous', 'anchor_missin
                      'sample_start_mismatch', 'source_anchor_missing', 'source_anchor_unavailable'}
 
 
-def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False):
+def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False):
+    if type(missing_resume) is not bool or missing_resume and (cb_reading or cb_full_book or full_chapters!=1 or selection_preview or single_page or combined_profile):
+        raise ValueError('reading_scope')
     if type(combined_profile) is not bool or combined_profile and (not cb_reading or cb_full_book or full_chapters!=1 or selection_preview):
         raise ValueError('reading_scope')
     if type(single_page) is not bool or single_page and (not cb_reading or cb_full_book or full_chapters!=1 or selection_preview):
@@ -68,6 +70,7 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
             or cb_full_book and (not cb_reading or full_chapters < 2) or cb_reading and not cb_full_book and full_chapters != 1):
         raise ValueError('reading_scope')
     expected = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'requests'}
+    if missing_resume: expected.add('missing_resume_verified')
     if cb_reading: expected.add('source_match_reason')
     if cb_full_book: expected.add('cb_handoff')
     if full_chapters > 1:
@@ -76,6 +79,9 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
                      'reader_python_projection', 'reader_cookie_snapshot'}
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError('reading_schema')
+    if missing_resume and (type(value['missing_resume_verified']) is not bool
+                           or value['result']=='PASS' and not value['missing_resume_verified']):
+        raise ValueError('reading_incomplete')
     if cb_full_book:
         flags={'full_to_single','single_to_full','different_files','same_source','position_preserved','cloud_unverified'}
         handoff=value['cb_handoff']
@@ -171,7 +177,7 @@ def validate_full_book(value, chapters, *, complete=True, cb_full_book=False):
     return value
 
 
-def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False):
+def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False):
     """The private cookie envelope is consumed here; never print this value."""
     if not isinstance(raw, bytes) or len(raw) > (8 if full_chapters>1 else 2) * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('reading_frame')
@@ -187,7 +193,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
         raise ValueError('reading_envelope')
     validate_cookies(value['cookies'], owner)
     if mode is not None:
-        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile)
+        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume)
     else:
         report = value['report']
         fields = {'result', 'tmpfs_profile', 'profile_removed', 'stages', 'runner_error'}
@@ -200,7 +206,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
                 or not isinstance(report['stages'], list) or len(report['stages']) > 2):
             raise ValueError('reading_runner')
         for phase, stage in zip(('live', 'reopen'), report['stages']):
-            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile)
+            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume)
         if report['result'] == 'PASS' and (not report['tmpfs_profile'] or not report['profile_removed']
                 or report['runner_error'] != 'none' or len(report['stages']) != 2
                 or any(stage['result'] != 'PASS' for stage in report['stages'])
@@ -282,6 +288,26 @@ class ReadingPreflight(WebSourceProbe):
                     shelf_ids=self.shelf_ids, shelf_books=self.report['shelf_book_count'], source_format='web_xhtml',
                     source_raw_sha256=hashlib.sha256(source.encode()).hexdigest(),
                     source_sample_offset=FilteredSource(source).locate(parser.samples[0])[0])
+
+
+class MissingResumePreflight(ReadingPreflight):
+    """Include observed personal-book IDs for read-only shelf progress display."""
+    def __init__(self):
+        super().__init__();self.display_ids=[]
+
+    def request(self,stage,url,body=None,**kwargs):
+        value=super().request(stage,url,body,**kwargs)
+        if stage=='shelf':
+            from verify_cb_progress import cb_id
+            rows=value.get('books') if isinstance(value,dict) else None
+            if not isinstance(rows,list) or len(rows)>5000:raise PreflightError('shelf_invalid')
+            self.display_ids=list(dict.fromkeys(row['bookId'] for row in rows if isinstance(row,dict) and cb_id(row.get('bookId'))))
+        return value
+
+    def prepare(self):
+        value=super().prepare()
+        value['shelf_ids']=list(dict.fromkeys(value['shelf_ids']+self.display_ids))
+        return value
 
 
 class TxtReadingPreflight(TxtProbe):
@@ -523,12 +549,15 @@ def main(argv=None):
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-format', choices=('epub', 'txt'), default='epub')
     parser.add_argument('--full-book', action='store_true', help='Verify all chapters of one bounded EPUB shelf book')
+    parser.add_argument('--missing-resume', action='store_true', help='Verify downloading a missing resume chapter with an isolated synthetic cached fallback')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if bool(args.saved_session) != bool(args.lua_command):
         parser.error('pair --saved-session and --lua-command; put --lua-command last')
     if args.full_book and args.book_format != 'epub':
         parser.error('--full-book currently requires --book-format epub')
+    if args.missing_resume and (not args.saved_session or args.full_book or args.book_format!='epub'):
+        parser.error('--missing-resume requires the saved session and a single EPUB chapter')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(), book_format=args.book_format,
                   account_data_writes_attempted=0, authentication_posts_attempted=0,
                   private_data_on_regular_disk=False, screenshots=0)
@@ -536,7 +565,8 @@ def main(argv=None):
     try:
         if args.saved_session:
             store = SessionStore()
-            probe = FullBookPreflight() if args.full_book else (TxtReadingPreflight() if args.book_format == 'txt' else ReadingPreflight())
+            probe = (FullBookPreflight() if args.full_book else TxtReadingPreflight() if args.book_format == 'txt'
+                     else MissingResumePreflight() if args.missing_resume else ReadingPreflight())
             saved = store.load()
             probe.vid = saved['vid']
             for key, value in saved['cookies'].items():
@@ -549,6 +579,7 @@ def main(argv=None):
                 report['preflight_rotation_saved'] = save_refreshed_web_session(store, saved, probe)
                 saved = store.load()
             payload.update(vid=probe.vid, cookies=saved['cookies'])
+            if args.missing_resume: payload['missing_resume_probe']=True
             full_chapters = len(payload['full_manifest']) if args.full_book else 1
             if args.full_book:
                 report.update(reading_scope='full', chapters=full_chapters,
@@ -557,7 +588,7 @@ def main(argv=None):
             if len(raw) > 256 * 1024:
                 raise ValueError('reading_input_limit')
             child = subprocess.run(args.lua_command, input=raw, capture_output=True, timeout=920 if args.full_book else 320)
-            envelope = decode_envelope(child.stdout, probe.vid, full_chapters=full_chapters)
+            envelope = decode_envelope(child.stdout, probe.vid, full_chapters=full_chapters,missing_resume=args.missing_resume)
             if args.full_book and envelope['report']['result'] == 'PASS':
                 if envelope['report']['full_book']['source_image_references'] != report['source_image_references']:
                     raise ValueError('full_image_scope_changed')
@@ -577,6 +608,7 @@ def main(argv=None):
                 raise ValueError('reading_unverified')
             report.update(result='OWNER_NATIVE_READING_VERIFIED', same_owner_verified=True,
                           source_text_matched=True, fresh_offline_process=True)
+            if args.missing_resume: report['missing_resume_verified']=True
     except (StoreError, PreflightError) as exc:
         report.update(result='UNVERIFIED', reason='owner_reading_preflight_failed')
         known = {'identity_invalid','position_book_mismatch','position_has_no_chapter','position_offset_invalid',

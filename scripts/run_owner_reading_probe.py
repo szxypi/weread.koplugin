@@ -51,7 +51,15 @@ def main(argv=None):
     addons.add_argument('--selection-thought-preview', action='store_true')
     parser.add_argument('--mock-port',type=int)
     parser.add_argument('--cb-mock-port',type=int,help='Synthetic CB reading fixture only')
+    parser.add_argument('--missing-resume',action='store_true')
+    parser.add_argument('--resume-mock-port',type=int,help='Synthetic missing-resume fixture only')
     args = parser.parse_args(argv)
+    if args.missing_resume and (args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
+            or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
+            or args.selection_thought_preview or args.mock_port is not None or args.cb_mock_port is not None):
+        parser.error('--missing-resume uses its own standalone reader fixture')
+    if args.resume_mock_port is not None and (not args.missing_resume or not 1<=args.resume_mock_port<=65535):
+        parser.error('--resume-mock-port requires missing-resume mode and a valid loopback port')
     if args.cb_sync_limit and not args.cb_reading:parser.error('--cb-sync-limit requires --cb-reading')
     if args.cb_single_page and (not args.cb_reading or args.cb_sync_limit):parser.error('--cb-single-page requires single CB reading')
     if args.native_routing_preview and not args.native_source_excerpt:parser.error('native routing preview requires TXT excerpt mode')
@@ -77,6 +85,12 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        if (not (payload.get('missing_resume_probe') is None or payload.get('missing_resume_probe') is True)
+                or args.missing_resume != (payload.get('missing_resume_probe') is True)
+                or payload.get('resume_mock_port')!=args.resume_mock_port):
+            raise ValueError('input_limit')
+        if args.resume_mock_port is not None and (payload.get('vid')!='900000' or payload.get('book_id')!='900001'
+                or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}):raise ValueError('input_limit')
         if payload.get('cb_mock_port')!=args.cb_mock_port:raise ValueError('input_limit')
         if args.cb_mock_port is not None and (payload.get('vid')!='900000' or payload.get('book_id')!='CB_SyntheticResume'
                 or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}):raise ValueError('input_limit')
@@ -143,6 +157,8 @@ def main(argv=None):
         if args.selection_thought_preview != ('selection_preview' in payload) or args.selection_thought_preview and ('full_manifest' in payload or has_annotations):
             raise ValueError('input_limit')
         full_chapters = len(payload['full_manifest']) if 'full_manifest' in payload else 1
+        if args.missing_resume and (full_chapters!=1 or payload.get('source_format')!='web_xhtml'):
+            raise ValueError('input_limit')
         if not 1 <= full_chapters <= (128 if args.cb_full_book else 32) or args.cb_full_book and full_chapters < 2:
             raise ValueError('input_limit')
         if full_chapters > 1:
@@ -184,7 +200,8 @@ def main(argv=None):
                                                timeout=900 if args.cb_full_book and mode=='live' else 600 if full_chapters > 1 and mode == 'live' else 150)
                 envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters,
                                    **({'cb_reading': True,'cb_full_book':args.cb_full_book} if cb_reading else {}),
-                                   **({'single_page': True} if args.cb_single_page else {}))
+                                   **({'single_page': True} if args.cb_single_page else {}),
+                                   **({'missing_resume': True} if args.missing_resume else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview or args.native_source_excerpt: candidate_private.append(envelope['candidate_private'])

@@ -1,5 +1,6 @@
 """Offline boundaries for private real-book acceptance. No owner credentials."""
 from contextlib import redirect_stdout, redirect_stderr
+from copy import deepcopy
 import io
 import json
 import hashlib
@@ -46,6 +47,39 @@ def frame(value):
 
 
 class OwnerReadingTests(unittest.TestCase):
+    def test_missing_resume_requires_proof_in_both_stages(self):
+        value=envelope()
+        for part in value['report']['stages']:part['missing_resume_verified']=True
+        self.assertEqual(probe.decode_envelope(frame(value),OWNER,missing_resume=True)['report']['result'],'PASS')
+        for index in (0,1):
+            bad=deepcopy(value);bad['report']['stages'][index]['missing_resume_verified']=False
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,missing_resume=True)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(envelope()),OWNER,missing_resume=True)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(value),OWNER)
+        with self.assertRaises(ValueError):probe.validate_stage(value['report']['stages'][0],'live',missing_resume=True,cb_reading=True)
+
+    def test_missing_resume_must_be_an_explicit_single_epub_run(self):
+        for args in (['--missing-resume'],['--missing-resume','--saved-session','--full-book','--lua-command','synthetic'],
+                     ['--missing-resume','--saved-session','--book-format','txt','--lua-command','synthetic']):
+            with self.subTest(args=args), redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):probe.main(args)
+
+    def test_missing_resume_includes_only_observed_valid_personal_book_ids(self):
+        preflight=probe.MissingResumePreflight()
+        shelf={'books':[{'bookId':'123'},{'bookId':'CB_Valid1'},{'bookId':'CB_Valid1'},
+                        {'bookId':'CB_invalid-name'},{'bookId':'other'}]}
+        with patch.object(probe.WebSourceProbe,'request',return_value=shelf):
+            preflight.request('shelf','https://synthetic.invalid')
+        self.assertEqual(preflight.display_ids,['CB_Valid1'])
+        with patch.object(probe.ReadingPreflight,'prepare',return_value={'shelf_ids':['123','CB_Valid1']}):
+            self.assertEqual(preflight.prepare()['shelf_ids'],['123','CB_Valid1'])
+
+    def test_missing_resume_runner_rejects_incompatible_modes(self):
+        from run_owner_reading_probe import main
+        common=['--koreader','/synthetic','--candidate','/synthetic.zip']
+        for args in (['--missing-resume','--progress-roundtrip'],['--missing-resume','--cb-reading'],
+                     ['--resume-mock-port','1234'],['--missing-resume','--resume-mock-port','0']):
+            with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(common+args)
+
     def test_default_never_accesses_owner_or_starts_child(self):
         with patch.object(probe, 'SessionStore') as store, patch.object(probe, 'ReadingPreflight') as web, \
                 patch.object(probe.subprocess, 'run') as child, redirect_stdout(io.StringIO()) as output:
