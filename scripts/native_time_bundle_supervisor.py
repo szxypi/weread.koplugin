@@ -53,6 +53,9 @@ class Supervisor:
         if self.phase!='selected' or not self._fresh():raise ValueError('bundle_supervisor/state')
         validate_selection(self.bundle,selection)
         if digest(selection)!=self.selection_hash or not self._fresh():raise ValueError('bundle_supervisor/selection')
+        # Reject malformed bodies before reserving; this has no side effects.
+        self.gate.preview(self.bundle,self.grant,body,self.guest,self.config_token)
+        if not self._fresh():raise ValueError('bundle_supervisor/stale_before_reserve')
         # The gate writes a permanent claim before a caller may deliver its
         # permission to the native request. An exception never implies no write.
         reserved=self.gate.reserve(self.bundle,self.grant)

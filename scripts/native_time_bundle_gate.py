@@ -115,6 +115,11 @@ class DispatchGate:
         with self.lock():
             value,raw=self._read();return value,Receipt(raw) if raw is not None else None
 
+    def preview(self,bundle,grant,body,guest,config_token):
+        # An invalid body must not consume a one-shot scope before any request.
+        now,zone=self._wall_clock()
+        return verify_request(bundle,grant,body,guest,config_token,now,zone)
+
     def reserve(self,bundle,grant):
         now,zone=self._wall_clock();bound=binding(bundle,grant,now)
         if zone!='+08:00':raise ValueError('bundle_gate/zone')

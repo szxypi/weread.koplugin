@@ -58,6 +58,7 @@ def scenario(runtime,source,root,mode):
     state,_=gate.read();phase=state['phase'] if state else None
     expected_result={'success':(True,1,1,'acknowledged',None),
                      'tamper':(False,0,0,None,('ValueError','bundle_selection/mismatch')),
+                     'body_tamper':(False,0,0,None,('ValueError','bundle_gate/request')),
                      'drop':(False,1,0,'claimed',('ValueError','trial_pipe/eof')),
                      'duplicate':(False,1,0,'claimed',('ValueError','bundle_supervisor/state'))}[mode]
     if (done,claims,acks,phase,failure)!=expected_result:raise ValueError('synthetic_rpc/verification')
@@ -77,7 +78,7 @@ def main(argv=None):
     if bool(args.koreader)!=bool(args.source):parser.error('both runtime and source required')
     report={'result':'OFFLINE_ONLY','synthetic_only':True,'account_data_posts':0,'authentication_posts':0,
             'historical_accounting_verified':False,'profile_removed':False}
-    root=None
+    root=None;mode='setup'
     try:
         if args.koreader:
             runtime=args.koreader.resolve();source=args.source.resolve()
@@ -86,11 +87,12 @@ def main(argv=None):
                 raise ValueError('synthetic_rpc/environment')
             with tempfile.TemporaryDirectory(prefix='weread-native-rpc-',dir='/dev/shm') as directory:
                 root=Path(directory)
-                for mode in ('success','tamper','drop','duplicate'):scenario(runtime,source,root,mode)
+                for mode in ('success','tamper','body_tamper','drop','duplicate'):scenario(runtime,source,root,mode)
                 report.update(result='SYNTHETIC_NATIVE_RPC_VERIFIED',native_selection_and_signing=True,
-                    durable_claim_before_reply=True,tampered_selection_blocked=True,lost_reply_never_replayed=True,
-                    duplicate_claim_blocked=True,scenarios=4)
-    except Exception:report['result']='UNVERIFIED'
+                    durable_claim_before_reply=True,tampered_selection_blocked=True,tampered_body_blocked_before_reserve=True,
+                    lost_reply_never_replayed=True,duplicate_claim_blocked=True,scenarios=5)
+    except Exception as error:
+        report['result']='UNVERIFIED';report['synthetic_failure_mode']=mode;report['synthetic_failure_type']=type(error).__name__
     finally:report['profile_removed']=root is not None and not root.exists()
     print(json.dumps(report));return int(report['result']=='UNVERIFIED')
 
