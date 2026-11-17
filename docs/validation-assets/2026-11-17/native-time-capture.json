@@ -74,7 +74,7 @@
   "real_xhtml_preflight_readonly_passed": true,
   "preceding_natural_expiry_authentication_posts": 1,
   "old_real_capture_consumed_scopes_unchanged": true,
-  "remote_ci_verified": false,
+  "remote_ci_verified": true,
   "actual_python_native_lua_presence_matches": true,
   "large_archive_max_bytes": 2097152,
   "keychain_chunk_bytes": 49152,
@@ -97,5 +97,7 @@
   "mac_keychain_synthetic_chunks": 4,
   "mac_keychain_new_process_exact_archive": true,
   "synthetic_keychain_items_removed": 5,
-  "real_capture_unchanged_after_chunk_test": true
+  "real_capture_unchanged_after_chunk_test": true,
+  "verified_ci_head": "7dba12f796ab20cb36f1e6340adac58c42ec354b",
+  "verified_ci_run": 44006219587
 }
