@@ -20,10 +20,11 @@ package.preload['weread.ui.book_reading']=function() return {catalog=function(ro
 package.preload['weread.lib.source_dom']=function() return {normalize=function(value)
     return type(value)=='string' and value:gsub('%s','') or nil
 end} end
-local scans=0
+local scans,last_case=0
 package.preload['weread.lib.cached_book_search']=function() return {MAX_HITS=30,MAX_EXAMINED=100,
     scan=function(input)
         scans=scans+1
+        last_case=input.ignore_ascii_case
         return {complete=true,unresolved=0,hits={{chapter_uid=input.chapter,context='synthetic result',offset=1}}}
     end} end
 package.preload['weread.lib.cached_search_target']=function() return {row=function(book,keyword,hit)
@@ -62,17 +63,24 @@ function host:showList(_title,items)
     return menu
 end
 local chapters={{chapterUid='1',title='First'},{chapterUid='2',title='Second'},{chapterUid='3',title='Not downloaded'}}
-local function open(rows)
+local function open(rows,ignore_case)
     assert(Cached.open(host,'CB_Synthetic',rows));local input=assert(displayed)
-    input.input='needle';input.buttons[1][2].callback();return assert(host._cached_book_search_owner)
+    input.input='needle';(ignore_case and input.buttons[2][1] or input.buttons[1][2]).callback()
+    return assert(host._cached_book_search_owner)
 end
 local owner=open(chapters)
 expect(owner.job and owner.total==3 and owner.missing==1,'offline search did not begin with partial coverage')
-worker:complete();expect(#owner.value==1 and owner.checked==1 and scheduled,'first downloaded chapter did not advance')
+worker:complete();expect(#owner.value==1 and owner.checked==1 and scheduled and last_case==false,'first downloaded chapter did not advance')
 local task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
 expect(owner.finished and #owner.value==2 and owner.checked==2 and owner.missing==1,'second chapter or coverage was lost')
 owner.menu.items[2].callback()
 expect(navigations==1 and owner.navigation.row.chapterUid==2,'cached result did not start guarded navigation')
+Cached.cancel(host)
+
+owner=open(chapters,true);worker:complete()
+expect(last_case==true and owner.ignore_ascii_case and #owner.value==1,'case-insensitive mode was not sent to the worker')
+host.busy_message.cancel();owner.menu.items[1].callback();worker:complete()
+expect(last_case==true and #owner.value==2,'case-insensitive mode was lost on resume')
 Cached.cancel(host)
 
 owner=open(chapters);local old=worker;host.busy_message.cancel()

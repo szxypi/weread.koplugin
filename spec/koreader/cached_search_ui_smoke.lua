@@ -6,6 +6,7 @@ local no_catalog=os.getenv('WEREAD_TEST_CACHED_NO_CATALOG')=='1'
 local full=os.getenv('WEREAD_TEST_CACHED_FULL')=='1'
 local incomplete=os.getenv('WEREAD_TEST_CACHED_INCOMPLETE')=='1'
 local dual=os.getenv('WEREAD_TEST_CACHED_DUAL')=='1'
+local ignore_case=os.getenv('WEREAD_TEST_CACHED_IGNORE_CASE')=='1'
 local target_uid=incomplete and '1' or '2'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local book_id=imported and 'CB_SyntheticCached' or '900001'
@@ -158,7 +159,9 @@ local Search=require('weread.lib.cached_book_search');local original=Search.scan
 if full then Search.discover=function(...) socket.sleep(.8);return original_discover(...) end
 else Search.scan=function(...) socket.sleep(.8);return original(...) end end
 local owner=plugin._cached_book_search_owner
-owner.input:setInputText('amberneedle');owner.input.buttons[1][2].callback()
+if ignore_case then UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-options.png') end
+owner.input:setInputText(ignore_case and 'AmBeRnEeDlE' or 'amberneedle')
+if ignore_case then owner.input.buttons[2][1].callback() else owner.input.buttons[1][2].callback() end
 wait(function() return owner.worker and owner.worker.job end)
 local pid=owner.worker.job.pid;assert(plugin.busy_message);plugin.busy_message:onTapClose()
 wait(function() return require('ffi/util').isSubProcessDone(pid) end)
@@ -202,5 +205,5 @@ end
 assert(requests[0]==0,'offline cached search attempted a network request')
 print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=count,unavailable=no_catalog and 0 or 1,
     navigation=true,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=no_catalog,
-    full=full,incomplete=incomplete,dual=dual}))
+    full=full,incomplete=incomplete,dual=dual,ignore_ascii_case=ignore_case}))
 os.exit(0)

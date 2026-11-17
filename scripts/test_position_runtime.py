@@ -80,6 +80,7 @@ def main():
     parser.add_argument('--cached-full', action='store_true')
     parser.add_argument('--cached-incomplete', action='store_true')
     parser.add_argument('--cached-dual', action='store_true')
+    parser.add_argument('--cached-ignore-case', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
         parser.error("screen dimensions and DPI must be positive")
@@ -89,7 +90,8 @@ def main():
         parser.error('--search-scope chapter requires --probe quick-search')
     if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_current_fallback) and args.probe!='book-search' or args.search_cb and args.probe not in ('book-search','cached-search'):
         parser.error('search fixture options require --probe book-search')
-    if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete or args.cached_dual) and args.probe!='cached-search':
+    if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete or args.cached_dual
+            or args.cached_ignore_case) and args.probe!='cached-search':
         parser.error('cached search options require --probe cached-search')
     if args.cached_full and not args.cached_no_catalog:
         parser.error('--cached-full requires --cached-no-catalog')
@@ -125,6 +127,7 @@ def main():
                                         WEREAD_TEST_CACHED_FULL='1' if args.cached_full else '0',
                                         WEREAD_TEST_CACHED_INCOMPLETE='1' if args.cached_incomplete else '0',
                                         WEREAD_TEST_CACHED_DUAL='1' if args.cached_dual else '0',
+                                        WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                                         EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
@@ -216,7 +219,8 @@ def main():
                 assert value==dict(result='PASS',results=1 if args.cached_incomplete else 2,unavailable=0 if args.cached_no_catalog else 1,
                                    navigation=True,cancel_resume=True,signed_out=args.cached_signed_out,
                                    imported=args.search_cb,no_catalog=args.cached_no_catalog,full=args.cached_full,
-                                   incomplete=args.cached_incomplete,dual=args.cached_dual), 'cached search result mismatch'
+                                   incomplete=args.cached_incomplete,dual=args.cached_dual,
+                                   ignore_ascii_case=args.cached_ignore_case), 'cached search result mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'cached search made a mock request'
                 if args.cached_no_catalog:

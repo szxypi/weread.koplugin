@@ -11,6 +11,12 @@ local Source=require('weread.lib.position_source')
 local Crypto=require('weread.lib.crypto')
 local M={MAX_HITS=30,MAX_EXAMINED=100}
 
+-- ASCII case folding preserves UTF-8 byte offsets; the original text remains
+-- the source of the displayed context and of every navigation anchor.
+local function fold_ascii(value)
+    return (value:gsub('[A-Z]',function(char) return string.char(char:byte()+32) end))
+end
+
 local function path(value)
     return type(value)=='string' and value~='' and #value<=4096 and not value:find('[%z%c]')
 end
@@ -84,6 +90,7 @@ function M.scan(input,read_archive)
             or type(input.chapter)~='string' or not Access.book_id(input.chapter)
             or type(input.paths)~='table' or #input.paths<1 or #input.paths>4
             or type(input.keyword)~='string' or #input.keyword<1 or #input.keyword>160
+            or input.ignore_ascii_case~=nil and type(input.ignore_ascii_case)~='boolean'
             or type(input.from)~='number' or input.from%1~=0 or input.from<1 or input.from>Source.MAX_BYTES*4+1 then
             return {error='invalid'}
         end
@@ -105,9 +112,11 @@ function M.scan(input,read_archive)
         end
         if not snapshot then return {missing=true,hits={}} end
         local record=snapshot.record
+        local haystack=map.flat
+        if input.ignore_ascii_case then haystack,keyword=fold_ascii(haystack),fold_ascii(keyword) end
         local hits,at,examined,unresolved={},input.from,0,0
         while #hits<M.MAX_HITS and examined<M.MAX_EXAMINED do
-            local first=map.flat:find(keyword,at,true)
+            local first=haystack:find(keyword,at,true)
             if not first then return {hits=hits,complete=true,unresolved=unresolved} end
             examined=examined+1
             local found,co=pcall(map._point,map,first)

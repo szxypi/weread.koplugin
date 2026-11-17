@@ -167,7 +167,8 @@ start=function(host,owner)
         local chapter=owner.queue[owner.index]
         if not chapter then owner.finished=true;stop(host,owner);render(host,owner);return end
         local from=owner.from
-        local request={book=owner.id,chapter=chapter.uid,paths=chapter.paths,keyword=owner.keyword,from=from}
+        local request={book=owner.id,chapter=chapter.uid,paths=chapter.paths,keyword=owner.keyword,from=from,
+            ignore_ascii_case=owner.ignore_ascii_case}
         local called,started=pcall(worker.start,worker,function() return Search.scan(request) end,function(result)
             if owner.job~=job then return end
             if not current(host,owner) then M.cancel(host);return end
@@ -229,13 +230,12 @@ function M.open(host,id,chapters)
     for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
     host._cached_book_search_owner=owner
     local Input=require('ui/widget/inputdialog');local input
-    input=Input:new{title=_('Search downloaded chapters (case-sensitive, ignores spaces)'),input='',buttons={{
-        {text=_('Cancel'),callback=function() if current(host,owner) then M.cancel(host) end end},
-        {text=_('Search'),is_enter_default=true,callback=function()
+    local function search(ignore_ascii_case)
+        return function()
             if not current(host,owner) or owner.input~=input then return end
             local keyword=input:getInputText();local normalized=require('weread.lib.source_dom').normalize(keyword)
             if type(keyword)~='string' or #keyword>160 or keyword:find('[%z%c]') or not normalized or normalized=='' then return end
-            owner.keyword=keyword;owner.input=nil;UI:close(input)
+            owner.keyword=keyword;owner.ignore_ascii_case=ignore_ascii_case;owner.input=nil;UI:close(input)
             local menu=host:showList(_('Downloaded search results'),{{text=_('Searching downloaded chapters…'),select_enabled=false}})
             if not menu then M.cancel(host);return end
             owner.menu=menu
@@ -246,7 +246,13 @@ function M.open(host,id,chapters)
                 if closed then return closed(instance,...) end
             end
             render(host,owner);start(host,owner)
-        end},
+        end
+    end
+    input=Input:new{title=_('Search downloaded chapters (ignores spaces)'),input='',buttons={{
+        {text=_('Cancel'),callback=function() if current(host,owner) then M.cancel(host) end end},
+        {text=_('Search (match case)'),is_enter_default=true,callback=search(false)},
+    },{
+        {text=_('Search (ignore English case)'),callback=search(true)},
     }}}
     owner.input=input
     local closed=input.onCloseWidget

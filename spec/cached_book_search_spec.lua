@@ -38,6 +38,30 @@ expect(type(first.hits)=='table' and #first.hits==30 and type(first.next_byte)==
 input.from=first.next_byte;local second=Search.scan(input,archive)
 expect(#second.hits==7 and second.complete and second.unresolved==0,'continuation lost or repeated hits')
 expect(first.hits[1].offset~=second.hits[1].offset,'continuation repeated the first hit')
+local folded_input={book=input.book,chapter=input.chapter,paths={'/cached.epub'},keyword='NEeDLE',from=1,
+    ignore_ascii_case=true}
+local folded=Search.scan(folded_input,archive)
+expect(#folded.hits==30 and folded.hits[1].offset==first.hits[1].offset
+    and folded.hits[1].context:find('needle',1,true),'folded search lost the original location or context')
+folded_input.from=folded.next_byte;local folded_next=Search.scan(folded_input,archive)
+expect(#folded_next.hits==7 and folded_next.complete and folded_next.hits[1].offset==second.hits[1].offset,
+    'folded continuation lost or repeated matches')
+folded_input.from=1;folded_input.ignore_ascii_case=false
+expect(#Search.scan(folded_input,archive).hits==0,'case-sensitive search ignored case')
+folded_input.ignore_ascii_case='yes'
+expect(Search.scan(folded_input,archive).error=='invalid','non-boolean case setting accepted')
+local unicode_raw='<html><body><p>中文 Élan Needle 结束</p></body></html>'
+files['/unicode.epub']=fixture(input.book,'2',unicode_raw)
+local unicode_input={book=input.book,chapter='2',paths={'/unicode.epub'},keyword='中文 Élan nEEDLE',from=1,
+    ignore_ascii_case=true}
+local unicode=Search.scan(unicode_input,archive)
+expect(#unicode.hits==1 and unicode.hits[1].context:find('中文ÉlanNeedle',1,true),
+    'mixed UTF-8 and English match did not retain original text')
+unicode_input.keyword='中文 élan needle'
+expect(#Search.scan(unicode_input,archive).hits==0,'non-ASCII characters were unexpectedly case-folded')
+local unicode_row=assert(Target.row(input.book,'中文 Élan nEEDLE',unicode.hits[1]))
+expect(Target.bind_file('/unicode.epub',input.book,unicode_row,12,archive).position,
+    'folded UTF-8 match did not bind to the original source')
 local row=assert(Target.row(input.book,input.keyword,first.hits[1]))
 local bound=Target.bind_file('/cached.epub',input.book,row,9,archive)
 expect(bound.position and bound.position.book_id==input.book and bound.position.upload_verified==false,
