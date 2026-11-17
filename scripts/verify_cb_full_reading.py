@@ -18,7 +18,7 @@ from check_owner_full_book import Images
 from fetch_weread_epub import decode_content_shards, make_content_params, reader_url_for
 from secure_weread_session import SessionStore
 from verify_cb_reading import BASE, CbReadingProbe, baseline_position, readable_chapters, source_sample, txt_marker
-from verify_cb_progress import cb_ids
+from verify_cb_progress import cb_id,cb_ids
 from verify_owner_reading import FullBookPreflight
 from verify_reader_context import project as reader_context
 from verify_translation_preflight import save_refreshed_web_session
@@ -56,11 +56,13 @@ class CbFullReadingProbe(CbReadingProbe):
         if self.interval: time.sleep(self.interval)
         return value
 
-    def prepare(self, book_index=1):
+    def prepare(self, book_index=1, *, expected_book_id=None):
         shelf = self.request('shelf', BASE + '/web/shelf/sync')
         ids = cb_ids(shelf)
         if type(book_index) is not int or not 1 <= book_index <= len(ids): raise CbFullError('full_book_index')
         self.book_id, self.chapter = ids[book_index - 1], None
+        if expected_book_id is not None and (not cb_id(expected_book_id) or self.book_id!=expected_book_id):
+            raise CbFullError('full_expected_book_changed')
         self.allowed = {self.book_id}
         self.shelf_ids = [str(row['bookId']) for row in shelf['books']]
         self.shelf_count = len(shelf['books'])

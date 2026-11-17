@@ -100,6 +100,12 @@ class CbFullReadingTests(unittest.TestCase):
         web, opener, _progress = ready([values[0]])
         with self.assertRaises(cb.CbFullError): web.prepare(3)
         self.assertEqual(len(opener.calls), 1)
+    def test_expected_identity_is_checked_before_target_specific_reads(self):
+        web,opener,_progress=ready([dict(books=[dict(bookId=FIRST)])])
+        with self.assertRaises(cb.CbFullError):web.prepare(1,expected_book_id=SECOND)
+        self.assertEqual(len(opener.calls),1);self.assertEqual(web.manifest,[])
+        web,_opener,_progress=ready()
+        self.assertEqual(web.prepare(1,expected_book_id=FIRST)['book_id'],FIRST)
 
     def test_no_real_txt_or_other_format_is_silently_declared_epub(self):
         values = responses(); values[4] = dict(bookId=FIRST, chapterUid=1)

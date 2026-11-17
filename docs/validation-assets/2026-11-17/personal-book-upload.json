@@ -339,5 +339,21 @@
     "temporary_profile_removed": true,
     "synthetic_native_ui_600x800": "PASS",
     "synthetic_native_ui_1264x1680": "PASS"
+  },
+  "real_account_pdf_two_page_marker_mapping": {
+    "fixture_bytes": 8008,
+    "original_pdf_pages": 2,
+    "checked_markers": 4,
+    "ordered_markers_verified": true,
+    "all_text_verified": false,
+    "credential_requests": 1,
+    "cos_put_attempts": 1,
+    "notify_posts": 1,
+    "cleanup_posts": 1,
+    "authentication_posts": 0,
+    "target_identity_bound_before_content_reads": true,
+    "cloud_position_unchanged": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_native_grant_unchanged": true
   }
 }

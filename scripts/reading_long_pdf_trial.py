@@ -35,3 +35,13 @@ class Journal(BaseJournal):
             path=Path(tempfile.gettempdir())/('codex-long-pdf-reading-'+ACCOUNT+'.lock')
             lock=lock or (lambda:project_lock(path))
         super().__init__(backend=backend,lock=lock,validator=validate_long)
+
+
+class MappingJournal(BaseJournal):
+    """A separate one-shot fixture for verifying original page contents."""
+    def __init__(self,backend=None,lock=None):
+        if backend is None:
+            backend=MacKeychain(service='org.codex.weread.goal-long-pdf-page-mapping-v1',account=ACCOUNT)
+            path=Path(tempfile.gettempdir())/('codex-long-pdf-page-mapping-'+ACCOUNT+'.lock')
+            lock=lock or (lambda:project_lock(path))
+        super().__init__(backend=backend,lock=lock,validator=validate_long)
