@@ -50,13 +50,16 @@ class Journal(BaseJournal):
 
 class TargetReceipt:
     """Persist the exact acknowledged identity before waiting for shelf visibility."""
-    def __init__(self,extension,backend=None):
-        if extension not in FORMATS:raise ValueError('synthetic_format/extension')
-        self.backend=backend if backend is not None else MacKeychain(service='org.codex.weread.goal-synthetic-'+extension+'-target-v1',account=ACCOUNT)
+    def __init__(self,extension,backend=None,scope='reading'):
+        if scope not in ('reading','native-ui'):raise ValueError('synthetic_format/scope')
+        if extension not in FORMATS and not (extension=='pdf' and scope=='native-ui'):raise ValueError('synthetic_format/extension')
+        self.phase='notify_pending' if scope=='reading' else 'launched'
+        suffix='-target-v1' if scope=='reading' else '-native-ui-target-v1'
+        self.backend=backend if backend is not None else MacKeychain(service='org.codex.weread.goal-synthetic-'+extension+suffix,account=ACCOUNT)
 
     def record(self,journal,receipt,plan,target):
         state,current=journal.read()
-        if (not state or state['phase']!='notify_pending' or current!=receipt or state['plan']!=plan
+        if (not state or state['phase']!=self.phase or current!=receipt or state['plan']!=plan
                 or not cb_id(target) or self.backend.load() is not None):raise ValueError('synthetic_format/receipt')
         raw=canonical(dict(schema=1,owner=plan['owner'],attempt=state['attempt'],target=target,plan_sha256=hash_value(plan)))
         self.backend.save(raw)

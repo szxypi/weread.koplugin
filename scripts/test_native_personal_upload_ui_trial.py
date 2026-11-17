@@ -1,5 +1,6 @@
 """Offline scope and evidence validation for the owner upload UI trial."""
 from copy import deepcopy
+import base64
 import json,unittest
 from unittest.mock import patch
 from native_personal_upload_ui_trial import Journal,SERVICE,guarded_launch,launch
@@ -39,6 +40,16 @@ class UITrialTest(unittest.TestCase):
             with self.subTest(bad=bad),self.assertRaises(ValueError):validate_input(bad,False,None)
         mixed=dict(payload,mock_port=123)
         with self.assertRaises(ValueError):validate_input(mixed,False,123)
+    def test_format_payloads_accept_only_fixed_bytes_and_matching_names(self):
+        from synthetic_pdf_trial import build as build_pdf
+        from synthetic_format_trial import build as build_format
+        for ext in ('pdf','mobi','azw3'):
+            body=build_pdf() if ext=='pdf' else build_format(ext)
+            payload=dict(credentials=credentials(),name='KOReaderSynthetic-0123456789abcdef.'+ext,shelf_books=3,
+                rpc_token='a'*32,permit_writes=False,fixture=ext,body_base64=base64.b64encode(body).decode('ascii'))
+            validate_input(payload,False,None)
+            for bad in (dict(payload,body_base64=base64.b64encode(b'other').decode()),dict(payload,name=NAME)):
+                with self.subTest(ext=ext),self.assertRaises(ValueError):validate_input(bad,False,None)
     def test_journal_has_distinct_permanent_no_replay_scope(self):
         self.assertNotEqual(SERVICE,EXECUTOR_SERVICE)
         journal=Journal(Backend());plan=prepare(credentials(),source(),NAME,b'synthetic')

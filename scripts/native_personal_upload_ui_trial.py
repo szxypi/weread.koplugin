@@ -28,6 +28,10 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     elif fixture=='large_epub':
         from large_epub_trial import validate_large
         validate_large(plan)
+    elif fixture in ('pdf','mobi','azw3'):
+        from synthetic_pdf_trial import validate_pdf
+        from synthetic_format_trial import validator
+        (validate_pdf if fixture=='pdf' else validator(fixture))(plan)
     else:raise ValueError('native_upload_ui/input')
     validate_credentials(credentials)
     if type(armed) is not bool or credentials['vid']!=plan['owner'] or hash_value(credentials)!=plan['grant_sha256']:raise ValueError('native_upload_ui/input')
@@ -37,10 +41,15 @@ def launch(plan,credentials,*,armed,fixture='txt'):
         from synthetic_upload_epub import build
         payload.update(fixture='epub',body_base64=base64.b64encode(build()).decode('ascii'))
     elif fixture=='large_epub':payload['fixture']='large_epub'
+    elif fixture in ('pdf','mobi','azw3'):
+        from synthetic_pdf_trial import build as build_pdf
+        from synthetic_format_trial import build as build_format
+        body=build_pdf() if fixture=='pdf' else build_format(fixture)
+        payload.update(fixture=fixture,body_base64=base64.b64encode(body).decode('ascii'))
     raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode();framed=str(len(raw)).encode()+b'\n'+raw
     args=['docker','exec','-i','-w','/source','weread-validation','timeout','--signal=TERM','--kill-after=10','165',
         'python3','scripts/run_native_personal_upload_ui.py','--koreader','/validation/runtime/lib/koreader',
-        '--candidate','/validation/large-upload-runtimeko2-v1/candidate.zip','--width','1264','--height','1680','--dpi','300']
+        '--candidate','/validation/pdf-delay-ui-1264-v1/candidate.zip','--width','1264','--height','1680','--dpi','300']
     if armed:args.append('--armed')
     result=subprocess.run(args,input=framed,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=190,check=False)
     prefix=('WEREAD_NATIVE_THOUGHT_'+token+'_RESULT=').encode()

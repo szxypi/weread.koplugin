@@ -27,10 +27,12 @@ def guarded_launch(plan,credentials,verify_fresh,*,fixture='epub'):
     return launch(plan,credentials,armed=True,fixture=fixture)
 
 
-def run(probe,journal,credentials,grant_check,read_content,spawn,*,apply=False,sleep=time.sleep,prepare_plan=prepare,check_plan=check):
+def run(probe,journal,credentials,grant_check,read_content,spawn,*,apply=False,sleep=time.sleep,prepare_plan=prepare,check_plan=check,
+        fixture_extension='epub',readback_tries=5,notify_receipt=None):
     report=dict(result='UNVERIFIED',phase='preflight',native_dispatched=False,cleanup_posts=0,authentication_posts=0,source_verified=False)
     try:
-        baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.epub'
+        if fixture_extension not in ('epub','pdf','mobi','azw3') or type(readback_tries) is not int or not 1<=readback_tries<=9:raise ValueError('epub_ui/extension')
+        baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.'+fixture_extension
         plan=prepare_plan(credentials,baseline,name);check_plan(plan,credentials,probe.shelf(credentials))
         if not grant_check(credentials):raise ValueError('epub_ui/grant')
         if journal.read()[0] is not None:raise ValueError('epub_ui/already_reserved')
@@ -42,7 +44,8 @@ def run(probe,journal,credentials,grant_check,read_content,spawn,*,apply=False,s
         result=spawn(plan,credentials);target=result['target']
         if not valid_book(target):raise ValueError('epub_ui/target')
         check_plan(plan,credentials,baseline,target,False)
-        if not readback(probe,credentials,plan,target,True,5,sleep):raise ValueError('epub_ui/import_unconfirmed')
+        if notify_receipt is not None:notify_receipt(journal,receipt,plan,target)
+        if not readback(probe,credentials,plan,target,True,readback_tries,sleep):raise ValueError('epub_ui/import_unconfirmed')
         receipt=journal.advance(receipt,'imported',target=target);report.update(phase='imported',import_observed=True)
         try:report['source_verified']=read_content(target) is True
         except Exception:report['source_verified']=False
@@ -58,7 +61,7 @@ def run(probe,journal,credentials,grant_check,read_content,spawn,*,apply=False,s
         check_plan(plan,credentials,probe.shelf(credentials),target,False)
         if not grant_check(credentials):raise ValueError('epub_ui/grant')
         journal.advance(receipt,'restored');report.update(phase='restored',native_counts=result['counts'])
-        report['result']='NATIVE_EPUB_UI_AND_SOURCE_VERIFIED' if report['source_verified'] else 'NATIVE_EPUB_UI_SOURCE_UNVERIFIED'
+        report['result']='NATIVE_'+fixture_extension.upper()+('_UI_AND_SOURCE_VERIFIED' if report['source_verified'] else '_UI_SOURCE_UNVERIFIED')
     except Exception as error:
         known={'epub_ui/grant','epub_ui/already_reserved','epub_ui/target','epub_ui/preview','epub_ui/changed',
                'epub_ui/import_unconfirmed','epub_ui/cleanup_unconfirmed'}

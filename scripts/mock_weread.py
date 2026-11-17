@@ -249,7 +249,10 @@ class MockServer(ThreadingHTTPServer):
             from synthetic_upload_epub import build as synthetic_epub,build_large as synthetic_large_epub
             epub=hashlib.sha256(synthetic_epub()).hexdigest()
             large_epub=hashlib.sha256(synthetic_large_epub()).hexdigest()
-            if data not in ({'synthetic_sha256':small},{'synthetic_sha256':large},{'synthetic_sha256':big},{'synthetic_sha256':epub},{'synthetic_sha256':large_epub}):raise ValueError('invalid synthetic COS object')
+            from synthetic_pdf_trial import BODY_SHA256 as pdf
+            from synthetic_format_trial import FORMATS
+            accepted=(small,large,big,epub,large_epub,pdf,FORMATS['mobi'][1],FORMATS['azw3'][1])
+            if not isinstance(data,dict) or set(data)!={'synthetic_sha256'} or data['synthetic_sha256'] not in accepted:raise ValueError('invalid synthetic COS object')
             if data['synthetic_sha256'] in (large,big,large_epub):time.sleep(.35)
             return 200,b''
         if method == "GET" and url.hostname == "mmbiz.qpic.cn" and path == "/synthetic-mp-bitmap.png" and not query:
@@ -551,12 +554,14 @@ class MockServer(ThreadingHTTPServer):
                                  {'name':['SyntheticLarge.txt'],'path':['/synthetic/object'],'cancel':['0']},
                                  {'name':['SyntheticBig.txt'],'path':['/synthetic/object'],'cancel':['0']},
                                  {'name':['SyntheticLargeEpub.epub'],'path':['/synthetic/object'],'cancel':['0']},
-                                 {'name':['SyntheticUploadEpub.epub'],'path':['/synthetic/object'],'cancel':['0']}) or data!={}:
+                                 {'name':['SyntheticUploadEpub.epub'],'path':['/synthetic/object'],'cancel':['0']},
+                                 *({'name':['SyntheticUpload.'+ext],'path':['/synthetic/object'],'cancel':['0']} for ext in ('pdf','mobi','azw3'))) or data!={}:
                     raise ValueError('invalid synthetic upload notification')
                 identity=('CB_uploadlarge' if query['name']==['SyntheticLarge.txt'] else
                           'CB_uploadBig' if query['name']==['SyntheticBig.txt'] else
                           'CB_uploadLargeEpub' if query['name']==['SyntheticLargeEpub.epub'] else
-                          'CB_uploadEpub' if query['name']==['SyntheticUploadEpub.epub'] else 'CB_uploadtest')
+                          'CB_uploadEpub' if query['name']==['SyntheticUploadEpub.epub'] else
+                          'CB_upload'+query['name'][0].rsplit('.',1)[1] if query['name'][0] in ('SyntheticUpload.pdf','SyntheticUpload.mobi','SyntheticUpload.azw3') else 'CB_uploadtest')
                 self.shelf_added[identity]=dict(bookId=identity,title=query['name'][0],author='Synthetic',version=700)
                 return 200,dict(status=1,bookId=identity)
             if path == "/login" and method == "POST":

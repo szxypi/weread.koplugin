@@ -10,7 +10,7 @@ from run_persistent_ui_probe import extract_candidate
 from verify_eink_renewal import validate_credentials
 
 FLAGS={'permit_writes','chooser','cancel_no_request','heartbeat','journal_idle','cache_verified','file_unchanged','credential_audit','guard_selftest'}
-COUNTS={'native_gets':8,'credential_gets':1,'puts':1,'notifies':1,'denied':0,'screenshots':0,'failed_line':10000}
+COUNTS={'native_gets':10,'credential_gets':1,'puts':1,'notifies':1,'denied':0,'screenshots':0,'failed_line':10000}
 
 
 def validate_stage(value,armed):
@@ -30,7 +30,9 @@ def validate_input(value,armed,mock_port):
     fields={'credentials','name','shelf_books','rpc_token','permit_writes'}|({'mock_port'} if mock_port is not None else set())
     epub=isinstance(value,dict) and value.get('fixture')=='epub'
     large=isinstance(value,dict) and value.get('fixture')=='large_epub'
+    fmt=value.get('fixture') if isinstance(value,dict) and value.get('fixture') in ('pdf','mobi','azw3') else None
     if epub:fields|={'fixture','body_base64'}
+    if fmt:fields|={'fixture','body_base64'}
     if large:fields.add('fixture')
     if (not isinstance(value,dict) or set(value)!=fields or value['permit_writes'] is not armed or value.get('mock_port')!=mock_port
             or not isinstance(value['rpc_token'],str) or re.fullmatch('[a-f0-9]{32}',value['rpc_token']) is None
@@ -39,10 +41,15 @@ def validate_input(value,armed,mock_port):
     if epub:
         from synthetic_upload_epub import build
         if value['body_base64']!=base64.b64encode(build()).decode('ascii'):raise ValueError('native_upload_ui/fixture')
+    if fmt:
+        from synthetic_pdf_trial import build as build_pdf
+        from synthetic_format_trial import build as build_format
+        expected=build_pdf() if fmt=='pdf' else build_format(fmt)
+        if value['body_base64']!=base64.b64encode(expected).decode('ascii'):raise ValueError('native_upload_ui/fixture')
     if mock_port is None:
-        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.epub' if epub or large else r'KOReaderSynthetic-[a-f0-9]{16}\.txt'
+        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.'+(fmt if fmt else 'epub' if epub or large else 'txt')
         if not isinstance(value['name'],str) or re.fullmatch(pattern,value['name']) is None:raise ValueError('native_upload_ui/input')
-    elif (value['name']!=('SyntheticLargeEpub.epub' if large else 'SyntheticUploadEpub.epub' if epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
+    elif (value['name']!=('SyntheticUpload.'+fmt if fmt else 'SyntheticLargeEpub.epub' if large else 'SyntheticUploadEpub.epub' if epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
           refreshToken='mock-native-refresh',deviceId='eink334691225'+'1'*19)):raise ValueError('native_upload_ui/mock')
 
 

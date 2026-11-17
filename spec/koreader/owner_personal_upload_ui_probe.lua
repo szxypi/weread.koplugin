@@ -16,11 +16,16 @@ local ok,reason=pcall(function()
     local grant=assert(input.credentials);local name=assert(input.name);local armed=input.permit_writes
     local mock=tonumber(os.getenv('WEREAD_UPLOAD_UI_MOCK_PORT') or '')
     local large=input.fixture=='large_epub';local epub=input.fixture=='epub' or large
+    local format_fixtures={pdf={965,'bb52baf0dfb75cf83e6ae4e5e70d093d047fbc4c58f46e49c9f7ece8efbb3dcd'},
+        mobi={13272,'f3a6e2fb8d65ee053672dc420eefe1f7494e37fa91ddf66713a1c4d0104f54e6'},
+        azw3={14657,'d49af83424ec29d2068559c6692ca6e2ae8e71118b0d2b622660e0b30a341d57'}}
+    local format=format_fixtures[input.fixture] and input.fixture or nil
     assert(type(armed)=='boolean' and armed==(os.getenv('WEREAD_UPLOAD_UI_ARMED')=='1'))
     assert(type(input.shelf_books)=='number' and input.shelf_books%1==0 and input.shelf_books>=1 and input.shelf_books<=5000)
-    local expected_mock=large and 'SyntheticLargeEpub.epub' or epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
-    local expected_pattern=epub and '^KOReaderSynthetic%-[a-f0-9]+%.epub$' or '^KOReaderSynthetic%-[a-f0-9]+%.txt$'
-    assert(type(name)=='string' and (mock and name==expected_mock or not mock and name:match(expected_pattern) and #name==(epub and 39 or 38)))
+    local extension=format or (epub and 'epub' or 'txt')
+    local expected_mock=format and 'SyntheticUpload.'..format or large and 'SyntheticLargeEpub.epub' or epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
+    local expected_pattern='^KOReaderSynthetic%-[a-f0-9]+%.'..extension..'$'
+    assert(type(name)=='string' and (mock and name==expected_mock or not mock and name:match(expected_pattern) and #name==35+#extension))
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
     report.permit_writes=armed
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
@@ -37,9 +42,10 @@ local ok,reason=pcall(function()
         local Settings=require('weread.lib.settings');local factory=Settings.new
         function Settings:new() local value=factory(self);value.mock_endpoint='http://127.0.0.1:'..mock;return value end
     end
-    local body=not large and (epub and require('mime').unb64(assert(input.body_base64)) or 'Synthetic upload for KOReader.\n') or nil
+    local body=not large and ((epub or format) and require('mime').unb64(assert(input.body_base64)) or 'Synthetic upload for KOReader.\n') or nil
     if epub and not large then assert(#body==2177 and require('weread.lib.crypto').sha256_hex(body)=='0c58af1f071704f101504f58b51866b2d479ca08cd75c2a4211ece763ae6b684') end
-    local stem=assert(name:match('^(.+)%.%a+$'));local path=home..'/'..name
+    if format then assert(#body==format_fixtures[format][1] and require('weread.lib.crypto').sha256_hex(body)==format_fixtures[format][2]) end
+    local stem=assert(name:match('^(.+)%.%w+$'));local path=home..'/'..name
     local expected_size=large and 9439532 or #body
     local expected_hash=large and 'c358d2de1a9e477618811ab3d5a7bf3e5100617b20bd3742ae2585a7918ba960' or require('weread.lib.crypto').sha256_hex(body)
     local f
@@ -77,7 +83,7 @@ local ok,reason=pcall(function()
                 and opts.body=='{}' then kind=3 end
         end
         local ctx=plugin and plugin._personal_upload_ui
-        if kind==nil or not armed or tonumber(ffi.C.getpid())==parent or kind==0 and counters[0]>=8 or kind~=0 and counters[kind]>=1
+        if kind==nil or not armed or tonumber(ffi.C.getpid())==parent or kind==0 and counters[0]>=10 or kind~=0 and counters[kind]>=1
             or not ctx or not ctx.record or not ctx.journal:owns(ctx.selected.scope,ctx.record) then
             counters[4]=counters[4]+1;error('upload_ui/transport_denied',0)
         end
