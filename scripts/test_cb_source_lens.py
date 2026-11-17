@@ -29,6 +29,26 @@ class CbLensTests(unittest.TestCase):
         raw='<body><p>Same repeated diagnostic phrase.</p><p>Same repeated diagnostic phrase.</p></body>'
         r=compare(raw,0,'Same repeated diagnostic phrase')
         self.assertFalse(r['raw']['summary_unique']);self.assertFalse(r['filtered']['summary_unique']);self.assertFalse(r['raw']['visible_boundary'])
+    def test_body_and_block_units_are_independent_of_markup(self):
+        raw=('<body><p>first body text</p></body><body><p>Earlier paragraph.</p>'
+             '<p>😀 A&amp;B unique synthetic summary text follows.</p></body>')
+        quote='unique synthetic summary text'
+        # The target's block prefix includes one surrogate pair, spaces and an entity.
+        r=compare(raw,len('😀 A&B '.encode('utf-16-le'))//2,quote)['segmented_units']
+        self.assertTrue(r['block_utf16']);self.assertFalse(r['block_scalars'])
+        self.assertFalse(r['body_utf16']);self.assertFalse(r['plain_utf8'])
+        r=compare(raw,len('😀 A&B '.encode('utf-8')),quote)['segmented_units']
+        self.assertTrue(r['block_utf8']);self.assertFalse(r['block_utf16'])
+        r=compare(raw,len('Earlier paragraph.😀 A&B '.encode('utf-16-le'))//2,quote)['segmented_units']
+        self.assertTrue(r['body_utf16']);self.assertFalse(r['block_utf16'])
+    def test_ambiguous_and_short_summaries_do_not_match_candidate_units(self):
+        raw='<body><p>Repeated diagnostic phrase long enough.</p><p>Repeated diagnostic phrase long enough.</p></body>'
+        for quote in ('Repeated diagnostic phrase','short'):
+            self.assertFalse(any(compare(raw,0,quote)['segmented_units'].values()))
+    def test_nested_blocks_count_visible_descendants_in_outer_block(self):
+        raw='<body><div>before<p>nested</p>after unique target text long enough.</div></body>'
+        units=compare(raw,len('beforenestedafter '),'unique target text long enough')['segmented_units']
+        self.assertTrue(units['block_scalars'])
 
 
 if __name__=='__main__':unittest.main()
