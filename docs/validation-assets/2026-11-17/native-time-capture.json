@@ -92,5 +92,10 @@
   "historical_window_not_before_cst": "2026-11-18 00:00:01 +08:00",
   "candidate_production_ci_head": "ab8e0e71c35b3e929a72b7723ce631a21ff8d5d2",
   "candidate_production_ci_run": 44002568576,
-  "candidate_production_ci_success": true
+  "candidate_production_ci_success": true,
+  "mac_keychain_chunked_synthetic_verified": true,
+  "mac_keychain_synthetic_chunks": 4,
+  "mac_keychain_new_process_exact_archive": true,
+  "synthetic_keychain_items_removed": 5,
+  "real_capture_unchanged_after_chunk_test": true
 }
