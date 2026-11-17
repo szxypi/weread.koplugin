@@ -66,6 +66,9 @@ jobs:
           python3 scripts/test_mp_resolve.py
           python3 scripts/test_mp_latest.py
           python3 scripts/test_mp_subscription_trial.py
+          python3 scripts/test_personal_upload_preflight.py
+          python3 scripts/test_cos_signature.py
+          python3 scripts/test_personal_upload_trial.py
           python3 scripts/test_mp_images.py
           python3 scripts/test_shelf_covers.py
           python3 scripts/test_shelf_membership.py

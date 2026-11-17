@@ -240,6 +240,12 @@ class MockServer(ThreadingHTTPServer):
         url = urlsplit(target)
         path = url.path
         query = parse_qs(url.query)
+        if method=='PUT' and url.hostname=='synthetic-12345.cos.accelerate.myqcloud.com' and path=='/synthetic/object' and not query:
+            small=hashlib.sha256(b'Synthetic upload for KOReader.\n').hexdigest()
+            large=hashlib.sha256(b'X'*131073).hexdigest()
+            if data not in ({'synthetic_sha256':small},{'synthetic_sha256':large}):raise ValueError('invalid synthetic COS object')
+            if data['synthetic_sha256']==large:time.sleep(.35)
+            return 200,b''
         if method == "GET" and url.hostname == "mmbiz.qpic.cn" and path == "/synthetic-mp-bitmap.png" and not query:
             return 200, png()
         if method == "GET" and url.hostname == "open.weixin.qq.com" and path == "/connect/sdk/qrconnect":
@@ -528,6 +534,19 @@ class MockServer(ThreadingHTTPServer):
                 return 200, dict(books=[dict(bookInfo=b,searchIdx=start+i+1) for i,b in enumerate(batch)],hasMore=start+len(batch)<len(candidates))
             if path == "/wxticket" and method == "GET":
                 return 200, dict(signature="mock-native-ticket", timeStamp=1700000000, expires_in=180)
+            if path=='/cos/getcredential' and method=='GET':
+                if query not in ({'name':['SyntheticUpload']},{'name':['SyntheticLarge']},
+                                 {'name':['SyntheticUpload'],'from':['']},{'name':['SyntheticLarge'],'from':['']}):
+                    raise ValueError('invalid synthetic upload name')
+                return 200,dict(bucket='synthetic-12345',ObjectName='/synthetic/object',Response=dict(ExpiredTime=int(time.time())+300,
+                    Credentials=dict(TmpSecretId='synthetic-id',TmpSecretKey='synthetic-key',Token='synthetic-token')))
+            if path=='/cos/notify' and method=='POST':
+                if query not in ({'name':['SyntheticUpload.txt'],'path':['/synthetic/object'],'cancel':['0']},
+                                 {'name':['SyntheticLarge.txt'],'path':['/synthetic/object'],'cancel':['0']}) or data!={}:
+                    raise ValueError('invalid synthetic upload notification')
+                identity='CB_uploadlarge' if query['name']==['SyntheticLarge.txt'] else 'CB_uploadtest'
+                self.shelf_added[identity]=dict(bookId=identity,title=query['name'][0],author='Synthetic',version=700)
+                return 200,dict(status=1,bookId=identity)
             if path == "/login" and method == "POST":
                 device, install = str(data.get("deviceId", "")), str(data.get("installId", ""))
                 timestamp, random = data.get("timestamp"), data.get("random")
@@ -715,6 +734,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         self.handle_request()
 
+    def do_PUT(self):
+        self.handle_request()
+
     def handle_request(self):
         target = self.path
         data = {}
@@ -723,7 +745,8 @@ class Handler(BaseHTTPRequestHandler):
             size = int(self.headers.get("Content-Length", 0))
             if not 0 <= size <= 1024 * 1024:
                 raise ValueError("request too large")
-            data = json.loads(self.rfile.read(size)) if size else {}
+            raw=self.rfile.read(size) if size else b''
+            data = {'synthetic_sha256':hashlib.sha256(raw).hexdigest()} if self.command=='PUT' else json.loads(raw) if size else {}
             if not isinstance(data, dict):
                 data = {}
                 raise ValueError("request JSON must be an object")

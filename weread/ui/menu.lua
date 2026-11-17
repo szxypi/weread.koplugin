@@ -146,6 +146,12 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _("Upload local book"),
+            callback = self:safeCallback(_("Upload local book"), function()
+                require('weread.ui.personal_upload').open(self)
+            end),
+        },
+        {
             text = _("WeRead favorites"),
             callback = self:safeCallback(_("WeRead favorites"), function()
                 self:showWereadCollection()
