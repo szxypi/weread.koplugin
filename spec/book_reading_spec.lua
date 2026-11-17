@@ -50,6 +50,26 @@ expect(Reading.resume_index(projected,{chapter_uid=1,last_local_position={chapte
     'last local chapter lost to refreshed book metadata')
 expect(Reading.resume_index(projected,{chapter_uid=1,recent_read_account='other',last_local_position={chapter_uid=2}},nil,'owner')==1,
     'foreign last local chapter was used')
+local duplicates = assert(Reading.catalog({
+    { chapterUid=1, chapterIdx=0, title='One' },
+    { chapterUid=2, chapterIdx=0, title='Two' },
+    { chapterUid=3, chapterIdx=3, title='Three' },
+}))
+expect(Reading.resume_index(duplicates,{pending_upload_position={chapter_idx=0},
+    last_local_position={chapter_uid=2}},nil,'owner')==2,
+    'ambiguous pending index masked the last local chapter')
+expect(Reading.resume_index(duplicates,{pending_upload_position={chapter_uid=999,chapter_idx=0},
+    last_local_position={chapter_uid=2}},nil,'owner')==2,
+    'missing UID with ambiguous index masked the last local chapter')
+expect(Reading.resume_index(duplicates,{pending_upload_position={chapter_uid=2,chapter_idx=0},
+    last_local_position={chapter_uid=3}},nil,'owner')==2,
+    'unique UID did not take precedence over duplicate indices')
+expect(Reading.resume_index(duplicates,{pending_upload_position={chapter_idx=0}},
+    {chapter_uid=3},'owner')==3,'ambiguous index masked the remote chapter')
+expect(Reading.resume_index(duplicates,{pending_upload_position={chapter_idx=0}},nil,'owner')==nil,
+    'ambiguous index was treated as an exact chapter')
+expect(Reading.resume_index(duplicates,{pending_upload_position={chapter_idx=3}},nil,'owner')==3,
+    'unique index did not remain usable')
 
 local function fixture()
     tasks, saved_catalogs = {}, 0
@@ -104,6 +124,21 @@ state.download.options.on_complete(true, "/cache/chapter.epub")
 expect(state.opened == 0, "opened before downloader released its job")
 tasks[1]()
 expect(state.path == "/cache/chapter.epub" and not host.book_reading_context, "native reader was not opened")
+
+do
+    local previous=catalog
+    catalog={{chapterUid=1,chapterIdx=0,title='One'}, {chapterUid=2,chapterIdx=0,title='Two'},
+        {chapterUid=3,chapterIdx=3,title='Three'}}
+    local test_host,test_state,_,books=fixture()
+    books['900001'].pending_upload_position={chapter_idx=0}
+    books['900001'].last_local_position={chapter_uid=2}
+    expect(Reading.start(test_host,book),'ambiguous online reading preparation did not start')
+    test_state.job.complete(test_state.job.task())
+    expect(test_state.download and test_state.download.chapter.chapterUid=='2',
+        'online reading downloaded the first duplicate index instead of the last local chapter')
+    Reading.cancel(test_host)
+    catalog=previous
+end
 
 for _, change in ipairs({ "cancel", "view", "account", "session", "cookie", "navigation" }) do
     local cookies

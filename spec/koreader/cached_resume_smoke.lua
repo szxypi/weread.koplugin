@@ -134,10 +134,10 @@ local last_local=json.decode(json.encode(saved.last_local_position))
 local catalog=assert(host.library_db:getChapters(id))
 local report={result='PASS',synthetic_only=true,content_format=format,chapter_files=2,full_chapters=6,
     pending_priority=false,last_local_priority=false,foreign_owner_ignored=false,native_position_restored=false,
-    missing_catalog_uid=false,
+    missing_catalog_uid=false,ambiguous_index_uses_last_local=false,
     full_download=false,full_source_records=false,full_native_navigation=false}
 if cb_resume then report.cb_reading=true end
-for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog'}) do
+for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog','duplicate_index'}) do
     host=assert(FM.instance.weread)
     local values={chapter_uid=4,chapter_idx=4,progress=70,pending_upload_position=local_pending,
         last_local_position=last_local,recent_read_account=saved.pending_upload_account,
@@ -149,6 +149,10 @@ for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog'}) do
     if mode=='no_catalog' then
         values.chapters={};values.chapter_uid=2;values.chapter_idx=2
         values.pending_upload_position={book_id=id,chapter_uid=4,percent=70}
+    end
+    if mode=='duplicate_index' then
+        values.chapters=false
+        values.pending_upload_position={book_id=id,chapter_idx=0,percent=70}
     end
     patch(host,values)
     if mode=='no_catalog' then
@@ -164,12 +168,18 @@ for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog'}) do
             assert(snapshot.pending_upload_position and snapshot.pending_upload_position.chapter_uid==4
                 and snapshot.pending_upload_account=='other-synthetic-owner')
         end
+        if mode=='duplicate_index' then
+            local duplicate=json.decode(json.encode(catalog))
+            duplicate[2].chapterIdx=0;duplicate[4].chapterIdx=0
+            assert(selected_host.library_db:putChapters(id,duplicate))
+        end
     end)
     local checkpoint=mode=='no_catalog' and second_checkpoint or expected
     assert(reader:getCurrentPage()==checkpoint.page and reader.document:isXPointerInCurrentPage(checkpoint.xpointer))
     assert(book(current).cached_chapters['4']==second)
     report[mode=='pending' and 'pending_priority' or mode=='last_local' and 'last_local_priority'
-        or mode=='no_catalog' and 'missing_catalog_uid' or 'foreign_owner_ignored']=true
+        or mode=='no_catalog' and 'missing_catalog_uid' or mode=='duplicate_index' and 'ambiguous_index_uses_last_local'
+        or 'foreign_owner_ignored']=true
     report.native_position_restored=true
     UI:forceRePaint()
     if mode=='pending' then Device.screen:shot(evidence..'/cached-resume-pending.png') end

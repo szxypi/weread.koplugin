@@ -60,10 +60,18 @@ function M.resume_index(chapters, local_book, remote, account)
         end
         if hint.chapter_idx ~= nil then
             local wanted=integer(hint.chapter_idx,1000000)
+            local match
             for index, chapter in ipairs(chapters) do
                 local actual=integer(chapter.chapterIdx or chapter.chapterIndex,1000000)
-                if wanted~=nil and actual~=nil and wanted==actual then return index end
+                if wanted~=nil and actual~=nil and wanted==actual then
+                    -- Chapter indices are not necessarily unique (especially
+                    -- zero or incomplete catalog values). Do not silently
+                    -- choose the first of several possible resume chapters.
+                    if match then match=false;break end
+                    match=index
+                end
             end
+            if match then return match end
         end
     end
 end
