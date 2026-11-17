@@ -10,7 +10,7 @@ local input=json.decode(assert(io.stdin:read(tonumber(length))))
 assert(input.owner=='900000' and input.book_id=='900001' and input.grant.vid=='900000'
     and input.grant.accessToken=='mock-native-access' and input.grant.refreshToken=='mock-native-refresh'
     and input.guest=='synthetic-guest' and input.config=='synthetic-config')
-assert(input.mode=='success' or input.mode=='optional_text' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source' or input.mode=='tamper_native_catalog')
+assert(input.mode=='success' or input.mode=='optional_text' or input.mode=='dry_run' or input.mode=='invalid_ack' or input.mode=='http_201' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source' or input.mode=='tamper_native_catalog')
 assert(type(input.token)=='string' and #input.token==32 and input.token:match('^[a-f0-9]+$'))
 assert(type(arg[1])=='string' and type(arg[2])=='string' and type(arg[3])=='string' and type(arg[4])=='string')
 local worked,reason=pcall(function()
@@ -82,7 +82,8 @@ local client={settings=settings,json_encode=function(_self,x) return json.encode
 local Journal=require('weread.lib.readtime_transfer_store')
 local journal=Journal:new{coverage=coverage,ledger=ledger,codec=client}
 local sqlite=require('lua-ljsqlite3/init');local source_db=sqlite.open(coverage.path)
-source_db:exec('CREATE TABLE synthetic_source_calls(id INTEGER PRIMARY KEY)');source_db:close()
+source_db:exec('CREATE TABLE synthetic_source_calls(id INTEGER PRIMARY KEY)')
+source_db:exec('CREATE TABLE synthetic_dispatches(id INTEGER PRIMARY KEY)');source_db:close()
 local A=require('weread.lib.readtime_accounting');local Stats=require('weread.lib.read_stats')
 local captured_day=A.day(input.start_time);local captured_month=Stats.period_start('monthly',input.start_time)
 local applied=false;local sent=0
@@ -116,12 +117,13 @@ function client:request(options)
         elseif input.mode=='tamper_native_catalog' then record.metadata.source.catalog_stamp=string.rep('f',64) end
         if not rpc('claim',{body=body,selection=selected,record=record}) then error('synthetic_ui/claim_denied',0) end
         sent=sent+1
+        local write_db=sqlite.open(coverage.path);write_db:exec('INSERT INTO synthetic_dispatches DEFAULT VALUES');write_db:close()
         if input.mode=='lost_reply' then error('synthetic_ui/lost_reply',0) end
         if input.mode=='kill_worker' then os.exit(1) end
         if input.mode=='no_ack' then return json.encode({}),200 end
         if input.mode=='duplicate' and not rpc('claim',{body=body,selection=selected,record=record}) then error('synthetic_ui/duplicate_denied',0) end
-        applied=input.mode~='no_delta';value={succ=1}
-        assert(rpc('ack',{response=value}))
+        applied=input.mode~='no_delta';value={succ=input.mode=='invalid_ack' and 0 or 1}
+        if not rpc('ack',{status=input.mode=='http_201' and 201 or 200,response=value}) then error('synthetic_ui/ack_denied',0) end
     elseif options.url:find('/book/info?',1,true) then value={bookId=input.book_id,bookVersion=input.book_version}
     elseif options.url:find('/book/getProgress?',1,true) then value=progress()
     elseif options.url:find('/shelf/sync',1,true) then value={books={{bookId=input.book_id,secret=0,finishReading=0}},archive={}}
@@ -204,6 +206,7 @@ if input.mode=='no_delta' then
 end
 local summary=assert(ledger:summary(account));local pending=journal:pending(account)
 local phase=pending and pending.phase or 'none'
+local dispatch_blocked=input.mode=='dry_run' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode:find('^tamper_native_')~=nil
 local expected_phase=(success or input.mode=='tamper_selection') and 'none' or input.mode=='no_ack' and 'unknown' or input.mode=='no_delta' and 'acknowledged' or 'claimed'
 assert(phase==expected_phase,'synthetic_ui/pending')
 assert(summary.confirmed==(success and input.seconds or 0),'synthetic_ui/confirmed')
@@ -211,7 +214,10 @@ assert(summary.pending==(input.mode=='tamper_selection' and input.seconds or 0),
 assert(summary.in_flight==((not success and input.mode~='tamper_selection') and input.seconds or 0),'synthetic_ui/in_flight')
 assert(not host._offline_time_transfer_lock and not service.job)
 local count_db=sqlite.open(coverage.path);local count_query=count_db:prepare('SELECT COUNT(*) FROM synthetic_source_calls')
-local source_reads=tonumber(assert(count_query:step())[1]);count_query:close();count_db:close()
+local source_reads=tonumber(assert(count_query:step())[1]);count_query:close()
+local write_query=count_db:prepare('SELECT COUNT(*) FROM synthetic_dispatches')
+local dispatches=tonumber(assert(write_query:step())[1]);write_query:close();count_db:close()
+assert(dispatches==(dispatch_blocked and 0 or 1),'synthetic_ui/sends')
 assert(source_reads>=(input.mode=='tamper_selection' and 0 or (success or input.mode=='no_delta') and 2 or 1))
 if success then
     assert(#task_results==1 and task_results[1].kind=='confirmed' and task_results[1].attempted==true

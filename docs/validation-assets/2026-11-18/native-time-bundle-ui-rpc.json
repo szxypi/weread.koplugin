@@ -26,7 +26,9 @@
       "native_baseline_mismatch_blocked": true,
       "catalog_stamp_mismatch_blocked": true,
       "optional_text_parity": true,
-      "scenarios": 17
+      "dry_run_without_claim": true,
+      "invalid_http_receipt_blocked": true,
+      "scenarios": 20
     },
     {
       "display": "1264x1680",
@@ -52,7 +54,9 @@
       "native_baseline_mismatch_blocked": true,
       "catalog_stamp_mismatch_blocked": true,
       "optional_text_parity": true,
-      "scenarios": 17
+      "dry_run_without_claim": true,
+      "invalid_http_receipt_blocked": true,
+      "scenarios": 20
     }
   ]
 }

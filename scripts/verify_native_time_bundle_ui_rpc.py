@@ -5,6 +5,7 @@ from pathlib import Path
 
 from native_time_bundle_gate import DispatchGate
 from native_time_bundle_audit_store import AuditStore
+from native_time_bundle_bridge import NativeTimeBridge
 from native_time_bundle_evidence import PreflightEvidence
 from native_time_bundle_supervisor import NativeBoundSupervisor
 from native_trial_pipe import Frames,reply,stop,write_initial
@@ -69,6 +70,7 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi):
     evidence=PreflightEvidence(captured,grant,preflight,before['snapshot'],before['months'],synthetic_pairs(catalog))
     guard=NativeBoundSupervisor(gate,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,
         audit_store=audit,evidence=evidence);guard.prepare()
+    bridge=NativeTimeBridge(guard,epub,armed=mode!='dry_run')
     token=secrets.token_hex(16);payload={k:v for k,v in p.items() if k!='archive_base64'}
     payload.update(grant=grant,guest='synthetic-guest',config='synthetic-config',mode=mode,token=token,months=before['months'])
     env=dict(os.environ,KO_HOME=str(home),TZ='Asia/Shanghai',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
@@ -83,13 +85,7 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi):
             if kind=='RESULT':result=event;break
             pending=event;name=event.get('kind');allowed=False;reason=None
             try:
-                if name=='selection' and set(event)=={'kind','selection'} and not events:
-                    guard.select(event['selection']);allowed=True
-                elif name=='claim' and set(event)=={'kind','body','selection','record'} and events and events[0]==('selection',True,None):
-                    guard.claim(event['body'],event['selection'],event['record'],epub);allowed=True
-                elif name=='ack' and set(event)=={'kind','response'} and events and events[-1]==('claim',True,None):
-                    guard.acknowledge(event['response']);allowed=True
-                else:raise ValueError('synthetic_ui/order')
+                allowed=bridge.handle(event)
             except (ValueError,StoreError) as error:reason=str(error)
             events.append((name,allowed,reason));reply(child.stdin,{'kind':name,'ok':allowed});pending=None
         status=child.wait(timeout=10)
@@ -115,6 +111,7 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi):
     expected_events={
         'success':[('selection',True,None),('claim',True,None),('ack',True,None)],
         'optional_text':[('selection',True,None),('claim',True,None),('ack',True,None)],
+        'dry_run':[('selection',True,None),('claim',False,None)],
         'tamper_selection':[('selection',False,'bundle_selection/mismatch')],
         'tamper_body':[('selection',True,None),('claim',False,'native_record/baseline')],
         'tamper_native_point':[('selection',True,None),('claim',False,'native_record/baseline')],
@@ -125,15 +122,17 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi):
         'tamper_native_shelf':[('selection',True,None),('claim',False,'native_record/baseline')],
         'tamper_native_source':[('selection',True,None),('claim',False,'native_record/source')],
         'tamper_native_catalog':[('selection',True,None),('claim',False,'native_record/source')],
+        'invalid_ack':[('selection',True,None),('claim',True,None),('ack',False,'native_bridge/receipt')],
+        'http_201':[('selection',True,None),('claim',True,None),('ack',False,'native_bridge/receipt')],
         'lost_reply':[('selection',True,None),('claim',True,None)],
         'no_ack':[('selection',True,None),('claim',True,None)],
         'kill_worker':[('selection',True,None),('claim',True,None)],
         'no_delta':[('selection',True,None),('claim',True,None),('ack',True,None)],
-        'duplicate':[('selection',True,None),('claim',True,None),('claim',False,'bundle_supervisor/state')],
+        'duplicate':[('selection',True,None),('claim',True,None),('claim',False,'native_bridge/order')],
     }[mode]
-    rejected=('tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows','tamper_native_counts','tamper_native_months','tamper_native_shelf','tamper_native_source','tamper_native_catalog')
-    expected_phase='none' if mode in rejected else {'success':'acknowledged','optional_text':'acknowledged','tamper_selection':'none','lost_reply':'claimed','duplicate':'claimed','no_ack':'claimed','kill_worker':'claimed','no_delta':'acknowledged'}[mode]
-    expected_local='claimed' if mode in rejected else {'success':'none','optional_text':'none','tamper_selection':'none','lost_reply':'claimed','duplicate':'claimed','no_ack':'unknown','kill_worker':'claimed','no_delta':'acknowledged'}[mode]
+    rejected=('dry_run','tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows','tamper_native_counts','tamper_native_months','tamper_native_shelf','tamper_native_source','tamper_native_catalog')
+    expected_phase='none' if mode in rejected else {'success':'acknowledged','optional_text':'acknowledged','tamper_selection':'none','lost_reply':'claimed','duplicate':'claimed','no_ack':'claimed','kill_worker':'claimed','no_delta':'acknowledged','invalid_ack':'claimed','http_201':'claimed'}[mode]
+    expected_local='claimed' if mode in rejected else {'success':'none','optional_text':'none','tamper_selection':'none','lost_reply':'claimed','duplicate':'claimed','no_ack':'unknown','kill_worker':'claimed','no_delta':'acknowledged','invalid_ack':'claimed','http_201':'claimed'}[mode]
     if (set(result)!={'result','mode','native_menu','background_service','dialog_correct','workers_reaped','recovery_checked','source_reads','local_phase','local_confirmed'}
             or events!=expected_events or phase!=expected_phase or result.get('mode')!=mode or result.get('local_phase')!=expected_local
             or result.get('native_menu') is not True or result.get('dialog_correct') is not True or result.get('workers_reaped') is not True
@@ -169,12 +168,13 @@ def main(argv=None):
             enable_subreaper()
             with tempfile.TemporaryDirectory(prefix='weread-native-ui-rpc-',dir='/dev/shm') as directory:
                 root=Path(directory)
-                for mode in ('success','optional_text','tamper_selection','tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows','tamper_native_counts','tamper_native_months','tamper_native_shelf','tamper_native_source','tamper_native_catalog','lost_reply','no_ack','kill_worker','no_delta','duplicate'):
+                for mode in ('success','optional_text','dry_run','tamper_selection','tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows','tamper_native_counts','tamper_native_months','tamper_native_shelf','tamper_native_source','tamper_native_catalog','lost_reply','no_ack','kill_worker','no_delta','duplicate','invalid_ack','http_201'):
                     scenario(runtime,source,candidate,root,mode,args.width,args.height,args.dpi)
                 report.update(result='SYNTHETIC_NATIVE_UI_RPC_VERIFIED',native_menu=True,background_service=True,correct_dialogs=True,workers_reaped=True,archive_verified=True,
                               durable_claim_before_reply=True,modified_selection_blocked=True,modified_body_blocked=True,
                               lost_and_duplicate_not_replayed=True,no_ack_and_worker_death_not_replayed=True,ack_readonly_recovery_not_replayed=True,
-                              baseline_sealed_before_claim=True,preflight_evidence_bound=True,native_baseline_mismatch_blocked=True,catalog_stamp_mismatch_blocked=True,optional_text_parity=True,scenarios=17)
+                              baseline_sealed_before_claim=True,preflight_evidence_bound=True,native_baseline_mismatch_blocked=True,catalog_stamp_mismatch_blocked=True,optional_text_parity=True,
+                              dry_run_without_claim=True,invalid_http_receipt_blocked=True,scenarios=20)
     except Exception as error:
         report.update(result='UNVERIFIED',synthetic_failure_mode=mode,synthetic_failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_ui/child_'):

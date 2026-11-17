@@ -168,6 +168,25 @@ class NativeBoundSupervisor(EvidenceSupervisor):
             return super().claim(self._native_input[0],self._native_input[1])
         finally:self._native_input=None
 
+    def preview(self,body,selection,record,source_path):
+        """Validate a native request without reserving or releasing permission."""
+        if self.phase!='selected' or getattr(self,'_native_input',None) is not None:
+            raise ValueError('bundle_supervisor/state')
+        self._native_input=deepcopy((body,selection,record,str(source_path)))
+        try:
+            body,selection,_record,_path=self._native_input
+            if not self._fresh() or not self._recent() or self.gate.read()!=(None,None):
+                raise ValueError('bundle_supervisor/stale')
+            validate_selection(self.bundle,selection)
+            if digest(selection)!=self.selection_hash:raise ValueError('bundle_supervisor/selection')
+            self._check_evidence();self._check_native()
+            self.gate.preview(self.bundle,self.grant,body,self.guest,self.config_token)
+            if not self._fresh() or not self._recent() or self.gate.read()!=(None,None):
+                raise ValueError('bundle_supervisor/stale')
+            self._check_evidence();self._check_native()
+            return True
+        finally:self._native_input=None
+
     def _before_claim(self,reserved):
         self._check_native()
         super()._before_claim(reserved)
