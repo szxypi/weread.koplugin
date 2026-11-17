@@ -23,7 +23,8 @@ class CbCloudPositionTests(unittest.TestCase):
     def test_incomplete_private_lua_mode_is_rejected(self):
         with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):task.main(['--lua-command','synthetic'])
     def test_official_parser_requires_an_explicit_session_and_one_book(self):
-        for args in (['--official-parser'],['--saved-session','--official-parser']):
+        for args in (['--official-parser'],['--saved-session','--official-parser'],['--official-parser-batched'],
+                     ['--saved-session','--official-parser-batched'],['--official-parser','--official-parser-batched']):
             with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):task.main(args)
     def test_official_parser_report_is_bounded_and_does_not_echo_source(self):
         from source_parser_preflight import MAX_PRIVATE_BYTES
@@ -45,6 +46,20 @@ class CbCloudPositionTests(unittest.TestCase):
             value=dict(valid,**changes)
             with self.subTest(changes=changes),patch('source_parser_preflight.verify_source',return_value=value):
                 with self.assertRaisesRegex(ValueError,'^cb_cloud/parser_unavailable$'):task.official_parser_check(RAW,15)
+    def test_batched_parser_result_never_claims_whole_source_comparison(self):
+        value=dict(official_parser_batches_verified=True,official_parser_full_source_verified=False,model_segments_reconstructed=True,
+                   body_count=37,batches=7,official_parser_source_nodes=42,official_parser_target_present=False,
+                   private_source_browser_network_disabled=True,official_browser_authenticated=False)
+        with patch('source_parser_preflight.verify_source_batched',return_value=value):
+            result=task.official_parser_check(RAW,15,batched=True)
+            self.assertEqual(result['result'],'BATCHES_MATCHED');self.assertFalse(result['official_parser_full_source_verified'])
+        for changed in (dict(official_parser_full_source_verified=True),dict(model_segments_reconstructed=False),dict(body_count=True)):
+            with patch('source_parser_preflight.verify_source_batched',return_value=dict(value,**changed)):
+                with self.assertRaises(ValueError):task.official_parser_check(RAW,15,batched=True)
+        with patch('source_parser_preflight.verify_source_batched',side_effect=CoordinateError('parser: batch composition mismatch')):
+            self.assertEqual(task.official_parser_check(RAW,15,batched=True)['result'],'BATCH_MODEL_MISMATCH')
+        with patch('source_parser_preflight.verify_source_batched',side_effect=CoordinateError('parser: body exceeds batch limit')):
+            self.assertEqual(task.official_parser_check(RAW,15,batched=True)['result'],'BATCH_LIMIT')
     def test_book_namespace_channel_and_foreign_response_are_strict(self):
         for book,channel in (('900001','web'),('CB_bad-name','web'),('CB_'+'a'*65,'web'),(BOOK,'gateway')):
             with self.assertRaises(ValueError):state(progress(),book,CAT,channel)

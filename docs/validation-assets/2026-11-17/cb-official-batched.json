@@ -1,0 +1,16 @@
+{
+  "result": "PARTIAL",
+  "body_count": 37,
+  "batches": 8,
+  "parser_nodes_checked": 478249,
+  "all_batch_nodes_match_local_model": true,
+  "full_local_model_reconstructed": true,
+  "official_whole_source_compared": false,
+  "target_at_batch_node_start": false,
+  "cloud_coordinate_semantics_verified": false,
+  "browser_unauthenticated_and_offline_before_private_input": true,
+  "cloud_position_catalog_and_shelf_unchanged": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "physical_kindle_tested": false
+}

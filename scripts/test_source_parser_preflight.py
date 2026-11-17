@@ -3,7 +3,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from source_parser_preflight import MAX_PRIVATE_BYTES, PUBLIC_READER, verify_source
+from source_parser_preflight import MAX_PRIVATE_BYTES, PUBLIC_READER, verify_source,verify_source_batched,source_batches
 from verify_source_coordinates import CoordinateError,FilteredSource
 
 RAW='<html><body><p>只在内存核对的独特原文内容。</p></body></html>'
@@ -86,6 +86,49 @@ class SourceParserPreflightTests(unittest.TestCase):
         self.assertEqual(lua.call_args.kwargs['targets'],[RAW.index('只')])
         self.assertTrue(result['lua_verified'])
         self.assertNotIn(RAW,str(result))
+        self.assertTrue(state.closed)
+
+    def test_body_aligned_batches_reconstruct_utf16_coordinates_offline(self):
+        raw=('<html><body><p>甲😀独特文本 &amp; first passage.</p></body></html>'
+             '<html><body><p>第二段独特内容 and more words.</p></body></html>'
+             '<html><body><p>最后一段不同的内容 and ending.</p></body></html>')
+        state=SimpleNamespace(closed=False,offline=True,calls=0)
+        def evaluate(_script,sources):
+            self.assertTrue(state.offline);self.assertEqual(len(sources),1);state.calls+=1
+            model=FilteredSource(sources[0],allow_multiple_bodies=True)
+            return [[dict(co=co,text=char) for co,char in zip(model.starts,model.characters)]]
+        @contextmanager
+        def browser():
+            try:yield SimpleNamespace(evaluate=evaluate),'synthetic'
+            finally:state.closed=True
+        full=FilteredSource(raw,allow_multiple_bodies=True);target=full.starts[-1]
+        with patch('source_parser_preflight.MAX_PRIVATE_BYTES',90),patch('source_parser_preflight.offline_parser',browser):
+            result=verify_source_batched(raw,target)
+        self.assertTrue(result['official_parser_batches_verified'] and result['model_segments_reconstructed'])
+        self.assertFalse(result['official_parser_full_source_verified']);self.assertGreater(result['batches'],1)
+        self.assertEqual(result['body_count'],3);self.assertEqual(state.calls,result['batches']);self.assertTrue(state.closed)
+        self.assertTrue(result['official_parser_target_present']);self.assertNotIn(raw,str(result))
+
+    def test_batch_boundaries_refuse_oversize_and_incomplete_parts(self):
+        for raw in ('<html>no body</html>','<body>unclosed', '<body><body>nested</body></body>'):
+            with self.assertRaises(CoordinateError):verify_source_batched(raw,0)
+        with patch('source_parser_preflight.MAX_PRIVATE_BYTES',20):
+            with self.assertRaises(CoordinateError):source_batches('<body><p>'+('x'*40)+'</p></body>')
+        with self.assertRaises(CoordinateError):verify_source_batched(RAW,True)
+
+    def test_batch_composition_disagreement_fails_and_closes_browser(self):
+        raw='<body><p>First synthetic passage.</p></body><body><p>Second synthetic passage.</p></body>'
+        state=SimpleNamespace(closed=False,calls=0)
+        @contextmanager
+        def browser():
+            try:yield SimpleNamespace(evaluate=lambda _script,_sources:[[dict(co=0,text='x')]]),'synthetic'
+            finally:state.closed=True
+        def model(_raw,**_kwargs):
+            state.calls+=1
+            return SimpleNamespace(segments=[(0,'whole' if state.calls==1 else 'part')],body_count=2)
+        with patch('source_parser_preflight.MAX_PRIVATE_BYTES',50),patch('source_parser_preflight.offline_parser',browser), \
+             patch('source_parser_preflight.FilteredSource',side_effect=model),patch('source_parser_preflight.check_parser_rows',return_value=1):
+            with self.assertRaisesRegex(CoordinateError,'^parser: batch composition mismatch$'):verify_source_batched(raw,0)
         self.assertTrue(state.closed)
 
 
