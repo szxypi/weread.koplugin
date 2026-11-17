@@ -65,6 +65,21 @@ class UITrialTest(unittest.TestCase):
             with self.assertRaises(ValueError):validate_stage(bad,True,same_session=True)
         with self.assertRaises(ValueError):validate_stage(proof,True)
 
+    def test_manual_pdf_is_read_only_and_requires_local_proofs(self):
+        from synthetic_upload_rich_pdf import build
+        payload=dict(credentials=credentials(),name='KOReaderSynthetic-0123456789abcdef.pdf',shelf_books=3,
+            rpc_token='a'*32,permit_writes=False,fixture='rich_pdf',body_base64=base64.b64encode(build()).decode('ascii'),manual_target='CB_existing')
+        validate_input(payload,False,None)
+        for bad in (dict(payload,permit_writes=True),dict(payload,manual_target='42'),dict(payload,fixture='pdf')):
+            with self.assertRaises(ValueError):validate_input(bad,False,None)
+        proof=stage(False);proof.update(manual_confirmation=True,manual_cancel_safe=True,manual_linked=True,
+                                       manual_pdf_pages=True,manual_cloud_unbound=True)
+        self.assertEqual(validate_stage(proof,False,manual_original=True),proof)
+        for key in ('manual_confirmation','manual_cancel_safe','manual_linked','manual_pdf_pages','manual_cloud_unbound'):
+            bad=dict(proof);bad[key]=False
+            with self.assertRaises(ValueError):validate_stage(bad,False,manual_original=True)
+        with self.assertRaises(ValueError):validate_stage(proof,False)
+
     def test_rich_pdf_requires_fixed_fixture_and_complete_local_read_proof(self):
         from synthetic_upload_rich_pdf import build
         payload=dict(credentials=credentials(),name='KOReaderSynthetic-0123456789abcdef.pdf',shelf_books=3,

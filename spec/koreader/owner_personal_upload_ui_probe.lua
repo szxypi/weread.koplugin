@@ -29,6 +29,10 @@ local ok,reason=pcall(function()
     assert(not same_session or armed and reading_epub and not combined)
     if combined or same_session then report.continuous_reading=false;report.read_text_visible=false;report.read_page_turn=false;report.source_bytes_bound=false end
     if input.fixture=='rich_pdf' and armed then report.local_original_opened=false;report.local_pdf_pages=false;report.cloud_unbound=false end
+    if input.manual_target then
+        assert(not armed and input.fixture=='rich_pdf' and type(input.manual_target)=='string' and input.manual_target:match('^CB_[A-Za-z0-9]+$'))
+        report.manual_confirmation=false;report.manual_cancel_safe=false;report.manual_linked=false;report.manual_pdf_pages=false;report.manual_cloud_unbound=false
+    end
     assert(type(input.shelf_books)=='number' and input.shelf_books%1==0 and input.shelf_books>=1 and input.shelf_books<=5000)
     local extension=format=='rich_pdf' and 'pdf' or format or (epub and 'epub' or 'txt')
     local expected_mock=format and 'SyntheticUpload.'..extension or exact and 'SyntheticExactEpub.epub' or near and 'SyntheticNearEpub.epub' or large and 'SyntheticLargeEpub.epub' or epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
@@ -253,6 +257,38 @@ local ok,reason=pcall(function()
             if same_session then report.web_cookies=reader.weread.settings:get('cookies',{}) end
             reader:onClose(false)
         end
+    end
+    if input.manual_target then
+        local id=input.manual_target;local original=require('weread.lib.personal_original')
+        plugin:showBookMenu{book_id=id,title='Synthetic local PDF',chapters={}}
+        local detail=assert(plugin._book_detail_view);local attach
+        for _i,action in ipairs(detail.data.actions or {}) do
+            if action.text==tr('Choose or change local PDF') then attach=action;break end
+        end
+        assert(attach and not original.resolve(plugin,id))
+        local function choose_local()
+            attach.callback();local chooser=assert(plugin._personal_original_attach.chooser)
+            chooser:onMenuHold({path=path});assert(chooser.button_dialog).buttons[1][2].callback()
+            pump(function() return plugin._personal_original_attach and plugin._personal_original_attach.dialog end)
+            return assert(plugin._personal_original_attach.dialog)
+        end
+        local manual_dialog=choose_local()
+        assert(manual_dialog.text:find(tr('The plugin cannot verify that its contents match.'),1,true)
+            or manual_dialog.text:find('无法核实',1,true));report.manual_confirmation=true
+        manual_dialog.cancel_callback();assert(not original.resolve(plugin,id));report.manual_cancel_safe=true
+        manual_dialog=choose_local();manual_dialog.ok_callback();assert(original.resolve(plugin,id)==path);report.manual_linked=true
+        local info=UI:getTopmostVisibleWidget();if info and info~=FM.instance and info.text then UI:close(info) end
+        detail=assert(plugin._book_detail_view);local open
+        for _i,action in ipairs(detail.data.actions or {}) do
+            if action.text==tr('Read original PDF (local only, no cloud sync)') then open=action;break end
+        end
+        assert(open);open.callback();local Reader=require('apps/reader/readerui')
+        pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document and Reader.instance.document.file==path end)
+        local reader=Reader.instance;assert(reader.document:getPageCount()==2);report.manual_pdf_pages=true
+        local current=reader.weread;assert(not current:detectWeReadBook() and not current.progress_sync.current_book_id)
+        local cache=current.settings.cache_dir;current.settings.cache_dir=home
+        assert(not current:detectWeReadBook());current.settings.cache_dir=cache
+        report.manual_cloud_unbound=true;reader:onClose(false)
     end
     assert(verify_file());report.file_unchanged=true
     plugin:closeWeReadUI()
