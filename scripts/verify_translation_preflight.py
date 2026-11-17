@@ -150,11 +150,19 @@ class TranslationWebProbe(WebSourceProbe):
                     and type(body['sc']) is int and body['sc'] in (0,1) and type(body['st']) is int and body['st']==0
                     and ('prevChapter' not in body or body['prevChapter'] is False) and len(json.dumps(body))<=16384): return
         raise TranslationError('translation/web_request_outside_scope')
-    def inspect_content(self,sample):
+    def inspect_content(self,sample,chapter_uid=None):
+        self.content_sample=None
         model=sample['expected']
         safe=[row for row in model['chapters'] if row['uid']>0 and row.get('wordCount',0)>=200 and row['free_or_owned']]
-        if not safe: return dict(attempted=False,reason='no_explicit_free_or_owned_chapter')
-        row=max(safe,key=lambda item:(item.get('transWordCount',0)>0,item.get('translateVersion',0)>0,item.get('hasTranslated') is True,-item['uid']))
+        if not safe:
+            if chapter_uid is not None:raise TranslationError('translation/chapter_not_admitted')
+            return dict(attempted=False,reason='no_explicit_free_or_owned_chapter')
+        if chapter_uid is None:
+            row=max(safe,key=lambda item:(item.get('transWordCount',0)>0,item.get('translateVersion',0)>0,item.get('hasTranslated') is True,-item['uid']))
+        else:
+            choices=[item for item in safe if type(chapter_uid) is int and item['uid']==chapter_uid]
+            if len(choices)!=1: raise TranslationError('translation/chapter_not_admitted')
+            row=choices[0]
         self.book_id=sample['book_id'];self.chapter=str(row['uid'])
         html=self.request('reader',reader_url_for(self.book_id,self.chapter),as_json=False)
         state=reader_context(dict(book_id=self.book_id),html)
@@ -173,6 +181,7 @@ class TranslationWebProbe(WebSourceProbe):
             attempts.append(dict(representation='download' if compatibility else 'browser',decoded_bytes=len(source.encode('utf-8'))))
             if source:
                 summary=content_summary(source)
+                self.content_sample=dict(book_id=self.book_id,chapter_uid=row['uid'],source=source)
                 html=source if re.search(r'<body(?:\s|>)',source,re.I) else '<html><body>'+source+'</body></html>'
                 self.samples.append(dict(html=html,expected_blocks=summary['nonempty_translation_blocks']))
                 return dict(attempted=True,same_book_and_chapter_verified=True,content_decoded=True,attempts=attempts,**summary)
