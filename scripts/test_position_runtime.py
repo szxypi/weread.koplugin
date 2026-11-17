@@ -24,6 +24,10 @@ class SearchMockServer(MockServer):
     def route(self,method,target,data):
         url=urlsplit(target)
         if method=='GET' and url.path=='/web/book/search_v2':
+            # Let the shared mock apply its configured delay/status before the
+            # search-specific synthetic response is generated.
+            try:return super().route(method,target,data)
+            except LookupError:pass
             query=parse_qs(url.query)
             expected={'bookId','chapterUid','keyword','posBegin','posEnd','mode','count'}
             if (set(query)!=expected or query['bookId']!=['900001'] or query['keyword']!=['amberneedle']
@@ -54,6 +58,7 @@ def main():
     parser.add_argument('--search-scope', choices=('full','chapter'), default='full')
     parser.add_argument('--search-missing', action='store_true')
     parser.add_argument('--search-catalog-missing', action='store_true')
+    parser.add_argument('--search-renewal', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
         parser.error("screen dimensions and DPI must be positive")
@@ -61,7 +66,7 @@ def main():
         parser.error('--source-format web_txt requires --probe source-state')
     if args.search_scope != 'full' and args.probe != 'quick-search':
         parser.error('--search-scope chapter requires --probe quick-search')
-    if (args.search_missing or args.search_catalog_missing) and args.probe!='book-search':
+    if (args.search_missing or args.search_catalog_missing or args.search_renewal) and args.probe!='book-search':
         parser.error('search fixture options require --probe book-search')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     server = SearchMockServer(0) if args.probe=='book-search' else MockServer(0)
@@ -81,6 +86,7 @@ def main():
                                         WEREAD_TEST_SEARCH_SCOPE=args.search_scope,
                                         WEREAD_TEST_SEARCH_MISSING='1' if args.search_missing else '0',
                                         WEREAD_TEST_SEARCH_CATALOG_MISSING='1' if args.search_catalog_missing else '0',
+                                        WEREAD_TEST_SEARCH_RENEWAL='1' if args.search_renewal else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                                         EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
@@ -117,12 +123,16 @@ def main():
                 marker=b'\nWEREAD_BOOK_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing online book search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
-                assert value==dict(result='PASS',pages=2,results=2,verified_navigation=True,network_worker=True,
-                                   downloaded=args.search_missing,catalog_downloaded=args.search_catalog_missing), 'online search result mismatch'
-                assert server.request_totals[('/web/book/search_v2','')]==2, 'unexpected search request count'
+                expected=dict(result='PASS',pages=2,results=2,verified_navigation=True,network_worker=True,
+                              downloaded=args.search_missing,catalog_downloaded=args.search_catalog_missing)
+                if args.search_renewal:expected['renewal_scenarios']=True
+                assert value==expected, 'online search result mismatch'
+                assert server.request_totals[('/web/book/search_v2','')]==(7 if args.search_renewal else 2), 'unexpected search request count'
+                assert server.request_totals[('/web/login/renewal','')]==(2 if args.search_renewal else 0), 'unexpected renewal count'
                 for event in server.events:
                     if event['method']=='POST':
-                        assert (event['path']=='/web/book/chapterInfos'
+                        assert (args.search_renewal and event['path'] in {'/__control','/web/login/renewal'}
+                            or event['path']=='/web/book/chapterInfos'
                             or event['path'] in {'/web/book/chapter/e_0','/web/book/chapter/e_1',
                                                  '/web/book/chapter/e_2','/web/book/chapter/e_3'}), 'unexpected modifying request'
                 if args.search_missing:

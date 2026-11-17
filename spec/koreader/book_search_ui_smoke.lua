@@ -3,6 +3,7 @@ require('setupkoenv')
 local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDENCE'))
 local missing=os.getenv('WEREAD_TEST_SEARCH_MISSING')=='1'
 local catalog_missing=os.getenv('WEREAD_TEST_SEARCH_CATALOG_MISSING')=='1'
+local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
 G_reader_settings:saveSetting('language','zh_CN')
@@ -61,6 +62,11 @@ local function wait(predicate)
 end
 local plugin=assert(reader.weread)
 plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
+local last_info
+if renewal_test then
+    local show_info=plugin.showInfo
+    function plugin:showInfo(message,...) last_info=message;return show_info(self,message,...) end
+end
 assert(plugin:showEndOfBookDialog('900001'))
 local quick=assert(UI:getTopmostVisibleWidget())
 local button
@@ -84,9 +90,50 @@ wait(function() return require('ffi/util').isSubProcessDone(cancelled_pid) end)
 assert(not owner.job and tonumber(network[0])==before_cancel,'cancelled search dispatched a request')
 Search.fetch=original_fetch
 Content.ensure_reader_state=original_reader
+local control,count
+if renewal_test then
+    local http,ltn12=require('socket.http'),require('ltn12')
+    local endpoint=settings.mock_endpoint
+    control=function(value)
+        local bytes=plugin.client:json_encode(value)
+        local _,code=http.request{url=endpoint..'/__control',proxy=endpoint,method='POST',
+            headers={['content-type']='application/json',['content-length']=#bytes},source=ltn12.source.string(bytes),sink=ltn12.sink.null()}
+        assert(code==200)
+    end
+    count=function(path)
+        local chunks={};local _,code=http.request{url=endpoint..'/__state',proxy=endpoint,sink=ltn12.sink.table(chunks)}
+        assert(code==200);local total=0
+        for _i,value in ipairs(plugin.client:json_decode(table.concat(chunks)).totals) do
+            if value.path==path then total=total+value.count end
+        end
+        return total
+    end
+    control{match='/web/book/search_v2',times=1,status=401,web_renewal_mode='rotate'}
+end
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
 assert(#owner.value==1 and owner.value[1].source_verified==false)
+if renewal_test then
+    assert(not owner.recovery and count('/web/login/renewal')==1 and count('/web/book/search_v2')==2)
+    assert(plugin.settings:get('cookies').wr_skey=='XXXrenewed-native' and plugin.web_renewal.store:read().phase=='done')
+    control{match='/web/book/search_v2',times=-1,status=401,web_renewal_mode='rotate'}
+    owner.menu:onMenuSelect(owner.menu.item_table[1])
+    wait(function() return not owner.job and not owner.recovery end)
+    assert(owner.state.pages==1 and #owner.value==1 and count('/web/login/renewal')==2
+        and count('/web/book/search_v2')==4,'repeated 401 lost the page or retried renewal')
+    assert(last_info==require('weread.lib.i18n').tr('The search login is unavailable. Check your login and try again. Existing results are kept.'))
+    owner.menu:onMenuSelect(owner.menu.item_table[1])
+    wait(function() return not owner.job and not owner.recovery end)
+    assert(owner.state.pages==1 and #owner.value==1 and count('/web/login/renewal')==2
+        and count('/web/book/search_v2')==5,'manual retry renewed an unchanged failed page')
+    control{match='/web/book/search_v2',times=1,status=429}
+    owner.menu:onMenuSelect(owner.menu.item_table[1])
+    wait(function() return not owner.job and not owner.recovery end)
+    assert(owner.state.pages==1 and #owner.value==1 and count('/web/login/renewal')==2
+        and count('/web/book/search_v2')==6,'429 retried login or lost the page')
+    assert(last_info==require('weread.lib.i18n').tr('Search requests are temporarily limited. Wait and try again. Existing results are kept.'))
+    control{match='',times=0,delay=0}
+end
 local worker_used=owner.worker~=nil
 assert(owner.menu.item_table[1].text==require('weread.lib.i18n').tr('Load more results'))
 owner.menu:onMenuSelect(owner.menu.item_table[1])
@@ -118,6 +165,8 @@ end)
 assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
 assert(not plugin.progress_sync.verified and not plugin.read_report.job)
 assert(not missing or tonumber(network[0])>before_navigation)
-print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',pages=2,results=2,
-    verified_navigation=true,network_worker=worker_used,downloaded=missing,catalog_downloaded=catalog_missing}))
+local result={result='PASS',pages=2,results=2,
+    verified_navigation=true,network_worker=worker_used,downloaded=missing,catalog_downloaded=catalog_missing}
+if renewal_test then result.renewal_scenarios=true end
+print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(result))
 os.exit(0)

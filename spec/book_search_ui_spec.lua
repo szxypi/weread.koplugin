@@ -30,9 +30,23 @@ package.preload['weread.lib.book_search']=function() return {
     fetch=function(_client,state)
         fetches=fetches+1
         if fetch_mode=='fail' then return nil,'unavailable' end
+        if fetch_mode=='expired' then return nil,'web_http_401' end
+        if fetch_mode=='business_expired' then return nil,'web_expired' end
+        if fetch_mode=='limited' then return nil,'rate_limited' end
         state.pages=state.pages+1;state.finished=state.pages==2
         return {hits={{chapter_uid='1',text='term',context=string.rep('long prefix ',20)..'term context',source_verified=false}},finished=state.finished}
     end,
+} end
+local pending_renewal,renewals,cancellations=nil,0,0
+local synchronous_renewal=false
+package.preload['weread.ui.web_renewal']=function() return {
+    run=function(_host,options,callback)
+        renewals=renewals+1;pending_renewal={guard=options.is_current,callback=callback}
+        if synchronous_renewal then fetch_mode='ok';callback(true) end
+        return true,pending_renewal
+    end,
+    cancel=function(_host,request) if request then cancellations=cancellations+1 end end,
+    error_text=function(reason) return 'renewal error: '..tostring(reason) end,
 } end
 local active_worker
 package.preload['weread.lib.memory_worker']=function() return {new=function()
@@ -101,4 +115,82 @@ expect(owner.state.pages==0 and #owner.value==0 and not host._book_search_owner
 Search.cancel(host)
 owner=open_and_submit();scope_valid=false;active_worker:complete();scope_valid=true
 expect(not host._book_search_owner and #owner.value==0,'account change kept search work alive')
+
+fetch_mode='expired';owner=open_and_submit();active_worker:complete()
+local renewal=pending_renewal
+expect(owner.recovery and renewal and renewal.guard() and owner.state.pages==0,'401 did not start scoped renewal')
+local before=fetches;owner.menu.items[1].callback()
+expect(fetches==before and not owner.job,'pagination ran while renewal was pending')
+fetch_mode='ok';renewal.callback(true)
+expect(not owner.recovery and owner.job and owner.state.pages==0,'successful renewal did not retry the same page')
+active_worker:complete()
+expect(owner.state.pages==1 and #owner.value==1,'renewed first page did not display once')
+fetch_mode='expired';owner.menu.items[1].callback();active_worker:complete();renewal=pending_renewal
+expect(owner.recovery and owner.state.pages==1 and #owner.value==1,'renewal discarded previous pages')
+local nav_before=navigation_calls;owner.menu.items[2].callback()
+expect(navigation_calls==nav_before and not owner.navigation,'result navigation ran during renewal')
+fetch_mode='ok';renewal.callback(true);active_worker:complete()
+expect(owner.state.pages==2 and #owner.value==2,'renewed later page repeated or lost results')
+Search.cancel(host)
+fetch_mode='expired';synchronous_renewal=true;owner=open_and_submit();active_worker:complete();synchronous_renewal=false
+expect(owner.job and not owner.recovery,'synchronous renewal lost the replacement page worker')
+active_worker:complete();expect(owner.state.pages==1 and #owner.value==1,'synchronous renewal failed to display results')
+Search.cancel(host)
+
+fetch_mode='expired';local before_renewals=renewals;owner=open_and_submit();active_worker:complete()
+renewal=pending_renewal;renewal.callback(true);active_worker:complete()
+expect(renewals==before_renewals+1 and not owner.recovery and owner.state.pages==0
+    and host.info=='The search login is unavailable. Check your login and try again. Existing results are kept.',
+    'repeated 401 caused another automatic renewal or hid the login problem')
+owner.menu.items[1].callback();active_worker:complete()
+expect(renewals==before_renewals+1 and not owner.recovery and owner.state.pages==0,
+    'manual retry renewed the same failed page again')
+Search.cancel(host)
+
+owner=open_and_submit();active_worker:complete();renewal=pending_renewal;local cancelled_before=cancellations
+host.busy_message.cancel()
+expect(not owner.recovery and cancellations==cancelled_before+1,'cancel did not stop pending renewal')
+before=fetches;renewal.callback(true)
+expect(fetches==before and not owner.job,'cancelled renewal restarted the search')
+Search.cancel(host)
+
+owner=open_and_submit();active_worker:complete();renewal=pending_renewal
+host.ui.document={file='/other.epub'}
+expect(not renewal.guard(),'renewal did not detect a switched document')
+renewal.callback(false,'session_changed')
+expect(not host._book_search_owner and not owner.job,'late renewal survived a document change')
+host.ui.document={file='/synthetic.epub'}
+
+owner=open_and_submit();active_worker:complete();renewal=pending_renewal;account='456'
+expect(not renewal.guard(),'renewal did not detect an account change')
+renewal.callback(false,'session_changed')
+expect(not host._book_search_owner and not owner.job,'late renewal survived an account change')
+account='123'
+
+owner=open_and_submit();active_worker:complete();renewal=pending_renewal;cancelled_before=cancellations
+Search.cancel(host)
+expect(not owner.recovery and cancellations==cancelled_before+1 and not renewal.guard(),
+    'closing search did not cancel and invalidate renewal')
+before=fetches;renewal.callback(true)
+expect(fetches==before and not host._book_search_owner,'closed search resumed after a late renewal')
+
+fetch_mode='business_expired';before_renewals=renewals;owner=open_and_submit();active_worker:complete()
+expect(renewals==before_renewals and not owner.recovery and owner.state.pages==0,
+    'unverified business error triggered automatic renewal')
+Search.cancel(host)
+fetch_mode='limited';owner=open_and_submit();active_worker:complete()
+expect(renewals==before_renewals and not owner.recovery
+    and host.info=='Search requests are temporarily limited. Wait and try again. Existing results are kept.',
+    'rate limiting triggered renewal or lacked an actionable message')
+Search.cancel(host)
+owner=open_and_submit();before_renewals=renewals
+active_worker.callback({reason='web_http_401',page={},state={book='100',keyword='term',pages=0}})
+expect(renewals==before_renewals and not owner.recovery and owner.state.pages==0,
+    'malformed error packet triggered automatic renewal')
+Search.cancel(host)
+fetch_mode='ok';owner=open_and_submit();active_worker:complete();fetch_mode='expired';owner.menu.items[1].callback();active_worker:complete()
+renewal=pending_renewal;renewal.callback(false,'renewal_unconfirmed')
+expect(not owner.recovery and owner.state.pages==1 and #owner.value==1
+    and host.info=='renewal error: renewal_unconfirmed','failed renewal discarded previous results')
+Search.cancel(host)
 print(('book_search_ui_spec: %d checks'):format(checks))

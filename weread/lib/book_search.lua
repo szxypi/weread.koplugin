@@ -135,7 +135,7 @@ function M.fetch(client, state, selected)
                 chunks[#chunks+1]=chunk;return 1
             end})
         if not Access.matches(client.settings,selected) then return nil,'session_changed' end
-        if ok and code==401 and not exceeded then return nil,'web_expired' end
+        if ok and code==401 and not exceeded then return nil,'web_http_401' end
         if ok and code==429 and not exceeded then return nil,'rate_limited' end
         if not ok or code~=200 or exceeded then return nil,'unavailable' end
         local decoded,value=pcall(client.json_decode,client,table.concat(chunks))

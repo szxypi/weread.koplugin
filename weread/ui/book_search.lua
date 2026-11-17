@@ -46,11 +46,18 @@ local function stop_work(host,owner)
     if job and job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
 
+local function stop_recovery(host,owner)
+    local recovery=owner.recovery;owner.recovery=nil
+    if not recovery then return end
+    if recovery.request then require('weread.ui.web_renewal').cancel(host,recovery.request) end
+    if recovery.busy and host.busy_message==recovery.busy then host:closeBusy() end
+end
+
 function M.cancel(host)
     local owner=host._book_search_owner
     if not owner then return end
     host._book_search_owner=nil;owner.closed=true
-    stop_work(host,owner);Navigation.cancel(host,owner)
+    stop_work(host,owner);stop_recovery(host,owner);Navigation.cancel(host,owner)
     local input,menu=owner.input,owner.menu;owner.input=nil;owner.menu=nil
     if input then UI:close(input) end
     if menu then menu._shelf_closed=true;Popup.close(menu);UI:close(menu) end
@@ -64,7 +71,7 @@ render=function(host,owner)
         local items={}
         if owner.state and not owner.state.finished and owner.state.pages<128 then
             items[#items+1]={text=_('Load more results'),callback=function()
-                if current(host,owner) and not owner.job and not owner.navigation then fetch_page(host,owner) end
+                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation then fetch_page(host,owner) end
             end}
         end
         for _i,hit in ipairs(owner.value) do
@@ -72,7 +79,7 @@ render=function(host,owner)
             local title=owner.titles[hit.chapter_uid] or _('Chapter unavailable')
             local context=preview(hit.context,hit.text)
             items[#items+1]={text=title..' · '..context,select_enabled=row~=nil,callback=function()
-                if current(host,owner) and not owner.job and not owner.navigation and row then
+                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation and row then
                     Navigation.start(host,owner,row,current)
                 end
             end}
@@ -85,7 +92,7 @@ render=function(host,owner)
         end
         if #items==0 and not owner.state and owner.retry then
             items[1]={text=_('Retry search'),callback=function()
-                if current(host,owner) and not owner.job then owner.retry() end
+                if current(host,owner) and not owner.job and not owner.recovery then owner.retry() end
             end}
         elseif #items==0 then
             items[1]={text=_('Searching this book…\nTap or press a key to cancel.'),select_enabled=false}
@@ -95,7 +102,7 @@ render=function(host,owner)
 end
 
 local function begin_work(host,owner,task,done)
-    if not current(host,owner) or owner.job or owner.navigation then return false end
+    if not current(host,owner) or owner.job or owner.recovery or owner.navigation then return false end
     local job={};owner.job=job
     host:showBusy(_('Searching this book…\nTap or press a key to cancel.'),function()
         if owner.job==job then stop_work(host,owner);render(host,owner) end
@@ -115,8 +122,8 @@ local function begin_work(host,owner,task,done)
     return true
 end
 
-fetch_page=function(host,owner)
-    if not current(host,owner) or not owner.state or owner.job or owner.navigation then return false end
+fetch_page=function(host,owner,recovered)
+    if not current(host,owner) or not owner.state or owner.job or owner.recovery or owner.navigation then return false end
     if not host:isNetworkOnline() then host:showOffline(_('Search entire book'));return false end
     local access=Access.capture(host.settings)
     if not access or not access.web then host:showInfo(_('A verified WeRead web login is required for online book search.'));return false end
@@ -130,10 +137,43 @@ fetch_page=function(host,owner)
             M.cancel(host);host:showInfo(_('WeRead login changed. Search again.'));return
         end
         if owner.state~=previous then return end
-        if type(value)~='table' or type(value.page)~='table' or type(value.page.hits)~='table'
+        if type(value)=='table' and value.reason=='web_http_401' and value.page==nil
+            and type(value.state)=='table' and value.state.book==owner.id and value.state.keyword==owner.keyword
+            and value.state.pages==previous.pages and not recovered and owner.recovery_state~=previous then
+            local renewal=require('weread.ui.web_renewal')
+            owner.recovery_state=previous
+            local recovery={};owner.recovery=recovery
+            host:showBusy(_('Renewing WeRead login…\nTap or press a key to cancel.'),function()
+                if owner.recovery==recovery then stop_recovery(host,owner);render(host,owner) end
+            end)
+            recovery.busy=host.busy_message
+            local called,started,request=pcall(renewal.run,host,{is_current=function()
+                return owner.recovery==recovery and current(host,owner) and owner.state==previous and host:isNetworkOnline()
+            end},function(ok,reason)
+                if owner.recovery~=recovery then return end
+                stop_recovery(host,owner)
+                if not current(host,owner) or owner.state~=previous then M.cancel(host);return end
+                if reason=='session_changed' then M.cancel(host);return end
+                if not ok then host:showInfo(renewal.error_text(reason));return end
+                local fresh=Access.capture(host.settings)
+                if not fresh or not fresh.web then M.cancel(host);host:showInfo(_('WeRead login changed. Search again.'));return end
+                fetch_page(host,owner,true)
+            end)
+            if owner.recovery==recovery then
+                if called and started then recovery.request=request
+                else stop_recovery(host,owner);host:showInfo(renewal.error_text(called and request or 'unavailable')) end
+            elseif called and started then renewal.cancel(host,request) end
+            return
+        end
+        if type(value)~='table' or value.reason~=nil or type(value.page)~='table' or type(value.page.hits)~='table'
             or type(value.state)~='table' or value.state.book~=owner.id or value.state.keyword~=owner.keyword
             or value.state.pages~=previous.pages+1 or #value.page.hits>1000 then
-            host:showInfo(_('Could not search this book. Check the network and try again.'));return
+            local reason=type(value)=='table' and value.reason
+            local message=reason=='rate_limited' and 'Search requests are temporarily limited. Wait and try again. Existing results are kept.'
+                or (reason=='web_http_401' or reason=='web_expired')
+                    and 'The search login is unavailable. Check your login and try again. Existing results are kept.'
+                or 'Could not search this book. Check the network and try again.'
+            host:showInfo(_(message));return
         end
         owner.state=value.state
         for _i,hit in ipairs(value.page.hits) do owner.value[#owner.value+1]=hit end

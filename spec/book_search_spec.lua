@@ -89,5 +89,9 @@ expect(not result and err=='unavailable' and #requests==2 and fetched.pages==0,'
 requests={};search_status=429;fetched=fresh();result,err=Search.fetch(client,fetched);search_status=nil
 expect(not result and err=='rate_limited' and #requests==2 and fetched.pages==0,'rate-limited search advanced state')
 settings.cookies.wr_skey='synthetic-session';status=401;requests={};fetched=fresh();result,err=Search.fetch(client,fetched)
-expect(not result and err=='web_expired' and #requests==1 and fetched.pages==0,'expired session was treated as a search result')
+expect(not result and err=='web_http_401' and #requests==1 and fetched.pages==0,'expired session was treated as a search result')
+status=200;search_status=401;requests={};fetched=fresh();result,err=Search.fetch(client,fetched);search_status=nil
+expect(not result and err=='web_http_401' and #requests==2 and fetched.pages==0,'search HTTP 401 advanced pagination')
+response={errCode=-2012};requests={};fetched=fresh();result,err=Search.fetch(client,fetched)
+expect(not result and err=='web_expired' and #requests==2 and fetched.pages==0,'unverified business error was treated as HTTP 401')
 print(('book_search_spec: %d checks'):format(checks))
