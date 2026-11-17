@@ -102,7 +102,8 @@ class ScopedTransportTest(unittest.TestCase):
             self.assertEqual(main(['--saved-session','--inspect']),0)
         result=json.loads(output.getvalue());self.assertTrue(result['native_present'] and result['same_group_when_visible'])
         self.assertTrue(result['native_other_state_unchanged'] and result['web_other_state_unchanged'])
-        self.assertNotIn(name,output.getvalue());self.assertNotIn('synthetic-token',output.getvalue());pending.assert_not_called()
+        self.assertNotIn(name,output.getvalue());self.assertNotIn('synthetic-token',output.getvalue())
+        self.assertNotIn('"97"',output.getvalue());pending.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

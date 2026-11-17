@@ -108,7 +108,7 @@ def restored(before, after):
 
 
 def inspect_closed(value, name, before_hash):
-    """Inspect a possibly delayed temporary group without exposing its ID."""
+    """Inspect a possibly delayed group; the returned ID is private to callers."""
     if not temporary_name(name) or not isinstance(before_hash,str) or not re.fullmatch('[a-f0-9]{64}',before_hash):
         raise ValueError('cloud_group/inspect')
     matches=[(key,row) for key,row in value['groups'].items() if row['name']==name]
