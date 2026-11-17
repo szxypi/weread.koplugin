@@ -139,6 +139,17 @@ db=H.connect(coverage.path);statement=db:prepare("UPDATE offline_time_records SE
 statement:bind(record.attempt):step();statement:close();db:close()
 local recovered,legacy_reason=journal:recover(account);eq(recovered,nil);eq(legacy_reason,'unverified_confirmation')
 eq(ledger:summary(account).confirmed,0);eq(journal:settle(record),nil)
+local legacy=assert(journal:pending(account));eq(journal:retire_unknown(legacy),true)
+eq(assert(journal:get(account,legacy.attempt)).phase,'retired');eq(ledger:summary(account).unknown,40)
+eq(coverage:reserve(account,170,30),nil)
+-- Expected-operation recovery cannot cancel a replacement unsent operation.
+ledger,coverage,journal,selected=fixture();record=begin(journal,selected)
+eq(journal:cancel_prepared(record),true)
+selected=assert(C.select(assert(ledger:pending(account)),assert(coverage:preview(account,assert(ledger:pending(account)))),200))
+journal.nonce=function() return string.rep('2',32) end
+local replacement=assert(journal:begin(account,selected,{request_hash=string.rep('e',64),seconds=40}))
+local stale,stale_reason=journal:recover(account,record);eq(stale,nil);eq(stale_reason,'replaced')
+eq(journal:pending(account).attempt,replacement.attempt);eq(journal:recover(account,replacement),true)
 -- Reopening a pre-evidence schema adds the column and preserves its old row.
 ledger,coverage,journal,selected=fixture();record=begin(journal,selected)
 db=H.connect(coverage.path);db:exec([[DROP INDEX offline_time_active;DROP INDEX offline_time_account;

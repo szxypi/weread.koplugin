@@ -1,4 +1,4 @@
--- Native local ledger review. No authentication, HTTP or transfer mutations.
+-- Native ledger review and explicit background transfer of historical batches.
 local C=require('weread.lib.readtime_transfer_contract')
 local Queue=require('weread.lib.readtime_transfer_queue')
 local Coverage=require('weread.lib.readtime_coverage')
@@ -19,7 +19,9 @@ local function close_field(host,key)
     if widget then UI:close(widget) end
 end
 function M.close(host)
-    local context=host._offline_time_review;host._offline_time_review=nil
+    local context=host._offline_time_review
+    if host.offline_time_transfer_service then host.offline_time_transfer_service:cancel() end
+    host._offline_time_review=nil
     if host.offline_time_review_worker then host.offline_time_review_worker:cancel() end
     if context and context.busy and host.busy_message==context.busy then host:closeBusy() end
     close_field(host,'_offline_time_detail');close_field(host,'_offline_time_menu')
@@ -47,20 +49,29 @@ local function time_label(row)
     return valid and type(value)=='string' and value..' '..z or _('Time needs verification')
 end
 local function seconds(value) return T(_('%1 s'),tostring(value)) end
-local load
-local function dialog(host,context,text,back)
+local load,transfer
+local function dialog(host,context,text,back,actions)
     close_field(host,'_offline_time_detail')
     local widget
-    widget=require('ui/widget/buttondialog'):new{title=text,tap_close_callback=function()
-        if host._offline_time_detail==widget then host._offline_time_detail=nil;M.close(host) end
-    end,buttons={{
+    local buttons={{
         {text=_('Back'),callback=function()
             if host._offline_time_detail~=widget then return end
             if not owns(host,context) then M.close(host);return end
             close_field(host,'_offline_time_detail');back()
         end},
         {text=_('Close'),callback=function() if host._offline_time_detail==widget then M.close(host) end end},
-    }}}
+    }}
+    for _i,action in ipairs(actions or {}) do
+        local item=action
+        buttons[#buttons+1]={{text=_(item.text),callback=function()
+            if host._offline_time_detail~=widget then return end
+            if not owns(host,context) then M.close(host);return end
+            close_field(host,'_offline_time_detail');item.callback()
+        end}}
+    end
+    widget=require('ui/widget/buttondialog'):new{title=text,buttons=buttons,tap_close_callback=function()
+        if host._offline_time_detail==widget then host._offline_time_detail=nil;M.close(host) end
+    end}
     host._offline_time_detail=widget;UI:show(widget)
 end
 local function menu(host,context,name,items)
@@ -85,7 +96,7 @@ end
 local function render(host,context,kind,value,args)
     if kind=='summary' then
         local summary=value.summary;local state=STATUS[context.error or context.state] or 'Could not save offline reading time'
-        menu(host,context,_('Offline reading time'),{
+        local items={
             {text=_(state)},
             {text=_('Pending local records'),mandatory=seconds(summary.pending),callback=function() load(host,context,'page',{category='pending',cursors={0},index=1}) end},
             {text=_('Uncertain time records'),mandatory=seconds(summary.unknown+summary.in_flight),callback=function() load(host,context,'page',{category='review',cursors={0},index=1}) end},
@@ -93,8 +104,12 @@ local function render(host,context,kind,value,args)
             {text=_('Confirmed transferred time'),mandatory=seconds(summary.confirmed)},
             {text=_('Check saved time'),callback=function() load(host,context,'selection',{}) end},
             {text=_('Refresh local records'),callback=function() M.show(host) end},
-            {text=_('Offline time stays on this device until cloud transfer is available.')},
-        })
+            {text=_('Transfer past days in batches. Today’s records stay on this device.')},
+        }
+        if value.record then table.insert(items,6,{text=_('Review unfinished transfer'),callback=function()
+            load(host,context,'transfer_record',{})
+        end}) end
+        menu(host,context,_('Offline reading time'),items)
     elseif kind=='page' then
         local page=value.page;local items={}
         args.upper_id=page.upper_id
@@ -126,8 +141,78 @@ local function render(host,context,kind,value,args)
         local chosen=value.selection
         local text=chosen and value.title..'\n'..T(_('Local duplicate check: %1'),seconds(chosen.seconds))
             ..'\n'..time_label(chosen.protocol_rows[1]) or _('No locally verified time is available in this check.')
-        dialog(host,context,text..'\n\n'.._('Offline time stays on this device until cloud transfer is available.'),
-            function() load(host,context,'summary',{}) end)
+        local actions=chosen and {{text='Transfer this batch',callback=function() transfer(host,context,'send',chosen) end}} or nil
+        dialog(host,context,text..'\n\n'.._('Only the displayed historical batch is sent. Uncertain requests are kept and never resent.'),
+            function() load(host,context,'summary',{}) end,actions)
+    elseif kind=='transfer_record' then
+        local record=value.record
+        if not record then load(host,context,'summary',{});return end
+        local receipt=record.evidence~=nil
+        local confirmed=record.phase=='confirmed' and receipt and record.evidence.audit~=nil
+        local text=title(host,record.metadata.book_id)..'\n'.._(confirmed and 'Cloud accounting is confirmed. Only local bookkeeping remains.'
+            or receipt and 'Receipt saved; cloud accounting still needs checking.'
+            or 'This transfer needs review. It will not be sent again.')
+        if record.metadata.seconds then text=text..'\n'..T(_('Duration: %1'),seconds(record.metadata.seconds)) end
+        local actions={}
+        if record.phase=='acknowledged' then
+            actions[#actions+1]={text='Check cloud result without sending again',callback=function() transfer(host,context,'resolve',record) end}
+        elseif record.phase=='prepared' or record.phase=='confirmed' and receipt then
+            actions[#actions+1]={text='Finish local bookkeeping',callback=function() transfer(host,context,'recover',record) end}
+        end
+        if record.phase~='prepared' and not (record.phase=='confirmed' and receipt) then
+            actions[#actions+1]={text='Keep as uncertain and continue',callback=function() transfer(host,context,'retire',record) end}
+        end
+        text=text..'\n\n'.._(confirmed and 'Only local bookkeeping will be completed. No network request is needed.'
+            or 'Keeping an uncertain transfer preserves its records and prevents duplicate sends. It does not confirm cloud accounting.')
+        dialog(host,context,text,function() load(host,context,'summary',{}) end,actions)
+    end
+end
+transfer=function(host,context,mode,input)
+    if not owns(host,context) then M.close(host);return end
+    local online=mode=='send' or mode=='resolve'
+    if online and not host:isNetworkConnected() then
+        host:showInfo(_('No network connection. Please connect Wi-Fi and try again.'));load(host,context,'summary',{});return
+    end
+    local current=function() return owns(host,context) and (not online or host:isNetworkConnected()) end
+    if not host.offline_time_transfer_service then
+        local journal=require('weread.lib.readtime_transfer_store'):new{ledger=host.offline_time.store,
+            coverage=host.readtime_coverage or Coverage:new(host.settings.data_dir),codec=host.client}
+        host.offline_time_transfer_service=require('weread.lib.readtime_transfer_service'):new{settings=host.settings,client=host.client,
+            scheduler=UI,journal=journal,acquire=function(book)
+                return require('weread.lib.readtime_transfer_lease').acquire(host,book,current)
+            end}
+    else
+        host.offline_time_transfer_service.acquire=function(book)
+            return require('weread.lib.readtime_transfer_lease').acquire(host,book,current)
+        end
+    end
+    local references
+    if online then
+        local id=input.book_id or input.metadata.book_id
+        local book=host.settings:get_book(id)
+        local chapters=book and book.chapters
+        if type(chapters)~='table' or #chapters==0 then chapters=host.library_db:getChapters(id) end
+        references=require('weread.lib.readtime_source').references(book,chapters)
+        if not references then host:showInfo(_('Download source needs verification'));load(host,context,'summary',{});return end
+    end
+    host:showBusy(_(online and 'Checking and transferring saved time...' or 'Updating saved time...'),function() M.close(host) end)
+    context.busy=host.busy_message
+    local started,reason=host.offline_time_transfer_service:start(mode,context.account,input,references,current,function(result)
+        if not owns(host,context) or result.kind=='cancelled' then M.close(host);return end
+        if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
+        local labels={confirmed='This batch is independently confirmed in cloud reading time.',
+            saved_confirmation='Cloud accounting is confirmed. Finish local bookkeeping from the review menu.',
+            completed='Local records updated. Original transfer evidence is kept.',
+            unconfirmed='Cloud accounting is not confirmed. The request is kept and will not be sent again.',
+            unavailable='Could not complete this operation. Saved records are kept.',login='Log in again before checking saved time.'}
+        dialog(host,context,_(labels[result.kind] or labels.unconfirmed),function() load(host,context,'summary',{}) end)
+    end)
+    if not started then
+        if context.busy and host.busy_message==context.busy then host:closeBusy() end;context.busy=nil
+        local label=reason=='position_pending' and 'Review the unfinished position synchronization for this book first.'
+            or reason=='busy' and 'Another synchronization is running. Try again after it finishes.'
+            or reason=='login' and 'Log in again before checking saved time.' or 'Could not complete this operation. Saved records are kept.'
+        dialog(host,context,_(label),function() load(host,context,'summary',{}) end)
     end
 end
 load=function(host,context,kind,args)
@@ -146,7 +231,11 @@ load=function(host,context,kind,args)
     end
     local ledger=host.offline_time.store;local coverage=host.readtime_coverage or Coverage:new(host.settings.data_dir)
     local ran,started=pcall(host.offline_time_review_worker.start,host.offline_time_review_worker,function()
-        if kind=='summary' then return {summary=assert(ledger:summary(context.account))} end
+        if kind=='summary' or kind=='transfer_record' then
+            local journal=require('weread.lib.readtime_transfer_store'):new{ledger=ledger,coverage=coverage,codec=host.client}
+            local saved=assert(journal:read(context.account))
+            return {summary=assert(ledger:summary(context.account)),record=saved.record}
+        end
         if kind=='page' then
             local page=assert(ledger:review_page(context.account,args.category,args.cursors[args.index],args.upper_id,20))
             for _i,entry in ipairs(page.rows) do entry.title=title(host,entry.source.book_id) end
@@ -158,7 +247,7 @@ load=function(host,context,kind,args)
             assert(C.digest(entry.source)==C.digest(original),'changed');entry.title=title(host,entry.source.book_id)
             return {entry=entry,coverage=assert(coverage:preview_individual(context.account,{entry.source}))}
         end
-        local result=assert(Queue:new{ledger=ledger,coverage=coverage}:select(context.account))
+        local result=assert(Queue:new{ledger=ledger,coverage=coverage}:select(context.account,nil,{historical=true}))
         result.title=result.selection and title(host,result.selection.book_id) or nil;return result
     end,function(value)
         if not owns(host,context) or context.operation~=operation then

@@ -1,0 +1,72 @@
+{
+  "result": "PASS_SYNTHETIC_NATIVE_UI_FULL_GOAL_ACTIVE",
+  "based_on_head": "977ef8e97d4cbf14427aa8fbcbec49468db9bd2e",
+  "native_time_menu_submit_implemented": true,
+  "background_service_implemented": true,
+  "historical_cst_day_batches": true,
+  "own_online_writers_excluded": true,
+  "ack_only_recovery_read_only": true,
+  "same_owner_and_device_required": true,
+  "local_settlement_recovery_without_http": true,
+  "unknown_retirement_preserves_seals_and_receipts": true,
+  "old_confirmed_without_evidence_not_settled": true,
+  "replacement_prepared_record_not_cancelled": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "old_two_second_capture_reused": false,
+  "synthetic_only": true,
+  "screens": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "native_reader_worker_sqlite": true,
+      "cases": [
+        "confirmed",
+        "read_only_recovery",
+        "lost_ack_no_replay",
+        "local_settlement_recovery",
+        "cancel_after_ack"
+      ],
+      "checks": 112,
+      "source_and_installed_files_exact": 294
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "native_reader_worker_sqlite": true,
+      "cases": [
+        "confirmed",
+        "read_only_recovery",
+        "lost_ack_no_replay",
+        "local_settlement_recovery",
+        "cancel_after_ack"
+      ],
+      "checks": 114,
+      "source_and_installed_files_exact": 294
+    }
+  ],
+  "unit_checks": {
+    "task": 1117,
+    "service": 301,
+    "store": 141,
+    "queue": 70,
+    "ui": 56
+  },
+  "python_modules": 135,
+  "python_tests": 1715,
+  "python_skips": 0,
+  "lua_spec_groups": 263,
+  "lua_syntax_files": 753,
+  "lint_files": 751,
+  "lint_warnings": 0,
+  "native_json_sqlite_task_worker": true,
+  "native_json_sqlite_store_migration_faults": true,
+  "native_json_sqlite_service_and_real_writer_gates": true,
+  "package_files": 294,
+  "package_sha256": "30dd4887906a7fa728bd53703e52a4249457618468145ffc3cbe7cec2f28614d",
+  "actual_account_native_menu_accounting_verified": false,
+  "physical_kindle_oasis_2_verified": false,
+  "whole_goal_complete": false
+}

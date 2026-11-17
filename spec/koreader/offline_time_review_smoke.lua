@@ -9,7 +9,7 @@ return function(reader,request_count,flush_tasks)
     assert(not plugin.offline_time.active,'review fixture requires a stopped collector')
     local original_summary=C.digest(assert(original_store:summary(account)))
     assert(plugin.library_db:putBook({bookId='904201',title='山谷中的离线阅读记录 · '..string.rep('这是一段很长的中文书名，用于检查原生排版与截断。',8)}))
-    local ledger=Store:new(root);local now=os.time();local start=now-20000
+    local ledger=Store:new(root);local now=os.time();local start=require('weread.lib.readtime_accounting').day(now)-86400+3600
     for index=1,146 do
         local known=index>121;local duration=known and 60 or 1;local at=start+index*61
         local window=assert(ledger:begin(account,{book_id='904201',stats_book=1,start_time=at,time_zone='+08:00',

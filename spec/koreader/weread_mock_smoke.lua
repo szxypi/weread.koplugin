@@ -216,6 +216,9 @@ if test_offline_time then
     verify_reopened_file = dofile(fixture_dir .. "offline_time_smoke.lua")(reader, request_count, fastforward_ui_events)
     dofile(fixture_dir .. "readtime_coverage_smoke.lua")(reader, request_count)
     dofile(fixture_dir .. "offline_time_review_smoke.lua")(reader, request_count, fastforward_ui_events)
+    if os.getenv("WEREAD_TEST_NATIVE_TIME")=="1" then
+        dofile(fixture_dir.."native_time_transfer_smoke.lua")(reader,fastforward_ui_events,fixture_dir)
+    end
 end
 -- Exercise the real event loop, subprocesses, resume workspace, and packaging.
 local completed, full_path, download_error

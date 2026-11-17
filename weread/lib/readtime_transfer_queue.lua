@@ -1,6 +1,7 @@
 -- Local planning only. No HTTP, claims, queue transitions or version upgrades.
 local C=require('weread.lib.readtime_transfer_contract')
 local Coverage=require('weread.lib.readtime_coverage')
+local Day=require('weread.lib.readtime_accounting').day
 local M={};M.__index=M
 function M:new(options)
     return setmetatable({ledger=assert(options.ledger),coverage=assert(options.coverage),now=options.now or os.time},self)
@@ -9,11 +10,13 @@ local function same(row,group)
     return not group.book_id or row.book_id==group.book_id and row.file_id==group.file_id
         and row.book_version==group.book_version and row.time_zone==group.time_zone
 end
-function M:select(account,book_id)
+function M:select(account,book_id,options)
+    options=options or {}
     if not C.account(account) or book_id~=nil and not C.id(book_id) then return nil,'invalid_selection' end
     local now=self.now()
     if not C.integer(now,1,4102444800) then return nil,'invalid_clock' end
-    local selected={rows={},parts={},seconds=0};local report={scanned=0,unsupported=0,conflicting=0,covered=0,untracked=0}
+    local selected={rows={},parts={},seconds=0};local report={scanned=0,unsupported=0,conflicting=0,covered=0,untracked=0,deferred=0}
+    local historical_day
     local cursor,upper,seen=0,nil,{}
     for _page=1,501 do
         local page,reason=self.ledger:review_page(account,'pending',cursor,upper,100)
@@ -40,12 +43,27 @@ function M:select(account,book_id)
             local coverage,why=self.coverage:preview_individual(account,candidates)
             if not coverage then return nil,why end
             report.covered=report.covered+coverage.covered;report.untracked=report.untracked+coverage.unverified
-            local available={parts={}}
+            local available={parts={}};local by_row={}
+            for _i,row in ipairs(candidates) do by_row[row.id]=row end
             for _i,part in ipairs(coverage.parts) do
                 local split=Coverage.subtract(part.start_time,part.duration,1,blocked[part.row_id])
                 if not split then return nil,'invalid_page' end
                 report.conflicting=report.conflicting+split.covered
-                for _j,item in ipairs(split.parts) do item.row_id=part.row_id;available.parts[#available.parts+1]=item end
+                for _j,item in ipairs(split.parts) do
+                    if not options.historical then
+                        item.row_id=part.row_id;available.parts[#available.parts+1]=item
+                    else
+                        local first,last=item.start_time,item.start_time+item.duration
+                        while first<last do
+                            local day=Day(first);local finish=math.min(last,day+86400)
+                            if by_row[part.row_id].time_zone=='+08:00' and day<Day(now) and (not historical_day or day==historical_day) then
+                                historical_day=day
+                                available.parts[#available.parts+1]={row_id=part.row_id,start_time=first,duration=finish-first}
+                            else report.deferred=report.deferred+finish-first end
+                            first=finish
+                        end
+                    end
+                end
             end
             local next_group=C.select(candidates,available,now,book_id)
             if next_group then

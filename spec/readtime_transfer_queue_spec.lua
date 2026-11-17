@@ -89,5 +89,27 @@ journal=Journal:new{ledger=ledger,coverage=coverage,codec=codec};eq(journal:begi
 eq(ledger:summary(account).pending,60);eq(queue:select('invalid'),nil)
 -- Selection hashes still match the contract used by the transport gate.
 result=assert(queue:select(account));eq(result.selection.rows_hash,C.digest(result.selection.rows));eq(result.selection.parts_hash,C.digest(result.selection.parts))
+local _
+-- Historical mode skips current/other-zone pages and groups by exact CST day.
+rows={}
+for i=1,120 do rows[#rows+1]={start_time=150000+i*61,duration=60} end
+rows[#rows+1]={start_time=100000,duration=60,time_zone='+09:00'}
+rows[#rows+1]={start_time=100100,duration=60}
+rows[#rows+1]={start_time=100200,duration=60}
+rows[#rows+1]={start_time=160000,duration=60}
+ledger,_,queue=fixture(rows)
+before=C.digest(ledger:review_page(account,'all',0,nil,100))
+result=assert(queue:select(account,nil,{historical=true}));eq(result.selection.seconds,120)
+eq(result.selection.parts[1].start_time,100100);eq(result.report.deferred,7320);eq(result.report.scanned,124)
+eq(C.digest(ledger:review_page(account,'all',0,nil,100)),before)
+-- A midnight-spanning source row is split without editing the captured row.
+ledger,_,queue=fixture({{start_time=143970,duration=60},{start_time=100000,duration=60}})
+result=assert(queue:select(account,nil,{historical=true}));eq(result.selection.seconds,90)
+eq(result.selection.parts[2].start_time,143970);eq(result.selection.parts[2].duration,30)
+eq(result.selection.rows[1].duration,60);eq(ledger:summary(account).pending,120)
+queue=({fixture({{start_time=150000,duration=60},{start_time=50000,duration=60},{start_time=100000,duration=60}})})[3]
+result=assert(queue:select(account,nil,{historical=true}));eq(result.selection.seconds,60);eq(result.selection.parts[1].start_time,50000)
+ledger,_,queue=fixture({{start_time=150000,duration=60}})
+eq(assert(queue:select(account,nil,{historical=true})).selection,false);eq(ledger:summary(account).pending,60)
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
 print('readtime_transfer_queue_spec: '..checks..' checks')

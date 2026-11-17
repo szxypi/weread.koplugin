@@ -317,6 +317,7 @@ function ReadReport:_log_skip(reason)
 end
 
 function ReadReport:maybe_start(reason)
+    if self.offline_time_transfer then return false,nil,"offline_transfer" end
     local config = self:_config()
     if not config.enabled then
         self:_log_skip("disabled")
@@ -343,6 +344,7 @@ function ReadReport:maybe_start(reason)
 end
 
 function ReadReport:start(reason)
+    if self.offline_time_transfer then return false end
     if self.task then
         return true
     end
@@ -529,6 +531,7 @@ end
 -- Parent-side gate before any network work. Returns true, book_id when a
 -- report should be attempted. Must stay cheap: it runs on the UI loop.
 function ReadReport:_precheck()
+    if self.offline_time_transfer then return false end
     local config = self:_config()
     if not config.enabled then
         self:stop("disabled")
@@ -1332,6 +1335,7 @@ function ReadReport:confirm_position(receipt)
 end
 
 function ReadReport:upload_position(book_id, position, elapsed_seconds, plan)
+    if self.offline_time_transfer then return false,{error="read_report_busy",error_kind="busy"} end
     if self.job then
         return false, { error = "read_report_busy", error_kind = "busy" }
     end

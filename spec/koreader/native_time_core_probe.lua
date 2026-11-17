@@ -3,9 +3,9 @@ require('setupkoenv')
 local root=arg[1] or '/source';package.path=root..'/?.lua;'..root..'/?/init.lua;'..package.path
 assert(os.getenv('WEREAD_REAL_RUNTIME')=='1')
 local Json=require('json');require('lua-ljsqlite3/init')
-local mode=arg[2] or 'inline';assert(mode=='inline' or mode=='worker' or mode=='store' or mode=='source')
+local mode=arg[2] or 'inline';assert(mode=='inline' or mode=='worker' or mode=='store' or mode=='source' or mode=='service')
 local function check()
-    local file=mode=='store' and 'readtime_transfer_store_spec.lua' or mode=='source' and 'readtime_source_spec.lua' or 'readtime_transfer_task_spec.lua'
+    local file=mode=='service' and 'readtime_transfer_service_spec.lua' or mode=='store' and 'readtime_transfer_store_spec.lua' or mode=='source' and 'readtime_source_spec.lua' or 'readtime_transfer_task_spec.lua'
     dofile(root..'/spec/'..file)
 end
 if mode=='worker' then

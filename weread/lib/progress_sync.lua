@@ -880,6 +880,7 @@ function ProgressSync:_apply_remote(remote, context, options)
 end
 
 function ProgressSync:_upload_snapshot(position, reason, show_result, close_token, interval_cycle, initial_remote)
+    if self.offline_time_transfer then return false end
     if type(position) ~= "table" then return false end
     local book_id = tostring(position.book_id or self.current_book_id or "")
     if book_id == "" then return false end

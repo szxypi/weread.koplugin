@@ -65,6 +65,13 @@ end
 function M:pending(account)
     local value,reason=self:read(account);return value and value.record,reason
 end
+function M:get(account,attempt)
+    if not C.account(account) or not C.attempt(attempt) then return nil,'invalid' end
+    return self.coverage:_access(function(db)
+        local record=self:_record(db,attempt)
+        assert(record and record.account==account,'replaced');return record
+    end)
+end
 function M:owns(record,phase)
     if type(record)~='table' or not C.account(record.account) or not C.attempt(record.attempt) then return false end
     return self.coverage:_access(function(db) return self:_matches(self:_record(db,record.attempt),record,phase) end)
@@ -167,15 +174,17 @@ end
 function M:retire_unknown(record)
     return self.coverage:_access(function(db)
         local found=self:_record(db,record.attempt)
-        assert(self:_matches(found,record) and (found.phase=='unknown' or found.phase=='claimed' or found.phase=='acknowledged'),'replaced')
+        assert(self:_matches(found,record) and (found.phase=='unknown' or found.phase=='claimed' or found.phase=='acknowledged'
+            or found.phase=='confirmed' and not found.evidence),'replaced')
         assert(self.ledger:mark_unknown(record.account,record.rows,record.attempt)==true,'ledger')
         query(db,'UPDATE offline_time_records SET phase=? WHERE attempt=?',found.phase=='acknowledged' and 'retired_acknowledged' or 'retired',record.attempt);return true
     end)
 end
 -- Reopening never retries a dispatch. A prepared record is provably unsent;
 -- confirmed bookkeeping is idempotent; claimed/unknown records stay isolated.
-function M:recover(account)
+function M:recover(account,expected)
     local record,reason=self:pending(account);if reason then return nil,reason end
+    if expected and not self:_matches(record,expected,expected.phase) then return nil,'replaced' end
     if not record then return true end
     if record.phase=='prepared' then return self:cancel_prepared(record) end
     if record.phase=='confirmed' then

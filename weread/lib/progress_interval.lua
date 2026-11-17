@@ -37,6 +37,7 @@ function M:current(cycle)
 end
 function M:_eligible()
     local sync=self.sync
+    if sync.offline_time_transfer then return false end
     if M.minutes(sync:_config().upload_interval_minutes)==0 or not sync.verified or not sync.dirty
         or not sync.current_book_id or sync.suspended_at or sync.file_resume or not sync.prepare_upload then return false end
     if sync.source_state=='paused' or sync.source_state=='idle' or sync.source_state=='unavailable' then return false end

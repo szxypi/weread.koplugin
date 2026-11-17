@@ -79,5 +79,36 @@ local dismissed=host._offline_time_detail;dismissed.tap_close_callback()
 eq(host._offline_time_review,nil);eq(host._offline_time_detail,nil)
 dismissed.buttons[1][1].callback();eq(host.busy_message,nil)
 eq(C.digest(ledger:pending(account)),original);eq(ledger:summary(account).pending,1500)
+-- The explicit submit button passes the displayed immutable selection only.
+local Json=require('json')
+host.client.json_encode=function(_s,x) return Json.encode(x) end
+host.client.json_decode=function(_s,x) return Json.decode(x) end
+host.isNetworkConnected=function() return true end
+host.settings.get_book=function() return {cached_file='/synthetic/book.epub',chapters={{chapterUid=7,chapterIdx=0}}} end
+local dispatched
+host.offline_time_transfer_service={start=function(_self,mode,scope,input,refs,guard,callback)
+    dispatched={mode=mode,scope=scope,input=input,refs=refs,guard=guard,callback=callback};return true
+end,cancel=function() end}
+Review.show(host);deliver();choose('Check saved time');deliver()
+local selected=host._offline_time_detail;eq(selected.buttons[2][1].text,'Transfer this batch')
+selected.buttons[2][1].callback();eq(dispatched.mode,'send');eq(dispatched.scope,account);eq(dispatched.input.seconds,600)
+eq(dispatched.guard(),true);eq(host.busy_message~=nil,true)
+dispatched.callback({kind='unconfirmed'});eq(host.busy_message,nil)
+eq(host._offline_time_detail.title,'Cloud accounting is not confirmed. The request is kept and will not be sent again.')
+-- Saved ACK views offer GET-only verification and explicit uncertain retention.
+local attempt='offtime-v1:'..string.rep('d',32)
+assert(coverage:_access(function(db)
+    local q=db:prepare('INSERT INTO offline_time_records(attempt,scope,phase,metadata,rows,request_hash,created,evidence) VALUES(?,?,?,?,?,?,?,?)')
+    local row=assert(ledger:review_page(account,'pending',0,nil,1)).rows[1].source
+    q:bind(attempt,account,'acknowledged',Json.encode{book_id='42',seconds=2,request_hash=string.rep('b',64)},Json.encode{row},
+        string.rep('b',64),100,Json.encode{request_hash=string.rep('b',64),ack_at=101}):step();q:close();return true
+end))
+Review.show(host);deliver();choose('Review unfinished transfer');deliver()
+eq(host._offline_time_detail.title:find('Receipt saved;',1,true)~=nil,true)
+eq(host._offline_time_detail.buttons[2][1].text,'Check cloud result without sending again')
+eq(host._offline_time_detail.buttons[3][1].text,'Keep as uncertain and continue')
+host._offline_time_detail.buttons[2][1].callback();eq(dispatched.mode,'resolve');eq(dispatched.input.attempt,attempt)
+local late=dispatched.callback;host._reader_session_gen=session+1;late({kind='confirmed'})
+eq(host._offline_time_review,nil);eq(host._offline_time_detail,nil);eq(host.busy_message,nil)
 Review.close(host);os.execute('rm -rf '..string.format('%q',root))
 print('offline_time_review_ui_spec: '..checks..' checks')
