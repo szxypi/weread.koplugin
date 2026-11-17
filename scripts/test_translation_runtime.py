@@ -20,10 +20,15 @@ def main():
     parser.add_argument('--height',type=int,default=800)
     parser.add_argument('--dpi',type=int,default=167)
     parser.add_argument('--reader',action='store_true',help='exercise actual reader menus, persistence and reload')
+    parser.add_argument('--fetch',action='store_true',help='exercise existing-translation download and offline copy opening')
     args=parser.parse_args()
     if min(args.width,args.height,args.dpi)<=0: parser.error('screen dimensions and DPI must be positive')
     root,runtime=args.run_dir.resolve(),args.koreader.resolve()
     server=MockServer(0)
+    if args.fetch:
+        server.chapter_source=lambda uid,revision=None: '<html><body><h1>Chapter One</h1>'+''.join(
+            '<p>Original paragraph '+str(i)+'. '+('Unique source text for native translation refresh. '*8)+'</p>'
+            '<p class="wr-translation">译文段落 '+str(i)+'。'+('原生双语正文验证。'*10)+'</p>' for i in range(1,13))+'</body></html>'
     try:
         prepare(root,runtime,server.server_port,args.width,args.height,args.dpi)
         if args.reader:
@@ -48,14 +53,24 @@ def main():
         log=root/'evidence/runtime.log'
         try:
             with log.open('w') as out:
-                probe='translation_reader_smoke.lua' if args.reader else 'translation_display_smoke.lua'
+                probe='translation_fetch_smoke.lua' if args.fetch else 'translation_reader_smoke.lua' if args.reader else 'translation_display_smoke.lua'
                 result=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],
                     cwd=runtime,env=env,stdout=out,stderr=subprocess.STDOUT,timeout=120)
+            if args.fetch and result.returncode==0:
+                before=len(server.events)
+                with (root/'evidence/offline.log').open('w') as out:
+                    result=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                        env=env|dict(WEREAD_TRANSLATION_FETCH_OFFLINE='1'),stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                assert len(server.events)==before,'fresh offline process attempted HTTP'
         finally:
             server.shutdown();thread.join()
         if result.returncode==0:
             assert b'forceRePaint failed' not in log.read_bytes(),'native repaint failed'
-            assert not server.events,'display core attempted network requests'
+            if not args.fetch:assert not server.events,'display core attempted network requests'
+            else:
+                for event in server.events:
+                    path=event['path']
+                    assert (event['method']=='GET' and path.startswith('/web/reader/')) or (event['method']=='POST' and (path=='/web/book/chapterInfos' or path in ('/web/book/chapter/e_0','/web/book/chapter/e_1','/web/book/chapter/e_2','/web/book/chapter/e_3'))), 'translation fetch attempted an account mutation'
         print(('PASS' if result.returncode==0 else 'FAIL')+': '+str(log))
         raise SystemExit(result.returncode)
     finally: server.server_close()

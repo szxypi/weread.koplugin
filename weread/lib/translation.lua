@@ -432,5 +432,27 @@ function M.remap_xpointer(profile, xp, mode)
     end
 end
 
+-- A refresh creates a new file. Match one unchanged original block by its
+-- complete DOM signature; offsets and old fragment ordinals never migrate.
+function M.refresh_target(before,after,xp)
+    if not before or not after or type(xp)~='string' or before.recoveries~=0 or after.recoveries~=0 then return nil end
+    local tail=xp:match('^/body/DocFragment%[%d+%](/body.*)') or xp:match('^/body/DocFragment(/body.*)')
+    if not tail then return nil end
+    tail=normalize_path(tail)
+    local chosen
+    for _,node in ipairs(before.original_nodes or {}) do
+        local ending=tail:sub(#node.path+1,#node.path+1)
+        if node.path~='/body' and tail:sub(1,#node.path)==node.path and (ending=='' or ending=='/' or ending=='.')
+            and (not chosen or #node.path>#chosen.path) then chosen=node end
+    end
+    if not chosen or not chosen.signature then return nil end
+    local original,matches,target=0,0,nil
+    for _,node in ipairs(before.original_nodes or {}) do if node.signature==chosen.signature then original=original+1 end end
+    for _,node in ipairs(after.original_nodes or {}) do
+        if node.signature==chosen.signature and node.tag==chosen.tag then matches=matches+1;target=node.path end
+    end
+    if original==1 and matches==1 then return '/body/DocFragment[1]'..target end
+end
+
 
 return M

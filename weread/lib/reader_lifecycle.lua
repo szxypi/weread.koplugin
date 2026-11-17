@@ -212,6 +212,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    local translation_fetch=package.loaded['weread.ui.translation_fetch'];if translation_fetch then translation_fetch.view_changed(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
     require('weread.ui.chapter_links').view_changed(self)
     personal_action(self,'update')
@@ -226,6 +227,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    local translation_fetch=package.loaded['weread.ui.translation_fetch'];if translation_fetch then translation_fetch.view_changed(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
     require('weread.ui.chapter_links').view_changed(self)
     personal_action(self,'update')

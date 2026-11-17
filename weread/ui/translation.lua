@@ -42,6 +42,7 @@ local function close_menu(host)
     if menu then UIManager:close(menu) end
 end
 function M.cancel(host,keep_transfer)
+    local fetch=package.loaded['weread.ui.translation_fetch'];if fetch then fetch.cancel(host) end
     close_menu(host)
     local job=host.translation_job;host.translation_job=nil
     if job then
@@ -237,6 +238,17 @@ local function show_choices(host,profile,owner)
         if host._translation_menu~=menu or not current(host,owner) then return end
         host:showInfo(_('Only verified pairs hide their original text. Unpaired paragraphs, illustrations and links remain visible.'))
     end}
+    items[#items+1]={text=_('Download existing translation'),callback=function()
+        if host._translation_menu~=menu or not current(host,owner) then return end
+        require('weread.ui.translation_fetch').start(host)
+    end}
+    local fetch=package.loaded['weread.ui.translation_fetch']
+    if not fetch then local ok,value=pcall(require,'weread.ui.translation_fetch');if ok then fetch=value end end
+    if fetch and fetch.saved_entry(host) then
+        items[#items+1]={text=_('Open saved translated copy'),callback=function()
+            if host._translation_menu==menu and current(host,owner) then fetch.open_saved(host) end
+        end}
+    end
     menu=host:showList(_('Reading language'),items);host._translation_menu=menu
 end
 function M.show(host)

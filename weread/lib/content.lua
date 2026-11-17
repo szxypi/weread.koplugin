@@ -600,7 +600,19 @@ local function commit_file(part_path, path)
     return true
 end
 
-local function write_epub(path, entries)
+local function write_epub(path, entries, output)
+    if output then
+        local writer=require('weread.lib.epub_export_writer').new(output.fd)
+        local ok=pcall(function()
+            for _,entry in ipairs(entries) do
+                if entry.path or type(entry.data)~='string' then error('translation_fetch/package_failed',0) end
+                writer:add(entry.name,entry.data,#entry.data,entry.name=='mimetype')
+            end
+        end)
+        local closed=writer:close()
+        if not ok or not closed or not output:sync() then error('translation_fetch/package_failed',0) end
+        return
+    end
     local Archiver = require("ffi/archiver")
     local archive = Archiver.Writer:new{}
     local part_path = path .. ".part"
@@ -988,13 +1000,13 @@ local function rendered_file_digest(path)
     return Crypto.sha256_hex(raw)
 end
 
-function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference)
+function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference, output)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
     book.cache_dir = dir
     local book_title = book.title or "WeRead"
-    local path = dir .. "/" .. filename_safe(book_title .. " - " .. (chapter.title or tostring(chapter.chapterUid or "chapter"))) .. ".epub"
+    local path = output and output.path or dir .. "/" .. filename_safe(book_title .. " - " .. (chapter.title or tostring(chapter.chapterUid or "chapter"))) .. ".epub"
     local title = chapter.title or book.title or "WeRead"
     local author = book.author or "WeRead"
     local manifest_assets = {}
@@ -1065,7 +1077,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     }
     for _, entry in ipairs(position_entries) do entries[#entries + 1] = entry end
     append_asset_entries(entries, assets)
-    write_epub(path, entries)
+    write_epub(path, entries, output)
     Content.register_annotation_document(book, path, { chapter })
     return path
 end
