@@ -39,6 +39,7 @@ def main(argv=None):
     addons.add_argument('--cb-reading', action='store_true')
     addons.add_argument('--cb-full-book', action='store_true')
     parser.add_argument('--cb-sync-limit',action='store_true')
+    parser.add_argument('--cb-single-page',action='store_true')
     parser.add_argument('--diagnostic-read-pacing', action='store_true')
     addons.add_argument('--annotations', action='store_true')
     addons.add_argument('--annotation-recovery', action='store_true')
@@ -52,6 +53,7 @@ def main(argv=None):
     parser.add_argument('--cb-mock-port',type=int,help='Synthetic CB reading fixture only')
     args = parser.parse_args(argv)
     if args.cb_sync_limit and not args.cb_reading:parser.error('--cb-sync-limit requires --cb-reading')
+    if args.cb_single_page and (not args.cb_reading or args.cb_sync_limit):parser.error('--cb-single-page requires single CB reading')
     if args.native_routing_preview and not args.native_source_excerpt:parser.error('native routing preview requires TXT excerpt mode')
     if args.mock_port is not None and (not args.selection_thought_preview or not 1<=args.mock_port<=65535):
         parser.error('--mock-port requires --selection-thought-preview and a valid loopback port')
@@ -100,6 +102,7 @@ def main(argv=None):
                 or args.cb_full_book and 'full_manifest' not in payload):
             raise ValueError('input_limit')
         if args.cb_sync_limit != (payload.get('cb_sync_limit_preview') is True):raise ValueError('input_limit')
+        if args.cb_single_page != (payload.get('cb_single_page') is True):raise ValueError('input_limit')
         decoder = decode_envelope
         if args.cb_sync_limit:
             from cb_sync_limit_contract import decode_envelope as decoder
@@ -180,7 +183,8 @@ def main(argv=None):
                                                json.dumps(payload, ensure_ascii=False).encode(), runtime,
                                                timeout=900 if args.cb_full_book and mode=='live' else 600 if full_chapters > 1 and mode == 'live' else 150)
                 envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters,
-                                   **({'cb_reading': True,'cb_full_book':args.cb_full_book} if cb_reading else {}))
+                                   **({'cb_reading': True,'cb_full_book':args.cb_full_book} if cb_reading else {}),
+                                   **({'single_page': True} if args.cb_single_page else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview or args.native_source_excerpt: candidate_private.append(envelope['candidate_private'])

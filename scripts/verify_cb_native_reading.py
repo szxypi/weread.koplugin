@@ -18,7 +18,7 @@ from verify_owner_reading import decode_envelope
 from verify_translation_preflight import save_refreshed_web_session
 
 
-def main(argv=None, *, expected_book_id=None, expected_source_text=None):
+def main(argv=None, *, expected_book_id=None, expected_source_text=None, single_page=False):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-index', type=int, choices=range(1, 9))
@@ -29,6 +29,10 @@ def main(argv=None, *, expected_book_id=None, expected_source_text=None):
     parser.add_argument('--progress-file', type=Path)
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if single_page:
+        from synthetic_upload_pdf import TEXT as PDF_TEXT
+        if expected_source_text!=PDF_TEXT or args.full_book or args.sync_limit:raise ValueError('cb_native/single_page_scope')
+    if type(single_page) is not bool:raise ValueError('cb_native/single_page_scope')
     if args.sync_limit and (not args.saved_session or args.full_book):parser.error('--sync-limit requires single CB reading')
     if args.diagnostic_read_pacing and not (args.saved_session and args.full_book):
         parser.error('--diagnostic-read-pacing requires --saved-session --full-book')
@@ -71,6 +75,7 @@ def main(argv=None, *, expected_book_id=None, expected_source_text=None):
                       'shelf_ids', 'shelf_books')
             payload = {key: sample[key] for key in fields}
             payload.update(cb_reading=True, vid=web.vid, cookies=cookies)
+            if single_page:payload['cb_single_page']=True
             if args.sync_limit:payload['cb_sync_limit_preview']=True
             chapters=1
             if args.full_book:
@@ -81,7 +86,8 @@ def main(argv=None, *, expected_book_id=None, expected_source_text=None):
             if len(encoded) > 256 * 1024: raise ValueError('input_limit')
             if args.full_book:progress(dict(phase='native',completed=chapters,total=chapters))
             child = subprocess.run(args.lua_command, input=encoded, capture_output=True, timeout=1100 if args.full_book else 360)
-            envelope = decoder(child.stdout, web.vid, cb_reading=True,cb_full_book=args.full_book,full_chapters=chapters)
+            envelope = decoder(child.stdout, web.vid, cb_reading=True,cb_full_book=args.full_book,full_chapters=chapters,
+                               **({'single_page':True} if single_page else {}))
             report['ui'] = envelope['report']
             if any(stage['shelf_books'] != sample['shelf_books'] for stage in report['ui']['stages']):
                 raise ValueError('native_scope_changed')
@@ -105,6 +111,7 @@ def main(argv=None, *, expected_book_id=None, expected_source_text=None):
             report.update(result='CB_NATIVE_READING_VERIFIED', same_owner_verified=True, source_text_matched=True,
                           fresh_offline_process=True, source_format=sample['source_format'], source_shape=web.source_shape,
                           selected_ordinal=args.book_index)
+            if single_page:report.update(result='CB_NATIVE_SINGLE_PAGE_READING_VERIFIED',page_turn_tested=False)
             if args.full_book:report.update(full_book_verified=True,chapters=chapters)
             if args.diagnostic_read_pacing:
                 report.update(result='CB_PACED_DIAGNOSTIC_VERIFIED',full_book_verified=False)
@@ -118,7 +125,7 @@ def main(argv=None, *, expected_book_id=None, expected_source_text=None):
         for private in (saved, payload, envelope):
             if private: private.clear()
     print(json.dumps(report, indent=2))
-    return 0 if report['result'] in {'OFFLINE_ONLY', 'CB_NATIVE_READING_VERIFIED', 'CB_PACED_DIAGNOSTIC_VERIFIED'} else 1
+    return 0 if report['result'] in {'OFFLINE_ONLY', 'CB_NATIVE_READING_VERIFIED', 'CB_NATIVE_SINGLE_PAGE_READING_VERIFIED', 'CB_PACED_DIAGNOSTIC_VERIFIED'} else 1
 
 
 if __name__ == '__main__':

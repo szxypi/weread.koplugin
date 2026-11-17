@@ -113,6 +113,17 @@ class CbNativeReadingTests(unittest.TestCase):
             value['source_match_reason'] = reason
             with self.assertRaises(ValueError): validate_stage(value, 'live', cb_reading=True)
 
+    def test_single_page_is_explicit_and_never_claims_page_turn(self):
+        from verify_owner_reading import validate_stage
+        value=envelope()['report']['stages'][0];value.update(source_match_reason='none',pages=1,page_turn=False)
+        self.assertEqual(validate_stage(value,'live',cb_reading=True,single_page=True),value)
+        with self.assertRaises(ValueError):validate_stage(value,'live',cb_reading=True)
+        with self.assertRaises(ValueError):validate_stage(value,'live',single_page=True)
+        value['page_turn']=True
+        with self.assertRaises(ValueError):validate_stage(value,'live',cb_reading=True,single_page=True)
+        value.update(page_turn=False,pages=2)
+        with self.assertRaises(ValueError):validate_stage(value,'live',cb_reading=True,single_page=True)
+
     def test_explicit_new_book_and_expected_text_are_checked_before_native_reader(self):
         code,report,run,_after=self.invoke(expected_book_id=FIRST,expected_source_text=TEXT[:64])
         self.assertEqual(code,0);self.assertEqual(report['result'],'CB_NATIVE_READING_VERIFIED');self.assertEqual(run.call_count,1)

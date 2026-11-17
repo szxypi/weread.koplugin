@@ -4,6 +4,7 @@ from personal_upload_trial import SERVICE as TXT_SERVICE
 from synthetic_epub_trial import SERVICE as EPUB_SERVICE,validate_epub
 from synthetic_pdf_trial import BODY_SHA256,BODY_SIZE,Journal,SERVICE,check,prepare,validate_pdf
 from synthetic_upload_pdf import build
+from reading_pdf_trial import Journal as ReadingJournal,SERVICE as READING_SERVICE
 from test_native_shelf_trial import source
 from test_personal_upload_trial import FakeProbe
 from test_secure_native_session import Backend,credentials
@@ -39,6 +40,20 @@ class SyntheticPdfTrialTest(unittest.TestCase):
                 fixture_builder=build,prepare_plan=prepare,check_plan=check,fixture_extension='pdf')
             with self.subTest(mode=mode):
                 self.assertEqual(result['result'],'UNVERIFIED');self.assertEqual(tuple(probe.attempts.values()),counts)
+
+    def test_reading_scope_handles_delayed_import_without_resending(self):
+        class DelayedProbe(FakeProbe):
+            def shelf(self,grant):
+                value=super().shelf(grant)
+                if self.attempts['notify'] and self.reads<9:
+                    value['books']=[row for row in value['books'] if row['bookId']!='CB_synthetic123']
+                return value
+        self.assertNotIn(READING_SERVICE,(SERVICE,TXT_SERVICE,EPUB_SERVICE))
+        probe=DelayedProbe();journal=ReadingJournal(Backend())
+        report=run(probe,journal,credentials(),lambda _:True,lambda _:True,apply=True,sleep=lambda _:None,now=lambda:1000,
+            fixture_builder=build,prepare_plan=prepare,check_plan=check,fixture_extension='pdf',readback_tries=9)
+        self.assertEqual(report['result'],'PDF_IMPORT_AND_SOURCE_VERIFIED');self.assertEqual(tuple(probe.attempts.values()),(1,1,1,1))
+        self.assertEqual(journal.read()[0]['phase'],'restored')
 
 
 if __name__=='__main__':unittest.main()

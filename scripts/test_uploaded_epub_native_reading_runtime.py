@@ -26,21 +26,27 @@ class Opener:
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');args=parser.parse_args()
     server=MockServer(0);server.cb_reading=True;thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
+        if args.single_page:
+            from synthetic_upload_pdf import TEXT
+            server.chapter_source=lambda _uid,_revision=None: '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Fixture</title></head><body><p>'+TEXT+'</p></body></html>'
         probe=CbReadingProbe();probe.opener=Opener(server);probe.vid='900000';probe.set_cookie('wr_vid','900000');probe.set_cookie('wr_skey','mock_key');probe.authenticated=True
         sample=probe.prepare(1,expected_book_id=CB_READING_ID)[0]
         payload={k:sample[k] for k in ('book_id','chapter_uid','source_format','source_text','source_raw_sha256','source_sample_offset','shelf_ids','shelf_books')}
         payload.update(cb_reading=True,vid='900000',cookies=dict(wr_vid='900000',wr_skey='mock_key'),cb_mock_port=server.server_port)
+        if args.single_page:payload['cb_single_page']=True
         for width,height,dpi in ((600,800,167),(1264,1680,300)):
             env=os.environ|dict(LD_LIBRARY_PATH=str(args.koreader/'libs'),SDL_VIDEODRIVER='dummy')
             cmd=['python3',str(REPO/'scripts/run_owner_reading_probe.py'),'--koreader',str(args.koreader),'--candidate',str(args.candidate),
                 '--width',str(width),'--height',str(height),'--dpi',str(dpi),'--cb-reading','--cb-mock-port',str(server.server_port)]
+            if args.single_page:cmd.append('--cb-single-page')
             child=subprocess.run(cmd,input=json.dumps(payload).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env,timeout=360)
-            value=decode_envelope(child.stdout,'900000',cb_reading=True)
+            value=decode_envelope(child.stdout,'900000',cb_reading=True,single_page=args.single_page)
             if child.returncode or value['report']['result']!='PASS':raise AssertionError('synthetic reader stage '+repr(value['report']))
             assert value['report']['profile_removed'] and len(value['report']['stages'])==2
+            if args.single_page:assert all(s['pages']==1 and s['page_turn'] is False for s in value['report']['stages'])
             print(f'PASS: scoped native CB book selection, reading and offline reopen {width}x{height}',flush=True)
         assert server.request_totals[('/web/book/read','')]==0 and server.request_totals[('/web/login/renewal','')]==0
     finally:server.shutdown();thread.join();server.server_close()

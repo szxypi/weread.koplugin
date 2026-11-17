@@ -141,5 +141,31 @@
     "native_upload_ui_tested": false
   },
   "pdf_real_account_native_ui_tested": false,
-  "mobi_azw3_real_account_tested": false
+  "mobi_azw3_real_account_tested": false,
+  "real_account_uploaded_pdf_single_page_native_reading": {
+    "screen": "1264x1680_300dpi",
+    "fixture_bytes": 965,
+    "fixture_pdf_pages": 2,
+    "converted_chapter_pages": 1,
+    "credential_requests": 1,
+    "cos_put_attempts": 1,
+    "notify_posts": 1,
+    "cleanup_posts": 1,
+    "authentication_posts": 0,
+    "target_identity_and_source_bound": true,
+    "native_shelf_selection_and_reading": true,
+    "source_position_verified": true,
+    "fresh_offline_process_reopened": true,
+    "page_turn_tested": false,
+    "reader_account_data_posts": 0,
+    "cloud_position_unchanged": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_native_grant_unchanged": true,
+    "temporary_profile_removed": true
+  },
+  "synthetic_single_page_native_reader": {
+    "600x800": "PASS",
+    "1264x1680_300dpi": "PASS",
+    "page_turn_tested": false
+  }
 }

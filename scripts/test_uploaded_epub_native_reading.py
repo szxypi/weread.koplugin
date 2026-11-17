@@ -40,11 +40,12 @@ class UploadedReadingTest(unittest.TestCase):
     def test_pdf_requires_fixed_source_and_reports_its_own_format(self):
         calls=[]
         def native(_args,**scope):
-            calls.append(scope);print(json.dumps(dict(result='CB_NATIVE_READING_VERIFIED',same_owner_verified=True,
+            calls.append(scope);print(json.dumps(dict(result='CB_NATIVE_SINGLE_PAGE_READING_VERIFIED',page_turn_tested=False,same_owner_verified=True,
                 source_text_matched=True,fresh_offline_process=True,cloud_position_unchanged=True,source_format='web_xhtml',
                 account_data_posts=0,authentication_posts=0,private_data_on_regular_disk=False,screenshots=0)));return 0
         value=verify(TARGET,store=Store(),probe_factory=Probe,read_native=native,save_rotation=lambda *_:False,expected_source_text=PDF_TEXT)
         self.assertEqual(value['result'],'UPLOADED_PDF_NATIVE_READING_VERIFIED');self.assertEqual(calls[0]['expected_source_text'],PDF_TEXT)
+        self.assertIs(calls[0]['single_page'],True)
         with self.assertRaises(ValueError):verify(TARGET,store=Store(),expected_source_text='arbitrary private text')
     def test_incomplete_native_evidence_never_confirms_reading(self):
         for change in ('wrong_result','position','offline','write','screen'):

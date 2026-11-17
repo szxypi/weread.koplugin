@@ -11,7 +11,7 @@ from verify_translation_preflight import save_refreshed_web_session
 
 COMMAND=['docker','exec','-i','-w','/source','-e','LD_LIBRARY_PATH=/validation/runtime/lib/koreader/libs','-e','SDL_VIDEODRIVER=dummy',
     'weread-validation','timeout','--signal=TERM','--kill-after=10','340','python3','scripts/run_owner_reading_probe.py',
-    '--koreader','/validation/runtime/lib/koreader','--candidate','/validation/large-upload-runtimeko2-v1/candidate.zip',
+    '--koreader','/validation/runtime/lib/koreader','--candidate','/validation/pdf-delay-ui-1264-v1/candidate.zip',
     '--width','1264','--height','1680','--dpi','300','--cb-reading']
 
 
@@ -27,14 +27,16 @@ def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation
         if target not in ids:raise ValueError('uploaded_reading/target_missing')
         rotated=save_rotation(store,saved,probe);index=ids.index(target)+1
         out=io.StringIO()
+        single_page=expected_source_text==PDF_TEXT
+        command=COMMAND+(['--cb-single-page'] if single_page else [])
         with contextlib.redirect_stdout(out):
-            code=read_native(['--saved-session','--book-index',str(index),'--lua-command',*COMMAND],
-                expected_book_id=target,expected_source_text=expected_source_text)
+            code=read_native(['--saved-session','--book-index',str(index),'--lua-command',*command],
+                expected_book_id=target,expected_source_text=expected_source_text,**({'single_page':True} if single_page else {}))
         raw=out.getvalue()
         if len(raw)>1024*1024:raise ValueError('uploaded_reading/report')
         report=json.loads(raw)
         if diagnostics is not None and isinstance(report,dict):
-            diagnostics['result']=report.get('result') if report.get('result') in ('CB_NATIVE_READING_VERIFIED','UNVERIFIED') else 'invalid'
+            diagnostics['result']=report.get('result') if report.get('result') in ('CB_NATIVE_READING_VERIFIED','CB_NATIVE_SINGLE_PAGE_READING_VERIFIED','UNVERIFIED') else 'invalid'
             ui=report.get('ui')
             if isinstance(ui,dict):
                 diagnostics['ui_result']=ui.get('result') if ui.get('result') in ('PASS','UNVERIFIED') else 'invalid'
@@ -48,14 +50,16 @@ def verify(target,*,store=None,probe_factory=None,read_native=None,save_rotation
                     for key in ('failed_line','denied_kind','denied_route','denied_flags'):
                         if type(row.get(key)) is int and 0<=row[key]<=10000:safe[key]=row[key]
                     diagnostics['stages'].append(safe)
-        if (code!=0 or not isinstance(report,dict) or report.get('result')!='CB_NATIVE_READING_VERIFIED'
+        expected_result='CB_NATIVE_SINGLE_PAGE_READING_VERIFIED' if single_page else 'CB_NATIVE_READING_VERIFIED'
+        if (code!=0 or not isinstance(report,dict) or report.get('result')!=expected_result
+                or single_page and report.get('page_turn_tested') is not False
                 or any(report.get(k) is not True for k in ('same_owner_verified','source_text_matched','fresh_offline_process','cloud_position_unchanged'))
                 or report.get('source_format')!='web_xhtml' or report.get('account_data_posts')!=0 or report.get('authentication_posts')!=0
                 or report.get('private_data_on_regular_disk') is not False or report.get('screenshots')!=0):
             raise ValueError('uploaded_reading/unverified')
         return dict(result='UPLOADED_'+('PDF' if expected_source_text==PDF_TEXT else 'EPUB')+'_NATIVE_READING_VERIFIED',target_bound=True,source_text_matched=True,
             cloud_position_unchanged=True,fresh_offline_process=True,account_data_posts=0,authentication_posts=0,
-            verified_cookie_rotation_saved=rotated is True)
+            page_turn_tested=not single_page,verified_cookie_rotation_saved=rotated is True)
     finally:
         if probe:probe.samples.clear();probe.close()
         if saved:saved.clear()

@@ -33,11 +33,11 @@ def read_source(saved,target,*,sleep=time.sleep):
 
 
 def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=time.sleep,now=time.time,
-        fixture_builder=build,prepare_plan=prepare,check_plan=check,fixture_extension='epub'):
+        fixture_builder=build,prepare_plan=prepare,check_plan=check,fixture_extension='epub',readback_tries=5):
     report=dict(result='UNVERIFIED',phase='preflight',credential_requests=0,cos_put_attempts=0,notify_posts=0,cleanup_posts=0,
                 authentication_posts=0,source_verified=False)
     try:
-        if fixture_extension not in ('epub','pdf'):raise ValueError('synthetic_epub/extension')
+        if fixture_extension not in ('epub','pdf') or type(readback_tries) is not int or not 1<=readback_tries<=9:raise ValueError('synthetic_epub/extension')
         baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.'+fixture_extension;body=fixture_builder()
         plan=prepare_plan(credentials,baseline,name);check_plan(plan,credentials,probe.shelf(credentials))
         if not grant_check(credentials):raise ValueError('synthetic_epub/grant')
@@ -68,7 +68,7 @@ def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=t
                 or any(k in notified and (type(notified[k]) is not int or notified[k]!=0) for k in ('errcode','errCode'))):
             raise ValueError('synthetic_epub/notify_unconfirmed')
         check_plan(plan,credentials,baseline,target,False)
-        if not readback(probe,credentials,plan,target,True,5,sleep):raise ValueError('synthetic_epub/import_unconfirmed')
+        if not readback(probe,credentials,plan,target,True,readback_tries,sleep):raise ValueError('synthetic_epub/import_unconfirmed')
         receipt=journal.advance(receipt,'imported',target=target);report.update(phase='imported',import_observed=True)
         # A failed read-only content check is not a reason to leave a proven
         # synthetic item behind. Cleanup still requires a fresh exact snapshot.

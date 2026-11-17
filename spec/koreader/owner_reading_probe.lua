@@ -87,6 +87,8 @@ local ok,reason=pcall(function()
     assert(type(input.vid)=='string' and input.vid:match('^[1-9]%d*$'))
     local cb_reading=input.cb_reading==true
     local cb_full=input.cb_full_book==true
+    local single_page=input.cb_single_page==true
+    assert(input.cb_single_page==nil or single_page and cb_reading and not cb_full)
     assert(not cb_full or cb_reading and type(input.full_manifest)=='table')
     assert(input.diagnostic_read_pacing==nil or input.diagnostic_read_pacing==true and cb_full)
     local diagnostic_pacing=input.diagnostic_read_pacing==true
@@ -675,7 +677,7 @@ local ok,reason=pcall(function()
             end
         end
     end
-    report.pages=document:getPageCount();assert(report.pages>1)
+    report.pages=document:getPageCount();assert(single_page and report.pages==1 or not single_page and report.pages>1)
     local matches=assert(document:findAllText(input.source_text,false,0,4,false,0))
     assert(matches[1] and matches[1].start)
     local source_index,source_reason=require('weread.lib.source_dom').open(document,input.book_id,input.chapter_uid)
@@ -710,10 +712,12 @@ local ok,reason=pcall(function()
     assert(y>=0 and y<Device.screen:getHeight() and x>=0 and x<Device.screen:getWidth())
     UI:forceRePaint();report.source_text_visible=true
     reader.rolling:onGotoXPointer(origin);tick()
-    local next_page=reader:getCurrentPage()==1 and 2 or 1
-    reader.rolling:onGotoPage(next_page);tick()
-    assert(reader:getCurrentPage()==next_page)
-    report.page_turn=true
+    if not single_page then
+        local next_page=reader:getCurrentPage()==1 and 2 or 1
+        reader.rolling:onGotoPage(next_page);tick()
+        assert(reader:getCurrentPage()==next_page)
+        report.page_turn=true
+    end
     UI:forceRePaint()
     -- Read an ordinary body page through the production cooperative service,
     -- independent archive worker, position dialog and bound native navigator.
