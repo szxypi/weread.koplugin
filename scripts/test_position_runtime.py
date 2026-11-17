@@ -63,7 +63,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--koreader", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source", "quick-search", "book-search"), default="precision",
+    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source", "quick-search", "book-search", "cached-search"), default="precision",
                         help="fractional navigation (default), source/DOM mapping, live reader-state capture, or chapter handoff")
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
@@ -75,6 +75,8 @@ def main():
     parser.add_argument('--search-renewal', action='store_true')
     parser.add_argument('--search-cb', action='store_true')
     parser.add_argument('--search-current-fallback', action='store_true')
+    parser.add_argument('--cached-signed-out', action='store_true')
+    parser.add_argument('--cached-no-catalog', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
         parser.error("screen dimensions and DPI must be positive")
@@ -82,8 +84,10 @@ def main():
         parser.error('--source-format web_txt requires --probe source-state')
     if args.search_scope != 'full' and args.probe != 'quick-search':
         parser.error('--search-scope chapter requires --probe quick-search')
-    if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_cb or args.search_current_fallback) and args.probe!='book-search':
+    if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_current_fallback) and args.probe!='book-search' or args.search_cb and args.probe not in ('book-search','cached-search'):
         parser.error('search fixture options require --probe book-search')
+    if (args.cached_signed_out or args.cached_no_catalog) and args.probe!='cached-search':
+        parser.error('cached search options require --probe cached-search')
     if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
         parser.error('current fallback requires a cached CB search fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
@@ -107,6 +111,8 @@ def main():
                                         WEREAD_TEST_SEARCH_RENEWAL='1' if args.search_renewal else '0',
                                         WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
                                         WEREAD_TEST_SEARCH_CURRENT_FALLBACK='1' if args.search_current_fallback else '0',
+                                        WEREAD_TEST_CACHED_SIGNED_OUT='1' if args.cached_signed_out else '0',
+                                        WEREAD_TEST_CACHED_NO_CATALOG='1' if args.cached_no_catalog else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                                         EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
@@ -116,7 +122,7 @@ def main():
                 probe = {"precision": "position_precision_smoke.lua", "source-dom": "source_dom_smoke.lua",
                          "source-state": "source_position_smoke.lua", "navigation": "progress_navigation_smoke.lua",
                          "cloud-source": "cloud_source_smoke.lua", "quick-search": "quick_search_smoke.lua",
-                         "book-search": "book_search_ui_smoke.lua"}[args.probe]
+                         "book-search": "book_search_ui_smoke.lua", "cached-search": "cached_search_ui_smoke.lua"}[args.probe]
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / probe)],
                                         cwd=runtime, env=environment, stdout=out, stderr=subprocess.STDOUT, timeout=120)
             if result.returncode == 0 and args.probe == 'quick-search':
@@ -130,6 +136,15 @@ def main():
         if result.returncode == 0:
             raw=log.read_bytes()
             assert b'[WeRead] forceRePaint failed:' not in raw, 'native repaint failed; inspect the isolated runtime log'
+            if args.probe == 'cached-search':
+                marker=b'\nWEREAD_CACHED_SEARCH_UI='
+                assert raw.count(marker)==1, 'missing cached search result'
+                value=json.loads(raw.split(marker,1)[1].splitlines()[0])
+                assert value==dict(result='PASS',results=2,unavailable=0 if args.cached_no_catalog else 1,
+                                   navigation=not args.cached_no_catalog,cancel_resume=True,signed_out=args.cached_signed_out,
+                                   imported=args.search_cb,no_catalog=args.cached_no_catalog), 'cached search result mismatch'
+                request_log=root/'evidence/requests.jsonl'
+                assert not request_log.exists() or not request_log.read_bytes(), 'cached search made a mock request'
             if args.probe == 'quick-search':
                 marker=b'\nWEREAD_QUICK_SEARCH_RESULT='
                 for reopened,content in ((False,raw),(True,(root/'evidence/reopen.log').read_bytes())):

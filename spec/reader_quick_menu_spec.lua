@@ -4,6 +4,10 @@ package.path = "./?.lua;" .. package.path
 
 local dialog_options, dialog_callbacks
 local searched_book,searched_uid
+local cached_book
+package.preload['weread.ui.cached_book_search'] = function()
+    return {open=function(_host,id) cached_book=id end}
+end
 package.preload['weread.ui.book_search'] = function()
     return {open=function(_host,id,_chapters,uid) searched_book,searched_uid=id,uid end}
 end
@@ -149,8 +153,16 @@ expect(annotations_toggled,
 context_books['123']={book_id='123',title='Synthetic'}
 context_host.ensureChaptersLoaded=function() return {{chapterUid='1',title='First'}} end
 context_host.getChapterInfoFromFile=function() return 1,nil,false end
-expect(context_host:showEndOfBookDialog('123') and dialog_options.enable_search_book==true,
+expect(context_host:showEndOfBookDialog('123') and dialog_options.enable_search_book==true
+        and dialog_options.enable_search_cached==true,
     'numeric WeRead book enables whole-book search')
+dialog_callbacks.on_search_cached()
+expect(cached_book=='123','downloaded search opens for the current book')
+cached_book=nil;local cached_doc=context_host.ui.document;context_host.ui.document={file='/other.epub'}
+dialog_callbacks.on_search_cached();context_host.ui.document=cached_doc
+expect(cached_book==nil,'delayed downloaded search ignores a changed document')
+context_host._reader_session_gen=1;dialog_callbacks.on_search_cached();context_host._reader_session_gen=nil
+expect(cached_book==nil,'delayed downloaded search ignores a changed reader session')
 dialog_callbacks.on_search_book()
 expect(searched_book=='123','whole-book search opens for the current book')
 searched_book=nil;local old_doc=context_host.ui.document;context_host.ui.document={file='/other.epub'}
@@ -163,6 +175,8 @@ context_host.settings.get_auth_scope=function() return {vid='123',epoch=auth_epo
 context_host.settings.auth_scope_matches=function(_self,scope) return scope.epoch==auth_epoch end
 context_host:showEndOfBookDialog('123');auth_epoch=2;dialog_callbacks.on_search_book()
 expect(searched_book==nil,'delayed whole-book search ignores a changed account session')
+dialog_callbacks.on_search_cached()
+expect(cached_book==nil,'delayed downloaded search ignores a changed account session')
 context_host.settings.get_auth_scope=nil;context_host.settings.auth_scope_matches=nil
 
 context_host.source_position={current=function() error('numeric search must not inspect source position') end}
@@ -174,6 +188,8 @@ context_host.getChapterInfoFromFile=function() return 2,{chapterUid='2'},false e
 context_host.source_position.current=function() return {book_id='CB_Synthetic',chapter_uid='3'} end
 context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
 expect(searched_book=='CB_Synthetic' and searched_uid=='3','live CB source chapter was not passed to search')
+dialog_callbacks.on_search_cached()
+expect(cached_book=='CB_Synthetic','downloaded search did not support an imported book')
 context_host.source_position.current=function() return {book_id='CB_Foreign',chapter_uid='3'} end
 context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
 expect(searched_uid=='2','foreign source position replaced the current file chapter')

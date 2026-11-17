@@ -105,6 +105,12 @@ function M.show(opts, callbacks)
         },
     })
 
+    table.insert(buttons, {{
+        text = _("Search downloaded chapters"),
+        enabled = opts.enable_search_cached == true,
+        callback = function() dismiss_then(callbacks.on_search_cached) end,
+    }})
+
     -- Penultimate row: progress sync and the shared annotation visibility
     -- toggle. Keep both visible; unsupported context is represented by a
     -- disabled sync button instead of a no-op/error after tapping.

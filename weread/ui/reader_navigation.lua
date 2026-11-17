@@ -44,6 +44,7 @@ function M:showEndOfBookDialog(book_id)
     if not file_path then return false end
     local reader_session = self._reader_session_gen or 0
     local search_scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local search_epoch = self.settings:get('auth_epoch', 0)
 
     local books = self.settings:get("books", {})
     local book = book_id and (books[tostring(book_id)] or books[book_id]) or nil
@@ -80,6 +81,7 @@ function M:showEndOfBookDialog(book_id)
         enable_sync_progress = is_regular_weread_book,
         enable_search_current = type(search) == "table" and type(search.onShowFulltextSearchInput) == "function",
         enable_search_book = is_regular_weread_book and require('weread.lib.read_access').display_book_id(tostring(book_id)) ~= nil,
+        enable_search_cached = is_regular_weread_book and require('weread.lib.read_access').display_book_id(tostring(book_id)) ~= nil,
         annotations_visible = annotations_visible,
     }, {
         on_bookshelf = function()
@@ -119,6 +121,16 @@ function M:showEndOfBookDialog(book_id)
                     end
                 end
                 require('weread.ui.book_search').open(self,tostring(book_id),chapters,uid)
+            end
+        end,
+        on_search_cached = function()
+            local current_scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+            local same_scope = search_scope and self.settings:auth_scope_matches(search_scope)
+                or not search_scope and not current_scope
+            if self.ui == reader_ui and reader_ui.document == document and document.file == file_path
+                and (self._reader_session_gen or 0)==reader_session and same_scope
+                and self.settings:get('auth_epoch',0)==search_epoch then
+                require('weread.ui.cached_book_search').open(self,tostring(book_id),chapters)
             end
         end,
         on_chapter_list = function()

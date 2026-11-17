@@ -248,7 +248,7 @@ function M.open(host,book_id,chapters,current_uid)
     if not host:isNetworkOnline() then host:showOffline(_('Search entire book'));return false end
     local access=Access.capture(host.settings)
     if not access or not access.web then host:showInfo(_('A verified WeRead web login is required for online book search.'));return false end
-    M.cancel(host)
+    if host.cancelBookSearch then host:cancelBookSearch() else M.cancel(host) end
     local owner={id=book_id,scope=scope,account=account,document=document,file=document.file,
         session=host._reader_session_gen or 0,value={},titles={},search_results=true,cb_book=book_id:sub(1,3)=='CB_',
         current_uid=current_uid}

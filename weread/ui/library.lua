@@ -2336,7 +2336,9 @@ end
 
 function M:cancelBookSearch()
     local search=package.loaded['weread.ui.book_search']
-    if search then return search.cancel(self) end
+    if search then search.cancel(self) end
+    local cached=package.loaded['weread.ui.cached_book_search']
+    if cached then cached.cancel(self) end
 end
 
 function M:showShelfState(book_id)

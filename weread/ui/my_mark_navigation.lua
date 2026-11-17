@@ -23,13 +23,19 @@ function M.cancel(host,owner)
     close_busy(host,job)
 end
 local function owner_key(host) return host.library_db and host.library_db:accountKey() end
+local function scope_current(host,owner)
+    if owner.local_search and not owner.scope then
+        return not host.settings:get_auth_scope() and host.settings:get('auth_epoch',0)==owner.auth_epoch
+    end
+    return host.settings:auth_scope_matches(owner.scope)
+end
 local function reader_location(host)
     local doc=host.ui and host.ui.document
     return doc and Context.location(doc,host.ui.view and host.ui.view.view_mode or 'page')
 end
 local function open_bound(host,owner,job,result,current)
     if not current() then return end
-    local scope,account=owner.scope,owner.account
+    local account=owner.account
     local document,session=host.ui and host.ui.document,host._reader_session_gen or 0
     local navigation=host.progress_sync and host.progress_sync.navigation_generation
     local old_sync=host.progress_sync
@@ -43,7 +49,7 @@ local function open_bound(host,owner,job,result,current)
         local elapsed=os.time()-started
         if elapsed<0 or elapsed>120 or not next_host or not doc or doc~=reader.document or doc.file~=result.file
             or owner_key(host)~=account or owner_key(next_host)~=account
-            or not host.settings:auth_scope_matches(scope) or not next_host.settings:auth_scope_matches(scope)
+            or not scope_current(host,owner) or not scope_current(next_host,owner)
             or tostring(next_host:detectWeReadBook() or '')~=owner.id or not next_host.progress_sync or not next_host.source_navigation
             or not (next_host==host and doc==document and (host._reader_session_gen or 0)==session
                 and host.progress_sync.navigation_generation==navigation
@@ -93,7 +99,8 @@ local function open_bound(host,owner,job,result,current)
 end
 function M.start(host,owner,row,is_current)
     M.cancel(host,owner)
-    local Target=owner.search_results and require('weread.lib.book_search_target')
+    local Target=owner.local_search and require('weread.lib.cached_search_target')
+        or owner.search_results and require('weread.lib.book_search_target')
         or owner.thoughts and ThoughtTarget or row.type==0 and BookmarkTarget or MarkTarget
     if not Target.can_locate(row) then return false end
     if host.read_report and host.read_report.job then
@@ -103,7 +110,8 @@ function M.start(host,owner,row,is_current)
     local frozen={}
     for _i,key in ipairs({'type','chapterUid','markText','range','reviewId','bookmarkId','abstract','bookId'}) do frozen[key]=row[key] end
     local job={started=os.time(),location=reader_location(host),row=frozen,request_id=1,
-        failed_label=owner.search_results and 'Could not locate this search result in the original text. Try downloading the chapter again.'
+        failed_label=owner.local_search and 'Could not locate this downloaded search result. The cached chapter may have changed.'
+            or owner.search_results and 'Could not locate this search result in the original text. Try downloading the chapter again.'
             or owner.thoughts and 'Could not locate this thought quote in the original text. Try downloading the chapter again.'
             or row.type==0 and 'Could not locate this bookmark in the original text. Try downloading the chapter again.'
             or 'Could not locate this highlight in the original text. Try downloading the chapter again.'}
@@ -191,6 +199,7 @@ function M.start(host,owner,row,is_current)
     handle=function(result)
         if type(result)~='table' or result.request_id~=job.request_id then fail();return end
         if result.position and result.identity and result.file then open_bound(host,owner,job,result,current);return end
+        if owner.local_search then fail();return end
         if job.download_attempted or not host:isNetworkOnline() then fail();return end
         close_busy(host,job)
         local confirm
