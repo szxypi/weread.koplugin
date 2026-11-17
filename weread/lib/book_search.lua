@@ -38,7 +38,7 @@ local function later(a,b,order)
 end
 
 function M.new(book_id, keyword, chapters, first_uid)
-    book_id=identity(book_id)
+    book_id=identity(book_id) or type(book_id)=='string' and Access.display_book_id(book_id)
     if not book_id or type(keyword)~='string' or #keyword<1 or #keyword>160
         or keyword:find('[%z%c]') or keyword:match('^%s*$')
         or Protocol.utf8_substr(keyword,#keyword+1)~=keyword

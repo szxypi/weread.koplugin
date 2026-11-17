@@ -1,10 +1,11 @@
 -- Adapt an untrusted search hit to the existing source-verification path.
 -- A successful projection is local navigation only, never an upload grant.
 local Target=require('weread.lib.my_mark_target')
+local Access=require('weread.lib.read_access')
 local M={}
 
 function M.row(book,hit)
-    if type(book)~='string' or not book:match('^[1-9]%d*$') or #book>20
+    if type(book)~='string' or not Access.display_book_id(book)
         or type(hit)~='table' or hit.source_verified~=false
         or type(hit.chapter_uid)~='string' or not hit.chapter_uid:match('^[1-9]%d*$') then return nil end
     local uid=tonumber(hit.chapter_uid)
@@ -19,7 +20,11 @@ end
 function M.project(raw,book,hit)
     local row=M.row(book,hit)
     if not row then return nil,'book_search_target/invalid' end
-    return Target.project(raw,book,hit.chapter_uid,row)
+    return Target.project_search(raw,book,hit.chapter_uid,row)
 end
+
+M.can_locate=Target.can_locate
+M.resolve=Target.resolve_search
+M.bind_file=Target.bind_search_file
 
 return M

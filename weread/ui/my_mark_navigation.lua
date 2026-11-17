@@ -93,7 +93,8 @@ local function open_bound(host,owner,job,result,current)
 end
 function M.start(host,owner,row,is_current)
     M.cancel(host,owner)
-    local Target=owner.thoughts and ThoughtTarget or row.type==0 and BookmarkTarget or MarkTarget
+    local Target=owner.search_results and require('weread.lib.book_search_target')
+        or owner.thoughts and ThoughtTarget or row.type==0 and BookmarkTarget or MarkTarget
     if not Target.can_locate(row) then return false end
     if host.read_report and host.read_report.job then
         host:showInfo(_('Reading position is temporarily unavailable. Please try again shortly.'));return false

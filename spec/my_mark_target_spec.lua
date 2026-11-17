@@ -88,4 +88,19 @@ eq(resolved.position.chapter_offset,15);eq(candidates[1],'/wrong.epub');eq(candi
 eq(#candidates,5)
 reads=0;resolved=Target.resolve({book_id='41',cached_file='/cached.epub',cached_full_book='/cached.epub',cached_chapters={['2']='/cached.epub'}},'/cached.epub',row(raw,quote),20,function() reads=reads+1;error('invalid archive') end)
 eq(resolved.position,nil);eq(reads,1)
+local imported={book_id='CB_Synthetic',bookVersion=7,cached_chapters={['2']='/cached.epub'}}
+local imported_capture=assert(Source.capture(imported,chapter,raw,'web_xhtml'))
+local imported_root=Identity.encode(imported,{chapter},Identity.capture(imported),Crypto.sha256_hex(raw))
+local imported_identity=assert(Identity.decode(imported_root))
+local imported_metadata=assert(Source.bind(imported_capture,imported_identity,path,Crypto.sha256_hex(raw)))
+members={[Identity.PATH]=imported_root,[Source.meta_path('2')]=imported_metadata,[Source.path_meta_path(path)]=imported_metadata,
+    [Source.raw_path(Crypto.sha256_hex(raw))]=raw,[path]=raw}
+local imported_row=row(raw,quote);imported_row.bookId='CB_Synthetic'
+eq(Target.bind_file('/cached.epub','CB_Synthetic',imported_row,21,archive).position,nil)
+eq(Target.resolve(imported,'/cached.epub',imported_row,21,archive).position,nil)
+bound=Target.bind_search_file('/cached.epub','CB_Synthetic',imported_row,21,archive)
+eq(bound.position.book_id,'CB_Synthetic');eq(bound.position.chapter_offset,15);eq(bound.position.upload_verified,false);eq(bound.remote,nil)
+resolved=Target.resolve_search(imported,'/cached.epub',imported_row,22,archive)
+eq(resolved.position.book_id,'CB_Synthetic');eq(resolved.position.chapter_offset,15)
+eq(Target.bind_search_file('/cached.epub','CB_Other',imported_row,21,archive).position,nil)
 print('my_mark_target_spec: '..checks..' source-bound target checks passed')

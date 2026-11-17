@@ -4,6 +4,8 @@ local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDEN
 local missing=os.getenv('WEREAD_TEST_SEARCH_MISSING')=='1'
 local catalog_missing=os.getenv('WEREAD_TEST_SEARCH_CATALOG_MISSING')=='1'
 local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
+local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
+local book_id=imported and 'CB_SyntheticResume' or '900001'
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
 G_reader_settings:saveSetting('language','zh_CN')
@@ -24,7 +26,7 @@ settings:update_auth({account={user_vid='900000',name='Synthetic'},
     cookies={wr_vid='900000',wr_skey='synthetic-search-session'}},{replace_cookies=true})
 local chapters={{chapterUid='1',chapterIdx=1,title='合成第一章',wordCount=1000},
     {chapterUid='2',chapterIdx=2,title='合成第二章',wordCount=1000}}
-local book={book_id='900001',bookId='900001',bookVersion=7,title='合成书内搜索',chapters=chapters,cached_chapters={}}
+local book={book_id=book_id,bookId=book_id,bookVersion=7,title='合成书内搜索',chapters=chapters,cached_chapters={}}
 local bodies,sources={},{ }
 for _i,chapter in ipairs(chapters) do
     local uid=chapter.chapterUid
@@ -36,7 +38,7 @@ for _i,chapter in ipairs(chapters) do
 end
 book.cached_file=book.cached_chapters['1']
 if catalog_missing then book.chapters=nil end
-settings:set('books',{['900001']=book})
+settings:set('books',{[book_id]=book})
 settings:set('sync',{pull_on_open=false,upload_on_close=false})
 local cache=settings:get('cache',{});cache.auto_prefetch_next_chapter=false;settings:set('cache',cache)
 local report=settings:get('read_report',{});report.enabled=false;settings:set('read_report',report);settings:flush()
@@ -67,7 +69,7 @@ if renewal_test then
     local show_info=plugin.showInfo
     function plugin:showInfo(message,...) last_info=message;return show_info(self,message,...) end
 end
-assert(plugin:showEndOfBookDialog('900001'))
+assert(plugin:showEndOfBookDialog(book_id))
 local quick=assert(UI:getTopmostVisibleWidget())
 local button
 for _i,row in ipairs(quick.buttons) do for _j,item in ipairs(row) do
@@ -113,6 +115,9 @@ end
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
 assert(#owner.value==1 and owner.value[1].source_verified==false)
+if imported then
+    assert(owner.menu.item_table[#owner.menu.item_table].text==require('weread.lib.i18n').tr('Search results may be incomplete for this book.'))
+end
 if renewal_test then
     assert(not owner.recovery and count('/web/login/renewal')==1 and count('/web/book/search_v2')==2)
     assert(plugin.settings:get('cookies').wr_skey=='XXXrenewed-native' and plugin.web_renewal.store:read().phase=='done')
@@ -140,7 +145,7 @@ owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return owner.state.pages==2 and not owner.job end)
 assert(owner.state.finished and #owner.value==2 and owner.value[2].chapter_uid=='2')
 UI:forceRePaint();Device.screen:shot(evidence..'/book-search-results.png')
-local expected=assert(require('weread.lib.book_search_target').project(bodies['2'],'900001',owner.value[2]))
+local expected=assert(require('weread.lib.book_search_target').project(bodies['2'],book_id,owner.value[2]))
 local before_navigation=tonumber(network[0])
 owner.menu:onMenuSelect(owner.menu.item_table[2])
 if missing then
@@ -168,5 +173,6 @@ assert(not missing or tonumber(network[0])>before_navigation)
 local result={result='PASS',pages=2,results=2,
     verified_navigation=true,network_worker=worker_used,downloaded=missing,catalog_downloaded=catalog_missing}
 if renewal_test then result.renewal_scenarios=true end
+if imported then result.imported_search=true end
 print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(result))
 os.exit(0)

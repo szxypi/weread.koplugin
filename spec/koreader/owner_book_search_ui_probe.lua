@@ -156,7 +156,7 @@ local ok,result=pcall(function()
     local target=assert(require('weread.lib.book_search_target').project(input.source,input.book,selected))
     assert(target.chapter_offset==input.start and target.upload_verified==false)
     local row=assert(require('weread.lib.book_search_target').row(input.book,selected))
-    local bound=require('weread.lib.my_mark_target').resolve(book,file,row,1)
+    local bound=require('weread.lib.book_search_target').resolve(book,file,row,1)
     if missing then assert(not bound.position)
     elseif not bound.position then navigation_diagnostic='bind_failed';error('bind_failed',0) end
     local reported=false

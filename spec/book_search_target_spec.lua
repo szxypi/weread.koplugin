@@ -20,7 +20,13 @@ local marked_hit={chapter_uid='2',start=first,finish=first+6+#'</b>',text='needl
 expect(Target.project(marked,'41',marked_hit)~=nil,'source check rejected an exact quote spanning closing markup')
 local altered={chapter_uid='2',start=start,finish=start+6,text='wrong',source_verified=false}
 expect(not Target.project(raw,'41',altered),'source check accepted a changed search quote')
+local imported=assert(Target.project(raw,'CB_Synthetic',hit))
+expect(imported.book_id=='CB_Synthetic' and imported.chapter_offset==start and imported.upload_verified==false,
+    'imported search result was not locally source verified')
+local marks=require('weread.lib.my_mark_target')
+local imported_row=assert(Target.row('CB_Synthetic',hit))
+expect(not marks.project(raw,'CB_Synthetic','2',imported_row),'search support widened cloud mark scope')
 expect(not Target.row('41',{chapter_uid='2',start=0,finish=1,text='x',source_verified=true})
     and not Target.row('41',{chapter_uid='2',start=0,finish=2147483648,text='x',source_verified=false})
-    and not Target.row('CB_personal',hit),'unverified range limits or book scope were bypassed')
+    and not Target.row('CB_bad/path',hit) and not Target.row('MP_WXS_1',hit),'unverified range limits or book scope were bypassed')
 print(('book_search_target_spec: %d checks'):format(checks))

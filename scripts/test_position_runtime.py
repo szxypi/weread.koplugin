@@ -18,6 +18,11 @@ def synthetic_search_source(uid):
 
 
 class SearchMockServer(MockServer):
+    def __init__(self,port,cb=False):
+        super().__init__(port)
+        self.cb_reading=cb
+        self.search_book='CB_SyntheticResume' if cb else '900001'
+
     def chapter_source(self,uid,revision=None):
         return synthetic_search_source(uid)
 
@@ -30,7 +35,7 @@ class SearchMockServer(MockServer):
             except LookupError:pass
             query=parse_qs(url.query)
             expected={'bookId','chapterUid','keyword','posBegin','posEnd','mode','count'}
-            if (set(query)!=expected or query['bookId']!=['900001'] or query['keyword']!=['amberneedle']
+            if (set(query)!=expected or query['bookId']!=[self.search_book] or query['keyword']!=['amberneedle']
                     or query['mode']!=['scrollDown'] or query['count']!=['50']):
                 raise ValueError('invalid synthetic search query')
             first=synthetic_search_source(1).index('amberneedle')
@@ -59,6 +64,7 @@ def main():
     parser.add_argument('--search-missing', action='store_true')
     parser.add_argument('--search-catalog-missing', action='store_true')
     parser.add_argument('--search-renewal', action='store_true')
+    parser.add_argument('--search-cb', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
         parser.error("screen dimensions and DPI must be positive")
@@ -66,10 +72,10 @@ def main():
         parser.error('--source-format web_txt requires --probe source-state')
     if args.search_scope != 'full' and args.probe != 'quick-search':
         parser.error('--search-scope chapter requires --probe quick-search')
-    if (args.search_missing or args.search_catalog_missing or args.search_renewal) and args.probe!='book-search':
+    if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_cb) and args.probe!='book-search':
         parser.error('search fixture options require --probe book-search')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
-    server = SearchMockServer(0) if args.probe=='book-search' else MockServer(0)
+    server = SearchMockServer(0,args.search_cb) if args.probe=='book-search' else MockServer(0)
     if args.probe == 'cloud-source':
         from verify_source_coordinates import FilteredSource
         offset=FilteredSource(chapter_html(6)).locate('这是第6章的第16段。我们沿着小路慢慢前行')[0]
@@ -87,6 +93,7 @@ def main():
                                         WEREAD_TEST_SEARCH_MISSING='1' if args.search_missing else '0',
                                         WEREAD_TEST_SEARCH_CATALOG_MISSING='1' if args.search_catalog_missing else '0',
                                         WEREAD_TEST_SEARCH_RENEWAL='1' if args.search_renewal else '0',
+                                        WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                                         EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
@@ -126,6 +133,7 @@ def main():
                 expected=dict(result='PASS',pages=2,results=2,verified_navigation=True,network_worker=True,
                               downloaded=args.search_missing,catalog_downloaded=args.search_catalog_missing)
                 if args.search_renewal:expected['renewal_scenarios']=True
+                if args.search_cb:expected['imported_search']=True
                 assert value==expected, 'online search result mismatch'
                 assert server.request_totals[('/web/book/search_v2','')]==(7 if args.search_renewal else 2), 'unexpected search request count'
                 assert server.request_totals[('/web/login/renewal','')]==(2 if args.search_renewal else 0), 'unexpected renewal count'

@@ -49,7 +49,10 @@ local again,reason=Search.accept(repeated,{scrollDownHasMore=0,results={row(11,1
 expect(not again and reason=='invalid_cursor' and repeated.pages==1,'repeated cursor falsely ended a search')
 local empty=fresh();page=assert(Search.accept(empty,{scrollDownHasMore=0}))
 expect(page.finished and #page.hits==0,'empty completed result was not retained')
-expect(not Search.new('CB_personal','测试',chapters) and not Search.new('123',' ',chapters)
+local imported=assert(Search.new('CB_personal','测试',chapters))
+expect(Search.url(imported):find('bookId=CB_personal',1,true)~=nil,'imported book search lost its identity')
+expect(not Search.new('CB_bad/path','测试',chapters) and not Search.new('CB_','测试',chapters)
+    and not Search.new('MP_WXS_123','测试',chapters) and not Search.new('123',' ',chapters)
     and not Search.new('123','bad\nquery',chapters) and not Search.new('123','\255',chapters),
     'unsupported book ID or invalid search term was accepted')
 expect(not Search.new('123','测试',{{chapterUid=11},{chapterUid=11}})

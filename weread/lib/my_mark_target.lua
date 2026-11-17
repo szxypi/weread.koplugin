@@ -7,6 +7,7 @@ local Dom=require('weread.lib.source_dom')
 local Data=require('weread.lib.my_cloud_marks')
 local Crypto=require('weread.lib.crypto')
 local Protocol=require('weread.lib.protocol')
+local ReadAccess=require('weread.lib.read_access')
 local M={}
 local function fail(reason) error('my_mark_target/'..reason,0) end
 local function integer(value,max) return type(value)=='number' and value>=0 and value%1==0 and value<=max end
@@ -29,9 +30,9 @@ function M.can_locate(row)
     local first,last=row.range:match('^(%d+)%-(%d+)$')
     return first~=nil and #first<=10 and #last<=10 and tonumber(first)<tonumber(last) and tonumber(last)<=2147483647
 end
-function M.project(raw,book,chapter,row)
+local function project(raw,book,chapter,row,search)
     local ok,value=pcall(function()
-        if not Data.id(book) or not Data.id(chapter) or type(row)~='table' or row.type~=1
+        if not (search and ReadAccess.display_book_id(book) or Data.id(book)) or not Data.id(chapter) or type(row)~='table' or row.type~=1
             or not integer(row.chapterUid,2147483647) or tostring(row.chapterUid)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book then fail('scope') end
         local quote=row.markText
@@ -81,12 +82,15 @@ function M.project(raw,book,chapter,row)
     if ok then return value end
     return nil,type(value)=='string' and value:match('^my_mark_target/[a-z_]+$') and value or 'my_mark_target/unavailable'
 end
+function M.project(raw,book,chapter,row) return project(raw,book,chapter,row,false) end
+function M.project_search(raw,book,chapter,row) return project(raw,book,chapter,row,true) end
 -- Independent worker-only archive reads. No raw text or path from the mark
 -- becomes a filename; candidates come from the reader and this book's cache.
-function M.bind_file(file,book,row,request_id,read_archive,project)
+local function bind_file(file,book,row,request_id,read_archive,projection,search)
     local ok,value=pcall(function()
         if type(file)~='string' or file=='' or #file>4096 or file:find('[%z%c]')
-            or not Data.id(book) or type(row)~='table' or not integer(row.chapterUid,2147483647) then fail('scope') end
+            or not (search and ReadAccess.display_book_id(book) or Data.id(book))
+            or type(row)~='table' or not integer(row.chapterUid,2147483647) then fail('scope') end
         local uid=tostring(row.chapterUid)
         local Source=require('weread.lib.position_source')
         local Identity=require('weread.lib.book_file_identity')
@@ -103,7 +107,7 @@ function M.bind_file(file,book,row,request_id,read_archive,project)
         local verified=Source.verify_snapshot({metadata=metadata,identity=identity,book_id=book,chapter_uid=uid,
             raw=data and data[raw_path],rendered=data and data[record.render_path]})
         if not verified then fail('source_changed') end
-        local remote,reason=(project or M.project)(verified.raw,book,uid,row)
+        local remote,reason=(projection or (search and M.project_search or M.project))(verified.raw,book,uid,row)
         if not remote then error(reason,0) end
         local bound=require('weread.lib.source_cloud').bind({file=file,identity=identity,book_id=book,request_id=request_id},remote,read)
         if not bound.position or bound.metadata~=metadata then fail('source_changed') end
@@ -113,9 +117,16 @@ function M.bind_file(file,book,row,request_id,read_archive,project)
     if ok then return value end
     return {error=type(value)=='string' and value:match('^my_mark_target/[a-z_]+$') and value or 'my_mark_target/unavailable',request_id=request_id}
 end
-function M.resolve(book,current_file,row,request_id,read_archive,project)
+function M.bind_file(file,book,row,request_id,read_archive,projection)
+    return bind_file(file,book,row,request_id,read_archive,projection,false)
+end
+function M.bind_search_file(file,book,row,request_id,read_archive,projection)
+    return bind_file(file,book,row,request_id,read_archive,projection,true)
+end
+local function resolve(book,current_file,row,request_id,read_archive,projection,search)
     if type(book)~='table' then return {error='my_mark_target/scope',request_id=request_id} end
-    local id=Data.id(tostring(book.book_id or book.bookId or ''))
+    local raw_id=tostring(book.book_id or book.bookId or '')
+    local id=search and ReadAccess.display_book_id(raw_id) or Data.id(raw_id)
     local uid=type(row)=='table' and tostring(row.chapterUid)
     if not id or not uid then return {error='my_mark_target/scope',request_id=request_id} end
     local seen={}
@@ -124,11 +135,17 @@ function M.resolve(book,current_file,row,request_id,read_archive,project)
         book.cached_full_book or false,book.cached_file or false}) do
         if type(file)=='string' and not seen[file] then
             seen[file]=true
-            local value=M.bind_file(file,id,row,request_id,read_archive,project)
+            local value=bind_file(file,id,row,request_id,read_archive,projection,search)
             if value.position then return value end
             reason=value.error
         end
     end
     return {error=reason,request_id=request_id}
+end
+function M.resolve(book,current_file,row,request_id,read_archive,projection)
+    return resolve(book,current_file,row,request_id,read_archive,projection,false)
+end
+function M.resolve_search(book,current_file,row,request_id,read_archive,projection)
+    return resolve(book,current_file,row,request_id,read_archive,projection,true)
 end
 return M

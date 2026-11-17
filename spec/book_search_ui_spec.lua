@@ -13,6 +13,7 @@ package.preload['weread.lib.plugin_util']=function() return {tr=function(value) 
 package.preload['weread.ui.shelf_popup']=function() return {redraw=function(_owner,callback) callback() end,close=function() end} end
 local access={web={cookies={}},revision='a'};local access_current=true
 package.preload['weread.lib.read_access']=function() return {capture=function() return access end,
+    display_book_id=function(id) return type(id)=='string' and (id:match('^[1-9]%d*$') or id:match('^CB_[A-Za-z0-9]+$')) and id or nil end,
     matches=function() return access_current end} end
 local navigation_calls=0
 package.preload['weread.ui.my_mark_navigation']=function() return {
@@ -33,6 +34,7 @@ package.preload['weread.lib.book_search']=function() return {
         if fetch_mode=='expired' then return nil,'web_http_401' end
         if fetch_mode=='business_expired' then return nil,'web_expired' end
         if fetch_mode=='limited' then return nil,'rate_limited' end
+        if fetch_mode=='empty' then state.pages=state.pages+1;state.finished=true;return {hits={},finished=true} end
         state.pages=state.pages+1;state.finished=state.pages==2
         return {hits={{chapter_uid='1',text='term',context=string.rep('long prefix ',20)..'term context',source_verified=false}},finished=state.finished}
     end,
@@ -192,5 +194,18 @@ fetch_mode='ok';owner=open_and_submit();active_worker:complete();fetch_mode='exp
 renewal=pending_renewal;renewal.callback(false,'renewal_unconfirmed')
 expect(not owner.recovery and owner.state.pages==1 and #owner.value==1
     and host.info=='renewal error: renewal_unconfirmed','failed renewal discarded previous results')
+Search.cancel(host);fetch_mode='ok'
+expect(Search.open(host,'CB_Synthetic',chapters),'imported book did not open online search')
+local cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback()
+local cb_owner=assert(host._book_search_owner);active_worker:complete()
+expect(cb_owner.menu.items[#cb_owner.menu.items].text=='Search results may be incomplete for this book.',
+    'imported book results did not disclose indexing limitations')
 Search.cancel(host)
+fetch_mode='empty';expect(Search.open(host,'CB_Synthetic',chapters),'imported book search did not reopen')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete()
+expect(cb_owner.menu.items[1].text=='No matches returned. Search may be incomplete for this book.',
+    'empty imported search claimed a complete negative result')
+Search.cancel(host)
+expect(not Search.open(host,'CB_bad/path',chapters),'invalid imported book ID was accepted')
 print(('book_search_ui_spec: %d checks'):format(checks))

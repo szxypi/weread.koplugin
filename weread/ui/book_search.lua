@@ -85,7 +85,10 @@ render=function(host,owner)
             end}
         end
         if #owner.value==0 and owner.state and owner.state.finished then
-            items[#items+1]={text=_('No matching text found.'),select_enabled=false}
+            items[#items+1]={text=_(owner.cb_book and 'No matches returned. Search may be incomplete for this book.'
+                or 'No matching text found.'),select_enabled=false}
+        elseif owner.cb_book and #owner.value>0 then
+            items[#items+1]={text=_('Search results may be incomplete for this book.'),select_enabled=false}
         end
         if owner.state and not owner.state.finished and owner.state.pages>=128 then
             items[#items+1]={text=_('Search limit reached; results may be incomplete.'),select_enabled=false}
@@ -216,7 +219,7 @@ local function prepare_catalog(host,owner,chapters)
 end
 
 function M.open(host,book_id,chapters)
-    if type(book_id)~='string' or not book_id:match('^[1-9]%d*$') or #book_id>20 then return false end
+    if type(book_id)~='string' or not Access.display_book_id(book_id) then return false end
     local document=host.ui and host.ui.document
     local scope=host.settings:get_auth_scope()
     local account=host.library_db and host.library_db:accountKey()
@@ -229,7 +232,7 @@ function M.open(host,book_id,chapters)
     if not access or not access.web then host:showInfo(_('A verified WeRead web login is required for online book search.'));return false end
     M.cancel(host)
     local owner={id=book_id,scope=scope,account=account,document=document,file=document.file,
-        session=host._reader_session_gen or 0,value={},titles={},search_results=true}
+        session=host._reader_session_gen or 0,value={},titles={},search_results=true,cb_book=book_id:sub(1,3)=='CB_'}
     host._book_search_owner=owner
     local InputDialog=require('ui/widget/inputdialog')
     local input

@@ -79,7 +79,7 @@ function M:showEndOfBookDialog(book_id)
         enable_book_details = book ~= nil,
         enable_sync_progress = is_regular_weread_book,
         enable_search_current = type(search) == "table" and type(search.onShowFulltextSearchInput) == "function",
-        enable_search_book = is_regular_weread_book and tostring(book_id):match('^[1-9]%d*$') ~= nil,
+        enable_search_book = is_regular_weread_book and require('weread.lib.read_access').display_book_id(tostring(book_id)) ~= nil,
         annotations_visible = annotations_visible,
     }, {
         on_bookshelf = function()
