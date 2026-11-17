@@ -5,6 +5,7 @@ local missing=os.getenv('WEREAD_TEST_SEARCH_MISSING')=='1'
 local catalog_missing=os.getenv('WEREAD_TEST_SEARCH_CATALOG_MISSING')=='1'
 local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
+local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local book_id=imported and 'CB_SyntheticResume' or '900001'
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
@@ -36,7 +37,7 @@ for _i,chapter in ipairs(chapters) do
         book.cached_chapters[uid]=Content.save_book_epub(settings,book,{chapter},bodies,'search-'..uid,{},nil,nil,Identity.capture(book),sources)
     end
 end
-book.cached_file=book.cached_chapters['1']
+book.cached_file=book.cached_chapters[current_fallback and '2' or '1']
 if catalog_missing then book.chapters=nil end
 settings:set('books',{[book_id]=book})
 settings:set('sync',{pull_on_open=false,upload_on_close=false})
@@ -113,6 +114,23 @@ if renewal_test then
     control{match='/web/book/search_v2',times=1,status=401,web_renewal_mode='rotate'}
 end
 owner.menu:onMenuSelect(owner.menu.item_table[1])
+if current_fallback then
+    wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
+    assert(#owner.value==1 and owner.value[1].chapter_uid=='2' and owner.state.finished)
+    local expected=assert(require('weread.lib.book_search_target').project(bodies['2'],book_id,owner.value[1]))
+    owner.menu:onMenuSelect(owner.menu.item_table[1])
+    wait(function()
+        local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
+        return not owner.navigation and plugin.source_navigation and plugin.source_navigation.state=='ready'
+            and held and held.chapter_uid=='2' and held.chapter_offset==expected.chapter_offset
+    end)
+    assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
+    assert(not plugin.progress_sync.verified and not plugin.read_report.job)
+    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',pages=2,results=1,
+        verified_navigation=true,network_worker=true,downloaded=false,catalog_downloaded=catalog_missing,
+        imported_search=true,current_fallback=true}))
+    os.exit(0)
+end
 wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
 assert(#owner.value==1 and owner.value[1].source_verified==false)
 if imported then

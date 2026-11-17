@@ -3,9 +3,9 @@
 package.path = "./?.lua;" .. package.path
 
 local dialog_options, dialog_callbacks
-local searched_book
+local searched_book,searched_uid
 package.preload['weread.ui.book_search'] = function()
-    return {open=function(_host,id) searched_book=id end}
+    return {open=function(_host,id,_chapters,uid) searched_book,searched_uid=id,uid end}
 end
 package.preload["weread.ui.end_of_book_dialog"] = function()
     return { show = function(options, callbacks)
@@ -164,6 +164,34 @@ context_host.settings.auth_scope_matches=function(_self,scope) return scope.epoc
 context_host:showEndOfBookDialog('123');auth_epoch=2;dialog_callbacks.on_search_book()
 expect(searched_book==nil,'delayed whole-book search ignores a changed account session')
 context_host.settings.get_auth_scope=nil;context_host.settings.auth_scope_matches=nil
+
+context_host.source_position={current=function() error('numeric search must not inspect source position') end}
+context_host:showEndOfBookDialog('123');dialog_callbacks.on_search_book()
+expect(searched_book=='123' and searched_uid==nil,'numeric search unexpectedly inspected the CB fallback position')
+context_books['CB_Synthetic']={book_id='CB_Synthetic',title='Synthetic'}
+context_host.ensureChaptersLoaded=function() return {{chapterUid='1'},{chapterUid='2'},{chapterUid='3'}} end
+context_host.getChapterInfoFromFile=function() return 2,{chapterUid='2'},false end
+context_host.source_position.current=function() return {book_id='CB_Synthetic',chapter_uid='3'} end
+context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
+expect(searched_book=='CB_Synthetic' and searched_uid=='3','live CB source chapter was not passed to search')
+context_host.source_position.current=function() return {book_id='CB_Foreign',chapter_uid='3'} end
+context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
+expect(searched_uid=='2','foreign source position replaced the current file chapter')
+context_host.source_position.current=function() error('source temporarily unavailable') end
+context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
+expect(searched_uid=='2','unavailable source position discarded the current file chapter')
+context_host.getChapterInfoFromFile=function() return nil,nil,false end
+context_books['CB_Synthetic'].cached_chapters={['2']='/books/local.epub'}
+context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
+expect(searched_uid=='2','a uniquely mapped chapter was lost when the catalog was not attached')
+context_books['CB_Synthetic'].cached_chapters['3']='/books/local.epub'
+context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
+expect(searched_uid==nil,'an ambiguous cached file was treated as one chapter')
+context_books['CB_Synthetic'].cached_chapters['3']=nil
+context_books['CB_Synthetic'].cached_full_book='/books/local.epub'
+context_host:showEndOfBookDialog('CB_Synthetic');dialog_callbacks.on_search_book()
+expect(searched_uid==nil,'a full-book file was treated as one chapter')
+context_host.source_position=nil
 
 context_books["mp-book"] = { book_id = "mp-book", title = "Article" }
 context_host.ensureChaptersLoaded = function()

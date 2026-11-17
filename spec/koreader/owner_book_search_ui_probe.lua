@@ -16,6 +16,7 @@ local json=require('json')
 local raw=io.stdin:read(8*1024*1024+1)
 local phase='decode'
 local navigation_diagnostic='unknown'
+local counters,download_counters
 local ok,result=pcall(function()
     assert(#raw<=8*1024*1024)
     local input=json.decode(raw);raw=nil
@@ -50,9 +51,11 @@ local ok,result=pcall(function()
         return value
     end
     local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
-    local counters=ffi.cast('int *',memory)
-    local download_counters=counters+16
+    counters=ffi.cast('int *',memory)
+    download_counters=counters+16
     local missing=input.download_missing==true
+    local catalog_missing=input.catalog_missing==true
+    assert(not (missing and catalog_missing))
     if missing then assert(type(input.local_chapter)=='string' and input.local_chapter~=input.chapter) end
     local Protocol=require('weread.lib.protocol');local allowed={}
     for _i,cursor in ipairs(input.allowed) do
@@ -63,17 +66,21 @@ local ok,result=pcall(function()
     local account_url='https://weread.qq.com/api/userInfo?userVid='..Protocol.urlencode(input.owner)
     local Client=require('weread.lib.client');local request=Client.request
     local gate
-    if missing then
+    if missing or catalog_missing then
         local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
         gate=dofile(fixtures..'note_download_transport.lua'):new({book_id=input.book,owner=input.owner,
             chapters={{chapter_uid=input.chapter}}},'live',download_counters,tonumber(ffi.C.getpid()))
     end
+    if catalog_missing then download_counters[5]=1 end
     function Client:request(options)
-        if gate and download_counters[5]==1 then
+        local search_request=options.method=='GET' and options.body==nil and options.sensitive and options.skip_cookie
+            and (options.url==account_url or allowed[options.url])
+        if gate and download_counters[5]==1 and not search_request then
             local kind=gate:classify(self,options)
             local limits={4,1,8}
-            if not kind or download_counters[kind]>=limits[kind] or tonumber(ffi.C.getpid())==gate.parent then
-                counters[2]=counters[2]+1;error('owner_search_download_scope',0)
+            if not kind or catalog_missing and kind==3 or download_counters[kind]>=limits[kind]
+                or tonumber(ffi.C.getpid())==gate.parent then
+                counters[2]=counters[2]+1;counters[3]=1;error('owner_search_download_scope',0)
             end
             download_counters[0]=download_counters[0]+1;download_counters[kind]=download_counters[kind]+1
             options.sensitive,options.diagnostic_api=true,'note_download_source'
@@ -82,11 +89,17 @@ local ok,result=pcall(function()
             return body,code,headers,status
         end
         if options.method~='GET' or options.body~=nil or not options.sensitive or not options.skip_cookie then
-            counters[2]=counters[2]+1;error('owner_search_scope',0)
+            counters[2]=counters[2]+1;counters[3]=2;error('owner_search_scope',0)
         end
-        if options.url==account_url and counters[0]<#input.allowed then counters[0]=counters[0]+1
+        if options.url==account_url and counters[0]<#input.allowed then
+            counters[0]=counters[0]+1
+            if catalog_missing then download_counters[5]=0 end
         elseif allowed[options.url] and counters[1]<#input.allowed then counters[1]=counters[1]+1
-        else counters[2]=counters[2]+1;error('owner_search_scope',0) end
+        else
+            counters[2]=counters[2]+1
+            counters[3]=type(options.url)=='string' and options.url:find('https://weread.qq.com/web/book/search_v2?',1,true)==1 and 3 or 4
+            error('owner_search_scope',0)
+        end
         return request(self,options)
     end
     local Worker=require('weread.lib.memory_worker');local start=Worker.start;local workers={}
@@ -114,8 +127,9 @@ local ok,result=pcall(function()
     local bodies={[initial_uid]=initial_source}
     local file=Content.save_book_epub(settings,book,{initial_chapter},bodies,'owner-search',{},nil,nil,Identity.capture(book),sources)
     book.cached_file=file;book.cached_chapters[initial_uid]=file
+    if catalog_missing then book.chapters=nil end
     settings:set('books',{[input.book]=book});settings:flush()
-    assert(Content.save_catalog_cache(Client:new(settings),settings,book,input.chapters))
+    if not catalog_missing then assert(Content.save_catalog_cache(Client:new(settings),settings,book,input.chapters)) end
     phase='reader'
     local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
     local socket=require('socket')
@@ -140,16 +154,25 @@ local ok,result=pcall(function()
     local owner=plugin._book_search_owner;owner.input:setInputText(input.keyword);owner.input.buttons[1][2].callback()
     phase='search'
     local selected,index
-    for page=1,#input.allowed do
-        wait(function() return owner.state and owner.state.pages==page and not owner.job end)
+    local function find_selected()
         for at,hit in ipairs(owner.value) do
             if hit.chapter_uid==input.chapter and hit.start==input.start and hit.finish==input.finish then
                 assert(not selected);selected,index=hit,at
             end
         end
-        if selected then break end
-        assert(not owner.state.finished and owner.menu.item_table[1].text==require('weread.lib.i18n').tr('Load more results'))
-        owner.menu:onMenuSelect(owner.menu.item_table[1])
+    end
+    if input.current_fallback then
+        assert(not missing and #input.allowed==2)
+        wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
+        find_selected()
+    else
+        for page=1,#input.allowed do
+            wait(function() return owner.state and owner.state.pages==page and not owner.job end)
+            find_selected()
+            if selected then break end
+            assert(not owner.state.finished and owner.menu.item_table[1].text==require('weread.lib.i18n').tr('Load more results'))
+            owner.menu:onMenuSelect(owner.menu.item_table[1])
+        end
     end
     assert(selected and selected.source_verified==false)
     phase='navigate'
@@ -209,6 +232,7 @@ local ok,result=pcall(function()
     download_counters[5]=0
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(not plugin.progress_sync.verified and not plugin.read_report.job and counters[2]==0)
+    if input.current_fallback then assert(counters[0]==2 and counters[1]==2) end
     wait(function() for _i,pid in ipairs(workers) do if not require('ffi/util').isSubProcessDone(pid) then return false end end;return true end)
     local value={result='PASS',native_menu=true,search_result_verified=true,source_navigation=true,
         workers_reaped=true,account_gets=tonumber(counters[0]),search_gets=tonumber(counters[1]),denied_requests=tonumber(counters[2])}
@@ -219,6 +243,15 @@ local ok,result=pcall(function()
         local stored=assert(plugin.settings:get_book(input.book))
         assert(stored.cached_chapters[input.chapter]==reader.document.file and reader.document.file~=file)
         assert(download_counters[6]==0 and download_counters[1]>0 and download_counters[2]>0 and download_counters[3]>0)
+    end
+    if catalog_missing then
+        local stored=assert(plugin.settings:get_book(input.book))
+        assert(type(Content.load_catalog_cache(plugin.client,plugin.settings,stored))=='table')
+        assert(type(plugin.library_db:getChapters(input.book))=='table')
+        assert(download_counters[6]==0 and download_counters[1]>0 and download_counters[2]>0 and download_counters[3]==0)
+        value.catalog_restored=true;value.catalog_gets=tonumber(download_counters[1]);value.catalog_read_posts=tonumber(download_counters[2])
+    end
+    if missing or catalog_missing then
         local current_cookies=plugin.settings:get('cookies',{})
         local lfs=require('libs/libkoreader-lfs')
         local function audit(dir)
@@ -238,11 +271,25 @@ local ok,result=pcall(function()
             end
         end
         audit(home)
-        value.download_confirmed=true;value.cancel_without_download=cancelled;value.downloaded_source_verified=true
-        value.credential_audit=true;value.download_gets=tonumber(download_counters[1])
-        value.catalog_posts=tonumber(download_counters[2]);value.content_posts=tonumber(download_counters[3])
+        value.credential_audit=true
+        if missing then
+            value.download_confirmed=true;value.cancel_without_download=cancelled;value.downloaded_source_verified=true
+            value.download_gets=tonumber(download_counters[1]);value.catalog_posts=tonumber(download_counters[2])
+            value.content_posts=tonumber(download_counters[3])
+        end
     end
     return value
 end)
-print('\nWEREAD_OWNER_BOOK_SEARCH_UI='..json.encode(ok and result or {result='UNVERIFIED',phase=phase,navigation_diagnostic=navigation_diagnostic}))
+local failure_detail='unknown'
+if not ok and counters then
+    if counters[2]>0 then
+        local kinds={[1]='blocked_catalog',[2]='blocked_policy',[3]='blocked_search',[4]='blocked_other'}
+        failure_detail=kinds[tonumber(counters[3])] or 'blocked'
+    elseif download_counters[6]>0 then failure_detail='http_failed'
+    elseif download_counters[2]==0 then failure_detail='no_catalog'
+    elseif counters[1]==0 then failure_detail='no_search'
+    else failure_detail='after_search' end
+end
+print('\nWEREAD_OWNER_BOOK_SEARCH_UI='..json.encode(ok and result or {result='UNVERIFIED',phase=phase,
+    navigation_diagnostic=navigation_diagnostic,failure_detail=failure_detail}))
 os.exit(ok and result.result=='PASS' and 0 or 1)

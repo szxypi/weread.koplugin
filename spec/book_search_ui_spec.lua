@@ -21,13 +21,28 @@ package.preload['weread.ui.my_mark_navigation']=function() return {
     cancel=function(_host,owner) owner.navigation=nil end,
 } end
 package.preload['weread.ui.book_reading']=function() return {catalog=function(rows) return rows end} end
+local fetched_catalog={{chapterUid='1',title='First'},{chapterUid='2',title='Second'}}
+local saved_catalogs,catalog_saves,allow_catalog_save,allow_db_save=0,0,true,true
+package.preload['weread.lib.worker_settings']=function() return {
+    fingerprint=function() return 'synthetic' end,capture=function() return function() return nil end end,
+    merge=function() return true end,
+} end
+package.preload['weread.lib.content']=function() return {
+    ensure_reader_state=function() end,fetch_catalog=function() return fetched_catalog end,
+    save_catalog_cache=function() catalog_saves=catalog_saves+1;return allow_catalog_save end,
+} end
 package.preload['weread.lib.book_search_target']=function() return {row=function(book,hit)
     if hit.source_verified~=false then return nil end
     return {bookId=book,chapterUid=tonumber(hit.chapter_uid),markText=hit.text,type=1,range='1-3'}
 end} end
 local fetch_mode='ok';local fetches=0
 package.preload['weread.lib.book_search']=function() return {
-    new=function(book,keyword,chapters) return {book=book,keyword=keyword,pages=0,finished=false,chapters=chapters} end,
+    new=function(book,keyword,chapters,first)
+        local uid=first or tostring(chapters[1].chapterUid)
+        local present=false;for _i,row in ipairs(chapters) do if tostring(row.chapterUid)==uid then present=true end end
+        if not present then return nil end
+        return {book=book,keyword=keyword,pages=0,finished=false,chapters=chapters,cursor={chapter=uid}}
+    end,
     fetch=function(_client,state)
         fetches=fetches+1
         if fetch_mode=='fail' then return nil,'unavailable' end
@@ -35,8 +50,13 @@ package.preload['weread.lib.book_search']=function() return {
         if fetch_mode=='business_expired' then return nil,'web_expired' end
         if fetch_mode=='limited' then return nil,'rate_limited' end
         if fetch_mode=='empty' then state.pages=state.pages+1;state.finished=true;return {hits={},finished=true} end
+        if fetch_mode=='last_page' then state.pages=128;state.finished=true;return {hits={},finished=true} end
+        if fetch_mode=='fallback' and state.cursor.chapter=='1' then
+            state.pages=state.pages+1;state.finished=true;return {hits={},finished=true}
+        end
         state.pages=state.pages+1;state.finished=state.pages==2
-        return {hits={{chapter_uid='1',text='term',context=string.rep('long prefix ',20)..'term context',source_verified=false}},finished=state.finished}
+        return {hits={{chapter_uid=fetch_mode=='fallback' and state.cursor.chapter or '1',text='term',
+            context=string.rep('long prefix ',20)..'term context',source_verified=false}},finished=state.finished}
     end,
 } end
 local pending_renewal,renewals,cancellations=nil,0,0
@@ -65,8 +85,10 @@ local function expect(value,label) checks=checks+1;if not value then error(label
 local account='123';local online=true;local scope_valid=true
 local host={ui={document={file='/synthetic.epub'}},_reader_session_gen=1,
     settings={get_auth_scope=function() return {vid='123',epoch=1} end,
-        auth_scope_matches=function() return scope_valid end},
-    library_db={accountKey=function() return account end},client={}}
+        auth_scope_matches=function() return scope_valid end,get_book=function() return {book_id='CB_Synthetic'} end},
+    library_db={accountKey=function() return account end,putChapters=function(_self,_id,_chapters)
+        saved_catalogs=saved_catalogs+1;return allow_db_save
+    end},client={}}
 function host:isNetworkOnline() return online end
 function host:showOffline() self.info='offline' end
 function host:showInfo(value) self.info=value end
@@ -208,4 +230,70 @@ expect(cb_owner.menu.items[1].text=='No matches returned. Search may be incomple
     'empty imported search claimed a complete negative result')
 Search.cancel(host)
 expect(not Search.open(host,'CB_bad/path',chapters),'invalid imported book ID was accepted')
+local two_chapters={{chapterUid='1',title='First'},{chapterUid='2',title='Second'}}
+fetch_mode='fallback';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'fallback search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+before=fetches;active_worker:complete()
+expect(cb_owner.fallback_attempted and cb_owner.state.cursor.chapter=='2' and cb_owner.state.pages==1 and cb_owner.job,
+    'empty first-chapter result did not launch a current-chapter query')
+active_worker:complete()
+expect(fetches==before+2 and cb_owner.state.pages==2 and #cb_owner.value==1 and cb_owner.value[1].chapter_uid=='2',
+    'current-chapter fallback did not retain the bounded query count or result')
+Search.cancel(host)
+expect(Search.open(host,'CB_Synthetic',two_chapters,'1'),'same-chapter search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+before=fetches;active_worker:complete()
+expect(fetches==before+1 and not cb_owner.fallback_attempted and not cb_owner.job,
+    'same starting chapter caused a duplicate query')
+Search.cancel(host)
+expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'cancellation search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();local late=active_worker;Search.cancel(host);late:complete()
+expect(not host._book_search_owner and #cb_owner.value==0,'cancelled fallback delivered a stale result')
+fetch_mode='ok';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'nonempty CB search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+before=fetches;active_worker:complete()
+expect(fetches==before+1 and not cb_owner.fallback_attempted and #cb_owner.value==1,
+    'nonempty first-chapter search triggered an unnecessary fallback')
+Search.cancel(host)
+fetch_mode='fallback';expect(Search.open(host,'CB_Synthetic',two_chapters,'99'),'unknown-chapter search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+before=fetches;active_worker:complete()
+expect(fetches==before+1 and not cb_owner.fallback_attempted and not cb_owner.job,
+    'a chapter outside the catalog triggered fallback')
+Search.cancel(host)
+fetch_mode='last_page';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'page-limit search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+cb_owner.state.pages=127;before=fetches;active_worker:complete()
+expect(fetches==before+1 and not cb_owner.fallback_attempted and not cb_owner.job,
+    'fallback exceeded the overall page limit')
+Search.cancel(host)
+fetch_mode='ok'
+expect(Search.open(host,'CB_Synthetic',nil,'2'),'missing-catalog search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+local before_stored,before_saved=saved_catalogs,catalog_saves
+active_worker:complete()
+expect(saved_catalogs==before_stored+1 and catalog_saves==before_saved+1 and cb_owner.state and cb_owner.job,
+    'fetched catalog was not persisted before search and navigation')
+active_worker:complete();Search.cancel(host)
+allow_catalog_save=false
+expect(Search.open(host,'CB_Synthetic',nil,'2'),'save-failure search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+before=fetches;active_worker:complete()
+expect(not cb_owner.state and not cb_owner.job and fetches==before
+    and host.info=="Could not load this book's chapter list.",
+    'failed catalog save continued into search')
+allow_catalog_save=true;Search.cancel(host)
+allow_db_save=false
+expect(Search.open(host,'CB_Synthetic',nil,'2'),'database-failure search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+before_saved=catalog_saves;active_worker:complete()
+expect(not cb_owner.state and not cb_owner.job and catalog_saves==before_saved,
+    'database failure continued to file saving or search')
+allow_db_save=true;Search.cancel(host)
+expect(Search.open(host,'CB_Synthetic',nil,'2'),'stale-catalog search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();assert(host._book_search_owner)
+before_stored,before_saved=saved_catalogs,catalog_saves;account='456';active_worker:complete();account='123'
+expect(not host._book_search_owner and saved_catalogs==before_stored and catalog_saves==before_saved,
+    'a stale catalog was persisted after the account changed')
 print(('book_search_ui_spec: %d checks'):format(checks))

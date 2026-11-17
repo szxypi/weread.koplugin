@@ -50,10 +50,10 @@ function M:showEndOfBookDialog(book_id)
     local is_regular_weread_book = book ~= nil and not WeRead.is_mp_book(book_id)
     local chapters = is_regular_weread_book and self:ensureChaptersLoaded(book) or nil
 
-    local current_idx, is_full_book
+    local current_idx, current_chapter, is_full_book
     if chapters then
         local chapter_info = { self:getChapterInfoFromFile(book, file_path) }
-        current_idx, is_full_book = chapter_info[1], chapter_info[3]
+        current_idx, current_chapter, is_full_book = chapter_info[1], chapter_info[2], chapter_info[3]
     end
     -- The chapter-nav row is shown only for single downloaded chapters (a mapped
     -- current chapter that is not part of a full-book EPUB); "next chapter"
@@ -100,7 +100,25 @@ function M:showEndOfBookDialog(book_id)
                 or not search_scope and not current_scope
             if self.ui == reader_ui and reader_ui.document == document and document.file == file_path
                 and (self._reader_session_gen or 0)==reader_session and same_scope then
-                require('weread.ui.book_search').open(self,tostring(book_id),chapters)
+                local uid
+                if tostring(book_id):sub(1,3)=='CB_' then
+                    uid=current_chapter and tostring(current_chapter.chapterUid or current_chapter.chapterId or '') or nil
+                    if not uid and not is_full_book and book.cached_full_book~=file_path
+                        and type(book.cached_chapters)=='table' then
+                        local mapped,count=nil,0
+                        for chapter,path in pairs(book.cached_chapters) do
+                            if path==file_path then mapped,count=tostring(chapter),count+1 end
+                        end
+                        if count==1 then uid=mapped end
+                    end
+                    if self.source_position and type(self.source_position.current)=='function' then
+                        local ok,point=pcall(self.source_position.current,self.source_position)
+                        if ok and type(point)=='table' and point.book_id==tostring(book_id) and point.chapter_uid then
+                            uid=tostring(point.chapter_uid)
+                        end
+                    end
+                end
+                require('weread.ui.book_search').open(self,tostring(book_id),chapters,uid)
             end
         end,
         on_chapter_list = function()

@@ -74,6 +74,8 @@ def main(argv=None):
                         report['failure_phase']=failure['phase']
                         if failure.get('navigation_diagnostic') in ('unknown','confirm','working','ready_target','ready_no_target','inactive','bind_failed','source_opened','other','locate_failed','position_unavailable','save_failed'):
                             report['navigation_diagnostic']=failure['navigation_diagnostic']
+                        if failure.get('failure_detail') in ('unknown','blocked','blocked_catalog','blocked_policy','blocked_search','blocked_other','http_failed','no_catalog','no_search','after_search'):
+                            report['failure_detail']=failure['failure_detail']
                 if child.returncode or len(out)>8*1024*1024 or out.count(FRAME)!=1 or b'[WeRead] forceRePaint failed:' in out+err:
                     raise ValueError('owner_search/native')
                 value=json.loads(out.split(FRAME,1)[1].splitlines()[0])
@@ -81,6 +83,8 @@ def main(argv=None):
                 missing=payload.get('download_missing') is True
                 extra={'download_confirmed','cancel_without_download','downloaded_source_verified','credential_audit',
                     'download_gets','catalog_posts','content_posts'} if missing else set()
+                catalog_missing=payload.get('catalog_missing') is True
+                if catalog_missing:extra|={'catalog_restored','catalog_gets','catalog_read_posts','credential_audit'}
                 if (not isinstance(value,dict) or set(value)!={'result',*flags,'account_gets','search_gets','denied_requests',*extra}
                         or value['result']!='PASS' or any(value[k] is not True for k in flags)
                         or type(value['account_gets']) is not int or value['account_gets']<1
@@ -91,6 +95,9 @@ def main(argv=None):
                         'downloaded_source_verified','credential_audit'))
                         or any(type(value[k]) is not int or value[k]<1 for k in ('download_gets','catalog_posts','content_posts'))):
                     raise ValueError('owner_search/download')
+                if catalog_missing and (value['catalog_restored'] is not True or value['credential_audit'] is not True
+                        or any(type(value[k]) is not int or value[k]<1 for k in ('catalog_gets','catalog_read_posts'))):
+                    raise ValueError('owner_search/catalog')
                 report.update(result='PASS',ui=value)
             finally:
                 if child.poll() is None:

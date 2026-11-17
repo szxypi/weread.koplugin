@@ -1,0 +1,52 @@
+{
+  "result": "PASS",
+  "books": 6,
+  "segment_queries": 22,
+  "matched_queries": 7,
+  "empty_queries": 15,
+  "paired_starts": {
+    "both_match": 3,
+    "current_only": 1,
+    "first_only": 0,
+    "neither": 6
+  },
+  "matched_ranges_equal_source": true,
+  "position_catalog_source_and_shelf_unchanged": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "screenshots": 0,
+  "native_ui": [
+    {
+      "width": 600,
+      "height": 800,
+      "catalog_missing": false,
+      "result": "PASS"
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "catalog_missing": false,
+      "result": "PASS"
+    },
+    {
+      "width": 600,
+      "height": 800,
+      "catalog_missing": true,
+      "result": "PASS"
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "catalog_missing": true,
+      "result": "PASS"
+    }
+  ],
+  "numeric_missing_catalog": {
+    "result": "PASS",
+    "screens": 2,
+    "position_catalog_source_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "screenshots": 0
+  }
+}

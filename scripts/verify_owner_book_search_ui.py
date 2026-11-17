@@ -2,6 +2,7 @@
 """Read-only owner search and native UI acceptance; offline by default."""
 import argparse
 import json
+import math
 import re
 import resource
 import subprocess
@@ -13,6 +14,17 @@ from verify_cloud_book_search import Probe
 from verify_source_coordinates import FilteredSource
 from verify_translation_preflight import save_refreshed_web_session
 from verify_web_source_progress import BASE,position,versions
+
+
+def readable_catalog(chapters):
+    selected=[]
+    for row in chapters:
+        words=row.get('wordCount',0)
+        if isinstance(words,bool) or not isinstance(words,(str,int,float)):continue
+        try:number=float(words)
+        except ValueError:continue
+        if math.isfinite(number) and number>0 and str(row.get('title') or '')!='封面':selected.append(row)
+    return selected
 
 
 def invoke(payload,container,runtime,source,candidate,width,height,dpi):
@@ -27,6 +39,9 @@ def invoke(payload,container,runtime,source,candidate,width,height,dpi):
     if child.returncode:
         failure=value.get('failure_phase') if isinstance(value,dict) else None
         detail=value.get('navigation_diagnostic') if isinstance(value,dict) else None
+        failure_detail=value.get('failure_detail') if isinstance(value,dict) else None
+        if failure=='search' and failure_detail in ('unknown','blocked','blocked_catalog','blocked_policy','blocked_search','blocked_other','http_failed','no_catalog','no_search','after_search'):
+            raise ValueError('owner_ui/search_'+failure_detail)
         if failure=='navigate' and detail in ('unknown','confirm','working','ready_target','ready_no_target','inactive','bind_failed','source_opened','other','locate_failed','position_unavailable','save_failed'):
             raise ValueError('owner_ui/navigation_'+detail)
         if failure in ('decode','reader','search','navigate'):raise ValueError('owner_ui/native_'+failure)
@@ -40,6 +55,8 @@ def invoke(payload,container,runtime,source,candidate,width,height,dpi):
     missing=payload.get('download_missing') is True
     extra={'download_confirmed','cancel_without_download','downloaded_source_verified','credential_audit',
         'download_gets','catalog_posts','content_posts'} if missing else set()
+    catalog_missing=payload.get('catalog_missing') is True
+    if catalog_missing:extra|={'catalog_restored','catalog_gets','catalog_read_posts','credential_audit'}
     if (not isinstance(ui,dict) or set(ui)!={'result',*flags,'account_gets','search_gets','denied_requests',*extra}
             or ui['result']!='PASS' or any(ui[k] is not True for k in flags)
             or type(ui['account_gets']) is not int or not 1<=ui['account_gets']<=len(payload['allowed'])
@@ -50,15 +67,20 @@ def invoke(payload,container,runtime,source,candidate,width,height,dpi):
             'downloaded_source_verified','credential_audit'))
             or any(type(ui[k]) is not int or ui[k]<1 for k in ('download_gets','catalog_posts','content_posts'))):
         raise ValueError('owner_ui/download_report')
+    if catalog_missing and (ui['catalog_restored'] is not True or ui['credential_audit'] is not True
+            or any(type(ui[k]) is not int or ui[k]<1 for k in ('catalog_gets','catalog_read_posts'))):
+        raise ValueError('owner_ui/catalog_report')
     return value
 
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--missing-chapter',action='store_true',help='also validate confirmed read-only download')
+    parser.add_argument('--missing-catalog',action='store_true',help='validate read-only catalog restoration')
     parser.add_argument('--container',default='weread-validation');parser.add_argument('--runtime',default='/validation/runtime/lib/koreader')
     parser.add_argument('--source',default='/source');parser.add_argument('--candidate',default='/validation/book-search-cached600-v5/candidate.zip')
     args=parser.parse_args(argv)
+    if args.missing_catalog and args.missing_chapter:parser.error('select one missing-cache scenario')
     if (not re.fullmatch('[A-Za-z0-9_.-]{1,128}',args.container)
             or any(not p.startswith('/') or '\x00' in p for p in (args.runtime,args.source,args.candidate))):parser.error('invalid isolated runtime')
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
@@ -85,8 +107,10 @@ def main(argv=None):
                 keyword,index=candidate,i;break
         if keyword is None:raise ValueError('owner_ui/keyword')
         start,finish=model.starts[index],model.ends[index+len(keyword)-1]
-        ids=[str(row.get('chapterUid')) for row in chapters]
+        search_chapters=readable_catalog(chapters) if args.missing_catalog else chapters
+        ids=[str(row.get('chapterUid')) for row in search_chapters]
         if len(ids)!=len(set(ids)) or any(not re.fullmatch('[1-9][0-9]{0,19}',uid) for uid in ids):raise ValueError('owner_ui/catalog')
+        if not ids or web.chapter not in ids:raise ValueError('owner_ui/catalog')
         cursor={'chapter':ids[0],'start':0,'finish':0};allowed=[];seen=set();found=False
         phase='preflight'
         for _i in range(4):
@@ -109,7 +133,7 @@ def main(argv=None):
             seen.add(stamp)
         if not found:raise ValueError('owner_ui/no_target')
         safe_chapters=[]
-        for i,row in enumerate(chapters):
+        for i,row in enumerate(search_chapters):
             words=row.get('wordCount')
             if type(words) is not int or not 0<words<=10000000:words=1
             item={'chapterUid':str(row['chapterUid']),'title':'章节 '+str(i+1),'wordCount':words}
@@ -123,6 +147,7 @@ def main(argv=None):
             other=next((uid for uid in ids if uid!=web.chapter),None)
             if other is None:raise ValueError('owner_ui/no_other_chapter')
             payload.update(download_missing=True,local_chapter=other)
+        if args.missing_catalog:payload['catalog_missing']=True
         phase='native_ui';stages=[]
         for width,height,dpi in ((600,800,167),(1264,1680,300)):
             stages.append(invoke(payload,args.container,args.runtime,args.source,args.candidate,width,height,dpi))
@@ -140,6 +165,8 @@ def main(argv=None):
             report['native_phase']=str(exc).removeprefix('owner_ui/native_')
         if str(exc) in tuple('owner_ui/navigation_'+v for v in ('unknown','confirm','working','ready_target','ready_no_target','inactive','bind_failed','source_opened','other','locate_failed','position_unavailable','save_failed')):
             report['native_phase']='navigate';report['navigation_diagnostic']=str(exc).removeprefix('owner_ui/navigation_')
+        if str(exc) in tuple('owner_ui/search_'+v for v in ('unknown','blocked','blocked_catalog','blocked_policy','blocked_search','blocked_other','http_failed','no_catalog','no_search','after_search')):
+            report['native_phase']='search';report['search_diagnostic']=str(exc).removeprefix('owner_ui/search_')
     finally:
         web.close()
         if saved:saved.clear()

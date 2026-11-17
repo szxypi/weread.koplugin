@@ -18,9 +18,10 @@ def synthetic_search_source(uid):
 
 
 class SearchMockServer(MockServer):
-    def __init__(self,port,cb=False):
+    def __init__(self,port,cb=False,current_fallback=False):
         super().__init__(port)
         self.cb_reading=cb
+        self.current_fallback=current_fallback
         self.search_book='CB_SyntheticResume' if cb else '900001'
 
     def chapter_source(self,uid,revision=None):
@@ -38,6 +39,14 @@ class SearchMockServer(MockServer):
             if (set(query)!=expected or query['bookId']!=[self.search_book] or query['keyword']!=['amberneedle']
                     or query['mode']!=['scrollDown'] or query['count']!=['50']):
                 raise ValueError('invalid synthetic search query')
+            if self.current_fallback:
+                if query['posBegin']!=['0'] or query['posEnd']!=['0']:raise ValueError('invalid fallback cursor')
+                if query['chapterUid']==['1']:return 200,dict(scrollDownHasMore=0,results=[])
+                if query['chapterUid']==['2']:
+                    start=synthetic_search_source(2).index('amberneedle')
+                    return 200,dict(scrollDownHasMore=0,results=[dict(chapterUid=2,posBegin=start,posEnd=start+11,
+                        text='synthetic context amberneedle',matchWords=[dict(posBegin=start,posEnd=start+11,word='amberneedle')])])
+                raise ValueError('invalid fallback chapter')
             first=synthetic_search_source(1).index('amberneedle')
             if query['chapterUid']==['1'] and query['posBegin']==['0'] and query['posEnd']==['0']:
                 uid,more=1,1
@@ -65,6 +74,7 @@ def main():
     parser.add_argument('--search-catalog-missing', action='store_true')
     parser.add_argument('--search-renewal', action='store_true')
     parser.add_argument('--search-cb', action='store_true')
+    parser.add_argument('--search-current-fallback', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
         parser.error("screen dimensions and DPI must be positive")
@@ -72,10 +82,12 @@ def main():
         parser.error('--source-format web_txt requires --probe source-state')
     if args.search_scope != 'full' and args.probe != 'quick-search':
         parser.error('--search-scope chapter requires --probe quick-search')
-    if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_cb) and args.probe!='book-search':
+    if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_cb or args.search_current_fallback) and args.probe!='book-search':
         parser.error('search fixture options require --probe book-search')
+    if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
+        parser.error('current fallback requires a cached CB search fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
-    server = SearchMockServer(0,args.search_cb) if args.probe=='book-search' else MockServer(0)
+    server = SearchMockServer(0,args.search_cb,args.search_current_fallback) if args.probe=='book-search' else MockServer(0)
     if args.probe == 'cloud-source':
         from verify_source_coordinates import FilteredSource
         offset=FilteredSource(chapter_html(6)).locate('这是第6章的第16段。我们沿着小路慢慢前行')[0]
@@ -94,6 +106,7 @@ def main():
                                         WEREAD_TEST_SEARCH_CATALOG_MISSING='1' if args.search_catalog_missing else '0',
                                         WEREAD_TEST_SEARCH_RENEWAL='1' if args.search_renewal else '0',
                                         WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
+                                        WEREAD_TEST_SEARCH_CURRENT_FALLBACK='1' if args.search_current_fallback else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                                         EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
@@ -130,10 +143,11 @@ def main():
                 marker=b'\nWEREAD_BOOK_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing online book search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
-                expected=dict(result='PASS',pages=2,results=2,verified_navigation=True,network_worker=True,
+                expected=dict(result='PASS',pages=2,results=1 if args.search_current_fallback else 2,verified_navigation=True,network_worker=True,
                               downloaded=args.search_missing,catalog_downloaded=args.search_catalog_missing)
                 if args.search_renewal:expected['renewal_scenarios']=True
                 if args.search_cb:expected['imported_search']=True
+                if args.search_current_fallback:expected['current_fallback']=True
                 assert value==expected, 'online search result mismatch'
                 assert server.request_totals[('/web/book/search_v2','')]==(7 if args.search_renewal else 2), 'unexpected search request count'
                 assert server.request_totals[('/web/login/renewal','')]==(2 if args.search_renewal else 0), 'unexpected renewal count'

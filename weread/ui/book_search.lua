@@ -180,6 +180,12 @@ fetch_page=function(host,owner,recovered)
         end
         owner.state=value.state
         for _i,hit in ipairs(value.page.hits) do owner.value[#owner.value+1]=hit end
+        if owner.cb_book and #owner.value==0 and owner.state.finished and owner.state.pages<128 and owner.fallback_state then
+            local fallback=owner.fallback_state;owner.fallback_state=nil
+            fallback.pages=owner.state.pages
+            owner.state=fallback;owner.fallback_attempted=true
+            render(host,owner);fetch_page(host,owner);return
+        end
         render(host,owner)
     end)
     if not started then host:showInfo(_('Could not search this book. Check the network and try again.')) end
@@ -191,6 +197,10 @@ local function begin_search(host,owner,chapters)
     chapters=Reading.catalog(chapters)
     local state=chapters and Search.new(owner.id,owner.keyword,chapters)
     if not state then render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return end
+    if owner.cb_book and owner.current_uid then
+        local fallback=Search.new(owner.id,owner.keyword,chapters,owner.current_uid)
+        if fallback and fallback.cursor.chapter~=state.cursor.chapter then owner.fallback_state=fallback end
+    end
     owner.state=state;owner.titles={}
     for _i,chapter in ipairs(chapters) do owner.titles[tostring(chapter.chapterUid)]=chapter.title end
     render(host,owner);fetch_page(host,owner)
@@ -213,12 +223,20 @@ local function prepare_catalog(host,owner,chapters)
             or value.auth and not WorkerSettings.merge(host.settings,fingerprint,value.auth) then
             render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return
         end
-        begin_search(host,owner,value.chapters)
+        local prepared_chapters=Reading.catalog(value.chapters)
+        local saved=prepared_chapters and pcall(function()
+            local Content=require('weread.lib.content')
+            local book=host.settings:get_book(owner.id) or {book_id=owner.id}
+            assert(host.library_db:putChapters(owner.id,prepared_chapters))
+            assert(Content.save_catalog_cache(host.client,host.settings,book,prepared_chapters))
+        end)
+        if not saved then render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return end
+        begin_search(host,owner,prepared_chapters)
     end)
     if not started then render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.')) end
 end
 
-function M.open(host,book_id,chapters)
+function M.open(host,book_id,chapters,current_uid)
     if type(book_id)~='string' or not Access.display_book_id(book_id) then return false end
     local document=host.ui and host.ui.document
     local scope=host.settings:get_auth_scope()
@@ -232,7 +250,8 @@ function M.open(host,book_id,chapters)
     if not access or not access.web then host:showInfo(_('A verified WeRead web login is required for online book search.'));return false end
     M.cancel(host)
     local owner={id=book_id,scope=scope,account=account,document=document,file=document.file,
-        session=host._reader_session_gen or 0,value={},titles={},search_results=true,cb_book=book_id:sub(1,3)=='CB_'}
+        session=host._reader_session_gen or 0,value={},titles={},search_results=true,cb_book=book_id:sub(1,3)=='CB_',
+        current_uid=current_uid}
     host._book_search_owner=owner
     local InputDialog=require('ui/widget/inputdialog')
     local input
