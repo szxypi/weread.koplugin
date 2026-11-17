@@ -467,7 +467,11 @@
     "manual_confirmation_and_cancel_verified": true,
     "manual_file_content_match_not_asserted": true,
     "manual_cloud_writes": 0,
-    "manual_stale_account_session_guards": true
+    "manual_stale_account_session_guards": true,
+    "unlink_cancel_and_confirm": true,
+    "unlink_preserves_original_and_other_association": true,
+    "sqlite_stale_confirmation_preserved": true,
+    "unlink_real_account_tested": false
   },
   "real_account_native_pdf_original_local_reading": {
     "screen": "1264x1680_300dpi",

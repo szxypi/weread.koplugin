@@ -69,12 +69,23 @@ function M.remember(host,id,input)
         and matches(stored) and account==owner(host)
 
 end
-function M.resolve(host,id)
+function M.snapshot(host,id)
     local name=key(id);local account=owner(host)
     if not name or not account then return nil end
     local ok,data=pcall(host.library_db.getProfileState,host.library_db,name)
     if not ok or type(data)~='table' or type(data.path)~='string' or type(data.identity)~='table'
-        or not data.path:lower():match('%.pdf$') or not M.local_only_path(host.settings,data.path) then return nil end
+        or not data.path:lower():match('%.pdf$') or account~=owner(host) then return nil end
+    return data
+end
+function M.forget(host,id,expected)
+    local name=key(id);local account=owner(host)
+    if not name or not account or type(expected)~='table' then return false end
+    local ok,removed=pcall(host.library_db.deleteProfileStateIf,host.library_db,name,expected)
+    return ok and removed==true and account==owner(host)
+end
+function M.resolve(host,id)
+    local account=owner(host);local data=M.snapshot(host,id)
+    if not account or not data or not M.local_only_path(host.settings,data.path) then return nil end
     local captured,current=pcall(Model.capture,data.path)
     if not captured or not current or not matches(data) or account~=owner(host) then return nil end
     return data.path

@@ -1177,6 +1177,15 @@ function M:showBookMenu(book)
                 and original_session==self._reader_session_gen then require('weread.ui.personal_original').start(self,book,view) end
         end)}
     end
+    local original_record=original.snapshot(self,tostring(book_id))
+    if original_record and original_account then
+        actions[#actions+1]={text=_('Remove local PDF association'),callback=self:safeCallback(_('Remove association'),function()
+            if self._book_detail_view==view and original_account==self.library_db:accountKey()
+                and original_session==self._reader_session_gen then
+                require('weread.ui.personal_original').forget(self,book,view,original_record)
+            end
+        end)}
+    end
     if original.resolve(self,tostring(book_id)) then
         actions[#actions+1]={text=_('Read original PDF (local only, no cloud sync)'),
             callback=self:safeCallback(_('Read original PDF'),function()

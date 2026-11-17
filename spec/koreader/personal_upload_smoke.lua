@@ -99,6 +99,21 @@ UI:forceRePaint();Device.screen:shot(evidence..'/original-pdf-manual-confirm.png
 assert(not original.resolve(plugin,'CB_previous'),'cancelled manual selection created a link')
 manual=manual_confirm();manual.ok_callback()
 assert(original.resolve(plugin,'CB_previous')==path,'confirmed manual selection was not saved')
+local previous_record=assert(original.snapshot(plugin,'CB_previous'));local changed_record={path=path,identity={mode='file',dev=1,ino=1,size=1,modification=1,change=1}}
+local record_key='personal_original_pdf:CB_previous'
+assert(plugin.library_db:putProfileState(record_key,changed_record))
+assert(not plugin.library_db:deleteProfileStateIf(record_key,previous_record),'stale confirmation deleted a replaced association')
+assert(original.snapshot(plugin,'CB_previous').identity.ino==1 and plugin.library_db:putProfileState(record_key,previous_record))
+close_info();local linked=assert(plugin._book_detail_view);local unlink
+for _,row in ipairs(linked.data.actions or {}) do
+    if row.text==require('weread.lib.i18n').tr('Remove local PDF association') then unlink=row end
+end
+assert(unlink);unlink.callback();local unlink_dialog=assert(plugin._personal_original_attach.dialog)
+assert(unlink_dialog.text:find('原文件和云端书籍都会保留',1,true));unlink_dialog.cancel_callback()
+assert(original.resolve(plugin,'CB_previous')==path,'cancelled unlink removed association')
+unlink.callback();unlink_dialog=assert(plugin._personal_original_attach.dialog);unlink_dialog.ok_callback()
+assert(not original.snapshot(plugin,'CB_previous') and original.resolve(plugin,'CB_uploadpdf')==path,'unlink affected another book association')
+local kept=assert(io.open(path,'rb'));assert(kept:read('*a')==content,'unlink changed original PDF');kept:close()
 close_info();plugin:closeWeReadUI();plugin:showBookMenu{book_id='CB_uploadpdf',title='合成 PDF',chapters={}}
 local detail=assert(plugin._book_detail_view);local action
 for _,row in ipairs(detail.data.actions or {}) do

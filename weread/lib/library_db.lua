@@ -268,6 +268,37 @@ function LibraryDB:putProfileState(name, value)
     return ok
 end
 
+-- Delete only the exact profile value the user reviewed. The immediate
+-- transaction prevents a concurrent update from being removed accidentally.
+function LibraryDB:deleteProfileStateIf(name, expected)
+    if type(name)~='string' or name=='' or type(expected)~='table' then return false end
+    local function equal(a,b)
+        if type(a)~=type(b) then return false end
+        if type(a)~='table' then return a==b end
+        for k,v in pairs(a) do if not equal(v,b[k]) then return false end end
+        for k in pairs(b) do if a[k]==nil then return false end end
+        return true
+    end
+    local db=self:open();if not db then return false end
+    local stmt,transaction,removed
+    local ok=pcall(function()
+        db:exec('BEGIN IMMEDIATE');transaction=true
+        stmt=db:prepare('SELECT payload FROM profile_state WHERE name=?')
+        local row=stmt:reset():bind(name):step()
+        local payload=row and row[1];local value=payload and decode(payload)
+        close_statement(stmt);stmt=nil
+        if type(value)=='table' and equal(value,expected) then
+            stmt=db:prepare('DELETE FROM profile_state WHERE name=? AND payload=?')
+            stmt:reset():bind(name,payload):step();close_statement(stmt);stmt=nil;removed=true
+        end
+        db:exec('COMMIT');transaction=false
+    end)
+    close_statement(stmt)
+    if transaction then pcall(function() db:exec('ROLLBACK') end) end
+    pcall(function() db:close() end)
+    return ok and removed==true
+end
+
 function LibraryDB:getShelfProgress(ids)
     local result = {}
     if type(ids) ~= "table" or #ids == 0 then return result end

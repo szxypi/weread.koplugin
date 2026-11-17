@@ -14,7 +14,12 @@ local function fixture()
     local host={settings={cache_dir='/cache',get=function(_self,key,default) if key=='books' then return {['7']={cache_dir='/custom/book',cached_file='/other/cached.pdf'}} end;return default end},
         library_db={accountKey=function() return account end,
             putProfileState=function(_self,key,value) if fail_save then error('private') end;if not drop_save then profiles[account][key]=value end;return true end,
-            getProfileState=function(_self,key) return profiles[account][key] end}}
+            getProfileState=function(_self,key) return profiles[account][key] end,
+            deleteProfileStateIf=function(_self,key,expected)
+                local value=profiles[account][key]
+                if not value or value.path~=expected.path or value.identity.ino~=expected.identity.ino then return false end
+                profiles[account][key]=nil;return true
+            end}}
     local info={mode='file',dev=3,ino=4,size=10,modification=100,change=100}
     local input={path='/documents/a.PDF',name='a.PDF',identity=info};files[input.path]=input
     return host,input
@@ -42,6 +47,10 @@ local text={path='/documents/a.txt',name='a.txt',identity=input.identity};files[
 expect(not M.remember(host,'CB_text',text),'non-PDF association accepted')
 fail_save=true;expect(not M.remember(host,'CB_save',input),'failed metadata write claimed success')
 fail_save=false;drop_save=true;expect(not M.remember(host,'CB_lost',input),'missing readback claimed a saved association')
+local old=M.snapshot(host,'CB_a');expect(old and old.path==input.path,'association snapshot unavailable')
+profiles.one['personal_original_pdf:CB_a']={path='/documents/new.pdf',identity={ino=9}}
+expect(not M.forget(host,'CB_a',old) and profiles.one['personal_original_pdf:CB_a'].path=='/documents/new.pdf','stale removal deleted changed association')
+local latest=M.snapshot(host,'CB_a');expect(M.forget(host,'CB_a',latest) and not M.snapshot(host,'CB_a') and files[input.path],'unlink did not keep local file')
 profiles.one['personal_original_pdf:CB_corrupt']={path='/documents/other.pdf',identity={}}
 expect(not M.resolve(host,'CB_corrupt'),'damaged association opened')
 print('PASS: local PDF association ('..checks..' checks)')

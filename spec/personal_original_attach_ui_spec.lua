@@ -10,7 +10,11 @@ package.preload['weread.lib.personal_upload']=function() return {
     capture=function(path) if not state.invalid then return {path=path,name='selected.pdf'} end end,
 } end
 package.preload['weread.lib.personal_original']=function() return {remember=function(_host,id,input)
-    state.writes=state.writes+1;state.link={id=id,path=input.path};return not state.fail_save end} end
+    state.writes=state.writes+1;state.link={id=id,path=input.path};return not state.fail_save end,
+    forget=function(_host,id,expected)
+        if state.changed_link or id~='CB_old' or expected~=state.expected then return false end
+        state.removed=true;return true
+    end} end
 local M=require('weread.ui.personal_original')
 local checks=0
 local function expect(value,label) checks=checks+1;assert(value,label) end
@@ -42,4 +46,16 @@ host,book,view=fixture();state.invalid=true;M.start(host,book,view);host._person
 expect(state.writes==0 and not host._personal_original_attach and state.notice:find('Could not use',1,true),'invalid file accepted')
 host,book,view=fixture();state.fail_save=true;M.start(host,book,view);host._personal_original_attach.chooser.onConfirm('/books/a.pdf')
 host._personal_original_attach.dialog.ok_callback();expect(not state.refreshed and state.notice:find('Could not link',1,true),'failed save claimed success')
+host,book,view=fixture();state.expected={path='/books/a.pdf'}
+expect(M.forget(host,book,view,state.expected),'unlink confirmation did not open')
+local unlink=host._personal_original_attach.dialog
+expect(unlink.text:find('original file and cloud book are kept',1,true),'unlink did not describe preserved files')
+unlink.cancel_callback();expect(not state.removed and not host._personal_original_attach,'cancel unlinked')
+host,book,view=fixture();state.expected={path='/books/a.pdf'};M.forget(host,book,view,state.expected)
+state.changed_link=true;host._personal_original_attach.dialog.ok_callback()
+expect(not state.removed and state.notice:find('changed',1,true),'changed association was unlinked')
+host,book,view=fixture();state.expected={path='/books/a.pdf'};M.forget(host,book,view,state.expected)
+state.account='two';host._personal_original_attach.dialog.ok_callback();expect(not state.removed,'stale account unlinked association')
+host,book,view=fixture();state.expected={path='/books/a.pdf'};M.forget(host,book,view,state.expected)
+host._personal_original_attach.dialog.ok_callback();expect(state.removed and state.refreshed==book,'confirmed unlink did not refresh')
 print('PASS: manual local PDF association UI ('..checks..' checks)')
