@@ -1,0 +1,57 @@
+-- Packaged widgets, SQLite, worker, HTTP and cache; synthetic account only.
+require('setupkoenv')
+local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDENCE'))
+G_defaults=require('luadefaults'):open()
+G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
+G_reader_settings:saveSetting('language','zh_CN');require('gettext').changeLang('zh_CN')
+package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
+local Device=require('device');require('document/canvascontext'):init(Device)
+local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
+assert(require('weread.lib.mock_environment').save{enabled=true,host='127.0.0.1',port=assert(tonumber(os.getenv('WEREAD_MOCK_PORT')))})
+local Plugin=dofile(home..'/plugins/weread.koplugin/main.lua')
+local plugin=Plugin:new{ui={menu={registerToMainMenu=function() end}}}
+local socket=require('socket')
+local function tick() UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput() end
+local function pump(test)
+    local deadline=socket.gettime()+30
+    repeat tick();if test() then return end;assert(socket.gettime()<deadline,'article import deadline');socket.sleep(.01) until false
+end
+local reopen=os.getenv('WEREAD_MP_LINK_REOPEN')=='1'
+if not reopen then
+    local login=require('weread.lib.qr_login'):new({},plugin.client,plugin.settings)
+    login.login_cookies={wr_fp='1234567890'}
+    login:_complete_protocol({succeed=true,webLoginVid='900000',accessToken='mock-web-access'},login.generation)
+    local scope=assert(plugin.settings:get_auth_scope())
+    local credentials={vid=scope.vid,accessToken='mock-native-access',refreshToken='mock-native-refresh',deviceId=string.rep('1',32)}
+    assert(require('weread.lib.native_credentials'):new(plugin.settings):save(credentials,scope,0,0))
+else
+    plugin.client.request=function() error('offline reopen sent HTTP') end
+end
+plugin.isNetworkConnected=function() return not reopen end
+plugin:applyShelfSnapshot({},{})
+plugin:showShelfView('public_account')
+local view=assert(plugin.shelf_view)
+local function choose(label)
+    view:showOptions();local options=assert(view._shelf_popup);local choice
+    for _,row in ipairs(options.buttons) do for _,button in ipairs(row) do
+        if button.text==require('weread.lib.i18n').tr(label) then choice=button end
+    end end
+    assert(choice,'article option missing');choice.callback();pump(function() return view._shelf_popup~=options end)
+end
+if not reopen then
+    choose('Import article link');local input=assert(view._shelf_popup);assert(input.setInputText)
+    input:setInputText('https://mp.weixin.qq.com/s/synthetic_article');input.buttons[1][2].callback()
+    pump(function() return not plugin.mp_link_job end)
+else choose('Imported articles') end
+local menu=assert(plugin._mp_link_menu);assert(#menu.item_table==1 and menu.item_table[1].text=='合成导入文章标题','imported article title missing')
+UI:forceRePaint();Device.screen:shot(evidence..(reopen and '/imported-offline.png' or '/imported.png'))
+local opened;plugin.openFile=function(_self,path) opened=path end
+menu:onMenuSelect(menu.item_table[1]);pump(function() return opened~=nil or not plugin.mp_download_job and not plugin.mp_records_job end)
+assert(opened,'imported article did not open')
+local file=assert(io.open(opened,'rb'));local content=file:read('*a');file:close()
+assert(content:find('合成导入文章正文',1,true),'cached article body missing')
+local document=require('document/documentregistry'):openDocument(opened)
+assert(document and document:loadDocument(),'native reader could not load imported article')
+document:render();assert(document:getPageCount()>0);document:close()
+plugin:closeWeReadUI()
+print('PASS: imported article native lookup, cache and offline reopen')

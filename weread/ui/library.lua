@@ -121,6 +121,7 @@ function M:closeWeReadUI()
     if self.cancelWebRenewal then self:cancelWebRenewal() end
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
+    if self.cancelMPLink then self:cancelMPLink() end
     if self.cancelMPArticleExport then self:cancelMPArticleExport() end
     if self.cancelMPArticleActions then self:cancelMPArticleActions() end
     if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
@@ -774,6 +775,12 @@ function M:showShelfView(mode, keyword, old_view, options)
                 self:showShelfView(mode, keyword, view, options)
             end,{owner=view,is_current=current})
         end,
+        on_import_mp_link = not options.on_select and function()
+            if current() then require('weread.ui.mp_link').dialog(self,view,current) end
+        end or nil,
+        on_imported_mp_links = not options.on_select and function()
+            if current() then require('weread.ui.mp_link').list(self,view,current) end
+        end or nil,
         on_select = function(book, selected_mode)
             if not current() then return end
             if options.on_select then
@@ -1397,6 +1404,10 @@ end
 
 function M:cancelMPArticleCatalog()
     return require('weread.ui.mp_catalog').cancel(self)
+end
+
+function M:cancelMPLink()
+    return require('weread.ui.mp_link').cancel(self)
 end
 
 function M:getCachedMPArticles(book_id)

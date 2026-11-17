@@ -299,6 +299,8 @@ class MockServer(ThreadingHTTPServer):
                     private="not retained")) for index, identity in enumerate(ids)])])
             return 200, dict(errCode=-2041, errMsg="Synthetic MP verification unavailable")
         if path == "/web/mp/content" and method == "GET":
+            if query == {"reviewId": ["MP_WXS_900098_synthetic_article"]}:
+                return 200, '<html><head><meta property="og:title" content="合成导入文章标题"/></head><body><div id="js_content"><p>合成导入文章正文</p></div><script>ignored()</script></body></html>'
             if query == {"reviewId": ["background-fixture"]}:
                 version = control["mp_article_version"]
                 return 200, f'<html><body><div id="js_content"><p>合成后台文章正文</p><p>合成版本 {version}</p><img src="https://mmbiz.qpic.cn/synthetic-mp-bitmap.png"/><img src="https://mmbiz.qpic.cn/synthetic-mp-bitmap.png"/></div><script>ignored()</script></body></html>'
@@ -538,6 +540,10 @@ class MockServer(ThreadingHTTPServer):
                         or not install[6:].isdigit()):
                     raise ValueError("invalid native QR fields")
                 return 200, dict(vid=900000, accessToken="mock-native-access", refreshToken="mock-native-refresh")
+            if path == "/mp/getreviewid" and method == "POST":
+                if data != {"urls": ["https://mp.weixin.qq.com/s/synthetic_article"]}:
+                    raise ValueError("invalid synthetic article lookup")
+                return 200, dict(reviewIds=[dict(url=data['urls'][0],reviewId='MP_WXS_900098_synthetic_article')])
             if path == "/shelf/sync" and method == "GET":
                 books = [{key: value for key, value in dict(book, version=700).items() if key != "bookVersion"}
                          for book in ([] if control["empty_shelf"] else readable_books) if str(book['bookId']) not in self.shelf_removed]

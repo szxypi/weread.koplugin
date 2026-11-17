@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "real_sample_count": 1,
+  "real_python_lookup_posts": 1,
+  "real_koreader_lua_lookup_posts": 1,
+  "lookup_is_read_only": true,
+  "native_lua_title_and_article_identity_match": true,
+  "shelf_and_article_text_unchanged": true,
+  "authorization_and_previous_test_scopes_unchanged": true,
+  "account_data_changes": 0,
+  "authorization_posts": 0,
+  "synthetic_packaged_runtime": {
+    "600x800": "PASS",
+    "1264x1680_300dpi": "PASS",
+    "fresh_process_offline_reopen": true,
+    "native_document_load": true
+  },
+  "physical_kindle_tested": false
+}
