@@ -35,7 +35,9 @@ local native_recovery_input
 local ok,reason=pcall(function()
     assert(mode=='live' or mode=='reopen')
     local home=assert(os.getenv('KO_HOME'))
-    assert(ffi.os=='Linux' and home:match('^/dev/shm/weread%-reading%-[%w_]+/profile$'))
+    local combined_home=os.getenv('WEREAD_COMBINED_UPLOAD_READ')=='1'
+    assert(ffi.os=='Linux' and (home:match('^/dev/shm/weread%-reading%-[%w_]+/profile$')
+        or combined_home and home:match('^/dev/shm/weread%-upload%-ui%-[%w_]+/profile$')))
     local raw
     if trial_mode or reader_trial_mode or timer_trial_mode or close_trial_mode or native_recovery_mode or initial_reader_mode then
         local length=assert(io.stdin:read('*l'));assert(#length<=6 and length:match('^[1-9]%d*$') and tonumber(length)<=256*1024)
@@ -43,6 +45,7 @@ local ok,reason=pcall(function()
     else raw=assert(io.stdin:read(256*1024+1)) end
     assert(#raw<=256*1024)
     local input=json.decode(raw)
+    assert((input.combined_upload_read==true)==combined_home)
     assert((input.selection_trial~=nil)==trial_mode)
     assert((input.native_initial_reader~=nil)==initial_reader_mode)
     assert((input.native_reader_trial~=nil)==reader_trial_mode)
@@ -601,7 +604,7 @@ local ok,reason=pcall(function()
     FM:showFiles(home);plugin=assert(FM.instance.weread)
     local host=plugin
     report.phase='shelf'
-    if mode=='live' then
+    if mode=='live' and not combined_home then
         local loaded=false
         plugin:refreshBookshelf(nil,{on_loaded=function(success) loaded=success end})
         pump(function() return not plugin.shelf_refreshing end)

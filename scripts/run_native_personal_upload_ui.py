@@ -13,8 +13,10 @@ FLAGS={'permit_writes','chooser','cancel_no_request','heartbeat','journal_idle',
 COUNTS={'native_gets':17,'credential_gets':1,'puts':1,'notifies':1,'denied':0,'screenshots':0,'failed_line':10000}
 
 
-def validate_stage(value,armed):
+def validate_stage(value,armed,*,combined=False):
     fields=FLAGS|set(COUNTS)|{'result','phase'}|({'target'} if armed else set())
+    if combined:fields|={'continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'}
+    if type(combined) is not bool or combined and not armed:raise ValueError('native_upload_ui/stage')
     if (not isinstance(value,dict) or set(value)!=fields or value['result']!='PASS' or value['phase']!='complete'
             or value['permit_writes'] is not armed or any(type(value[k]) is not bool for k in FLAGS)
             or any(type(value[k]) is not int or not 0<=value[k]<=limit for k,limit in COUNTS.items())
@@ -22,36 +24,48 @@ def validate_stage(value,armed):
             or any(value[k] is not armed for k in ('heartbeat','journal_idle','cache_verified'))
             or value['failed_line'] or (value['native_gets']<2 if armed else value['native_gets']!=0)
             or any(value[k]!=(1 if armed else 0) for k in ('credential_gets','puts','notifies'))
-            or armed and not valid_book(value['target'])):raise ValueError('native_upload_ui/stage')
+            or armed and not valid_book(value['target'])
+            or combined and any(value[k] is not True for k in ('continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'))):raise ValueError('native_upload_ui/stage')
     return value
 
 
 def validate_input(value,armed,mock_port):
     fields={'credentials','name','shelf_books','rpc_token','permit_writes'}|({'mock_port'} if mock_port is not None else set())
     epub=isinstance(value,dict) and value.get('fixture')=='epub'
+    reading_epub=isinstance(value,dict) and value.get('fixture')=='reading_epub'
     large=isinstance(value,dict) and value.get('fixture')=='large_epub'
     near=isinstance(value,dict) and value.get('fixture')=='near_epub'
     exact=isinstance(value,dict) and value.get('fixture')=='exact_epub'
+    combined=isinstance(value,dict) and value.get('combined_fixture') is True
+    combined_upload=isinstance(value,dict) and value.get('combined_upload') is True
+    if combined:fields.add('combined_fixture')
+    if combined_upload:fields.add('combined_upload')
     fmt=value.get('fixture') if isinstance(value,dict) and value.get('fixture') in ('pdf','mobi','azw3') else None
-    if epub:fields|={'fixture','body_base64'}
+    if epub or reading_epub:fields|={'fixture','body_base64'}
     if fmt:fields|={'fixture','body_base64'}
     if large or near or exact:fields.add('fixture')
     if (not isinstance(value,dict) or set(value)!=fields or value['permit_writes'] is not armed or value.get('mock_port')!=mock_port
             or not isinstance(value['rpc_token'],str) or re.fullmatch('[a-f0-9]{32}',value['rpc_token']) is None
             or type(value['shelf_books']) is not int or not 1<=value['shelf_books']<=5000):raise ValueError('native_upload_ui/input')
     validate_credentials(value['credentials'])
+    if combined and (mock_port is None or not armed or not reading_epub):raise ValueError('native_upload_ui/input')
+    if combined_upload and (not reading_epub or combined):raise ValueError('native_upload_ui/input')
+    if reading_epub and not (combined or combined_upload):raise ValueError('native_upload_ui/input')
     if epub:
         from synthetic_upload_epub import build
         if value['body_base64']!=base64.b64encode(build()).decode('ascii'):raise ValueError('native_upload_ui/fixture')
+    if reading_epub:
+        from synthetic_upload_epub import build_reading
+        if value['body_base64']!=base64.b64encode(build_reading()).decode('ascii'):raise ValueError('native_upload_ui/fixture')
     if fmt:
         from synthetic_pdf_trial import build as build_pdf
         from synthetic_format_trial import build as build_format
         expected=build_pdf() if fmt=='pdf' else build_format(fmt)
         if value['body_base64']!=base64.b64encode(expected).decode('ascii'):raise ValueError('native_upload_ui/fixture')
     if mock_port is None:
-        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.'+(fmt if fmt else 'epub' if epub or large or near or exact else 'txt')
+        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.'+(fmt if fmt else 'epub' if epub or reading_epub or large or near or exact else 'txt')
         if not isinstance(value['name'],str) or re.fullmatch(pattern,value['name']) is None:raise ValueError('native_upload_ui/input')
-    elif (value['name']!=('SyntheticUpload.'+fmt if fmt else 'SyntheticExactEpub.epub' if exact else 'SyntheticNearEpub.epub' if near else 'SyntheticLargeEpub.epub' if large else 'SyntheticUploadEpub.epub' if epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
+    elif (value['name']!=('SyntheticUpload.'+fmt if fmt else 'SyntheticExactEpub.epub' if exact else 'SyntheticNearEpub.epub' if near else 'SyntheticLargeEpub.epub' if large else 'SyntheticUploadEpub.epub' if epub or reading_epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
           refreshToken='mock-native-refresh',deviceId='eink334691225'+'1'*19)):raise ValueError('native_upload_ui/mock')
 
 
@@ -106,7 +120,7 @@ def main(argv=None):
                 if kind!='RESULT':raise ValueError('native_upload_ui/frame')
                 result['stage']=stage
                 if child.wait(timeout=10):raise ValueError('native_upload_ui/child')
-                validate_stage(stage,args.armed)
+                validate_stage(stage,args.armed,combined=payload.get('combined_fixture') is True)
             finally:stop_reader(child);child=None
             result.update(result='PASS',installed=check_installed(args.candidate,profile))
     except Exception:pass

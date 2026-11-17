@@ -56,7 +56,9 @@ CB_SOURCE_REASONS = {'none', 'walk_diverged', 'anchor_ambiguous', 'anchor_missin
                      'sample_start_mismatch', 'source_anchor_missing', 'source_anchor_unavailable'}
 
 
-def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False):
+def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False):
+    if type(combined_profile) is not bool or combined_profile and (not cb_reading or cb_full_book or full_chapters!=1 or selection_preview):
+        raise ValueError('reading_scope')
     if type(single_page) is not bool or single_page and (not cb_reading or cb_full_book or full_chapters!=1 or selection_preview):
         raise ValueError('reading_scope')
     if type(selection_preview) is not bool or selection_preview and (cb_reading or cb_full_book or full_chapters!=1):
@@ -127,7 +129,7 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
     if value['result'] == 'PASS' and (not all(value[k] for k in required_flags) or single_page and value['pages']==1 and value['page_turn'] or value['phase'] != 'complete'
             or value['failed_line'] or value['screenshots'] or counts[-1] or value['denied_kind'] or value['denied_route'] or value['denied_flags']
             or (value['pages'] != 1 if single_page else value['pages'] < 2) or not value['shelf_books'] or not value['profile_files_audited']
-            or mode == 'live' and (not counts[0] or not counts[2] or not counts[3] or not counts[4])):
+            or mode == 'live' and (not counts[0] and not combined_profile or not counts[2] or not counts[3] or not counts[4])):
         raise ValueError('reading_incomplete')
     if value['result'] == 'PASS' and mode == 'live' and full_chapters > 1 and (counts[2] < full_chapters or counts[4] < 3*full_chapters):
         raise ValueError('full_download_incomplete')
@@ -169,7 +171,7 @@ def validate_full_book(value, chapters, *, complete=True, cb_full_book=False):
     return value
 
 
-def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False):
+def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False):
     """The private cookie envelope is consumed here; never print this value."""
     if not isinstance(raw, bytes) or len(raw) > (8 if full_chapters>1 else 2) * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('reading_frame')
@@ -185,7 +187,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
         raise ValueError('reading_envelope')
     validate_cookies(value['cookies'], owner)
     if mode is not None:
-        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page)
+        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile)
     else:
         report = value['report']
         fields = {'result', 'tmpfs_profile', 'profile_removed', 'stages', 'runner_error'}
@@ -198,7 +200,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
                 or not isinstance(report['stages'], list) or len(report['stages']) > 2):
             raise ValueError('reading_runner')
         for phase, stage in zip(('live', 'reopen'), report['stages']):
-            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page)
+            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile)
         if report['result'] == 'PASS' and (not report['tmpfs_profile'] or not report['profile_removed']
                 or report['runner_error'] != 'none' or len(report['stages']) != 2
                 or any(stage['result'] != 'PASS' for stage in report['stages'])

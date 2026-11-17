@@ -50,6 +50,21 @@ class UITrialTest(unittest.TestCase):
             validate_input(payload,False,None)
             for bad in (dict(payload,body_base64=base64.b64encode(b'other').decode()),dict(payload,name=NAME)):
                 with self.subTest(ext=ext),self.assertRaises(ValueError):validate_input(bad,False,None)
+    def test_continuous_fixture_is_synthetic_only_and_requires_every_proof(self):
+        from synthetic_upload_epub import build_reading
+        grant=dict(vid='900000',accessToken='mock-native-access',refreshToken='mock-native-refresh',deviceId='eink334691225'+'1'*19)
+        payload=dict(credentials=grant,name='SyntheticUploadEpub.epub',shelf_books=26,rpc_token='a'*32,permit_writes=True,
+            fixture='reading_epub',body_base64=base64.b64encode(build_reading()).decode('ascii'),mock_port=123,combined_fixture=True)
+        validate_input(payload,True,123)
+        for bad in (dict(payload,body_base64=base64.b64encode(b'other').decode()),dict(payload,mock_port=None),
+                    dict(payload,credentials=credentials()),dict(payload,permit_writes=False),dict(payload,fixture='epub')):
+            with self.subTest(),self.assertRaises(ValueError):validate_input(bad,True,123)
+        proof=stage(True);proof.update(continuous_reading=True,read_text_visible=True,read_page_turn=True,source_bytes_bound=True)
+        self.assertEqual(validate_stage(proof,True,combined=True),proof)
+        for key in ('continuous_reading','read_text_visible','read_page_turn','source_bytes_bound'):
+            bad=dict(proof);bad[key]=False
+            with self.subTest(key=key),self.assertRaises(ValueError):validate_stage(bad,True,combined=True)
+        with self.assertRaises(ValueError):validate_stage(proof,True)
     def test_journal_has_distinct_permanent_no_replay_scope(self):
         self.assertNotEqual(SERVICE,EXECUTOR_SERVICE)
         journal=Journal(Backend());plan=prepare(credentials(),source(),NAME,b'synthetic')

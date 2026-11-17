@@ -34,6 +34,9 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     elif fixture=='exact_epub':
         from exact_limit_epub_trial import validate_exact
         validate_exact(plan)
+    elif fixture=='reading_epub':
+        from reading_epub_trial import validate_reading
+        validate_reading(plan)
     elif fixture in ('pdf','mobi','azw3'):
         from synthetic_pdf_trial import validate_pdf
         from synthetic_format_trial import validator
@@ -46,6 +49,9 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     if fixture=='epub':
         from synthetic_upload_epub import build
         payload.update(fixture='epub',body_base64=base64.b64encode(build()).decode('ascii'))
+    elif fixture=='reading_epub':
+        from synthetic_upload_epub import build_reading
+        payload.update(fixture='reading_epub',body_base64=base64.b64encode(build_reading()).decode('ascii'),combined_upload=True)
     elif fixture in ('large_epub','near_epub','exact_epub'):payload['fixture']=fixture
     elif fixture in ('pdf','mobi','azw3'):
         from synthetic_pdf_trial import build as build_pdf

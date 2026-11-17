@@ -192,6 +192,7 @@ class MockServer(ThreadingHTTPServer):
         self.web_renewal_posts = 0
         self.content_format = 'epub'
         self.cb_reading = False
+        self.combined_upload_read = False
         self.near_upload_fixture = False
         self.shelf_removed = set()
         self.shelf_added = {}
@@ -222,6 +223,10 @@ class MockServer(ThreadingHTTPServer):
                     out.write(json.dumps(event, ensure_ascii=False) + "\n")
 
     def chapter_source(self,uid,revision=None):
+        if self.combined_upload_read:
+            import io
+            from synthetic_upload_epub import build_reading
+            with zipfile.ZipFile(io.BytesIO(build_reading())) as archive:return archive.read('EPUB/chapter.xhtml').decode('utf-8')
         source=chapter_html(uid)
         if self.selection_fixture:
             extra='<p>选区专用开始😀&amp;标记<strong>跨标签文字</strong>结尾🙂</p>\n<p>第二段选区验证。</p>'
@@ -239,6 +244,9 @@ class MockServer(ThreadingHTTPServer):
             with self.lock:private=self.private_flags.copy()
             readable_books=[dict(book,secret=private.get(book['bookId'],0)) for book in readable_books]
         url = urlsplit(target)
+        if (self.combined_upload_read and (url.hostname=='weread.qq.com' or url.hostname=='i.weread.qq.com' and url.path=='/book/info')
+                and CB_READING_ID in self.shelf_added and not self.cb_reading):
+            readable_books+=CB_READING_BOOKS
         path = url.path
         query = parse_qs(url.query)
         if method=='PUT' and url.hostname=='synthetic-12345.cos.accelerate.myqcloud.com' and path=='/synthetic/object' and not query:
@@ -253,6 +261,9 @@ class MockServer(ThreadingHTTPServer):
             from synthetic_pdf_trial import BODY_SHA256 as pdf
             from synthetic_format_trial import FORMATS
             accepted=(small,large,big,epub,large_epub,pdf,FORMATS['mobi'][1],FORMATS['azw3'][1])
+            if self.combined_upload_read:
+                from reading_epub_trial import BODY_SHA256_READING
+                accepted+=(BODY_SHA256_READING,)
             if self.near_upload_fixture:
                 from near_limit_epub_trial import BODY_SHA256_NEAR
                 from exact_limit_epub_trial import BODY_SHA256_EXACT
@@ -562,7 +573,8 @@ class MockServer(ThreadingHTTPServer):
                                  {'name':['SyntheticUploadEpub.epub'],'path':['/synthetic/object'],'cancel':['0']},
                                  *({'name':['SyntheticUpload.'+ext],'path':['/synthetic/object'],'cancel':['0']} for ext in ('pdf','mobi','azw3'))) and not (self.near_upload_fixture and query in ({'name':['SyntheticNearEpub.epub'],'path':['/synthetic/object'],'cancel':['0']},{'name':['SyntheticExactEpub.epub'],'path':['/synthetic/object'],'cancel':['0']})) or data!={}:
                     raise ValueError('invalid synthetic upload notification')
-                identity=('CB_uploadExactEpub' if query['name']==['SyntheticExactEpub.epub'] else 'CB_uploadNearEpub' if query['name']==['SyntheticNearEpub.epub'] else 'CB_uploadlarge' if query['name']==['SyntheticLarge.txt'] else
+                identity=(CB_READING_ID if self.combined_upload_read and query['name']==['SyntheticUploadEpub.epub'] else
+                          'CB_uploadExactEpub' if query['name']==['SyntheticExactEpub.epub'] else 'CB_uploadNearEpub' if query['name']==['SyntheticNearEpub.epub'] else 'CB_uploadlarge' if query['name']==['SyntheticLarge.txt'] else
                           'CB_uploadBig' if query['name']==['SyntheticBig.txt'] else
                           'CB_uploadLargeEpub' if query['name']==['SyntheticLargeEpub.epub'] else
                           'CB_uploadEpub' if query['name']==['SyntheticUploadEpub.epub'] else

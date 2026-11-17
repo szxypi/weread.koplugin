@@ -2,7 +2,11 @@
 -- This helper never opens a network route or persists login values.
 local ffi=require('ffi');require('ffi/posix_h')
 local M={fds={}}
-function M.start(home,grant,count)
+function M.start(home,grant,count,mock_cookies)
+    if mock_cookies then
+        assert(grant.vid=='900000' and grant.accessToken=='mock-native-access'
+            and mock_cookies.wr_vid=='900000' and mock_cookies.wr_skey=='mock_key')
+    end
     pcall(ffi.cdef,'int memfd_create(const char *, unsigned int);')
     local function anonymous(data)
         local fd=tonumber(ffi.C.memfd_create('weread-owner-probe',1));assert(fd>=0);M.fds[#M.fds+1]=fd
@@ -10,7 +14,7 @@ function M.start(home,grant,count)
         while at<#bytes do local n=tonumber(ffi.C.write(fd,ffi.cast('const char *',bytes)+at,#bytes-at));assert(n>0);at=at+n end
         return '/proc/self/fd/'..fd
     end
-    local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=grant.vid,name=''},cookies={},api_key=''}
+    local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=grant.vid,name=''},cookies=mock_cookies or {},api_key=''}
     local auth_path=anonymous(auth);local saved={};for key,value in pairs(grant) do saved[key]=value end
     saved.epoch,saved.verified_at,saved.book_count=1,os.time(),count
     local grant_path=anonymous{revision=1,authorization=saved}

@@ -371,5 +371,32 @@
     "cloud_position_unchanged": true,
     "original_shelf_members_flags_and_groups_restored": true,
     "previous_test_scopes_and_native_grant_unchanged": true
+  },
+  "real_account_same_profile_upload_and_read": {
+    "screen": "1264x1680_300dpi",
+    "fixture_bytes": 13601,
+    "same_plan_zero_write_preview": true,
+    "packaged_plugin_menu_chooser_confirmation": true,
+    "same_profile_separate_upload_live_read_and_offline_processes": true,
+    "target_identity_and_all_synthetic_passages_bound_before_reader": true,
+    "original_source_receipt_matched": true,
+    "native_bookshelf_selection_and_page_turn": true,
+    "fresh_offline_process_reopened": true,
+    "credential_requests": 1,
+    "cos_put_attempts": 1,
+    "notify_posts": 1,
+    "independent_cleanup_posts": 1,
+    "authentication_posts": 0,
+    "reader_account_data_writes": 0,
+    "cloud_position_unchanged": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_native_grant_unchanged": true,
+    "verified_web_cookie_rotation_saved": true,
+    "temporary_profile_removed": true,
+    "synthetic_same_session_600x800": "PASS",
+    "synthetic_same_session_1264x1680": "PASS",
+    "synthetic_same_profile_600x800": "PASS",
+    "synthetic_same_profile_1264x1680": "PASS",
+    "refused_identity_gate_stopped_reader": true
   }
 }
