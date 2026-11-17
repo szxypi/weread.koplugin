@@ -461,7 +461,30 @@
     "visual_fixture_columns_and_images_checked": true,
     "cloud_reading_state_writes": 0,
     "original_bytes_unchanged_by_read": true,
-    "real_account_end_to_end_tested": false,
+    "real_account_end_to_end_tested": true,
     "physical_kindle_tested": false
+  },
+  "real_account_native_pdf_original_local_reading": {
+    "screen": "1264x1680_300dpi",
+    "fixture_bytes": 1852,
+    "native_menu_and_chooser": true,
+    "same_session_upload_detail_and_local_original": true,
+    "cloud_identity_and_progress_not_bound": true,
+    "zero_cloud_reading_writes": true,
+    "original_file_unchanged": true,
+    "private_profile_removed": true,
+    "screenshots": 0,
+    "native_credential_requests": 1,
+    "native_cos_put_attempts": 1,
+    "native_notify_posts": 1,
+    "independent_cleanup_posts": 1,
+    "authentication_posts": 0,
+    "source_text_markers_verified": 12,
+    "converted_source_html_image_references": 0,
+    "cloud_position_unchanged": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_native_grant_unchanged": true,
+    "physical_kindle_tested": false,
+    "local_original_page_count_verified": true
   }
 }
