@@ -62,9 +62,24 @@ class NativeCrossDayTests(unittest.TestCase):
         for key, value in (('vid', '1'), ('deviceId', 'different')):
             changed = dict(grant); changed[key] = value
             with self.subTest(key=key), self.assertRaises(ValueError): task.check_capture(plan, saved, changed, plan['not_before'])
+        wrong_format = capture('web_txt'); wrong_format['device_sha256'] = digest(grant['deviceId'])
+        with self.assertRaisesRegex(ValueError, 'native_cross_day/format'): task.check_capture(wrong_format, saved, grant, wrong_format['not_before'])
         damaged = deepcopy(plan); damaged['seconds'] = 5
         with self.assertRaises(ValueError): task.check_capture(damaged, saved, grant, plan['not_before'])
 
+
+
+    def test_fixture_projection_follows_the_capture_baseline_and_still_requires_one_fixture(self):
+        shelf=source();shelf['archive'][0]['bookIds'].remove(TARGET)
+        for includes in (False,True):
+            api=task.FilteredNative({'vid':'900000'},'900001',TARGET,1,clock=lambda:2,baseline_includes_fixture=includes)
+            with patch.object(task.Native,'request',return_value=shelf):
+                value=api.request('native_capture_shelf','unused',credentials={'vid':'900000'})
+            self.assertEqual(len(value['books']),2 if includes else 1)
+            absent=deepcopy(shelf);absent['books'].pop()
+            with patch.object(task.Native,'request',return_value=absent),self.assertRaises(ValueError):
+                api.request('native_capture_shelf','unused',credentials={'vid':'900000'})
+        with self.assertRaises(ValueError):task.FilteredNative({},'1',TARGET,1,baseline_includes_fixture='yes')
 
     def test_two_fresh_reads_are_required_and_changes_stop_preflight(self):
         plan = capture('web_xhtml')
@@ -82,7 +97,7 @@ class NativeCrossDayTests(unittest.TestCase):
         original_result = dict(native_original_state_unchanged=True, web_original_state_unchanged=True, old_group_absent=True)
         stable_stat = dict(baseTime=1, readTimes={'1':5}, totalReadTime=5, readDays=1)
 
-        def run_case(*, samples=None, statistics=None, changed_store=False, now=None):
+        def run_case(*, samples=None, statistics=None, changed_store=False, now=None, includes_fixture=False):
             clock = plan['not_before'] if now is None else now
             month_count = len({task.period('monthly', plan['start_time'])[0], task.period('monthly', clock)[0]})
             store = Mock(); store.read.side_effect = [(state, token), (None, None)] if changed_store else None
@@ -91,6 +106,7 @@ class NativeCrossDayTests(unittest.TestCase):
             groups.read.return_value = (group, 'g'); olds.read.return_value = (old, 'o')
             web = Mock(); web.book_id = plan['book_id']; web.chapter = plan['chapter_uid']
             api, stats = Mock(), Mock()
+            api_factory = Mock(return_value=api)
             with ExitStack() as stack:
                 for name, value in [('UploadJournal',uploads), ('GroupJournal',groups), ('OldJournal',olds),
                                     ('TargetReceipt',receipt), ('ScopedNative',Mock()), ('Guard',Mock()), ('Binding',Mock()), ('NonemptyBinding',Mock())]:
@@ -100,8 +116,9 @@ class NativeCrossDayTests(unittest.TestCase):
                 stack.enter_context(patch.object(task, 'inspect_original', return_value=original_result))
                 snapshots = stack.enter_context(patch.object(task, 'xhtml_snapshot', side_effect=samples or [sample, sample]))
                 stack.enter_context(patch.object(task, 'project_statistics', side_effect=statistics or [stable_stat] * (2 * month_count)))
-                result = task.run(saved, grant, store, lambda:True, web, api_factory=lambda *a:api,
-                                  statistics_factory=lambda:stats, clock=lambda:clock, sleep=lambda _:None)
+                result = task.run(saved, grant, store, lambda:True, web, api_factory=api_factory,
+                                  statistics_factory=lambda:stats, clock=lambda:clock, sleep=lambda _:None, baseline_includes_fixture=includes_fixture)
+                self.assertEqual(api_factory.call_args.args[-1], includes_fixture)
                 self.assertEqual(snapshots.call_count, 2)
                 self.assertEqual(stats.request.call_count, 2 * month_count)
                 self.assertEqual(web.inspect.call_count, 1)
@@ -110,6 +127,7 @@ class NativeCrossDayTests(unittest.TestCase):
         self.assertEqual(result['result'], 'CROSS_DAY_READONLY_VERIFIED')
         self.assertFalse(result['historical_accounting_verified'])
         self.assertEqual(run_case(now=plan['not_before'] + 40*86400)['observed_months'], 2)
+        self.assertEqual(run_case(includes_fixture=True)['result'], 'CROSS_DAY_READONLY_VERIFIED')
         changed = deepcopy(sample); changed['point']['chapter_idx'] += 1
         with self.assertRaisesRegex(ValueError, 'native_cross_day/baseline'): run_case(samples=[sample, changed])
         changed_stat = deepcopy(stable_stat); changed_stat['totalReadTime'] += 1

@@ -61,16 +61,20 @@ def check_group(result, original):
 
 def check_capture(plan, saved, grant, now):
     validate(plan)
-    if plan['format'] != 'web_xhtml' or now < plan['not_before']:
+    if plan['format'] != 'web_xhtml':
+        raise ValueError('native_cross_day/format')
+    if now < plan['not_before']:
         raise ValueError('native_cross_day/not_ready')
     if saved['vid'] != grant['vid'] or saved['vid'] != plan['owner'] or digest(grant['deviceId']) != plan['device_sha256']:
         raise ValueError('native_cross_day/owner_device')
 
 
 class FilteredNative(Native):
-    def __init__(self, credentials, book, target, not_before, clock=time.time):
+    def __init__(self, credentials, book, target, not_before, clock=time.time, baseline_includes_fixture=False):
+        if type(baseline_includes_fixture) is not bool:raise ValueError('native_cross_day/fixture_mode')
         super().__init__(credentials, book)
         self.target, self.not_before, self.clock = target, not_before, clock
+        self.baseline_includes_fixture = baseline_includes_fixture
 
     def request(self, stage, url, body=None, credentials=None, timeout=15):
         value = super().request(stage, url, body, credentials, timeout)
@@ -80,12 +84,14 @@ class FilteredNative(Native):
                     or self.clock() < self.not_before or abs(stamp-self.clock()) > 60):
                 raise ValueError('native_cross_day/server_clock')
         if stage == 'native_capture_shelf':
-            return without_fixture(value, self.target)
+            original = without_fixture(value, self.target)
+            return value if self.baseline_includes_fixture else original
         return value
 
 
 def run(saved, grant, store, current, web, api_factory=FilteredNative,
-        statistics_factory=StatisticsProbe, clock=time.time, sleep=time.sleep):
+        statistics_factory=StatisticsProbe, clock=time.time, sleep=time.sleep, baseline_includes_fixture=False):
+    if type(baseline_includes_fixture) is not bool:raise ValueError('native_cross_day/fixture_mode')
     state, token = store.read()
     if not state or current() is not True:
         raise ValueError('native_cross_day/capture')
@@ -114,7 +120,7 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
     web.prepare()
     if web.book_id != plan['book_id'] or web.chapter != plan['chapter_uid']:
         raise ValueError('native_cross_day/source')
-    api = api_factory(grant, plan['book_id'], upload['target'], plan['not_before'], clock)
+    api = api_factory(grant, plan['book_id'], upload['target'], plan['not_before'], clock, baseline_includes_fixture)
     stats = statistics_factory()
     current_month = period('monthly', int(clock()))[0]
     months = sorted({period('monthly', plan['start_time'])[0], current_month})
@@ -160,7 +166,9 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
+    parser.add_argument('--bundle', action='store_true')
     args = parser.parse_args(argv)
+    if args.bundle and not args.saved_session:parser.error('bundle inspection requires saved session')
     result = {'result':'OFFLINE_ONLY', 'account_data_posts':0, 'authentication_posts':0,
               'historical_accounting_verified':False, 'dispatch_capability':False}
     saved = grant = web = None
@@ -175,10 +183,14 @@ def main(argv=None):
             for key, value in saved['cookies'].items():
                 web.set_cookie(key, value)
             current = lambda: session.load() == saved and native_session.load(saved['vid']) == grant
-            result = run(saved, grant, NativeCaptureStore(), current, web)
+            if args.bundle:
+                from native_time_capture_bundle import CaptureBundleStore
+                capture=CaptureBundleStore()
+            else:capture=NativeCaptureStore()
+            result = run(saved, grant, capture, current, web, baseline_includes_fixture=args.bundle)
             result['web_rotation_saved'] = save_refreshed_web_session(session, saved, web)
     except (Exception, KeyboardInterrupt) as error:
-        result['result'] = 'UNVERIFIED'
+        result['result'] = 'NOT_READY' if isinstance(error, ValueError) and str(error) == 'native_cross_day/not_ready' else 'UNVERIFIED'
         if isinstance(error, ValueError) and re.fullmatch(r'native_cross_day/[a-z_]+', str(error)):
             result['reason'] = str(error)
             if getattr(error, 'checks', None):
