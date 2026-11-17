@@ -125,14 +125,14 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi):
         'invalid_ack':[('selection',True,None),('claim',True,None),('ack',False,'native_bridge/receipt')],
         'http_201':[('selection',True,None),('claim',True,None),('ack',False,'native_bridge/receipt')],
         'lost_reply':[('selection',True,None),('claim',True,None)],
-        'no_ack':[('selection',True,None),('claim',True,None)],
+        'no_ack':[('selection',True,None),('claim',True,None),('ack',False,'native_bridge/receipt')],
         'kill_worker':[('selection',True,None),('claim',True,None)],
         'no_delta':[('selection',True,None),('claim',True,None),('ack',True,None)],
         'duplicate':[('selection',True,None),('claim',True,None),('claim',False,'native_bridge/order')],
     }[mode]
     rejected=('dry_run','tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows','tamper_native_counts','tamper_native_months','tamper_native_shelf','tamper_native_source','tamper_native_catalog')
     expected_phase='none' if mode in rejected else {'success':'acknowledged','optional_text':'acknowledged','tamper_selection':'none','lost_reply':'claimed','duplicate':'claimed','no_ack':'claimed','kill_worker':'claimed','no_delta':'acknowledged','invalid_ack':'claimed','http_201':'claimed'}[mode]
-    expected_local='claimed' if mode in rejected else {'success':'none','optional_text':'none','tamper_selection':'none','lost_reply':'claimed','duplicate':'claimed','no_ack':'unknown','kill_worker':'claimed','no_delta':'acknowledged','invalid_ack':'claimed','http_201':'claimed'}[mode]
+    expected_local='claimed' if mode in rejected else {'success':'none','optional_text':'none','tamper_selection':'none','lost_reply':'claimed','duplicate':'claimed','no_ack':'claimed','kill_worker':'claimed','no_delta':'acknowledged','invalid_ack':'claimed','http_201':'claimed'}[mode]
     if (set(result)!={'result','mode','native_menu','background_service','dialog_correct','workers_reaped','recovery_checked','source_reads','local_phase','local_confirmed'}
             or events!=expected_events or phase!=expected_phase or result.get('mode')!=mode or result.get('local_phase')!=expected_local
             or result.get('native_menu') is not True or result.get('dialog_correct') is not True or result.get('workers_reaped') is not True
@@ -174,7 +174,7 @@ def main(argv=None):
                               durable_claim_before_reply=True,modified_selection_blocked=True,modified_body_blocked=True,
                               lost_and_duplicate_not_replayed=True,no_ack_and_worker_death_not_replayed=True,ack_readonly_recovery_not_replayed=True,
                               baseline_sealed_before_claim=True,preflight_evidence_bound=True,native_baseline_mismatch_blocked=True,catalog_stamp_mismatch_blocked=True,optional_text_parity=True,
-                              dry_run_without_claim=True,invalid_http_receipt_blocked=True,scenarios=20)
+                              dry_run_without_claim=True,invalid_http_receipt_blocked=True,native_http_guard_enforced=True,scenarios=20)
     except Exception as error:
         report.update(result='UNVERIFIED',synthetic_failure_mode=mode,synthetic_failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_ui/child_'):

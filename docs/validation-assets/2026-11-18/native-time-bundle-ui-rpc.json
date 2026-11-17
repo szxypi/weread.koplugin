@@ -28,6 +28,7 @@
       "optional_text_parity": true,
       "dry_run_without_claim": true,
       "invalid_http_receipt_blocked": true,
+      "native_http_guard_enforced": true,
       "scenarios": 20
     },
     {
@@ -56,6 +57,7 @@
       "optional_text_parity": true,
       "dry_run_without_claim": true,
       "invalid_http_receipt_blocked": true,
+      "native_http_guard_enforced": true,
       "scenarios": 20
     }
   ]

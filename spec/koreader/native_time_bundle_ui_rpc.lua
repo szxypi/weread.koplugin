@@ -104,26 +104,13 @@ function client:request(options)
     local value
     if options.method=='POST' then
         assert(options.url=='https://i.weread.qq.com/book/batchUploadProgress' and sent==0)
-        local record=assert(journal:pending(account));assert(record.phase=='claimed','synthetic_ui/native_claim')
-        local body=json.decode(options.body)
-        if input.mode=='tamper_body' then body.books[1].summary='synthetic-change' end
-        if input.mode=='tamper_native_point' then record.metadata.native_hash=string.rep('f',64)
-        elseif input.mode=='tamper_native_web' then record.metadata.web_hash=string.rep('f',64)
-        elseif input.mode=='tamper_native_rows' then record.rows[1].duration=record.rows[1].duration+1
-        elseif input.mode=='tamper_native_counts' then record.metadata.counts.ttsTime=1
-        elseif input.mode=='tamper_native_months' then record.metadata.months[tostring(captured_month)].totalReadTime=999
-        elseif input.mode=='tamper_native_shelf' then record.metadata.shelf_hash=string.rep('f',64)
-        elseif input.mode=='tamper_native_source' then record.metadata.source.expected.raw_sha256=string.rep('f',64)
-        elseif input.mode=='tamper_native_catalog' then record.metadata.source.catalog_stamp=string.rep('f',64) end
-        if not rpc('claim',{body=body,selection=selected,record=record}) then error('synthetic_ui/claim_denied',0) end
         sent=sent+1
         local write_db=sqlite.open(coverage.path);write_db:exec('INSERT INTO synthetic_dispatches DEFAULT VALUES');write_db:close()
         if input.mode=='lost_reply' then error('synthetic_ui/lost_reply',0) end
         if input.mode=='kill_worker' then os.exit(1) end
         if input.mode=='no_ack' then return json.encode({}),200 end
-        if input.mode=='duplicate' and not rpc('claim',{body=body,selection=selected,record=record}) then error('synthetic_ui/duplicate_denied',0) end
+        if input.mode=='duplicate' and not rpc('claim',{body=json.decode(options.body),selection=selected,record=assert(journal:pending(account))}) then error('synthetic_ui/duplicate_denied',0) end
         applied=input.mode~='no_delta';value={succ=input.mode=='invalid_ack' and 0 or 1}
-        if not rpc('ack',{status=input.mode=='http_201' and 201 or 200,response=value}) then error('synthetic_ui/ack_denied',0) end
     elseif options.url:find('/book/info?',1,true) then value={bookId=input.book_id,bookVersion=input.book_version}
     elseif options.url:find('/book/getProgress?',1,true) then value=progress()
     elseif options.url:find('/shelf/sync',1,true) then value={books={{bookId=input.book_id,secret=0,finishReading=0}},archive={}}
@@ -137,8 +124,27 @@ function client:request(options)
     elseif options.url:find('/config?',1,true) then value={token=input.config}
     elseif options.url:find('/feature?',1,true) then value={feature={guest_token=input.guest}}
     else error('synthetic_ui/route',0) end
-    return json.encode(value),200
+    return json.encode(value),input.mode=='http_201' and options.method=='POST' and 201 or 200
 end
+local months={};for month in pairs(input.months) do months[#months+1]=tonumber(month) end
+local transport=require('spec.koreader.native_time_http_guard')
+transport.install(client,{grant=input.grant,book_id=input.book_id,chapter_uid=input.chapter_uid,
+    cookies={wr_vid = input.owner,wr_skey='synthetic-current-cookie'},months=months,now=os.time,current=function() return true end,
+    selection=function() return selected end,record=function()
+        local record=assert(journal:pending(account));assert(record.phase=='claimed','synthetic_ui/native_claim')
+        if input.mode=='tamper_native_point' then record.metadata.native_hash=string.rep('f',64)
+        elseif input.mode=='tamper_native_web' then record.metadata.web_hash=string.rep('f',64)
+        elseif input.mode=='tamper_native_rows' then record.rows[1].duration=record.rows[1].duration+1
+        elseif input.mode=='tamper_native_counts' then record.metadata.counts.ttsTime=1
+        elseif input.mode=='tamper_native_months' then record.metadata.months[tostring(captured_month)].totalReadTime=999
+        elseif input.mode=='tamper_native_shelf' then record.metadata.shelf_hash=string.rep('f',64)
+        elseif input.mode=='tamper_native_source' then record.metadata.source.expected.raw_sha256=string.rep('f',64)
+        elseif input.mode=='tamper_native_catalog' then record.metadata.source.catalog_stamp=string.rep('f',64) end
+        return record
+    end,rpc=function(kind,value)
+        if kind=='claim' and input.mode=='tamper_body' then value.body.books[1].summary='synthetic-change' end
+        return rpc(kind,value)
+    end})
 local service=require('weread.lib.readtime_transfer_service'):new{settings=settings,client=client,journal=journal,
     credentials=credentials,scheduler=UI,task_options={observe_source=function(observed_client,web,selection,refs,previous)
         assert(selection.file_id==input.file_id and #refs==1 and refs[1].file==arg[4])
@@ -207,7 +213,7 @@ end
 local summary=assert(ledger:summary(account));local pending=journal:pending(account)
 local phase=pending and pending.phase or 'none'
 local dispatch_blocked=input.mode=='dry_run' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode:find('^tamper_native_')~=nil
-local expected_phase=(success or input.mode=='tamper_selection') and 'none' or input.mode=='no_ack' and 'unknown' or input.mode=='no_delta' and 'acknowledged' or 'claimed'
+local expected_phase=(success or input.mode=='tamper_selection') and 'none' or input.mode=='no_delta' and 'acknowledged' or 'claimed'
 assert(phase==expected_phase,'synthetic_ui/pending')
 assert(summary.confirmed==(success and input.seconds or 0),'synthetic_ui/confirmed')
 assert(summary.pending==(input.mode=='tamper_selection' and input.seconds or 0),'synthetic_ui/remaining')
