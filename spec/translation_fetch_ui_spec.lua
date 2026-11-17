@@ -30,7 +30,7 @@ local function fixture()
         stat={mode='file',size=300,ino=1,dev=1,modification=1},notices={},jobs={},released=0,aborted=0,cancelled=0}
     state.result={ok=true,chapter_uid='1',bytes=100,blocks=2,file_id=string.rep('b',64)}
     local settings={get_auth_scope=function() return {epoch=1} end,auth_scope_matches=function() return not state.auth_changed end,
-        get=function(_self,key,default) if key=='cookies' then return {wr_skey=state.cookie or 'synthetic'} end;return default end,
+        get=function(_self,key,default) if key=='cookies' then return {['wr_skey']=state.cookie or 'synthetic'} end;return default end,
         get_book=function() return {title='Synthetic'} end}
     local doc_settings={readSetting=function() return state.copies end,saveSetting=function(_self,_key,value) state.copies=value end,
         flush=function() return not state.flush_failed and '/sidecar' end}
