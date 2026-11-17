@@ -437,6 +437,7 @@ local zh = {
     ["The bookstore needs E-Ink authorization or an official API key."] = "书城需要墨水屏授权或官方接口密钥。",
     ["Bookstore access changed. Refresh or reopen the list."] = "书城授权已变化，请刷新或重新打开列表。",
     ["Could not save books for offline use. The current list is still available."] = "无法保存书籍供离线浏览，当前列表仍可查看。",
+    ["Could not save the bookshelf for offline use. The current list is still available."] = "无法保存书架供离线使用，当前列表仍可查看。",
     ["No saved books for this batch. Connect to Wi-Fi and refresh the list."] = "本批次没有已保存的书籍，请连接 Wi-Fi 后刷新列表。",
     ["Bookstore request failed. Cached books are still available."] = "书城请求失败，已缓存的书籍仍可查看。",
     ["Loading books..."] = "正在读取书籍…",

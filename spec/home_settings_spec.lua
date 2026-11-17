@@ -49,6 +49,11 @@ local function find(items, text)
     for _, item in ipairs(items) do if item.text:find(text, 1, true) then return item end end
     error("missing item: " .. text)
 end
+local refreshes=0
+host.refreshHome=function() refreshes=refreshes+1 end
+local refresh_shortcut=host:homeShortcuts({show_shortcuts=true,shortcuts={'refresh'}})
+refresh_shortcut[1].callback()
+expect(refreshes==1,'home refresh shortcut did not use the shared home refresh flow')
 host.shelf_view = { home_layout = preferences }
 host:showHomeLayoutSettings()
 find(host._home_controls_menu.items, "Home book display").sub_item_table[2].callback()

@@ -364,7 +364,7 @@ function M:refreshBookshelf(old_view, view_options)
             and result.books
             or {}
         local archives = type(result) == "table" and type(result.archive) == "table" and result.archive or {}
-        local snapshot_saved=self.library_db and self.library_db:cacheShelf(all_books, archives)==true
+        local snapshot_saved=self.library_db~=nil and self.library_db:cacheShelf(all_books, archives)==true
         self.shelf_active_source = type(result) == "table" and result._shelf_source or "gateway"
         if type(result) == "table" and result._native_fallback then
             self:showTransientInfo(_("E-Ink bookshelf is unavailable. Using the standard bookshelf for this refresh."), 3)
@@ -374,7 +374,7 @@ function M:refreshBookshelf(old_view, view_options)
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
         if view_options and view_options.on_loaded then
-            view_options.on_loaded(snapshot_saved)
+            view_options.on_loaded(snapshot_saved, { books = all_books, archives = archives })
             return
         end
         local next_options = {}
@@ -391,6 +391,9 @@ function M:refreshBookshelf(old_view, view_options)
             nil,
             next_options
         )
+        if not snapshot_saved and self.showTransientInfo then
+            self:showTransientInfo(_("Could not save the bookshelf for offline use. The current list is still available."), 4)
+        end
     end
     local started
     if self.client.shelf_authentication then

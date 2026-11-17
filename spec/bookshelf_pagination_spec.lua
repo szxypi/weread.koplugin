@@ -357,6 +357,8 @@ host.client.get_shelf = function()
     return { books = grouped_books, archive = { archives[2], archives[1] } }
 end
 host.library_db = { cacheShelf = function(_self, _books, value) written_archives = value end }
+local cache_notice
+host.showTransientInfo=function(_self,text) cache_notice=text end
 local before_refresh = shown[#shown]
 local cover_generation = host.shelf_cover_generation
 host.shelf_cover_pending = { view = host.shelf_view }
@@ -371,6 +373,14 @@ expect(fetches == 1 and written_archives[2].archiveId == 7 and not host.shelf_re
 expect(shown[#shown].data.page == 2 and shown[#shown].data.group_key == "archive:7"
         and shown[#shown].data.scroll_offset.y == 125,
     "refresh lost group, page or scroll position after archive reorder")
+expect(cache_notice and cache_notice:find('offline',1,true),
+    'visible shelf refresh did not report a failed offline snapshot')
+local saved_result,refreshed_snapshot
+host:refreshBookshelf(nil,{on_loaded=function(saved,snapshot) saved_result,refreshed_snapshot=saved,snapshot end})
+pending()
+expect(saved_result==false and refreshed_snapshot.books==grouped_books and refreshed_snapshot.archives==written_archives,
+    'home refresh did not receive the fresh network snapshot when cache saving failed')
+host:showShelfView('books',nil,nil,{page=2})
 
 host.client.get_shelf = function() return { books = grouped_books, archive = {} } end
 shown[#shown].callbacks.on_refresh()

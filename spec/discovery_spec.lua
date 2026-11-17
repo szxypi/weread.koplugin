@@ -136,4 +136,30 @@ plugin.settings = {
 plugin:recordRecentReading("a")
 expect(flushed and persisted.a.recent_read_at > 0 and persisted.a.recent_read_account == "account-b",
     "local reading was not persisted with account identity")
+
+-- A successful network read must remain visible when saving the shelf fails.
+local cached={{bookId='old',title='Old',readUpdateTime=10}}
+local fresh={{bookId='new',title='Fresh',readUpdateTime=20}}
+local refresh_saved=false
+local home_render,home_notice
+local home=setmetatable({
+    library_db={accountKey=function() return 'home-account' end,getShelf=function() return cached end,
+        getShelfArchives=function() return {} end},
+    settings={get=function(_self,key) if key=='books' then return {} end end},
+    homePreferences=function() return {recent_limit=12} end,
+    homeShortcuts=function() return {} end,
+    applyShelfSnapshot=function(self,rows) self.shelf_regular=rows end,
+    showDiscoveryPage=function(_self,_tab,rows,options) home_render={books=rows,options=options} end,
+    showTransientInfo=function(_self,message) home_notice=message end,
+    refreshBookshelf=function(self,_view,options)
+        self:applyShelfSnapshot(fresh,{})
+        options.on_loaded(refresh_saved,{books=fresh,archives={}})
+    end,
+}, {__index=Discovery})
+home:showHome();expect(home_render.books[1].bookId=='old','cached home setup failed')
+home_render.options.on_refresh()
+expect(home_render.books[1].bookId=='new','home refresh hid fresh books after cache failure')
+expect(home_notice and home_notice:find('offline',1,true),'home refresh did not explain the cache failure')
+refresh_saved=true;home_notice=nil;home:refreshHome()
+expect(home_render.books[1].bookId=='new' and not home_notice,'successful refresh reported a cache failure')
 print("discovery_spec: " .. checks .. " checks")

@@ -118,10 +118,16 @@ function M:recordRecentReading(book_id)
     self.settings:flush()
 end
 
-function M:showHome(refresh_progress)
+function M:showHome(refresh_progress, refreshed_shelf)
     if self._profile_view then self:closeWeReadUI() end
-    local cached = self.library_db and self.library_db:getShelf() or {}
-    local archives = self.library_db and self.library_db:getShelfArchives() or {}
+    local cached, archives
+    if type(refreshed_shelf) == "table" and type(refreshed_shelf.books) == "table"
+        and type(refreshed_shelf.archives) == "table" then
+        cached, archives = refreshed_shelf.books, refreshed_shelf.archives
+    else
+        cached = self.library_db and self.library_db:getShelf() or {}
+        archives = self.library_db and self.library_db:getShelfArchives() or {}
+    end
     self:applyShelfSnapshot(cached or {}, archives)
     local preferences = self:homePreferences()
     self:showDiscoveryPage("home", Data.recent(self.shelf_regular, self.settings:get("books", {}),
@@ -131,10 +137,17 @@ function M:showHome(refresh_progress)
         refresh_progress = refresh_progress,
         empty_text = _("No recent reading. Refresh or open your bookshelf."),
         actions = self:homeShortcuts(preferences),
-        on_refresh = function()
-            self:refreshBookshelf(self.shelf_view, { on_loaded = function() self:showHome(true) end })
-        end,
+        on_refresh = function() self:refreshHome() end,
     })
+end
+
+function M:refreshHome()
+    self:refreshBookshelf(self.shelf_view, { on_loaded = function(saved, snapshot)
+        self:showHome(true, snapshot)
+        if not saved then
+            self:showTransientInfo(_("Could not save the bookshelf for offline use. The current list is still available."), 4)
+        end
+    end })
 end
 
 function M:showDiscoverySearch()

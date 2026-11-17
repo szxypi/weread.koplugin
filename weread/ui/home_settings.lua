@@ -75,9 +75,7 @@ function M:homeShortcuts(preferences)
         search = function() self:showDiscoverySearch() end,
         profile = function() self:closeWeReadUI() self:showProfile() end,
         settings = function() self:showHomeQuickSettings() end,
-        refresh = function()
-            self:refreshBookshelf(self.shelf_view, { on_loaded = function() self:showHome(true) end })
-        end,
+        refresh = function() self:refreshHome() end,
     }
     local result = {}
     for _i, key in ipairs(preferences.shortcuts) do
