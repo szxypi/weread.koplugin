@@ -4,7 +4,8 @@ require('setupkoenv')
 local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDENCE'))
 local switch=os.getenv('WEREAD_TEST_HOME_ACCOUNT_SWITCH')=='1'
 local switch_reopen=os.getenv('WEREAD_TEST_HOME_ACCOUNT_REOPEN')=='1'
-local reopen=os.getenv('WEREAD_TEST_HOME_REOPEN')=='1' or switch or switch_reopen
+local unknown=os.getenv('WEREAD_TEST_HOME_UNKNOWN_LEGACY')=='1'
+local reopen=os.getenv('WEREAD_TEST_HOME_REOPEN')=='1' or switch or switch_reopen or unknown
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
 G_reader_settings:saveSetting('language','zh_CN')
@@ -53,8 +54,35 @@ local function press(view,label)
     end
     error('missing reading action',0)
 end
+local function synthetic_note(reader)
+    for _i,item in ipairs(reader.annotation.annotations or {}) do
+        if item.note=='synthetic note preserved across account reads' then return true end
+    end
+    return false
+end
 FM:showFiles(home)
 local plugin=host();local account=assert(plugin.library_db:accountKey())
+if unknown then
+    local book=assert(plugin.settings:get_book(id));local path=assert(book.cached_full_book)
+    local DocSettings=require('docsettings');local sidecar=DocSettings:open(path)
+    local original=assert(sidecar:readSetting('last_xpointer'))
+    sidecar:delSetting('weread_account_locations');assert(sidecar:flush())
+    assert(plugin.settings:patch_reading_state(id,{last_local_position={book_id=id,chapter_uid='1',percent=33},
+        last_local_account=account}))
+    assert(plugin:startBookReading(assert(plugin.settings:get_book(id))))
+    pump(function() return Reader.instance and Reader.instance.weread
+        and Reader.instance.weread.progress_sync.current_book_id==id end)
+    assert(Reader.instance.document:isXPointerInCurrentPage(original),'unknown legacy page did not open normally')
+    assert(synthetic_note(Reader.instance),'legacy reading discarded the native note')
+    close_reader()
+    local after=DocSettings:open(path)
+    assert(not after:readSetting('weread_account_locations') and after:readSetting('last_xpointer')==original,
+        'unknown legacy page was automatically claimed or lost')
+    assert(requests[0]==0)
+    print('\nWEREAD_UNKNOWN_NATIVE_LEGACY='..json.encode({result='PASS',original_page=true,not_claimed=true,
+        native_note_preserved=true,requests=0}))
+    os.exit(0)
+end
 if switch or switch_reopen then
     -- Mock settings intentionally reset to account 900000 on construction;
     -- select the second synthetic account again in the fresh process.
@@ -64,6 +92,25 @@ if switch or switch_reopen then
     end
     if switch then
         local books=plugin.settings:get('books',{});local book=assert(books[id])
+        -- Simulate upgrading a native sidecar made before account locations.
+        -- The prior account's source-bound viewport is independently saved.
+        local old_xp_file=assert(io.open(evidence..'/home-recent-xpointer.txt','rb'))
+        local old_xp=old_xp_file:read('*a');old_xp_file:close()
+        assert(book.last_local_position and book.last_local_position.source_view
+            and book.last_local_position.source_view.view.xpointer==old_xp,'missing legacy source-bound viewport')
+        local DocSettings=require('docsettings')
+        local legacy_sidecar=DocSettings:open(assert(book.cached_full_book))
+        assert(legacy_sidecar:readSetting('weread_account_locations'))
+        legacy_sidecar:delSetting('weread_account_locations');assert(legacy_sidecar:flush())
+        assert(plugin:startBookReading(book))
+        pump(function() return Reader.instance and Reader.instance.weread
+            and Reader.instance.weread.progress_sync.current_book_id==id end)
+        assert(Reader.instance.document:isXPointerInCurrentPage(old_xp),'legacy native page was lost')
+        close_reader();plugin=host()
+        local migrated=DocSettings:open(assert(book.cached_full_book)):readSetting('weread_account_locations')
+        assert(migrated and migrated.entries[account] and migrated.entries[account].xpointer==old_xp
+            and migrated.legacy.xpointer==old_xp,'verified legacy page was not migrated')
+        books=plugin.settings:get('books',{});book=assert(books[id])
         book.recent_read_account=account;book.recent_read_at=10
         book.home_recent_account=nil;book.home_recent_at=nil;book.last_local_account=nil
         book.last_local_position={book_id=id,chapter_uid='1',percent=33}
@@ -103,7 +150,18 @@ if switch or switch_reopen then
         pump(function() return Reader.instance and Reader.instance.weread
             and Reader.instance.weread.progress_sync.current_book_id==id end)
         local reader=Reader.instance
+        assert(synthetic_note(reader),'native note disappeared after account switch')
+        local legacy=assert(io.open(evidence..'/home-recent-xpointer.txt','rb'))
+        local original_xpointer=legacy:read('*a');legacy:close()
+        assert(not reader.document:isXPointerInCurrentPage(original_xpointer),
+            'second account opened at the first account\'s native page')
+        local pages_before=reader.document:getPageCount()
+        assert(reader.font:onSetFontSize(reader.font.configurable.font_size+4))
+        for _i=1,5 do tick() end
+        assert(reader.document:getPageCount()~=pages_before,'font change did not repaginate synthetic book')
         reader.rolling:onGotoPage(5);tick();reader.weread.progress_sync:on_page_update()
+        local second_xpointer=assert(reader.document:getXPointer())
+        local second=assert(io.open(evidence..'/account-second-xpointer.txt','wb'));second:write(second_xpointer);second:close()
         close_reader();Settings.new=construct
         local after=assert(plugin.settings:get_book(id))
         assert(after.pending_upload_position and after.last_local_position and after.pending_upload_account==current,
@@ -117,6 +175,22 @@ if switch or switch_reopen then
     assert(book.last_local_position.percent==checkpoint.position and book.pending_upload_position.percent==checkpoint.pending
         and book.source_dispatch.id=='synthetic-second-dispatch','second account checkpoint was not preserved')
     if switch_reopen then
+        local second=assert(io.open(evidence..'/account-second-xpointer.txt','rb'))
+        local second_xpointer=second:read('*a');second:close()
+        local Settings=require('weread.lib.settings');local construct=Settings.new
+        function Settings:new(...)
+            local value=construct(self,...)
+            value:update_auth({account={user_vid='900002',name='Other synthetic'},
+                cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+            return value
+        end
+        assert(plugin:startBookReading(book))
+        pump(function() return Reader.instance and Reader.instance.weread
+            and Reader.instance.weread.progress_sync.current_book_id==id end)
+        assert(Reader.instance.document:isXPointerInCurrentPage(second_xpointer),
+            'second account native page did not survive a fresh process')
+        assert(synthetic_note(Reader.instance),'native note disappeared after process restart')
+        close_reader();Settings.new=construct;plugin=host()
         plugin.settings:update_auth({account={user_vid='900000',name='Synthetic'},
             cookies={wr_vid='900000',wr_skey='synthetic-home-session'}},{replace_cookies=true})
         assert(plugin.settings:get_auth_scope(true).vid=='900000','synthetic account restoration not persisted')
@@ -125,6 +199,15 @@ if switch or switch_reopen then
         assert(original==book.recent_read_account and book.last_local_position.percent==33
             and book.pending_upload_position.percent==33 and book.source_dispatch.id=='synthetic-original-dispatch',
             'original account lost its reading state')
+        assert(plugin:startBookReading(book))
+        pump(function() return Reader.instance and Reader.instance.weread
+            and Reader.instance.weread.progress_sync.current_book_id==id end)
+        local first=assert(io.open(evidence..'/home-recent-xpointer.txt','rb'))
+        local original_xpointer=first:read('*a');first:close()
+        assert(Reader.instance.document:isXPointerInCurrentPage(original_xpointer),
+            'original account did not recover its own native page')
+        assert(synthetic_note(Reader.instance),'native note disappeared on returning to original account')
+        close_reader();plugin=host()
         plugin.settings:update_auth({account={},cookies={}},{replace_cookies=true})
         assert(plugin:recordRecentReading(id))
         book=assert(plugin.settings:get_book(id))
@@ -133,7 +216,8 @@ if switch or switch_reopen then
     end
     assert(requests[0]==0)
     print('\nWEREAD_HOME_ACCOUNT_SWITCH='..json.encode({result='PASS',reopen=switch_reopen,
-        independent_pending=true,independent_position=true,independent_dispatch=true,requests=0}))
+        independent_pending=true,independent_position=true,independent_dispatch=true,
+        native_pages=true,native_note_preserved=true,repagination=true,requests=0}))
     os.exit(0)
 end
 local path,xpointer
@@ -160,6 +244,11 @@ if not reopen then
     pump(function() local b=Reader.instance.weread.settings:get_book(id);return b and b.home_recent_account==account end)
     local reader=Reader.instance;assert(reader.document:getPageCount()>3)
     reader.rolling:onGotoPage(3);tick();xpointer=assert(reader.document:getXPointer())
+    pump(function() return reader.weread.progress_sync.current_book_id==id and reader.weread.source_position:current()~=nil end)
+    assert(reader.weread.progress_sync:checkpoint_local('synthetic_legacy',reader.weread.source_position:current()))
+    local last=assert(reader.document:getNextVisibleChar(xpointer))
+    reader.annotation:addItem({page=xpointer,pos0=xpointer,pos1=last,drawer='underscore',text='synthetic text',
+        note='synthetic note preserved across account reads',datetime='2026-11-11 12:00:00'})
     close_reader()
     local f=assert(io.open(evidence..'/home-recent-xpointer.txt','wb'));f:write(xpointer);f:close()
 else

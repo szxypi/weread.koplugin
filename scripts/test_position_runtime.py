@@ -151,7 +151,8 @@ def main():
                         env=environment | {'WEREAD_TEST_HOME_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline home reopen failed; inspect isolated runtime log'
                 for flag,filename in (('WEREAD_TEST_HOME_ACCOUNT_SWITCH','account-switch.log'),
-                                      ('WEREAD_TEST_HOME_ACCOUNT_REOPEN','account-reopen.log')):
+                                      ('WEREAD_TEST_HOME_ACCOUNT_REOPEN','account-reopen.log'),
+                                      ('WEREAD_TEST_HOME_UNKNOWN_LEGACY','unknown-legacy.log')):
                     with (root/'evidence'/filename).open('w') as out:
                         checked=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                             env=environment | {flag:'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
@@ -184,7 +185,12 @@ def main():
                     assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
                     value=json.loads(content.split(marker,1)[1].splitlines()[0])
                     assert value==dict(result='PASS',reopen=reopened,independent_pending=True,
-                                       independent_position=True,independent_dispatch=True,requests=0), 'account ownership mismatch'
+                                       independent_position=True,independent_dispatch=True,native_pages=True,
+                                       native_note_preserved=True,repagination=True,requests=0), 'account ownership mismatch'
+                content=(root/'evidence/unknown-legacy.log').read_bytes();marker=b'\nWEREAD_UNKNOWN_NATIVE_LEGACY='
+                assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
+                value=json.loads(content.split(marker,1)[1].splitlines()[0])
+                assert value==dict(result='PASS',original_page=True,not_claimed=True,native_note_preserved=True,requests=0), 'unknown legacy mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'local home made a mock request'
             if args.probe == 'cached-search':

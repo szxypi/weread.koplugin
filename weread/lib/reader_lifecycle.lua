@@ -114,6 +114,14 @@ function M:handleEndOfBook(status_self)
     return self._orig_onEndOfBook(status_self)
 end
 
+function M:onDocSettingsLoad(config,document)
+    require('weread.lib.native_account_location').load(self,config,document)
+end
+
+function M:onSaveSettings()
+    require('weread.lib.native_account_location').save(self)
+end
+
 function M:onReaderReady()
     local local_file=self.ui and self.ui.document and self.ui.document.file
     if self._personal_original_local_only~=local_file then
@@ -155,7 +163,10 @@ function M:onReaderReady()
     if weread_book_id and self.ui and self.ui.highlight and type(self.ui.highlight.addToHighlightDialog)=='function' then
         require('weread.ui.selection_thought').attach(self)
     end
-    if weread_book_id then FileIdentity.read_document(self.ui.document, weread_book_id) end
+    if weread_book_id then
+        FileIdentity.read_document(self.ui.document, weread_book_id)
+        require('weread.lib.native_account_location').ready(self,weread_book_id)
+    end
     if weread_book_id and self.recordRecentReading then self:recordRecentReading(weread_book_id) end
     if weread_book_id then
         -- Always register the tap interception: even when annotations are hidden
