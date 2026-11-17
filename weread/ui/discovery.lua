@@ -4,6 +4,7 @@ local PluginUtil = require("weread.lib.plugin_util")
 local UIManager = require("ui/uimanager")
 local Scope = require("weread.ui.page_scope")
 local Popup = require("weread.ui.shelf_popup")
+local VolatileShelf = require("weread.lib.volatile_shelf")
 local _ = PluginUtil.tr
 local M = {}
 
@@ -121,14 +122,18 @@ end
 function M:showHome(refresh_progress, refreshed_shelf)
     if self._profile_view then self:closeWeReadUI() end
     local cached, archives
+    local volatile = VolatileShelf.get(self)
     if type(refreshed_shelf) == "table" and type(refreshed_shelf.books) == "table"
         and type(refreshed_shelf.archives) == "table" then
         cached, archives = refreshed_shelf.books, refreshed_shelf.archives
+    elseif volatile then
+        cached, archives = volatile.books, volatile.archives
     else
         cached = self.library_db and self.library_db:getShelf() or {}
         archives = self.library_db and self.library_db:getShelfArchives() or {}
     end
-    self:applyShelfSnapshot(cached or {}, archives)
+    self:applyShelfSnapshot(cached or {}, archives,
+        volatile ~= nil and volatile.books == cached and volatile.archives == archives)
     local preferences = self:homePreferences()
     self:showDiscoveryPage("home", Data.recent(self.shelf_regular, self.settings:get("books", {}),
         self.library_db and self.library_db:accountKey(), preferences.recent_limit), {

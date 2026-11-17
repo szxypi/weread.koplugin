@@ -21,7 +21,8 @@ return function(host,pump)
     home_settings.show_shortcuts=true;home_settings.shortcuts={'refresh'};host.settings:set('home',home_settings)
     local cases=0
     for _,entry in ipairs({'header','shortcut','shelf'}) do
-        assert(saved.cache(host.library_db,old_books,old_archives));notices={};save_result=false
+        assert(saved.cache(host.library_db,old_books,old_archives));host:applyShelfSnapshot(old_books,old_archives)
+        notices={};save_result=false
         host:closeWeReadUI()
         if entry=='shelf' then host:showBookshelf() else host:showHome() end
         local prior=assert(host.shelf_view)
@@ -34,13 +35,30 @@ return function(host,pump)
             'failed cache save did not show the correct notice')
         local stored=host.library_db:getShelf()
         assert(#stored==#old_books and stored[1].bookId==old_books[1].bookId,'failed cache save replaced old shelf')
+        host:closeWeReadUI();host:showBookshelf()
+        assert(#host.shelf_view.books==1 and host.shelf_view.books[1].bookId=='SYN-HOME-FRESH',
+            'unsaved shelf vanished after navigating to bookshelf')
+        host:closeWeReadUI();host:showHome()
+        assert(#host.shelf_view.books==1 and host.shelf_view.books[1].bookId=='SYN-HOME-FRESH',
+            'unsaved shelf vanished after returning home')
+        local unsaved=assert(host._volatile_shelf).snapshot
+        local options=host.settings:get('shelf');local old_source=options.source
+        options.source='gateway';host.settings:set('shelf',options)
+        host:closeWeReadUI();host:showHome()
+        assert(host.shelf_view.books[1].bookId~='SYN-HOME-FRESH' and not host._volatile_shelf,
+            'unsaved shelf crossed a source change')
+        options.source=old_source;host.settings:set('shelf',options)
+        assert(require('weread.lib.volatile_shelf').remember(host,unsaved,{_shelf_source='native'}))
+        host:applyShelfSnapshot(old_books,old_archives)
+        assert(not host._volatile_shelf,'new shelf snapshot did not invalidate unsaved shelf')
         require('ui/uimanager'):forceRePaint();cases=cases+1
     end
-    assert(saved.cache(host.library_db,old_books,old_archives));notices={};save_result=true
+    assert(saved.cache(host.library_db,old_books,old_archives));host:applyShelfSnapshot(old_books,old_archives)
+    notices={};save_result=true
     host:closeWeReadUI();host:showHome();local prior=assert(host.shelf_view);prior.on_refresh()
     pump(function() return host.shelf_view and host.shelf_view~=prior and not host.shelf_refreshing end)
     assert(#host.shelf_view.books==1 and host.shelf_view.books[1].bookId=='SYN-HOME-FRESH')
-    local stored=host.library_db:getShelf();assert(#stored==1 and stored[1].bookId=='SYN-HOME-FRESH' and #notices==0)
+    local stored=host.library_db:getShelf();assert(#stored==1 and stored[1].bookId=='SYN-HOME-FRESH' and #notices==0 and not host._volatile_shelf)
     cases=cases+1
     host:closeWeReadUI();assert(saved.cache(host.library_db,old_books,old_archives))
     host.library_db.cacheShelf=saved.cache;host.client.get_shelf=saved.fetch;host.requireShelfLogin=saved.login

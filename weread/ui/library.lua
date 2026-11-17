@@ -6,6 +6,7 @@ local ConfirmBox = require("ui/widget/confirmbox")
 local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfFlags = require("weread.lib.shelf_flags")
+local VolatileShelf = require("weread.lib.volatile_shelf")
 local InputDialog = require("ui/widget/inputdialog")
 local logger = require("weread.lib.logger")
 local TextViewer = require("ui/widget/textviewer")
@@ -113,10 +114,11 @@ end
 
 function M:showBookshelf()
     if self._profile_view then self:closeWeReadUI() end
-    local cached = self.library_db and self.library_db:getShelf() or nil
-    local archives = self.library_db and self.library_db:getShelfArchives() or nil
+    local volatile = VolatileShelf.get(self)
+    local cached = volatile and volatile.books or self.library_db and self.library_db:getShelf() or nil
+    local archives = volatile and volatile.archives or self.library_db and self.library_db:getShelfArchives() or nil
     if cached and (#cached > 0 or archives ~= nil) then
-        self:applyShelfSnapshot(cached, archives)
+        self:applyShelfSnapshot(cached, archives, volatile ~= nil)
         self:showShelfView("books")
         local shelf = self.settings:get("shelf")
         -- Only old caches lack archive metadata; an empty archive is current.
@@ -203,6 +205,7 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    VolatileShelf.clear(self)
     local personal=package.loaded['weread.ui.personal_marks']
     if personal then personal.detach(self) end
     require('weread.ui.mp_reader_open').cancel(self)
@@ -233,7 +236,8 @@ function M:onWeReadAccountChanged()
     if personal then personal.attach(self) end
 end
 
-function M:applyShelfSnapshot(all_books, archives)
+function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
+    if not preserve_volatile then VolatileShelf.clear(self) end
     load_group_selection(self)
     local shelf = self.settings:get("shelf")
     self.shelf_filters = { reading = shelf.filter_reading, download = shelf.filter_download }
@@ -373,8 +377,10 @@ function M:refreshBookshelf(old_view, view_options)
         end
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
+        local snapshot = { books = all_books, archives = archives }
+        if not snapshot_saved then VolatileShelf.remember(self, snapshot, result) end
         if view_options and view_options.on_loaded then
-            view_options.on_loaded(snapshot_saved, { books = all_books, archives = archives })
+            view_options.on_loaded(snapshot_saved, snapshot)
             return
         end
         local next_options = {}

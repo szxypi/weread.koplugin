@@ -20,6 +20,7 @@ local plugin=assert(FileManager.instance.weread)
 local json,socket=require('json'),require('socket')
 local file=assert(io.open(evidence..'/fixture.json','rb'));local raw=file:read(256*1024+1);file:close();assert(#raw<=256*1024)
 local input=json.decode(raw);local shelf=require('weread.lib.shelf_source').normalize(input.shelf,'web')
+if mode=='reopen' then assert(not plugin._volatile_shelf,'unsaved shelf survived a fresh process') end
 local requests=0
 plugin.client.request=function() requests=requests+1;error('offline group fixture attempted HTTP',0) end
 plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
@@ -203,8 +204,14 @@ if mode=='live' then
     assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21)
 end
 if mode=='live' then file=assert(io.open(manifest_path,'wb'));assert(file:write(json.encode(manifest)));file:close() end
+if mode=='live' then
+    local ephemeral={books={{bookId='SYN-RESTART',title='合成未保存书籍',readUpdateTime=2000000000}},archives={}}
+    assert(require('weread.lib.volatile_shelf').remember(plugin,ephemeral,{_shelf_source='native'}))
+    plugin:showHome();assert(plugin.shelf_view.books[1].bookId=='SYN-RESTART')
+end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
 report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.home_refresh_cases=home_refresh_cases
+report.volatile_restart=true
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

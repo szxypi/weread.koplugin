@@ -44,9 +44,9 @@ def main():
         raw=(root/f'evidence/{mode}.log').read_bytes();frame=b'\nWEREAD_GROUP_UI_RESULT='
         if result.returncode or raw.count(frame)!=1:raise RuntimeError('native synthetic group UI failed; inspect isolated log')
         stage=json.loads(raw.split(frame)[1])
-        assert set(stage)=={'result','mode','http_requests','popup_cases','fresh_db_read','painted_views','group_coverage','portal','search_sparse_fields','sort_ties_stable','home_refresh_cases'}
+        assert set(stage)=={'result','mode','http_requests','popup_cases','fresh_db_read','painted_views','group_coverage','portal','search_sparse_fields','sort_ties_stable','home_refresh_cases','volatile_restart'}
         assert stage['search_sparse_fields'] is True and stage['sort_ties_stable'] is True
-        assert stage['home_refresh_cases']==4
+        assert stage['home_refresh_cases']==4 and stage['volatile_restart'] is True
         assert set(stage['portal'])=={'cases','painted_views','intercepted_searches','pluginloader_filemanager'}
         assert stage['portal']['cases']==29 and stage['portal']['painted_views']>=30
         assert stage['portal']['intercepted_searches']==2 and stage['portal']['pluginloader_filemanager'] is True
