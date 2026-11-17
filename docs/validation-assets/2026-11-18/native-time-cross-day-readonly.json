@@ -1,0 +1,14 @@
+{
+  "result": "CROSS_DAY_READONLY_VERIFIED",
+  "seconds": 6,
+  "exact_capture_and_fixture_bound": true,
+  "both_positions_source_counts_and_original_shelf_exact": true,
+  "two_statistics_reads_stable": true,
+  "observed_months": 1,
+  "server_clock_after_boundary": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "historical_accounting_verified": false,
+  "dispatch_capability": false,
+  "real_device_tested": false
+}
