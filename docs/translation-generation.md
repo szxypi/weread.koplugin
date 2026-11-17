@@ -78,5 +78,6 @@ python3 scripts/verify_translation_generation.py --saved-session --chapter-offse
 
 `--prepare` 只在两轮原文、目录、位置、计数及书架一致后保存不可覆盖计划；
 `--dry-run` 重新核对已经准备的同一计划，均不能派发模式或生成操作。
-后续仍需单次派发与回执保存的真实 Python 协议验证、缺失译文的原生生成与缓存安装，以及实体 KO2 验收。
+单次派发、精确 HTTP 回执保存和提交后只读核对现已实现，见[派发说明](translation-dispatch.md)；
+后续仍需真实 Python 模式／生成协议验证、缺失译文的原生生成与缓存安装，以及实体 KO2 验收。
 派发器完成后必须重新取得新鲜样本并核对，不能把本次只读结果当作后续网络操作的永久许可。
