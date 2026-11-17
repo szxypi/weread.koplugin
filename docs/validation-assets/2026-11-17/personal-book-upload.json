@@ -420,5 +420,32 @@
     "cloud_position_unchanged": true,
     "original_shelf_members_flags_and_groups_restored": true,
     "previous_test_scopes_and_native_grant_unchanged": true
+  },
+  "real_account_rich_pdf_resource_inspection": {
+    "separate_fixture_and_scope": true,
+    "fixture_bytes": 1852,
+    "original_pdf_pages": 2,
+    "original_image_occurrences": 2,
+    "fixture_text_markers": 12,
+    "all_markers_once": true,
+    "within_each_column_and_page_order_verified": true,
+    "converted_chapters_checked": 1,
+    "html_image_references": 0,
+    "svg_canvas_object_embed_iframe_picture_elements": 0,
+    "inline_css_url_functions": 0,
+    "style_shards_decoded": 1,
+    "style_shard_url_functions": 0,
+    "declared_chapter_archives": 0,
+    "all_possible_image_representations_checked": false,
+    "visual_layout_or_image_rendering_verified": false,
+    "credential_requests": 1,
+    "cos_put_attempts": 1,
+    "notify_posts": 1,
+    "cleanup_posts": 1,
+    "authentication_posts": 0,
+    "target_identity_bound_before_content_reads": true,
+    "cloud_position_unchanged": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_native_grant_unchanged": true
   }
 }
