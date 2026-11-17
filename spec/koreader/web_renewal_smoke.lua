@@ -165,6 +165,17 @@ return function(plugin,count,flush,home,pump)
     control{match='/web/mp/content',times=1,status=429,delay=0};posts=count('/web/login/renewal');reads=count('/web/mp/content')
     host:downloadMPArticleAndRead(book,article);wait();close_info()
     assert(count('/web/mp/content')==reads+1 and count('/web/login/renewal')==posts and raw(path)==body,'429 repeated a body read/renewal')
+    -- A verification response must preserve the previously cached article and
+    -- give the native guidance without renewal, replay, or opening a new file.
+    fresh('plain');local protected_article={reviewId='verification-fixture',title='验证测试文章'}
+    local protected_path=Content.save_mp_article_html(settings,book,protected_article,'<p>既有验证测试正文</p>')
+    local protected_body=raw(protected_path);posts=count('/web/login/renewal');reads=count('/web/mp/content');opened=nil
+    host:downloadMPArticleAndRead(book,protected_article);wait()
+    local notice=UIManager:getTopmostVisibleWidget()
+    assert(not opened and notice.text==require('weread.lib.i18n').tr('WeRead may require verification for public-account access. Complete any verification on the WeRead website, or try again later. Cached articles remain available.')
+        and raw(protected_path)==protected_body and count('/web/mp/content')==reads+1 and count('/web/login/renewal')==posts,
+        'article verification failed to preserve cache or prompted renewal/replay')
+    close_info()
     -- A corrupt marker is fail-closed; explicit account clearing can remove it
     -- only after the old login epoch is invalidated, retaining downloaded files.
     fresh('plain');local before=Auth.capture(settings);posts=count('/web/login/renewal')
@@ -182,7 +193,7 @@ return function(plugin,count,flush,home,pump)
         unverified_receipt_survives_coordinator_reopen=true,verification_only_resume=true,rejected_empty_foreign_no_publish_or_replay=true,
         native_key_cancel_after_dispatch_no_replay=true,lifecycle_account_session_document_guards=true,
         catalog_401_once_recovery=true,persistent_catalog_401_bounded=true,article_401_new_stage_recovery=true,
-        persistent_article_401_preserves_body=true,cache_replacement_during_renewal_preserved=true,corrupt_state_blocks_dispatch=true,explicit_logout_repairs_state_without_deleting_cache=true,http_429_no_retry_or_renewal=true,fresh_local_state_preserved=true,
+        persistent_article_401_preserves_body=true,article_verification_preserves_cache_no_retry=true,cache_replacement_during_renewal_preserved=true,corrupt_state_blocks_dispatch=true,explicit_logout_repairs_state_without_deleting_cache=true,http_429_no_retry_or_renewal=true,fresh_local_state_preserved=true,
         returns_to_reader=true,account_data_writes=0,credentials_are_synthetic=true}
     local file=assert(io.open(home..'/../evidence/web-renewal.json','wb'));file:write(client:json_encode(report));file:close()
     print('PASS: Web renewal -> real child HTTP, durable intent/receipt, fsync/readback, native save retry, cancellation/no-replay, account guards and catalog/body login recovery once')
