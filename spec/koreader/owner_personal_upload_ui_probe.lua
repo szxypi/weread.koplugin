@@ -15,7 +15,8 @@ local ok,reason=pcall(function()
     token=assert(input.rpc_token);assert(type(token)=='string' and token:match('^[a-f0-9]+$') and #token==32)
     local grant=assert(input.credentials);local name=assert(input.name);local armed=input.permit_writes
     local mock=tonumber(os.getenv('WEREAD_UPLOAD_UI_MOCK_PORT') or '')
-    local large=input.fixture=='large_epub';local epub=input.fixture=='epub' or large
+    local large=input.fixture=='large_epub';local near=input.fixture=='near_epub'
+    local external=large or near;local epub=input.fixture=='epub' or external
     local format_fixtures={pdf={965,'bb52baf0dfb75cf83e6ae4e5e70d093d047fbc4c58f46e49c9f7ece8efbb3dcd'},
         mobi={13272,'f3a6e2fb8d65ee053672dc420eefe1f7494e37fa91ddf66713a1c4d0104f54e6'},
         azw3={14657,'d49af83424ec29d2068559c6692ca6e2ae8e71118b0d2b622660e0b30a341d57'}}
@@ -23,7 +24,7 @@ local ok,reason=pcall(function()
     assert(type(armed)=='boolean' and armed==(os.getenv('WEREAD_UPLOAD_UI_ARMED')=='1'))
     assert(type(input.shelf_books)=='number' and input.shelf_books%1==0 and input.shelf_books>=1 and input.shelf_books<=5000)
     local extension=format or (epub and 'epub' or 'txt')
-    local expected_mock=format and 'SyntheticUpload.'..format or large and 'SyntheticLargeEpub.epub' or epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
+    local expected_mock=format and 'SyntheticUpload.'..format or near and 'SyntheticNearEpub.epub' or large and 'SyntheticLargeEpub.epub' or epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
     local expected_pattern='^KOReaderSynthetic%-[a-f0-9]+%.'..extension..'$'
     assert(type(name)=='string' and (mock and name==expected_mock or not mock and name:match(expected_pattern) and #name==35+#extension))
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
@@ -42,14 +43,15 @@ local ok,reason=pcall(function()
         local Settings=require('weread.lib.settings');local factory=Settings.new
         function Settings:new() local value=factory(self);value.mock_endpoint='http://127.0.0.1:'..mock;return value end
     end
-    local body=not large and ((epub or format) and require('mime').unb64(assert(input.body_base64)) or 'Synthetic upload for KOReader.\n') or nil
-    if epub and not large then assert(#body==2177 and require('weread.lib.crypto').sha256_hex(body)=='0c58af1f071704f101504f58b51866b2d479ca08cd75c2a4211ece763ae6b684') end
+    local body=not external and ((epub or format) and require('mime').unb64(assert(input.body_base64)) or 'Synthetic upload for KOReader.\n') or nil
+    if epub and not external then assert(#body==2177 and require('weread.lib.crypto').sha256_hex(body)=='0c58af1f071704f101504f58b51866b2d479ca08cd75c2a4211ece763ae6b684') end
     if format then assert(#body==format_fixtures[format][1] and require('weread.lib.crypto').sha256_hex(body)==format_fixtures[format][2]) end
     local stem=assert(name:match('^(.+)%.%w+$'));local path=home..'/'..name
-    local expected_size=large and 9439532 or #body
-    local expected_hash=large and 'c358d2de1a9e477618811ab3d5a7bf3e5100617b20bd3742ae2585a7918ba960' or require('weread.lib.crypto').sha256_hex(body)
+    local expected_size=near and 208668972 or large and 9439532 or #body
+    local expected_hash=near and '3ccb192b4c9cb842ed43b5b87f45e94bd03de59c4a7d96b86f0f063dfa774a52'
+        or large and 'c358d2de1a9e477618811ab3d5a7bf3e5100617b20bd3742ae2585a7918ba960' or require('weread.lib.crypto').sha256_hex(body)
     local f
-    if not large then f=assert(io.open(path,'wb'));assert(f:write(body));f:close() end
+    if not external then f=assert(io.open(path,'wb'));assert(f:write(body));f:close() end
     local function verify_file()
         local file=assert(io.open(path,'rb'));local sha=require('ffi/sha2').sha256();local size=0
         while true do local part=file:read(65536);if not part then break end;size=size+#part;assert(size<=expected_size);sha(part) end
@@ -109,7 +111,7 @@ local ok,reason=pcall(function()
     plugin.isNetworkConnected=function() return true end;plugin.isNetworkOnline=function() return true end
     plugin.fetchVisibleShelfCovers=function() end;plugin.prepareShelfProgress=function() end;plugin.refreshVisibleShelfProgress=function() end
     local Worker=require('weread.lib.memory_worker');local Upload=require('weread.ui.personal_upload')
-    plugin.personal_upload_worker=Worker:new{scheduler=UI,codec=plugin.client,max_bytes=8*1024*1024}
+    plugin.personal_upload_worker=Worker:new{scheduler=UI,codec=plugin.client,max_bytes=8*1024*1024,timeout=1800}
     local start=plugin.personal_upload_worker.start
     function plugin.personal_upload_worker:start(task,callback)
         return start(self,task,function(result)
@@ -118,7 +120,7 @@ local ok,reason=pcall(function()
         end)
     end
     local socket=require('socket');local function pump(test)
-        local deadline=socket.gettime()+100
+        local deadline=socket.gettime()+(near and 850 or 100)
         repeat UI:setInputTimeout(0);UI:handleInput();if test() then return end
             assert(socket.gettime()<deadline,'upload_ui/deadline');socket.sleep(.01) until false
     end
@@ -149,6 +151,7 @@ local ok,reason=pcall(function()
         for item in lfs.dir(dir) do if item~='.' and item~='..' and not (dir==home and item=='plugins') then
             local full=dir..'/'..item;local info=assert(lfs.symlinkattributes(full))
             if info.mode=='directory' then audit(full)
+            elseif info.mode=='file' and near and full==path then assert(verify_file())
             elseif info.mode=='file' then
                 assert(info.size<=16*1024*1024);local file=assert(io.open(full,'rb'));local bytes=file:read('*a');file:close()
                 for _i,value in ipairs({grant.accessToken,grant.refreshToken,grant.deviceId}) do assert(not bytes:find(value,1,true)) end
