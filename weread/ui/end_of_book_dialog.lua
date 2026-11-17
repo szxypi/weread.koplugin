@@ -24,7 +24,7 @@ local M = {}
 --   opts.enable_* : boolean — whether each context-dependent action is enabled
 --   opts.annotations_visible : boolean — current annotation visibility state
 --   callbacks             : { on_bookshelf, on_search, on_chapter_list, on_next,
---                             on_book_details, on_read_stats, on_sync_progress,
+--                             on_search_current, on_book_details, on_read_stats, on_sync_progress,
 --                             on_toggle_annotations, on_close_book }
 -- Returns the dialog widget instance.
 function M.show(opts, callbacks)
@@ -79,17 +79,24 @@ function M.show(opts, callbacks)
         },
     })
 
-    -- Row 3: bookshelf / search
+    -- Row 3: bookshelf / bookstore search
     table.insert(buttons, {
         {
             text = _("Bookshelf"),
             callback = function() dismiss_then(callbacks.on_bookshelf) end,
         },
         {
-            text = _("Search"),
+            text = _("Search bookstore"),
             callback = function() dismiss_then(callbacks.on_search) end,
         },
     })
+
+    -- KOReader searches the open document, which may be a single chapter.
+    table.insert(buttons, {{
+        text = _("Search current file"),
+        enabled = opts.enable_search_current == true,
+        callback = function() dismiss_then(callbacks.on_search_current) end,
+    }})
 
     -- Penultimate row: progress sync and the shared annotation visibility
     -- toggle. Keep both visible; unsupported context is represented by a

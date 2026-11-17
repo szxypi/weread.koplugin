@@ -71,9 +71,11 @@ expect(host:onShowWeReadReadingStatistics() and action_stats_opened,
 local stats_opened = false
 local context_books = {}
 local annotations_toggled = false
+local native_searches = 0
 local annotation_cache = { show_annotations = true }
 local context_host = {
-    ui = { document = { file = "/books/local.epub" } },
+    ui = { document = { file = "/books/local.epub" },
+        search = { onShowFulltextSearchInput = function() native_searches = native_searches + 1 end } },
     settings = {
         get = function(_self, key, default)
             if key == "books" then return context_books end
@@ -101,8 +103,30 @@ expect(dialog_options.show_chapter_nav and dialog_options.show_next_chapter
         and dialog_options.enable_next_chapter == false
         and dialog_options.enable_book_details == false
         and dialog_options.enable_sync_progress == false
+        and dialog_options.enable_search_current == true
         and dialog_options.annotations_visible == true,
     "quick menu reflects the global annotation visibility preference")
+dialog_callbacks.on_search_current()
+expect(native_searches == 1, "current file search uses KOReader's native search")
+local original_document=context_host.ui.document
+context_host.ui.document={file='/books/other.epub'}
+dialog_callbacks.on_search_current()
+expect(native_searches == 1, "a delayed search does not open on another document")
+context_host.ui.document=original_document
+original_document.file='/books/renamed.epub';dialog_callbacks.on_search_current()
+expect(native_searches == 1, "a delayed search does not open after the source file changes")
+original_document.file='/books/local.epub'
+local original_search=context_host.ui.search
+context_host.ui.search={};dialog_callbacks.on_search_current()
+expect(native_searches == 1, "a delayed search does not use a replacement search module")
+context_host.ui.search=original_search
+local original_ui=context_host.ui
+context_host.ui=nil;dialog_callbacks.on_search_current()
+expect(native_searches == 1, "a delayed search does not open after reader closure")
+context_host.ui=original_ui
+context_host.ui.search=nil;context_host:showEndOfBookDialog(nil)
+expect(dialog_options.enable_search_current==false, "missing native search is not offered as available")
+context_host.ui.search=original_search;context_host:showEndOfBookDialog(nil)
 annotation_cache.show_annotations = false
 expect(context_host:showEndOfBookDialog(nil)
         and dialog_options.annotations_visible == false,

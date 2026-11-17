@@ -37,7 +37,10 @@ function M:onShowWeReadSearch()
 end
 
 function M:showEndOfBookDialog(book_id)
-    local file_path = self.ui.document and self.ui.document.file
+    local reader_ui = self.ui
+    local document = reader_ui and reader_ui.document
+    local search = reader_ui and reader_ui.search
+    local file_path = document and document.file
     if not file_path then return false end
 
     local books = self.settings:get("books", {})
@@ -73,6 +76,7 @@ function M:showEndOfBookDialog(book_id)
         enable_next_chapter = next_chapter ~= nil,
         enable_book_details = book ~= nil,
         enable_sync_progress = is_regular_weread_book,
+        enable_search_current = type(search) == "table" and type(search.onShowFulltextSearchInput) == "function",
         annotations_visible = annotations_visible,
     }, {
         on_bookshelf = function()
@@ -80,6 +84,12 @@ function M:showEndOfBookDialog(book_id)
         end,
         on_search = function()
             self:showSearch()
+        end,
+        on_search_current = function()
+            if self.ui == reader_ui and reader_ui.document == document and document.file == file_path and reader_ui.search == search
+                and type(search) == "table" and type(search.onShowFulltextSearchInput) == "function" then
+                search:onShowFulltextSearchInput()
+            end
         end,
         on_chapter_list = function()
             if chapters then
