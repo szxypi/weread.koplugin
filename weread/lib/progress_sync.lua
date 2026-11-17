@@ -161,15 +161,17 @@ end
 
 -- A different EPUB can have the same original chapter with a new spine/path.
 -- Preserve the previous local intent until that source-bound jump succeeds.
-function ProgressSync:begin_file_resume()
+function ProgressSync:begin_file_resume(options)
     self:_begin_source_transition('file_resume')
     local id=tostring(self.detect_book() or '')
-    local baseline=self:capture_local()
-    if not baseline then return nil end
+    local baseline,reason=self:capture_local()
+    local local_only=not baseline and reason=='catalog_unavailable' and type(options)=='table'
+        and options.allow_missing_catalog==true
+    if not baseline and not local_only then return nil end
     local saved=self.get_book(id) or {}
     local owner=saved.pending_upload_account or saved.recent_read_account
     local frame={scope=self:_scope(),baseline=copy(baseline),marker=self:_navigation_marker(),
-        had_pending=type(saved.pending_upload_position)=='table' and owner==self:_account_key()}
+        had_pending=type(saved.pending_upload_position)=='table' and owner==self:_account_key(),local_only=local_only or nil}
     self.current_book_id,self.checkpoint_account=id,self:_account_key()
     self.local_position,self.dirty=copy(baseline),false
     self.file_resume=frame
@@ -185,6 +187,13 @@ end
 
 function ProgressSync:finish_file_resume(frame, applied)
     if self.file_resume~=frame or not self:_session_current(frame.scope) then return false end
+    -- Without a catalogue there is no safe whole-book position to checkpoint.
+    -- Keep the previous local/pending records and stop automatic sync for the
+    -- rest of this reader session. KOReader still owns this file's page state.
+    if frame.local_only then
+        self.state='unverified'
+        return true
+    end
     if not applied then
         frame.failed=true
         if not self:_file_resume_unchanged(frame) then self.file_resume=nil end
@@ -880,6 +889,7 @@ function ProgressSync:_apply_remote(remote, context, options)
 end
 
 function ProgressSync:_upload_snapshot(position, reason, show_result, close_token, interval_cycle, initial_remote)
+    if self.file_resume and self.file_resume.local_only then return false end
     if self.offline_time_transfer then return false end
     if type(position) ~= "table" then return false end
     local book_id = tostring(position.book_id or self.current_book_id or "")
@@ -1317,6 +1327,10 @@ end
 
 function ProgressSync:_pull(options)
     options = options or {}
+    if self.file_resume and self.file_resume.local_only then
+        if options.manual then self.notify('local_unavailable',{error='catalog_unavailable'}) end
+        return false
+    end
     if self.pulling then return false end
     local retry_token = options.retry_token
     if retry_token == nil then
@@ -1719,6 +1733,10 @@ function ProgressSync:on_resume()
 end
 
 function ProgressSync:sync_now()
+    if self.file_resume and self.file_resume.local_only and not self:capture_local() then
+        self.notify('local_unavailable',{error='catalog_unavailable'})
+        return false
+    end
     if self.file_resume and self.on_before_navigate then pcall(self.on_before_navigate) end
     self.file_resume=nil
     return self:_pull({ manual = true })

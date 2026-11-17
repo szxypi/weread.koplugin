@@ -88,7 +88,7 @@ worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=sch
 expect(owner.finished and owner.menu.items[#owner.menu.items].text=='Chapter list unavailable; only mapped downloads were searched.',
     'missing catalog coverage was not disclosed')
 owner.menu.items[1].callback()
-expect(navigations==1 and host.info=='Chapter list unavailable. Refresh it online before opening a downloaded search result.',
-    'a result without a catalog was allowed to navigate or did not explain the limitation')
+expect(navigations==2 and owner.navigation.row.chapterUid==1,
+    'a mapped downloaded result without a catalog did not start guarded local navigation')
 Cached.cancel(host)
 print(('cached_book_search_ui_spec: %d checks'):format(checks))

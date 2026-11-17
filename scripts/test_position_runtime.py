@@ -131,6 +131,12 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_QUICK_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline search reopen failed; inspect isolated runtime log'
+            if result.returncode == 0 and args.probe == 'cached-search' and args.cached_no_catalog:
+                server.shutdown();thread.join()
+                with (root / 'evidence/reopen.log').open('w') as out:
+                    reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                        env=environment | {'WEREAD_TEST_CACHED_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                assert reopened.returncode==0, 'offline downloaded chapter reopen failed; inspect isolated runtime log'
         finally:
             if thread.is_alive():server.shutdown();thread.join()
         if result.returncode == 0:
@@ -141,10 +147,16 @@ def main():
                 assert raw.count(marker)==1, 'missing cached search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                 assert value==dict(result='PASS',results=2,unavailable=0 if args.cached_no_catalog else 1,
-                                   navigation=not args.cached_no_catalog,cancel_resume=True,signed_out=args.cached_signed_out,
+                                   navigation=True,cancel_resume=True,signed_out=args.cached_signed_out,
                                    imported=args.search_cb,no_catalog=args.cached_no_catalog), 'cached search result mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'cached search made a mock request'
+                if args.cached_no_catalog:
+                    reopened=(root/'evidence/reopen.log').read_bytes()
+                    marker=b'\nWEREAD_CACHED_SEARCH_REOPEN='
+                    assert reopened.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened
+                    value=json.loads(reopened.split(marker,1)[1].splitlines()[0])
+                    assert value==dict(result='PASS',file_position=True,pending_preserved=True), 'offline reopen result mismatch'
             if args.probe == 'quick-search':
                 marker=b'\nWEREAD_QUICK_SEARCH_RESULT='
                 for reopened,content in ((False,raw),(True,(root/'evidence/reopen.log').read_bytes())):

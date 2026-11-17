@@ -74,6 +74,17 @@ host,owner,f,start,complete=fixture(true);f.row={type=0,chapterUid=2,range='15',
 expect(start(),'bookmark stale guard did not start');f.row.bookmarkId='changed';complete()
 expect(not f.jumped and not f.opened and not owner.navigation and not host._read_resume_active,'changed bookmark id navigated')
 host,owner,f,start,complete=fixture(true)
+owner.local_search,owner.catalog_missing,owner.search_results=true,true,true
+f.frame.local_only=true
+host.progress_sync.begin_file_resume=function(_self,options) f.resume_options=options;return f.frame end
+package.loaded['weread.lib.cached_search_target']={can_locate=function() return true end,resolve=function() return bound() end}
+expect(start(),'catalog-free search result did not start');complete()
+expect(f.resume_options and f.resume_options.allow_missing_catalog==true,'catalog-free handoff did not request a local-only frame')
+f.applied(nil)
+expect(f.notices[1]=='Could not locate this result. The previous bookshelf position and pending sync are preserved; update the chapter list and reopen the book before syncing.',
+    'catalog-free navigation failure did not explain the paused sync')
+package.loaded['weread.lib.cached_search_target']=nil
+host,owner,f,start,complete=fixture(true)
 expect(start(),'reader lookup did not start');complete()
 expect(f.closed and f.jumped and not f.opened and f.begin==1,'same-file jump reopened a file or lost sync gate')
 expect(not owner.navigation,'same-file dispatch retained old lookup')

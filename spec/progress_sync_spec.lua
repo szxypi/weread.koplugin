@@ -1823,6 +1823,49 @@ test('successful file resume carries local intent without approving a cloud writ
     eq(#f.uploads,0,'local file restore uploaded progress')
 end)
 
+test('catalog-free file resume keeps prior intent and suppresses synchronization',function()
+    local f=fixture({}, {get_chapters=function() return nil end})
+    local saved=f.values.books.book
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
+    f.sync:on_reader_ready()
+    eq(f.sync:begin_file_resume(),nil,'ordinary file resume unexpectedly accepted a missing catalog')
+    local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
+    eq(frame.local_only,true,'catalog-free navigation was not scoped to local state')
+    f.drain();f.document.page=40;f.sync:on_page_update()
+    eq(f.sync:finish_file_resume(frame,true),true,'catalog-free navigation could not finish')
+    eq(f.sync:checkpoint_local('after_jump'),nil,'catalog-free point was checkpointed as a complete progress')
+    eq(f.sync:sync_now(),false,'manual synchronization proceeded without a catalog')
+    eq(f.sync:_upload_snapshot(old,'guard',false),false,'direct upload bypassed the local-only guard')
+    f.sync:on_suspend();f.sync:on_resume();f.sync:on_close_document()
+    eq(saved.pending_upload_position,old,'catalog-free navigation changed the pending upload')
+    eq(saved.last_local_position,old,'catalog-free navigation changed the previous bookshelf position')
+    eq(#f.uploads,0,'catalog-free navigation wrote to cloud')
+end)
+
+test('catalog-free navigation does not override unrelated capture failures',function()
+    local f=fixture({}, {get_chapters=function() return nil end})
+    f.document.file=nil
+    eq(f.sync:begin_file_resume({allow_missing_catalog=true}),nil,
+        'unavailable document was treated as a missing catalog')
+    eq(f.sync.file_resume,nil,'invalid document left a local-only navigation frame')
+    eq(#f.uploads,0,'invalid document caused a cloud write')
+end)
+
+test('catalog-free manual sync may resume only after a real catalog is available',function()
+    local available=false
+    local f=fixture({}, {get_chapters=function() return available and chapters or nil end})
+    local frame=assert(f.sync:begin_file_resume({allow_missing_catalog=true}))
+    assert(f.sync:finish_file_resume(frame,true))
+    local called=0
+    f.sync._pull=function(_self,options) called=called+1;eq(options.manual,true,'sync was not explicit');return true end
+    eq(f.sync:sync_now(),false,'sync proceeded while catalog was absent')
+    eq(called,0,'catalog-free explicit sync invoked the cloud comparison')
+    available=true
+    eq(f.sync:sync_now(),true,'explicit sync did not resume after catalog was restored')
+    eq(called,1,'restored catalog did not start exactly one explicit comparison')
+end)
+
 test('file resume refreshes automatic comparison only after success and under its current scope',function()
     for _i,change in ipairs({'success','account','navigation','failure'}) do
         local f=fixture({});local pulls=0

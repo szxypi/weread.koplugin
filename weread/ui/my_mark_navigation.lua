@@ -59,9 +59,17 @@ local function open_bound(host,owner,job,result,current)
                         and (departure_generation==nil or old_sync.generation==departure_generation+(document and 1 or 0))
                         and old_sync.account_generation==departure_account)) then return false end
         local sync=next_host.progress_sync
-        local ok,frame=pcall(sync.begin_file_resume,sync)
+        local ok,frame=pcall(sync.begin_file_resume,sync,
+            owner.local_search and owner.catalog_missing and {allow_missing_catalog=true} or nil)
         if not ok or not frame then
             next_host:showInfo(_('Reading position is temporarily unavailable. Please try again shortly.'));return false
+        end
+        local function failed()
+            if frame.local_only then
+                next_host:showInfo(_('Could not locate this result. The previous bookshelf position and pending sync are preserved; update the chapter list and reopen the book before syncing.'))
+            else
+                next_host:showInfo(_(job.failed_label))
+            end
         end
         local active={frame=frame};next_host._read_resume_active=active
         local called,opened=pcall(next_host.openSourcePosition,next_host,result.position,function(applied)
@@ -71,13 +79,15 @@ local function open_bound(host,owner,job,result,current)
             if not saved or not accepted then
                 next_host:showInfo(_('Reading position opened, but it could not be saved. Check storage before continuing.'))
             elseif not applied then
-                next_host:showInfo(_(job.failed_label))
+                failed()
+            elseif frame.local_only then
+                next_host:showInfo(_('Chapter list unavailable. This file keeps its own position; the previous bookshelf position and pending sync are preserved. Refresh the chapter list and reopen the book before syncing.'))
             end
         end)
         if not called or not opened then
             if next_host._read_resume_active==active then next_host._read_resume_active=nil end
             pcall(sync.finish_file_resume,sync,frame,false)
-            next_host:showInfo(_(job.failed_label))
+            failed()
             return false
         end
         if next_host._read_resume_active==active then active.job=next_host.source_navigation.job end

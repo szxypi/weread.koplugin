@@ -21,6 +21,29 @@ local Source=require('weread.lib.position_source')
 local Identity=require('weread.lib.book_file_identity')
 local settings=require('weread.lib.settings'):new()
 assert(settings.mock_endpoint and settings.data_dir:match('/weread%-mock$'))
+if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' then
+    local persisted=assert(settings:get_book(book_id))
+    local path=assert(persisted.cached_chapters['2'])
+    local input=assert(io.open(evidence..'/cached-synthetic-xpointer.txt','rb'))
+    local xpointer=input:read('*a');input:close();assert(#xpointer>0 and #xpointer<4096)
+    local Client=require('weread.lib.client')
+    local ffi=require('ffi')
+    pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
+    local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
+    local requests=ffi.cast('int *',memory);requests[0]=0
+    function Client:request() requests[0]=requests[0]+1;error('offline reopen attempted a network request') end
+    local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
+    local reader=require('apps/reader/readerui'):new{dimen=Device.screen:getSize(),
+        document=require('document/documentregistry'):openDocument(path)}
+    UI:show(reader);UI:shiftScheduledTasksBy(-1e9);UI:handleInput()
+    assert(reader.document:isXPointerInCurrentPage(xpointer),'reopened chapter lost its saved page')
+    local saved=assert(reader.weread.settings:get_book(book_id))
+    assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_position.chapter_offset==19
+        and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid=='1')
+    assert(requests[0]==0,'offline reopen attempted a network request')
+    print('\nWEREAD_CACHED_SEARCH_REOPEN='..require('json').encode({result='PASS',file_position=true,pending_preserved=true}))
+    os.exit(0)
+end
 if not signed_out then
     settings:update_auth({account={user_vid='900000',name='Synthetic'},
         cookies={wr_vid='900000',wr_skey='synthetic-search-session'}},{replace_cookies=true})
@@ -37,7 +60,15 @@ for i=1,2 do
     book.cached_chapters[uid]=assert(Content.save_book_epub(settings,book,{chapter},bodies,'cached-search-'..uid,{},nil,nil,Identity.capture(book),sources))
 end
 book.cached_file=book.cached_chapters['1']
-if no_catalog then book.chapters=nil end
+if no_catalog then
+    book.chapters=nil
+    book.last_local_position={book_id=book_id,chapter_uid='1',chapter_offset=19,percent=12}
+    book.pending_upload_position={book_id=book_id,chapter_uid='1',chapter_offset=19,percent=12}
+    book.pending_upload_reason='synthetic_pending'
+    if not signed_out then
+        book.pending_upload_account=require('weread.lib.crypto').sha256_hex('weread-library:900000'):sub(1,20)
+    end
+end
 settings:set('books',{[book_id]=book});settings:set('sync',{pull_on_open=false,upload_on_close=false})
 local cache=settings:get('cache',{});cache.auto_prefetch_next_chapter=false;settings:set('cache',cache)
 local report=settings:get('read_report',{});report.enabled=false;settings:set('read_report',report);settings:flush()
@@ -82,19 +113,7 @@ wait(function() return owner.finished and not owner.job end)
 assert(#owner.value==2 and owner.checked==2 and owner.missing==(no_catalog and 0 or 1))
 UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-results.png')
 local expected=owner.value[2].offset
-local info
-if no_catalog then
-    function plugin:showInfo(message) info=message end
-end
 owner.menu:onMenuSelect(owner.menu.item_table[2])
-if no_catalog then
-    assert(info==require('weread.lib.i18n').tr('Chapter list unavailable. Refresh it online before opening a downloaded search result.'))
-    assert(not owner.navigation and reader.document.file==book.cached_chapters['1'])
-    assert(requests[0]==0,'offline cached search attempted a network request')
-    print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=2,unavailable=0,
-        navigation=false,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=true}))
-    os.exit(0)
-end
 wait(function()
     local instance=require('apps/reader/readerui').instance
     if instance and instance.weread then reader=instance;plugin=instance.weread end
@@ -105,7 +124,21 @@ wait(function()
 end)
 assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
 assert(not plugin.progress_sync.verified and not plugin.read_report.job)
+if no_catalog then
+    assert(plugin.progress_sync.file_resume and plugin.progress_sync.file_resume.local_only)
+    local saved=assert(plugin.settings:get_book(book_id))
+    assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_position.chapter_offset==19
+        and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid=='1')
+    assert(plugin.progress_sync:sync_now()==false)
+    local xpointer=assert(plugin.progress_sync.source_anchor.xpointer)
+    local output=assert(io.open(evidence..'/cached-synthetic-xpointer.txt','wb'))
+    assert(output:write(xpointer));assert(output:close())
+    plugin:onFlushSettings();reader:onClose(false)
+    saved=assert(settings:get_book(book_id))
+    assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_position.chapter_offset==19
+        and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid=='1')
+end
 assert(requests[0]==0,'offline cached search attempted a network request')
 print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=2,unavailable=no_catalog and 0 or 1,
-    navigation=true,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=false}))
+    navigation=true,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=no_catalog}))
 os.exit(0)

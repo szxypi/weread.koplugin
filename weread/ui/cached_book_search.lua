@@ -84,11 +84,7 @@ render=function(host,owner)
             items[#items+1]={text=(owner.titles[hit.chapter_uid] or _('Chapter unavailable'))..' · '..hit.context,
                 select_enabled=row~=nil,callback=function()
                     if current(host,owner) and not owner.job and not owner.navigation and row then
-                        if owner.catalog_missing then
-                            host:showInfo(_('Chapter list unavailable. Refresh it online before opening a downloaded search result.'))
-                        else
-                            Navigation.start(host,owner,row,current)
-                        end
+                        Navigation.start(host,owner,row,current)
                     end
                 end}
         end
