@@ -199,8 +199,8 @@ local hint_owner=string.rep('a',20)
 local hinted=require('weread.lib.unindexed_resume').make({book_id='42',chapter_uid='4',file_id=string.rep('b',64),
     raw_sha256=string.rep('c',64),basis='filtered_xhtml_utf16',upload_verified=false},'42',hint_owner,0)
 local pending_hint
-package.loaded['weread.ui.unindexed_resume']={start=function(_host,_book,hint,path)
-    pending_hint={hint=hint,path=path};return true
+package.loaded['weread.ui.unindexed_resume']={start=function(_host,_book,hint,paths)
+    pending_hint={hint=hint,path=paths[1],paths=paths};return true
 end,cancel=function() end}
 current_owner=hint_owner;db_chapters=nil;partial.chapters=nil;partial.unindexed_resume=hinted
 partial.full_path='/cache/full.epub';existing_paths[partial.full_path]=true
@@ -208,16 +208,18 @@ expect(host:openBookForReading(partial,true,{prefer_exact=true,check_only=true})
     'checking the local-only chapter unexpectedly began an asynchronous open')
 expect(host:openBookForReading(partial,true,{prefer_exact=true}) and pending_hint.path=='/cache/4.epub',
     'catalog-free hint did not select its verified chapter before another cached file')
+expect(#pending_hint.paths==2 and pending_hint.paths[2]==partial.full_path,
+    'both single-chapter and full-book caches were not offered for identity verification')
 pending_hint=nil;current_owner=string.rep('d',20);opened_path=nil
 host:openBookForReading(partial)
 expect(not pending_hint and opened_path==partial.full_path,'foreign account used a local-only chapter hint')
 current_owner=hint_owner;partial.chapters=original_catalog;opened_path=nil
 host:openBookForReading(partial)
 expect(not pending_hint and opened_path==partial.full_path,'restored catalog continued using the incomplete local hint')
-partial.chapters=nil;existing_paths['/cache/4.epub']=nil
+partial.chapters=nil;existing_paths['/cache/4.epub']=nil;existing_paths[partial.full_path]=nil
 local available,reason,uid=host:openBookForReading(partial,true,{prefer_exact=true})
 expect(not available and reason=='resume_not_cached' and uid=='4','missing selected chapter was silently replaced')
-existing_paths['/cache/4.epub']=true;partial.unindexed_resume=nil;partial.chapters=original_catalog
+existing_paths['/cache/4.epub']=true;existing_paths[partial.full_path]=true;partial.unindexed_resume=nil;partial.chapters=original_catalog
 partial.full_path=nil;current_owner='account-a';package.loaded['weread.ui.unindexed_resume']=nil
 
 partial.full_path = "/cache/full.epub"

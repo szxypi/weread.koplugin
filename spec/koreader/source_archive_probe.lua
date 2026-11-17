@@ -27,9 +27,20 @@ for _,case in ipairs(request.cases) do
     end
     passed=passed+1
 end
+local discovered=0
+for _,case in ipairs(request.metadata_cases or {}) do
+    local rows=Archive.position_metadata(case.path)
+    if case.success then
+        assert(type(rows)=='table' and #rows==case.count,'metadata discovery returned an invalid count')
+        for _i,row in ipairs(rows) do
+            assert(case.hashes[row.name]==Crypto.sha256_hex(row.metadata),'discovered metadata changed')
+        end
+    else assert(not rows,'invalid metadata archive accepted') end
+    discovered=discovered+1
+end
 for _i=1,20 do assert(Archive.read(request.warm.path,request.warm.wanted)) end
 collectgarbage('collect')
 local after=descriptors()
 assert(after==before,'archive descriptor leaked')
 io.stdout:write(json.encode({cases=passed,passed=passed,repeated_reads=20,descriptors_before=before,descriptors_after=after,
-    public_network_used=false,files_extracted=0}))
+    metadata_cases=discovered,public_network_used=false,files_extracted=0}))

@@ -1970,11 +1970,14 @@ function M:openBookForReading(book, quiet, options)
             chapters=Content.load_catalog_cache(self.client,self.settings,book)
         end
         if type(chapters)~='table' or #chapters==0 then
-            local path=type(book.cached_chapters)=='table' and (book.cached_chapters[hint.chapter_uid]
+            local mapped=type(book.cached_chapters)=='table' and (book.cached_chapters[hint.chapter_uid]
                 or book.cached_chapters[tonumber(hint.chapter_uid)])
-            if file_exists(path) then
+            local paths={}
+            if file_exists(mapped) then paths[#paths+1]=mapped end
+            if full_path~=mapped and file_exists(full_path) then paths[#paths+1]=full_path end
+            if #paths>0 then
                 if options and options.check_only then return true end
-                if require('weread.ui.unindexed_resume').start(self,book,hint,path) then return true end
+                if require('weread.ui.unindexed_resume').start(self,book,hint,paths) then return true end
                 self:showInfo(_('Could not verify the saved chapter. Search downloaded chapters again or choose another chapter.'))
                 return true
             end

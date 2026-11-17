@@ -32,16 +32,21 @@ function M.cancel(host)
     if confirm then UI:close(confirm) end
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
-function M.start(host,book,hint,path)
+function M.start(host,book,hint,paths)
     M.cancel(host)
     local id=tostring(book.book_id or book.bookId or '')
     local owner=account(host);local auth_epoch=epoch(host)
-    if not Hint.valid(hint,id,owner,auth_epoch) or type(path)~='string' or path=='' then return false end
+    if not Hint.valid(hint,id,owner,auth_epoch) or type(paths)~='table' or #paths<1 or #paths>2 then return false end
+    local candidates={}
+    for _i,path in ipairs(paths) do
+        if type(path)~='string' or path=='' or #path>4096 or path:find('[%z%c]') then return false end
+        candidates[#candidates+1]=path
+    end
     hint=Hint.make({book_id=hint.book_id,chapter_uid=hint.chapter_uid,file_id=hint.file_id,
         raw_sha256=hint.raw_sha256,basis=hint.basis,upload_verified=false},id,owner,auth_epoch)
     local scope=Scope.capture(host,host.shelf_view)
     local auth=host.settings:get_auth_scope()
-    local job={id=id,hint=hint,path=path,owner=owner,auth=auth,auth_epoch=auth_epoch,
+    local job={id=id,hint=hint,paths=candidates,owner=owner,auth=auth,auth_epoch=auth_epoch,
         document=host.ui and host.ui.document,session=host._reader_session_gen or 0,started=os.time()}
     local function same_auth(candidate)
         if account(candidate)~=owner or epoch(candidate)~=auth_epoch then return false end
@@ -55,8 +60,10 @@ function M.start(host,book,hint,path)
         local latest=host.settings:get_book(id)
         local mapped=type(latest)=='table' and type(latest.cached_chapters)=='table'
             and (latest.cached_chapters[hint.chapter_uid] or latest.cached_chapters[tonumber(hint.chapter_uid)])
+        local full=type(latest)=='table' and host.getFullBookCachePath and host:getFullBookCachePath(latest)
+        for _i,path in ipairs(candidates) do if path~=mapped and path~=full then return false end end
         return latest and Hint.valid(latest.unindexed_resume,id,owner,auth_epoch)
-            and same(latest.unindexed_resume,hint) and mapped==path and no_catalog(host,latest)
+            and same(latest.unindexed_resume,hint) and no_catalog(host,latest)
     end
     local ok,worker=pcall(function()
         return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=65536}
@@ -66,19 +73,23 @@ function M.start(host,book,hint,path)
     host:showBusy(_('Checking downloaded chapter…'),function() if host._unindexed_resume_job==job then M.cancel(host) end end)
     job.busy=host.busy_message
     local started,accepted=pcall(worker.start,worker,function()
-        local snapshot=Cache.snapshot(path,id,hint.chapter_uid)
-        if not snapshot or snapshot.identity.file_id~=hint.file_id or snapshot.record.raw_sha256~=hint.raw_sha256
-            or Source.coordinate_basis(snapshot.record.format)~=hint.basis then return {valid=false} end
-        return {valid=true}
+        for _i,path in ipairs(candidates) do
+            local snapshot=Cache.snapshot(path,id,hint.chapter_uid)
+            if snapshot and snapshot.identity.file_id==hint.file_id and snapshot.record.raw_sha256==hint.raw_sha256
+                and Source.coordinate_basis(snapshot.record.format)==hint.basis then return {valid=true,path=path} end
+        end
+        return {valid=false}
     end,function(result)
         if not current() then if host._unindexed_resume_job==job then M.cancel(host) end;return end
-        if type(result)~='table' or result.valid~=true then
+        local path=type(result)=='table' and result.path
+        local candidate=false;for _i,value in ipairs(candidates) do if value==path then candidate=true end end
+        if type(result)~='table' or result.valid~=true or not candidate then
             if job.busy and host.busy_message==job.busy then host:closeBusy() end
             job.busy=nil
             local dialog
             dialog=require('ui/widget/confirmbox'):new{
-                text=_('Could not verify the saved chapter. Open the previous reading position instead?'),
-                ok_text=_('Open previous position'),cancel_text=_('Cancel'),
+                text=_('Could not verify the saved chapter. Open a cached copy instead?'),
+                ok_text=_('Open cached copy'),cancel_text=_('Cancel'),
                 ok_callback=function()
                     if not current() or job.confirm~=dialog then return end
                     local latest=host.settings:get_book(id);local view=host._book_detail_view

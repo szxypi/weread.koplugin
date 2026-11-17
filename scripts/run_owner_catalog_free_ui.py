@@ -23,6 +23,7 @@ def main():
     parser.add_argument('--width',type=int,default=600)
     parser.add_argument('--height',type=int,default=800)
     parser.add_argument('--dpi',type=int,default=167)
+    parser.add_argument('--full',action='store_true')
     args=parser.parse_args()
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     report={'result':'UNVERIFIED','profile_removed':False,'installed_bytes_match':False}
@@ -46,7 +47,7 @@ def main():
             report['installed_bytes_match']=True
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),EMULATE_READER='1',EMULATE_BW_SCREEN='1',
                 EMULATE_BB_TYPE='BB8',EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),
-                EMULATE_READER_DPI=str(args.dpi))
+                EMULATE_READER_DPI=str(args.dpi),WEREAD_OWNER_FULL='1' if args.full else '0')
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/owner_catalog_free_search_ui.lua'
             for reopened in (False,True):
                 child=subprocess.Popen([str(runtime/'luajit'),str(probe)],cwd=runtime,

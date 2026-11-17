@@ -91,4 +91,30 @@ owner.menu.items[1].callback()
 expect(navigations==2 and owner.navigation.row.chapterUid==1,
     'a mapped downloaded result without a catalog did not start guarded local navigation')
 Cached.cancel(host)
+local discovery_count=0
+require('weread.lib.cached_book_search').discover=function()
+    discovery_count=discovery_count+1
+    return {entries={{uid='2',index=1},{uid='3',index=2}},incomplete=false}
+end
+book.cached_chapters={};host.ui.document.file='/full.epub'
+host.getFullBookCachePath=function() return '/full.epub' end
+owner=open(nil);old=worker
+expect(owner.discovery_pending and owner.total==0,'full-book discovery did not run before scanning')
+host.busy_message.cancel();old:complete()
+expect(owner.discovery_pending and #owner.value==0 and discovery_count==1,'cancelled discovery committed its results')
+owner.menu.items[1].callback();worker:complete()
+expect(owner.discovered and owner.total==2 and owner.queue[1].uid=='2' and owner.queue[2].uid=='3',
+    'full-book index did not add the downloaded chapters in order')
+task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task();worker:complete()
+task=scheduled;scheduled=nil;task()
+expect(owner.finished and #owner.value==2 and owner.menu.items[#owner.menu.items].text==
+    'Chapter list unavailable; only indexed downloads were searched.','discovered full-book results were incomplete or undisclosed')
+Cached.cancel(host)
+require('weread.lib.cached_book_search').discover=function()
+    return {entries={{uid='2',index=1}},incomplete=true}
+end
+owner=open(nil);worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
+expect(owner.finished and owner.discovery_incomplete and owner.menu.items[#owner.menu.items].text==
+    'Some chapters in the downloaded book could not be indexed.','partial full-book index was presented as complete')
+Cached.cancel(host)
 print(('cached_book_search_ui_spec: %d checks'):format(checks))

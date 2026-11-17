@@ -58,4 +58,46 @@ function M.read(path, wanted)
     if not ok or not result then return nil, 'source_archive/unavailable' end
     return result
 end
+-- Discover only sealed per-chapter metadata; raw and rendered chapter bytes
+-- remain subject to the independent bounded read and hash verification above.
+function M.position_metadata(path)
+    if type(path)~='string' or path=='' or #path>4096 or path:find('[%z%c]') then return nil end
+    local archive,entry,lib,ffi
+    local ok,result=pcall(function()
+        ffi=require('ffi');require('ffi/libarchive_h');lib=ffi.loadlib('archive','13')
+        archive,entry=lib.archive_read_new(),lib.archive_entry_new()
+        if archive==nil or entry==nil or lib.archive_read_support_format_all(archive)~=lib.ARCHIVE_OK
+            or lib.archive_read_support_filter_all(archive)~=lib.ARCHIVE_OK
+            or lib.archive_read_open_filename(archive,path,10240)~=lib.ARCHIVE_OK then return nil end
+        local found,seen,total={},{},0
+        local buffer=ffi.new('char[?]',4096)
+        for _i=1,M.MAX_ENTRIES do
+            local status=lib.archive_read_next_header2(archive,entry)
+            if status==lib.ARCHIVE_EOF then return found end
+            if status~=lib.ARCHIVE_OK then return nil end
+            local pointer=lib.archive_entry_pathname(entry);if pointer==nil then return nil end
+            local name=ffi.string(pointer)
+            local digest=name:match('^OEBPS/weread%-position/uid%-([0-9a-f]+)%.meta$')
+            if digest and #digest==64 then
+                local size=tonumber(lib.archive_entry_size(entry))
+                if seen[name] or lib.archive_entry_filetype(entry)~=lib.AE_IFREG or not size or size%1~=0
+                    or size<1 or size>4096 or #found>=10000 or total+size>8*1024*1024 then return nil end
+                seen[name]=true;total=total+size
+                local chunks,used={},0
+                while true do
+                    local count=tonumber(lib.archive_read_data(archive,buffer,4096))
+                    if not count or count<0 then return nil end
+                    if count==0 then break end
+                    used=used+count;if used>size then return nil end
+                    chunks[#chunks+1]=ffi.string(buffer,count)
+                end
+                if used~=size then return nil end
+                found[#found+1]={name=name,metadata=table.concat(chunks)}
+            end
+        end
+    end)
+    if archive~=nil and lib then pcall(lib.archive_read_close,archive);pcall(lib.archive_free,archive) end
+    if entry~=nil and lib then pcall(lib.archive_entry_free,entry) end
+    return ok and result or nil
+end
 return M

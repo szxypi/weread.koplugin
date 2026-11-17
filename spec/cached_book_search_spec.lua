@@ -59,4 +59,34 @@ expect(Search.scan({book='CB_bad/path',chapter='2',paths={'/cached.epub'},keywor
     'unsafe book identity was accepted')
 expect(Search.scan({book=input.book,chapter='2',paths={'/cached.epub'},keyword='   ',from=1},archive).error=='invalid',
     'blank normalized query was accepted')
+local full_book={book_id=input.book,bookVersion=7}
+local chapters={{chapterUid='2'},{chapterUid='3'}}
+local full_identity_text=Identity.encode(full_book,chapters,Identity.capture(full_book),Crypto.sha256_hex(raw))
+local full_identity=assert(Identity.decode(full_identity_text))
+local full_members={[Identity.PATH]=full_identity_text};local metadata={}
+for index,chapter in ipairs(chapters) do
+    local source=assert(Source.capture(full_book,chapter,raw,'web_xhtml'))
+    local rendered=string.format('OEBPS/text/chapter-%03d.xhtml',index)
+    local value=assert(Source.bind(source,full_identity,rendered,Crypto.sha256_hex(raw)))
+    local name=Source.meta_path(chapter.chapterUid)
+    full_members[name],full_members[Source.path_meta_path(rendered)]=value,value
+    full_members[Source.raw_path(source.raw_sha256)],full_members[rendered]=raw,raw
+    metadata[index]={name=name,metadata=value}
+end
+files['/full.epub']=full_members
+local function list() return metadata end
+local discovered=Search.discover({book=input.book,file='/full.epub'},archive,list)
+expect(#discovered.entries==2 and discovered.entries[1].uid=='2' and discovered.entries[2].uid=='3'
+    and not discovered.incomplete,'full-book index did not preserve chapter order')
+expect(Search.scan({book=input.book,chapter='3',paths={'/full.epub'},keyword='needle',from=1},archive).hits[1],
+    'discovered chapter did not pass independent source verification')
+local partial=Search.discover({book=input.book,file='/full.epub'},archive,function() return {metadata[1]} end)
+expect(#partial.entries==1 and partial.incomplete,'missing chapter metadata was not disclosed')
+expect(Search.discover({book='CB_Other',file='/full.epub'},archive,list).error=='unavailable',
+    'another book\'s full archive was accepted')
+expect(Search.discover({book=input.book,file='/full.epub'},archive,function() return {metadata[1],metadata[1]} end).error=='ambiguous',
+    'duplicate chapter metadata was accepted')
+local tampered={{name=metadata[1].name,metadata=metadata[2].metadata}}
+expect(Search.discover({book=input.book,file='/full.epub'},archive,function() return tampered end).incomplete,
+    'mismatched metadata name was accepted')
 print(('cached_book_search_spec: %d checks'):format(checks))

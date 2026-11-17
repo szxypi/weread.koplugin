@@ -50,7 +50,29 @@ def main():
     archive('empty', [('body.txt', b''), ('meta.txt', b'safe metadata')], wanted, True)
     archive('many-headers', [(f'unneeded/{index}.bin', b'') for index in range(5000)] +
             [('body.txt', b'safe synthetic body'), ('meta.txt', b'safe metadata')], wanted, True)
-    request = json.dumps(dict(cases=cases, warm=warm))
+    metadata_cases=[]
+    def metadata_archive(name,entries,success,truncate=False):
+        path=root/(name+'.zip')
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore',UserWarning)
+            with zipfile.ZipFile(path,'w',compression=zipfile.ZIP_DEFLATED) as output:
+                for member,data in entries:output.writestr(member,data)
+        if truncate:
+            data=path.read_bytes();path.write_bytes(data[:max(1,len(data)//3)])
+        hashes={member:hashlib.sha256(data).hexdigest() for member,data in entries if success and isinstance(member,str)
+                and member.startswith('OEBPS/weread-position/uid-') and len(member.rsplit('/',1)[1])==73}
+        metadata_cases.append(dict(path=str(path),success=success,count=len(hashes),hashes=hashes))
+    meta=lambda index: 'OEBPS/weread-position/uid-'+format(index,'064x')+'.meta'
+    metadata_archive('metadata-valid',[(meta(1),b'first'),(meta(2),b'second'),('other',b'ignored')],True)
+    metadata_archive('metadata-empty',[('other',b'ignored')],True)
+    metadata_archive('metadata-duplicate',[(meta(1),b'first'),(meta(1),b'first')],False)
+    metadata_archive('metadata-oversize',[(meta(1),b'x'*4097)],False)
+    link=zipfile.ZipInfo(meta(1));link.create_system=3;link.external_attr=(stat.S_IFLNK|0o777)<<16
+    metadata_archive('metadata-symlink',[(link,b'/never/follow/this')],False)
+    metadata_archive('metadata-many',[(meta(index),b'x') for index in range(10001)],False)
+    metadata_archive('metadata-total',[(meta(index),b'x'*4096) for index in range(2049)],False)
+    metadata_archive('metadata-truncated',[(meta(1),bytes(range(256))*16)],False,truncate=True)
+    request = json.dumps(dict(cases=cases, warm=warm,metadata_cases=metadata_cases))
     result = subprocess.run(['./luajit', str(REPO / 'spec/koreader/source_archive_probe.lua'), str(REPO)],
                             cwd=args.koreader.resolve(), input=request, text=True, capture_output=True, timeout=60)
     if result.returncode:

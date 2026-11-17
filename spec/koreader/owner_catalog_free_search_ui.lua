@@ -21,9 +21,10 @@ local ok=pcall(function()
     package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
     local Content=require('weread.lib.content');local Source=require('weread.lib.position_source')
     local Identity=require('weread.lib.book_file_identity');local settings=require('weread.lib.settings'):new()
+    local full=os.getenv('WEREAD_OWNER_FULL')=='1'
     assert(not settings.mock_endpoint)
     if os.getenv('WEREAD_OWNER_UNINDEXED_REOPEN')=='1' then
-        local book=assert(settings:get_book(input.book));local path=assert(book.cached_chapters[input.chapter])
+        local book=assert(settings:get_book(input.book));local path=assert(full and book.cached_full_book or book.cached_chapters[input.chapter])
         local file=assert(io.open(home..'/resume-xpointer.txt','rb'));local xpointer=file:read('*a');file:close()
         assert(#xpointer>0 and #xpointer<4096)
         local ffi=require('ffi');pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
@@ -55,12 +56,18 @@ local ok=pcall(function()
     local book={book_id=input.book,bookId=input.book,bookVersion=0,title='合成标题',cached_chapters={}}
     local chapters={{chapterUid=input.local_chapter,title='合成章节'}, {chapterUid=input.chapter,title='本地章节'}}
     local bodies={[input.local_chapter]='<html><body><p>合成本地起始章节。</p></body></html>',[input.chapter]=input.source}
+    local sources={}
     for _i,chapter in ipairs(chapters) do
         local uid=chapter.chapterUid
-        local source={[uid]=assert(Source.capture(book,chapter,bodies[uid],'web_xhtml'))}
+        sources[uid]=assert(Source.capture(book,chapter,bodies[uid],'web_xhtml'))
+        local source={[uid]=sources[uid]}
         book.cached_chapters[uid]=assert(Content.save_book_epub(settings,book,{chapter},bodies,'owner-local',{},nil,nil,Identity.capture(book),source))
     end
     book.cached_file=book.cached_chapters[input.local_chapter]
+    if full then
+        book.cached_full_book=assert(Content.save_book_epub(settings,book,chapters,bodies,'owner-full',{},nil,nil,Identity.capture(book),sources))
+        book.cached_file=book.cached_full_book;book.cached_chapters={}
+    end
     book.last_local_position={book_id=input.book,chapter_uid=input.local_chapter,chapter_offset=19,percent=12}
     book.pending_upload_position={book_id=input.book,chapter_uid=input.local_chapter,chapter_offset=19,percent=12}
     book.pending_upload_reason='synthetic_pending'
@@ -95,13 +102,14 @@ local ok=pcall(function()
     local owner=plugin._cached_book_search_owner;assert(owner.catalog_missing)
     owner.input:setInputText(input.keyword);owner.input.buttons[1][2].callback()
     wait(function() return owner.finished and not owner.job end)
+    if full then assert(owner.discovered and not owner.discovery_incomplete and owner.checked==2) end
     assert(#owner.value==1 and owner.value[1].chapter_uid==input.chapter and owner.value[1].offset==input.offset)
     owner.menu:onMenuSelect(owner.menu.item_table[1])
     wait(function()
         local instance=require('apps/reader/readerui').instance
         if instance and instance.weread then reader=instance;plugin=instance.weread end
         local held=reader and plugin.progress_sync and plugin.progress_sync:current_source_target()
-        return reader and reader.document and reader.document.file==book.cached_chapters[input.chapter]
+        return reader and reader.document and reader.document.file==(full and book.cached_full_book or book.cached_chapters[input.chapter])
             and plugin.source_navigation and plugin.source_navigation.state=='ready' and not plugin._read_resume_active
             and held and held.chapter_uid==input.chapter and held.chapter_offset==input.offset
     end)

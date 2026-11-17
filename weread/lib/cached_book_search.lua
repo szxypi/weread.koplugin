@@ -40,6 +40,44 @@ function M.snapshot(file,book,uid,read_archive)
     return ok and value or nil
 end
 
+-- A full EPUB retains sealed UID-to-render-path metadata even when the
+-- external catalog and all single-chapter mappings are gone. This is only a
+-- discovery list: each chapter is independently verified before searching.
+function M.discover(input,read_archive,list_metadata)
+    local ok,result=pcall(function()
+        if type(input)~='table' or type(input.book)~='string' or not Access.display_book_id(input.book)
+            or not path(input.file) then return {error='invalid'} end
+        local read=read_archive or Archive.read
+        local head=read(input.file,{[Identity.PATH]=Identity.MAX_BYTES})
+        local identity=head and Identity.decode(head[Identity.PATH])
+        if not identity or identity.book_id~=input.book then return {error='unavailable'} end
+        local members=(list_metadata or Archive.position_metadata)(input.file)
+        if type(members)~='table' or #members>10000 then return {error='unavailable'} end
+        local entries,seen_uid,seen_index={}, {}, {}
+        local incomplete=false
+        for _i,member in ipairs(members) do
+            local record=type(member)=='table' and Source.decode_metadata(member.metadata)
+            local uid=record and Access.book_id(record.chapter_uid)
+            local index=record and record.render_path:match('^OEBPS/text/chapter%-(%d+)%.xhtml$')
+            if not index and identity.chapter_count==1 and record and record.render_path=='OEBPS/text/chapter.xhtml' then index='1' end
+            index=tonumber(index)
+            if not record or not uid or tonumber(uid)>2147483647 or record.book_id~=input.book
+                or record.file_id~=identity.file_id or record.book_version~=identity.book_version
+                or Source.meta_path(uid)~=member.name or not index or index<1 or index>identity.chapter_count then
+                incomplete=true
+            elseif seen_uid[uid] or seen_index[index] then
+                return {error='ambiguous'}
+            else
+                seen_uid[uid],seen_index[index]=true,true
+                entries[#entries+1]={uid=uid,index=index}
+            end
+        end
+        table.sort(entries,function(a,b) return a.index<b.index end)
+        return {entries=entries,incomplete=incomplete or #entries~=identity.chapter_count}
+    end)
+    return ok and result or {error='unavailable'}
+end
+
 function M.scan(input,read_archive)
     local ok,result=pcall(function()
         if type(input)~='table' or type(input.book)~='string' or not Access.display_book_id(input.book)

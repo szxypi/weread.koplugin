@@ -98,7 +98,11 @@ render=function(host,owner)
             items[#items+1]={text=_('Some matches could not be located safely and were omitted.'),select_enabled=false}
         end
         if owner.catalog_missing then
-            items[#items+1]={text=_('Chapter list unavailable; only mapped downloads were searched.'),select_enabled=false}
+            items[#items+1]={text=_(owner.discovered and 'Chapter list unavailable; only indexed downloads were searched.'
+                or 'Chapter list unavailable; only mapped downloads were searched.'),select_enabled=false}
+        end
+        if owner.discovery_incomplete then
+            items[#items+1]={text=_('Some chapters in the downloaded book could not be indexed.'),select_enabled=false}
         end
         owner.menu:switchItemTable(nil,items)
     end)
@@ -121,6 +125,45 @@ start=function(host,owner)
         owner.task=nil
         if owner.job~=job then return end
         if not current(host,owner) then M.cancel(host);return end
+        local function later()
+            local task;task=function() if owner.task==task then step() end end
+            owner.task=task;UI:scheduleIn(.01,task)
+        end
+        if owner.discovery_pending then
+            local request={book=owner.id,file=owner.full}
+            local called,started=pcall(worker.start,worker,function() return Search.discover(request) end,function(result)
+                if owner.job~=job then return end
+                if not current(host,owner) then M.cancel(host);return end
+                local valid=type(result)=='table' and not result.error and type(result.entries)=='table'
+                    and #result.entries<=10000 and type(result.incomplete)=='boolean'
+                local seen,last={},0
+                if valid then for _i,row in ipairs(result.entries) do
+                    if type(row)~='table' or type(row.uid)~='string' or not Access.book_id(row.uid)
+                        or tonumber(row.uid)>2147483647 or type(row.index)~='number' or row.index%1~=0
+                        or row.index<=last or row.index>100000 or seen[row.uid] then valid=false;break end
+                    seen[row.uid]=true;last=row.index
+                end end
+                if valid then
+                    local mapped,merged={},{}
+                    for _i,row in ipairs(owner.queue) do mapped[row.uid]=row end
+                    for _i,row in ipairs(result.entries) do
+                        local existing=mapped[row.uid]
+                        local title=T(_('Downloaded chapter %1'),row.index)
+                        merged[#merged+1]=existing or {uid=row.uid,paths={owner.full}}
+                        merged[#merged].title=title;owner.titles[row.uid]=title;mapped[row.uid]=nil
+                    end
+                    for _i,row in ipairs(owner.queue) do if mapped[row.uid] then merged[#merged+1]=row end end
+                    if #merged<=10000 then
+                        owner.queue=merged;owner.total=#merged;owner.discovered=#result.entries>0
+                        owner.discovery_incomplete=result.incomplete
+                    else owner.discovery_incomplete=true end
+                else owner.discovery_incomplete=true end
+                owner.discovery_pending=false
+                render(host,owner);later()
+            end)
+            if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
+            return
+        end
         local chapter=owner.queue[owner.index]
         if not chapter then owner.finished=true;stop(host,owner);render(host,owner);return end
         local from=owner.from
@@ -156,8 +199,7 @@ start=function(host,owner)
             else owner.from=result.next_byte end
             if owner.limit or #owner.value>=M.MAX_RESULTS then owner.limit=true;stop(host,owner);render(host,owner);return end
             render(host,owner)
-            local task;task=function() if owner.task==task then step() end end
-            owner.task=task;UI:scheduleIn(.01,task)
+            later()
         end)
         if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
     end
@@ -182,6 +224,7 @@ function M.open(host,id,chapters)
     local owner={id=id,scope=scope,auth_epoch=host.settings:get('auth_epoch',0),account=host.library_db:accountKey(),
         document=document,file=document.file,session=host._reader_session_gen or 0,local_search=true,search_results=true,
         queue=entries,missing=missing,total=total,catalog_missing=catalog_missing,
+        full=full,discovery_pending=catalog_missing and type(full)=='string' and full~='',
         checked=0,index=1,from=1,unresolved=0,value={},titles={}}
     for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
     host._cached_book_search_owner=owner

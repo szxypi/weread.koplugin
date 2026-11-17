@@ -3,6 +3,10 @@ require('setupkoenv')
 local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDENCE'))
 local signed_out=os.getenv('WEREAD_TEST_CACHED_SIGNED_OUT')=='1'
 local no_catalog=os.getenv('WEREAD_TEST_CACHED_NO_CATALOG')=='1'
+local full=os.getenv('WEREAD_TEST_CACHED_FULL')=='1'
+local incomplete=os.getenv('WEREAD_TEST_CACHED_INCOMPLETE')=='1'
+local dual=os.getenv('WEREAD_TEST_CACHED_DUAL')=='1'
+local target_uid=incomplete and '1' or '2'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local book_id=imported and 'CB_SyntheticCached' or '900001'
 G_defaults=require('luadefaults'):open()
@@ -24,7 +28,7 @@ assert(settings.mock_endpoint and settings.data_dir:match('/weread%-mock$'))
 if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_STALE')=='1' then
     local stale=os.getenv('WEREAD_TEST_CACHED_STALE')=='1'
     local persisted=assert(settings:get_book(book_id))
-    local path=assert(persisted.cached_chapters['2'])
+    local path=assert(full and persisted.cached_full_book or persisted.cached_chapters['2'])
     if stale then
         assert(persisted.unindexed_resume.raw_sha256~=string.rep('f',64))
         persisted.unindexed_resume.raw_sha256=string.rep('f',64)
@@ -45,7 +49,7 @@ if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_
     assert(host:startBookReading(persisted))
     local Reader=require('apps/reader/readerui');local deadline=socket.gettime()+45
     if stale then
-        local label=require('weread.lib.i18n').tr('Could not verify the saved chapter. Open the previous reading position instead?')
+        local label=require('weread.lib.i18n').tr('Could not verify the saved chapter. Open a cached copy instead?')
         local function confirmation()
             while true do
                 UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
@@ -58,7 +62,7 @@ if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_
         assert(not Reader.instance and not host._unindexed_resume_job)
         assert(host:startBookReading(assert(host.settings:get_book(book_id))))
         dialog=confirmation();assert(not Reader.instance);dialog.ok_callback()
-        local previous=assert(persisted.cached_chapters['1'])
+        local previous=assert(full and persisted.cached_full_book or persisted.cached_chapters['1'])
         while not (Reader.instance and Reader.instance.document and Reader.instance.document.file==previous) do
             UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01);assert(socket.gettime()<deadline,'fallback timed out')
         end
@@ -78,7 +82,7 @@ if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_
     local saved=assert(reader.weread.settings:get_book(book_id))
     assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_position.chapter_offset==19
         and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid=='1')
-    assert(saved.unindexed_resume.chapter_uid=='2')
+    assert(saved.unindexed_resume.chapter_uid==target_uid)
     assert(reader.weread.progress_sync:sync_now()==false)
     reader.weread:onFlushSettings();reader:onClose(false)
     saved=assert(settings:get_book(book_id))
@@ -103,6 +107,13 @@ for i=1,2 do
     book.cached_chapters[uid]=assert(Content.save_book_epub(settings,book,{chapter},bodies,'cached-search-'..uid,{},nil,nil,Identity.capture(book),sources))
 end
 book.cached_file=book.cached_chapters['1']
+if full then
+    local full_sources=incomplete and {['1']=sources['1']} or sources
+    book.cached_full_book=assert(Content.save_book_epub(settings,book,{chapters[1],chapters[2]},bodies,
+        'cached-search-full',{},nil,nil,Identity.capture(book),full_sources))
+    book.cached_file=book.cached_full_book
+    if not dual then book.cached_chapters={} end
+end
 if no_catalog then
     book.chapters=nil
     book.last_local_position={book_id=book_id,chapter_uid='1',chapter_offset=19,percent=12}
@@ -143,27 +154,34 @@ for _i,row in ipairs(quick.buttons) do for _j,item in ipairs(row) do
 end end
 assert(button and button.enabled~=false);button.callback()
 wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
-local Search=require('weread.lib.cached_book_search');local original=Search.scan
-Search.scan=function(...) socket.sleep(.8);return original(...) end
+local Search=require('weread.lib.cached_book_search');local original=Search.scan;local original_discover=Search.discover
+if full then Search.discover=function(...) socket.sleep(.8);return original_discover(...) end
+else Search.scan=function(...) socket.sleep(.8);return original(...) end end
 local owner=plugin._cached_book_search_owner
 owner.input:setInputText('amberneedle');owner.input.buttons[1][2].callback()
 wait(function() return owner.worker and owner.worker.job end)
 local pid=owner.worker.job.pid;assert(plugin.busy_message);plugin.busy_message:onTapClose()
 wait(function() return require('ffi/util').isSubProcessDone(pid) end)
-assert(not owner.job and #owner.value==0);Search.scan=original
+assert(not owner.job and #owner.value==0);Search.scan=original;Search.discover=original_discover
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return owner.finished and not owner.job end)
-assert(#owner.value==2 and owner.checked==2 and owner.missing==(no_catalog and 0 or 1))
+local count=incomplete and 1 or 2
+assert(#owner.value==count and owner.checked==count and owner.missing==(no_catalog and 0 or 1))
+if full then
+    assert(owner.discovered and owner.discovery_incomplete==incomplete and owner.queue[count].uid==target_uid)
+    if incomplete then assert(owner.menu.item_table[#owner.menu.item_table].text==
+        require('weread.lib.i18n').tr('Some chapters in the downloaded book could not be indexed.')) end
+end
 UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-results.png')
-local expected=owner.value[2].offset
-owner.menu:onMenuSelect(owner.menu.item_table[2])
+local expected=owner.value[count].offset
+owner.menu:onMenuSelect(owner.menu.item_table[count])
 wait(function()
     local instance=require('apps/reader/readerui').instance
     if instance and instance.weread then reader=instance;plugin=instance.weread end
     local held=reader and plugin.progress_sync and plugin.progress_sync:current_source_target()
-    return reader and reader.document and reader.document.file==book.cached_chapters['2']
+    return reader and reader.document and reader.document.file==(full and book.cached_full_book or book.cached_chapters['2'])
         and plugin.source_navigation and plugin.source_navigation.state=='ready'
-        and held and held.chapter_uid=='2' and held.chapter_offset==expected
+        and held and held.chapter_uid==target_uid and held.chapter_offset==expected
 end)
 assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
 assert(not plugin.progress_sync.verified and not plugin.read_report.job)
@@ -182,6 +200,7 @@ if no_catalog then
         and saved.pending_upload_reason=='synthetic_pending' and saved.last_local_position.chapter_uid=='1')
 end
 assert(requests[0]==0,'offline cached search attempted a network request')
-print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=2,unavailable=no_catalog and 0 or 1,
-    navigation=true,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=no_catalog}))
+print('\nWEREAD_CACHED_SEARCH_UI='..require('json').encode({result='PASS',results=count,unavailable=no_catalog and 0 or 1,
+    navigation=true,cancel_resume=true,signed_out=signed_out,imported=imported,no_catalog=no_catalog,
+    full=full,incomplete=incomplete,dual=dual}))
 os.exit(0)

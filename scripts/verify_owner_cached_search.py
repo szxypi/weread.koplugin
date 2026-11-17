@@ -14,9 +14,11 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--native-ui',action='store_true')
+    parser.add_argument('--full',action='store_true')
     parser.add_argument('--candidate',default='/validation/catalog-free-reopen-600-v1/candidate.zip')
     args=parser.parse_args()
     if args.native_ui and not args.saved_session:parser.error('--native-ui requires --saved-session')
+    if args.full and not args.native_ui:parser.error('--full requires --native-ui')
     if not args.candidate.startswith('/validation/') or '\x00' in args.candidate:parser.error('invalid candidate path')
     report={'result':'OFFLINE_ONLY','source_checked':0,'account_data_writes':0,'authentication_writes':0}
     if not args.saved_session:
@@ -52,12 +54,14 @@ def main():
                 command=['docker','exec','-i','-w','/source','weread-validation','xvfb-run','-a','python3',
                     'scripts/run_owner_catalog_free_ui.py','--koreader','/validation/runtime/lib/koreader',
                     '--candidate',args.candidate,'--width',str(width),'--height',str(height),'--dpi',str(dpi)]
+                if args.full:command.append('--full')
                 child=subprocess.run(command,input=raw,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=240)
                 if child.returncode or len(child.stdout)>65536:raise ValueError('native_ui')
                 value=json.loads(child.stdout)
                 if value!=dict(result='PASS',profile_removed=True,installed_bytes_match=True,
                                native_navigation=True,bookshelf_resume=True,prior_position_preserved=True,offline=True):raise ValueError('native_ui')
             report['native_ui_screens']=2
+            if args.full:report['combined_full_fixture']=True
         web.verify_account()
         report.update(result='PASS',source_checked=1,position_and_catalog_unchanged=True)
     except Exception:
