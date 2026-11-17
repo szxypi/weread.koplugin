@@ -19,7 +19,7 @@ local navigation_diagnostic='unknown'
 local ok,result=pcall(function()
     assert(#raw<=8*1024*1024)
     local input=json.decode(raw);raw=nil
-    assert(type(input.cookies)=='table' and input.cookies.wr_vid==input.owner and type(input.chapters)=='table'
+    assert(type(input.cookies)=='table' and input.owner==input.cookies.wr_vid and type(input.chapters)=='table'
         and #input.chapters>0 and #input.chapters<=10000 and type(input.allowed)=='table' and #input.allowed>0 and #input.allowed<=4)
     pcall(ffi.cdef,'int memfd_create(const char *, unsigned int); void *mmap(void *, unsigned long, int, int, int, long);')
     local function anonymous(value)
