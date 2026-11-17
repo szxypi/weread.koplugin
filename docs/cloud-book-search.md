@@ -8,11 +8,15 @@
 
 阅读器快捷菜单的「搜索整本书」已接入原生输入框与结果列表，搜索和后续分页在后台执行。点击结果时先核对书籍、章节、原文和引用，再交给 KOReader 定位；目标章节未缓存时先询问是否下载。取消搜索或下载确认、切书、关书及账号变化会停止相应操作，旧响应不能继续打开阅读位置。当前入口需要联网及已验证的 Web 登录，暂限数字书号；正文或坐标不能独立核对时会提示失败，不猜测位置。最多读取 128 页，达到上限会提示结果可能不完整。现有快捷菜单的[本机搜索](reader-local-search.md)保持独立。
 
-两种屏幕尺寸的实际 KOReader 进程使用合成书籍及模拟服务验证了输入、两页结果、取消后台任务、已缓存章节定位，以及缺少目录和章节时的下载确认、取消与下载后定位；确认前取消没有发起下载请求。旧的本机搜索和划线缺章定位流程也已回归。另以真实账号从目录首章发起只读搜索，原生 Lua 首批结果与 Python 独立读取一致，目录和原位置保持；本次真实账号没有运行新界面或写入账号数据，见[补充记录](validation-assets/2026-11-18/cloud-book-search-first-chapter.json)。更多书籍格式、实际账号界面和实体 KO2 仍待验收。合成界面：[600×800](validation-assets/2026-11-18/cloud-book-search-ui-600.png) · [KO2 尺寸](validation-assets/2026-11-18/cloud-book-search-ui-ko2.png)。
+两种屏幕尺寸的实际 KOReader 进程使用合成书籍及模拟服务验证了输入、两页结果、取消后台任务、已缓存章节定位，以及缺少目录和章节时的下载确认、取消与下载后定位；确认前取消没有发起下载请求。旧的本机搜索和划线缺章定位流程也已回归。另以真实账号从目录首章发起只读搜索，原生 Lua 首批结果与 Python 独立读取一致，目录和原位置保持，见[补充记录](validation-assets/2026-11-18/cloud-book-search-first-chapter.json)。
+
+真实账号还在 600×800 和 1264×1680 隔离的 KOReader 进程中，从原生快捷菜单搜索并点击一本书当前章节中的一个匹配结果；结果范围与原文独立核对后，阅读器定位到对应页面。验证使用内存中的授权和临时章节，限制网络请求为只读，完成后再次读取确认云端进度、目录和章节原文不变；没有截图或修改账号数据。[脱敏验证记录](validation-assets/2026-11-18/cloud-book-search-owner-ui.json)按上述屏幕顺序记录两次结果。这只覆盖一本书的一个结果和已缓存章节；更多书籍格式、真实缺章下载和实体 KO2 仍待验收。合成界面：[600×800](validation-assets/2026-11-18/cloud-book-search-ui-600.png) · [KO2 尺寸](validation-assets/2026-11-18/cloud-book-search-ui-ko2.png)。
 
 ```sh
 python3 scripts/verify_cloud_book_search.py
 python3 scripts/verify_cloud_book_search.py --saved-session
+python3 scripts/verify_owner_book_search_ui.py
+python3 scripts/verify_owner_book_search_ui.py --saved-session
 ```
 
 默认命令不读取凭据或联网。显式使用已保存会话的只读验证需要隔离的 KOReader 运行环境，默认参数指向本项目验证容器，可用 `--container`、`--runtime` 和 `--source` 指定相应环境。
