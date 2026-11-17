@@ -35,3 +35,13 @@ class Journal(BaseJournal):
             path=Path(tempfile.gettempdir())/('codex-rich-pdf-conversion-'+ACCOUNT+'.lock')
             lock=lock or (lambda:project_lock(path))
         super().__init__(backend=backend,lock=lock,validator=validate_rich)
+
+
+class ResourceJournal(BaseJournal):
+    """Distinct one-shot scope for alternative image and resource inspection."""
+    def __init__(self,backend=None,lock=None):
+        if backend is None:
+            backend=MacKeychain(service='org.codex.weread.goal-rich-pdf-resource-v1',account=ACCOUNT)
+            path=Path(tempfile.gettempdir())/('codex-rich-pdf-resource-'+ACCOUNT+'.lock')
+            lock=lock or (lambda:project_lock(path))
+        super().__init__(backend=backend,lock=lock,validator=validate_rich)

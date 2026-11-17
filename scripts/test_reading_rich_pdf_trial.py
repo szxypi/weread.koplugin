@@ -1,6 +1,6 @@
 """Guard a unique rich PDF test fixture and its exact one-shot cleanup."""
 import hashlib,unittest
-from reading_rich_pdf_trial import BODY_SHA256_RICH,BODY_SIZE,Journal,check,prepare,validate_rich
+from reading_rich_pdf_trial import BODY_SHA256_RICH,BODY_SIZE,Journal,ResourceJournal,check,prepare,validate_rich
 from synthetic_format_trial import TargetReceipt
 from synthetic_upload_rich_pdf import build
 from test_native_shelf_trial import source
@@ -16,6 +16,17 @@ class RichPDFTrialTest(unittest.TestCase):
         self.assertTrue(check(plan,credentials(),source()))
         with self.assertRaises(ValueError):validate_rich(dict(plan,body_sha256='0'*64))
         with self.assertRaises(ValueError):TargetReceipt('epub',Backend(),scope='rich-pdf')
+
+    def test_resource_inspection_has_distinct_bound_receipt_and_no_replay(self):
+        journal=ResourceJournal(Backend());target=TargetReceipt('pdf',Backend(),scope='rich-pdf-resource');probe=FakeProbe()
+        options=dict(apply=True,sleep=lambda _:None,now=lambda:1000,fixture_builder=build,
+            prepare_plan=prepare,check_plan=check,fixture_extension='pdf',readback_tries=9,notify_receipt=target.record)
+        result=run(probe,journal,credentials(),lambda _:True,lambda _:True,**options)
+        self.assertEqual(result['result'],'PDF_IMPORT_AND_SOURCE_VERIFIED')
+        self.assertEqual(journal.read()[0]['phase'],'restored');self.assertIsNotNone(target.backend.load())
+        self.assertEqual(tuple(probe.attempts.values()),(1,1,1,1))
+        self.assertEqual(run(probe,journal,credentials(),lambda _:True,lambda _:True,**options)['reason'],'synthetic_epub/already_reserved')
+        with self.assertRaises(ValueError):TargetReceipt('epub',Backend(),scope='rich-pdf-resource')
 
     def test_exact_target_and_no_replay_even_when_conversion_unverified(self):
         journal=Journal(Backend());target=TargetReceipt('pdf',Backend(),scope='rich-pdf');probe=FakeProbe()
