@@ -248,6 +248,16 @@ function M:applyShelfSnapshot(all_books, archives)
     end
     self.shelf_books = self.shelf_regular
     self.shelf_groups = ShelfGroups.list(archives, self.shelf_regular, _("Unnamed group"), _("Uncategorized"))
+    -- A remembered uncategorized selection remains a valid empty group if
+    -- the last ungrouped book is later assigned to a group.
+    if #self.shelf_groups>0 and not ShelfGroups.find(self.shelf_groups,'__ungrouped__') then
+        for _i,key in ipairs(self.shelf_multi_groups or {}) do
+            if key=='__ungrouped__' then
+                self.shelf_groups[#self.shelf_groups+1]={key=key,label=_('Uncategorized'),books={}}
+                break
+            end
+        end
+    end
     if self.shelf_group_key and not ShelfGroups.find(self.shelf_groups, self.shelf_group_key) then
         self.shelf_group_key = nil
         if self.shelf_view_pages then self.shelf_view_pages.books = 1 end

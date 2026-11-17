@@ -47,5 +47,8 @@
     "missing-group label shadowed translation function"
   ],
   "fixes_reverified": true,
-  "goal_complete": false
+  "goal_complete": false,
+  "real_account_candidate": "0860589",
+  "remembered_empty_ungrouped_synthetic_native_verified": true,
+  "remembered_empty_ungrouped_real_account_tested": false
 }

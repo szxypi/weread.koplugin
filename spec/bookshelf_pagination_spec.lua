@@ -291,6 +291,13 @@ host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);hos
 shown[#shown].callbacks.on_select_groups({'archive:7','archive:8'})
 expect(#shown[#shown].data.books==20 and #shown[#shown].data.group_keys==2,'multi-group union missing books')
 expect(#profiles['account-a'].shelf_multi_groups_v1.keys==2,'multi-group selection not saved')
+shown[#shown].callbacks.on_select_groups({'__ungrouped__'})
+local all_ids={};for i=1,30 do all_ids[i]=tostring(i) end
+host:applyShelfSnapshot(grouped_books,{{archiveId=7,name='History',bookIds=all_ids}});host:showShelfView('books')
+expect(#shown[#shown].data.books==0 and #shown[#shown].data.group_keys==1,
+    'an empty remembered uncategorized group incorrectly showed the entire shelf')
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+shown[#shown].callbacks.on_select_groups({'archive:7','archive:8'})
 host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
 expect(#shown[#shown].data.group_keys==2 and #shown[#shown].data.books==20,'saved selection not restored')
 host:applyShelfSnapshot(grouped_books,{archives[1]});host:showShelfView('books')

@@ -147,6 +147,18 @@ if mode=='live' then
     while chooser.page>1 do chooser:onPrevPage() end
     chooser:onMenuSelect(chooser.item_table[1]);pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
     assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21,'multi-group selection was not restored')
+    selected=plugin.shelf_view;selected.on_select_groups({'__ungrouped__'})
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=selected end)
+    local all_ids={};for _,book in ipairs(books) do
+        if tostring(book.bookId):sub(1,7)~='MP_WXS_' then all_ids[#all_ids+1]=book.bookId end
+    end
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,{{archiveId='1',name='Synthetic',bookIds=all_ids}})
+    plugin:showShelfView('books',nil,selected);assert(#plugin.shelf_view.books==0 and #plugin.shelf_view.group_keys==1,
+        'empty remembered ungrouped selection unexpectedly showed all books')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
+    selected=plugin.shelf_view;selected.on_select_groups({'archive:1','archive:21'})
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=selected end)
+    assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21)
 end
 if mode=='live' then file=assert(io.open(manifest_path,'wb'));assert(file:write(json.encode(manifest)));file:close() end
 assert(requests==0)
