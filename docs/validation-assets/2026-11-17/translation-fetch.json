@@ -14,13 +14,16 @@
   "ui_checks": 46,
   "language_ui_checks": 44,
   "lua_spec_groups": 267,
-  "python_test_modules": 138,
-  "python_tests": 1768,
+  "python_test_modules": 139,
+  "python_tests": 1789,
   "python_skips": 0,
-  "lua_syntax_files": 765,
-  "lint_files": 763,
+  "lua_syntax_files": 766,
+  "lint_files": 764,
   "lint_warnings": 0,
-  "screen_widths": [600, 1264],
+  "screen_widths": [
+    600,
+    1264
+  ],
   "translated_blocks_per_native_case": 12,
   "independent_archive_worker": true,
   "ui_heartbeat": true,
@@ -29,12 +32,18 @@
   "offline_http_requests": 0,
   "cancel_and_page_movement_cleanup": true,
   "real_kernel_archive_size_limit_failure_cleanup": true,
-  "legacy_display_reader_screens": [600, 1264],
+  "legacy_display_reader_screens": [
+    600,
+    1264
+  ],
   "real_native_http_adapter_compared": true,
   "real_sample_books": 2,
-  "real_translation_blocks": [49, 34],
+  "real_translation_blocks": [
+    49,
+    34
+  ],
   "real_python_lua_source_bytes_exact": true,
-  "real_full_reader_ui_tested": false,
+  "real_full_reader_ui_tested": true,
   "account_data_posts": 0,
   "generation_requests": 0,
   "translation_mode_requests": 0,
@@ -50,5 +59,10 @@
   "package_files": 298,
   "package_sha256": "d5766d470f8b804a956a98dcf25e3b623efb198ac97f98d2da97f91e4a7feb1b",
   "source_and_installed_bytes_match": true,
-  "whole_goal_complete": false
+  "whole_goal_complete": false,
+  "real_full_reader_ui_screen_widths": [
+    600,
+    1264
+  ],
+  "full_reader_ui_receipt": "translation-fetch-owner.json"
 }
