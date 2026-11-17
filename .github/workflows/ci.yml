@@ -80,6 +80,7 @@ jobs:
           python3 scripts/test_uploaded_epub_native_reading.py
           python3 scripts/test_reading_epub_trial.py
           python3 scripts/test_synthetic_pdf_trial.py
+          python3 scripts/test_synthetic_format_trial.py
           python3 scripts/test_mp_images.py
           python3 scripts/test_shelf_covers.py
           python3 scripts/test_shelf_membership.py
