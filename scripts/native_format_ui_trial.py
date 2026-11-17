@@ -26,3 +26,14 @@ class Journal(BaseJournal):
             path=Path(tempfile.gettempdir())/('codex-native-'+extension+'-ui-'+ACCOUNT+'.lock')
             lock=lock or (lambda:project_lock(path))
         super().__init__(backend=backend,lock=lock,validator=validate_pdf if extension=='pdf' else validator(extension))
+
+
+class RichPDFOriginalJournal(BaseJournal):
+    """Distinct native upload plus local-original reader acceptance scope."""
+    def __init__(self,backend=None,lock=None):
+        from reading_rich_pdf_trial import validate_rich
+        if backend is None:
+            backend=MacKeychain(service='org.codex.weread.goal-native-rich-pdf-original-v1',account=ACCOUNT)
+            path=Path(tempfile.gettempdir())/('codex-native-rich-pdf-original-'+ACCOUNT+'.lock')
+            lock=lock or (lambda:project_lock(path))
+        super().__init__(backend=backend,lock=lock,validator=validate_rich)

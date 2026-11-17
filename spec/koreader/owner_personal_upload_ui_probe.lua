@@ -20,15 +20,17 @@ local ok,reason=pcall(function()
     local reading_epub=input.fixture=='reading_epub'
     local external=large or near or exact;local epub=input.fixture=='epub' or reading_epub or external
     local format_fixtures={pdf={965,'bb52baf0dfb75cf83e6ae4e5e70d093d047fbc4c58f46e49c9f7ece8efbb3dcd'},
+        rich_pdf={1852,'38cb14f58cdc29536405eadd7e0db7bfed22bdeb1540b524a595d019ea987cd3'},
         mobi={13272,'f3a6e2fb8d65ee053672dc420eefe1f7494e37fa91ddf66713a1c4d0104f54e6'},
         azw3={14657,'d49af83424ec29d2068559c6692ca6e2ae8e71118b0d2b622660e0b30a341d57'}}
     local format=format_fixtures[input.fixture] and input.fixture or nil
     assert(type(armed)=='boolean' and armed==(os.getenv('WEREAD_UPLOAD_UI_ARMED')=='1'))
     assert(not combined or mock and armed and reading_epub and grant.vid=='900000' and grant.accessToken=='mock-native-access')
     if combined then report.continuous_reading=false;report.read_text_visible=false;report.read_page_turn=false;report.source_bytes_bound=false end
+    if input.fixture=='rich_pdf' and armed then report.local_original_opened=false;report.local_pdf_pages=false;report.cloud_unbound=false end
     assert(type(input.shelf_books)=='number' and input.shelf_books%1==0 and input.shelf_books>=1 and input.shelf_books<=5000)
-    local extension=format or (epub and 'epub' or 'txt')
-    local expected_mock=format and 'SyntheticUpload.'..format or exact and 'SyntheticExactEpub.epub' or near and 'SyntheticNearEpub.epub' or large and 'SyntheticLargeEpub.epub' or epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
+    local extension=format=='rich_pdf' and 'pdf' or format or (epub and 'epub' or 'txt')
+    local expected_mock=format and 'SyntheticUpload.'..extension or exact and 'SyntheticExactEpub.epub' or near and 'SyntheticNearEpub.epub' or large and 'SyntheticLargeEpub.epub' or epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
     local expected_pattern='^KOReaderSynthetic%-[a-f0-9]+%.'..extension..'$'
     assert(type(name)=='string' and (mock and name==expected_mock or not mock and name:match(expected_pattern) and #name==35+#extension))
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
@@ -187,6 +189,22 @@ local ok,reason=pcall(function()
         pump(function() return not plugin._personal_upload_ui and beat end);report.heartbeat=true
         assert(target and Journal:new(plugin.settings,plugin.client):read(scope).phase=='idle');report.journal_idle=true
         local status=assert(plugin.library_db:getShelfStatus(target));assert(status.present==true);report.cache_verified=true
+        if format=='rich_pdf' then
+            local info=UI:getTopmostVisibleWidget();if info and info~=FM.instance and info.text then UI:close(info) end
+            local original=require('weread.lib.personal_original');assert(original.resolve(plugin,target)==path)
+            plugin:showBookMenu{book_id=target,title='Synthetic original PDF',chapters={}}
+            local detail=assert(plugin._book_detail_view);local pressed=false
+            for _i,action in ipairs(detail.data.actions or {}) do
+                if action.text==tr('Read original PDF (local only, no cloud sync)') then action.callback();pressed=true;break end
+            end
+            assert(pressed);local Reader=require('apps/reader/readerui')
+            pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document and Reader.instance.document.file==path end)
+            local reader=Reader.instance;assert(reader.document:getPageCount()==2);report.local_pdf_pages=true
+            local current=reader.weread;assert(not current:detectWeReadBook() and not current.progress_sync.current_book_id)
+            local cache=current.settings.cache_dir;current.settings.cache_dir=home
+            assert(not current:detectWeReadBook());current.settings.cache_dir=cache
+            report.cloud_unbound=true;report.local_original_opened=true;reader:onClose(false)
+        end
         if combined then
             reading_enabled=true
             local Reader=require('apps/reader/readerui')

@@ -50,6 +50,20 @@ class UITrialTest(unittest.TestCase):
             validate_input(payload,False,None)
             for bad in (dict(payload,body_base64=base64.b64encode(b'other').decode()),dict(payload,name=NAME)):
                 with self.subTest(ext=ext),self.assertRaises(ValueError):validate_input(bad,False,None)
+    def test_rich_pdf_requires_fixed_fixture_and_complete_local_read_proof(self):
+        from synthetic_upload_rich_pdf import build
+        payload=dict(credentials=credentials(),name='KOReaderSynthetic-0123456789abcdef.pdf',shelf_books=3,
+            rpc_token='a'*32,permit_writes=True,fixture='rich_pdf',body_base64=base64.b64encode(build()).decode('ascii'))
+        validate_input(payload,True,None)
+        for bad in (dict(payload,body_base64=base64.b64encode(b'wrong').decode()),dict(payload,name=NAME)):
+            with self.assertRaises(ValueError):validate_input(bad,True,None)
+        proof=stage(True);proof.update(local_original_opened=True,local_pdf_pages=True,cloud_unbound=True)
+        self.assertEqual(validate_stage(proof,True,local_original=True),proof)
+        for key in ('local_original_opened','local_pdf_pages','cloud_unbound'):
+            bad=dict(proof);bad[key]=False
+            with self.assertRaises(ValueError):validate_stage(bad,True,local_original=True)
+        with self.assertRaises(ValueError):validate_stage(proof,True)
+
     def test_continuous_fixture_is_synthetic_only_and_requires_every_proof(self):
         from synthetic_upload_epub import build_reading
         grant=dict(vid='900000',accessToken='mock-native-access',refreshToken='mock-native-refresh',deviceId='eink334691225'+'1'*19)

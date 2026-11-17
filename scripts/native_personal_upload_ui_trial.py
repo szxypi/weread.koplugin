@@ -37,6 +37,9 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     elif fixture=='reading_epub':
         from reading_epub_trial import validate_reading
         validate_reading(plan)
+    elif fixture=='rich_pdf':
+        from reading_rich_pdf_trial import validate_rich
+        validate_rich(plan)
     elif fixture in ('pdf','mobi','azw3'):
         from synthetic_pdf_trial import validate_pdf
         from synthetic_format_trial import validator
@@ -53,6 +56,9 @@ def launch(plan,credentials,*,armed,fixture='txt'):
         from synthetic_upload_epub import build_reading
         payload.update(fixture='reading_epub',body_base64=base64.b64encode(build_reading()).decode('ascii'),combined_upload=True)
     elif fixture in ('large_epub','near_epub','exact_epub'):payload['fixture']=fixture
+    elif fixture=='rich_pdf':
+        from synthetic_upload_rich_pdf import build
+        payload.update(fixture=fixture,body_base64=base64.b64encode(build()).decode('ascii'))
     elif fixture in ('pdf','mobi','azw3'):
         from synthetic_pdf_trial import build as build_pdf
         from synthetic_format_trial import build as build_format
@@ -61,7 +67,7 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode();framed=str(len(raw)).encode()+b'\n'+raw
     args=['docker','exec','-i','-w','/source','weread-validation','timeout','--signal=TERM','--kill-after=10','1000' if fixture in ('near_epub','exact_epub') else '165',
         'python3','scripts/run_native_personal_upload_ui.py','--koreader','/validation/runtime/lib/koreader',
-        '--candidate','/validation/large-delay-ui-1264-v1/candidate.zip','--width','1264','--height','1680','--dpi','300']
+        '--candidate','/validation/pdf-original-ui-1264-v4/candidate.zip' if fixture=='rich_pdf' else '/validation/large-delay-ui-1264-v1/candidate.zip','--width','1264','--height','1680','--dpi','300']
     if armed:args.append('--armed')
     result=subprocess.run(args,input=framed,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=1020 if fixture in ('near_epub','exact_epub') else 190,check=False)
     prefix=('WEREAD_NATIVE_THOUGHT_'+token+'_RESULT=').encode()
@@ -72,10 +78,12 @@ def launch(plan,credentials,*,armed,fixture='txt'):
             or value['profile_removed'] is not True or not isinstance(value['installed'],dict)
             or set(value['installed'])!={'files','bytes_match'} or value['installed']['bytes_match'] is not True
             or type(value['installed']['files']) is not int or not 1<=value['installed']['files']<=1000):raise ValueError('native_upload_ui/child')
-    stage=validate_stage(value['stage'],armed)
+    stage=validate_stage(value['stage'],armed,local_original=fixture=='rich_pdf' and armed)
     if not armed:return dict(preview=True)
-    return dict(target=stage['target'],counts=dict(shelf=stage['native_gets'],credential=stage['credential_gets'],
+    result=dict(target=stage['target'],counts=dict(shelf=stage['native_gets'],credential=stage['credential_gets'],
         put=stage['puts'],notify=stage['notifies'],denied=stage['denied']))
+    if fixture=='rich_pdf':result['local_original']=True
+    return result
 
 
 def guarded_launch(plan,credentials,verify_fresh):

@@ -1,7 +1,7 @@
 """Native format upload scopes require fixed bytes and exact owned cleanup."""
 import unittest
 from native_epub_ui_trial import run
-from native_format_ui_trial import Journal,check,prepare
+from native_format_ui_trial import Journal,RichPDFOriginalJournal,check,prepare
 from synthetic_format_trial import TargetReceipt
 from test_native_personal_upload_trial import FakeProbe
 from test_secure_native_session import Backend,credentials
@@ -21,6 +21,22 @@ class NativeFormatUITest(unittest.TestCase):
                 self.assertEqual((probe.spawns,probe.cleanups),(1,1))
                 again=run(probe,journal,credentials(),lambda _:True,lambda _:True,probe.spawn,**options)
                 self.assertEqual(again['reason'],'epub_ui/already_reserved');self.assertEqual((probe.spawns,probe.cleanups),(1,1))
+
+    def test_rich_pdf_original_has_distinct_nonreplay_scope(self):
+        from reading_rich_pdf_trial import prepare as rich_prepare,check as rich_check
+        journal=RichPDFOriginalJournal(Backend());target=TargetReceipt('pdf',Backend(),scope='rich-pdf-ui');probe=FakeProbe()
+        options=dict(apply=True,sleep=lambda _:None,prepare_plan=rich_prepare,check_plan=rich_check,
+            fixture_extension='pdf',readback_tries=9,notify_receipt=target.record)
+        report=run(probe,journal,credentials(),lambda _:True,lambda _:True,probe.spawn,**options)
+        self.assertEqual(report['result'],'NATIVE_PDF_UI_AND_SOURCE_VERIFIED')
+        self.assertEqual(journal.read()[0]['phase'],'restored');self.assertIsNotNone(target.backend.load())
+        self.assertEqual((probe.spawns,probe.cleanups),(1,1))
+        self.assertEqual(run(probe,journal,credentials(),lambda _:True,lambda _:True,probe.spawn,**options)['reason'],'epub_ui/already_reserved')
+        with self.assertRaises(ValueError):TargetReceipt('epub',Backend(),scope='rich-pdf-ui')
+        lost=FakeProbe('child_lost');j=RichPDFOriginalJournal(Backend());r=TargetReceipt('pdf',Backend(),scope='rich-pdf-ui')
+        options['notify_receipt']=r.record
+        self.assertEqual(run(lost,j,credentials(),lambda _:True,lambda _:True,lost.spawn,**options)['result'],'UNVERIFIED')
+        self.assertEqual((lost.spawns,lost.cleanups),(1,0));self.assertIsNone(r.backend.load())
 
     def test_unknown_child_result_never_cleans_or_persists_target(self):
         for ext in ('pdf','mobi','azw3'):
