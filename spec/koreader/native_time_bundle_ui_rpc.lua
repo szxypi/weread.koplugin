@@ -50,7 +50,7 @@ assert(reader and reader.weread and reader.document)
 UI:show(reader);flush()
 local host=reader.weread
 host.settings:set('account',{user_vid=input.owner,name='Synthetic'})
-host.settings:set('cookies',{wr_vid=input.owner,wr_skey='synthetic-current-cookie'})
+host.settings:set('cookies',{wr_vid = input.owner,wr_skey='synthetic-current-cookie'})
 host.settings:set('auth_epoch',1);host.settings:flush()
 local account=assert(host.library_db:accountKey())
 assert(account==require('weread.lib.native_position_contract').account_key(input.owner))
@@ -76,7 +76,7 @@ host.library_db.getBook=function(db,id)
     return get_book_info(db,id)
 end
 local F=require('spec.helpers.thought_edit_fixture');local settings,credentials,state=F.access()
-function settings:get(key,default) return key=='cookies' and {wr_vid=input.owner,wr_skey='synthetic-current-cookie'} or default end
+function settings:get(key,default) return key=='cookies' and {wr_vid = input.owner,wr_skey='synthetic-current-cookie'} or default end
 function credentials:read() return input.grant,state.revision,nil,false end
 local client={settings=settings,json_encode=function(_self,x) return json.encode(x) end,json_decode=function(_self,x) return json.decode(x) end}
 local Journal=require('weread.lib.readtime_transfer_store')
@@ -91,7 +91,7 @@ local function progress()
         chapterOffset=10,progress=10,summary='Synthetic summary',readingTime=20+(applied and input.seconds or 0),recordReadingTime=0,ttsTime=0}}
 end
 function client:get_progress_snapshot(book,access)
-    assert(book==input.book_id and access.cookies.wr_vid==input.owner);return progress()
+    assert(book==input.book_id and access.cookies.wr_vid == input.owner);return progress()
 end
 local selected
 function client:request(options)
