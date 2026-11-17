@@ -43,7 +43,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',required=True,type=Path);parser.add_argument('--candidate',required=True,type=Path)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
-    parser.add_argument('--mock-port',type=int);args=parser.parse_args(argv);runtime=args.koreader.resolve()
+    parser.add_argument('--mock-port',type=int);parser.add_argument('--sqlite-evidence',action='store_true');args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if (sys.platform!='linux' or not (runtime/'luajit').is_file() or any(not 1<=n<=4096 for n in (args.width,args.height,args.dpi))
             or args.mock_port is not None and not 1<=args.mock_port<=65535):parser.error('bounded Linux runtime required')
     if not any(line.split()[1:3]==['/dev/shm','tmpfs'] for line in Path('/proc/mounts').read_text().splitlines()):parser.error('tmpfs required')
@@ -76,11 +76,16 @@ def main(argv=None):
                     value=addon.get('failed_line');result['capture_failed_line']=value if type(value) is int and 0<=value<=10000 else 0
                 raise ValueError('native_capture/reader')
             stage,addon,captured,cookies=decode(out,payload)
+            evidence=None
+            if args.sqlite_evidence:
+                from native_time_sqlite_snapshot import take
+                evidence=take(profile,root,captured)
             result.update(result='PASS',stage=stage,native_capture=addon,capture=captured,cookies=cookies,
                           installed=check_installed(args.candidate,profile))
+            if args.sqlite_evidence:result['sqlite_evidence']=evidence
     except Exception as error:
         result['failure_type']=type(error).__name__ if type(error).__name__ in ('ValueError','KeyError','AssertionError','TypeError') else 'other'
-        if isinstance(error,ValueError) and re.fullmatch('native_capture/[a-z_]+',str(error)):result['failure_reason']=str(error)
+        if isinstance(error,ValueError) and re.fullmatch(r'(?:native_capture|capture_snapshot|capture_evidence)/[a-z_]+',str(error)):result['failure_reason']=str(error)
     finally:result['profile_removed']=root is not None and not root.exists()
     sys.stdout.buffer.write(b'\nWEREAD_NATIVE_TIME_CAPTURE_RESULT='+json.dumps(result,separators=(',',':')).encode()+b'\n')
     return int(result['result']!='PASS' or not result['profile_removed'])

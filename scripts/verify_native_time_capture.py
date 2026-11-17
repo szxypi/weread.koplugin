@@ -98,7 +98,7 @@ def execute(payload,command):
     from native_trial_pipe import stop
     try:
         out,_err=child.communicate(json.dumps(payload,separators=(',',':')).encode(),timeout=220)
-        if not isinstance(out,bytes) or len(out)>4*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_capture/frame')
+        if not isinstance(out,bytes) or len(out)>10*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_capture/frame')
         result=json.loads(out.split(FRAME)[1]);validate_cookies(result['cookies'],payload['vid'])
         if child.returncode or result.get('result')!='PASS' or result.get('profile_removed') is not True:
             safe={k:result[k] for k in ('diagnostic','capture_failed_line','failure_type','failure_reason') if k in result}
@@ -114,9 +114,9 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);access=parser.add_mutually_exclusive_group()
     access.add_argument('--saved-session',action='store_true');access.add_argument('--mock',action='store_true')
     parser.add_argument('--source-format',choices=('web_txt','web_xhtml'),default='web_txt')
-    parser.add_argument('--capture',action='store_true');parser.add_argument('--native-ui-command',nargs=argparse.REMAINDER)
+    parser.add_argument('--capture',action='store_true');parser.add_argument('--with-evidence',action='store_true');parser.add_argument('--native-ui-command',nargs=argparse.REMAINDER)
     a=parser.parse_args(argv)
-    if (a.saved_session or a.mock or a.capture or a.native_ui_command or a.source_format!='web_txt') and not ((a.saved_session or a.mock) and a.capture and a.native_ui_command):parser.error('explicit capture and private native command required')
+    if (a.saved_session or a.mock or a.capture or a.with_evidence or a.native_ui_command or a.source_format!='web_txt') and not ((a.saved_session or a.mock) and a.capture and a.native_ui_command):parser.error('explicit capture and private native command required')
     r=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,authentication_posts=0,
            synthetic_only=a.mock,future_write_granted=False,private_data_on_regular_disk=False)
     web=api=saved=grant=session=server=None
@@ -161,9 +161,16 @@ def main(argv=None):
                         if status!=200:raise ValueError('native_capture/mock')
                         return value
                 chunks={}
-                store=NativeCaptureStore(Backend(),chunk_backend=lambda index:chunks.setdefault(index,Backend()));web=MockSource();web.vid=grant['vid'];web.set_cookie('wr_vid',web.vid);web.set_cookie('wr_skey','mock_key');factory=MockNative
+                if a.with_evidence:
+                    from native_time_capture_bundle import CaptureBundleStore
+                    store=CaptureBundleStore(Backend(),chunks=lambda index:chunks.setdefault(index,Backend()))
+                else:store=NativeCaptureStore(Backend(),chunk_backend=lambda index:chunks.setdefault(index,Backend()))
+                web=MockSource();web.vid=grant['vid'];web.set_cookie('wr_vid',web.vid);web.set_cookie('wr_skey','mock_key');factory=MockNative
             else:
-                store=NativeCaptureStore()
+                if a.with_evidence:
+                    from native_time_capture_bundle import CaptureBundleStore
+                    store=CaptureBundleStore()
+                else:store=NativeCaptureStore()
                 if store.read()!=(None,None):raise ValueError('native_capture/already_captured')
                 from verify_native_thought_trial import other_pending
                 if other_pending():raise ValueError('native_capture/pending')
@@ -187,6 +194,10 @@ def main(argv=None):
                 command=[str(server.server_port) if arg=='@MOCK_PORT@' else arg for arg in command]
             payload_valid(payload,server.server_port if server else None)
             output=execute(payload,command);captured=validate(output['capture'])
+            if a.with_evidence:
+                from native_time_capture_evidence import validate_evidence
+                validate_evidence(captured,output.get('sqlite_evidence'))
+            elif 'sqlite_evidence' in output:raise ValueError('native_capture/evidence_mode')
             if time.time()<captured['ended_at'] or time.time()-captured['ended_at']>30:raise ValueError('native_capture/stale')
             if (captured['owner']!=web.vid or captured['device_sha256']!=digest(grant['deviceId']) or captured['book_id']!=web.book_id
                     or captured['baseline_sha256']!=digest(before) or captured['chapter_uid']!=web.chapter or captured['book_version']!=before['version'] or captured['raw_sha256']!=before['source']):raise ValueError('native_capture/binding')
@@ -202,10 +213,10 @@ def main(argv=None):
             if state_hash(web.request('shelf',WEB+'/web/shelf/sync'))!=web_shelf:raise ValueError('native_capture/shelf_changed')
             web.verify_account()
             if session:save_refreshed_web_session(session,saved,web)
-            receipt=store.capture(captured)
+            receipt=store.capture(captured,output['sqlite_evidence']) if a.with_evidence else store.capture(captured)
             if store.read()[1]!=receipt:raise ValueError('native_capture/store')
             r.update(result='NATIVE_STATISTICS_WINDOW_CAPTURED',seconds=captured['seconds'],native_rows=len(captured['rows']),
-                     native_statistics_and_sqlite=True,exact_epub_retained_in_keychain=not a.mock,
+                     native_statistics_and_sqlite=True,exact_epub_retained_in_keychain=not a.mock,sqlite_evidence_saved=a.with_evidence,
                      native_ui=output['native_capture'],installed=output['installed'],profile_removed=output['profile_removed'],
                      original_cloud_source_positions_counts_shelf_exact=True,
                      not_before_utc=time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime(captured['not_before'])))
