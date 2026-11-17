@@ -395,6 +395,12 @@ local ok,reason=pcall(function()
         end
     end
     local Client=require('weread.lib.client')
+    if input.native_time_capture then
+        -- This isolated dwell test needs the book, not background shelf
+        -- decoration. Keep the read-only transport allowlist unchanged.
+        Client.get_shelf_display_progress=function() error('capture_shelf_progress_disabled',0) end
+        assert(not pcall(Client.get_shelf_display_progress,Client,input.book_id))
+    end
     local request,binary,download,follow=Client.request,Client.get_binary,Client.download_to_file,Client.request_follow
     local test={settings={get=function() return input.cookies end}}
     local valid={url=root_url,method='GET',headers={}}
