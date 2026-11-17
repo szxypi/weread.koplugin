@@ -94,7 +94,7 @@ function M.run(client,settings,selected,input,journal,record,guard)
         end
         out.put_attempted=true
         local accepted,_,status=pcall(client.request,client,{url=signed.url,method='PUT',headers=signed.headers,source=source,
-            skip_cookie=true,persist_response_cookies=false,sensitive=true,diagnostic_api='personal_upload_cos',timeout={15,120},
+            skip_cookie=true,persist_response_cookies=false,sensitive=true,diagnostic_api='personal_upload_cos',timeout={15,1800},
             sink=function(chunk) if chunk then bytes=bytes+#chunk;if bytes>65536 then overflow=true;return nil,'response_limit' end;chunks[#chunks+1]=chunk end;return 1 end})
         if not accepted or status~=200 and status~=201 or overflow or sent~=input.size or uploading()~=source_hash or not current() then fail('put_unconfirmed') end
         local url=BASE..'/cos/notify?name='..Protocol.urlencode(input.name)..'&path='..Protocol.urlencode(credential.ObjectName)..'&cancel=0'

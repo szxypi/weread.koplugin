@@ -21,32 +21,32 @@ class Journal(BaseJournal):
         super().__init__(backend=backend,lock=lock,validator=validate_epub)
 
 
-def guarded_launch(plan,credentials,verify_fresh):
-    if launch(plan,credentials,armed=False,fixture='epub')!={'preview':True}:raise ValueError('epub_ui/preview')
+def guarded_launch(plan,credentials,verify_fresh,*,fixture='epub'):
+    if launch(plan,credentials,armed=False,fixture=fixture)!={'preview':True}:raise ValueError('epub_ui/preview')
     if verify_fresh(plan,credentials) is not True:raise ValueError('epub_ui/changed')
-    return launch(plan,credentials,armed=True,fixture='epub')
+    return launch(plan,credentials,armed=True,fixture=fixture)
 
 
-def run(probe,journal,credentials,grant_check,read_content,spawn,*,apply=False,sleep=time.sleep):
+def run(probe,journal,credentials,grant_check,read_content,spawn,*,apply=False,sleep=time.sleep,prepare_plan=prepare,check_plan=check):
     report=dict(result='UNVERIFIED',phase='preflight',native_dispatched=False,cleanup_posts=0,authentication_posts=0,source_verified=False)
     try:
         baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.epub'
-        plan=prepare(credentials,baseline,name);check(plan,credentials,probe.shelf(credentials))
+        plan=prepare_plan(credentials,baseline,name);check_plan(plan,credentials,probe.shelf(credentials))
         if not grant_check(credentials):raise ValueError('epub_ui/grant')
         if journal.read()[0] is not None:raise ValueError('epub_ui/already_reserved')
         report['independent_baselines_match']=True
         if not apply:report.update(result='READ_ONLY_PREVIEW',phase='preview');return report
-        receipt=journal.reserve(plan);report['phase']='reserved';check(plan,credentials,probe.shelf(credentials))
+        receipt=journal.reserve(plan);report['phase']='reserved';check_plan(plan,credentials,probe.shelf(credentials))
         if not grant_check(credentials):raise ValueError('epub_ui/grant')
         receipt=journal.advance(receipt,'launched');report.update(phase='launched',native_dispatched=True)
         result=spawn(plan,credentials);target=result['target']
         if not valid_book(target):raise ValueError('epub_ui/target')
-        check(plan,credentials,baseline,target,False)
+        check_plan(plan,credentials,baseline,target,False)
         if not readback(probe,credentials,plan,target,True,5,sleep):raise ValueError('epub_ui/import_unconfirmed')
         receipt=journal.advance(receipt,'imported',target=target);report.update(phase='imported',import_observed=True)
         try:report['source_verified']=read_content(target) is True
         except Exception:report['source_verified']=False
-        check(plan,credentials,probe.shelf(credentials),target,True)
+        check_plan(plan,credentials,probe.shelf(credentials),target,True)
         receipt=journal.advance(receipt,'cleanup_pending');report['phase']='cleanup_pending'
         ack=False
         try:ack=acknowledged(probe.cleanup(credentials,receipt))
@@ -55,7 +55,7 @@ def run(probe,journal,credentials,grant_check,read_content,spawn,*,apply=False,s
         restored=readback(probe,credentials,plan,target,False,3 if ack else 1,sleep)
         report.update(cleanup_acknowledged=ack,restore_observed=restored)
         if not ack or not restored:raise ValueError('epub_ui/cleanup_unconfirmed')
-        check(plan,credentials,probe.shelf(credentials),target,False)
+        check_plan(plan,credentials,probe.shelf(credentials),target,False)
         if not grant_check(credentials):raise ValueError('epub_ui/grant')
         journal.advance(receipt,'restored');report.update(phase='restored',native_counts=result['counts'])
         report['result']='NATIVE_EPUB_UI_AND_SOURCE_VERIFIED' if report['source_verified'] else 'NATIVE_EPUB_UI_SOURCE_UNVERIFIED'

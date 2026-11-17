@@ -14,6 +14,7 @@ def main():
         prepare(root,runtime,server.server_port,a.width,a.height,a.dpi);(root/'xdg').mkdir(mode=0o700)
         thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
         env=os.environ|dict(KO_HOME=str(root/'profile'),WEREAD_EVIDENCE=str(root/'evidence'),XDG_RUNTIME_DIR=str(root/'xdg'),
+            LD_LIBRARY_PATH=str(runtime/'libs'),SDL_VIDEODRIVER='dummy',
             WEREAD_MOCK_PORT=str(server.server_port),EMULATE_READER='1',EMULATE_READER_W=str(a.width),EMULATE_READER_H=str(a.height),
             EMULATE_READER_DPI=str(a.dpi),EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8')
         log=root/'evidence/runtime.log'

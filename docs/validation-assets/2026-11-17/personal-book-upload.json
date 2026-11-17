@@ -73,6 +73,23 @@
     "earlier_expired_preflight_dispatched_no_upload": true,
     "independent_http_401_and_single_renewal_before_fresh_trial": true
   },
+  "real_account_native_ui_large_epub_test": {
+    "screen": "1264x1680_300dpi",
+    "fixture_bytes": 9439532,
+    "same_plan_zero_write_preview": true,
+    "temporary_credential_requests": 1,
+    "cos_put_attempts": 1,
+    "notify_posts": 1,
+    "independent_cleanup_posts": 1,
+    "authentication_posts": 0,
+    "cloud_source_matches_fixture": true,
+    "catalog_and_cloud_position_unchanged_during_read": true,
+    "import_and_removal_independently_verified": true,
+    "original_shelf_members_flags_and_groups_restored": true,
+    "previous_test_scopes_and_saved_grants_unchanged": true
+  },
+  "plugin_maximum_bytes": 209715200,
+  "maximum_size_real_account_tested": false,
   "synthetic_packaged_native_ui": {
     "600x800": "PASS",
     "1264x1680_300dpi": "PASS",

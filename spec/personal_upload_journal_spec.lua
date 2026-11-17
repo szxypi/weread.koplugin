@@ -59,5 +59,9 @@ for _i,value in ipairs({'link','directory'}) do mode=value;expect(not journal:re
 mode=nil
 scope={vid='900001',epoch=1};expect(journal:read(scope).phase=='idle','another account inherited pending state')
 expect(not journal:begin(scope,'',100) and not journal:begin(scope,'/synthetic/file.txt',0),'unvalidated operation entered durable journal')
+local maximum=200*1024*1024
+local large=assert(journal:begin(scope,'/synthetic/big.epub',maximum))
+expect(large.size==maximum and journal:owns(scope,large),'maximum sized upload intent was not retained')
+expect(journal:finish(scope,large) and not journal:begin(scope,'/synthetic/too-big.epub',maximum+1),'oversize upload intent was accepted')
 assert(os.execute('rm -rf '..string.format('%q',root)))
 print(('personal_upload_journal_spec: %d checks'):format(checks))

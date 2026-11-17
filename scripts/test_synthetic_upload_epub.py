@@ -1,6 +1,6 @@
 """Validate the synthetic EPUB structure without touching account data."""
 import io,unittest,xml.etree.ElementTree as ET,zipfile
-from synthetic_upload_epub import FILES,TEXT,build
+from synthetic_upload_epub import FILES,TEXT,build,build_large
 
 
 class SyntheticEpubTest(unittest.TestCase):
@@ -13,6 +13,13 @@ class SyntheticEpubTest(unittest.TestCase):
             for name in list(FILES)[1:]:ET.fromstring(archive.read(name))
             self.assertIn(TEXT.encode(),archive.read('EPUB/chapter.xhtml'))
             self.assertIn(b'href="chapter.xhtml"',archive.read('EPUB/nav.xhtml'))
+    def test_large_epub_is_valid_and_preserves_the_same_readable_chapter(self):
+        raw=build_large();self.assertGreater(len(raw),8*1024*1024);self.assertLess(len(raw),10*1024*1024)
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            self.assertIsNone(archive.testzip());self.assertEqual(archive.read('EPUB/chapter.xhtml'),FILES['EPUB/chapter.xhtml'])
+            self.assertEqual(len(archive.read('EPUB/padding.txt')),9*1024*1024)
+            self.assertIn(b'href="padding.txt"',archive.read('EPUB/package.opf'))
+            ET.fromstring(archive.read('EPUB/package.opf'))
 
 
 if __name__=='__main__':unittest.main()

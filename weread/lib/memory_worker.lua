@@ -42,10 +42,13 @@ end
 
 function Worker:new(options)
     local limit = options.max_bytes or LIMIT
+    local timeout = options.timeout or 75
     assert(type(limit) == "number" and limit >= LIMIT and limit <= 8 * 1024 * 1024 and limit % 1 == 0,
         "invalid memory worker capacity")
+    assert(type(timeout) == "number" and timeout >= 1 and timeout <= 3600 and timeout % 1 == 0,
+        "invalid memory worker timeout")
     return setmetatable({ scheduler = assert(options.scheduler), codec = assert(options.codec),
-        runner = options.runner or runner(), now = options.now or os.time, limit = limit }, self)
+        runner = options.runner or runner(), now = options.now or os.time, limit = limit, timeout = timeout }, self)
 end
 
 function Worker:_collect(job)
@@ -84,7 +87,7 @@ function Worker:start(task, callback)
             if job.size <= self.limit then job.chunks[#job.chunks + 1] = chunk end
         end
         local done = self.runner.done(job.pid)
-        if not chunk or job.size > self.limit or self.now() - job.started > 75 then
+        if not chunk or job.size > self.limit or self.now() - job.started > self.timeout then
             self:cancel()
             callback(nil)
         elseif done and #chunk == 0 then

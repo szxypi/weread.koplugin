@@ -73,6 +73,8 @@ expect(result.kind=='unconfirmed' and state.notifies==1,'foreign shelf change wa
 fixture();state.stale=true;result=state.run()
 expect(result.kind=='unavailable' and state.requests==0 and state.notifies==0,'stale account sent upload')
 local input=fixture();state.info.size=9;expect(not Task.matches(input),'changed file identity accepted')
+fixture();state.info.size=200*1024*1024;expect(Task.capture(path)~=nil,'maximum sized file was rejected')
+state.info.size=200*1024*1024+1;expect(not Task.capture(path),'oversize file was accepted')
 for _,bad in ipairs({path..'.exe','relative.txt',path..'/../unsafe.txt'}) do expect(not Task.capture(bad),'invalid file path accepted') end
 os.remove(path)
 print('PASS: bounded native personal upload ('..checks..' checks)')

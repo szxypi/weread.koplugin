@@ -1,7 +1,7 @@
 -- Tencent COS REST PUT signing. The caller owns credential and request lifetimes.
 -- Protocol: https://cloud.tencent.com/document/api/436/7778
 local Protocol=require('weread.lib.protocol')
-local M={MAX_SINGLE_BYTES=8*1024*1024}
+local M={MAX_SINGLE_BYTES=200*1024*1024}
 local function token(value,max)
     return type(value)=='string' and #value>0 and #value<=max and not value:find('[^!-~]')
 end

@@ -2,7 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local Worker = require("weread.lib.memory_worker")
 local checks = 0
 local function expect(value, label) checks = checks + 1 assert(value, label) end
-local function fixture(max_bytes)
+local function fixture(max_bytes, timeout)
     local queue, pending, bytes, completed, terminated, closed, now = {}, nil, "", false, false, false, 0
     local scheduler = {
         scheduleIn = function(_self, delay, fn) expect(delay >= 0.1, "cooperative scheduling") queue[#queue + 1] = fn end,
@@ -21,7 +21,7 @@ local function fixture(max_bytes)
         terminate = function() terminated, completed = true, true end,
     }
     local worker = Worker:new{ scheduler = scheduler, codec = codec, runner = runner, now = function() return now end,
-        max_bytes = max_bytes }
+        max_bytes = max_bytes, timeout = timeout }
     return { worker = worker, run = function() pending(43) end,
         tick = function() local fn = table.remove(queue, 1) if fn then fn() end end,
         idle = function() while #queue > 0 do table.remove(queue, 1)() end end,
@@ -47,6 +47,15 @@ f.worker:start(function() return "never" end, function(value) got = value or "fa
 f.time(76); f.tick()
 terminated, closed = f.state()
 expect(got == "failed" and terminated and closed, "deadline abandons/reaps worker")
+f = fixture(nil, 1800); got = nil
+f.worker:start(function() return "later" end, function(value) got = value or "failed" end)
+f.time(76); f.tick(); terminated = f.state()
+expect(not terminated and got == nil and f.worker.job ~= nil, "configured long upload deadline was ignored")
+f.time(1801); f.tick(); terminated, closed = f.state()
+expect(got == "failed" and terminated and closed, "configured upload deadline did not terminate worker")
+for _, timeout in ipairs({-1, 0, 3601, 1.5}) do
+    expect(not pcall(fixture, nil, timeout), "invalid worker timeout was accepted")
+end
 f = fixture(); got = false
 f.worker:start(function() return "bad" end, function(value) got = value or "failed" end)
 f.run(); f.idle()

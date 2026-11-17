@@ -16,10 +16,21 @@ FILES={
 }
 
 
-def build():
+def _archive(files):
     output=io.BytesIO()
     with zipfile.ZipFile(output,'w') as archive:
-        for path,body in FILES.items():
+        for path,body in files.items():
             info=zipfile.ZipInfo(path,date_time=(2020,1,1,0,0,0));info.compress_type=zipfile.ZIP_STORED
             info.create_system=3;info.external_attr=0o100644<<16;archive.writestr(info,body)
     return output.getvalue()
+
+
+def build():return _archive(FILES)
+
+
+def build_large():
+    files=dict(FILES)
+    files['EPUB/package.opf']=files['EPUB/package.opf'].replace(b'</manifest>',
+        b'<item id="padding" href="padding.txt" media-type="text/plain"/></manifest>')
+    files['EPUB/padding.txt']=b'L'*(9*1024*1024)
+    return _archive(files)

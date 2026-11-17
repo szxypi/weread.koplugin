@@ -1,6 +1,7 @@
 -- Durable account-scoped upload intent; never stores content or credentials.
 local Crypto=require('weread.lib.crypto')
 local Output=require('weread.lib.notes_export_file')
+local MAX_BYTES=require('weread.lib.cos_sign').MAX_SINGLE_BYTES
 local M={};M.__index=M
 local function hash(value,length) return type(value)=='string' and #value==length and value:match('^[a-f0-9]+$') end
 local function nonce()
@@ -36,7 +37,7 @@ function M:read(scope)
     if value.phase=='pending' then
         allowed.id,allowed.path_hash,allowed.size,allowed.epoch=true,true,true,true
         if not hash(value.id,32) or not hash(value.path_hash,64) or type(value.size)~='number' or value.size%1~=0
-            or value.size<1 or value.size>8*1024*1024 or type(value.epoch)~='number' or value.epoch<0
+            or value.size<1 or value.size>MAX_BYTES or type(value.epoch)~='number' or value.epoch<0
             or value.epoch%1~=0 or value.epoch>9007199254740990 then return nil,'storage' end
     end
     for key in pairs(value) do if not allowed[key] then return nil,'storage' end end
@@ -64,7 +65,7 @@ end
 function M:begin(scope,path,size)
     local previous=self:read(scope)
     if not previous or previous.phase=='pending' or type(path)~='string' or path=='' or #path>4096
-        or type(size)~='number' or size%1~=0 or size<1 or size>8*1024*1024 then return nil end
+        or type(size)~='number' or size%1~=0 or size<1 or size>MAX_BYTES then return nil end
     local id=self.nonce();if not hash(id,32) then return nil end
     return self:_write(scope,previous,{phase='pending',id=id,path_hash=Crypto.sha256_hex(path),size=size,epoch=scope.epoch})
 end

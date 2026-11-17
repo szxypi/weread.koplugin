@@ -29,7 +29,9 @@ def validate_stage(value,armed):
 def validate_input(value,armed,mock_port):
     fields={'credentials','name','shelf_books','rpc_token','permit_writes'}|({'mock_port'} if mock_port is not None else set())
     epub=isinstance(value,dict) and value.get('fixture')=='epub'
+    large=isinstance(value,dict) and value.get('fixture')=='large_epub'
     if epub:fields|={'fixture','body_base64'}
+    if large:fields.add('fixture')
     if (not isinstance(value,dict) or set(value)!=fields or value['permit_writes'] is not armed or value.get('mock_port')!=mock_port
             or not isinstance(value['rpc_token'],str) or re.fullmatch('[a-f0-9]{32}',value['rpc_token']) is None
             or type(value['shelf_books']) is not int or not 1<=value['shelf_books']<=5000):raise ValueError('native_upload_ui/input')
@@ -38,9 +40,9 @@ def validate_input(value,armed,mock_port):
         from synthetic_upload_epub import build
         if value['body_base64']!=base64.b64encode(build()).decode('ascii'):raise ValueError('native_upload_ui/fixture')
     if mock_port is None:
-        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.epub' if epub else r'KOReaderSynthetic-[a-f0-9]{16}\.txt'
+        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.epub' if epub or large else r'KOReaderSynthetic-[a-f0-9]{16}\.txt'
         if not isinstance(value['name'],str) or re.fullmatch(pattern,value['name']) is None:raise ValueError('native_upload_ui/input')
-    elif (value['name']!=('SyntheticUploadEpub.epub' if epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
+    elif (value['name']!=('SyntheticLargeEpub.epub' if large else 'SyntheticUploadEpub.epub' if epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
           refreshToken='mock-native-refresh',deviceId='eink334691225'+'1'*19)):raise ValueError('native_upload_ui/mock')
 
 
@@ -62,6 +64,14 @@ def main(argv=None):
         with tempfile.TemporaryDirectory(prefix='weread-upload-ui-',dir='/dev/shm') as temporary:
             root=Path(temporary);profile=root/'profile';(profile/'plugins').mkdir(parents=True);(root/'xdg').mkdir(mode=0o700)
             extract_candidate(args.candidate,profile/'plugins')
+            if payload.get('fixture')=='large_epub':
+                import hashlib
+                from large_epub_trial import BODY_SHA256_LARGE,BODY_SIZE
+                from synthetic_upload_epub import build_large
+                book=build_large()
+                if len(book)!=BODY_SIZE or hashlib.sha256(book).hexdigest()!=BODY_SHA256_LARGE:raise ValueError('native_upload_ui/fixture')
+                with (profile/payload['name']).open('xb') as stream:stream.write(book)
+                del book
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(root/'xdg'),LD_LIBRARY_PATH=str(runtime/'libs'),SDL_VIDEODRIVER='dummy',
                 EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_UPLOAD_UI_ARMED='1' if args.armed else '0')

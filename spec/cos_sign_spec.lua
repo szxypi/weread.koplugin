@@ -8,6 +8,7 @@ local function value()
 end
 local valid=assert(M.prepare(value(),17,1000))
 expect(valid.host=='synthetic-12345.cos.accelerate.myqcloud.com' and valid.path=='/prefix/example-book.txt','valid credential projection failed')
+expect(M.MAX_SINGLE_BYTES==200*1024*1024 and M.prepare(value(),M.MAX_SINGLE_BYTES,1000)~=nil,'200 MiB limit not accepted')
 for _,name in ipairs({'bucket','path','traversal','secret','expired','too_large','negative','boolean'}) do
     local sample=value();local size=17
     if name=='bucket' then sample.bucket='host.invalid' elseif name=='path' then sample.ObjectName='//unsafe'

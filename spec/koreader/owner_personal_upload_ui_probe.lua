@@ -15,10 +15,10 @@ local ok,reason=pcall(function()
     token=assert(input.rpc_token);assert(type(token)=='string' and token:match('^[a-f0-9]+$') and #token==32)
     local grant=assert(input.credentials);local name=assert(input.name);local armed=input.permit_writes
     local mock=tonumber(os.getenv('WEREAD_UPLOAD_UI_MOCK_PORT') or '')
-    local epub=input.fixture=='epub'
+    local large=input.fixture=='large_epub';local epub=input.fixture=='epub' or large
     assert(type(armed)=='boolean' and armed==(os.getenv('WEREAD_UPLOAD_UI_ARMED')=='1'))
     assert(type(input.shelf_books)=='number' and input.shelf_books%1==0 and input.shelf_books>=1 and input.shelf_books<=5000)
-    local expected_mock=epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
+    local expected_mock=large and 'SyntheticLargeEpub.epub' or epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
     local expected_pattern=epub and '^KOReaderSynthetic%-[a-f0-9]+%.epub$' or '^KOReaderSynthetic%-[a-f0-9]+%.txt$'
     assert(type(name)=='string' and (mock and name==expected_mock or not mock and name:match(expected_pattern) and #name==(epub and 39 or 38)))
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
@@ -37,10 +37,19 @@ local ok,reason=pcall(function()
         local Settings=require('weread.lib.settings');local factory=Settings.new
         function Settings:new() local value=factory(self);value.mock_endpoint='http://127.0.0.1:'..mock;return value end
     end
-    local body=epub and require('mime').unb64(assert(input.body_base64)) or 'Synthetic upload for KOReader.\n'
-    if epub then assert(#body==2177 and require('weread.lib.crypto').sha256_hex(body)=='0c58af1f071704f101504f58b51866b2d479ca08cd75c2a4211ece763ae6b684') end
+    local body=not large and (epub and require('mime').unb64(assert(input.body_base64)) or 'Synthetic upload for KOReader.\n') or nil
+    if epub and not large then assert(#body==2177 and require('weread.lib.crypto').sha256_hex(body)=='0c58af1f071704f101504f58b51866b2d479ca08cd75c2a4211ece763ae6b684') end
     local stem=assert(name:match('^(.+)%.%a+$'));local path=home..'/'..name
-    local f=assert(io.open(path,'wb'));assert(f:write(body));f:close()
+    local expected_size=large and 9439532 or #body
+    local expected_hash=large and 'c358d2de1a9e477618811ab3d5a7bf3e5100617b20bd3742ae2585a7918ba960' or require('weread.lib.crypto').sha256_hex(body)
+    local f
+    if not large then f=assert(io.open(path,'wb'));assert(f:write(body));f:close() end
+    local function verify_file()
+        local file=assert(io.open(path,'rb'));local sha=require('ffi/sha2').sha256();local size=0
+        while true do local part=file:read(65536);if not part then break end;size=size+#part;assert(size<=expected_size);sha(part) end
+        file:close();return size==expected_size and sha()==expected_hash
+    end
+    assert(verify_file())
     pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
     memory=ffi.C.mmap(nil,128,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1));counters=ffi.cast('int *',memory)
     local parent=tonumber(ffi.C.getpid());local base='https://i.weread.qq.com'
@@ -59,8 +68,8 @@ local ok,reason=pcall(function()
                 if opts.url==base..'/shelf/sync' then kind=0
                 elseif opts.url==base..'/cos/getcredential?name='..protocol.urlencode(stem)..'&from=' then kind=1 end
             elseif temporary and opts.method=='PUT' and opts.body==nil then
-                local prepared=assert(Cos.prepare(temporary,#body,os.time()));local signed=assert(Cos.sign(prepared))
-                if opts.url==signed.url and h.Host==signed.headers.Host and h['Content-Length']==tostring(#body)
+                local prepared=assert(Cos.prepare(temporary,expected_size,os.time()));local signed=assert(Cos.sign(prepared))
+                if opts.url==signed.url and h.Host==signed.headers.Host and h['Content-Length']==tostring(expected_size)
                     and h['x-cos-security-token']==signed.headers['x-cos-security-token'] and type(h.Authorization)=='string'
                     and h.vid==nil and h.accessToken==nil and type(opts.source)=='function' then kind=2 end
             elseif temporary and opts.method=='POST' and h.vid==grant.vid and h.accessToken==grant.accessToken
@@ -74,9 +83,11 @@ local ok,reason=pcall(function()
         end
         counters[kind]=counters[kind]+1
         if kind==2 then
-            local stream=opts.source;local sent=''
+            local stream=opts.source;local sent=0;local sha=require('ffi/sha2').sha256()
             opts.source=function()
-                local part,err=stream();if part then sent=sent..part;assert(body:sub(1,#sent)==sent) else assert(sent==body) end
+                local part,err=stream()
+                if part then sent=sent+#part;assert(sent<=expected_size);sha(part)
+                else assert(sent==expected_size and sha()==expected_hash) end
                 return part,err
             end
         end
@@ -125,7 +136,7 @@ local ok,reason=pcall(function()
         assert(target and Journal:new(plugin.settings,plugin.client):read(scope).phase=='idle');report.journal_idle=true
         local status=assert(plugin.library_db:getShelfStatus(target));assert(status.present==true);report.cache_verified=true
     end
-    f=assert(io.open(path,'rb'));assert(f:read('*a')==body);f:close();report.file_unchanged=true
+    assert(verify_file());report.file_unchanged=true
     plugin:closeWeReadUI()
     local lfs=require('libs/libkoreader-lfs')
     local function audit(dir)

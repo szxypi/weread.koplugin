@@ -25,6 +25,9 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     elif fixture=='epub':
         from synthetic_epub_trial import validate_epub
         validate_epub(plan)
+    elif fixture=='large_epub':
+        from large_epub_trial import validate_large
+        validate_large(plan)
     else:raise ValueError('native_upload_ui/input')
     validate_credentials(credentials)
     if type(armed) is not bool or credentials['vid']!=plan['owner'] or hash_value(credentials)!=plan['grant_sha256']:raise ValueError('native_upload_ui/input')
@@ -33,10 +36,11 @@ def launch(plan,credentials,*,armed,fixture='txt'):
     if fixture=='epub':
         from synthetic_upload_epub import build
         payload.update(fixture='epub',body_base64=base64.b64encode(build()).decode('ascii'))
+    elif fixture=='large_epub':payload['fixture']='large_epub'
     raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode();framed=str(len(raw)).encode()+b'\n'+raw
     args=['docker','exec','-i','-w','/source','weread-validation','timeout','--signal=TERM','--kill-after=10','165',
         'python3','scripts/run_native_personal_upload_ui.py','--koreader','/validation/runtime/lib/koreader',
-        '--candidate','/validation/upload-ui-runtime/candidate.zip','--width','1264','--height','1680','--dpi','300']
+        '--candidate','/validation/large-upload-runtimeko2-v1/candidate.zip','--width','1264','--height','1680','--dpi','300']
     if armed:args.append('--armed')
     result=subprocess.run(args,input=framed,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=190,check=False)
     prefix=('WEREAD_NATIVE_THOUGHT_'+token+'_RESULT=').encode()

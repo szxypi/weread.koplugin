@@ -243,10 +243,14 @@ class MockServer(ThreadingHTTPServer):
         if method=='PUT' and url.hostname=='synthetic-12345.cos.accelerate.myqcloud.com' and path=='/synthetic/object' and not query:
             small=hashlib.sha256(b'Synthetic upload for KOReader.\n').hexdigest()
             large=hashlib.sha256(b'X'*131073).hexdigest()
-            from synthetic_upload_epub import build as synthetic_epub
+            big_hash=hashlib.sha256()
+            for _ in range(144):big_hash.update(b'L'*65536)
+            big_hash.update(b'L');big=big_hash.hexdigest()
+            from synthetic_upload_epub import build as synthetic_epub,build_large as synthetic_large_epub
             epub=hashlib.sha256(synthetic_epub()).hexdigest()
-            if data not in ({'synthetic_sha256':small},{'synthetic_sha256':large},{'synthetic_sha256':epub}):raise ValueError('invalid synthetic COS object')
-            if data['synthetic_sha256']==large:time.sleep(.35)
+            large_epub=hashlib.sha256(synthetic_large_epub()).hexdigest()
+            if data not in ({'synthetic_sha256':small},{'synthetic_sha256':large},{'synthetic_sha256':big},{'synthetic_sha256':epub},{'synthetic_sha256':large_epub}):raise ValueError('invalid synthetic COS object')
+            if data['synthetic_sha256'] in (large,big,large_epub):time.sleep(.35)
             return 200,b''
         if method == "GET" and url.hostname == "mmbiz.qpic.cn" and path == "/synthetic-mp-bitmap.png" and not query:
             return 200, png()
@@ -537,17 +541,21 @@ class MockServer(ThreadingHTTPServer):
             if path == "/wxticket" and method == "GET":
                 return 200, dict(signature="mock-native-ticket", timeStamp=1700000000, expires_in=180)
             if path=='/cos/getcredential' and method=='GET':
-                if query not in ({'name':['SyntheticUpload']},{'name':['SyntheticLarge']},{'name':['SyntheticUploadEpub']},
-                                 {'name':['SyntheticUpload'],'from':['']},{'name':['SyntheticLarge'],'from':['']},{'name':['SyntheticUploadEpub'],'from':['']}):
+                if query not in ({'name':['SyntheticUpload']},{'name':['SyntheticLarge']},{'name':['SyntheticBig']},{'name':['SyntheticUploadEpub']},{'name':['SyntheticLargeEpub']},
+                                 {'name':['SyntheticUpload'],'from':['']},{'name':['SyntheticLarge'],'from':['']},{'name':['SyntheticBig'],'from':['']},{'name':['SyntheticUploadEpub'],'from':['']},{'name':['SyntheticLargeEpub'],'from':['']}):
                     raise ValueError('invalid synthetic upload name')
                 return 200,dict(bucket='synthetic-12345',ObjectName='/synthetic/object',Response=dict(ExpiredTime=int(time.time())+300,
                     Credentials=dict(TmpSecretId='synthetic-id',TmpSecretKey='synthetic-key',Token='synthetic-token')))
             if path=='/cos/notify' and method=='POST':
                 if query not in ({'name':['SyntheticUpload.txt'],'path':['/synthetic/object'],'cancel':['0']},
                                  {'name':['SyntheticLarge.txt'],'path':['/synthetic/object'],'cancel':['0']},
+                                 {'name':['SyntheticBig.txt'],'path':['/synthetic/object'],'cancel':['0']},
+                                 {'name':['SyntheticLargeEpub.epub'],'path':['/synthetic/object'],'cancel':['0']},
                                  {'name':['SyntheticUploadEpub.epub'],'path':['/synthetic/object'],'cancel':['0']}) or data!={}:
                     raise ValueError('invalid synthetic upload notification')
                 identity=('CB_uploadlarge' if query['name']==['SyntheticLarge.txt'] else
+                          'CB_uploadBig' if query['name']==['SyntheticBig.txt'] else
+                          'CB_uploadLargeEpub' if query['name']==['SyntheticLargeEpub.epub'] else
                           'CB_uploadEpub' if query['name']==['SyntheticUploadEpub.epub'] else 'CB_uploadtest')
                 self.shelf_added[identity]=dict(bookId=identity,title=query['name'][0],author='Synthetic',version=700)
                 return 200,dict(status=1,bookId=identity)
@@ -747,10 +755,19 @@ class Handler(BaseHTTPRequestHandler):
         extra_headers = {}
         try:
             size = int(self.headers.get("Content-Length", 0))
-            if not 0 <= size <= 1024 * 1024:
+            limit=10*1024*1024 if self.command=='PUT' else 1024*1024
+            if not 0 <= size <= limit:
                 raise ValueError("request too large")
-            raw=self.rfile.read(size) if size else b''
-            data = {'synthetic_sha256':hashlib.sha256(raw).hexdigest()} if self.command=='PUT' else json.loads(raw) if size else {}
+            if self.command=='PUT':
+                digest=hashlib.sha256();remaining=size
+                while remaining:
+                    chunk=self.rfile.read(min(65536,remaining))
+                    if not chunk:raise ValueError('incomplete synthetic upload')
+                    digest.update(chunk);remaining-=len(chunk)
+                data={'synthetic_sha256':digest.hexdigest()}
+            else:
+                raw=self.rfile.read(size) if size else b''
+                data=json.loads(raw) if size else {}
             if not isinstance(data, dict):
                 data = {}
                 raise ValueError("request JSON must be an object")
