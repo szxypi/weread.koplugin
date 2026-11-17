@@ -13,14 +13,14 @@ from secure_highlight_trial import Receipt
 SERVICE='org.codex.weread.goal-native-statistics-time-capture-v1'
 PROTOCOL='native-statistics-epub-historical-window-v1'
 MAX_ARCHIVE=32768
-FIELDS={'protocol','owner','baseline_sha256','device_sha256','book_id','chapter_uid','chapter_idx','book_version','file_id','raw_sha256',
+FIELDS={'protocol','owner','format','baseline_sha256','device_sha256','book_id','chapter_uid','chapter_idx','book_version','file_id','raw_sha256',
         'rows','start_time','ended_at','monotonic_elapsed_ms','seconds','not_before','archive_base64','archive_sha256'}
 ROW_FIELDS={'id','book_id','start_time','duration','time_zone','book_version','file_id','version_source'}
 
 def hashed(v):return isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v) is not None
 
 def validate(p):
-    if not isinstance(p,dict) or set(p)!=FIELDS or p['protocol']!=PROTOCOL:raise ValueError('native_capture/plan')
+    if not isinstance(p,dict) or set(p)!=FIELDS or p['protocol']!=PROTOCOL or p['format'] not in ('web_txt','web_xhtml'):raise ValueError('native_capture/plan')
     if (any(not isinstance(p[k],str) or not re.fullmatch('[1-9][0-9]{0,19}',p[k]) for k in ('owner','book_id','chapter_uid'))
             or any(not hashed(p[k]) for k in ('baseline_sha256','device_sha256','file_id','raw_sha256','archive_sha256'))
             or not integer(p['book_version'],1,2147483647) or not integer(p['chapter_idx'],0,1000000)
@@ -58,7 +58,7 @@ def validate(p):
             body=''.join(k+'='+values[k]+'\n' for k in keys)
             if encoded!=body+'metadata_sha256='+hashlib.sha256(body.encode()).hexdigest()+'\n':raise ValueError()
             receipt=''.join(k+'='+values[k]+'\n' for k in keys[:6])
-            if values['capture_id']!=hashlib.sha256(receipt.encode()).hexdigest() or values['schema']!='1' or values['format']!='web_txt':raise ValueError()
+            if values['capture_id']!=hashlib.sha256(receipt.encode()).hexdigest() or values['schema']!='1' or values['format']!=p['format']:raise ValueError()
             if any(unquote(values[k])!=str(p[k]) for k in ('book_id','chapter_uid','book_version','file_id','raw_sha256')):raise ValueError()
             raw=z.read('OEBPS/weread-position/raw-'+p['raw_sha256']+'.txt')
             if len(raw)!=int(values['raw_bytes']) or hashlib.sha256(raw).hexdigest()!=p['raw_sha256']:raise ValueError()

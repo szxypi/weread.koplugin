@@ -191,7 +191,7 @@ local ok,reason=pcall(function()
     mapping_bytes=full and 4096+4*1024*1024 or 4096
     local memory=ffi.C.mmap(nil,mapping_bytes,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1));counters=ffi.cast('int *',memory)
     if input.native_time_capture then
-        assert(mode=='live' and input.source_format=='web_txt' and not full and arg[2] and arg[2]:match('/owner_native_time_capture_case%.lua$'))
+        assert(mode=='live' and not full and arg[2] and arg[2]:match('/owner_native_time_capture_case%.lua$'))
         candidate_case=dofile(arg[2])(input,counters)
         report.native_time_capture=candidate_case.report
     elseif input.annotations then

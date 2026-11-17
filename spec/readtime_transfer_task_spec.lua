@@ -74,6 +74,18 @@ for _i,changed in ipairs({'account','device','owner','guard'}) do
     result=Task.resolve(f.client,f.settings,f.native,f.web,record,{},f.journal,f.options)
     expect(result.kind=='unavailable' and not result.attempted and f.posts==1 and f.reads==reads,changed)
 end
+-- Missing and empty summaries are different observable states, neither a
+-- made-up position excerpt. Time-only sends preserve their exact presence.
+for _i,mode in ipairs({'absent_summary','empty_summary'}) do
+    f=fixture(mode);result=f.run()
+    expect(result.kind=='confirmed' and f.posts==1 and f.ledger:summary(f.account).confirmed==2,mode)
+    expect(f.journal:get(f.account,result.attempt).metadata.position_contract=='historical-time-point-presence-v1')
+end
+for _i,mode in ipairs({'summary_presence_changed','summary_disappeared'}) do
+    f=fixture(mode);result=f.run()
+    expect(result.kind=='unconfirmed' and f.posts==1 and f.journal:pending(f.account).phase=='acknowledged',mode)
+    expect(f.ledger:summary(f.account).confirmed==0)
+end
 Signing.time_zone=original_zone
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
 print('readtime_transfer_task_spec: '..n..' checks')

@@ -15,12 +15,13 @@ import verify_native_time_capture as task
 
 
 def sha(v):return hashlib.sha256(v).hexdigest()
-def capture():
+def capture(format="web_txt"):
     raw=b'An original synthetic chapter for real statistics capture. '*30
+    if format=='web_xhtml':raw=b'<html><body><p>'+raw+b'</p></body></html>'
     rendered=b'<html><body><p>Synthetic body</p></body></html>'
     identity='schema=1\nbook_id=900001\nbook_version=7\nchapter_count=1\ntext_digest='+sha(rendered)+'\n'
     file_id=sha(identity.encode());identity+='source_id='+file_id+'\n'
-    receipt='schema=1\nbook_id=900001\nchapter_uid=2\nformat=web_txt\nraw_bytes='+str(len(raw))+'\nraw_sha256='+sha(raw)+'\n'
+    receipt='schema=1\nbook_id=900001\nchapter_uid=2\nformat='+format+'\nraw_bytes='+str(len(raw))+'\nraw_sha256='+sha(raw)+'\n'
     meta=receipt+'capture_id='+sha(receipt.encode())+'\nbook_version=7\nfile_id='+file_id+'\nrender_path='+quote('OEBPS/text/chapter.xhtml',safe='')+'\nrender_sha256='+sha(rendered)+'\n'
     meta+='metadata_sha256='+sha(meta.encode())+'\n'
     out=io.BytesIO()
@@ -31,7 +32,7 @@ def capture():
         z.writestr('OEBPS/text/chapter.xhtml',rendered)
     archive=out.getvalue();start=1794878000
     row=dict(id=1,book_id='900001',start_time=start,duration=6,time_zone='+08:00',book_version=7,file_id=file_id,version_source='epub_snapshot')
-    return dict(protocol=PROTOCOL,owner='900000',baseline_sha256='c'*64,device_sha256='a'*64,book_id='900001',chapter_uid='2',chapter_idx=2,book_version=7,
+    return dict(protocol=PROTOCOL,owner='900000',format=format,baseline_sha256='c'*64,device_sha256='a'*64,book_id='900001',chapter_uid='2',chapter_idx=2,book_version=7,
         file_id=file_id,raw_sha256=sha(raw),rows=[row],start_time=start,ended_at=start+6,monotonic_elapsed_ms=6050,seconds=6,
         not_before=next_cst_day(start)+1,archive_base64=base64.b64encode(archive).decode(),archive_sha256=sha(archive))
 
@@ -97,9 +98,26 @@ class CaptureTests(unittest.TestCase):
                 raw=out.getvalue()
             p['archive_base64']=base64.b64encode(raw).decode();p['archive_sha256']=sha(raw)
             with self.subTest(mode=mode),self.assertRaises(ValueError):validate(p)
+    def test_xhtml_archive_is_bound_to_explicit_format(self):
+        p=capture('web_xhtml');validate(p)
+        p['format']='web_txt'
+        with self.assertRaises(ValueError):validate(p)
+    def test_full_points_require_index_and_preserve_summary_presence_in_both_channels(self):
+        raw={'book':{'bookId':'900001','chapterUid':2,'chapterIdx':0,'chapterOffset':120,'progress':10,'summary':'Full original summary'}}
+        for kind in ('native','web'):
+            self.assertEqual(task.full_point(raw,'900001',kind)['chapter_idx'],0)
+            for field in ('chapterIdx','chapterOffset'):
+                changed=deepcopy(raw);del changed['book'][field]
+                with self.subTest(kind=kind,field=field),self.assertRaises(ValueError):task.full_point(changed,'900001',kind)
+            missing=deepcopy(raw);del missing['book']['summary']
+            self.assertEqual(task.full_point(missing,'900001',kind)['summary'],{'present':False})
+            empty=deepcopy(raw);empty['book']['summary']=''
+            self.assertEqual(task.full_point(empty,'900001',kind)['summary'],{'present':True,'value':''})
+            changed=deepcopy(raw);changed['book']['chapterIdx']=True
+            with self.assertRaises(ValueError):task.full_point(changed,'900001',kind)
     def test_payload_rejects_grants_other_operations_and_mock_mismatch(self):
         runner.payload_valid(payload())
-        for key,value in [('native_grant',{}),('full_manifest',[]),('selection_preview',{}),('source_format','web_xhtml')]:
+        for key,value in [('native_grant',{}),('full_manifest',[]),('selection_preview',{}),('source_format','html')]:
             p=payload();p[key]=value
             with self.subTest(key=key),self.assertRaises(ValueError):runner.payload_valid(p)
         with self.assertRaises(ValueError):runner.payload_valid(payload(),12345)

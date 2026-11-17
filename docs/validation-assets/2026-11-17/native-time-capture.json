@@ -8,24 +8,40 @@
   "archive_and_native_rows_retained": true,
   "screens": [
     {
-      "screen": "600",
+      "width": 600,
+      "format": "web_txt",
       "seconds": 6,
-      "rows": 1,
-      "real_statistics": true,
+      "native_statistics": true,
       "sqlite_reopened": true,
-      "same_day_deferred": true,
       "profile_removed": true,
-      "installed_files": 295
+      "installed_files": 296
     },
     {
-      "screen": "ko2",
+      "width": 1264,
+      "format": "web_txt",
       "seconds": 6,
-      "rows": 1,
-      "real_statistics": true,
+      "native_statistics": true,
       "sqlite_reopened": true,
-      "same_day_deferred": true,
       "profile_removed": true,
-      "installed_files": 295
+      "installed_files": 296
+    },
+    {
+      "width": 600,
+      "format": "web_xhtml",
+      "seconds": 6,
+      "native_statistics": true,
+      "sqlite_reopened": true,
+      "profile_removed": true,
+      "installed_files": 296
+    },
+    {
+      "width": 1264,
+      "format": "web_xhtml",
+      "seconds": 6,
+      "native_statistics": true,
+      "sqlite_reopened": true,
+      "profile_removed": true,
+      "installed_files": 296
     }
   ],
   "normal_reading_and_offline_progress_screens": [
@@ -38,16 +54,26 @@
   "historical_upload_tested": false,
   "future_write_granted": false,
   "python_modules": 136,
-  "python_tests": 1724,
+  "python_tests": 1726,
   "python_skips": 0,
-  "new_python_tests": 9,
-  "lua_spec_groups": 264,
+  "new_python_tests": 11,
+  "lua_spec_groups": 265,
   "catalog_version_checks": 24,
   "book_reading_checks": 72,
-  "lua_syntax": 756,
-  "lint_files": 754,
+  "lua_syntax": 759,
+  "lint_files": 757,
   "lint_warnings": 0,
-  "package_files": 295,
-  "package_sha256": "ab39a20397cdcdd666d7fa7112accbefa9bada6a544b11a411417694e3f8753e",
-  "whole_goal_complete": false
+  "package_files": 296,
+  "package_sha256": "37f65ec379ac64edac931f80acd72a6ba77b1cb49230fa9793e3bb3fd474cc70",
+  "whole_goal_complete": false,
+  "readtime_point_presence_checks": 33,
+  "readtime_task_checks": 1315,
+  "summary_absence_preserved": true,
+  "position_writer_requirements_unchanged": true,
+  "real_txt_preflight_rejected": true,
+  "real_xhtml_preflight_readonly_passed": true,
+  "preceding_natural_expiry_authentication_posts": 1,
+  "old_real_capture_consumed_scopes_unchanged": true,
+  "remote_ci_verified": false,
+  "actual_python_native_lua_presence_matches": true
 }

@@ -9,7 +9,7 @@ from native_time_capture import validate,hashed
 
 
 def payload_valid(p,mock_port=None):
-    if not isinstance(p,dict) or p.get('source_format')!='web_txt' or not isinstance(p.get('native_time_capture'),dict):raise ValueError('native_capture/input')
+    if not isinstance(p,dict) or p.get('source_format') not in ('web_txt','web_xhtml') or not isinstance(p.get('native_time_capture'),dict):raise ValueError('native_capture/input')
     cfg=p['native_time_capture']
     if (set(cfg)!={'device_sha256','baseline_sha256','book_version'} or not hashed(cfg['device_sha256']) or not hashed(cfg['baseline_sha256'])
             or type(cfg['book_version']) is not int or not 1<=cfg['book_version']<=2147483647
@@ -33,7 +33,7 @@ def decode(raw,payload):
         raise ValueError('native_capture/stage')
     captured=validate(envelope['candidate_private']);cfg=payload['native_time_capture']
     if (any(captured[k]!=payload[k] for k in ('book_id','chapter_uid')) or captured['owner']!=payload['vid']
-            or captured['raw_sha256']!=payload['source_raw_sha256'] or captured['book_version']!=cfg['book_version']
+            or captured['format']!=payload['source_format'] or captured['raw_sha256']!=payload['source_raw_sha256'] or captured['book_version']!=cfg['book_version']
             or captured['device_sha256']!=cfg['device_sha256'] or captured['baseline_sha256']!=cfg['baseline_sha256'] or captured['seconds']!=addon['seconds']
             or len(captured['rows'])!=addon['rows'] or len(base64.b64decode(captured['archive_base64']))!=addon['archive_bytes']):raise ValueError('native_capture/binding')
     return stage,addon,captured,validate_cookies(envelope['cookies'],payload['vid'])

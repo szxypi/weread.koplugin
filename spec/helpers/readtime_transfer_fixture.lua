@@ -29,8 +29,11 @@ function M.new(mode,expect,roots)
     f.journal=Journal:new{coverage=f.coverage,ledger=f.ledger,codec=f.client,now=function() return f.clock end,nonce=function() return string.rep('1',32) end}
     local function progress(web)
         local co=(f.mode=='position' and f.posts>0) and 11 or 10
+        local summary='Synthetic complete summary'
+        if f.mode=='absent_summary' or f.mode=='summary_presence_changed' and f.posts==0 or f.mode=='summary_disappeared' and f.posts>0 then summary=nil end
+        if f.mode=='empty_summary' or f.mode=='summary_presence_changed' and f.posts>0 then summary='' end
         return {timestamp=f.clock,book={bookId='42',chapterUid=7,chapterIdx=0,chapterOffset=co,progress=10,
-            summary='Synthetic complete summary',readingTime=20+(f.applied and 2 or 0),recordReadingTime=0,ttsTime=(f.mode=='tts' and f.posts>0) and 1 or 0}}
+            summary=summary,readingTime=20+(f.applied and 2 or 0),recordReadingTime=0,ttsTime=(f.mode=='tts' and f.posts>0) and 1 or 0}}
     end
     function f.client:get_progress_snapshot(book,access)
         expect(book=='42' and access.cookies.wr_vid=='900000');return progress(true)

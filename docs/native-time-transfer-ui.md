@@ -56,3 +56,5 @@
 不修改日期来制造历史窗口，不把模拟器尺寸验收当作实体设备验收；性能专项仍安排在功能验收之后。
 
 合成页面截图：[600 像素分批确认](validation-assets/2026-11-17/native-time-selection-600.png) · [KO2 尺寸本机结算恢复](validation-assets/2026-11-17/native-time-local-recovery-ko2.png)。
+
+后续[真实计时采集](native-time-capture.md)修复正常阅读准备的目录版本传递，并让历史时长单独保留进度摘要的缺失／空／文本存在性。位置写入协议的摘要要求保持；未标记的新旧请求按各自冻结的投影核对。

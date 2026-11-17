@@ -48,7 +48,7 @@ return function(input)
         assert(queued.selection==false,'capture unexpectedly historical on its actual day')
         local file=assert(io.open(reader.document.file,'rb'));local archive=file:read(32769);file:close()
         assert(archive and #archive>0 and #archive<=32768)
-        self.captured={protocol='native-statistics-epub-historical-window-v1',owner=input.vid,device_sha256=cfg.device_sha256,baseline_sha256=cfg.baseline_sha256,
+        self.captured={protocol='native-statistics-epub-historical-window-v1',owner=input.vid,format=input.source_format,device_sha256=cfg.device_sha256,baseline_sha256=cfg.baseline_sha256,
             book_id=input.book_id,chapter_uid=input.chapter_uid,chapter_idx=chapter_idx,book_version=identity.book_version,
             file_id=identity.file_id,raw_sha256=input.source_raw_sha256,rows=rows,start_time=start,ended_at=last,
             seconds=total,monotonic_elapsed_ms=math.floor(elapsed*1000+.5),

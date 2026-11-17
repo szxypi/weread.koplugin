@@ -9,6 +9,7 @@ local Stats=require('weread.lib.statistics_data')
 local Native=require('weread.lib.native_read_access')
 local Web=require('weread.lib.read_access')
 local Remote=require('weread.lib.remote_progress')
+local Point=require('weread.lib.readtime_point')
 local Source=require('weread.lib.readtime_source')
 local Shelf=require('weread.lib.shelf_flag_change_contract')
 local Auth=require('weread.lib.native_authorization')
@@ -19,7 +20,7 @@ local function web_point(raw,book)
     assert(not reason and point and node and provided.chapter_uid and provided.chapter_idx and provided.chapter_offset and provided.summary,'readtime_transfer/web_position')
     point.summary=node.summary;return P.point_hash(point)
 end
-local function snapshotter(client,auth,selected,web,book,expected_version,expected_months,current,now,day_guard)
+local function snapshotter(client,auth,selected,web,book,expected_version,expected_months,current,now,day_guard,point_contract)
     return function()
         assert(current(),'readtime_transfer/stale')
         assert(not day_guard or day_guard(),'readtime_transfer/day_changed')
@@ -29,15 +30,22 @@ local function snapshotter(client,auth,selected,web,book,expected_version,expect
         assert(C.integer(version,1,2147483647) and version==expected_version,'readtime_transfer/version')
         local raw=auth:_request('time_progress',BASE..'/book/getProgress?bookId='..book,nil,selected.credentials)
         assert(C.integer(raw.timestamp,1,4102444800) and math.abs(raw.timestamp-now())<=60,'readtime_transfer/clock')
-        local native=P.snapshot(raw,book)
-        local wp=web_point(client:get_progress_snapshot(book,web.web,{classify_auth=true,fresh=true}),book)
+        local remote=client:get_progress_snapshot(book,web.web,{classify_auth=true,fresh=true})
+        local native_hash,wp,counts
+        if point_contract==Point.CONTRACT then
+            native_hash,wp=Point.hash(raw,book,'native'),Point.hash(remote,book,'web')
+            counts=P.counts(assert(Remote.node(raw,book)))
+        else
+            local native=P.snapshot(raw,book);native_hash=P.point_hash(native.position);counts=native.counts
+            wp=web_point(remote,book)
+        end
         local shelf=Shelf.state_hash(auth:read_shelf(selected.credentials));local months={}
         for month in pairs(expected_months) do
             local value=Stats.project(auth:_request('time_statistics',BASE..'/readdata/detail?mode=monthly&baseTime='..month,nil,selected.credentials),'monthly',tonumber(month))
             months[month]={baseTime=value.baseTime,readTimes=value.readTimes,totalReadTime=value.totalReadTime,readDays=value.readDays}
         end
         assert(current(),'readtime_transfer/stale')
-        return {native_hash=P.point_hash(native.position),web_hash=wp,counts=native.counts,shelf_hash=shelf,months=months}
+        return {native_hash=native_hash,web_hash=wp,counts=counts,shelf_hash=shelf,months=months}
     end
 end
 local function verify(client,web,selection,references,journal,record,metadata,snapshot,current,now,sleep,observe,out)
@@ -98,7 +106,7 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         assert(C.digest(selection)==selection_hash,'readtime_transfer/selection_changed')
         local snapshot=snapshotter(client,auth,selected,web,selection.book_id,window.version,window.months,current,now,function()
             return not metadata or Accounting.day(now())==Accounting.day(metadata.created_at)
-        end)
+        end,Point.CONTRACT)
         local before=snapshot()
         local config=auth:_request('time_config',BASE..'/config?token=1',nil,selected.credentials)
         local guest=Signing.guest_token(auth:_request('time_feature',BASE..'/feature?synckey=0',nil,selected.credentials))
@@ -108,7 +116,7 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         assert(C.digest(selection)==selection_hash,'readtime_transfer/selection_changed')
         body=Signing.batch(selected.credentials,selection.book_id,selection.protocol_rows,guest,config.token,stamp,random(),
             {timestamp=stamp*1000,random=random(),current_zone='+08:00'})
-        metadata={protocol='native-historical-time-cst-v1',book_id=selection.book_id,file_id=selection.file_id,book_version=window.version,
+        metadata={protocol='native-historical-time-cst-v1',position_contract=Point.CONTRACT,book_id=selection.book_id,file_id=selection.file_id,book_version=window.version,
             seconds=window.seconds,day=window.day,created_at=stamp,device_hash=C.digest(selected.credentials.deviceId),source=source,native_hash=before.native_hash,web_hash=before.web_hash,
             counts=before.counts,shelf_hash=before.shelf_hash,months=before.months,request_hash=C.digest(body)}
         Accounting.validate(metadata)
@@ -158,12 +166,13 @@ function M.resolve(client,settings,selected,web,record,references,journal,option
             and m.device_hash==C.digest(selected.credentials.deviceId),'readtime_transfer/metadata')
         assert(C.hash(m.native_hash) and C.hash(m.web_hash) and C.hash(m.shelf_hash),'readtime_transfer/metadata')
         Accounting.validate(m)
+        assert(m.position_contract==nil or m.position_contract==Point.CONTRACT,'readtime_transfer/position_contract')
         assert(type(record.evidence)=='table' and record.evidence.request_hash==record.request_hash,'readtime_transfer/ack')
         local selection={book_id=m.book_id,file_id=m.file_id,book_version=m.book_version}
         local observe=options.observe_source or Source.observe
         assert(C.digest(observe(client,web,selection,references,m.source))==C.digest(m.source),'readtime_transfer/source_changed')
         out.acknowledged=true
-        local snapshot=snapshotter(client,auth,selected,web,m.book_id,m.book_version,m.months,current,now)
+        local snapshot=snapshotter(client,auth,selected,web,m.book_id,m.book_version,m.months,current,now,nil,m.position_contract)
         verify(client,web,selection,references,journal,record,m,snapshot,current,now,sleep,observe,out)
     end)
     auth:cancel()
