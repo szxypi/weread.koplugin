@@ -123,6 +123,9 @@ def inspect_closed(value, name, before_hash):
 
 
 def acknowledged(response):
-    return (isinstance(response, dict) and type(response.get('succ')) is int and response['succ'] == 1
-            and response.get('errcode', 0) in (0, None) and response.get('errCode', 0) in (0, None)
-            and response.get('success', True) is True)
+    if not isinstance(response, dict) or type(response.get('succ')) is not int or response['succ'] != 1:
+        return False
+    for key in ('errcode', 'errCode'):
+        value=response.get(key)
+        if value is not None and (type(value) is not int or value != 0): return False
+    return response.get('success', True) is True

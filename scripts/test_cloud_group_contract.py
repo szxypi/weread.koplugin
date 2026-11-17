@@ -31,7 +31,8 @@ class CloudGroupContractTest(unittest.TestCase):
         for ident in ('1', '0', '-1', '01', '42/other', 42, '9007199254740992'):
             with self.subTest(ident=ident), self.assertRaises(ValueError): delete_request(ident)
         self.assertTrue(acknowledged({'succ': 1}))
-        for reply in ({}, {'succ': True}, {'succ': 1, 'errcode': -1}, {'succ': 1, 'success': False}):
+        for reply in ({}, {'succ': True}, {'succ': 1, 'errcode': -1}, {'succ': 1, 'errcode': False},
+                      {'succ': 1, 'errCode': 0.0}, {'succ': 1, 'success': False}):
             self.assertFalse(acknowledged(reply))
 
     def test_unrelated_change_or_nonempty_group_is_never_accepted(self):

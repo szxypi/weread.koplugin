@@ -35,7 +35,8 @@ class WebKeyShelf:
             value=json.loads(raw)
         if not isinstance(value,dict):raise ValueError('cloud_group_auth/response')
         for field in ('errcode','errCode'):
-            if value.get(field,0) not in (0,None):raise ValueError('cloud_group_auth/rejected')
+            code=value.get(field)
+            if code is not None and (type(code) is not int or code!=0):raise ValueError('cloud_group_auth/rejected')
         return value
 
 

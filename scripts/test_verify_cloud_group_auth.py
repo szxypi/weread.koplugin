@@ -35,7 +35,8 @@ class WebKeyShelfTest(unittest.TestCase):
     def test_invalid_header_and_service_rejection_fail_closed(self):
         for owner,key in (('42\n','key'),('42','bad\nkey'),('x','key'),('42','')):
             with self.subTest(owner=owner,key=key),self.assertRaises(ValueError):WebKeyShelf(Opener({})).read(owner,key)
-        with self.assertRaises(ValueError):WebKeyShelf(Opener({'errcode':-1})).read('42','synthetic-key')
+        for value in (-1,False,0.0):
+            with self.subTest(code=value),self.assertRaises(ValueError):WebKeyShelf(Opener({'errcode':value})).read('42','synthetic-key')
 
     def test_default_never_opens_credentials_or_network(self):
         with patch('verify_cloud_group_auth.SessionStore') as session,patch('verify_cloud_group_auth.WebKeyShelf') as probe,redirect_stdout(io.StringIO()):
