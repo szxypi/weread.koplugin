@@ -5,7 +5,10 @@ local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDEN
 local switch=os.getenv('WEREAD_TEST_HOME_ACCOUNT_SWITCH')=='1'
 local switch_reopen=os.getenv('WEREAD_TEST_HOME_ACCOUNT_REOPEN')=='1'
 local unknown=os.getenv('WEREAD_TEST_HOME_UNKNOWN_LEGACY')=='1'
-local reopen=os.getenv('WEREAD_TEST_HOME_REOPEN')=='1' or switch or switch_reopen or unknown
+local claim_reopen=os.getenv('WEREAD_TEST_HOME_CLAIM_REOPEN')=='1'
+local scroll_reopen=os.getenv('WEREAD_TEST_HOME_SCROLL_REOPEN')=='1'
+local claim_scroll=os.getenv('WEREAD_TEST_CLAIM_SCROLL')=='1'
+local reopen=os.getenv('WEREAD_TEST_HOME_REOPEN')=='1' or switch or switch_reopen or unknown or claim_reopen or scroll_reopen
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
 G_reader_settings:saveSetting('language','zh_CN')
@@ -60,8 +63,69 @@ local function synthetic_note(reader)
     end
     return false
 end
+local function same(left,right)
+    if type(left)~=type(right) then return false end
+    if type(left)~='table' then return left==right end
+    for key,value in pairs(left) do if not same(value,right[key]) then return false end end
+    for key in pairs(right) do if left[key]==nil then return false end end
+    return true
+end
 FM:showFiles(home)
 local plugin=host();local account=assert(plugin.library_db:accountKey())
+if scroll_reopen then
+    local book=assert(plugin.settings:get_book(id));local path=assert(book.cached_full_book)
+    local map=assert(require('docsettings'):open(path):readSetting('weread_account_locations'))
+    local point=assert(map.entries[account].xpointer)
+    assert(plugin:startBookReading(book))
+    pump(function() return Reader.instance and Reader.instance.weread
+        and Reader.instance.weread.progress_sync.current_book_id==id end)
+    local reader=Reader.instance;assert(reader.view.view_mode=='scroll')
+    local Position=require('weread.lib.reader_position')
+    local frame=Position.snapshot(reader.document,'scroll',reader.weread.progress_sync.get_viewport_height())
+    assert(Position.contains_anchor(reader.document,frame,point),'saved scroll anchor was not restored')
+    assert(synthetic_note(reader),'scroll reopen lost the native note')
+    close_reader();assert(requests[0]==0)
+    print('\nWEREAD_NATIVE_SCROLL_REOPEN='..json.encode({result='PASS',fresh_process=true,visible_anchor=true,
+        native_note_preserved=true,requests=0}))
+    os.exit(0)
+end
+if claim_reopen then
+    local book=assert(plugin.settings:get_book(id));local path=assert(book.cached_full_book)
+    local claims=assert(book.native_location_claims)
+    local key=require('weread.lib.crypto').sha256_hex(path);local claim=assert(claims[key])
+    local other_file=assert(io.open(evidence..'/account-second-xpointer.txt','rb'))
+    local other=other_file:read('*a');other_file:close();assert(other~=claim.xpointer)
+    local DocSettings=require('docsettings');local sidecar=DocSettings:open(path)
+    assert(not sidecar:readSetting('weread_account_locations'))
+    sidecar:saveSetting('last_xpointer',other);assert(sidecar:flush())
+    assert(plugin:startBookReading(book))
+    pump(function() return Reader.instance and Reader.instance.weread
+        and Reader.instance.weread.progress_sync.current_book_id==id end)
+    local reader=Reader.instance
+    local visible
+    if reader.view.view_mode=='scroll' then
+        local Position=require('weread.lib.reader_position')
+        local frame=Position.snapshot(reader.document,'scroll',reader.weread.progress_sync.get_viewport_height())
+        visible=Position.contains_anchor(reader.document,frame,claim.xpointer)
+    else visible=reader.document:isXPointerInCurrentPage(claim.xpointer) end
+    assert(visible,'durable account claim did not restore the chosen page')
+    assert(synthetic_note(Reader.instance),'account claim discarded the native note')
+    local scroll_anchor
+    if reader.view.view_mode=='scroll' then
+        local dimen=reader.view.dimen
+        local selection=assert(reader.document:getTextFromPositions({x=0,y=0},{x=dimen.w-1,y=dimen.h-1},true))
+        scroll_anchor=assert(selection.pos0)
+    end
+    close_reader()
+    local after=DocSettings:open(path):readSetting('weread_account_locations')
+    assert(after and after.entries[account] and after.legacy.xpointer==other,
+        'account claim did not preserve the previous native page')
+    if scroll_anchor then assert(after.entries[account].xpointer==scroll_anchor,'scroll close saved an offscreen origin') end
+    assert(requests[0]==0)
+    print('\nWEREAD_NATIVE_CLAIM_REOPEN='..json.encode({result='PASS',fresh_process=true,chosen_page=true,
+        previous_page_preserved=true,native_note_preserved=true,requests=0}))
+    os.exit(0)
+end
 if unknown then
     local book=assert(plugin.settings:get_book(id));local path=assert(book.cached_full_book)
     local DocSettings=require('docsettings');local sidecar=DocSettings:open(path)
@@ -78,9 +142,45 @@ if unknown then
     local after=DocSettings:open(path)
     assert(not after:readSetting('weread_account_locations') and after:readSetting('last_xpointer')==original,
         'unknown legacy page was automatically claimed or lost')
+    plugin=host()
+    assert(plugin.settings:patch_reading_state(id,{last_local_position={book_id=id,chapter_uid='1',percent=33},
+        last_local_account=account}))
+    assert(plugin:startBookReading(assert(plugin.settings:get_book(id))))
+    pump(function() return Reader.instance and Reader.instance.weread
+        and Reader.instance.weread.progress_sync.current_book_id==id end)
+    local reader=Reader.instance;local before=assert(reader.weread.settings:get_book(id))
+    assert(before.pending_upload_position and before.source_dispatch
+        and before.source_dispatch.id=='synthetic-original-dispatch','missing pending-state fixture')
+    local pending=json.decode(json.encode(before.pending_upload_position))
+    local dispatch=json.decode(json.encode(before.source_dispatch))
+    if claim_scroll then
+        reader:handleEvent(require('ui/event'):new('SetViewMode','scroll'))
+        for _i=1,5 do tick() end
+        assert(reader.view.view_mode=='scroll','native reader did not enter scroll mode')
+        reader.document.configurable.view_mode=1
+        reader:saveSettings()
+    end
+    assert(reader.weread:showEndOfBookDialog(id));local quick=assert(UI:getTopmostVisibleWidget())
+    local claim_button;local tr=require('weread.lib.plugin_util').tr
+    for _i,row in ipairs(quick.buttons) do for _j,button in ipairs(row) do
+        if button.text==tr('Save this page locally for this account') then claim_button=button end
+    end end
+    assert(claim_button and claim_button.enabled~=false,'native claim action was not offered')
+    UI:forceRePaint();Device.screen:shot(evidence..'/native-claim-menu.png');claim_button.callback()
+    local key=require('weread.lib.crypto').sha256_hex(path)
+    pump(function() local current=reader.weread.settings:get_book(id)
+        return current and current.native_location_claims and current.native_location_claims[key] end)
+    local saved=assert(reader.weread.settings:get_book(id))
+    assert(same(saved.pending_upload_position,pending),
+        'claim changed the pending cloud position')
+    assert(same(saved.source_dispatch,dispatch),
+        'claim changed the unconfirmed dispatch journal')
+    assert(not DocSettings:open(path):readSetting('weread_account_locations'),
+        'claim unexpectedly rewrote the shared native sidecar')
+    if reader.weread.source_position then reader.weread.source_position:stop() end
     assert(requests[0]==0)
     print('\nWEREAD_UNKNOWN_NATIVE_LEGACY='..json.encode({result='PASS',original_page=true,not_claimed=true,
-        native_note_preserved=true,requests=0}))
+        explicit_claim=true,pending_preserved=true,native_note_preserved=true,requests=0}))
     os.exit(0)
 end
 if switch or switch_reopen then

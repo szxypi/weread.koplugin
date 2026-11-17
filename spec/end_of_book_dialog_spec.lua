@@ -96,6 +96,15 @@ expect(sync_row and sync_row[1].enabled == false,
     "progress sync is disabled without WeRead book context")
 expect(sync_row and sync_row[2].text == "Show underlines, thoughts and bookmarks",
     "hidden annotations expose the show action")
+local claimed=0
+Dialog.show({show_claim_location=true},{on_claim_location=function() claimed=claimed+1 end})
+local claim
+for _,row in ipairs(shown.buttons) do for _,button in ipairs(row) do
+    if button.text=='Save this page locally for this account' then claim=button end
+end end
+expect(claim~=nil,'legacy account location action was not shown')
+if claim then claim.callback() end
+expect(claimed==1,'legacy account location action did not delegate')
 
 print(string.format(
     "end_of_book_dialog_spec: %d checks, %d failure(s)", checks, failures))

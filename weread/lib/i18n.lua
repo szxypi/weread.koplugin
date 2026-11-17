@@ -1,6 +1,10 @@
 local I18n = {}
 
 local zh = {
+    ["Save this page locally for this account"] = "为当前账号保存本机位置",
+    ["Local reading position saved for this account."] = "已为当前账号保存本机位置。",
+    ["Could not save this reading position."] = "无法保存当前阅读位置。",
+    ["Could not restore the saved local reading position."] = "无法恢复已保存的本机阅读位置。",
     ["Upload local book"] = "上传本地书籍",
     ["Choose a book to upload"] = "选择要上传的书籍",
     ["Choose an EPUB, PDF, MOBI, TXT or AZW3 file up to 200 MiB."] = "请选择不超过 200 MiB 的 EPUB、PDF、MOBI、TXT 或 AZW3 文件。",

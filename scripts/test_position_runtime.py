@@ -150,9 +150,13 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_HOME_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline home reopen failed; inspect isolated runtime log'
-                for flag,filename in (('WEREAD_TEST_HOME_ACCOUNT_SWITCH','account-switch.log'),
-                                      ('WEREAD_TEST_HOME_ACCOUNT_REOPEN','account-reopen.log'),
-                                      ('WEREAD_TEST_HOME_UNKNOWN_LEGACY','unknown-legacy.log')):
+                phases=[('WEREAD_TEST_HOME_ACCOUNT_SWITCH','account-switch.log'),
+                        ('WEREAD_TEST_HOME_ACCOUNT_REOPEN','account-reopen.log'),
+                        ('WEREAD_TEST_HOME_UNKNOWN_LEGACY','unknown-legacy.log'),
+                        ('WEREAD_TEST_HOME_CLAIM_REOPEN','claim-reopen.log')]
+                if environment.get('WEREAD_TEST_CLAIM_SCROLL')=='1':
+                    phases.append(('WEREAD_TEST_HOME_SCROLL_REOPEN','scroll-reopen.log'))
+                for flag,filename in phases:
                     with (root/'evidence'/filename).open('w') as out:
                         checked=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                             env=environment | {flag:'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
@@ -190,7 +194,19 @@ def main():
                 content=(root/'evidence/unknown-legacy.log').read_bytes();marker=b'\nWEREAD_UNKNOWN_NATIVE_LEGACY='
                 assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
                 value=json.loads(content.split(marker,1)[1].splitlines()[0])
-                assert value==dict(result='PASS',original_page=True,not_claimed=True,native_note_preserved=True,requests=0), 'unknown legacy mismatch'
+                assert value==dict(result='PASS',original_page=True,not_claimed=True,explicit_claim=True,
+                                   pending_preserved=True,native_note_preserved=True,requests=0), 'unknown legacy mismatch'
+                content=(root/'evidence/claim-reopen.log').read_bytes();marker=b'\nWEREAD_NATIVE_CLAIM_REOPEN='
+                assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
+                value=json.loads(content.split(marker,1)[1].splitlines()[0])
+                assert value==dict(result='PASS',fresh_process=True,chosen_page=True,previous_page_preserved=True,
+                                   native_note_preserved=True,requests=0), 'native claim reopen mismatch'
+                if environment.get('WEREAD_TEST_CLAIM_SCROLL')=='1':
+                    content=(root/'evidence/scroll-reopen.log').read_bytes();marker=b'\nWEREAD_NATIVE_SCROLL_REOPEN='
+                    assert content.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in content
+                    value=json.loads(content.split(marker,1)[1].splitlines()[0])
+                    assert value==dict(result='PASS',fresh_process=True,visible_anchor=True,native_note_preserved=True,
+                                       requests=0), 'native scroll reopen mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'local home made a mock request'
             if args.probe == 'cached-search':

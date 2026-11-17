@@ -79,6 +79,7 @@ expect(metadata_only.progress == nil and metadata_only.pending_upload_account ==
     and loaded.progress == 37 and loaded.source_dispatch.id == "synthetic-receipt",
     "metadata filtering retained reading state or mutated its caller")
 expect(BookStore.is_reading_field("pending_upload_position") and BookStore.is_reading_field("source_dispatch")
+    and BookStore.is_reading_field('native_location_claims')
     and BookStore.is_reading_field('unindexed_resume')
     and not BookStore.is_reading_field("title") and not BookStore.is_reading_field("cache_dir"),
     "metadata/checkpoint ownership is inconsistent")

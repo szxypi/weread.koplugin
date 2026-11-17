@@ -261,6 +261,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    if self._native_account_location then require('weread.lib.native_account_location').before_close(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     require('weread.ui.chapter_links').detach(self)
     require('weread.lib.rich_footnotes').detach(self)

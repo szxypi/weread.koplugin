@@ -111,6 +111,13 @@ function M.show(opts, callbacks)
         callback = function() dismiss_then(callbacks.on_search_cached) end,
     }})
 
+    if opts.show_claim_location then
+        table.insert(buttons, {{
+            text = _("Save this page locally for this account"),
+            callback = function() dismiss_then(callbacks.on_claim_location) end,
+        }})
+    end
+
     -- Penultimate row: progress sync and the shared annotation visibility
     -- toggle. Keep both visible; unsupported context is represented by a
     -- disabled sync button instead of a no-op/error after tapping.

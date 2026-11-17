@@ -72,6 +72,7 @@ function M:showEndOfBookDialog(book_id)
     -- prepared, but the user's show/hide choice is still authoritative here.
     local cache = self.settings:get("cache", {})
     local annotations_visible = cache.show_annotations ~= false
+    local location=self._native_account_location and require('weread.lib.native_account_location')
     EndOfBookDialog.show({
         show_chapter_nav = true,
         show_next_chapter = true,
@@ -82,6 +83,7 @@ function M:showEndOfBookDialog(book_id)
         enable_search_current = type(search) == "table" and type(search.onShowFulltextSearchInput) == "function",
         enable_search_book = is_regular_weread_book and require('weread.lib.read_access').display_book_id(tostring(book_id)) ~= nil,
         enable_search_cached = is_regular_weread_book and require('weread.lib.read_access').display_book_id(tostring(book_id)) ~= nil,
+        show_claim_location = location and location.can_claim(self) or false,
         annotations_visible = annotations_visible,
     }, {
         on_bookshelf = function()
@@ -165,6 +167,11 @@ function M:showEndOfBookDialog(book_id)
             else
                 show_context_required()
             end
+        end,
+        on_claim_location = function()
+            local saved=location and location.claim(self)
+            self:showTransientInfo(saved and _('Local reading position saved for this account.')
+                or _('Could not save this reading position.'),3)
         end,
         on_toggle_annotations = function()
             self:toggleAnnotationVisibility()

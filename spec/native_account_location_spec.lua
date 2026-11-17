@@ -63,6 +63,67 @@ local legacy=config({last_xpointer='/unknown'});host.ui.doc_settings=legacy
 Location.load(host,legacy,document);Location.ready(host,'900001');Location.save(host)
 expect(legacy.data.last_xpointer=='/unknown' and not legacy.data.weread_account_locations,
     'unknown legacy position was automatically claimed')
+local auth={vid='900000',epoch=1};local auth_valid=true;local save_ok=true
+host.settings.get_auth_scope=function() return auth end
+host.settings.auth_scope_matches=function(_self,value) return auth_valid and value==auth end
+host.settings.patch_reading_state=function(_self,_id,patch)
+    if not save_ok then return false end
+    book.native_location_claims=copy(patch.native_location_claims);return true
+end
+document.getXPointer=function() return '/claimed' end
+document.isXPointerInCurrentPage=function(_,value) return value=='/claimed' end
+Location.load(host,legacy,document);Location.ready(host,'900001')
+expect(Location.can_claim(host),'unknown legacy position offered no explicit account recovery')
+account=b;expect(not Location.can_claim(host) and not Location.claim(host),'another account claimed the open reader')
+account=nil;expect(not Location.can_claim(host) and not Location.claim(host),'signed-out reader claimed an account location')
+account=a;attributes={mode='file',size=2048,modification=124}
+expect(not Location.can_claim(host),'changed cached file could be claimed')
+attributes={mode='file',size=1024,modification=123}
+book.native_location_claims={invalid={schema=1}}
+expect(not Location.claim(host),'malformed saved claims were overwritten')
+book.native_location_claims=nil
+document.isXPointerInCurrentPage=function() return false end
+expect(not Location.claim(host),'a location outside the current page was claimed')
+document.isXPointerInCurrentPage=function(_,value) return value=='/claimed' end
+save_ok=false;expect(not Location.claim(host) and not book.native_location_claims,'failed local save claimed a position')
+save_ok=true;expect(Location.claim(host),'explicit local claim failed')
+expect(book.native_location_claims and not legacy.data.weread_account_locations,'claim required rewriting native sidecar')
+for key,value in pairs(book.native_location_claims) do
+    expect(#key==64 and value.path_hash==key and key~=document.file,'claim stored a raw file path')
+end
+local recovered=config({last_xpointer='/someone-else'});host.ui.doc_settings=recovered
+Location.load(host,recovered,document);Location.ready(host,'900001')
+expect(navigated=='/claimed','durable claim did not restore the selected account page')
+local warning
+host.showTransientInfo=function(_self,text) warning=text end
+host.ui.rolling.onGotoXPointer=function(_self,p)
+    if p=='/claimed' then return false end
+    navigated=p;return true
+end
+Location.load(host,recovered,document);navigated=nil;Location.ready(host,'900001')
+expect(navigated=='/someone-else' and warning~=nil and not recovered.data.weread_account_locations,
+    'failed claim restore did not retain the native fallback and report the failure')
+host.ui.rolling.onGotoXPointer=function() return true end
+book.native_location_claims=nil;auth_valid=false
+Location.load(host,legacy,document);Location.ready(host,'900001')
+expect(not Location.can_claim(host) and not Location.claim(host),'stale authentication could claim a position')
+auth_valid=true
+host.ui.doc_settings=legacy;host.ui.view={view_mode='scroll',dimen={w=200,h=200}}
+document.getCurrentPos=function() return 100 end
+document.getTextFromPositions=function() return {pos0='/claimed'} end
+document.getPosFromXPointer=function() return 900 end
+Location.load(host,legacy,document);Location.ready(host,'900001')
+expect(not Location.claim(host),'offscreen scroll location was claimed')
+document.getTextFromPositions=function() return nil end
+expect(not Location.claim(host),'image-only scroll viewport was claimed without visible text')
+document.getTextFromPositions=function() return {pos0='/claimed'} end
+document.getPosFromXPointer=function() return 140 end
+expect(Location.claim(host),'visible scroll location could not be claimed')
+Location.before_close(host);host.ui.document=nil;legacy:saveSetting('last_xpointer','/stale-origin');Location.save(host)
+expect(legacy.data.weread_account_locations.entries[a].xpointer=='/claimed',
+    'scroll close saved an offscreen native page origin')
+legacy:delSetting('weread_account_locations');legacy:saveSetting('last_xpointer','/unknown')
+book.native_location_claims=nil;host.ui.document=document;host.ui.view=nil
 local percent_legacy=config({last_percent=.55});host.ui.doc_settings=percent_legacy
 Location.load(host,percent_legacy,document);Location.ready(host,'900001')
 percent_legacy:saveSetting('last_xpointer','/percent');Location.save(host)
