@@ -150,3 +150,29 @@ class EvidenceSupervisor(AuditedSupervisor):
     def _before_release(self):
         super()._before_release()
         self._check_evidence()
+
+
+class NativeBoundSupervisor(EvidenceSupervisor):
+    """Check the native worker's persisted baseline before releasing a claim."""
+    def _check_native(self):
+        from native_time_bundle_native_record import validate_record
+        body,selection,record,source_path=self._native_input
+        now,_zone=self.gate._wall_clock()
+        validate_record(self.bundle,self.grant,self.evidence,selection,body,record,source_path,now)
+
+    def claim(self,body,selection,record,source_path):
+        if getattr(self,'_native_input',None) is not None:raise ValueError('bundle_supervisor/native_state')
+        self._native_input=deepcopy((body,selection,record,str(source_path)))
+        try:
+            self._check_native()
+            return super().claim(self._native_input[0],self._native_input[1])
+        finally:self._native_input=None
+
+    def _before_claim(self,reserved):
+        self._check_native()
+        super()._before_claim(reserved)
+        self._check_native()
+
+    def _before_release(self):
+        super()._before_release()
+        self._check_native()

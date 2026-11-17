@@ -10,7 +10,7 @@ local input=json.decode(assert(io.stdin:read(tonumber(length))))
 assert(input.owner=='900000' and input.book_id=='900001' and input.grant.vid=='900000'
     and input.grant.accessToken=='mock-native-access' and input.grant.refreshToken=='mock-native-refresh'
     and input.guest=='synthetic-guest' and input.config=='synthetic-config')
-assert(input.mode=='success' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta')
+assert(input.mode=='success' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source')
 assert(type(input.token)=='string' and #input.token==32 and input.token:match('^[a-f0-9]+$'))
 assert(type(arg[1])=='string' and type(arg[2])=='string' and type(arg[3])=='string' and type(arg[4])=='string')
 local worked,reason=pcall(function()
@@ -88,7 +88,7 @@ local captured_day=A.day(input.start_time);local captured_month=Stats.period_sta
 local applied=false;local sent=0
 local function progress()
     return {timestamp=os.time(),book={bookId=input.book_id,chapterUid=tonumber(input.chapter_uid),chapterIdx=input.chapter_idx,
-        chapterOffset=10,progress=10,summary='Synthetic summary',readingTime=20+(applied and input.seconds or 0),recordReadingTime=0,ttsTime=0}}
+        chapterOffset=12,progress=3,readingTime=20+(applied and input.seconds or 0),recordReadingTime=0,ttsTime=0}}
 end
 function client:get_progress_snapshot(book,access)
     assert(book==input.book_id and access.cookies.wr_vid == input.owner);return progress()
@@ -100,15 +100,22 @@ function client:request(options)
     local value
     if options.method=='POST' then
         assert(options.url=='https://i.weread.qq.com/book/batchUploadProgress' and sent==0)
-        assert(assert(journal:pending(account)).phase=='claimed','synthetic_ui/native_claim')
+        local record=assert(journal:pending(account));assert(record.phase=='claimed','synthetic_ui/native_claim')
         local body=json.decode(options.body)
         if input.mode=='tamper_body' then body.books[1].summary='synthetic-change' end
-        if not rpc('claim',{body=body,selection=selected}) then error('synthetic_ui/claim_denied',0) end
+        if input.mode=='tamper_native_point' then record.metadata.native_hash=string.rep('f',64)
+        elseif input.mode=='tamper_native_web' then record.metadata.web_hash=string.rep('f',64)
+        elseif input.mode=='tamper_native_rows' then record.rows[1].duration=record.rows[1].duration+1
+        elseif input.mode=='tamper_native_counts' then record.metadata.counts.ttsTime=1
+        elseif input.mode=='tamper_native_months' then record.metadata.months[tostring(captured_month)].totalReadTime=999
+        elseif input.mode=='tamper_native_shelf' then record.metadata.shelf_hash=string.rep('f',64)
+        elseif input.mode=='tamper_native_source' then record.metadata.source.expected.raw_sha256=string.rep('f',64) end
+        if not rpc('claim',{body=body,selection=selected,record=record}) then error('synthetic_ui/claim_denied',0) end
         sent=sent+1
         if input.mode=='lost_reply' then error('synthetic_ui/lost_reply',0) end
         if input.mode=='kill_worker' then os.exit(1) end
         if input.mode=='no_ack' then return json.encode({}),200 end
-        if input.mode=='duplicate' and not rpc('claim',{body=body,selection=selected}) then error('synthetic_ui/duplicate_denied',0) end
+        if input.mode=='duplicate' and not rpc('claim',{body=body,selection=selected,record=record}) then error('synthetic_ui/duplicate_denied',0) end
         applied=input.mode~='no_delta';value={succ=1}
         assert(rpc('ack',{response=value}))
     elseif options.url:find('/book/info?',1,true) then value={bookId=input.book_id,bookVersion=input.book_version}
@@ -116,8 +123,11 @@ function client:request(options)
     elseif options.url:find('/shelf/sync',1,true) then value={books={{bookId=input.book_id,secret=0,finishReading=0}},archive={}}
     elseif options.url:find('/readdata/detail?',1,true) then
         local month=assert(tonumber(options.url:match('baseTime=(%d+)$')))
-        value={baseTime=month,readTimes={},totalReadTime=0,readDays=0}
-        if month==captured_month then value.readTimes[tostring(captured_day)]=5+(applied and input.seconds or 0);value.totalReadTime=5+(applied and input.seconds or 0);value.readDays=1 end
+        value=assert(json.decode(json.encode(input.months[tostring(month)])))
+        if month==captured_month and applied then
+            value.readTimes[tostring(captured_day)]=(value.readTimes[tostring(captured_day)] or 0)+input.seconds
+            value.totalReadTime=value.totalReadTime+input.seconds
+        end
     elseif options.url:find('/config?',1,true) then value={token=input.config}
     elseif options.url:find('/feature?',1,true) then value={feature={guest_token=input.guest}}
     else error('synthetic_ui/route',0) end

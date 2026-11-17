@@ -23,7 +23,8 @@
       "ack_readonly_recovery_not_replayed": true,
       "baseline_sealed_before_claim": true,
       "preflight_evidence_bound": true,
-      "scenarios": 8
+      "native_baseline_mismatch_blocked": true,
+      "scenarios": 15
     },
     {
       "display": "1264x1680",
@@ -46,7 +47,8 @@
       "ack_readonly_recovery_not_replayed": true,
       "baseline_sealed_before_claim": true,
       "preflight_evidence_bound": true,
-      "scenarios": 8
+      "native_baseline_mismatch_blocked": true,
+      "scenarios": 15
     }
   ]
 }
