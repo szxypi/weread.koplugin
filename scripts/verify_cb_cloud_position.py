@@ -33,9 +33,36 @@ class Native(NativeProbe):
         return super().request(stage,url,credentials=credentials,timeout=timeout)
 
 
+def official_parser_check(source,offset):
+    from source_parser_preflight import MAX_PRIVATE_BYTES,verify_source
+    from verify_source_coordinates import CoordinateError
+    if len(source.encode('utf-8'))>MAX_PRIVATE_BYTES:
+        return dict(result='SOURCE_LIMIT',official_parser_verified=False,comparison_performed=False,
+                    source_bytes=len(source.encode('utf-8')))
+    try:
+        value=verify_source(source,offset,allow_multiple_bodies=True)
+        if (not isinstance(value,dict) or value.get('official_parser_verified') is not True
+                or value.get('private_source_browser_network_disabled') is not True
+                or value.get('official_browser_authenticated') is not False
+                or type(value.get('official_parser_target_present')) is not bool
+                or type(value.get('official_parser_source_nodes')) is not int
+                or not 1<=value['official_parser_source_nodes']<=1000000):
+            raise ValueError('cb_cloud/parser_unavailable')
+        result={k:value[k] for k in ('official_parser_verified','official_parser_source_nodes',
+            'official_parser_target_present','private_source_browser_network_disabled','official_browser_authenticated')}
+        result.update(result='MATCHED',comparison_performed=True)
+        return result
+    except CoordinateError as error:
+        if str(error)=='parser: source coordinate mismatch':
+            return dict(result='SOURCE_MODEL_MISMATCH',official_parser_verified=False,comparison_performed=True,
+                        private_source_browser_network_disabled=True,official_browser_authenticated=False)
+        raise ValueError('cb_cloud/parser_unavailable') from None
+
+
 def main(argv=None):
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true');p.add_argument('--book-index',type=int,choices=range(1,9));p.add_argument('--source-lens',action='store_true');p.add_argument('--lua-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
-    if (a.book_index is not None or a.source_lens) and not a.saved_session:p.error('source selection requires saved session')
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true');p.add_argument('--book-index',type=int,choices=range(1,9));p.add_argument('--source-lens',action='store_true');p.add_argument('--official-parser',action='store_true');p.add_argument('--lua-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
+    if (a.book_index is not None or a.source_lens or a.official_parser) and not a.saved_session:p.error('source selection requires saved session')
+    if a.official_parser and a.book_index is None:p.error('official parser comparison requires one selected book')
     if a.lua_command is not None and (not a.saved_session or not a.lua_command):p.error('explicit session and private Lua command required')
     r=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,authentication_posts=0,books=0,
            source_chapters=0,positions_unchanged=True,catalog_versions_unchanged=True,write_protocol_verified=False,private_data_on_regular_disk=False,channels=[])
@@ -75,6 +102,10 @@ def main(argv=None):
                         from cb_source_lens import compare
                         row['lens']=compare(source,value['chapter_offset'],value['summary'])
                     r['channels'].append(row)
+                if a.official_parser:
+                    if pair['web']['kind']!='located' or pair['web']['chapter_uid']!=sample['chapter_uid'] or sample['source_format']!='web_xhtml':
+                        raise ValueError('cb_cloud/parser_source_unavailable')
+                    r['official_parser']=official_parser_check(source,pair['web']['chapter_offset'])
                 r['books']+=1;r['source_chapters']+=1
             phase='models'
             if a.lua_command:

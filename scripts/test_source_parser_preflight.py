@@ -4,21 +4,21 @@ import unittest
 from unittest.mock import patch
 
 from source_parser_preflight import MAX_PRIVATE_BYTES, PUBLIC_READER, verify_source
-from verify_source_coordinates import CoordinateError
+from verify_source_coordinates import CoordinateError,FilteredSource
 
 RAW='<html><body><p>只在内存核对的独特原文内容。</p></body></html>'
 
 
 class SourceParserPreflightTests(unittest.TestCase):
-    def browser(self, cookies=None, fail=False):
+    def browser(self, cookies=None, fail=False, source=RAW, rows=None):
         state=SimpleNamespace(offline=False,closed=False,socket_blocked=False,routes=[],private_evaluated=False)
         def evaluate(_script,sources):
             self.assertTrue(state.offline)
             self.assertTrue(state.socket_blocked)
-            self.assertEqual(sources,[RAW])
+            self.assertEqual(sources,[source])
             state.private_evaluated=True
             if fail:raise RuntimeError('private-source-must-not-appear')
-            return [[dict(co=RAW.index('只'),text='只')]]
+            return [rows if rows is not None else [dict(co=source.index('只'),text='只')]]
         page=SimpleNamespace(goto=lambda url,**_kw: self.assertEqual(url,PUBLIC_READER),
                              set_default_timeout=lambda _timeout: None,evaluate=evaluate)
         def close():state.closed=True
@@ -61,6 +61,20 @@ class SourceParserPreflightTests(unittest.TestCase):
     def test_size_and_offset_limits_reject_before_loading_browser(self):
         for text,co in (('x'*(MAX_PRIVATE_BYTES+1),0),(RAW,-1),(RAW,True),('\ud800',0)):
             with self.assertRaises(CoordinateError):verify_source(text,co)
+
+    def test_multiple_bodies_are_explicit_and_cannot_use_single_body_lua_probe(self):
+        second='<html><body><p>第二个正文包含独特文本。</p></body></html>'
+        source=RAW+second
+        state,module=self.browser(source=source,rows=[dict(co=source.index('只'),text='只'),dict(co=source.index('第二'),text='第二')])
+        with patch.dict('sys.modules',{'playwright.sync_api':module}), \
+             patch('source_parser_preflight.FilteredSource',wraps=FilteredSource) as model:
+            result=verify_source(source,source.index('第二'),allow_multiple_bodies=True)
+        self.assertTrue(model.call_args.kwargs['allow_multiple_bodies'])
+        self.assertTrue(result['official_parser_target_present'])
+        self.assertTrue(state.offline and state.closed)
+        for value in ('yes',1,None):
+            with self.assertRaises(CoordinateError):verify_source(RAW,15,allow_multiple_bodies=value)
+        with self.assertRaises(CoordinateError):verify_source(RAW,15,lua_command=['single-body'],allow_multiple_bodies=True)
 
     def test_optional_lua_probe_receives_memory_data_without_echoing_it(self):
         state,module=self.browser()

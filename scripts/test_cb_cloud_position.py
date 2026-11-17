@@ -4,7 +4,7 @@ from copy import deepcopy
 import io,json,unittest
 from unittest.mock import patch
 from cb_cloud_position import state,observed,mapping
-from verify_source_coordinates import FilteredSource
+from verify_source_coordinates import FilteredSource,CoordinateError
 import verify_cb_cloud_position as task
 
 BOOK='CB_SyntheticOnly';CAT=[dict(chapterUid=17,chapterIdx=4)]
@@ -22,6 +22,29 @@ class CbCloudPositionTests(unittest.TestCase):
         session.assert_not_called();grant.assert_not_called();child.assert_not_called();self.assertEqual(json.loads(output.getvalue())['result'],'OFFLINE_ONLY')
     def test_incomplete_private_lua_mode_is_rejected(self):
         with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):task.main(['--lua-command','synthetic'])
+    def test_official_parser_requires_an_explicit_session_and_one_book(self):
+        for args in (['--official-parser'],['--saved-session','--official-parser']):
+            with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):task.main(args)
+    def test_official_parser_report_is_bounded_and_does_not_echo_source(self):
+        from source_parser_preflight import MAX_PRIVATE_BYTES
+        valid=dict(official_parser_verified=True,official_parser_source_nodes=2,official_parser_target_present=True,
+                   private_source_browser_network_disabled=True,official_browser_authenticated=False,private_source=RAW)
+        with patch('source_parser_preflight.verify_source',return_value=valid) as verify:
+            result=task.official_parser_check(RAW,15)
+            self.assertEqual(result['result'],'MATCHED');self.assertNotIn(RAW,str(result))
+            self.assertTrue(verify.call_args.kwargs['allow_multiple_bodies'])
+            self.assertEqual(task.official_parser_check('x'*(MAX_PRIVATE_BYTES+1),0)['result'],'SOURCE_LIMIT')
+            self.assertEqual(verify.call_count,1)
+        with patch('source_parser_preflight.verify_source',side_effect=CoordinateError('parser: source coordinate mismatch')):
+            self.assertEqual(task.official_parser_check(RAW,15)['result'],'SOURCE_MODEL_MISMATCH')
+        with patch('source_parser_preflight.verify_source',side_effect=CoordinateError('private diagnostic')):
+            with self.assertRaisesRegex(ValueError,'^cb_cloud/parser_unavailable$'):task.official_parser_check(RAW,15)
+        for changes in (dict(official_parser_verified=False),dict(official_browser_authenticated=True),
+                        dict(private_source_browser_network_disabled=False),dict(official_parser_source_nodes=0),
+                        dict(official_parser_source_nodes=True),dict(official_parser_target_present=1)):
+            value=dict(valid,**changes)
+            with self.subTest(changes=changes),patch('source_parser_preflight.verify_source',return_value=value):
+                with self.assertRaisesRegex(ValueError,'^cb_cloud/parser_unavailable$'):task.official_parser_check(RAW,15)
     def test_book_namespace_channel_and_foreign_response_are_strict(self):
         for book,channel in (('900001','web'),('CB_bad-name','web'),('CB_'+'a'*65,'web'),(BOOK,'gateway')):
             with self.assertRaises(ValueError):state(progress(),book,CAT,channel)

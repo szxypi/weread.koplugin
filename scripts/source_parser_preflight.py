@@ -13,12 +13,13 @@ PUBLIC_READER = "https://weread.qq.com/web/reader/b4332510813abc34eg014159"
 MAX_PRIVATE_BYTES = 256 * 1024
 
 
-def verify_source(raw, target_co, lua_command=None):
+def verify_source(raw, target_co, lua_command=None, *, allow_multiple_bodies=False):
     try:
         valid = isinstance(raw, str) and len(raw.encode("utf-8")) <= MAX_PRIVATE_BYTES
     except UnicodeError:
         valid = False
-    if not valid or type(target_co) is not int or target_co < 0:
+    if (not valid or type(target_co) is not int or target_co < 0 or type(allow_multiple_bodies) is not bool
+            or allow_multiple_bodies and lua_command is not None):
         raise CoordinateError("parser: invalid or oversized private comparison")
     try:
         from playwright.sync_api import sync_playwright
@@ -48,7 +49,7 @@ def verify_source(raw, target_co, lua_command=None):
                 rows = page.evaluate(PARSE_SOURCES, [raw])
                 if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], list):
                     raise CoordinateError("parser: contract changed")
-                model = FilteredSource(raw)
+                model = FilteredSource(raw,allow_multiple_bodies=allow_multiple_bodies)
                 statistics = {}
                 count = check_parser_rows(raw, rows[0], statistics=statistics, model=model)
                 lua = check_lua(lua_command, [raw], rows, targets=[target_co]) if lua_command else {}
