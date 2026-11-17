@@ -33,7 +33,8 @@ def read_source(saved,target,*,sleep=time.sleep):
 
 
 def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=time.sleep,now=time.time,
-        fixture_builder=build,prepare_plan=prepare,check_plan=check,fixture_extension='epub',readback_tries=5,notify_receipt=None):
+        fixture_builder=build,prepare_plan=prepare,check_plan=check,fixture_extension='epub',readback_tries=5,notify_receipt=None,
+        cleanup_gate=None):
     report=dict(result='UNVERIFIED',phase='preflight',credential_requests=0,cos_put_attempts=0,notify_posts=0,cleanup_posts=0,
                 authentication_posts=0,source_verified=False)
     try:
@@ -75,6 +76,10 @@ def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=t
         # synthetic item behind. Cleanup still requires a fresh exact snapshot.
         try:report['source_verified']=read_content(target) is True
         except Exception:report['source_verified']=False
+        # A dependent experiment can retain its fixture if its own effects
+        # remain uncertain. The durable imported state prevents a replay.
+        if cleanup_gate is not None and cleanup_gate(journal,receipt,plan,target) is not True:
+            raise ValueError('synthetic_epub/cleanup_blocked')
         check_plan(plan,credentials,probe.shelf(credentials),target,True)
         receipt=journal.advance(receipt,'cleanup_pending');report['phase']='cleanup_pending'
         ack=False
@@ -90,7 +95,7 @@ def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=t
         report['result']=fixture_extension.upper()+('_IMPORT_AND_SOURCE_VERIFIED' if report['source_verified'] else '_IMPORTED_SOURCE_UNVERIFIED')
     except Exception as error:
         known={'synthetic_epub/grant','synthetic_epub/already_reserved','synthetic_epub/put_unconfirmed','synthetic_epub/notify_unconfirmed',
-               'synthetic_epub/import_unconfirmed','synthetic_epub/cleanup_unconfirmed'}
+               'synthetic_epub/import_unconfirmed','synthetic_epub/cleanup_unconfirmed','synthetic_epub/cleanup_blocked'}
         report['reason']=str(error) if str(error) in known else 'synthetic_epub/unavailable'
     return report
 

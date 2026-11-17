@@ -28,6 +28,23 @@ class EpubUploadExecutionTest(unittest.TestCase):
             result=run(probe,journal,credentials(),lambda _:True,read,apply=True,sleep=lambda _:None,now=lambda:1000)
             self.assertEqual(result['result'],'EPUB_IMPORTED_SOURCE_UNVERIFIED');self.assertFalse(result['source_verified'])
             self.assertEqual(probe.attempts['cleanup'],1);self.assertEqual(journal.read()[0]['phase'],'restored')
+    def test_dependent_cleanup_requires_explicit_success_and_never_replays(self):
+        for gate in (lambda *_:False, lambda *_:None, lambda *_:1,
+                     lambda *_:(_ for _ in ()).throw(TimeoutError())):
+            with self.subTest(gate=gate):
+                probe=FakeProbe();journal=Journal(Backend())
+                result=run(probe,journal,credentials(),lambda _:True,lambda _:True,apply=True,sleep=lambda _:None,now=lambda:1000,cleanup_gate=gate)
+                self.assertEqual(result['result'],'UNVERIFIED');self.assertEqual(probe.attempts['cleanup'],0)
+                self.assertEqual(journal.read()[0]['phase'],'imported')
+                again=run(probe,journal,credentials(),lambda _:True,lambda _:True,apply=True,sleep=lambda _:None,now=lambda:1000,cleanup_gate=gate)
+                self.assertEqual(again['reason'],'synthetic_epub/already_reserved');self.assertEqual(probe.attempts['cleanup'],0)
+        probe=FakeProbe();journal=Journal(Backend());observed=[]
+        def allow(store,receipt,plan,target):
+            state,current=store.read();observed.append((state['phase'],current==receipt,state['plan']==plan,state['target']==target))
+            return True
+        result=run(probe,journal,credentials(),lambda _:True,lambda _:True,apply=True,sleep=lambda _:None,now=lambda:1000,cleanup_gate=allow)
+        self.assertEqual(observed,[('imported',True,True,True)]);self.assertEqual(probe.attempts['cleanup'],1)
+        self.assertEqual(result['result'],'EPUB_IMPORT_AND_SOURCE_VERIFIED')
     def test_unknown_write_or_foreign_change_never_continues(self):
         for mode,phase,counts in (('baseline_changed',None,(0,0,0,0)),('credential_lost','credential_pending',(1,0,0,0)),
                 ('put_lost','upload_pending',(1,1,0,0)),('notify_lost','notify_pending',(1,1,1,0)),
