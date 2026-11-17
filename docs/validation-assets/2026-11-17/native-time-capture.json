@@ -1,5 +1,5 @@
 {
-  "result": "PASS_SYNTHETIC_CAPTURE_FULL_GOAL_ACTIVE",
+  "result": "PASS_REAL_NATIVE_CAPTURE_FULL_GOAL_ACTIVE",
   "based_on_head": "dfa429f431df410033703f6954c4925214aa1566",
   "source_version_from_fresh_catalogue_only": true,
   "old_file_and_ledger_not_relabelled": true,
@@ -50,7 +50,7 @@
   ],
   "account_data_posts": 0,
   "authentication_posts": 0,
-  "real_account_captured": false,
+  "real_account_captured": true,
   "historical_upload_tested": false,
   "future_write_granted": false,
   "python_modules": 136,
@@ -79,5 +79,18 @@
   "large_archive_max_bytes": 2097152,
   "keychain_chunk_bytes": 49152,
   "chunked_archive_roundtrip_and_faults": true,
-  "real_prior_archive_limit_stop_retained": true
+  "real_prior_archive_limit_stop_retained": true,
+  "real_capture_seconds": 6,
+  "real_capture_rows": 1,
+  "real_capture_archive_bytes": 35701,
+  "exact_epub_in_keychain": true,
+  "real_capture_profile_removed": true,
+  "original_source_positions_counts_shelf_unchanged": true,
+  "old_capture_and_consumed_scopes_unchanged": true,
+  "capture_account_data_posts": 0,
+  "capture_authentication_posts": 0,
+  "historical_window_not_before_cst": "2026-11-18 00:00:01 +08:00",
+  "candidate_production_ci_head": "ab8e0e71c35b3e929a72b7723ce631a21ff8d5d2",
+  "candidate_production_ci_run": 44002568576,
+  "candidate_production_ci_success": true
 }
