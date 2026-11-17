@@ -5,7 +5,8 @@ from pathlib import Path
 
 from native_time_bundle_gate import DispatchGate
 from native_time_bundle_audit_store import AuditStore
-from native_time_bundle_supervisor import AuditedSupervisor
+from native_time_bundle_evidence import PreflightEvidence
+from native_time_bundle_supervisor import EvidenceSupervisor
 from native_trial_pipe import Frames,reply,stop,write_initial
 from run_persistent_ui_probe import extract_candidate
 from process_loss_runtime import enable_subreaper,kill_reader_session,session_members
@@ -54,8 +55,10 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi):
     before['months']={old_month:before['months'][old_month]}
     before['months'].setdefault(str(month),dict(baseTime=month,readTimes={},totalReadTime=0,readDays=0))
     audit=AuditStore(FileBackend(folder/'audit'),lambda:project_lock(folder/'audit.lock'),clock=time.time)
-    guard=AuditedSupervisor(gate,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,
-        lambda:observed(completed_at=int(time.time())),audit_store=audit,snapshot=before['snapshot'],months=before['months']);guard.prepare()
+    preflight=observed(completed_at=int(time.time()));preflight['observed_months']=len(before['months'])
+    evidence=PreflightEvidence(captured,grant,preflight,before['snapshot'],before['months'])
+    guard=EvidenceSupervisor(gate,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,
+        audit_store=audit,evidence=evidence);guard.prepare()
     token=secrets.token_hex(16);payload={k:v for k,v in p.items() if k!='archive_base64'}
     payload.update(grant=grant,guest='synthetic-guest',config='synthetic-config',mode=mode,token=token)
     env=dict(os.environ,KO_HOME=str(home),TZ='Asia/Shanghai',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
@@ -151,7 +154,7 @@ def main(argv=None):
                 report.update(result='SYNTHETIC_NATIVE_UI_RPC_VERIFIED',native_menu=True,background_service=True,correct_dialogs=True,workers_reaped=True,archive_verified=True,
                               durable_claim_before_reply=True,modified_selection_blocked=True,modified_body_blocked=True,
                               lost_and_duplicate_not_replayed=True,no_ack_and_worker_death_not_replayed=True,ack_readonly_recovery_not_replayed=True,
-                              baseline_sealed_before_claim=True,scenarios=8)
+                              baseline_sealed_before_claim=True,preflight_evidence_bound=True,scenarios=8)
     except Exception as error:
         report.update(result='UNVERIFIED',synthetic_failure_mode=mode,synthetic_failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_ui/child_'):

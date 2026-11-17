@@ -97,8 +97,9 @@ class NativeCrossDayTests(unittest.TestCase):
         original_result = dict(native_original_state_unchanged=True, web_original_state_unchanged=True, old_group_absent=True)
         stable_stat = dict(baseTime=1, readTimes={'1':5}, totalReadTime=5, readDays=1)
 
-        def run_case(*, samples=None, statistics=None, changed_store=False, now=None, includes_fixture=False):
+        def run_case(*, samples=None, statistics=None, changed_store=False, now=None, includes_fixture=False, end_clock=None, clock_sequence=None):
             clock = plan['not_before'] if now is None else now
+            clock_source=Mock(side_effect=clock_sequence) if clock_sequence is not None else ((lambda:clock) if end_clock is None else Mock(side_effect=[clock]*6+[end_clock]))
             month_count = len({task.period('monthly', plan['start_time'])[0], task.period('monthly', clock)[0]})
             store = Mock(); store.read.side_effect = [(state, token), (None, None)] if changed_store else None
             if not changed_store: store.read.return_value = (state, token)
@@ -117,7 +118,7 @@ class NativeCrossDayTests(unittest.TestCase):
                 snapshots = stack.enter_context(patch.object(task, 'xhtml_snapshot', side_effect=samples or [sample, sample]))
                 stack.enter_context(patch.object(task, 'project_statistics', side_effect=statistics or [stable_stat] * (2 * month_count)))
                 result = task.run(saved, grant, store, lambda:True, web, api_factory=api_factory,
-                                  statistics_factory=lambda:stats, clock=lambda:clock, sleep=lambda _:None, baseline_includes_fixture=includes_fixture)
+                                  statistics_factory=lambda:stats, clock=clock_source, sleep=lambda _:None, baseline_includes_fixture=includes_fixture)
                 self.assertEqual(api_factory.call_args.args[-1], includes_fixture)
                 self.assertEqual(snapshots.call_count, 2)
                 self.assertEqual(stats.request.call_count, 2 * month_count)
@@ -133,6 +134,11 @@ class NativeCrossDayTests(unittest.TestCase):
         changed_stat = deepcopy(stable_stat); changed_stat['totalReadTime'] += 1
         with self.assertRaisesRegex(ValueError, 'native_cross_day/statistics_changed'): run_case(statistics=[stable_stat, changed_stat])
         with self.assertRaisesRegex(ValueError, 'native_cross_day/state_changed'): run_case(changed_store=True)
+        with self.assertRaisesRegex(ValueError, 'native_cross_day/clock'): run_case(end_clock=plan['not_before']+86400)
+        with self.assertRaisesRegex(ValueError, 'native_cross_day/clock'): run_case(end_clock=plan['not_before']-1)
+        current=plan['not_before']+5
+        with self.assertRaisesRegex(ValueError, 'native_cross_day/clock'):
+            run_case(now=current,clock_sequence=[current,current,current+2,current+1])
 
 
 if __name__ == '__main__': unittest.main()

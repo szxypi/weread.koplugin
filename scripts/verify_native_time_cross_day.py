@@ -21,6 +21,7 @@ from cloud_group_nonempty_journal import Journal as GroupJournal
 from cloud_group_nonempty_transport import ScopedNative
 from cloud_group_old_guard import Guard
 from native_time_capture import NativeCaptureStore, validate
+from native_time_bundle_gate import day
 from readtime_upload_model import integer
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
@@ -90,8 +91,11 @@ class FilteredNative(Native):
 
 
 def run(saved, grant, store, current, web, api_factory=FilteredNative,
-        statistics_factory=StatisticsProbe, clock=time.time, sleep=time.sleep, baseline_includes_fixture=False):
-    if type(baseline_includes_fixture) is not bool:raise ValueError('native_cross_day/fixture_mode')
+        statistics_factory=StatisticsProbe, clock=time.time, sleep=time.sleep, baseline_includes_fixture=False,
+        private_evidence=False):
+    if type(baseline_includes_fixture) is not bool or type(private_evidence) is not bool:
+        raise ValueError('native_cross_day/fixture_mode')
+    if private_evidence and not baseline_includes_fixture:raise ValueError('native_cross_day/fixture_mode')
     state, token = store.read()
     if not state or current() is not True:
         raise ValueError('native_cross_day/capture')
@@ -122,15 +126,17 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
         raise ValueError('native_cross_day/source')
     api = api_factory(grant, plan['book_id'], upload['target'], plan['not_before'], clock, baseline_includes_fixture)
     stats = statistics_factory()
-    current_month = period('monthly', int(clock()))[0]
+    started_at=int(clock());previous_at=started_at;current_month = period('monthly', started_at)[0]
     months = sorted({period('monthly', plan['start_time'])[0], current_month})
     observations = []
     for index in range(2):
         if index:
             sleep(2)
             web.inspect(web.book_id)
-        if clock() < plan['not_before']:
+        observed_at=int(clock())
+        if observed_at<plan['not_before'] or observed_at<previous_at or day(observed_at)!=day(started_at):
             raise ValueError('native_cross_day/clock')
+        previous_at=observed_at
         sample = xhtml_snapshot(web, api, grant)
         checks = {'complete_baseline_matches': digest(sample) == plan['baseline_sha256'],
                   'version_matches': sample['version'] == plan['book_version'],
@@ -141,7 +147,11 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
             error = ValueError('native_cross_day/baseline')
             error.checks = checks
             raise error
-        if period('monthly', int(clock()))[0] != current_month:
+        observed_at=int(clock())
+        if observed_at<previous_at or day(observed_at)!=day(started_at):
+            raise ValueError('native_cross_day/clock')
+        previous_at=observed_at
+        if period('monthly', observed_at)[0] != current_month:
             raise ValueError('native_cross_day/month_changed')
         month_stats = {}
         for month in months:
@@ -156,13 +166,21 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
     if (current() is not True or store.read() != (state, token) or fixture() != (upload, upload_token)
             or groups.read() != (group, group_token) or old.read() != (old_state, old_token)):
         raise ValueError('native_cross_day/state_changed')
-    return {'result': 'CROSS_DAY_READONLY_VERIFIED', 'seconds': plan['seconds'],
+    completed_at=int(clock())
+    if (completed_at<plan['not_before'] or completed_at<previous_at or day(completed_at)!=day(started_at)
+            or period('monthly',completed_at)[0]!=current_month):
+        raise ValueError('native_cross_day/clock')
+    report={'result': 'CROSS_DAY_READONLY_VERIFIED', 'seconds': plan['seconds'],
             'exact_capture_and_fixture_bound': True, 'fixture_in_captured_baseline': baseline_includes_fixture,
             'both_positions_source_counts_and_original_shelf_exact': True,
             'two_statistics_reads_stable': True, 'observed_months': len(months), 'server_clock_after_boundary': True,
-            'completed_at': int(clock()),
+            'completed_at': completed_at,
             'account_data_posts': 0, 'authentication_posts': 0,
             'historical_accounting_verified': False, 'dispatch_capability': False}
+    if private_evidence:
+        from native_time_bundle_evidence import PreflightEvidence
+        return PreflightEvidence(state,grant,report,sample,observations[-1])
+    return report
 
 
 def main(argv=None):

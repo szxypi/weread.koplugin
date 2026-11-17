@@ -74,3 +74,16 @@ def read_signing_inputs(*,bundle,receipt,grant,store,gate,current,preflight,prob
     final=int(clock());binding(bundle,grant,final)
     if not 0<=final-preflight['completed_at']<30:raise ValueError('bundle_preparation/preflight_expired')
     return inputs
+
+
+def read_evidenced_signing_inputs(*,bundle,receipt,grant,store,gate,current,evidence,probe,clock=time.time):
+    """Read signing inputs only while the same private evidence remains intact."""
+    from native_time_bundle_evidence import PreflightEvidence
+    from annotation_experiment_model import digest
+    if not isinstance(evidence,PreflightEvidence):raise ValueError('bundle_preparation/evidence')
+    report,snapshot,months=evidence.for_bundle(bundle,grant)
+    before=digest((report,snapshot,months))
+    inputs=read_signing_inputs(bundle=bundle,receipt=receipt,grant=grant,store=store,gate=gate,
+                               current=current,preflight=report,probe=probe,clock=clock)
+    if digest(evidence.for_bundle(bundle,grant))!=before:raise ValueError('bundle_preparation/evidence_changed')
+    return inputs

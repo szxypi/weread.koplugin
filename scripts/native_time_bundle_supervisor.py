@@ -119,3 +119,34 @@ class AuditedSupervisor(Supervisor):
 
     def _before_release(self):
         self._check_audit('claimed',self.dispatch_receipt)
+
+
+class EvidenceSupervisor(AuditedSupervisor):
+    """Use one private preflight result through sealing and claim release.
+
+    This remains an offline coordinator: transport and authenticated readback
+    must be provided separately, and no result here proves accounting.
+    """
+    def __init__(self,gate,store,bundle,grant,guest,config_token,current,*,audit_store,evidence):
+        from native_time_bundle_evidence import PreflightEvidence
+        if not isinstance(evidence,PreflightEvidence):raise ValueError('bundle_supervisor/evidence')
+        self.evidence=evidence
+        _report,snapshot,months=evidence.for_bundle(bundle,grant)
+        super().__init__(gate,store,bundle,grant,guest,config_token,current,
+                         lambda:self.evidence.for_bundle(self.bundle,self.grant)[0],
+                         audit_store=audit_store,snapshot=snapshot,months=months)
+
+    def _check_evidence(self):
+        report,snapshot,months=self.evidence.for_bundle(self.bundle,self.grant)
+        if (report['completed_at']!=self.preflight_at or digest(snapshot)!=digest(self.snapshot)
+                or digest(months)!=digest(self.months)):
+            raise ValueError('bundle_supervisor/evidence_changed')
+
+    def _before_claim(self,reserved):
+        self._check_evidence()
+        super()._before_claim(reserved)
+        self._check_evidence()
+
+    def _before_release(self):
+        super()._before_release()
+        self._check_evidence()
