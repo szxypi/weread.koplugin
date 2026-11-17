@@ -1,0 +1,20 @@
+{
+  "result": "EMPTY_GROUP_EFFECT_UNVERIFIED",
+  "native_create_posts": 1,
+  "native_create_http_status": 200,
+  "create_succ_one_received": true,
+  "native_delete_posts": 0,
+  "create_replayed": false,
+  "immediate_dual_channel_readbacks": 3,
+  "later_independent_dual_channel_readbacks": 8,
+  "no_matching_group_observed": true,
+  "observed_shelf_members_flags_groups_and_native_albums_unchanged": true,
+  "web_session_key_read_only_client_shelf_http_status": 401,
+  "authentication_posts": 0,
+  "scope_phase": "closed_unverified",
+  "delayed_server_effect_not_ruled_out": true,
+  "private_values_in_repository": false,
+  "production_cloud_group_ui_implemented": false,
+  "physical_kindle_tested": false,
+  "post_closure_read_only_inspection_verified": true
+}
