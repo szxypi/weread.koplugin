@@ -74,6 +74,10 @@ Python 重新实现单章计划及回执解释，没有迁移上游自动续期�
 这一抽样结果不代表其他书籍或未检查章节的状态。已消费的版权页试验记录保持不变。
 [只读发现记录](validation-assets/2026-11-17/translation-prose-discovery.json)。
 
+同一搜索中可用 `--book-offset` 选择后续不同书目，偏移从去重后的英文标题结果计算，每次仍最多读取两本。
+它仅用于只读发现，不能准备或重检已有写入计划；失败时会清除上次的书目范围。
+扩大书目及后续章节后，共 74 次章节检查读到现成译文，两个书目偏移没有更多匹配项，另有一次搜索未完成。
+
 默认离线：
 
 ```sh
@@ -87,6 +91,7 @@ python3 scripts/test_translation_generation.py
 python3 scripts/verify_translation_generation.py --saved-session
 python3 scripts/verify_translation_generation.py --saved-session --chapter-offset 12
 python3 scripts/verify_translation_generation.py --saved-session --query 'Moby Dick' --chapter-offset 4
+python3 scripts/verify_translation_generation.py --saved-session --query 'The Wonderful Wizard of Oz' --book-offset 2
 ```
 
 `--prepare` 只在两轮原文、目录、位置、计数及书架一致后保存不可覆盖计划；

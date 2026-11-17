@@ -216,8 +216,10 @@ class TranslationProbe(NativeProbe):
         self.guard(stage,url,body)
         return super().request(stage,url,body,credentials,timeout)
 
-    def inspect(self,credentials,sample_count=2,public_english=False):
+    def inspect(self,credentials,sample_count=2,public_english=False,*,book_offset=0):
         if type(sample_count) is not int or not 1<=sample_count<=3: raise TranslationError('translation/sample_limit_invalid')
+        if type(book_offset) is not int or not 0<=book_offset<=19 or book_offset and not public_english:raise TranslationError('translation/book_offset_invalid')
+        self.allowed_ids=set();self.samples=[]
         shelf=self.request('shelf',BASE+'/shelf/sync',credentials=credentials)
         rows=shelf.get('books') if isinstance(shelf,dict) else None
         if not isinstance(rows,list) or len(rows)>5000: raise TranslationError('translation/shelf_invalid')
@@ -230,8 +232,8 @@ class TranslationProbe(NativeProbe):
             for row in found:
                 title=row['title']
                 letters=sum(c.isascii() and c.isalpha() for c in title)
-                if letters>=10 and letters/max(1,len(title))>=0.6: keys.append(row['bookId'])
-                if len(keys)==sample_count: break
+                if letters>=10 and letters/max(1,len(title))>=0.6 and row['bookId'] not in keys: keys.append(row['bookId'])
+            keys=keys[book_offset:book_offset+sample_count]
         else:
             for row in rows:
                 key=identity(row.get('bookId')) if isinstance(row,dict) else None

@@ -144,6 +144,33 @@ class TranslationPreflightTest(unittest.TestCase):
         with self.assertRaises(TranslationError):probe.guard('public_english',BASE+'/store/search?'+urlencode(dict(keyword='other',scope=10,count=20,maxIdx=0)),None)
         for query in ('other',None,True):
             with self.assertRaises(TranslationError):TranslationProbe(public_query=query)
+    def test_book_offset_is_bounded_before_network_and_only_for_public_search(self):
+        probe=TranslationProbe()
+        for value in (-1,20,True,'2'):
+            with self.assertRaises(TranslationError):probe.inspect({},book_offset=value,public_english=True)
+        with self.assertRaises(TranslationError):probe.inspect({},book_offset=1)
+        self.assertEqual(probe.report['stages'],[])
+    def test_public_offset_selects_distinct_english_books_before_metadata_reads(self):
+        from unittest.mock import patch
+        rows=[dict(title='A long English title',bookId=k) for k in ('900001','900001','900002','900003','900004')]
+        probe=TranslationProbe()
+        def request(stage,url,body=None,credentials=None):
+            if stage=='shelf':return dict(books=[])
+            if stage=='member':return dict(isPaying=1)
+            if stage=='public_english':return {}
+            return {}
+        with patch.object(probe,'request',side_effect=request),patch('verify_translation_preflight.page',return_value=dict(books=rows)),\
+                patch('verify_translation_preflight.catalog',return_value=dict(chapters=[],format='epub',version=1)):
+            report=probe.inspect({},2,True,book_offset=2)
+            self.assertEqual(probe.allowed_ids,{'900003','900004'});self.assertEqual(report['sampled_book_count'],2)
+            probe.inspect({},2,True)
+            self.assertEqual(probe.allowed_ids,{'900001','900002'});self.assertEqual(len(probe.samples),2)
+    def test_failed_discovery_clears_previous_book_scope(self):
+        from unittest.mock import patch
+        probe=TranslationProbe();probe.allowed_ids={'900001'};probe.samples=[{'book_id':'900001'}]
+        with patch.object(probe,'request',side_effect=ValueError('unavailable')):
+            with self.assertRaises(ValueError):probe.inspect({},2,True)
+        self.assertEqual(probe.allowed_ids,set());self.assertEqual(probe.samples,[])
 
 
 if __name__=='__main__': unittest.main()

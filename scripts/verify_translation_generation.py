@@ -56,13 +56,15 @@ def snapshot(api,web,grant):
         native_shelf=state_hash(nshelf),web_shelf=state_hash(wshelf))
 
 
-def inspect(api,web,grant,report,expected=None,*,chapter_offset=0):
+def inspect(api,web,grant,report,expected=None,*,chapter_offset=0,book_offset=0):
     if type(chapter_offset) is not int or not 0<=chapter_offset<=19999:raise ValueError('translation_generation/chapter_offset')
-    api.inspect(grant,2,True)
+    if type(book_offset) is not int or not 0<=book_offset<=19 or book_offset and expected is not None:raise ValueError('translation_generation/book_offset')
+    if book_offset:api.inspect(grant,2,True,book_offset=book_offset)
+    else:api.inspect(grant,2,True)
     if api.member['paying'] is not True:raise ValueError('translation_generation/member_required')
     report.update(paying_member_verified=True,sampled_books=len(api.samples),candidate_chapters_checked=0,
         existing_translation_chapters=0,empty_content_chapters=0,untranslated_content_candidates=0,chapter_offset=chapter_offset,
-        structural_chapters_skipped=0,structural_sources_skipped=0,nonprose_sources_skipped=0)
+        structural_chapters_skipped=0,structural_sources_skipped=0,nonprose_sources_skipped=0,book_offset=book_offset)
     for sample in api.samples:
         model=sample['expected']
         if expected and model['book_id']!=expected['book_id']:continue
@@ -117,12 +119,14 @@ def inspect(api,web,grant,report,expected=None,*,chapter_offset=0):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--chapter-offset',type=int,default=0)
+    parser.add_argument('--book-offset',type=int,default=0)
     parser.add_argument('--query',choices=PUBLIC_QUERIES,default=PUBLIC_QUERY)
     mode=parser.add_mutually_exclusive_group();mode.add_argument('--prepare',action='store_true');mode.add_argument('--dry-run',action='store_true')
     args=parser.parse_args(argv)
     if (args.prepare or args.dry_run) and not args.saved_session:parser.error('saved access required')
     if not 0<=args.chapter_offset<=19999 or args.chapter_offset and (not args.saved_session or args.dry_run):parser.error('bounded discovery offset requires saved access, not a stored-plan recheck')
     if args.query!=PUBLIC_QUERY and (not args.saved_session or args.prepare or args.dry_run):parser.error('additional public searches are read-only discovery only')
+    if not 0<=args.book_offset<=19 or args.book_offset and (not args.saved_session or args.prepare or args.dry_run):parser.error('book offset is bounded read-only discovery only')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
         translation_mode_requests=0,generation_requests=0,authentication_posts=0,trial_activations=0,purchases=0,private_data_on_regular_disk=False)
     saved=grant=web=api=None
@@ -134,7 +138,7 @@ def main(argv=None):
             web.verify_account();api=Native(public_query=args.query);store=TranslationGenerationStore();state,_receipt=store.read()
             if args.prepare and state is not None:raise ValueError('translation_generation/consumed')
             if args.dry_run and (not state or state['phase']!='prepared'):raise ValueError('translation_generation/not_prepared')
-            plan=inspect(api,web,grant,report,state['plan'] if args.dry_run else None,chapter_offset=args.chapter_offset)
+            plan=inspect(api,web,grant,report,state['plan'] if args.dry_run else None,chapter_offset=args.chapter_offset,book_offset=args.book_offset)
             web.verify_account()
             if save_refreshed_web_session(SessionStore(),saved,web):
                 report['refreshed_web_session_saved']=True;saved=SessionStore().load()
@@ -145,6 +149,7 @@ def main(argv=None):
     except Exception as error:
         report['result']='UNVERIFIED';reason=str(error)
         allowed={'translation_generation/'+s for s in ('member_required','no_missing_sample','consumed','not_prepared','content_changed','catalog_changed','baseline_changed','plan_changed','mixed_position_presence')}
+        allowed.update({'translation/no_eligible_sample','translation/book_format_invalid','translation/catalog_schema_invalid'})
         report['reason']=reason if reason in allowed else 'translation_generation/preflight_unavailable'
     finally:
         if api:report['native_stages']=[{k:r[k] for k in ('stage','status','error_code') if k in r} for r in api.report['stages']]

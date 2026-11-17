@@ -193,6 +193,10 @@ class GuardTest(unittest.TestCase):
         for args in (['--query','Moby Dick'],['--saved-session','--prepare','--query','Moby Dick'],
                 ['--saved-session','--dry-run','--query','Moby Dick'],['--saved-session','--query','not permitted']):
             with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
+    def test_book_offset_cannot_prepare_or_recheck_or_run_offline(self):
+        for args in (['--book-offset','2'],['--saved-session','--prepare','--book-offset','2'],
+                ['--saved-session','--dry-run','--book-offset','2'],['--saved-session','--book-offset','20']):
+            with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
 
 
 class InspectionTest(unittest.TestCase):
@@ -250,6 +254,8 @@ class InspectionTest(unittest.TestCase):
         for offset in (-1,20000,True,'4',None):
             with self.subTest(offset=offset),self.assertRaisesRegex(ValueError,'chapter_offset'):inspect(self.api,self.web,self.grant,{},chapter_offset=offset)
         self.api.inspect.assert_not_called();self.web.inspect_content.assert_not_called()
+        with self.assertRaisesRegex(ValueError,'book_offset'):inspect(self.api,self.web,self.grant,{},expected={},book_offset=1)
+        self.api.inspect.assert_not_called()
     def test_stored_plan_rechecks_exact_uid_without_chapter_offset(self):
         with patch('verify_translation_generation.snapshot',return_value=self.baseline):
             plan=inspect(self.api,self.web,self.grant,{})
