@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Inspect a saved bundle with the native queue, offline and on the real clock."""
 import argparse
-import base64
 import json
 import os
 from pathlib import Path
@@ -10,8 +9,9 @@ import sys
 import tempfile
 import time
 
-from native_time_capture_evidence import account_key, validate_evidence
+from native_time_capture_evidence import validate_evidence
 from native_time_capture_bundle import MAX_BYTES
+from native_time_bundle_workspace import restore
 from run_persistent_ui_probe import extract_candidate, run_child
 
 FRAME=b'\nWEREAD_NATIVE_BUNDLE_INSPECT_RESULT='
@@ -37,15 +37,11 @@ def main(argv=None):
     try:
         raw=sys.stdin.buffer.read(MAX_BYTES+1)
         if len(raw)>MAX_BYTES:raise ValueError('bundle_inspect/input')
-        bundle=validate_input(json.loads(raw),time.time());plan=bundle['plan'];evidence=bundle['evidence']
+        bundle=validate_input(json.loads(raw),time.time());plan=bundle['plan']
         with tempfile.TemporaryDirectory(prefix='weread-bundle-inspect-',dir='/dev/shm') as directory:
             root=Path(directory);profile=root/'profile';plugins=profile/'plugins';plugins.mkdir(parents=True)
             extract_candidate(args.candidate,plugins)
-            epub=root/'source.epub';epub.write_bytes(base64.b64decode(plan['archive_base64'],validate=True));os.chmod(epub,0o600)
-            ledger=root/'ledger';ledger.mkdir(mode=0o700)
-            for path,data in ((ledger/('offline-time-'+account_key(plan['owner'])+'.db'),evidence['ledger_base64']),
-                              (ledger/'reading-time-coverage.db',evidence['coverage_base64'])):
-                path.write_bytes(base64.b64decode(data,validate=True));os.chmod(path,0o600)
+            epub,ledger=restore(bundle,root)
             private={key:value for key,value in plan.items() if key!='archive_base64'}
             env=dict(os.environ,KO_HOME=str(profile),TZ='Asia/Shanghai',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8')
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/native_time_bundle_inspect.lua'

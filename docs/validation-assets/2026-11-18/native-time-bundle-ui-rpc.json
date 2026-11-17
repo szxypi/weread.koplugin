@@ -29,6 +29,7 @@
       "dry_run_without_claim": true,
       "invalid_http_receipt_blocked": true,
       "native_http_guard_enforced": true,
+      "exact_sqlite_bundle_restored": true,
       "scenarios": 20
     },
     {
@@ -58,6 +59,7 @@
       "dry_run_without_claim": true,
       "invalid_http_receipt_blocked": true,
       "native_http_guard_enforced": true,
+      "exact_sqlite_bundle_restored": true,
       "scenarios": 20
     }
   ]

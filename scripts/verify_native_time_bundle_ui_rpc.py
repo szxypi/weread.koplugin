@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synthetic ReaderUI time menu through an isolated RPC one-shot guard."""
-import argparse,base64,json,os,secrets,signal,subprocess,tempfile,time
+import argparse,json,os,secrets,signal,subprocess,tempfile,time
+from copy import deepcopy
 from pathlib import Path
 
 from native_time_bundle_gate import DispatchGate
@@ -8,6 +9,9 @@ from native_time_bundle_audit_store import AuditStore
 from native_time_bundle_bridge import NativeTimeBridge
 from native_time_bundle_evidence import PreflightEvidence
 from native_time_bundle_supervisor import NativeBoundSupervisor
+from native_time_bundle_workspace import restore
+from native_time_capture_evidence import PROTOCOL,account_key,validate_evidence
+from native_time_sqlite_snapshot import snapshot
 from native_trial_pipe import Frames,reply,stop,write_initial
 from run_persistent_ui_probe import extract_candidate
 from process_loss_runtime import enable_subreaper,kill_reader_session,session_members
@@ -43,15 +47,30 @@ def reap_session(session):
         time.sleep(.01)
 
 
-def scenario(runtime,source,candidate,root,mode,width,height,dpi):
+def seed_evidence(runtime,source,root):
+    captured,_grant,_before,_samples,_now=example();plan=captured['plan']
+    folder=root/'seed';folder.mkdir(mode=0o700)
+    command=[str(runtime/'luajit'),str(source/'spec/koreader/native_time_bundle_seed.lua'),str(source),str(folder)]
+    result=subprocess.run(command,input=json.dumps(plan,separators=(',',':')).encode(),stdout=subprocess.PIPE,
+                          stderr=subprocess.DEVNULL,cwd=runtime,timeout=30)
+    if result.returncode or result.stdout.count(b'\nWEREAD_SYNTHETIC_BUNDLE_SEED=PASS')!=1:
+        raise ValueError('synthetic_ui/seed')
+    ledger,ledger_hash=snapshot(folder/('offline-time-'+account_key(plan['owner'])+'.db'),root/'seed-ledger.db')
+    coverage,coverage_hash=snapshot(folder/'reading-time-coverage.db',root/'seed-coverage.db')
+    evidence=dict(protocol=PROTOCOL,ledger_base64=ledger,ledger_sha256=ledger_hash,coverage_base64=coverage,coverage_sha256=coverage_hash)
+    validate_evidence(plan,evidence)
+    return evidence
+
+
+def scenario(runtime,source,candidate,root,mode,width,height,dpi,evidence):
     captured,grant,before,_samples,_now=example();p=captured['plan']
+    captured['evidence']=deepcopy(evidence)
     if (p['owner'],p['book_id'],grant['accessToken'],grant['refreshToken'])!=('900000','900001','mock-native-access','mock-native-refresh'):
         raise ValueError('synthetic_ui/input')
     folder=root/mode;folder.mkdir(mode=0o700);home=folder/'profile';plugins=home/'plugins';plugins.mkdir(parents=True)
     extract_candidate(candidate,plugins)
     html=folder/'synthetic.html';html.write_text('<html><body>'+'<p>Synthetic text for native UI.</p>'*120+'</body></html>')
-    epub=folder/'source.epub';epub.write_bytes(base64.b64decode(p['archive_base64'],validate=True))
-    ledger=folder/'ledger';ledger.mkdir(mode=0o700)
+    epub,ledger=restore(captured,folder)
     journal=folder/'gate';lock=folder/'gate.lock'
     gate=DispatchGate(FileBackend(journal),lambda:project_lock(lock),clock=time.time,zone=lambda:'+08:00')
     month=period('monthly',int(time.time()))[0]
@@ -168,13 +187,15 @@ def main(argv=None):
             enable_subreaper()
             with tempfile.TemporaryDirectory(prefix='weread-native-ui-rpc-',dir='/dev/shm') as directory:
                 root=Path(directory)
+                evidence=seed_evidence(runtime,source,root)
                 for mode in ('success','optional_text','dry_run','tamper_selection','tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows','tamper_native_counts','tamper_native_months','tamper_native_shelf','tamper_native_source','tamper_native_catalog','lost_reply','no_ack','kill_worker','no_delta','duplicate','invalid_ack','http_201'):
-                    scenario(runtime,source,candidate,root,mode,args.width,args.height,args.dpi)
+                    scenario(runtime,source,candidate,root,mode,args.width,args.height,args.dpi,evidence)
                 report.update(result='SYNTHETIC_NATIVE_UI_RPC_VERIFIED',native_menu=True,background_service=True,correct_dialogs=True,workers_reaped=True,archive_verified=True,
                               durable_claim_before_reply=True,modified_selection_blocked=True,modified_body_blocked=True,
                               lost_and_duplicate_not_replayed=True,no_ack_and_worker_death_not_replayed=True,ack_readonly_recovery_not_replayed=True,
                               baseline_sealed_before_claim=True,preflight_evidence_bound=True,native_baseline_mismatch_blocked=True,catalog_stamp_mismatch_blocked=True,optional_text_parity=True,
-                              dry_run_without_claim=True,invalid_http_receipt_blocked=True,native_http_guard_enforced=True,scenarios=20)
+                              dry_run_without_claim=True,invalid_http_receipt_blocked=True,native_http_guard_enforced=True,
+                              exact_sqlite_bundle_restored=True,scenarios=20)
     except Exception as error:
         report.update(result='UNVERIFIED',synthetic_failure_mode=mode,synthetic_failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_ui/child_'):

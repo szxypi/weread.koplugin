@@ -55,13 +55,11 @@ host.settings:set('auth_epoch',1);host.settings:flush()
 local account=assert(host.library_db:accountKey())
 assert(account==require('weread.lib.native_position_contract').account_key(input.owner))
 local Ledger=require('weread.lib.offline_time_store');local Coverage=require('weread.lib.readtime_coverage')
-local ledger=Ledger:new(arg[3]);local coverage=Coverage:new(arg[3],function() return input.start_time end)
-assert(coverage:initialize()==input.start_time)
-local window=assert(ledger:begin(account,{book_id=input.book_id,stats_book=1,start_time=input.start_time,
-    time_zone='+08:00',book_version=input.book_version,file_id=input.file_id,version_source='epub_snapshot'}))
-local spans={};for i,row in ipairs(input.rows) do spans[i]={page=tostring(i),start_time=row.start_time,duration=row.duration} end
-assert(ledger:collect(account,window,spans,input.ended_at,true).seconds==input.seconds)
+local ledger=Ledger:new(arg[3]);local coverage=Coverage:new(arg[3])
+assert(coverage:initialize()<=input.start_time)
 local C=require('weread.lib.readtime_transfer_contract');assert(C.digest(assert(ledger:pending(account)))==C.digest(input.rows))
+local availability=assert(coverage:preview_individual(account,input.rows))
+assert(availability.eligible==input.seconds and availability.covered==0 and availability.unverified==0)
 host.offline_time.store=ledger;host.readtime_coverage=coverage;host.offline_time.update=function() end
 host.isNetworkConnected=function() return true end
 local chapters={{chapterUid=input.chapter_uid,chapterIdx=input.chapter_idx}}
