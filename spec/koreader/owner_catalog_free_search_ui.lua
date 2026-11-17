@@ -9,11 +9,14 @@ local ok=pcall(function()
     assert(type(input.book)=='string' and type(input.chapter)=='string' and type(input.local_chapter)=='string'
         and input.chapter~=input.local_chapter and type(input.source)=='string' and type(input.keyword)=='string'
         and type(input.offset)=='number')
+    if input.entries~=nil then assert(type(input.entries)=='table' and #input.entries>=2 and #input.entries<=128) end
     G_defaults=require('luadefaults'):open()
     G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
     require('gettext').changeLang('zh_CN')
     local Device=require('device');require('document/canvascontext'):init(Device)
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    assert(dofile(fixtures..'offline_network_guard.lua')())
     Device.screen.shot=function() error('screenshots_disabled',0) end
     local Loader=require('pluginloader');Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
     for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
@@ -54,14 +57,27 @@ local ok=pcall(function()
         return
     end
     local book={book_id=input.book,bookId=input.book,bookVersion=0,title='合成标题',cached_chapters={}}
-    local chapters={{chapterUid=input.local_chapter,title='合成章节'}, {chapterUid=input.chapter,title='本地章节'}}
-    local bodies={[input.local_chapter]='<html><body><p>合成本地起始章节。</p></body></html>',[input.chapter]=input.source}
+    local chapters,bodies={},{}
+    if input.entries then
+        local seen={}
+        for index,row in ipairs(input.entries) do
+            assert(type(row)=='table' and type(row.uid)=='string' and type(row.source)=='string'
+                and #row.source>0 and #row.source<=Source.MAX_BYTES and not seen[row.uid])
+            seen[row.uid]=true;chapters[index]={chapterUid=row.uid,title='章节 '..index};bodies[row.uid]=row.source
+        end
+        assert(full and bodies[input.chapter]==input.source and bodies[input.local_chapter])
+    else
+        chapters={{chapterUid=input.local_chapter,title='合成章节'}, {chapterUid=input.chapter,title='本地章节'}}
+        bodies={[input.local_chapter]='<html><body><p>合成本地起始章节。</p></body></html>',[input.chapter]=input.source}
+    end
     local sources={}
     for _i,chapter in ipairs(chapters) do
         local uid=chapter.chapterUid
         sources[uid]=assert(Source.capture(book,chapter,bodies[uid],'web_xhtml'))
-        local source={[uid]=sources[uid]}
-        book.cached_chapters[uid]=assert(Content.save_book_epub(settings,book,{chapter},bodies,'owner-local',{},nil,nil,Identity.capture(book),source))
+        if not input.entries then
+            local source={[uid]=sources[uid]}
+            book.cached_chapters[uid]=assert(Content.save_book_epub(settings,book,{chapter},bodies,'owner-local',{},nil,nil,Identity.capture(book),source))
+        end
     end
     book.cached_file=book.cached_chapters[input.local_chapter]
     if full then
@@ -86,7 +102,7 @@ local ok=pcall(function()
     local plugin=assert(reader.weread)
     plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
     local function wait(predicate)
-        local deadline=socket.gettime()+90
+        local deadline=socket.gettime()+180
         while not predicate() do
             UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
             assert(socket.gettime()<deadline,'ui_timeout')
@@ -102,7 +118,7 @@ local ok=pcall(function()
     local owner=plugin._cached_book_search_owner;assert(owner.catalog_missing)
     owner.input:setInputText(input.keyword);owner.input.buttons[1][2].callback()
     wait(function() return owner.finished and not owner.job end)
-    if full then assert(owner.discovered and not owner.discovery_incomplete and owner.checked==2) end
+    if full then assert(owner.discovered and not owner.discovery_incomplete and owner.checked==#chapters and owner.missing==0) end
     assert(#owner.value==1 and owner.value[1].chapter_uid==input.chapter and owner.value[1].offset==input.offset)
     owner.menu:onMenuSelect(owner.menu.item_table[1])
     wait(function()

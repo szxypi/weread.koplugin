@@ -54,7 +54,7 @@ def main():
                     env=env | {'WEREAD_OWNER_UNINDEXED_REOPEN':'1' if reopened else '0'},stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
                 try:
-                    out,err=child.communicate(payload,timeout=180)
+                    out,err=child.communicate(payload,timeout=360)
                     marker=b'\nWEREAD_OWNER_CATALOG_FREE_UI='
                     if (child.returncode or len(out)>8*1024*1024 or out.count(marker)!=1
                             or b'[WeRead] forceRePaint failed:' in out+err):raise ValueError('native')

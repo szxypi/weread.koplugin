@@ -1,0 +1,37 @@
+{
+  "result": "PASS",
+  "scope": {
+    "books": 1,
+    "chapters": 57,
+    "source_format": "web_xhtml",
+    "all_chapter_sources_verified_against_preflight": true,
+    "query_matches_in_source": 1,
+    "catalog_removed_for_search": true,
+    "catalog_and_version_unchanged_during_preflight": true,
+    "pending_progress_fixture": "synthetic",
+    "book_and_chapter_titles": "synthetic",
+    "images_and_original_styling": "not_included"
+  },
+  "native_validation": {
+    "koreader": "v2026.07.1 Linux emulator",
+    "screens": [[600, 800, 167], [1264, 1680, 300]],
+    "all_57_chapters_scanned": true,
+    "source_bound_result_and_native_location_verified": true,
+    "fresh_process_plugin_resume": true,
+    "pending_progress_preserved": true,
+    "network": "IPv4 and IPv6 sockets blocked in the test processes",
+    "temporary_profiles_removed": true,
+    "screenshots": 0
+  },
+  "account_validation": {
+    "account_data_writes": 0,
+    "authentication_writes": 0,
+    "independent_progress_after_ui_unchanged": true,
+    "independent_shelf_after_ui_unchanged": true,
+    "private_source_or_credentials_saved_to_regular_files": false
+  },
+  "limitations": [
+    "One real book and one unique search term; original images and styling were not tested.",
+    "The 1264x1680 environment is an emulator, not a physical Kindle Oasis 2."
+  ]
+}
