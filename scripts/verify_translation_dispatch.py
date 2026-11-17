@@ -50,9 +50,11 @@ def read_result(api,web,grant,plan,sample,original,baseline,semantic,*,current,w
         if not result.get('content_decoded') or not content:raise ValueError('translation_trial/content')
         if original_signature(content['source'])!=original:raise ValueError('translation_trial/original_changed')
         if not unchanged(snapshot(api,web,grant)):raise ValueError('translation_trial/baseline_changed')
-        if (result.get('nonempty_translation_blocks',0)>0 and type(version) is int and version>0
-                and semantic['kind'] in ('ready','pending') and version>=plan['translate_version']
-                and (semantic['version'] is None or version>=semantic['version'])):
+        available=version
+        if version is None and semantic['kind']=='ready':available=semantic['version']
+        if (result.get('nonempty_translation_blocks',0)>0 and type(available) is int and available>0
+                and semantic['kind'] in ('ready','pending') and available>=plan['translate_version']
+                and (semantic['version'] is None or available>=semantic['version'])):
             ready_source=content['source'];ready_model=model;break
         if attempt+1<limit:wait(2)
     if ready_source is None:raise ValueError('translation_trial/not_ready')
@@ -62,7 +64,8 @@ def read_result(api,web,grant,plan,sample,original,baseline,semantic,*,current,w
     if not web.content_sample or web.content_sample['source']!=ready_source or final_model!=ready_model or not unchanged(snapshot(api,web,grant)):raise ValueError('translation_trial/final_changed')
     return dict(actual_translated_content_read_twice=True,original_visible_text_unchanged=True,
         catalog_changed_only_current_translation_fields=True,position_presence_reported_fields_shelf_unchanged=True,
-        positive_translation_version=True)
+        positive_translation_version=True,generation_status_observed_stopped=semantic['kind']=='ready',
+        translation_version_source='stopped_ack' if version is None else 'catalog')
 
 
 def main(argv=None):
@@ -108,7 +111,7 @@ def main(argv=None):
                 sample=dict(book_id=plan['book_id'],expected=restore_catalog(model,plan,proof));web.book_id=plan['book_id']
                 report.update(read_result(api,web,grant,plan,sample,proof['original_text_sha256'],plan['baseline_sha256'],semantic,current=current))
                 if store.read()[1]!=receipt:raise ValueError('translation_trial/journal_changed')
-                report.update(result='PASS_REAL_GENERATION_READONLY_INSPECTION',generation_ack_kind=semantic['kind'],journal_unchanged=True,
+                report.update(result='PASS_REAL_GENERATION_READONLY_INSPECTION' if semantic['kind']=='ready' else 'TRANSLATED_CONTENT_READONLY_VERIFIED_STATUS_PENDING',generation_ack_kind=semantic['kind'],journal_unchanged=True,
                     dispatch_grant_matches_current=digest(grant)==plan['grant_sha256'])
             else:
                 phase='preflight';api,plan=preflight(state['plan'] if state else None)
@@ -141,7 +144,7 @@ def main(argv=None):
                     phase='generation';receipt,semantic=send_once(store,receipt,'generation',grant,current=current,opener=transport)
                     report['generation_ack_kind']=semantic['kind'];phase='independent_result'
                     report.update(read_result(api,web,grant,plan,sample,original,baseline,semantic,current=current))
-                    report['result']='PASS_REAL_SINGLE_CHAPTER_GENERATION'
+                    report['result']='PASS_REAL_SINGLE_CHAPTER_GENERATION' if semantic['kind']=='ready' else 'TRANSLATED_CONTENT_VERIFIED_GENERATION_STATUS_PENDING'
             current();web.verify_account();report['retained_captures_and_native_grant_unchanged']=True
     except Exception as error:
         report.update(result='UNVERIFIED',phase=phase)

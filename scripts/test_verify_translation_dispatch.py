@@ -65,7 +65,7 @@ class CommandTest(unittest.TestCase):
         self.api=Mock();self.api.samples=[dict(book_id='900001',expected=self.model)];self.api.report=dict(stages=[])
         self.api.request.side_effect=lambda stage,*a,**k:copy.deepcopy(self.info if stage=='book' else self.after)
         self.transport=Mock()
-        self.transport.open.side_effect=lambda request,**kw:Reply(b'{"succ":1}' if request.get_method()=='GET' else b'{"stopPoll":false,"curStatus":[]}')
+        self.transport.open.side_effect=lambda request,**kw:Reply(b'{"succ":1}' if request.get_method()=='GET' else b'{"stopPoll":true,"curStatus":[{"uid":1,"translateVersion":2}]}')
         self.preflight_effect=None
     def run_command(self,args):
         with contextlib.ExitStack() as stack:
@@ -109,7 +109,8 @@ class CommandTest(unittest.TestCase):
     def test_apply_uses_two_preflights_once_each_and_independent_content_proof(self):
         code,r=self.run_command(['--saved-session','--apply'])
         self.assertEqual(code,0);self.assertEqual(r['result'],'PASS_REAL_SINGLE_CHAPTER_GENERATION')
-        self.assertEqual(r['generation_ack_kind'],'pending');self.assertTrue(r['actual_translated_content_read_twice'])
+        self.assertEqual(r['generation_ack_kind'],'ready');self.assertTrue(r['actual_translated_content_read_twice'])
+        self.assertTrue(r['generation_status_observed_stopped'])
         self.assertEqual(r['mode_request_attempts'],1);self.assertEqual(r['generation_request_attempts'],1)
         self.assertEqual(self.inspection.call_count,2);self.assertEqual(self.transport.open.call_count,2)
         self.assertEqual(self.web.inspect_content.call_count,2);self.assertEqual(r['journal']['phase'],'submitted')
@@ -192,6 +193,22 @@ class CommandTest(unittest.TestCase):
         state=self.store.read()[0];state['acks'][1]['wire']['http_status']=503;self.store.backend.data=canonical(state)
         before=self.store.read()[1];self.transport.reset_mock();code,r=self.run_command(['--saved-session','--inspect-result'])
         self.assertEqual(code,1);self.assertEqual(self.store.read()[1],before);self.transport.open.assert_not_called()
+    def test_available_content_does_not_relabel_a_pending_ack_as_stopped(self):
+        self.transport.open.side_effect=lambda request,**kw:Reply(b'{"succ":1}' if request.get_method()=='GET' else b'{"stopPoll":false,"curStatus":[]}')
+        code,r=self.run_command(['--saved-session','--apply'])
+        self.assertEqual(code,0);self.assertEqual(r['result'],'TRANSLATED_CONTENT_VERIFIED_GENERATION_STATUS_PENDING')
+        self.assertFalse(r['generation_status_observed_stopped']);self.assertTrue(r['actual_translated_content_read_twice'])
+    def test_stopped_same_chapter_ack_can_supply_an_absent_catalog_version(self):
+        self.after['data'][0]['updated'][0].pop('translateVersion')
+        code,r=self.run_command(['--saved-session','--apply'])
+        self.assertEqual(code,0);self.assertEqual(r['translation_version_source'],'stopped_ack')
+        self.assertNotIn('translateVersion',self.after['data'][0]['updated'][0])
+    def test_explicit_zero_catalog_version_is_not_treated_as_absent(self):
+        self.after['data'][0]['updated'][0]['translateVersion']=0;wait=Mock()
+        with patch('verify_translation_dispatch.read_result',side_effect=lambda *args,**kw:read_result(*args,**kw,wait=wait)):
+            code,r=self.run_command(['--saved-session','--apply'])
+        self.assertEqual(code,1);self.assertEqual(r['reason'],'translation_trial/not_ready')
+        self.assertEqual(wait.call_count,5);self.assertEqual(self.transport.open.call_count,2)
 
 
 if __name__=='__main__':unittest.main()

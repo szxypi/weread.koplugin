@@ -18,9 +18,9 @@
   "bounded_readonly_result_attempts": 6,
   "readonly_inspection_no_claim_or_write": true,
   "readonly_inspection_can_use_new_owner_grant": true,
-  "new_tests": 48,
+  "new_tests": 51,
   "python_modules": 141,
-  "python_tests": 1850,
+  "python_tests": 1853,
   "python_skips": 0,
   "real_disarmed_preflight": true,
   "real_generation_intent_saved": false,
@@ -36,5 +36,7 @@
   "production_changes": false,
   "production_files": 298,
   "package_sha256": "d5766d470f8b804a956a98dcf25e3b623efb198ac97f98d2da97f91e4a7feb1b",
-  "whole_goal_complete": false
+  "whole_goal_complete": false,
+  "pending_receipt_never_relabelled_stopped": true,
+  "absent_catalog_version_not_zero_filled": true
 }
