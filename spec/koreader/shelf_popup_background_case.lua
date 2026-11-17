@@ -43,7 +43,7 @@ return function(host,response,cover,evidence)
             UI:close(picker);pump(function() return host.shelf_view~=view end)
             assert(host.shelf_group_key==nil and host:getShelfCoverCache():pathFor(book))
         else
-            local group=assert(host.shelf_groups[1]);picker:onMenuSelect(picker.item_table[2])
+            local group=assert(host.shelf_groups[1]);picker:onMenuSelect(picker.item_table[3])
             pump(function() return host.shelf_view~=view end)
             assert(host.shelf_group_key==group.key)
             local selected=host.shelf_view

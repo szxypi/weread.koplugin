@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from shelf_groups_contract import project,summary
-from shelf_groups_ui_contract import COUNTS,FLAGS
+from shelf_groups_ui_contract import COUNTS,FLAGS,validate
 from verify_persistent_ui import FRAME,decode_result,validate_stage
 from test_persistent_ui import full_stage
 from verify_shelf_groups import main
@@ -28,6 +28,13 @@ def group_stage(mode='live'):
 
 
 class GroupTests(unittest.TestCase):
+    def test_empty_group_list_does_not_claim_multiple_selection(self):
+        coverage=dict.fromkeys(COUNTS,0);coverage.update(dict.fromkeys(FLAGS,True));coverage['multi_groups_verified']=False
+        coverage['selector_views']=1
+        self.assertEqual(validate(coverage,'live',0,True),1)
+        coverage['multi_groups_verified']=True
+        with self.assertRaises(ValueError):validate(coverage,'live',0,True)
+
     def test_membership_deduplicates_and_preserves_reference_order(self):
         result=project(shelf())
         self.assertEqual(result,[dict(key='archive:1',label='A',members=['2','1']),dict(key='archive:2',label='Empty',members=[]),

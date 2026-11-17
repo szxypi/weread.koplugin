@@ -277,6 +277,44 @@ host:showShelfView("books")
 local groups = host.shelf_groups
 expect(#groups == 3 and groups[1].books[1] == grouped_books[1],
     "snapshot groups were not projected onto the shared book records")
+-- Multi-group choices persist per account and never infer a missing group as
+-- empty when an incomplete snapshot is shown.
+local group_account='account-a';local profiles={};local fail_save=false
+host.library_db={accountKey=function() return group_account end,
+    getProfileState=function(_self,key) return profiles[group_account] and profiles[group_account][key] end,
+    putProfileState=function(_self,key,value)
+        if fail_save then return false end
+        profiles[group_account]=profiles[group_account] or {};profiles[group_account][key]=value;return true
+    end}
+host.showInfo=function(_self,text) host.info=text end
+host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+shown[#shown].callbacks.on_select_groups({'archive:7','archive:8'})
+expect(#shown[#shown].data.books==20 and #shown[#shown].data.group_keys==2,'multi-group union missing books')
+expect(#profiles['account-a'].shelf_multi_groups_v1.keys==2,'multi-group selection not saved')
+host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(#shown[#shown].data.group_keys==2 and #shown[#shown].data.books==20,'saved selection not restored')
+host:applyShelfSnapshot(grouped_books,{archives[1]});host:showShelfView('books')
+expect(#shown[#shown].data.books==30 and #shown[#shown].data.group_keys==2,'partial snapshot lost selection or hid books')
+host.shelf_group_key='archive:7';host:showShelfView('books')
+expect(#shown[#shown].data.books==30,'stale single-group state narrowed unavailable multi-group selection')
+host.shelf_group_key=nil
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(#shown[#shown].data.group_keys==2 and #shown[#shown].data.books==20,'full snapshot did not restore remembered groups')
+local stale_multi=shown[#shown].callbacks.on_select_groups;group_account='account-b';stale_multi({'archive:8'})
+expect(not profiles['account-b'],'stale account callback saved another account selection')
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(#shown[#shown].data.group_keys==0 and #shown[#shown].data.books==30,'selection leaked between accounts')
+shown[#shown].callbacks.on_select_groups({'archive:missing'})
+expect(host.info=='Remove unavailable groups before applying.' and #shown[#shown].data.group_keys==0,
+    'unavailable group was accepted or did not report a useful error')
+fail_save=true;shown[#shown].callbacks.on_select_groups({'archive:8'});fail_save=false
+expect(#shown[#shown].data.group_keys==0 and host.info=='Could not save the selected groups.', 'save failure applied an unpersisted filter')
+group_account='account-a';host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(#shown[#shown].data.group_keys==2,'returning to an account lost its selection')
+shown[#shown].callbacks.on_select_group(nil)
+expect(#profiles['account-a'].shelf_multi_groups_v1.keys==0 and #shown[#shown].data.group_keys==0,'all books did not clear persistent selection')
+host.library_db=nil;host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+groups=host.shelf_groups
 shown[#shown].callbacks.on_select_group("archive:7")
 expect(shown[#shown].data.mode == "books" and #shown[#shown].data.books == 20
         and shown[#shown].data.group_label == "History", "group created a separate content mode")

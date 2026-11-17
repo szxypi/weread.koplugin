@@ -21,6 +21,38 @@ local file_exists = PluginUtil.file_exists
 
 local M = {}
 local sortBooks
+local GROUP_SELECTION_KEY = 'shelf_multi_groups_v1'
+
+local function group_owner(host)
+    local db=host.library_db
+    if not db or type(db.accountKey)~='function' then return nil end
+    local ok,account=pcall(db.accountKey,db)
+    return ok and type(account)=='string' and account~='' and account or nil
+end
+
+local function load_group_selection(host)
+    local account=group_owner(host)
+    if host._shelf_multi_loaded and host._shelf_multi_owner==account then return end
+    if host._shelf_multi_loaded and host._shelf_multi_owner~=account then host.shelf_group_key=nil end
+    host._shelf_multi_loaded=true;host._shelf_multi_owner=account;host.shelf_multi_groups={}
+    local db=host.library_db
+    if account and type(db.getProfileState)=='function' then
+        local ok,state=pcall(db.getProfileState,db,GROUP_SELECTION_KEY)
+        if ok and group_owner(host)==account and type(state)=='table' then
+            host.shelf_multi_groups=ShelfGroups.normalize(state.keys) or {}
+        end
+    end
+end
+
+local function save_group_selection(host,keys)
+    keys=ShelfGroups.normalize(keys)
+    local account=group_owner(host);local db=host.library_db
+    if not keys or not account or not db or type(db.putProfileState)~='function' then return false end
+    local ok,saved=pcall(db.putProfileState,db,GROUP_SELECTION_KEY,{keys=keys})
+    if not ok or saved~=true or group_owner(host)~=account then return false end
+    host.shelf_multi_groups=keys;host._shelf_multi_loaded=true;host._shelf_multi_owner=account
+    return true
+end
 
 local function cover_subprocess_runner()
     local ok, ffiutil = pcall(require, "ffi/util")
@@ -192,6 +224,9 @@ function M:onWeReadAccountChanged()
     self.shelf_books = nil
     self.shelf_groups = nil
     self.shelf_group_key = nil
+    self.shelf_multi_groups = nil
+    self._shelf_multi_loaded = nil
+    self._shelf_multi_owner = nil
     self.shelf_search_keyword = nil
     self.shelf_view_pages = nil
     if self.offline_time then self.offline_time:resume() end
@@ -199,6 +234,7 @@ function M:onWeReadAccountChanged()
 end
 
 function M:applyShelfSnapshot(all_books, archives)
+    load_group_selection(self)
     local shelf = self.settings:get("shelf")
     self.shelf_filters = { reading = shelf.filter_reading, download = shelf.filter_download }
     self.shelf_regular = {}
@@ -626,8 +662,13 @@ function M:showShelfView(mode, keyword, old_view, options)
         return result
     end
     local group = ShelfGroups.find(self.shelf_groups, self.shelf_group_key)
+    local multi=self.shelf_multi_groups or {}
+    local grouped,multi_state=ShelfGroups.selected(self.shelf_groups,multi,self.shelf_regular)
+    local multi_label=#multi>0 and (multi_state=='selected' and T(_('%1 groups'),tostring(#multi))
+        or _('Selected groups unavailable; showing all books')) or nil
     local prepared = options.prepared_shelf
-    local books = prepared and prepared.books or filtered(group and group.books or self.shelf_regular, true)
+    local group_source=#multi>0 and (grouped or self.shelf_regular) or (group and group.books or self.shelf_regular)
+    local books = prepared and prepared.books or filtered(group_source, true)
     local accounts = prepared and prepared.accounts or filtered(self.shelf_mp, false)
     local shelf_settings = self.settings:get("shelf")
     local cover_mode = shelf_settings.view_mode == "cover"
@@ -691,7 +732,8 @@ function M:showShelfView(mode, keyword, old_view, options)
         accounts = accounts,
         groups = self.shelf_groups,
         group_key = self.shelf_group_key,
-        group_label = group and group.label,
+        group_keys = multi,
+        group_label = multi_label or group and group.label,
         total_books = #(self.shelf_regular or {}),
         scroll_offset = options.scroll_offset,
         keyword = keyword,
@@ -728,12 +770,30 @@ function M:showShelfView(mode, keyword, old_view, options)
         on_select_group = function(key)
             if not current() then return end
             if key and not ShelfGroups.find(self.shelf_groups, key) then return end
+            if #multi>0 and not save_group_selection(self,{}) then
+                self:showInfo(_('Could not save the selected groups.'));return
+            end
             self.shelf_group_key = key
             local next_options = {}
             for name, value in pairs(options) do next_options[name] = value end
             next_options.prepared_shelf, next_options.scroll_offset = nil, nil
             next_options.page = 1
             self:showShelfView("books", keyword, view, next_options)
+        end,
+        on_select_groups = function(keys)
+            if not current() then return end
+            local selected=ShelfGroups.normalize(keys)
+            if not selected then self:showInfo(_('Could not save the selected groups.'));return end
+            for _i,key in ipairs(selected) do
+                if not ShelfGroups.unique(self.shelf_groups,key) then
+                    self:showInfo(_('Remove unavailable groups before applying.'));return
+                end
+            end
+            if not save_group_selection(self,selected) then self:showInfo(_('Could not save the selected groups.'));return end
+            self.shelf_group_key=nil
+            local next_options={};for name,value in pairs(options) do next_options[name]=value end
+            next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
+            self:showShelfView('books',keyword,view,next_options)
         end,
         on_display_change = function(key, value)
             if not current() then return end

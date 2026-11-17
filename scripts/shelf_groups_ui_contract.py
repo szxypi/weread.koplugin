@@ -1,7 +1,7 @@
 """Fixed public counters for private, native all-group page acceptance."""
 COUNTS=dict(groups=32,memberships=1600,selected_groups=32,forward_pages=1600,reverse_pages=1600,
             selector_views=33,checked_memberships=1600,empty_groups=32)
-FLAGS={'reference_matches','cache_matches','native_picker_used','boundaries_verified','closed_callbacks_rejected','pluginloader_host','filemanager_host'}
+FLAGS={'reference_matches','cache_matches','native_picker_used','boundaries_verified','closed_callbacks_rejected','pluginloader_host','filemanager_host','multi_groups_verified'}
 
 
 def validate(value,mode,groups,complete):
@@ -10,7 +10,7 @@ def validate(value,mode,groups,complete):
         raise ValueError('persistent_ui_group_schema')
     if any(type(value[k]) is not int or not 0<=value[k]<=maximum for k,maximum in COUNTS.items()):
         raise ValueError('persistent_ui_group_counts')
-    if complete and (not all(value[k] for k in FLAGS) or value['groups']!=groups
+    if complete and (not all(value[k] for k in FLAGS-{'multi_groups_verified'}) or value['multi_groups_verified']!=(groups>=2) or value['groups']!=groups
             or value['selected_groups']!=groups or value['memberships']!=value['checked_memberships']
             or value['forward_pages']<groups or value['empty_groups']>groups
             or value['selector_views']!=groups+1

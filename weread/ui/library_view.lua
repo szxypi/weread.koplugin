@@ -28,6 +28,7 @@ local Screen = Device.screen
 local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
 local ShelfFlags = require("weread.lib.shelf_flags")
+local ShelfGroups = require("weread.lib.shelf_groups")
 local CoverLayout = require("weread.lib.cover_layout")
 local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
@@ -702,8 +703,10 @@ local LibraryView = FocusManager:extend{
     filter_label = nil,
     groups = nil,
     group_key = nil,
+    group_keys = nil,
     group_label = nil,
     on_select_group = nil,
+    on_select_groups = nil,
     on_display_change = nil,
     scroll_offset = nil,
     on_switch = nil,
@@ -934,7 +937,7 @@ function LibraryView:showSourceMenu(menu_mode)
     local function add_group(key, label, count)
         items[#items + 1] = {
             text = label,
-            mandatory = (self.mode == "books" and self.group_key == key and "✓  " or "")
+            mandatory = (self.mode == "books" and self.group_key == key and #(self.group_keys or {})==0 and "✓  " or "")
                 .. tostring(count),
             callback = select(function()
                 if self.on_select_group then self.on_select_group(key) end
@@ -943,6 +946,10 @@ function LibraryView:showSourceMenu(menu_mode)
     end
     if menu_mode == "books" then
         add_group(nil, _("All books"), self.total_books or #(self.books or {}))
+        if self.on_select_groups and (#(self.groups or {})>0 or #(self.group_keys or {})>0) then
+            items[#items+1]={text=_('Select multiple groups'),mandatory=#(self.group_keys or {})>0 and '✓' or '',
+                callback=select(function() self:showMultiGroupMenu() end)}
+        end
         for _, group in ipairs(self.groups or {}) do
             add_group(group.key, group.label, #group.books)
         end
@@ -987,6 +994,47 @@ function LibraryView:showSourceMenu(menu_mode)
     end
     -- Keep popout dismissal, but use square corners like the bookshelf.
     dialog[1].radius = 0
+    Popup.show(self,dialog)
+end
+
+function LibraryView:showMultiGroupMenu()
+    if self._shelf_closed or not self.on_select_groups then return end
+    local Popup=require('weread.ui.shelf_popup')
+    local Menu=require('ui/widget/menu')
+    local selected={}
+    for _,key in ipairs(self.group_keys or {}) do selected[key]=true end
+    if not next(selected) and self.group_key then selected[self.group_key]=true end
+    local items,dialog={},nil
+    items[#items+1]={text=_('Apply selected groups'),callback=after_tap(function()
+        if not Popup.current(self,dialog) then return end
+        local keys={};for key in pairs(selected) do keys[#keys+1]=key end
+        table.sort(keys);Popup.close(self);self.on_select_groups(keys)
+    end)}
+    items[#items+1]={text=_('Clear group selection'),callback=after_tap(function()
+        if not Popup.current(self,dialog) then return end
+        selected={};for i=3,#items do items[i].mandatory='' end;dialog:updateItems()
+    end)}
+    local function add_group(key,label,enabled)
+        local item={text=label,mandatory=selected[key] and '✓' or '',select_enabled=enabled}
+        item.callback=after_tap(function()
+            if not Popup.current(self,dialog) or item.select_enabled==false then return end
+            selected[key]=not selected[key] or nil
+            item.mandatory=selected[key] and '✓' or '';dialog:updateItems()
+        end)
+        items[#items+1]=item
+    end
+    local missing={}
+    for key in pairs(selected) do if not ShelfGroups.unique(self.groups,key) then missing[#missing+1]=key end end
+    table.sort(missing)
+    for _i,key in ipairs(missing) do add_group(key,_('Unavailable saved group'),true) end
+    for _,group in ipairs(self.groups or {}) do
+        add_group(group.key,group.label,ShelfGroups.unique(self.groups,group.key)~=nil)
+    end
+    local row_height=Screen:scaleBySize(54)
+    local perpage=math.max(1,math.min(#items,math.floor((self.screen_h-Screen:scaleBySize(120))/row_height)))
+    dialog=Menu:new{title=_('Select multiple groups'),width=math.floor(self.screen_w*.9),
+        height=math.min(self.screen_h,Screen:scaleBySize(120)+perpage*row_height),
+        item_table=items,items_per_page=perpage,items_font_size=22}
     Popup.show(self,dialog)
 end
 
@@ -1419,6 +1467,7 @@ function M.show(data, callbacks)
         books = data.books,
         groups = data.groups,
         group_key = data.group_key,
+        group_keys = data.group_keys,
         group_label = data.group_label,
         total_books = data.total_books,
         scroll_offset = data.scroll_offset,
@@ -1438,6 +1487,7 @@ function M.show(data, callbacks)
         on_close = callbacks.on_close,
         on_switch = callbacks.on_switch,
         on_select_group = callbacks.on_select_group,
+        on_select_groups = callbacks.on_select_groups,
         on_display_change = callbacks.on_display_change,
         on_search = callbacks.on_search,
         on_refresh = callbacks.on_refresh,

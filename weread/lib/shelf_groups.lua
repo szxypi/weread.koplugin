@@ -71,4 +71,52 @@ function Groups.find(groups, key)
     end
 end
 
+-- Stored keys are account-local and must not silently select an ambiguous
+-- archive when a server snapshot has duplicate or missing identifiers.
+function Groups.normalize(keys)
+    if type(keys)~='table' or #keys>1000 then return nil end
+    local result,seen,count={},{},0
+    for key in pairs(keys) do
+        if type(key)~='number' or key%1~=0 or key<1 or key>#keys then return nil end
+        count=count+1
+    end
+    if count~=#keys then return nil end
+    for _,key in ipairs(keys) do
+        if type(key)~='string' or key=='' or #key>512 or key:find('[%z%c]') or seen[key] then return nil end
+        seen[key]=true;result[#result+1]=key
+    end
+    table.sort(result);return result
+end
+
+function Groups.unique(groups,key)
+    local found
+    for _,group in ipairs(type(groups)=='table' and groups or {}) do
+        if group.key==key then if found then return nil end;found=group end
+    end
+    return found
+end
+
+-- Preserve shelf order and use each book once even when groups overlap.
+-- If any remembered group is absent or ambiguous, leave the full shelf visible
+-- and keep the selection for a later complete snapshot.
+function Groups.selected(groups,keys,books)
+    keys=Groups.normalize(keys)
+    if not keys or #keys==0 then return nil,keys and 'all' or 'invalid' end
+    local members={}
+    for _,key in ipairs(keys) do
+        local group=Groups.unique(groups,key)
+        if not group then return nil,'unavailable' end
+        for _,book in ipairs(group.books or {}) do
+            local id=book.book_id or book.bookId
+            if id~=nil then members[tostring(id)]=true end
+        end
+    end
+    local result,seen={},{}
+    for _,book in ipairs(type(books)=='table' and books or {}) do
+        local id=book.book_id or book.bookId;id=id and tostring(id)
+        if id and members[id] and not seen[id] then result[#result+1]=book;seen[id]=true end
+    end
+    return result,'selected'
+end
+
 return Groups

@@ -6,7 +6,8 @@ return function(plugin,input,mode,report,pump,paint,manifest)
     assert(type(expected)=='table' and #expected<=32 and #expected==#plugin.shelf_groups)
     local coverage={groups=#expected,memberships=0,selected_groups=0,forward_pages=0,reverse_pages=0,
         selector_views=0,checked_memberships=0,empty_groups=0,reference_matches=false,cache_matches=false,
-        native_picker_used=false,boundaries_verified=false,closed_callbacks_rejected=false,pluginloader_host=false,filemanager_host=false}
+        native_picker_used=false,boundaries_verified=false,closed_callbacks_rejected=false,pluginloader_host=false,filemanager_host=false,
+        multi_groups_verified=false}
     report.group_coverage=coverage
     local loader=require('pluginloader')
     local manager=assert(require('apps/filemanager/filemanager').instance)
@@ -35,9 +36,9 @@ return function(plugin,input,mode,report,pump,paint,manifest)
         local view=assert(plugin.shelf_view)
         view:showSourceMenu('books')
         local picker=assert(view._shelf_popup);assert(UI:getTopmostVisibleWidget()==picker)
-        assert(#picker.item_table==#expected+1)
+        assert(#picker.item_table==#expected+1+((#expected>0 or #(view.group_keys or {})>0) and 1 or 0))
         local row=assert(picker.item_table[index]);assert(row.callback)
-        if index>1 then assert(row.text==expected[index-1].label) end
+        if index>2 then assert(row.text==expected[index-2].label) end
         local page=math.floor((index-1)/picker.items_per_page)+1
         while picker.page<page do picker:onNextPage() end
         assert(picker.page==page and picker:getSize().h<=view.screen_h and picker:getSize().w<=view.screen_w)
@@ -49,7 +50,7 @@ return function(plugin,input,mode,report,pump,paint,manifest)
         assert(plugin.shelf_view==current,'dismissed group selector reopened a shelf')
     end
     for i,group in ipairs(expected) do
-        select(i+1,group.key);coverage.selected_groups=coverage.selected_groups+1
+        select(i+2,group.key);coverage.selected_groups=coverage.selected_groups+1
         local view=assert(plugin.shelf_view);assert(view.mode=='books' and view.group_key==group.key and #view.books==#group.members)
         local members,seen={},{}
         for _id_index,id in ipairs(group.members) do assert(not members[id]);members[id]=true end
@@ -74,6 +75,25 @@ return function(plugin,input,mode,report,pump,paint,manifest)
         end
     end
     select(1,nil)
+    if #expected>=2 then
+        local source=assert(plugin.shelf_view);source:showSourceMenu('books');local picker=assert(source._shelf_popup)
+        picker:onMenuSelect(assert(picker.item_table[2]));pump(function() return source._shelf_popup and source._shelf_popup~=picker end)
+        local chooser=assert(source._shelf_popup);local wanted={}
+        for i=1,2 do
+            for _,id in ipairs(expected[i].members) do wanted[id]=true end
+            local row=assert(chooser.item_table[i+2]);assert(row.select_enabled~=false)
+            chooser:onMenuSelect(row);pump(function() return row.mandatory=='✓' end)
+        end
+        chooser:onMenuSelect(chooser.item_table[1]);pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+        local selected=assert(plugin.shelf_view);local seen={}
+        for _,book in ipairs(selected.books) do local id=tostring(book.bookId);assert(wanted[id] and not seen[id]);seen[id]=true end
+        for id in pairs(wanted) do assert(seen[id]) end
+        local stored=assert(plugin.library_db:getProfileState('shelf_multi_groups_v1'))
+        assert(#stored.keys==2 and #selected.group_keys==2)
+        selected.on_select_group(nil);pump(function() return plugin.shelf_view~=selected end)
+        assert(#plugin.shelf_view.group_keys==0 and #assert(plugin.library_db:getProfileState('shelf_multi_groups_v1')).keys==0)
+        coverage.multi_groups_verified=true
+    end
     local view=assert(plugin.shelf_view)
     view:showSourceMenu('books');local picker=assert(view._shelf_popup)
     local stale=picker.item_table[1].callback

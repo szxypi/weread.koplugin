@@ -1,0 +1,51 @@
+{
+  "result": "MULTI_GROUP_SELECTION_VERIFIED",
+  "screens": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "synthetic_native_ui": true,
+      "synthetic_offline_new_process": true,
+      "real_account_live_and_offline_read_only": true,
+      "private_profile_removed": true,
+      "real_account_data_posts": 0,
+      "authentication_posts": 0,
+      "real_screenshots": 0
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "synthetic_native_ui": true,
+      "synthetic_offline_new_process": true,
+      "real_account_live_and_offline_read_only": true,
+      "private_profile_removed": true,
+      "real_account_data_posts": 0,
+      "authentication_posts": 0,
+      "real_screenshots": 0
+    }
+  ],
+  "account_scoped_local_storage": true,
+  "overlap_deduplicated": true,
+  "empty_selected_group_kept_empty": true,
+  "missing_or_ambiguous_groups_show_all_and_keep_selection": true,
+  "unavailable_selection_removable": true,
+  "cancel_and_stale_callbacks_no_save": true,
+  "account_switch_and_save_failure_unit_verified": true,
+  "synthetic_group_count": 26,
+  "synthetic_no_group_picker_verified": true,
+  "synthetic_lost_group_and_restoration_verified": true,
+  "original_group_selection_regression": true,
+  "synthetic_full_reader_regression_screen": "600x800",
+  "lua_spec_groups": 277,
+  "python_tests": 1999,
+  "lua_lint_files": 796,
+  "physical_kindle_tested": false,
+  "failed_intermediate_checks": [
+    "synthetic fixture needed string archive identifier",
+    "missing-group label shadowed translation function"
+  ],
+  "fixes_reverified": true,
+  "goal_complete": false
+}

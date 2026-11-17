@@ -38,6 +38,12 @@ local function reset()
     plugin.settings:set('shelf',settings);plugin.settings:flush()
     plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books')
 end
+if mode=='reopen' then
+    reset();local remembered=assert(plugin.shelf_view)
+    assert(#remembered.group_keys==2 and #remembered.books==21,'multi-group selection not restored in fresh offline process')
+    remembered.on_select_group(nil);pump(function() return plugin.shelf_view~=remembered end)
+    assert(#plugin.shelf_view.group_keys==0,'all-books selection failed to clear persisted groups')
+end
 local popup_cases=0
 local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
 local portal=dofile(fixtures..'discovery_lifetime_case.lua')(plugin,evidence)
@@ -95,6 +101,53 @@ local function paint(tag,reverse)
     if tag=='group:24' and not reverse then Device.screen:shot(evidence..'/groups-unavailable.png') end
 end
 dofile(fixtures..'shelf_groups_ui_case.lua')(plugin,input,mode,report,pump,paint,manifest)
+reset();local all_view=plugin.shelf_view;plugin:applyShelfSnapshot(books,{})
+plugin:showShelfView('books',nil,all_view);all_view=plugin.shelf_view;all_view:showSourceMenu('books')
+local all_picker=assert(all_view._shelf_popup);assert(#all_picker.item_table==1,'empty group shelf offered an unavailable multi-group picker')
+UI:close(all_picker)
+if mode=='live' then
+    reset();local source=assert(plugin.shelf_view);source:showSourceMenu('books')
+    local picker=assert(source._shelf_popup);local multiple=assert(picker.item_table[2])
+    assert(multiple.text==require('weread.lib.i18n').tr('Select multiple groups'))
+    picker:onMenuSelect(multiple);pump(function() return source._shelf_popup and source._shelf_popup~=picker end)
+    local chooser=assert(source._shelf_popup);assert(chooser:getSize().h<=source.screen_h and chooser:getSize().w<=source.screen_w)
+    local before=json.encode(plugin.library_db:getProfileState('shelf_multi_groups_v1'))
+    local cancelled=chooser.item_table[3];chooser:onMenuSelect(cancelled);pump(function() return cancelled.mandatory=='✓' end)
+    UI:close(chooser);cancelled.callback();for _i=1,3 do tick() end
+    assert(plugin.shelf_view==source and not source._shelf_popup
+        and json.encode(plugin.library_db:getProfileState('shelf_multi_groups_v1'))==before,'cancelled multi-group chooser saved changes')
+    source:showSourceMenu('books');picker=assert(source._shelf_popup);picker:onMenuSelect(picker.item_table[2])
+    pump(function() return source._shelf_popup and source._shelf_popup~=picker end);chooser=assert(source._shelf_popup)
+    local first,last=chooser.item_table[3],chooser.item_table[23]
+    chooser:onMenuSelect(first);pump(function() return first.mandatory=='✓' end)
+    local page=math.floor((23-1)/chooser.items_per_page)+1
+    while chooser.page<page do chooser:onNextPage() end
+    chooser:onMenuSelect(last);pump(function() return last.mandatory=='✓' end)
+    while chooser.page>1 do chooser:onPrevPage() end
+    UI:forceRePaint();Device.screen:shot(evidence..'/multi-group-selector.png')
+    chooser:onMenuSelect(chooser.item_table[1]);pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+    assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21,'native multi-group union incorrect')
+    local selected=plugin.shelf_view;first.callback();for _i=1,3 do tick() end
+    assert(plugin.shelf_view==selected,'closed multi-group selector applied a stale callback')
+    local partial={};for _,archive in ipairs(archives) do if tostring(archive.archiveId)~='21' then partial[#partial+1]=archive end end
+    plugin:applyShelfSnapshot(books,partial);plugin:showShelfView('books',nil,selected)
+    local fallback=assert(plugin.shelf_view);assert(#fallback.books==48 and #fallback.group_keys==2,'missing group hid shelf books')
+    fallback:showSourceMenu('books');picker=assert(fallback._shelf_popup);picker:onMenuSelect(picker.item_table[2])
+    pump(function() return fallback._shelf_popup and fallback._shelf_popup~=picker end);chooser=assert(fallback._shelf_popup)
+    local missing=assert(chooser.item_table[3]);assert(missing.text==require('weread.lib.i18n').tr('Unavailable saved group'))
+    chooser:onMenuSelect(missing);pump(function() return missing.mandatory=='' end)
+    chooser:onMenuSelect(chooser.item_table[1]);pump(function() return plugin.shelf_view and plugin.shelf_view~=fallback end)
+    assert(#plugin.shelf_view.group_keys==1 and #plugin.shelf_view.books==20,'unavailable selection could not be removed')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
+    source=plugin.shelf_view;source:showSourceMenu('books');picker=assert(source._shelf_popup);picker:onMenuSelect(picker.item_table[2])
+    pump(function() return source._shelf_popup and source._shelf_popup~=picker end);chooser=assert(source._shelf_popup)
+    last=assert(chooser.item_table[23]);page=math.floor((23-1)/chooser.items_per_page)+1
+    while chooser.page<page do chooser:onNextPage() end
+    chooser:onMenuSelect(last);pump(function() return last.mandatory=='✓' end)
+    while chooser.page>1 do chooser:onPrevPage() end
+    chooser:onMenuSelect(chooser.item_table[1]);pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+    assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21,'multi-group selection was not restored')
+end
 if mode=='live' then file=assert(io.open(manifest_path,'wb'));assert(file:write(json.encode(manifest)));file:close() end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true

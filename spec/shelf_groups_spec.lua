@@ -57,4 +57,24 @@ local unavailable = Groups.list({
 expect(#unavailable==3 and #unavailable[1].books==0 and #unavailable[2].books==0
     and unavailable[3].key=='__ungrouped__','unavailable regular references hid user groups')
 
+local overlap=Groups.list({
+    {archiveId=1,name='A',bookIds={'two','one'}},
+    {archiveId=2,name='B',bookIds={'three','two'}},
+    {archiveId=3,name='Empty',bookIds={}},
+},books)
+local selection,state=Groups.selected(overlap,{'archive:2','archive:1'},books)
+expect(state=='selected' and #selection==3 and selection[1]==books[1] and selection[2]==books[2]
+    and selection[3]==books[3],'multi-group union lost shelf order or duplicated a book')
+selection,state=Groups.selected(overlap,{'archive:3'},books)
+expect(state=='selected' and #selection==0,'selected empty group fell back to all')
+selection,state=Groups.selected(overlap,{'archive:1','archive:missing'},books)
+expect(selection==nil and state=='unavailable','incomplete snapshot narrowed the shelf')
+local ambiguous=Groups.list({{archiveId=1,name='A',bookIds={'one'}},{archiveId=1,name='B',bookIds={'two'}}},books)
+expect(not Groups.unique(ambiguous,'archive:1') and select(2,Groups.selected(ambiguous,{'archive:1'},books))=='unavailable',
+    'duplicate archive identifier was treated as unique')
+local normalized=Groups.normalize({'archive:2','archive:1'})
+expect(normalized[1]=='archive:1' and normalized[2]=='archive:2','stored selection was not canonical')
+expect(not Groups.normalize({'archive:1','archive:1'}) and not Groups.normalize({[1]='archive:1',[3]='archive:2'})
+    and not Groups.normalize({'bad\nkey'}),'invalid persisted selection accepted')
+
 print(("shelf_groups_spec: %d checks"):format(checks))
