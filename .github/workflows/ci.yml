@@ -77,6 +77,8 @@ jobs:
           python3 scripts/test_native_epub_ui_trial.py
           python3 scripts/test_large_epub_trial.py
           python3 scripts/test_native_mp_subscription_ui_trial.py
+          python3 scripts/test_uploaded_epub_native_reading.py
+          python3 scripts/test_reading_epub_trial.py
           python3 scripts/test_mp_images.py
           python3 scripts/test_shelf_covers.py
           python3 scripts/test_shelf_membership.py

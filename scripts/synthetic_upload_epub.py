@@ -34,3 +34,16 @@ def build_large():
         b'<item id="padding" href="padding.txt" media-type="text/plain"/></manifest>')
     files['EPUB/padding.txt']=b'L'*(9*1024*1024)
     return _archive(files)
+
+
+def build_reading():
+    files=dict(FILES)
+    paragraphs=['<p>'+TEXT+'</p>']
+    for index in range(1,49):
+        paragraphs.append(f'<p>Passage {index:02d} has an individual opening for safe position checks. '
+            'This self-authored fixture exercises native pagination, downloaded source and offline reopening. '
+            'No personal notes or copyrighted text appear in this synthetic chapter.</p>')
+    files['EPUB/chapter.xhtml']=('''<?xml version="1.0" encoding="utf-8"?>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en"><head><title>Synthetic chapter</title></head><body><h1>Synthetic chapter</h1>'''
+        +''.join(paragraphs)+'''</body></html>''').encode()
+    return _archive(files)

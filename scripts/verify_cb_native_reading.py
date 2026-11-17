@@ -18,7 +18,7 @@ from verify_owner_reading import decode_envelope
 from verify_translation_preflight import save_refreshed_web_session
 
 
-def main(argv=None):
+def main(argv=None, *, expected_book_id=None, expected_source_text=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-index', type=int, choices=range(1, 9))
@@ -36,6 +36,10 @@ def main(argv=None):
     if (bool(args.saved_session) != bool(args.lua_command)
             or args.saved_session and args.book_index is None or not args.saved_session and (args.book_index is not None or args.full_book)):
         parser.error('pair --saved-session, --book-index and --lua-command last')
+    if expected_book_id is not None or expected_source_text is not None:
+        from verify_cb_progress import cb_id
+        if (not args.saved_session or args.full_book or not cb_id(expected_book_id) or not isinstance(expected_source_text,str)
+                or not 32<=len(expected_source_text)<=1024):raise ValueError('cb_native/expected_scope')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   account_data_posts=0, authentication_posts=0, private_data_on_regular_disk=False, screenshots=0)
     if args.diagnostic_read_pacing: report.update(diagnostic_only=True, native_read_delay_seconds=1)
@@ -51,7 +55,12 @@ def main(argv=None):
             store, web = SessionStore(), (CbFullReadingProbe(progress=progress) if args.full_book else CbSyncProbe())
             saved = store.load(); web.vid = saved['vid']
             for key, value in saved['cookies'].items(): web.set_cookie(key, value)
-            web.verify_account(); prepared = web.prepare(args.book_index); sample = prepared if args.full_book else prepared[0]; web.verify_account()
+            web.verify_account()
+            prepared = (web.prepare(args.book_index,expected_book_id=expected_book_id) if expected_book_id is not None
+                        else web.prepare(args.book_index))
+            sample = prepared if args.full_book else prepared[0]; web.verify_account()
+            if expected_book_id is not None and (sample.get('book_id')!=expected_book_id or expected_source_text not in sample.get('source','')):
+                raise ValueError('cb_native/expected_source')
             report['preflight_rotation_saved'] = save_refreshed_web_session(store, saved, web)
             cookies = {cookie.name: cookie.value for cookie in web.cookies if cookie.name in COOKIE_NAMES
                        and cookie.domain in ('.weread.qq.com', 'weread.qq.com') and cookie.path == '/'}

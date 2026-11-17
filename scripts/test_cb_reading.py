@@ -136,6 +136,9 @@ class CbReadingTests(unittest.TestCase):
         web, opener = ready([rows[0]])
         with self.assertRaises(cb.CbReadingError): web.prepare(3)
         self.assertEqual(len(opener.calls), 1)
+        web, opener = ready([rows[0]])
+        with self.assertRaises(cb.CbReadingError): web.prepare(1, expected_book_id=SECOND)
+        self.assertEqual(len(opener.calls), 1, 'changed ordinal accessed another book')
 
     def test_multiple_bodies_are_local_opt_in_and_preserve_original_offsets(self):
         first = '<html><body><p>A uniquely written first body with 中文😀 and entities &amp;.</p></body></html>'

@@ -1,6 +1,6 @@
 """Validate the synthetic EPUB structure without touching account data."""
 import io,unittest,xml.etree.ElementTree as ET,zipfile
-from synthetic_upload_epub import FILES,TEXT,build,build_large
+from synthetic_upload_epub import FILES,TEXT,build,build_large,build_reading
 
 
 class SyntheticEpubTest(unittest.TestCase):
@@ -20,6 +20,12 @@ class SyntheticEpubTest(unittest.TestCase):
             self.assertEqual(len(archive.read('EPUB/padding.txt')),9*1024*1024)
             self.assertIn(b'href="padding.txt"',archive.read('EPUB/package.opf'))
             ET.fromstring(archive.read('EPUB/package.opf'))
+    def test_reading_epub_has_unique_self_authored_passages(self):
+        raw=build_reading();self.assertEqual(raw,build_reading())
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            self.assertIsNone(archive.testzip());chapter=archive.read('EPUB/chapter.xhtml');ET.fromstring(chapter)
+            self.assertEqual(chapter.count(TEXT.encode()),1)
+            for index in range(1,49):self.assertEqual(chapter.count(f'Passage {index:02d} has an individual opening'.encode()),1)
 
 
 if __name__=='__main__':unittest.main()

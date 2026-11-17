@@ -141,7 +141,11 @@ local ok,reason=pcall(function()
     local Settings=require('weread.lib.settings');local new_settings=Settings.new
     function Settings:new()
         local value=new_settings(self);assert(not value.mock_endpoint)
-        if input.selection_mock_port then
+        if input.cb_mock_port then
+            assert(input.cb_reading==true and input.vid=='900000' and input.book_id=='CB_SyntheticResume'
+                and input.cookies.wr_vid=='900000' and input.cookies.wr_skey=='mock_key')
+            value.mock_endpoint='http://127.0.0.1:'..input.cb_mock_port
+        elseif input.selection_mock_port then
             local grant=input.selection_preview and input.selection_preview.credentials
             assert(input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
                 and grant.accessToken=='mock-native-access' and grant.refreshToken=='mock-native-refresh')

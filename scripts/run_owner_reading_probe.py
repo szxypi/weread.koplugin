@@ -49,11 +49,14 @@ def main(argv=None):
     parser.add_argument('--native-routing-preview', action='store_true')
     addons.add_argument('--selection-thought-preview', action='store_true')
     parser.add_argument('--mock-port',type=int)
+    parser.add_argument('--cb-mock-port',type=int,help='Synthetic CB reading fixture only')
     args = parser.parse_args(argv)
     if args.cb_sync_limit and not args.cb_reading:parser.error('--cb-sync-limit requires --cb-reading')
     if args.native_routing_preview and not args.native_source_excerpt:parser.error('native routing preview requires TXT excerpt mode')
     if args.mock_port is not None and (not args.selection_thought_preview or not 1<=args.mock_port<=65535):
         parser.error('--mock-port requires --selection-thought-preview and a valid loopback port')
+    if args.cb_mock_port is not None and (not args.cb_reading or not 1<=args.cb_mock_port<=65535 or args.mock_port is not None):
+        parser.error('--cb-mock-port requires CB reading and a valid loopback port')
     if args.diagnostic_read_pacing and not args.cb_full_book:
         parser.error('--diagnostic-read-pacing requires --cb-full-book')
     runtime = args.koreader.resolve()
@@ -72,6 +75,9 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        if payload.get('cb_mock_port')!=args.cb_mock_port:raise ValueError('input_limit')
+        if args.cb_mock_port is not None and (payload.get('vid')!='900000' or payload.get('book_id')!='CB_SyntheticResume'
+                or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}):raise ValueError('input_limit')
         if args.native_routing_preview != (payload.get('native_routing_preview') is True):raise ValueError('input_limit')
         if args.native_routing_preview:
             from verify_eink_renewal import validate_credentials

@@ -32,31 +32,32 @@ def read_source(saved,target,*,sleep=time.sleep):
     return False
 
 
-def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=time.sleep,now=time.time):
+def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=time.sleep,now=time.time,
+        fixture_builder=build,prepare_plan=prepare,check_plan=check):
     report=dict(result='UNVERIFIED',phase='preflight',credential_requests=0,cos_put_attempts=0,notify_posts=0,cleanup_posts=0,
                 authentication_posts=0,source_verified=False)
     try:
-        baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.epub';body=build()
-        plan=prepare(credentials,baseline,name);check(plan,credentials,probe.shelf(credentials))
+        baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.epub';body=fixture_builder()
+        plan=prepare_plan(credentials,baseline,name);check_plan(plan,credentials,probe.shelf(credentials))
         if not grant_check(credentials):raise ValueError('synthetic_epub/grant')
         if journal.read()[0] is not None:raise ValueError('synthetic_epub/already_reserved')
         report['independent_baselines_match']=True
         if not apply:report.update(result='READ_ONLY_PREVIEW',phase='preview');return report
-        receipt=journal.reserve(plan);report['phase']='prepared';check(plan,credentials,probe.shelf(credentials))
+        receipt=journal.reserve(plan);report['phase']='prepared';check_plan(plan,credentials,probe.shelf(credentials))
         receipt=journal.advance(receipt,'credential_pending');report['phase']='credential_pending'
         try:temporary=probe.credential(credentials,receipt)
         finally:report['credential_requests']=probe.attempts['credential']
         sign(temporary,len(body),int(now()))
         obj=hash_value({'bucket':temporary.get('bucket'),'ObjectName':temporary.get('ObjectName')})
         receipt=journal.advance(receipt,'credential_ready',object_sha256=obj);report['phase']='credential_ready'
-        check(plan,credentials,probe.shelf(credentials));receipt=journal.advance(receipt,'upload_pending');report['phase']='upload_pending'
+        check_plan(plan,credentials,probe.shelf(credentials));receipt=journal.advance(receipt,'upload_pending');report['phase']='upload_pending'
         uploaded=False
         try:uploaded=probe.put(credentials,receipt,temporary,body,int(now())) is True
         except Exception:pass
         finally:report['cos_put_attempts']=probe.attempts['put']
         if not uploaded:raise ValueError('synthetic_epub/put_unconfirmed')
         receipt=journal.advance(receipt,'uploaded');report['phase']='uploaded'
-        check(plan,credentials,probe.shelf(credentials));receipt=journal.advance(receipt,'notify_pending');report['phase']='notify_pending'
+        check_plan(plan,credentials,probe.shelf(credentials));receipt=journal.advance(receipt,'notify_pending');report['phase']='notify_pending'
         notified=None
         try:notified=probe.notify(credentials,receipt,temporary)
         except Exception:pass
@@ -65,14 +66,14 @@ def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=t
         if (not isinstance(notified,dict) or type(notified.get('status')) is not int or notified['status']!=1 or not valid_book(target)
                 or any(k in notified and (type(notified[k]) is not int or notified[k]!=0) for k in ('errcode','errCode'))):
             raise ValueError('synthetic_epub/notify_unconfirmed')
-        check(plan,credentials,baseline,target,False)
+        check_plan(plan,credentials,baseline,target,False)
         if not readback(probe,credentials,plan,target,True,5,sleep):raise ValueError('synthetic_epub/import_unconfirmed')
         receipt=journal.advance(receipt,'imported',target=target);report.update(phase='imported',import_observed=True)
         # A failed read-only content check is not a reason to leave a proven
         # synthetic item behind. Cleanup still requires a fresh exact snapshot.
         try:report['source_verified']=read_content(target) is True
         except Exception:report['source_verified']=False
-        check(plan,credentials,probe.shelf(credentials),target,True)
+        check_plan(plan,credentials,probe.shelf(credentials),target,True)
         receipt=journal.advance(receipt,'cleanup_pending');report['phase']='cleanup_pending'
         ack=False
         try:ack=acknowledged(probe.cleanup(credentials,receipt))
@@ -81,7 +82,7 @@ def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=t
         restored=readback(probe,credentials,plan,target,False,3 if ack else 1,sleep)
         report.update(cleanup_acknowledged=ack,restore_observed=restored)
         if not ack or not restored:raise ValueError('synthetic_epub/cleanup_unconfirmed')
-        check(plan,credentials,probe.shelf(credentials),target,False)
+        check_plan(plan,credentials,probe.shelf(credentials),target,False)
         if not grant_check(credentials):raise ValueError('synthetic_epub/grant')
         journal.advance(receipt,'restored');report['phase']='restored'
         report['result']='EPUB_IMPORT_AND_SOURCE_VERIFIED' if report['source_verified'] else 'EPUB_IMPORTED_SOURCE_UNVERIFIED'

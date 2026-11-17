@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from test_cb_reading import FIRST, point, ready, responses
+from test_cb_reading import FIRST, SECOND, TEXT, point, ready, responses
 from test_owner_reading import envelope, frame
 import verify_cb_native_reading as cb
 
@@ -22,7 +22,7 @@ class CbNativeReadingTests(unittest.TestCase):
             with patch.object(cb, 'SessionStore') as store, redirect_stderr(io.StringIO()), self.assertRaises(SystemExit): cb.main(args)
             store.assert_not_called()
 
-    def invoke(self, *, result=None, observed=None, accepted=None, rotation=False):
+    def invoke(self, *, result=None, observed=None, accepted=None, rotation=False, expected_book_id=None, expected_source_text=None):
         web, _opener = ready([dict(books=[dict(bookId=FIRST)])] + responses())
         after, after_opener = ready([point() if observed is None else observed])
         value = envelope() if accepted is None else accepted
@@ -46,9 +46,10 @@ class CbNativeReadingTests(unittest.TestCase):
              patch.object(cb.subprocess, 'run', **({'side_effect': child} if isinstance(child, Exception) else {'return_value': child})) as run, \
              redirect_stdout(io.StringIO()) as out:
             store.return_value.load.side_effect = [saved, fresh]
-            code = cb.main(['--saved-session', '--book-index', '1', '--lua-command', 'synthetic'])
+            code = cb.main(['--saved-session', '--book-index', '1', '--lua-command', 'synthetic'],
+                           expected_book_id=expected_book_id,expected_source_text=expected_source_text)
         self.assertEqual(saved, {}); self.assertEqual(web.samples, []); self.assertEqual(after.samples, [])
-        self.assertEqual(fresh, {})
+        if run.called: self.assertEqual(fresh, {})
         if rotation and len(saved_snapshots) > 1: self.assertEqual(saved_snapshots[1]['cookies']['wr_skey'], 'rotated-private-cookie')
         store.return_value.delete.assert_not_called()
         for private in (FIRST, 'synthetic-private-cookie', 'synthetic-cb-session', '900000', 'private child diagnostics'):
@@ -111,6 +112,13 @@ class CbNativeReadingTests(unittest.TestCase):
         for reason in ('private chapter text', [], True):
             value['source_match_reason'] = reason
             with self.assertRaises(ValueError): validate_stage(value, 'live', cb_reading=True)
+
+    def test_explicit_new_book_and_expected_text_are_checked_before_native_reader(self):
+        code,report,run,_after=self.invoke(expected_book_id=FIRST,expected_source_text=TEXT[:64])
+        self.assertEqual(code,0);self.assertEqual(report['result'],'CB_NATIVE_READING_VERIFIED');self.assertEqual(run.call_count,1)
+        for expected_book,expected_text in ((SECOND,TEXT[:64]),(FIRST,'different synthetic text which is certainly absent from the original')):
+            code,report,run,_after=self.invoke(expected_book_id=expected_book,expected_source_text=expected_text)
+            self.assertEqual(code,1);self.assertEqual(report['result'],'UNVERIFIED');run.assert_not_called()
 
 
 if __name__ == '__main__':

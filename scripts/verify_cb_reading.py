@@ -136,7 +136,7 @@ class CbReadingProbe(CbMetadataWebProbe):
             raise CbReadingError('cb_read_repeated')
         self.used[key] = self.used.get(key, 0) + 1
 
-    def prepare(self, book_index=None):
+    def prepare(self, book_index=None, *, expected_book_id=None):
         shelf = self.request('shelf', BASE + '/web/shelf/sync')
         self.allowed = set(cb_ids(shelf))
         self.shelf_count = len(shelf['books'])
@@ -146,6 +146,8 @@ class CbReadingProbe(CbMetadataWebProbe):
             if type(book_index) is not int or not 1 <= book_index <= len(identities):
                 raise CbReadingError('cb_book_index')
             identities = [identities[book_index - 1]]
+        if expected_book_id is not None and (not cb_id(expected_book_id) or identities != [expected_book_id]):
+            raise CbReadingError('cb_expected_book_changed')
         for identity in identities:
             self.inspect(identity)
         return self.samples
