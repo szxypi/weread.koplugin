@@ -437,7 +437,13 @@ end
 local function shelf_search_match(book, keyword)
     if not keyword or keyword == "" then return true end
     local needle = string.lower(keyword)
-    for _, value in ipairs({ book.title, book.author, book.bookId, book.book_id }) do
+    -- Iterate field names: an absent optional author must not terminate the
+    -- search before reaching either form of the book identifier.
+    for _, field in ipairs({ "title", "author", "bookId", "book_id" }) do
+        local value = book[field]
+        if type(value) == "number" and (field == "bookId" or field == "book_id") then
+            value = tostring(value)
+        end
         if type(value) == "string" and string.find(string.lower(value), needle, 1, true) then
             return true
         end
@@ -944,7 +950,7 @@ function M:showShelfSearchDialog(view, mode, keyword, options, is_current)
                 is_enter_default = true,
                 callback = self:safeCallback(_("Search"), function()
                     if not current() then return end
-                    local value = dialog:getInputText()
+                    local value = (dialog:getInputText() or ""):match("^%s*(.-)%s*$")
                     Popup.close(view)
                     self.shelf_view_pages = { books = 1, public_account = 1 }
                     options.prepared_shelf = nil

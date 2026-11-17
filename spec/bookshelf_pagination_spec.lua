@@ -525,4 +525,27 @@ for _change_index,change in ipairs({'account','epoch','session','document','snap
     expect(#shown==count and host.shelf_group_key==nil,'stale shelf actions crossed '..change)
 end
 host.settings.get_auth_scope=nil
+-- Search must not stop at a missing optional author or identifier field.
+shelf_settings.source='auto';shelf_settings.view_mode='list';shelf_settings.sort_order='default'
+host.library_db=nil;host._shelf_multi_loaded=nil;host.shelf_multi_groups={};host.shelf_group_key=nil
+host.bookMatchesFilters=function(_self,book) return book.visible~=false end
+local searchable={
+    {bookId='ID-1049',title='Alpha',visible=true},
+    {book_id='BK-2026',title='Beta',visible=true},
+    {bookId=123987,title='Gamma',visible=true},
+    {bookId='outside',title='Other',author='MiXeD Author',visible=true},
+    {bookId='hidden',title='Hidden',author='MiXeD Author',visible=false},
+}
+host:applyShelfSnapshot(searchable,{{archiveId=7,name='Selected',bookIds={'ID-1049','BK-2026',123987}}})
+host.shelf_group_key='archive:7'
+for _,case in ipairs({{'1049','ID-1049'},{'bk-2026','BK-2026'},{'123987',123987}}) do
+    host:showShelfView('books',case[1])
+    local results=shown[#shown].data.books
+    expect(#results==1 and (results[1].bookId or results[1].book_id)==case[2],
+        'search lost an identifier following a missing optional field')
+end
+host.shelf_group_key=nil
+host:showShelfView('books','mixed author')
+expect(#shown[#shown].data.books==1 and shown[#shown].data.books[1].bookId=='outside',
+    'search did not retain case-insensitive author matching and active filters')
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

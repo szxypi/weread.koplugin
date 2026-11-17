@@ -77,6 +77,24 @@ for _kind_index,kind in ipairs({'sort','filter','search'}) do
         plugin.settings.set=set;popup_cases=popup_cases+1
     end
 end
+-- Exercise identifier search through the real input dialog and group view
+-- when the author field is absent in an older or incomplete shelf entry.
+reset()
+local sparse={bookId='SYN-123456',title='合成稀疏书目'}
+plugin:applyShelfSnapshot({sparse, {bookId='SYN-OTHER',title='其他合成书目'}},
+    {{archiveId=97,name='合成分组',bookIds={'SYN-123456'}}})
+plugin.shelf_group_key='archive:97';plugin:showShelfView('books')
+local search_view=assert(plugin.shelf_view);search_view.on_search()
+local search_dialog=assert(search_view._shelf_popup);search_dialog:setInputText('  syn-123456  ')
+search_dialog.buttons[1][2].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+assert(plugin.shelf_search_keyword=='syn-123456' and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-123456',
+    'identifier search missed a grouped book without an author')
+UI:forceRePaint()
+search_view=plugin.shelf_view;search_view.on_search();search_dialog=assert(search_view._shelf_popup)
+search_dialog:setInputText('   ');search_dialog.buttons[1][2].callback()
+pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+assert(plugin.shelf_search_keyword==nil and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-123456',
+    'whitespace-only search did not restore the selected group')
 reset();local view=plugin.shelf_view;view:showOptions();local old=assert(view._shelf_popup)
 local old_choice=old.buttons[1][1].callback
 view:showSourceMenu();local replacement=assert(view._shelf_popup)
@@ -163,6 +181,6 @@ end
 if mode=='live' then file=assert(io.open(manifest_path,'wb'));assert(file:write(json.encode(manifest)));file:close() end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
-report.portal=portal
+report.portal=portal;report.search_sparse_fields=true
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)
