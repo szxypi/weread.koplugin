@@ -6,7 +6,7 @@ local json=require('json')
 local mode=arg[1]
 local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_credentials=false,transport_guard_selftest=false,
     file_backed_sqlite=false,ui_projection_matches=false,workers_reaped=false,credential_file_audit=false,
-    native_filemanager_host=false,cache_account_scoped=false,cache_session_free=false,pagination_matches=false,
+    native_filemanager_host=false,cache_account_scoped=false,cache_session_free=false,pagination_matches=false,saved_searches_verified=false,
     worker_http_child=false,validated_views=0,samples=0,profile_files_audited=0,screenshots=0,forbidden_requests=0,
     failed_line=0,request_counts=json.decode('[0]'),batch_sizes=json.decode('[]')}
 local private={sources=json.decode('[]'),views=json.decode('[]')}
@@ -224,6 +224,19 @@ local ok,reason=pcall(function()
 
     end
     report.samples=#input.samples;report.ui_projection_matches=true;report.pagination_matches=true
+    -- Reopen the real account's saved search through the native history menu.
+    -- No private keyword, result or screenshot leaves this isolated profile.
+    local search=assert(input.samples[1]);assert(search.kind=='search' and search.cursor==0)
+    plugin.shelf_view.on_search();local input_dialog=assert(plugin.shelf_view._shelf_popup)
+    input_dialog.buttons[1][3].callback()
+    wait(function() return plugin._discovery_menu~=nil end)
+    local menu=assert(plugin._discovery_menu);local chosen
+    for _,item in ipairs(menu.item_table) do if item.text==input.keyword then chosen=item;break end end
+    assert(chosen,'saved search was not listed');menu:onMenuSelect(chosen)
+    assert(plugin.discovery_state.cached and plugin.discovery_state.kind=='search' and plugin.discovery_state.cursor==0)
+    assert(#plugin.discovery_state.books==#search.expected.books)
+    for index,book in ipairs(search.expected.books) do fields(plugin.discovery_state.books[index],book) end
+    UI:forceRePaint();report.saved_searches_verified=true
     local db=assert(plugin.library_db:open());local stmt=db:prepare('SELECT payload FROM discovery_cache');local row=stmt:step()
     local records=0
     while row do

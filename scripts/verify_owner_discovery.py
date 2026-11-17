@@ -11,7 +11,7 @@ from verify_native_discovery import DiscoveryProbe,page
 FRAME=b'\nWEREAD_OWNER_DISCOVERY_RESULT='
 PRIVATE_FRAME=b'\nWEREAD_OWNER_DISCOVERY_PRIVATE='
 FLAGS={'anonymous_credentials','transport_guard_selftest','file_backed_sqlite','ui_projection_matches',
-       'workers_reaped','credential_file_audit','native_filemanager_host','cache_account_scoped','cache_session_free','pagination_matches'}
+       'workers_reaped','credential_file_audit','native_filemanager_host','cache_account_scoped','cache_session_free','pagination_matches','saved_searches_verified'}
 COUNTS={'validated_views':10,'samples':6,'profile_files_audited':512,'screenshots':0,'forbidden_requests':512,'failed_line':2000}
 PHASES={'init','search','similar','recommend','audit','complete'}
 ERRORS={'none','child_timeout','runner_exception','candidate_layout','input_limit','stage_unverified','discovery_schema'}

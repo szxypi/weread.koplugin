@@ -42,5 +42,6 @@ for _,change in ipairs({'generation','books','duplicate','cursor','time','more',
     rejected(function() Cache.validate(row) end)
 end
 rejected(function() Cache.query{kind='search',keyword='line\nbreak'} end)
+rejected(function() Cache.query{kind='search',keyword=string.char(255)} end)
 rejected(function() Cache.query{kind='unknown'} end)
 print('discovery_cache_spec: '..checks..' checks')

@@ -173,6 +173,12 @@ function M:showDiscoverySearch()
                 Popup.close(owner)
                 self:loadDiscoveryBatch("search", keyword, 0)
             end },
+            { text = _("Saved searches"), callback = function()
+                if not valid() then return end
+                -- Keep the input owned by the page while the worker runs so
+                -- background redraws wait until the replacement menu closes.
+                require("weread.ui.saved_searches").open(self, dialog)
+            end },
         }},
     }
     Popup.show(owner, dialog, function(widget) self:showInputDialog(widget) end)

@@ -48,6 +48,7 @@ end
 local popup_cases=0
 local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
 local portal=dofile(fixtures..'discovery_lifetime_case.lua')(plugin,evidence)
+local saved_searches=dofile(fixtures..'saved_searches_case.lua')(plugin,mode,pump,evidence)
 local home_refresh_cases=dofile(fixtures..'home_refresh_failure_case.lua')(plugin,pump)
 for _kind_index,kind in ipairs({'sort','filter','search'}) do
     for _event_index,event in ipairs({'current','closed','session'}) do
@@ -212,6 +213,6 @@ end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
 report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.home_refresh_cases=home_refresh_cases
-report.volatile_restart=true
+report.volatile_restart=true;report.saved_searches=saved_searches
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

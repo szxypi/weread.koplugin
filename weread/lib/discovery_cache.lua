@@ -1,6 +1,7 @@
 -- Bounded, account-local bookstore batches. No credentials or remote session
 -- identifiers are persisted; saved batches are display-only until refreshed.
 local Crypto=require('weread.lib.crypto')
+local Protocol=require('weread.lib.protocol')
 local M={MAX_QUERIES=12,MAX_PAGES=12,MAX_PAYLOAD=2*1024*1024,MAX_TOTAL=16*1024*1024};M.__index=M
 local function fail() error('discovery_cache/invalid',0) end
 local function text(value,limit,empty)
@@ -16,7 +17,8 @@ function M.query(value)
     if type(value)~='table' then fail() end
     local query={kind=value.kind}
     if query.kind=='search' then
-        if not text(value.keyword,4096) then fail() end;query.keyword=value.keyword
+        if not text(value.keyword,4096) or Protocol.utf8_substr(value.keyword,#value.keyword+1)~=value.keyword then fail() end
+        query.keyword=value.keyword
     elseif query.kind=='similar' then
         if not text(value.book_id,256) or not text(value.book_title or '',4096,true) then fail() end
         query.book_id,query.book_title=value.book_id,value.book_title or ''
@@ -119,6 +121,30 @@ function M:read(query,cursor)
     return run(self,function(db)
         local value=read(self,db,query and M.key(query))
         return value and M.state(value,cursor)
+    end)
+end
+-- List only validated search queries already stored in this account's cache.
+-- Results remain display-only and are reopened with the ordinary cache path.
+function M:searches()
+    return run(self,function(db)
+        local stmt=db:prepare([[SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END,
+            cache_key FROM discovery_cache ORDER BY serial DESC LIMIT ?]])
+        local out,seen={},{}
+        local ok,reason=pcall(function()
+            local row=stmt:bind(M.MAX_PAYLOAD,M.MAX_QUERIES):step()
+            while row do
+                if type(row[1])=='string' then
+                    local valid,value=pcall(function() return M.validate(self.codec:json_decode(row[1])) end)
+                    if valid and value.query.kind=='search' and M.key(value.query)==row[2]
+                        and not seen[value.query.keyword] then
+                        out[#out+1]=value.query.keyword;seen[value.query.keyword]=true
+                    end
+                end
+                row=stmt:step()
+            end
+        end)
+        stmt:close();if not ok then error(reason,0) end
+        return out
     end)
 end
 function M:write(state,previous,continuation)

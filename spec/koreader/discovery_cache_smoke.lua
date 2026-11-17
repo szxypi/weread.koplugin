@@ -69,6 +69,10 @@ expect(store:read{kind='search',keyword='Query 13'}~=nil)
 rawdb=library:open();expect(tonumber(rawdb:rowexec('SELECT COUNT(*) FROM discovery_cache'))==12)
 rawdb:exec("UPDATE discovery_cache SET payload='{}' WHERE serial=(SELECT MAX(serial) FROM discovery_cache)");rawdb:close()
 expect(store:read()==nil)
+local searches=store:searches()
+expect(#searches==11 and searches[1]=='Query 12' and searches[#searches]=='Query 2')
+account='900099';expect(#store:searches()==0);account='900000'
+expect(store:searches()[1]=='Query 12')
 for i=1,10 do oversized.keyword='Budget '..i;assert(store:write(oversized)) end
 rawdb=library:open();expect(tonumber(rawdb:rowexec('SELECT SUM(length(CAST(payload AS BLOB))) FROM discovery_cache'))<=Cache.MAX_TOTAL);rawdb:close()
 expect(store:read{kind='search',keyword='Budget 1'}==nil and store:read{kind='search',keyword='Budget 10'}~=nil)
