@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Supervise one packaged upload UI trial inside a disposable tmpfs profile."""
-import argparse,json,os,re,signal,subprocess,sys,tempfile
+import argparse,base64,json,os,re,signal,subprocess,sys,tempfile
 from pathlib import Path
 from native_trial_pipe import Frames,read_initial,write_initial
 from personal_upload_trial import valid_book
@@ -28,13 +28,19 @@ def validate_stage(value,armed):
 
 def validate_input(value,armed,mock_port):
     fields={'credentials','name','shelf_books','rpc_token','permit_writes'}|({'mock_port'} if mock_port is not None else set())
+    epub=isinstance(value,dict) and value.get('fixture')=='epub'
+    if epub:fields|={'fixture','body_base64'}
     if (not isinstance(value,dict) or set(value)!=fields or value['permit_writes'] is not armed or value.get('mock_port')!=mock_port
             or not isinstance(value['rpc_token'],str) or re.fullmatch('[a-f0-9]{32}',value['rpc_token']) is None
             or type(value['shelf_books']) is not int or not 1<=value['shelf_books']<=5000):raise ValueError('native_upload_ui/input')
     validate_credentials(value['credentials'])
+    if epub:
+        from synthetic_upload_epub import build
+        if value['body_base64']!=base64.b64encode(build()).decode('ascii'):raise ValueError('native_upload_ui/fixture')
     if mock_port is None:
-        if not isinstance(value['name'],str) or re.fullmatch(r'KOReaderSynthetic-[a-f0-9]{16}\.txt',value['name']) is None:raise ValueError('native_upload_ui/input')
-    elif (value['name']!='SyntheticUpload.txt' or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
+        pattern=r'KOReaderSynthetic-[a-f0-9]{16}\.epub' if epub else r'KOReaderSynthetic-[a-f0-9]{16}\.txt'
+        if not isinstance(value['name'],str) or re.fullmatch(pattern,value['name']) is None:raise ValueError('native_upload_ui/input')
+    elif (value['name']!=('SyntheticUploadEpub.epub' if epub else 'SyntheticUpload.txt') or value['credentials']!=dict(vid='900000',accessToken='mock-native-access',
           refreshToken='mock-native-refresh',deviceId='eink334691225'+'1'*19)):raise ValueError('native_upload_ui/mock')
 
 

@@ -1,5 +1,5 @@
 """Separate one-shot owner UI trial; credentials and results stay on pipes."""
-import json,re,secrets,subprocess,tempfile
+import base64,json,re,secrets,subprocess,tempfile
 from pathlib import Path
 from native_personal_upload_trial import Journal as BaseJournal
 from personal_upload_trial import hash_value,validate
@@ -20,11 +20,19 @@ class Journal(BaseJournal):
         super().__init__(backend=backend,lock=lock)
 
 
-def launch(plan,credentials,*,armed):
-    validate(plan);validate_credentials(credentials)
+def launch(plan,credentials,*,armed,fixture='txt'):
+    if fixture=='txt':validate(plan)
+    elif fixture=='epub':
+        from synthetic_epub_trial import validate_epub
+        validate_epub(plan)
+    else:raise ValueError('native_upload_ui/input')
+    validate_credentials(credentials)
     if type(armed) is not bool or credentials['vid']!=plan['owner'] or hash_value(credentials)!=plan['grant_sha256']:raise ValueError('native_upload_ui/input')
     token=secrets.token_hex(16)
     payload=dict(credentials=credentials,name=plan['name'],shelf_books=plan['count'],rpc_token=token,permit_writes=armed)
+    if fixture=='epub':
+        from synthetic_upload_epub import build
+        payload.update(fixture='epub',body_base64=base64.b64encode(build()).decode('ascii'))
     raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode();framed=str(len(raw)).encode()+b'\n'+raw
     args=['docker','exec','-i','-w','/source','weread-validation','timeout','--signal=TERM','--kill-after=10','165',
         'python3','scripts/run_native_personal_upload_ui.py','--koreader','/validation/runtime/lib/koreader',

@@ -17,10 +17,11 @@ class Receipt:raw:bytes
 
 
 class Journal:
-    def __init__(self,backend=None,lock=None):
+    def __init__(self,backend=None,lock=None,validator=None):
         self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
         path=Path(tempfile.gettempdir())/('codex-native-personal-upload-'+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
+        self.validate=validator or validate
     def _read(self):
         raw=self.backend.load()
         if raw is None:return None,None
@@ -31,7 +32,7 @@ class Journal:
                     or type(value['schema']) is not int or value['schema']!=1 or value['scope']!=ACCOUNT
                     or not isinstance(value['attempt'],str) or re.fullmatch('[a-f0-9]{32}',value['attempt']) is None
                     or value['phase'] not in ('reserved','launched','imported','cleanup_pending','restored')):raise ValueError()
-            validate(value['plan'])
+            self.validate(value['plan'])
             if value['phase'] in ('imported','cleanup_pending','restored'):
                 if not valid_book(value['target']):raise ValueError()
             elif value['target'] is not None:raise ValueError()
@@ -41,7 +42,7 @@ class Journal:
         with self.lock():
             value,raw=self._read();return value,Receipt(raw) if raw else None
     def reserve(self,plan):
-        validate(plan)
+        self.validate(plan)
         with self.lock():
             if self._read()[0] is not None:raise StoreError('native_personal_upload/already_reserved')
             raw=canonical(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),phase='reserved',plan=plan,target=None))

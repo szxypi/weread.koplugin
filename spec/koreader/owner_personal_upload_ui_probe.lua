@@ -15,9 +15,12 @@ local ok,reason=pcall(function()
     token=assert(input.rpc_token);assert(type(token)=='string' and token:match('^[a-f0-9]+$') and #token==32)
     local grant=assert(input.credentials);local name=assert(input.name);local armed=input.permit_writes
     local mock=tonumber(os.getenv('WEREAD_UPLOAD_UI_MOCK_PORT') or '')
+    local epub=input.fixture=='epub'
     assert(type(armed)=='boolean' and armed==(os.getenv('WEREAD_UPLOAD_UI_ARMED')=='1'))
     assert(type(input.shelf_books)=='number' and input.shelf_books%1==0 and input.shelf_books>=1 and input.shelf_books<=5000)
-    assert(type(name)=='string' and (mock and name=='SyntheticUpload.txt' or name:match('^KOReaderSynthetic%-[a-f0-9]+%.txt$') and #name==38))
+    local expected_mock=epub and 'SyntheticUploadEpub.epub' or 'SyntheticUpload.txt'
+    local expected_pattern=epub and '^KOReaderSynthetic%-[a-f0-9]+%.epub$' or '^KOReaderSynthetic%-[a-f0-9]+%.txt$'
+    assert(type(name)=='string' and (mock and name==expected_mock or not mock and name:match(expected_pattern) and #name==(epub and 39 or 38)))
     assert(type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
     report.permit_writes=armed
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
@@ -34,7 +37,9 @@ local ok,reason=pcall(function()
         local Settings=require('weread.lib.settings');local factory=Settings.new
         function Settings:new() local value=factory(self);value.mock_endpoint='http://127.0.0.1:'..mock;return value end
     end
-    local body='Synthetic upload for KOReader.\n';local path=home..'/'..name
+    local body=epub and require('mime').unb64(assert(input.body_base64)) or 'Synthetic upload for KOReader.\n'
+    if epub then assert(#body==2177 and require('weread.lib.crypto').sha256_hex(body)=='0c58af1f071704f101504f58b51866b2d479ca08cd75c2a4211ece763ae6b684') end
+    local stem=assert(name:match('^(.+)%.%a+$'));local path=home..'/'..name
     local f=assert(io.open(path,'wb'));assert(f:write(body));f:close()
     pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
     memory=ffi.C.mmap(nil,128,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1));counters=ffi.cast('int *',memory)
@@ -52,7 +57,7 @@ local ok,reason=pcall(function()
         if opts.sensitive and opts.skip_cookie and opts.persist_response_cookies==false and h.Cookie==nil then
             if opts.method=='GET' and opts.body==nil and h.vid==grant.vid and h.accessToken==grant.accessToken then
                 if opts.url==base..'/shelf/sync' then kind=0
-                elseif opts.url==base..'/cos/getcredential?name='..protocol.urlencode(name:sub(1,-5))..'&from=' then kind=1 end
+                elseif opts.url==base..'/cos/getcredential?name='..protocol.urlencode(stem)..'&from=' then kind=1 end
             elseif temporary and opts.method=='PUT' and opts.body==nil then
                 local prepared=assert(Cos.prepare(temporary,#body,os.time()));local signed=assert(Cos.sign(prepared))
                 if opts.url==signed.url and h.Host==signed.headers.Host and h['Content-Length']==tostring(#body)
