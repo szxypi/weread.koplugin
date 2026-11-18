@@ -1088,13 +1088,13 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     return path
 end
 
-function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix, assets, css, cover_data, source_identity, position_sources)
+function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix, assets, css, cover_data, source_identity, position_sources, output)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
     book.cache_dir = dir
     local book_title = book.title or "WeRead"
-    local path = Content.book_epub_path(settings, book, suffix)
+    local path = output and output.path or Content.book_epub_path(settings, book, suffix)
     local author = book.author or "WeRead"
     local description_meta = ""
     local description = xml_escape(book.intro)
@@ -1267,7 +1267,7 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
             recursive = true,
         })
     end
-    write_epub(path, entries)
+    write_epub(path, entries, output)
     Content.register_annotation_document(book, path, chapters)
     return path
 end

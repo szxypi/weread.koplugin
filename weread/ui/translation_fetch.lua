@@ -51,8 +51,11 @@ function M.view_changed(host)
     if job and not current(host,job.owner) then M.cancel(host) end
     if host._translation_fetch_owner and not current(host,host._translation_fetch_owner) then close_result(host) end
 end
-local function failed(host,missing)
-    host:showInfo(_(missing and 'No existing translation was found for this chapter. The original book is kept.'
+local function failed(host,missing,full,limit)
+    host:showInfo(_(limit and 'This book exceeds the current full-book translation size limit. The original book is kept.'
+        or missing and (full and 'No existing translation was found for this book. The original book is kept.'
+        or 'No existing translation was found for this chapter. The original book is kept.')
+        or full and 'Could not download the full-book translation copy. Check login, network and storage. The original book is kept.'
         or 'Could not download this chapter’s translation. Check login, network and storage. The original book is kept.'))
 end
 local function input_for(o,book)
@@ -96,15 +99,18 @@ function M.saved_entry(host)
     local good,o=pcall(owner,host)
     if not good or not o or not o.doc_settings then return nil end
     local copies=o.doc_settings:readSetting('weread_translation_copies',{})
-    local entry=type(copies)=='table' and copies[o.source.chapter_uid]
     local dir=o.file:match('^(.*)/[^/]+$')
-    if type(entry)~='table' or entry.schema~=1 or entry.book_id~=o.book_id or entry.account~=o.account
-        or entry.source_file_id~=o.source.identity.file_id or type(entry.path)~='string' or #entry.path>4096
-        or entry.path:find('[%z%c]') or entry.path:match('^(.*)/[^/]+$')~=dir or entry.path==o.file
-        or type(entry.file_id)~='string' or #entry.file_id~=64 or not entry.file_id:match('^[a-f0-9]+$') then return nil end
-    local info=stat(entry.path)
-    if not info or info.mode~='file' or info.size~=entry.bytes then return nil end
-    return entry,o,info
+    for _,key in ipairs({'__full',o.source.chapter_uid}) do
+        local entry=type(copies)=='table' and copies[key]
+        if type(entry)=='table' and entry.schema==1 and entry.book_id==o.book_id and entry.account==o.account
+            and entry.source_file_id==o.source.identity.file_id and type(entry.path)=='string' and #entry.path<=4096
+            and not entry.path:find('[%z%c]') and entry.path:match('^(.*)/[^/]+$')==dir and entry.path~=o.file
+            and type(entry.file_id)=='string' and #entry.file_id==64 and entry.file_id:match('^[a-f0-9]+$') then
+            local info=stat(entry.path)
+            if info and info.mode=='file' and info.size==entry.bytes
+                and not (info.ino==o.stat.ino and info.dev==o.stat.dev) then return entry,o,info end
+        end
+    end
 end
 function M.open_saved(host)
     local entry,o,info=M.saved_entry(host)
@@ -118,6 +124,7 @@ function M.open_saved(host)
         local made,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UIManager,codec=host.client} end)
         if not made then M.cancel(host);failed(host);return false end;host.translation_fetch_worker=worker
     end
+    host.translation_fetch_worker.timeout=75
     local good,started=pcall(host.translation_fetch_worker.start,host.translation_fetch_worker,function() return Fetch.saved(input,entry.path) end,function(result)
         if host.translation_fetch_job~=job then return end
         if not current(host,o) or not same(stat(entry.path),info) then M.cancel(host);return end
@@ -128,11 +135,12 @@ function M.open_saved(host)
     if not good or not started then M.cancel(host);failed(host);return false end
     return true
 end
-local function success(host,o,output,result)
+local function success(host,o,output,result,full)
     local dialog
     dialog=require('ui/widget/confirmbox'):new{keep_dialog_open=true,
-        text=T(_('Downloaded %1 translated blocks as a separate chapter copy. The original file and its notes are kept.'),result.blocks)
-            ..'\n\n'.._(result.target and 'Open at the matching original paragraph.' or 'No unique matching paragraph was found. Open from this chapter’s beginning.'),
+        text=(full and T(_('Downloaded existing translations for %1 of %2 chapters as a separate book copy. The original file and its notes are kept.'),result.translated_chapters,result.chapters)
+            or T(_('Downloaded %1 translated blocks as a separate chapter copy. The original file and its notes are kept.'),result.blocks))
+            ..'\n\n'.._((full and result.matched or not full and result.target) and 'Open at the matching original paragraph.' or 'No unique matching paragraph was found. Open from this chapter’s beginning.'),
         ok_text=_('Open translated copy'),cancel_text=_('Close'),
         cancel_callback=function() if host._translation_fetch_result==dialog then host._translation_fetch_result=nil;host._translation_fetch_owner=nil end end,
         ok_callback=function()
@@ -142,11 +150,11 @@ local function success(host,o,output,result)
         end}
     host._translation_fetch_result=dialog;host._translation_fetch_owner=o;UIManager:show(dialog)
 end
-function M.start(host)
+function M.start(host,full)
     host:closeWeReadUI()
     local captured,o=pcall(owner,host)
     if not captured or not o then failed(host);return false end
-    if not host:isNetworkOnline() then host:showOffline(_('Download existing translation'));return false end
+    if not host:isNetworkOnline() then host:showOffline(_(full and 'Download existing translations for full book' or 'Download existing translation'));return false end
     if not host:requireLogin(true,false) then return false end
     if host.downloader and (host.downloader._active_job or host.downloader._pending_start or host.downloader._scheduled_start) then
         host:showInfo(_('The reader is busy. Please try again shortly.'));return false
@@ -155,30 +163,47 @@ function M.start(host)
     local locked,gate=pcall(function() return require('weread.lib.book_operation').prepare(directory) end)
     if not locked or not gate then failed(host);return false end
     local book=host.settings:get_book(o.book_id) or {}
-    local title=(book.title or _('WeRead'))..'-translation'
+    local title=(book.title or _('WeRead'))..(full and '-full-translation' or '-translation')
     local created,output=pcall(Output.create,directory,title,'epub_part')
     if not created or not output then gate:release();failed(host);return false end
     local input=input_for(o,book)
     local job={owner=o,output=output,gate=gate,started=os.time()};host.translation_fetch_job=job
-    host:showBusy(_('Downloading existing translation…\nTap or press a key to cancel.'),function() if host.translation_fetch_job==job then M.cancel(host) end end)
+    host:showBusy(_(full and 'Downloading existing translations for the full book…\nTap or press a key to cancel.'
+        or 'Downloading existing translation…\nTap or press a key to cancel.'),function() if host.translation_fetch_job==job then M.cancel(host) end end)
     job.busy=host.busy_message
     if not host.translation_fetch_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UIManager,codec=host.client} end)
         if not ok then M.cancel(host);failed(host);return false end;host.translation_fetch_worker=worker
     end
+    host.translation_fetch_worker.timeout=full and 3600 or 75
     local launched,started=pcall(host.translation_fetch_worker.start,host.translation_fetch_worker,function()
         local capture=WorkerSettings.capture(host.settings)
-        local result=Fetch.run(host.client,host.settings,input,output);result.auth=capture();return result
+        local good,result=pcall(full and Fetch.run_book or Fetch.run,host.client,host.settings,input,output)
+        if not good then
+            if full and (result=='translation_fetch/source_limit' or result=='translation_fetch/asset_limit'
+                or result=='translation_fetch/content_limit' or result=='translation_fetch/chapter_limit') then return {ok=false,reason='limit'} end
+            error(result,0)
+        end
+        result.auth=capture();return result
     end,function(result)
         if host.translation_fetch_job~=job then return end
         local age=os.time()-job.started
-        if not current(host,o) or age<0 or age>75 then M.cancel(host);return end
+        if not current(host,o) or age<0 or age>(full and 3600 or 75) then M.cancel(host);return end
+        local target=type(result)=='table' and result.target
+        local number,tail
+        if type(target)=='string' then number,tail=target:match('^/body/DocFragment%[(%d+)%](/body.*)$') end
+        local ordinal=number and tonumber(number)
         if type(result)~='table' or result.ok~=true or result.chapter_uid~=input.chapter_uid
             or type(result.bytes)~='number' or result.bytes<1 or result.bytes>Fetch.MAX_OUTPUT or result.bytes%1~=0
             or type(result.blocks)~='number' or result.blocks<1 or result.blocks>20000 or result.blocks%1~=0
             or type(result.file_id)~='string' or not result.file_id:match('^[a-f0-9]+$') or #result.file_id~=64
-            or result.target~=nil and (type(result.target)~='string' or #result.target>4096 or not result.target:match('^/body/DocFragment%[1%]/body')) then
-            local missing=type(result)=='table' and result.reason=='missing';M.cancel(host);failed(host,missing);return
+            or full and (type(result.chapters)~='number' or result.chapters%1~=0 or result.chapters<1 or result.chapters>Fetch.MAX_BOOK_CHAPTERS
+                or type(result.translated_chapters)~='number' or result.translated_chapters%1~=0
+                or result.translated_chapters<1 or result.translated_chapters>result.chapters or type(result.matched)~='boolean' or not target)
+            or target~=nil and (not ordinal or ordinal<1 or ordinal>(full and result.chapters or 1) or #target>4096
+                or tail~='/body' and tail:sub(1,6)~='/body/' and tail:sub(1,6)~='/body.') then
+            local missing=type(result)=='table' and result.reason=='missing'
+            local limit=type(result)=='table' and result.reason=='limit';M.cancel(host);failed(host,missing,full,limit);return
         end
         if result.auth and not WorkerSettings.merge(host.settings,o.auth,result.auth) then M.cancel(host);failed(host);return end
         o.auth=WorkerSettings.fingerprint(host.settings)
@@ -189,12 +214,12 @@ function M.start(host)
         -- it never replaces its native bookmarks or current book cache path.
         local copies=o.doc_settings:readSetting('weread_translation_copies',{})
         local records={};for k,v in pairs(type(copies)=='table' and copies or {}) do records[k]=v end
-        records[input.chapter_uid]={schema=1,book_id=o.book_id,account=o.account,source_file_id=o.source.identity.file_id,
+        records[full and '__full' or input.chapter_uid]={schema=1,book_id=o.book_id,account=o.account,source_file_id=o.source.identity.file_id,
             path=output.path,file_id=result.file_id,bytes=result.bytes,blocks=result.blocks,target=result.target}
         o.doc_settings:saveSetting('weread_translation_copies',records)
         local saved,where=pcall(o.doc_settings.flush,o.doc_settings)
         if not saved or not where then host:showInfo(_('The translated copy was saved, but its offline shortcut could not be saved. Check storage.')) end
-        success(host,o,output,result)
+        success(host,o,output,result,full)
     end)
     if not launched or not started then M.cancel(host);failed(host);return false end
     return true

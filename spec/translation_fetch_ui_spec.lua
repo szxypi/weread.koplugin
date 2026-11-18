@@ -1,13 +1,14 @@
 package.path='./?.lua;'..package.path
 local state
 local function clone(v) local t={};for k,x in pairs(v) do t[k]=x end;return t end
-package.loaded['weread.lib.translation_fetch']={MAX_OUTPUT=10000,run=function() return state.result end}
+package.loaded['weread.lib.translation_fetch']={MAX_OUTPUT=10000,MAX_BOOK_CHAPTERS=2000,
+    run=function() return state.result end,run_book=function() if state.run_error then error(state.run_error,0) end;return state.result end}
 package.loaded['weread.lib.position_source']={document_metadata=function() return {chapter_uid='1',metadata='metadata',record={format='web_xhtml'},identity={file_id=string.rep('a',64)}} end}
 package.loaded['weread.lib.source_dom']={member=function() return {render_path='OEBPS/chapter.xhtml'} end}
 package.loaded['weread.lib.source_context']={location=function() return clone(state.location) end,
     same_location=function(a,b) return a.xpointer==b.xpointer and a.page==b.page end}
 package.preload['libs/libkoreader-lfs']=function() return {symlinkattributes=function(path)
-    return path=='/book/original.epub' and clone(state.stat) or path=='/book/output.epub' and {mode='file',size=0,ino=2,dev=1,modification=1} end} end
+    return path=='/book/original.epub' and clone(state.stat) or path=='/book/output.epub' and clone(state.copy_stat or {mode='file',size=0,ino=2,dev=1,modification=1}) end} end
 package.loaded['weread.lib.book_operation']={prepare=function() if state.lock_failed then return nil end;return {release=function() state.released=state.released+1 end} end}
 package.loaded['weread.lib.notes_export_file']={create=function(_directory,_title,format)
     if state.output_failed then return nil end
@@ -92,4 +93,32 @@ host=fixture();UI.start(host);state.location.page=2;UI.view_changed(host)
 expect(not host.translation_fetch_job and state.aborted==1,'page event did not cancel live fetch')
 host,deliver=fixture();UI.start(host);deliver();local result=host._translation_fetch_result;state.location.page=2;UI.view_changed(host)
 expect(not host._translation_fetch_result and result.closed,'page event kept old result dialog')
+host,deliver=fixture();state.result={ok=true,chapter_uid='1',bytes=100,blocks=2,chapters=6,translated_chapters=4,
+    matched=true,target='/body/DocFragment[3]/body/p[1]',file_id=string.rep('b',64)}
+expect(UI.start(host,true),'full-book download did not start')
+expect(host.translation_fetch_worker.timeout==3600,'full-book worker kept the chapter timeout')
+deliver();expect(state.copies.__full and state.copies.__full.file_id==string.rep('b',64)
+    and not state.copies['1'] and host._translation_fetch_result,'full-book copy was not indexed separately')
+for _,change in ipairs({'no_chapters','too_many_translated','bad_fragment','bad_path','missing_target','missing_match'}) do
+    host,deliver=fixture();state.result={ok=true,chapter_uid='1',bytes=100,blocks=2,chapters=6,translated_chapters=4,
+        matched=true,target='/body/DocFragment[3]/body/p[1]',file_id=string.rep('b',64)}
+    if change=='no_chapters' then state.result.chapters=0
+    elseif change=='too_many_translated' then state.result.translated_chapters=7
+    elseif change=='bad_fragment' then state.result.target='/body/DocFragment[7]/body/p[1]'
+    elseif change=='bad_path' then state.result.target='/body/DocFragment[3]/bodyevil'
+    elseif change=='missing_target' then state.result.target=nil
+    else state.result.matched=nil end
+    UI.start(host,true);deliver();expect(not state.copies and state.aborted==1,'invalid full-book result was accepted: '..change)
+end
+host,deliver=fixture();state.run_error='translation_fetch/source_limit';UI.start(host,true)
+local limited=state.jobs[1].task();expect(limited.reason=='limit','full-book limit lost its user-facing reason')
+deliver(1,limited);expect(state.aborted==1 and #state.notices==1 and not state.copies,'limited book was published')
+host=fixture();state.copy_stat={mode='file',size=100,ino=2,dev=1,modification=1}
+state.copies={__full={schema=1,book_id='900001',account='synthetic-account',source_file_id=string.rep('a',64),
+    path='/book/output.epub',file_id=string.rep('b',64),bytes=100}}
+expect(UI.saved_entry(host)==state.copies.__full,'full-book shortcut was not available for current chapter')
+state.copy_stat.ino=state.stat.ino
+expect(not UI.saved_entry(host),'hard-linked copy was accepted as independent')
+state.copy_stat.ino=2;state.copies.__full.account='another-account'
+expect(not UI.saved_entry(host),'another account’s full-book copy was accepted')
 print('translation_fetch_ui_spec: '..checks..' checks')

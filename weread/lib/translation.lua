@@ -434,8 +434,10 @@ end
 
 -- A refresh creates a new file. Match one unchanged original block by its
 -- complete DOM signature; offsets and old fragment ordinals never migrate.
-function M.refresh_target(before,after,xp)
+function M.refresh_target(before,after,xp,fragment_index)
     if not before or not after or type(xp)~='string' or before.recoveries~=0 or after.recoveries~=0 then return nil end
+    fragment_index=fragment_index or 1
+    if type(fragment_index)~='number' or fragment_index%1~=0 or fragment_index<1 or fragment_index>2000 then return nil end
     local tail=xp:match('^/body/DocFragment%[%d+%](/body.*)') or xp:match('^/body/DocFragment(/body.*)')
     if not tail then return nil end
     tail=normalize_path(tail)
@@ -451,7 +453,7 @@ function M.refresh_target(before,after,xp)
     for _,node in ipairs(after.original_nodes or {}) do
         if node.signature==chosen.signature and node.tag==chosen.tag then matches=matches+1;target=node.path end
     end
-    if original==1 and matches==1 then return '/body/DocFragment[1]'..target end
+    if original==1 and matches==1 then return '/body/DocFragment['..fragment_index..']'..target end
 end
 
 

@@ -8,6 +8,8 @@ local function analyze(text) return assert(Model.analyze('<html><body>'..text..'
 local old=analyze('<h1>Title</h1><p>First <em>unique</em> paragraph.</p><p>Second unique paragraph.</p>')
 local new=analyze('<h1>Title</h1><p>First <em>unique</em> paragraph.</p><p class="wr-translation">第一段</p><p>Second unique paragraph.</p><p class="wr-translation">第二段</p>')
 expect(Model.refresh_target(old,new,'/body/DocFragment[4]/body/p[2]/text().3')=='/body/DocFragment[1]/body/p[3]','new sibling paths were not mapped')
+expect(Model.refresh_target(old,new,'/body/DocFragment[4]/body/p[2]/text().3',7)=='/body/DocFragment[7]/body/p[3]','full book chapter ordinal was lost')
+expect(not Model.refresh_target(old,new,'/body/DocFragment[4]/body/p[2]/text().3',0),'invalid destination ordinal was accepted')
 expect(Model.refresh_target(old,new,'/body/DocFragment/body/p[1]/em/text().2')=='/body/DocFragment[1]/body/p[1]/em[1]','inline source block mapping wrong')
 expect(not Model.refresh_target(old,new,'/body/DocFragment[4]/body/p[20]/text().0'),'prefix collision guessed a target')
 local changed=analyze('<p>Changed paragraph.</p>')

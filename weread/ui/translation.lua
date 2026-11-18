@@ -242,6 +242,10 @@ local function show_choices(host,profile,owner)
         if host._translation_menu~=menu or not current(host,owner) then return end
         require('weread.ui.translation_fetch').start(host)
     end}
+    items[#items+1]={text=_('Download existing translations for full book'),callback=function()
+        if host._translation_menu~=menu or not current(host,owner) then return end
+        require('weread.ui.translation_fetch').start(host,true)
+    end}
     local fetch=package.loaded['weread.ui.translation_fetch']
     if not fetch then local ok,value=pcall(require,'weread.ui.translation_fetch');if ok then fetch=value end end
     if fetch and fetch.saved_entry(host) then

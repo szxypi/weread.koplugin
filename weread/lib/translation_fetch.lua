@@ -6,7 +6,7 @@ local Archive=require('weread.lib.source_archive')
 local DisplayArchive=require('weread.lib.translation_archive')
 local Model=require('weread.lib.translation')
 local Protocol=require('weread.lib.protocol')
-local M={MAX_OUTPUT=48*1024*1024}
+local M={MAX_OUTPUT=48*1024*1024,MAX_BOOK_SOURCE=16*1024*1024,MAX_BOOK_ASSETS=16*1024*1024,MAX_BOOK_CHAPTERS=2000}
 local function fail(reason) error('translation_fetch/'..reason,0) end
 local function equal(a,b)
     if type(a)~=type(b) then return false end
@@ -83,18 +83,99 @@ local function local_source(input,path)
     local values=Archive.read(path,{[Source.raw_path(meta.raw_sha256)]=Source.MAX_BYTES,[meta.render_path]=Source.MAX_RENDERED_BYTES})
     if not values or not Source.verify_snapshot{identity=original,book_id=input.book_id,chapter_uid=uid,metadata=metadata,
         raw=values[Source.raw_path(meta.raw_sha256)],rendered=values[meta.render_path]} then fail('source') end
-    return Model.analyze(values[meta.render_path],uid,1,true),metadata,original
+    local ordinal=meta.render_path=='OEBPS/text/chapter.xhtml' and 1
+        or tonumber(meta.render_path:match('^OEBPS/text/chapter%-(%d+)%.xhtml$'))
+    if not ordinal or ordinal<1 or ordinal>M.MAX_BOOK_CHAPTERS then fail('source') end
+    return Model.analyze(values[meta.render_path],uid,ordinal,true),metadata,original,ordinal,meta
 end
 function M.saved(input,path)
     if path==input.path then fail('source') end
     local before,metadata=local_source(input,input.path)
     if metadata~=input.metadata then fail('source') end
-    local after,_,identity=local_source(input,path)
+    local after,_,identity,ordinal,meta=local_source(input,path)
     local profile=DisplayArchive.inspect(path,input.book_id)
     local info=require('libs/libkoreader-lfs').attributes(path)
-    if not profile or profile.file_id~=identity.file_id or profile.blocks<1 or not info or info.size>M.MAX_OUTPUT then fail('output') end
+    if not profile or profile.file_id~=identity.file_id or profile.blocks<1 or not info or info.size>M.MAX_OUTPUT
+        or not profile.chapters[ordinal] or profile.chapters[ordinal].member_path~=meta.render_path then fail('output') end
+    local target=Model.refresh_target(before,after,input.xpointer,ordinal)
+        or '/body/DocFragment['..ordinal..']/body'
     return {ok=true,bytes=info.size,blocks=profile.blocks,file_id=identity.file_id,
-        target=Model.refresh_target(before,after,input.xpointer),chapter_uid=input.chapter_uid}
+        target=target,chapter_uid=input.chapter_uid}
+end
+
+-- Fetch only existing translated content, and publish a complete independent
+-- EPUB through the caller's exclusively owned descriptor. Any missing chapter,
+-- changed catalog or limit failure aborts the whole copy rather than silently
+-- producing a truncated book.
+function M.run_book(client,settings,input,output)
+    local book={book_id=input.book_id,title=input.title,author=input.author,cache_dir=input.directory}
+    local before,metadata=local_source(input,input.path)
+    if metadata~=input.metadata then fail('source') end
+    local initial=M.client(client,book,input.chapter_uid)
+    Content.ensure_reader_state(initial,book)
+    local chapters,version=Content.fetch_catalog(initial,book)
+    if #chapters<1 then fail('catalog') end
+    if #chapters>M.MAX_BOOK_CHAPTERS then fail('chapter_limit') end
+    local seen,current={},nil
+    for index,chapter in ipairs(chapters) do
+        local uid=tostring(chapter.chapterUid or '')
+        if uid=='' or seen[uid] then fail('catalog') end
+        seen[uid]=true
+        if uid==input.chapter_uid then current=index end
+    end
+    if not current then fail('catalog') end
+    book.bookVersion=version
+    local identity=Identity.capture(book)
+    local bodies,sources,assets,state,block_counts={}, {}, {}, {}, {}
+    local source_bytes,asset_bytes,blocks,translated,target,css=0,0,0,0,nil,nil
+    for index,chapter in ipairs(chapters) do
+        local uid=tostring(chapter.chapterUid)
+        local scoped=M.client(client,book,uid)
+        local raw,source=Content.fetch_chapter_xhtml(scoped,settings,book,chapter)
+        if not source or source.format~='web_xhtml' then fail('format') end
+        source_bytes=source_bytes+#raw
+        if source_bytes>M.MAX_BOOK_SOURCE then fail('source_limit') end
+        local profile=Model.analyze(document(raw),uid,index)
+        if not profile then fail('content') end
+        block_counts[index]=profile.blocks
+        blocks=blocks+profile.blocks
+        if profile.blocks>0 then translated=translated+1 end
+        if blocks>DisplayArchive.MAX_PAIRS then fail('content_limit') end
+        local xhtml,chapter_assets=Content.finalize_single_chapter_content(scoped,settings,book,chapter,raw,state)
+        source_bytes=source_bytes+#xhtml
+        if source_bytes>M.MAX_BOOK_SOURCE then fail('source_limit') end
+        for _,asset in ipairs(chapter_assets) do
+            if #assets>=256 or type(asset.data)~='string' or asset.path then fail('asset_limit') end
+            asset_bytes=asset_bytes+#asset.data
+            if asset_bytes>M.MAX_BOOK_ASSETS then fail('asset_limit') end
+            assets[#assets+1]=asset
+        end
+        if not css then css=Content.fetch_chapter_css(scoped,settings,book,chapter) end
+        if index==current then
+            local after=Model.analyze(document(xhtml),uid,index,true)
+            if not after then fail('content') end
+            target=Model.refresh_target(before,after,input.xpointer,index)
+        end
+        bodies[uid],sources[uid]=xhtml,source
+    end
+    if blocks<1 then return {ok=false,reason='missing'} end
+    local again,later=Content.fetch_catalog(M.client(client,book,input.chapter_uid),book)
+    if version~=later or not equal(chapters,again) then fail('catalog_changed') end
+    Content.save_book_epub(settings,book,chapters,bodies,'translation',assets,css,nil,identity,sources,output)
+    local info=require('libs/libkoreader-lfs').attributes(output.path)
+    local profile=DisplayArchive.inspect(output.path,book.book_id)
+    if not info or info.size<1 or info.size>M.MAX_OUTPUT or not profile or profile.blocks~=blocks
+        or #profile.chapters~=#chapters or not profile.chapters[current] then fail('output') end
+    for index=1,#chapters do
+        if profile.chapters[index].blocks~=block_counts[index] then fail('output') end
+    end
+    local headers=Archive.read(output.path,{[Identity.PATH]=Identity.MAX_BYTES,[Source.meta_path(input.chapter_uid)]=Source.MAX_META_BYTES})
+    local result_identity=headers and Identity.decode(headers[Identity.PATH])
+    local result_meta=headers and Source.decode_metadata(headers[Source.meta_path(input.chapter_uid)])
+    if not result_identity or not result_meta or profile.file_id~=result_identity.file_id
+        or result_meta.file_id~=result_identity.file_id or profile.chapters[current].member_path~=result_meta.render_path then fail('output') end
+    return {ok=true,bytes=info.size,blocks=profile.blocks,chapters=#chapters,translated_chapters=translated,file_id=result_identity.file_id,
+        chapter_uid=input.chapter_uid,matched=target~=nil,target=target or '/body/DocFragment['..current..']/body'}
 end
 function M.run(client,settings,input,output)
     local book={book_id=input.book_id,title=input.title,author=input.author,cache_dir=input.directory}

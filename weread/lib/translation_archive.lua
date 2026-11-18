@@ -185,6 +185,7 @@ function M.inspect(path,book_id)
             local index=ordinals[name]
             local chapter=Model.analyze(raw,tostring(index),index)
             if not chapter then fail('chapter_invalid') end
+            chapter.member_path=name
             result.blocks=result.blocks+chapter.blocks;result.pairs=result.pairs+#chapter.pairs
             if result.pairs>M.MAX_PAIRS then fail('pair_limit') end
             result.chapters[index]=chapter
