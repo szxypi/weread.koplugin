@@ -456,5 +456,32 @@ function M.refresh_target(before,after,xp,fragment_index)
     if original==1 and matches==1 then return '/body/DocFragment['..fragment_index..']'..target end
 end
 
+-- Preserve an exact text-node offset only when the complete enclosing node is
+-- unchanged and unique in both chapter versions. Callers must additionally
+-- validate the resulting native pointer and selected text in the new reader.
+function M.refresh_point(before,after,xp,fragment_index)
+    if not before or not after or type(xp)~='string' or #xp>4096
+        or before.recoveries~=0 or after.recoveries~=0 then return nil end
+    if type(fragment_index)~='number' or fragment_index%1~=0 or fragment_index<1 or fragment_index>2000 then return nil end
+    local tail=xp:match('^/body/DocFragment%[%d+%](/body.*)') or xp:match('^/body/DocFragment(/body.*)')
+    if not tail then return nil end
+    tail=normalize_path(tail)
+    local chosen,suffix
+    for _,node in ipairs(before.original_nodes or {}) do
+        if node.path~='/body' and tail:sub(1,#node.path)==node.path then
+            local rest=tail:sub(#node.path+1)
+            if (rest:match('^/text%(%)[.]%d+$') or rest:match('^/text%(%)[[]%d+[]][.]%d+$'))
+                and (not chosen or #node.path>#chosen.path) then chosen,suffix=node,rest end
+        end
+    end
+    if not chosen or not chosen.signature then return nil end
+    local original,matches,target=0,0,nil
+    for _,node in ipairs(before.original_nodes or {}) do if node.signature==chosen.signature then original=original+1 end end
+    for _,node in ipairs(after.original_nodes or {}) do
+        if node.signature==chosen.signature and node.tag==chosen.tag then matches=matches+1;target=node.path end
+    end
+    if original==1 and matches==1 then return '/body/DocFragment['..fragment_index..']'..target..suffix end
+end
+
 
 return M

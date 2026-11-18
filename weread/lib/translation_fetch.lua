@@ -6,7 +6,8 @@ local Archive=require('weread.lib.source_archive')
 local DisplayArchive=require('weread.lib.translation_archive')
 local Model=require('weread.lib.translation')
 local Protocol=require('weread.lib.protocol')
-local M={MAX_OUTPUT=48*1024*1024,MAX_BOOK_SOURCE=16*1024*1024,MAX_BOOK_ASSETS=16*1024*1024,MAX_BOOK_CHAPTERS=2000}
+local M={MAX_OUTPUT=48*1024*1024,MAX_BOOK_SOURCE=16*1024*1024,MAX_BOOK_ASSETS=16*1024*1024,MAX_BOOK_CHAPTERS=2000,
+    MAX_ANNOTATIONS=500,MAX_ANNOTATION_CHAPTERS=64}
 local function fail(reason) error('translation_fetch/'..reason,0) end
 local function equal(a,b)
     if type(a)~=type(b) then return false end
@@ -101,6 +102,44 @@ function M.saved(input,path)
         or '/body/DocFragment['..ordinal..']/body'
     return {ok=true,bytes=info.size,blocks=profile.blocks,file_id=identity.file_id,
         target=target,chapter_uid=input.chapter_uid}
+end
+
+-- Build pointer candidates from independently read EPUB members. The reader
+-- must still verify every target node and quote before creating any annotation.
+function M.plan_annotations(input,path,items,target_file_id)
+    if path==input.path or type(items)~='table' or #items>M.MAX_ANNOTATIONS then fail('annotation_scope') end
+    local profile=DisplayArchive.inspect(path,input.book_id)
+    if not profile or profile.file_id~=target_file_id or profile.blocks<1 then fail('annotation_output') end
+    local grouped,order={},{}
+    for index,item in ipairs(items) do
+        if type(item)~='table' or type(item.uid)~='string' or #item.uid>256
+            or type(item.metadata)~='string' or #item.metadata>Source.MAX_META_BYTES
+            or type(item.first)~='string' or #item.first>4096
+            or item.last~=nil and (type(item.last)~='string' or #item.last>4096) then fail('annotation_scope') end
+        local group=grouped[item.uid]
+        if not group then
+            if #order>=M.MAX_ANNOTATION_CHAPTERS then fail('annotation_limit') end
+            group={metadata=item.metadata,items={}};grouped[item.uid]=group;order[#order+1]=item.uid
+        elseif group.metadata~=item.metadata then fail('annotation_scope') end
+        group.items[#group.items+1]={index=index,first=item.first,last=item.last}
+    end
+    local mapped={}
+    for _,uid in ipairs(order) do
+        local group=grouped[uid]
+        local selected={book_id=input.book_id,chapter_uid=uid}
+        local before,metadata,identity=local_source(selected,input.path)
+        if metadata~=group.metadata or identity.file_id~=input.source_file_id then fail('annotation_source') end
+        local ok,after,_,copy_id,ordinal,meta=pcall(local_source,selected,path)
+        if ok and after and copy_id.file_id==target_file_id and profile.chapters[ordinal]
+            and profile.chapters[ordinal].member_path==meta.render_path then
+            for _,item in ipairs(group.items) do
+                local first=Model.refresh_point(before,after,item.first,ordinal)
+                local last=item.last and Model.refresh_point(before,after,item.last,ordinal) or nil
+                if first and (not item.last or last) then mapped[#mapped+1]={index=item.index,uid=uid,first=first,last=last} end
+            end
+        end
+    end
+    return {ok=true,mapped=mapped,total=#items}
 end
 
 -- Fetch only existing translated content, and publish a complete independent

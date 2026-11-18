@@ -38,6 +38,7 @@ local function close_result(host)
     if dialog then UIManager:close(dialog) end
 end
 function M.cancel(host)
+    local annotations=package.loaded['weread.ui.translation_annotations'];if annotations then annotations.cancel(host) end
     close_result(host)
     local job=host.translation_fetch_job;host.translation_fetch_job=nil
     if not job then return end
@@ -47,6 +48,7 @@ function M.cancel(host)
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
 function M.view_changed(host)
+    local annotations=package.loaded['weread.ui.translation_annotations'];if annotations then annotations.view_changed(host) end
     local job=host.translation_fetch_job
     if job and not current(host,job.owner) then M.cancel(host) end
     if host._translation_fetch_owner and not current(host,host._translation_fetch_owner) then close_result(host) end
@@ -73,8 +75,12 @@ local function publish(output,directory,title,bytes)
     output.path,reserved.path=reserved.path,nil
     return true
 end
-local function open_copy(host,o,path,result)
+local function open_copy(host,o,path,result,after_open)
     if not current(host,o) then return false end
+    if not require('weread.lib.translation_record_isolation').check(o.file,path) then
+        host:showInfo(_('The translated copy may share reading records with the original book, so it cannot be opened safely. The original notes are kept.'))
+        return false
+    end
     local sync=host.progress_sync
     if sync and (sync.uploading or sync.pulling) or host.read_report and host.read_report.job then
         host:showInfo(_('The reader is busy. Please try again shortly.'));return false
@@ -92,9 +98,12 @@ local function open_copy(host,o,path,result)
         if next_host.progress_sync then next_host.progress_sync:begin_cloud_source_navigation() end
         if result.target and reader.document:isXPointerInDocument(result.target) then reader.rolling:onGotoXPointer(result.target) end
         if next_host.source_position then next_host.source_position:on_view_changed(true) end
+        if after_open then after_open(reader,next_host) end
     end)
     return true
 end
+M.open_copy=open_copy
+M.is_current=current
 function M.saved_entry(host)
     local good,o=pcall(owner,host)
     if not good or not o or not o.doc_settings then return nil end

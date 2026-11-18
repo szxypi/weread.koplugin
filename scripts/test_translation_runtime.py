@@ -22,15 +22,23 @@ def main():
     parser.add_argument('--reader',action='store_true',help='exercise actual reader menus, persistence and reload')
     parser.add_argument('--fetch',action='store_true',help='exercise existing-translation download and offline copy opening')
     parser.add_argument('--fetch-book',action='store_true',help='exercise full-book existing translations and offline chapter navigation')
+    parser.add_argument('--annotations',action='store_true',help='exercise annotation copying into the full-book translation')
+    parser.add_argument('--hash-storage',action='store_true',help='exercise KOReader hash-based metadata storage')
+    parser.add_argument('--dir-storage',action='store_true',help='exercise KOReader centralized metadata storage')
     args=parser.parse_args()
     if min(args.width,args.height,args.dpi)<=0: parser.error('screen dimensions and DPI must be positive')
     root,runtime=args.run_dir.resolve(),args.koreader.resolve()
     server=MockServer(0)
     if args.fetch and args.fetch_book: parser.error('choose one fetch mode')
+    if args.annotations and not args.fetch_book: parser.error('--annotations requires --fetch-book')
+    if (args.hash_storage or args.dir_storage) and not args.fetch_book: parser.error('metadata storage selection requires --fetch-book')
+    if args.hash_storage and args.dir_storage: parser.error('choose one metadata storage location')
     if args.fetch_book:
         def book_source(uid,revision=None):
             return '<html><body><h1>Chapter '+str(uid)+'</h1>'+''.join(
-                '<p>Original chapter '+str(uid)+' paragraph '+str(i)+'. '+('Unique native translation refresh text. '*8)+'</p>'
+                '<p>Original chapter '+str(uid)+' paragraph '+str(11 if args.annotations and int(uid)==3 and i==12 else i)+'. '
+                + ('😀 &amp; <em>跨标签文字</em> ' if args.annotations and int(uid)==4 and i==8 else '')
+                + ('Unique native translation refresh text. '*8)+'</p>'
                 + ('' if int(uid)==6 else '<p class="wr-translation">第'+str(uid)+'章译文段落 '+str(i)+'。'+('原生双语正文验证。'*10)+'</p>')
                 for i in range(1,13))+'</body></html>'
         server.chapter_source=book_source
@@ -59,6 +67,9 @@ def main():
         env=os.environ|dict(KO_HOME=str(root/'profile'),WEREAD_EVIDENCE=str(root/'evidence'),XDG_RUNTIME_DIR=str(root/'xdg'),
             EMULATE_READER='1',EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),
             EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8')
+        if args.annotations:env['WEREAD_TRANSLATION_ANNOTATIONS']='1'
+        if args.hash_storage:env['WEREAD_TRANSLATION_HASH_STORAGE']='1'
+        if args.dir_storage:env['WEREAD_TRANSLATION_DIR_STORAGE']='1'
         log=root/'evidence/runtime.log'
         try:
             with log.open('w') as out:

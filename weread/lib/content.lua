@@ -608,11 +608,19 @@ end
 
 local function write_epub(path, entries, output)
     if output then
+        -- KOReader's optional hash-based sidecars sample the beginning of the
+        -- EPUB. Give each independently published translation copy its own
+        -- nonce inside that sample, even if the text itself did not change.
+        local random=io.open('/dev/urandom','rb')
+        local nonce=random and random:read(16)
+        if random then random:close() end
+        if not nonce or #nonce~=16 then error('translation_fetch/package_failed',0) end
+        table.insert(entries,2,{name='META-INF/weread-translation-copy-id.txt',data=Crypto.sha256_hex(nonce),store=true})
         local writer=require('weread.lib.epub_export_writer').new(output.fd)
         local ok=pcall(function()
             for _,entry in ipairs(entries) do
                 if entry.path or type(entry.data)~='string' then error('translation_fetch/package_failed',0) end
-                writer:add(entry.name,entry.data,#entry.data,entry.name=='mimetype')
+                writer:add(entry.name,entry.data,#entry.data,entry.name=='mimetype' or entry.store==true)
             end
         end)
         local closed=writer:close()

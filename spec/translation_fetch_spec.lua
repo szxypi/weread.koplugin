@@ -10,12 +10,16 @@ local new=analyze('<h1>Title</h1><p>First <em>unique</em> paragraph.</p><p class
 expect(Model.refresh_target(old,new,'/body/DocFragment[4]/body/p[2]/text().3')=='/body/DocFragment[1]/body/p[3]','new sibling paths were not mapped')
 expect(Model.refresh_target(old,new,'/body/DocFragment[4]/body/p[2]/text().3',7)=='/body/DocFragment[7]/body/p[3]','full book chapter ordinal was lost')
 expect(not Model.refresh_target(old,new,'/body/DocFragment[4]/body/p[2]/text().3',0),'invalid destination ordinal was accepted')
+expect(Model.refresh_point(old,new,'/body/DocFragment[4]/body/p[2]/text().3',7)=='/body/DocFragment[7]/body/p[3]/text().3','exact offset not remapped')
+expect(Model.refresh_point(old,new,'/body/DocFragment[4]/body/p[1]/em/text().2',7)=='/body/DocFragment[7]/body/p[1]/em[1]/text().2','inline exact offset not remapped')
+expect(not Model.refresh_point(old,new,'/body/DocFragment[4]/body/p[2]',7),'non-text pointer was accepted')
 expect(Model.refresh_target(old,new,'/body/DocFragment/body/p[1]/em/text().2')=='/body/DocFragment[1]/body/p[1]/em[1]','inline source block mapping wrong')
 expect(not Model.refresh_target(old,new,'/body/DocFragment[4]/body/p[20]/text().0'),'prefix collision guessed a target')
 local changed=analyze('<p>Changed paragraph.</p>')
 expect(not Model.refresh_target(old,changed,'/body/DocFragment[4]/body/p[1]/text().3'),'changed original mapped')
 local duplicate=analyze('<p>Same</p><p>Same</p>')
 expect(not Model.refresh_target(duplicate,duplicate,'/body/DocFragment[1]/body/p[1]/text().0'),'duplicate source guessed a target')
+expect(not Model.refresh_point(duplicate,duplicate,'/body/DocFragment[1]/body/p[1]/text().0',1),'duplicate exact pointer guessed a target')
 expect(not Model.refresh_target(old,analyze('<p>Second unique paragraph.</p><p>Second unique paragraph.</p>'),'/body/DocFragment[1]/body/p[2]/text().1'),'duplicate destination guessed a target')
 old.recoveries=1;expect(not Model.refresh_target(old,new,'/body/DocFragment[1]/body/p[1]/text().0'),'recovered markup migrated');old.recoveries=0
 local calls,encoded,binary=0,{},{}

@@ -252,6 +252,11 @@ local function show_choices(host,profile,owner)
         items[#items+1]={text=_('Open saved translated copy'),callback=function()
             if host._translation_menu==menu and current(host,owner) then fetch.open_saved(host) end
         end}
+        if host.ui.annotation and type(host.ui.annotation.annotations)=='table' and #host.ui.annotation.annotations>0 then
+            items[#items+1]={text=_('Copy local annotations to translated copy'),callback=function()
+                if host._translation_menu==menu and current(host,owner) then require('weread.ui.translation_annotations').start(host) end
+            end}
+        end
     end
     menu=host:showList(_('Reading language'),items);host._translation_menu=menu
 end

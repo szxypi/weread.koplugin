@@ -4,6 +4,13 @@ local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDEN
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
 G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
+if os.getenv('WEREAD_TRANSLATION_HASH_STORAGE')=='1' then
+    G_reader_settings:saveSetting('document_metadata_folder','hash')
+    require('docsettings').setIsHashLocationEnabled(true)
+elseif os.getenv('WEREAD_TRANSLATION_DIR_STORAGE')=='1' then
+    G_reader_settings:saveSetting('document_metadata_folder','dir')
+    require('docsettings').setIsHashLocationEnabled(true)
+end
 require('gettext').changeLang('zh_CN')
 local Device=require('device');require('document/canvascontext'):init(Device)
 local Loader=require('pluginloader');Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
@@ -19,9 +26,10 @@ local Fetch=require('weread.ui.translation_fetch')
 local tr=require('weread.lib.i18n').tr
 local settings=require('weread.lib.settings'):new()
 local offline=os.getenv('WEREAD_TRANSLATION_FETCH_OFFLINE')=='1'
+local annotations_test=os.getenv('WEREAD_TRANSLATION_ANNOTATIONS')=='1'
 local function bytes(path) local f=assert(io.open(path,'rb'));local raw=f:read('*a');f:close();return raw end
 local state_path=evidence..'/translation-book-state.json'
-local path,copy,original,bookmark
+local path,copy,original,bookmark,original_note_time
 if offline then
     local state=require('json').decode(bytes(state_path));path,copy,bookmark=state.original,state.copy,state.bookmark
     original=bytes(path);assert(require('weread.lib.crypto').sha256_hex(original)==state.original_sha256)
@@ -31,7 +39,8 @@ else
     for uid=1,6 do
         local chapter={chapterUid=uid,chapterIdx=uid,title='Chapter '..uid,wordCount=1800}
         local paragraphs={}
-        for i=1,12 do paragraphs[#paragraphs+1]='<p>Original chapter '..uid..' paragraph '..i..'. '
+        for i=1,12 do paragraphs[#paragraphs+1]='<p>Original chapter '..uid..' paragraph '..(annotations_test and uid==3 and i==12 and 11 or i)..'. '
+            ..(annotations_test and uid==4 and i==8 and '😀 &amp; <em>跨标签文字</em> ' or '')
             ..string.rep('Unique native translation refresh text. ',8)..'</p>' end
         local raw='<html><body><h1>Chapter '..uid..'</h1>'..table.concat(paragraphs)..'</body></html>'
         chapters[uid],bodies[tostring(uid)],sources[tostring(uid)]=chapter,raw,assert(Source.capture(book,chapter,raw,'web_xhtml'))
@@ -83,11 +92,36 @@ if offline then
     local member=require('weread.lib.source_dom').member(doc,location.xpointer)
     assert(assert(Source.document_metadata(doc,'900001',nil,member.render_path)).chapter_uid=='4','offline copy reopened wrong chapter')
     assert(plugin._translation_mode=='bilingual' and bytes(path)==original,'offline copy changed original or lost mode')
+    if annotations_test then
+        assert(#reader.annotation.annotations==3,'offline copy lost or duplicated annotations')
+        local notes={};for _,item in ipairs(reader.annotation.annotations) do if item.note then notes[item.note]=true end end
+        assert(notes['Existing target note'] and notes['Original chapter four note'] and not notes['Ambiguous note'],
+            'offline copied annotations changed or included ambiguous text')
+    end
     local out=assert(io.open(evidence..'/translation-book-offline.json','w'))
     out:write(require('json').encode{result='PASS',new_process=true,correct_chapter=true,network_requests=0});out:close()
     reader:onClose(false);return
 end
 chapter(2);reader.bookmark:onToggleBookmark();bookmark=assert(reader.annotation.annotations[1]).page
+if annotations_test then
+    local function add_note(index,paragraph,note)
+        chapter(index)
+        local first='/body/DocFragment['..index..']/body/p['..paragraph..']/text().10'
+        local last='/body/DocFragment['..index..']/body/p['..paragraph..']/'
+            ..(index==4 and 'em[1]/text().3' or 'text().40')
+        assert(doc:isXPointerInDocument(first) and doc:isXPointerInDocument(last))
+        local quote=assert(doc:getTextFromXPointers(first,last));doc:clearSelection()
+        reader.annotation:addItem{page=first,pos0=first,pos1=last,text=quote,note=note,drawer='underscore',color='yellow'}
+    end
+    add_note(2,8,'Original chapter two note')
+    add_note(3,11,'Ambiguous note')
+    add_note(4,8,'Original chapter four note')
+    for _,item in ipairs(reader.annotation.annotations) do
+        if item.note=='Original chapter four note' then original_note_time=item.datetime end
+    end
+    assert(original_note_time,'source note timestamp missing')
+    chapter(2)
+end
 choose('Download existing translations for full book')
 assert(plugin.translation_fetch_job and plugin.translation_fetch_worker.job,'full book did not start in worker')
 local heartbeat=false;UI:scheduleIn(.05,function() heartbeat=true end)
@@ -96,6 +130,39 @@ local dialog=assert(plugin._translation_fetch_result,'full book copy not publish
 local record=assert(reader.doc_settings:readSetting('weread_translation_copies').__full)
 copy=record.path
 assert(copy~=path and bytes(path)==original and reader.annotation.annotations[1].page==bookmark,'original file or bookmark changed')
+local isolation=require('weread.lib.translation_record_isolation')
+assert(isolation.check(path,copy),'translated copy does not have independent record locations')
+assert(bytes(copy):sub(1,1024):find('META-INF/weread-translation-copy-id.txt',1,true),'copy identity is outside the sampled hash region')
+local collision=path..'.collision.epub'
+local identical=assert(io.open(collision,'wb'));assert(identical:write(original));assert(identical:close())
+assert(not isolation.check(path,collision),'identical sampled hash was accepted')
+local _,owner=Fetch.saved_entry(plugin)
+assert(owner and not Fetch.open_copy(plugin,owner,collision,{}),'collision opened a shared reading record')
+assert(reader.document.file==path and bytes(path)==original and reader.annotation.annotations[1].page==bookmark,
+    'collision check changed the original reader or bookmark')
+local top=UI:getTopmostVisibleWidget()
+if top and top~=dialog and top~=reader then UI:close(top) end
+assert(os.remove(collision))
+do
+    local directory=assert(path:match('^(.*)/[^/]+$'))
+    local out=require('weread.lib.notes_export_file')
+    local a,b=assert(out.create(directory,'copy-nonce','epub_part')),assert(out.create(directory,'copy-nonce','epub_part'))
+    local item={chapterUid=1,chapterIdx=1,title='Synthetic',wordCount=100}
+    local sample={book_id='900001',bookVersion=7,title='Synthetic',cache_dir=directory}
+    local text='<html><body><p>Identical original text</p><p class="wr-translation">相同译文</p></body></html>'
+    local source=assert(Source.capture(sample,item,text,'web_xhtml'))
+    Content.save_chapter_epub(settings,sample,item,text,nil,nil,Identity.capture(sample),source,a)
+    Content.save_chapter_epub(settings,sample,item,text,nil,nil,Identity.capture(sample),source,b)
+    local function nonce(file)
+        local head=bytes(file):sub(1,1024);local name='META-INF/weread-translation-copy-id.txt'
+        local at=assert(head:find(name,1,true))+#name
+        for candidate in head:sub(at):gmatch('[a-f0-9]+') do if #candidate==64 then return candidate end end
+    end
+    local first,second=nonce(a.path),nonce(b.path)
+    assert(first and second and first~=second,'identical copies reused their sampled nonce')
+    assert(require('util').partialMD5(a.path)~=require('util').partialMD5(b.path),'identical copies share a sampled hash')
+    a:abort();b:abort()
+end
 assert(plugin.settings:get_book('900001').cached_full_book==path,'full copy replaced the original cache')
 local profile=assert(require('weread.lib.translation_archive').inspect(copy,'900001'))
 assert(#profile.chapters==6 and profile.blocks==60 and record.blocks==60,'full book missed or invented translation chapters')
@@ -107,16 +174,51 @@ local location=require('weread.lib.source_context').location(doc,'page')
 local member=require('weread.lib.source_dom').member(doc,location.xpointer)
 assert(assert(Source.document_metadata(doc,'900001',nil,member.render_path)).chapter_uid=='2','copy opened wrong chapter')
 assert(plugin._translation_mode=='bilingual' and not plugin.progress_sync.verified,'copy lost bilingual mode or gained sync permission')
+if annotations_test then
+    local first='/body/DocFragment[2]/body/p[15]/text().10'
+    local last='/body/DocFragment[2]/body/p[15]/text().40'
+    local quote=assert(doc:getTextFromXPointers(first,last));doc:clearSelection()
+    reader.annotation:addItem{page=first,pos0=first,pos1=last,text=quote,note='Existing target note',drawer='underscore',color='yellow'}
+end
 chapter(5)
 reader:onClose(false);open(path)
 assert(reader.annotation.annotations[1].page==bookmark and bytes(path)==original,'original bookmark or bytes changed after copy')
 chapter(4);plugin.client.request=function() error('offline shortcut attempted HTTP') end
-old=reader;choose('Open saved translated copy')
+old=reader;choose(annotations_test and 'Copy local annotations to translated copy' or 'Open saved translated copy')
 pump(function() return Reader.instance and Reader.instance~=old and Reader.instance.document.file==copy end)
 adopt(Reader.instance)
 location=require('weread.lib.source_context').location(doc,'page');member=require('weread.lib.source_dom').member(doc,location.xpointer)
 assert(assert(Source.document_metadata(doc,'900001',nil,member.render_path)).chapter_uid=='4','offline shortcut opened wrong chapter')
+if annotations_test then
+    assert(#reader.annotation.annotations==3,'annotation copy count was incorrect')
+    local notes={}
+    for _,item in ipairs(reader.annotation.annotations) do
+        if item.note then
+            notes[item.note]=true
+            assert(doc:isXPointerInDocument(item.pos0) and doc:isXPointerInDocument(item.pos1),'copied highlight pointer is invalid')
+            local quoted=doc:getTextFromXPointers(item.pos0,item.pos1);doc:clearSelection()
+            assert(quoted==item.text and item.drawer=='underscore' and item.color=='yellow','copied highlight text or style changed')
+            if item.note=='Original chapter four note' then
+                assert(item.datetime==original_note_time,'copied note timestamp changed')
+                assert(quoted:find('😀',1,true) and quoted:find('&',1,true) and quoted:find('跨标签',1,true),'unicode or nested selection was not preserved')
+            end
+        end
+    end
+    assert(notes['Existing target note'] and notes['Original chapter four note'] and not notes['Original chapter two note'] and not notes['Ambiguous note'],
+        'copy overwrote an existing note or included ambiguous source')
+end
 reader:onClose(false);open(path)
+if annotations_test then
+    assert(#reader.annotation.annotations==4,'original annotations were changed')
+    local original_notes={};for _,item in ipairs(reader.annotation.annotations) do if item.note then original_notes[item.note]=true end end
+    assert(original_notes['Original chapter two note'] and original_notes['Ambiguous note'] and original_notes['Original chapter four note'],
+        'original notes changed during copy')
+    chapter(4);plugin.client.request=function() error('repeat annotation copy attempted HTTP') end
+    old=reader;choose('Copy local annotations to translated copy')
+    pump(function() return Reader.instance and Reader.instance~=old and Reader.instance.document.file==copy end)
+    adopt(Reader.instance);assert(#reader.annotation.annotations==3,'repeated copy created duplicates')
+    reader:onClose(false);open(path)
+end
 -- A cancelled worker and a failure after two chapters must not publish a
 -- partial book or replace either the original or an already accepted copy.
 local accepted=bytes(copy)
