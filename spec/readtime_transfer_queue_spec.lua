@@ -124,6 +124,15 @@ eq(journal:begin(account,result.selection,{protocol='native-historical-time-cst-
 record=assert(journal:begin(account,result.selection,{protocol='native-historical-time-cst-cb-v1',book_id='CB_Synthetic',request_hash=string.rep('d',64)}))
 eq(ledger:summary(account).in_flight,2);assert(journal:cancel_prepared(record));eq(ledger:summary(account).pending,2)
 eq(queue:select(account,'CB_invalid/',{allow_cb=true}),nil)
+-- A content-bound zero-version CB record may be selected for later source
+-- verification; numeric, legacy and unbound rows remain excluded.
+ledger,_,queue=fixture({{book_id='CB_Synthetic',start_time=100000,duration=2,version=0,origin='epub_unknown'},
+    {book_id='42',start_time=100010,duration=3,version=0,origin='epub_unknown'},
+    {book_id='CB_Legacy',start_time=100020,duration=3,version=0,origin='legacy_unverified',file_id=''}})
+eq(assert(queue:select(account,nil,{historical=true})).selection,false)
+result=assert(queue:select(account,nil,{historical=true,allow_cb=true}))
+eq(result.selection.book_id,'CB_Synthetic');eq(result.selection.book_version,0)
+eq(result.selection.rows[1].version_source,'epub_unknown');eq(ledger:summary(account).pending,8)
 -- Skipping one book is a read-only view filter and cannot starve another book.
 ledger,_,queue=fixture({{book_id='CB_Synthetic',start_time=100000,duration=2},
                         {book_id='42',start_time=100010,duration=3}})

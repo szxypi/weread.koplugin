@@ -29,7 +29,10 @@ local function snapshotter(client,auth,selected,web,book,expected_version,expect
         local info=auth:_request('time_metadata',BASE..'/book/info?bookId='..book,nil,selected.credentials)
         assert(cb and info.bookId==book or not cb and P.id(info.bookId)==book,'readtime_transfer/book')
         local version=info.bookVersion;if version==nil then version=info.version end
-        assert(C.integer(version,1,2147483647) and version==expected_version,'readtime_transfer/version')
+        if cb and expected_version==0 then
+            assert(C.integer(version,0,0) and (info.bookVersion==nil or C.integer(info.bookVersion,0,0))
+                and (info.version==nil or C.integer(info.version,0,0)),'readtime_transfer/version')
+        else assert(C.integer(version,1,2147483647) and version==expected_version,'readtime_transfer/version') end
         local raw=auth:_request('time_progress',BASE..'/book/getProgress?bookId='..book,nil,selected.credentials)
         assert(C.integer(raw.timestamp,1,4102444800) and math.abs(raw.timestamp-now())<=60,'readtime_transfer/clock')
         local fetch=cb and client.get_shelf_display_progress or client.get_progress_snapshot
@@ -117,6 +120,7 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         local window=Accounting.window(selection.protocol_rows,selection.book_id,now())
         assert(window.seconds==selection.seconds and window.version==selection.book_version and C.hash(selection.file_id),'readtime_transfer/source')
         local source=observe(client,web,selection,references)
+        assert(window.version~=0 or cb and type(source)=='table' and source.format=='web_txt','readtime_transfer/source')
         assert(C.digest(selection)==selection_hash,'readtime_transfer/selection_changed')
         local snapshot=snapshotter(client,auth,selected,web,selection.book_id,window.version,window.months,current,now,function()
             return not metadata or Accounting.day(now())==Accounting.day(metadata.created_at)
@@ -182,8 +186,9 @@ function M.resolve(client,settings,selected,web,record,references,journal,option
         assert(options.account==Account(selected.scope.vid) and record.account==options.account,'readtime_transfer/account')
         local identity=m.protocol=='native-historical-time-cst-v1' and C.id(m.book_id)
             or m.protocol=='native-historical-time-cst-cb-v1' and C.cb_id(m.book_id)
+        local zero= C.cb_id(m.book_id) and m.book_version==0 and type(m.source)=='table' and m.source.format=='web_txt'
         assert(identity and C.hash(m.file_id)
-            and C.integer(m.book_version,1,2147483647) and C.integer(m.created_at,1,now())
+            and (zero or C.integer(m.book_version,1,2147483647)) and C.integer(m.created_at,1,now())
             and m.device_hash==C.digest(selected.credentials.deviceId),'readtime_transfer/metadata')
         assert(C.hash(m.native_hash) and C.hash(m.web_hash) and C.hash(m.shelf_hash),'readtime_transfer/metadata')
         Accounting.validate(m)

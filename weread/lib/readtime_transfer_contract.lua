@@ -54,8 +54,14 @@ end
 function M.part(part) return exact_keys(part,PART_KEYS) and M.integer(part.row_id,1,2^53-1)
     and M.integer(part.start_time,1,4102444800) and M.integer(part.duration,1,60) end
 function M.verified(row,now,allow_cb)
-    return M.row(row) and (M.id(row.book_id) or allow_cb==true and M.cb_id(row.book_id)) and row.book_version>0 and M.hash(row.file_id)
-        and row.version_source=='epub_snapshot' and row.start_time+row.duration<=now and pcall(Protocol.zone,row.time_zone)
+    if not M.row(row) then return false end
+    local positive=(M.id(row.book_id) or allow_cb==true and M.cb_id(row.book_id))
+        and row.book_version>0 and row.version_source=='epub_snapshot'
+    -- This only permits selection. The task must subsequently prove that the
+    -- original archive is content-bound TXT and the current server is unversioned.
+    local imported_zero=allow_cb==true and M.cb_id(row.book_id) and row.book_version==0 and row.version_source=='epub_unknown'
+    return (positive or imported_zero) and M.hash(row.file_id)
+        and row.start_time+row.duration<=now and pcall(Protocol.zone,row.time_zone)
 end
 function M.protocol_rows(rows)
     local result={}

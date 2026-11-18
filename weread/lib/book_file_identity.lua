@@ -65,6 +65,14 @@ function M.decode(raw)
         file_id = fields.source_id, version_source = version > 0 and "epub_snapshot" or "epub_unknown" }
 end
 
+-- Unknown version is not by itself a content identity. Require the digest
+-- that was sealed into the original EPUB identity; never infer one later.
+function M.has_text_digest(raw)
+    if not M.decode(raw) then return false end
+    local digest=raw:match("\ntext_digest=([0-9a-f]+)\n")
+    return digest~=nil and #digest==64
+end
+
 -- Use the open engine's archive, then pin the result to that document object.
 -- A background replacement of the same pathname must not rebind an old reader.
 function M.read_document(document, expected_book)

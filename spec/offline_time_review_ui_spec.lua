@@ -181,5 +181,18 @@ dispatched=nil;Review.show(host);deliver();choose('Review unfinished transfer');
 host._offline_time_detail.buttons[2][1].callback();eq(dispatched,nil);deliver()
 eq(dispatched.mode,'resolve');eq(dispatched.refs[1].file,'/synthetic/book.epub')
 source.scan_page=old_scan
+Review.close(host)
+-- An unknown-version imported row is only a candidate, not a proven source.
+local zero_dir=root..'/zero';assert(os.execute('mkdir -p '..string.format('%q',zero_dir))==0)
+local zero_ledger=Ledger:new(zero_dir);local zero_coverage=Coverage:new(zero_dir,function() return 100 end)
+assert(zero_coverage:initialize())
+local zero_window=assert(zero_ledger:begin(account,{book_id='CB_Synthetic',stats_book=1,start_time=100,time_zone='+08:00',book_version=0,
+    file_id=string.rep('e',64),version_source='epub_unknown'}))
+assert(zero_ledger:collect(account,zero_window,{{page='1',start_time=100,duration=2}},102,true))
+host.offline_time.store=zero_ledger;host.readtime_coverage=zero_coverage
+Review.show(host);deliver();choose('Pending local records');deliver()
+host._offline_time_menu.item_table[1].callback();deliver()
+eq(host._offline_time_detail.title:find('Cached source will be checked before transfer',1,true)~=nil,true)
+eq(zero_ledger:summary(account).pending,2)
 Review.close(host);os.execute('rm -rf '..string.format('%q',root))
 print('offline_time_review_ui_spec: '..checks..' checks')

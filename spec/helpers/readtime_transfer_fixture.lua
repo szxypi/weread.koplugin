@@ -15,6 +15,7 @@ function M.new(mode,expect,roots,cb,config)
     config=config or {}
     local f={posts=0,reads=0,clock=1700007200,current=true,source_reads=0,mode=mode,book_id=cb and 'CB_Synthetic' or '42'}
     f.file_id=config.file_id or string.rep('f',64)
+    f.book_version=config.book_version or 7
     f.root=os.tmpname()..'-time-task';os.execute('mkdir -p '..string.format('%q',f.root));roots[#roots+1]=f.root
     local settings,credentials_store,state=F.access();f.settings,f.state=settings,state
     function settings:get(key,default) return key=='cookies' and {wr_vid='900000',wr_skey='synthetic-current-cookie'} or default end
@@ -23,8 +24,8 @@ function M.new(mode,expect,roots,cb,config)
     f.native,f.web=Native.capture(settings,credentials_store),Web.capture(settings)
     f.account=Account(grant.vid);local start=f.clock-86400;local day=A.day(start);local month=Dates.period_start('monthly',start)
     f.ledger=Ledger:new(f.root);f.coverage=Coverage:new(f.root,function() return start-100 end);assert(f.coverage:initialize())
-    local window=assert(f.ledger:begin(f.account,{book_id=f.book_id,stats_book=1,start_time=start,time_zone='+08:00',book_version=7,
-        file_id=f.file_id,version_source='epub_snapshot'}))
+    local window=assert(f.ledger:begin(f.account,{book_id=f.book_id,stats_book=1,start_time=start,time_zone='+08:00',book_version=f.book_version,
+        file_id=f.file_id,version_source=config.version_source or 'epub_snapshot'}))
     assert(f.ledger:collect(f.account,window,{{page='1',start_time=start,duration=2}},start+2,true))
     f.selection=assert(Queue:new{ledger=f.ledger,coverage=f.coverage,now=function() return f.clock end}:select(f.account,nil,{allow_cb=cb})).selection
     f.client={settings=settings,json_encode=function(_s,x) return Json.encode(x) end,json_decode=function(_s,x) return Json.decode(x) end}
@@ -59,7 +60,11 @@ function M.new(mode,expect,roots,cb,config)
             if f.mode=='lost' then error('synthetic lost reply') end
             if f.mode=='cancel_post' then f.current=false end
             data=f.mode=='no_ack' and {} or {succ=1}
-        elseif options.url:find('/book/info?',1,true) then data={bookId=f.book_id,bookVersion=f.mode=='metadata_version' and 8 or 7}
+        elseif options.url:find('/book/info?',1,true) then
+            data={bookId=f.book_id,bookVersion=(f.mode=='metadata_version' or f.mode=='metadata_changed_after' and f.posts>0) and 8 or f.book_version}
+            if f.mode=='metadata_conflict' then data.version=8 end
+            if f.mode=='metadata_missing' then data.bookVersion=nil end
+            if f.mode=='metadata_zero_string' then data.bookVersion='0' end
         elseif options.url:find('/book/getProgress?',1,true) then
             if f.posts>0 then
                 expect(f.journal:pending(f.account).phase=='acknowledged','readback preceded durable ACK')

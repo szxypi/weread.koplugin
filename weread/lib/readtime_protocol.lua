@@ -83,7 +83,7 @@ local function validate_rows(rows,book_id,now,cb)
         assert(type(row)=='table','readtime/rows');local count=0
         for key in pairs(row) do assert(keys[key],'readtime/rows');count=count+1 end
         assert(count==4 and integer(row.start_time,1,4102444800) and integer(row.duration,1,60)
-            and integer(row.book_version,1,2147483647) and row.start_time+row.duration<=now,'readtime/rows')
+            and integer(row.book_version,cb and 0 or 1,2147483647) and row.start_time+row.duration<=now,'readtime/rows')
         M.zone(row.time_zone);sorted[#sorted+1]=row
     end
     table.sort(sorted,function(a,b) return a.start_time<b.start_time end)

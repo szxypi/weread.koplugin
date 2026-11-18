@@ -26,6 +26,10 @@ local imported=cb('合成摘要')
 assert(imported.books[1].summary=='合成摘要' and imported.books[1].bookId=='CB_Synthetic')
 assert(imported.books[1].signature=='6355e24b30adc9475d9b8c96168c552abe58370ce7cb7b90a5a081fba692bc0e')
 assert(imported.signature==value.signature and imported.books[1].readingTime==2)
+local zero_rows=rows();zero_rows[1].book_version=0
+local zero=cb('合成摘要','CB_Synthetic',zero_rows)
+assert(zero.books[1].bookVersion==0 and zero.books[1].signature==imported.books[1].signature)
+fails(function() body(zero_rows) end)
 for _i,invalid in ipairs({'','CB_','CB_bad/','CB_'..string.rep('A',65),'900001'}) do
     fails(function() cb('合成摘要',invalid) end)
 end

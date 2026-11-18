@@ -10,12 +10,22 @@ local input=json.decode(assert(io.stdin:read(tonumber(length))))
 assert(input.owner=='900000' and input.book_id=='CB_Synthetic' and input.grant.vid=='900000'
     and input.grant.accessToken=='mock-native-access' and input.grant.refreshToken=='mock-native-refresh'
     and input.guest=='synthetic-guest' and input.config=='synthetic-config')
-assert(input.mode=='success' or input.mode=='optional_text' or input.mode=='dry_run' or input.mode=='invalid_ack' or input.mode=='http_201' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source' or input.mode=='tamper_native_catalog')
+assert(input.mode=='success' or input.mode=='zero_selection' or input.mode=='zero_send' or input.mode=='optional_text' or input.mode=='dry_run' or input.mode=='invalid_ack' or input.mode=='http_201' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source' or input.mode=='tamper_native_catalog')
 assert(type(input.token)=='string' and #input.token==32 and input.token:match('^[a-f0-9]+$'))
 assert(type(arg[1])=='string' and type(arg[2])=='string' and type(arg[3])=='string' and type(arg[4])=='string')
 local worked,reason=pcall(function()
 local home=assert(os.getenv('KO_HOME'));package.path=home..'/plugins/weread.koplugin/?.lua;'..arg[1]..'/?.lua;'..package.path
+local source_path=arg[4]
 local function rpc(kind,extra)
+    if input.mode=='zero_send' then
+        if kind=='selection' then assert(extra.selection.book_id==input.book_id and extra.selection.book_version==0)
+        elseif kind=='claim' then
+            assert(extra.selection.book_version==0 and extra.record.metadata.source.format=='web_txt'
+                and extra.body.books[1].bookVersion==0 and extra.body.books[1].bookId==input.book_id)
+        elseif kind=='ack' then assert(extra.status==200 and extra.response.succ==1)
+        else error('synthetic_ui/zero_rpc',0) end
+        return true
+    end
     local value=extra or {};value.kind=kind
     io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..input.token..'_STEP='..json.encode(value)..'\n');io.stdout:flush()
     local reply=json.decode(assert(io.stdin:read('*l')))
@@ -60,12 +70,37 @@ assert(coverage:initialize()<=input.start_time)
 local C=require('weread.lib.readtime_transfer_contract');assert(C.digest(assert(ledger:pending(account)))==C.digest(input.rows))
 local availability=assert(coverage:preview_individual(account,input.rows))
 assert(availability.eligible==input.seconds and availability.covered==0 and availability.unverified==0)
+if input.mode=='zero_selection' then
+    local db=require('lua-ljsqlite3/init').open(ledger:path(account))
+    db:exec("UPDATE windows SET book_version=0,version_source='epub_unknown'");db:close()
+    assert(assert(ledger:pending(account))[1].book_version==0)
+end
+if input.mode=='zero_send' then
+    local ffi=require('ffi');local Crypto=require('weread.lib.crypto')
+    local Identity=require('weread.lib.book_file_identity');local Source=require('weread.lib.position_source')
+    local book={bookId=input.book_id,bookVersion=0};local chapter={chapterUid=input.chapter_uid,chapterIdx=input.chapter_idx}
+    local raw='Synthetic zero version TXT.\r\nSecond line.';local rendered='<html><body>Synthetic TXT</body></html>'
+    local identity_raw=Identity.encode(book,{chapter},Identity.capture(book),Crypto.sha256_hex(rendered),0)
+    local identity=assert(Identity.decode(identity_raw));local source=assert(Source.capture(book,chapter,raw,'web_txt'))
+    local metadata=assert(Source.bind(source,identity,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(rendered)))
+    local path=home..'/zero-txt.epub';local fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_CREAT+ffi.C.O_TRUNC,384);assert(fd>=0)
+    local writer=require('weread.lib.epub_export_writer').new(fd)
+    local members={[Identity.PATH]=identity_raw,[Source.meta_path(input.chapter_uid)]=metadata,
+        [Source.raw_path(source.raw_sha256)]=raw,['OEBPS/text/chapter.xhtml']=rendered}
+    for name,value in pairs(members) do writer:add(name,value,#value,false) end
+    assert(writer:close());assert(ffi.C.close(fd)==0)
+    source_path=path;input.file_id=identity.file_id;input.book_version=0;input.raw_sha256=source.raw_sha256
+    local db=require('lua-ljsqlite3/init').open(ledger:path(account))
+    local update=db:prepare("UPDATE windows SET book_version=0,version_source='epub_unknown',file_id=?")
+    update:bind(input.file_id):step();update:close();db:close()
+    assert(assert(ledger:pending(account))[1].book_version==0)
+end
 host.offline_time.store=ledger;host.readtime_coverage=coverage;host.offline_time.update=function() end
 host.isNetworkConnected=function() return true end
 local chapters={{chapterUid=input.chapter_uid,chapterIdx=input.chapter_idx}}
 local get_book=host.settings.get_book
 host.settings.get_book=function(settings,id)
-    if id==input.book_id then return {cached_file=arg[4],chapters=chapters} end
+    if id==input.book_id then return {cached_file=source_path,chapters=chapters} end
     return get_book(settings,id)
 end
 local get_book_info=host.library_db.getBook
@@ -85,7 +120,7 @@ source_db:exec('CREATE TABLE synthetic_dispatches(id INTEGER PRIMARY KEY)');sour
 local A=require('weread.lib.readtime_accounting');local Stats=require('weread.lib.read_stats')
 local captured_day=A.day(input.start_time);local captured_month=Stats.period_start('monthly',input.start_time)
 local applied=false;local sent=0
-local success=input.mode=='success' or input.mode=='optional_text'
+local success=input.mode=='success' or input.mode=='zero_send' or input.mode=='optional_text'
 local function progress()
     local result={timestamp=os.time(),book={bookId=input.book_id,chapterUid=tonumber(input.chapter_uid),chapterIdx=input.chapter_idx,
         chapterOffset=12,progress=3,summary='合成摘要😀',chapterTitle='合成章节',
@@ -150,18 +185,21 @@ function Service.new(class,service_options)
     assert(type(service_options.task_options)=='table' and service_options.task_options.experimental_cb==true,'synthetic_ui/production_service_options')
     service_options.settings=settings;service_options.client=client;service_options.journal=journal;service_options.credentials=credentials
     service_options.task_options.observe_source=function(observed_client,web,selection,refs,previous)
-        assert(selection.file_id==input.file_id and #refs==1 and refs[1].file==arg[4])
+        assert(selection.file_id==input.file_id and #refs==1 and refs[1].file==source_path)
         local db=sqlite.open(coverage.path);db:exec('INSERT INTO synthetic_source_calls DEFAULT VALUES');db:close()
         local Source=require('weread.lib.position_source');local Current=require('weread.lib.source_currentness')
         local key=Source.raw_path(input.raw_sha256)
-        local members=assert(require('weread.lib.source_archive').read(arg[4],{[key]=Source.MAX_BYTES}))
+        local members=assert(require('weread.lib.source_archive').read(source_path,{[key]=Source.MAX_BYTES}))
         local raw=assert(members[key])
         return require('weread.lib.readtime_source').observe(observed_client,web,selection,refs,previous,
             {fetch=function(_client,expected,_web,format,options)
-                assert(format=='web_xhtml')
-                local catalog={{bookId=input.book_id,book={bookVersion=input.book_version},updated=chapters}}
+                assert(format==(input.mode=='zero_send' and 'web_txt' or 'web_xhtml'))
+                local catalog_book=input.mode=='zero_send' and {bookId=input.book_id} or {bookVersion=input.book_version}
+                local catalog={{bookId=input.book_id,book=catalog_book,updated=chapters}}
                 options.verify_catalog(catalog)
-                return Current.project_cb(expected,catalog,{book_id=input.book_id,psvts='synthetic-session'},raw,catalog)
+                local proof=Current.project_cb(expected,catalog,{book_id=input.book_id,psvts='synthetic-session'},raw,catalog)
+                if input.mode=='zero_send' then proof.basis='raw_txt_utf16' end
+                return proof
             end})
     end
     service_options.task_options.sleep=function() end
@@ -194,6 +232,23 @@ assert(chosen,'synthetic_ui/menu');host._offline_time_menu:onMenuSelect(chosen)
 pump(function() return host._offline_time_detail~=nil end)
 local detail=host._offline_time_detail;assert(#detail.buttons==3 and detail.buttons[2][1].callback)
 local skip_checked=false
+if input.mode=='zero_selection' then
+    assert(host.offline_time_transfer_service==nil)
+    detail.buttons[3][1].callback();pump(function() return host._offline_time_detail~=nil end)
+    assert(host._offline_time_detail.title:find(require('weread.lib.i18n').tr('No locally verified time is available in this check.'),1,true))
+    assert(host.offline_time_transfer_service==nil and assert(ledger:summary(account)).pending==input.seconds)
+    host:closeOfflineTimeUI();reader:onClose(false)
+    local ffi=require('ffi');local status=ffi.new('int[1]')
+    pump(function()
+        local child=tonumber(ffi.C.waitpid(-1,status,ffi.C.WNOHANG))
+        while child>0 do child=tonumber(ffi.C.waitpid(-1,status,ffi.C.WNOHANG)) end
+        return child<0 and ffi.errno()==10
+    end)
+    io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..input.token..'_RESULT='..json.encode({result='PASS',mode=input.mode,
+        native_menu=true,background_service=false,dialog_correct=true,workers_reaped=true,recovery_checked=false,
+        skip_checked=true,source_reads=0,local_phase='none',local_confirmed=0})..'\n');io.stdout:flush()
+    return
+end
 if input.mode=='success' then
     detail.buttons[3][1].callback()
     pump(function() return host._offline_time_detail~=nil end)

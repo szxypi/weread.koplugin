@@ -171,6 +171,60 @@ end
 txt_mode='normal';txt_members[Source.raw_path(txt_captured.raw_sha256)]='changed'
 expect(not pcall(M.observe,{},{},txt_selection,cb_ref,txt_proof,txt_options))
 txt_members[Source.raw_path(txt_captured.raw_sha256)]=txt_raw
+local zero_book={bookId='CB_Synthetic',bookVersion=0}
+local zero_root=Identity.encode(zero_book,chapters,Identity.capture(zero_book),Crypto.sha256_hex(rendered),0)
+local zero_identity=assert(Identity.decode(zero_root))
+local zero_source=assert(Source.capture(zero_book,chapters[1],txt_raw,'web_txt'))
+local zero_meta=assert(Source.bind(zero_source,zero_identity,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(rendered)))
+local zero_members={[Identity.PATH]=zero_root,[Source.meta_path('7')]=zero_meta,
+    [Source.raw_path(zero_source.raw_sha256)]=txt_raw,['OEBPS/text/chapter.xhtml']=rendered}
+local zero_selection={book_id='CB_Synthetic',book_version=0,file_id=zero_identity.file_id}
+local zero_catalog={{bookId='CB_Synthetic',book={bookId='CB_Synthetic'},updated=chapters}}
+local zero_options={read_archive=function(_file,wanted)
+    local out={} for key,maximum in pairs(wanted) do
+        local value=zero_members[key];if not value or #value>maximum then return nil end;out[key]=value
+    end
+    return out
+end,fetch=function(_client,expected,_access,format,options,cb)
+    expect(cb and format=='web_txt');options.verify_catalog(zero_catalog);options.verify_catalog(zero_catalog)
+    local proof=Current.project_cb(expected,zero_catalog,{book_id='CB_Synthetic',psvts='synthetic-session'},txt_raw,zero_catalog)
+    proof.basis='raw_txt_utf16';return proof
+end}
+expect(M.unversioned_cb(zero_catalog,'CB_Synthetic'))
+expect(M.unversioned_cb({{bookId='CB_Synthetic'}},'CB_Synthetic'))
+expect(M.unversioned_cb({{book={bookId='CB_Synthetic'}}},'CB_Synthetic'))
+expect(not M.unversioned_cb({{bookId='CB_Synthetic',book={bookId=false}}},'CB_Synthetic'))
+local zero_proof=M.observe({},{},zero_selection,cb_ref,nil,zero_options)
+expect(zero_proof.format=='web_txt' and zero_proof.raw==nil)
+expect(M.observe({},{},zero_selection,cb_ref,zero_proof,zero_options).catalog_stamp==zero_proof.catalog_stamp)
+expect(M.scan_page({cached_file='/synthetic.epub'},chapters,zero_selection,nil,1,zero_options).kind=='found')
+for _i,mutate in ipairs({function(v) v[1].book.version=0 end,function(v) v[1].book.bookVersion=7 end,
+    function(v) v[1].version=false end,function(v) v[1].book.bookId='CB_Other' end,
+    function(v) v[1].bookId='CB_Other' end,function(v) v[1].bookId=false end,
+    function(v) v[2]=F.clone(v[1]) end,function(v) v.extra=F.clone(v[1]) end}) do
+    local changed=F.clone(zero_catalog);mutate(changed);expect(not M.unversioned_cb(changed,'CB_Synthetic'))
+end
+expect(not M.unversioned_cb(zero_catalog,'900001'))
+local saved_root=zero_members[Identity.PATH]
+local unbound_root=Identity.encode(zero_book,chapters,Identity.capture(zero_book),nil,0)
+local unbound_identity=assert(Identity.decode(unbound_root))
+zero_members[Identity.PATH]=unbound_root
+zero_members[Source.meta_path('7')]=assert(Source.bind(zero_source,unbound_identity,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(rendered)))
+local unbound_selection=F.clone(zero_selection);unbound_selection.file_id=unbound_identity.file_id
+expect(not pcall(M.observe,{},{},unbound_selection,cb_ref,nil,zero_options),'unbound zero-version identity accepted')
+zero_members[Identity.PATH]=saved_root
+zero_members[Source.meta_path('7')]=zero_meta
+local multi_root=Identity.encode(zero_book,{chapters[1],{chapterUid=8,chapterIdx=1}},Identity.capture(zero_book),Crypto.sha256_hex(rendered),0)
+local multi_identity=assert(Identity.decode(multi_root));zero_members[Identity.PATH]=multi_root
+zero_members[Source.meta_path('7')]=assert(Source.bind(zero_source,multi_identity,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(rendered)))
+local multi_selection=F.clone(zero_selection);multi_selection.file_id=multi_identity.file_id
+expect(not pcall(M.observe,{},{},multi_selection,cb_ref,nil,zero_options),'unverified multi-chapter zero-version archive accepted')
+zero_members[Identity.PATH]=saved_root;zero_members[Source.meta_path('7')]=zero_meta
+local zero_xhtml=assert(Source.capture(zero_book,chapters[1],raw,'web_xhtml'))
+zero_members[Source.meta_path('7')]=assert(Source.bind(zero_xhtml,zero_identity,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(rendered)))
+zero_members[Source.raw_path(zero_xhtml.raw_sha256)]=raw
+expect(not pcall(M.observe,{},{},zero_selection,cb_ref,nil,zero_options),'unversioned XHTML accepted as TXT')
+zero_members[Source.meta_path('7')]=zero_meta
 if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     local ffi=require('ffi');require('ffi/posix_h')
     local path=os.tmpname();local fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)
@@ -206,5 +260,15 @@ if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     expect(real_txt_proof.format=='web_txt' and real_txt_proof.metadata_hash==Crypto.sha256_hex(txt_metadata))
     expect(M.observe({},{},txt_selection,txt_refs,real_txt_proof,txt_runtime_options).catalog_stamp==real_txt_proof.catalog_stamp)
     assert(os.remove(txt_path))
+    local zero_path=os.tmpname();local zero_fd=ffi.C.open(zero_path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(zero_fd>=0)
+    local zero_writer=require('weread.lib.epub_export_writer').new(zero_fd)
+    for name,value in pairs(zero_members) do zero_writer:add(name,value,#value,false) end
+    assert(zero_writer:close());assert(ffi.C.close(zero_fd)==0)
+    local zero_refs={{file=zero_path,chapter_uid='7',chapter_idx=0}}
+    local zero_runtime_options={fetch=zero_options.fetch}
+    local runtime_zero=M.observe({},{},zero_selection,zero_refs,nil,zero_runtime_options)
+    expect(runtime_zero.format=='web_txt' and runtime_zero.metadata_hash==Crypto.sha256_hex(zero_meta))
+    expect(M.observe({},{},zero_selection,zero_refs,runtime_zero,zero_runtime_options).catalog_stamp==runtime_zero.catalog_stamp)
+    assert(os.remove(zero_path))
 end
 print('readtime_source_spec: '..n..' checks')

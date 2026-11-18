@@ -51,6 +51,30 @@ function M.version(payload,id)
     end
     return count==1 and result or nil
 end
+-- A missing Web version is distinct from zero, null, malformed or conflicting
+-- version fields. Only a unique, same-book imported TXT may use this path.
+function M.unversioned_cb(payload,id)
+    if not C.cb_id(id) then return false end
+    local rows=type(payload)=='table' and (payload.data or payload.books or payload)
+    if type(rows)~='table' then return false end
+    if rows.bookId or rows.book then rows={rows} end
+    if not C.array(rows,1,10000) then return false end
+    local matches=0
+    for _i,row in ipairs(rows) do
+        local book=type(row)=='table' and row.book
+        local outer,inner
+        if type(row)=='table' then outer=row.bookId end
+        if type(book)=='table' then inner=book.bookId end
+        if outer==id or inner==id then
+            if outer~=nil and outer~=id or inner~=nil and inner~=id then return false end
+            matches=matches+1
+            for _j,node in ipairs({row,type(book)=='table' and book or {}}) do
+                if node.bookVersion~=nil or node.version~=nil then return false end
+            end
+        end
+    end
+    return matches==1
+end
 local function local_source(selection,ref,read)
     local meta_path=Source.meta_path(ref.chapter_uid)
     local initial=read(ref.file,{[Identity.PATH]=Identity.MAX_BYTES,[meta_path]=Source.MAX_META_BYTES})
@@ -59,6 +83,8 @@ local function local_source(selection,ref,read)
     if not identity or not meta or identity.book_id~=selection.book_id or identity.file_id~=selection.file_id
         or identity.book_version~=selection.book_version or meta.file_id~=selection.file_id or meta.book_version~=selection.book_version
         or meta.book_id~=selection.book_id or meta.chapter_uid~=ref.chapter_uid then return nil end
+    if selection.book_version==0 and (not C.cb_id(selection.book_id) or meta.format~='web_txt' or identity.chapter_count~=1
+            or not Identity.has_text_digest(initial[Identity.PATH])) then return nil end
     local members=read(ref.file,{[Identity.PATH]=Identity.MAX_BYTES,[meta_path]=Source.MAX_META_BYTES,
         [Source.raw_path(meta.raw_sha256)]=Source.MAX_BYTES,[meta.render_path]=Source.MAX_RENDERED_BYTES})
     if not members or members[Identity.PATH]~=initial[Identity.PATH] or members[meta_path]~=initial[meta_path] then return nil end
@@ -74,7 +100,7 @@ function M.scan_page(book,chapters,selection,previous,cursor,options)
     options=options or {}
     if type(book)~='table' or not C.array(chapters,1,10000) or type(selection)~='table'
         or not C.book_id(selection.book_id) or not C.hash(selection.file_id)
-        or not C.integer(selection.book_version,1,2147483647)
+        or not C.integer(selection.book_version,C.cb_id(selection.book_id) and 0 or 1,2147483647)
         or not C.integer(cursor,1,#chapters+2) then return {kind='unavailable'} end
     local indexes=Candidate.chapter_indices(chapters)
     if not indexes then return {kind='unavailable'} end
@@ -113,7 +139,8 @@ function M.observe(client,selected,selection,references,previous,options)
     end
     assert(not cb or chosen.format=='web_xhtml' or chosen.format=='web_txt','readtime_source/format')
     local function verify_catalog(raw)
-        assert(M.version(raw,selection.book_id)==selection.book_version,'readtime_source/version')
+        assert(selection.book_version==0 and cb and chosen.format=='web_txt' and M.unversioned_cb(raw,selection.book_id)
+            or selection.book_version~=0 and M.version(raw,selection.book_id)==selection.book_version,'readtime_source/version')
     end
     local proof
     if options.fetch then proof=options.fetch(client,chosen.expected,selected,chosen.format,{verify_catalog=verify_catalog},cb)

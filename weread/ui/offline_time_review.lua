@@ -128,8 +128,11 @@ local function render(host,context,kind,value,args)
         menu(host,context,_(args.category=='review' and 'Uncertain time records' or args.category=='covered' and 'Covered time records' or 'Pending local records'),items)
     elseif kind=='detail' then
         local entry=value.entry;local row=entry.source
+        local verified=C.verified(row,os.time(),true)
+        local source_label=verified and (row.book_version==0 and 'Cached source will be checked before transfer'
+            or 'Captured download source is available') or 'Download source needs verification'
         local text=entry.title..'\n'..time_label(row)..'\n'..T(_('Duration: %1'),seconds(row.duration))
-            ..'\n'.._(STATES[entry.state])..'\n'.._(C.verified(row,os.time(),true) and 'Captured download source is available' or 'Download source needs verification')
+            ..'\n'.._(STATES[entry.state])..'\n'.._(source_label)
         if entry.state=='pending' then
             text=text..'\n'..T(_('Known covered time: %1'),seconds(value.coverage.covered))
                 ..'\n'..T(_('Time before coverage tracking: %1'),seconds(value.coverage.unverified))

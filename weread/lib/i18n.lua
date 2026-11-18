@@ -550,6 +550,7 @@ local zh = {
     ["Review unfinished transfer"] = "查看未完成的补传",
     ["Transfer this batch"] = "补传此批时长",
     ["Skip this book for now"] = "暂时跳过这本书",
+    ["Cached source will be checked before transfer"] = "补传前将核对缓存来源",
     ["This imported book format cannot transfer saved time yet. Its records are kept."] = "暂不支持补传此导入书格式的阅读时长，记录已保留。",
     ["Only the displayed historical batch is sent. Uncertain requests are kept and never resent."] = "仅补传上方显示的历史时段。结果不明的请求会保留，不会重发。",
     ["Receipt saved; cloud accounting still needs checking."] = "已保存成功回执，云端入账仍待核对。",
