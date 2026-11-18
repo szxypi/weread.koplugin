@@ -165,6 +165,7 @@ jobs:
           python3 scripts/test_cb_fixture_position_trial.py
           python3 scripts/test_owner_cb_cloud_view_ui.py
           python3 scripts/test_owner_cb_cloud_live_ui.py
+          python3 scripts/test_owner_cb_source_preview_ui.py
           python3 scripts/test_owner_cb_cloud_nearby_ui.py
           python3 scripts/test_owner_cb_cloud_missing_ui.py
           python3 scripts/test_owner_cb_cloud_no_catalog_ui.py

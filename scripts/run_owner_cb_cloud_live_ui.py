@@ -25,6 +25,7 @@ def main():
     parser.add_argument('--dpi',type=int,default=167)
     parser.add_argument('--single',action='store_true')
     parser.add_argument('--synthetic',action='store_true')
+    parser.add_argument('--source-preview',action='store_true')
     args=parser.parse_args()
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     report={'result':'UNVERIFIED','profile_removed':False,'installed_bytes_match':False}
@@ -39,6 +40,7 @@ def main():
         if not 0<len(payload)<=8*1024*1024:raise ValueError('input')
         decoded=json.loads(payload)
         if not isinstance(decoded,dict) or not isinstance(decoded.get('cookies'),dict):raise ValueError('input')
+        if bool(decoded.get('source_preview'))!=args.source_preview or args.source_preview and args.synthetic:raise ValueError('input')
         secrets=[value.encode() for key,value in decoded['cookies'].items()
                  if key!='wr_vid' and isinstance(value,str) and len(value)>=8]
         if not secrets:raise ValueError('input')
@@ -65,14 +67,21 @@ def main():
                     marker=b'\nWEREAD_OWNER_CB_CLOUD_LIVE='
                     if out.count(marker)==1:
                         failure=json.loads(out.split(marker,1)[1].splitlines()[0])
-                        if failure.get('phase') in ('decode','prepare','navigate','reopen'):report['failure_phase']=failure['phase']
+                        if failure.get('phase') in ('decode','prepare','navigate','preview','reopen'):report['failure_phase']=failure['phase']
                         if type(failure.get('failure_line')) is int:report['failure_line']=failure['failure_line']
+                        if failure.get('preview_reason') in ('source_currentness_unavailable','candidate_unavailable','context_unavailable',
+                                'source_unsupported','resources_unavailable','offline','web_required','source_authentication_unavailable','other'):
+                            report['preview_reason']=failure['preview_reason']
+                        if type(failure.get('request_count')) is int and 0<=failure['request_count']<=14:
+                            report['request_count']=failure['request_count']
                     if (child.returncode or len(out)>8*1024*1024 or out.count(marker)!=1
                             or b'[WeRead] forceRePaint failed:' in out+err):raise ValueError('native')
                     value=json.loads(out.split(marker,1)[1].splitlines()[0])
-                    expected=dict(result='PASS',pending_preserved=True,upload_disabled=True,requests=0 if reopened else 6)
+                    expected=dict(result='PASS',pending_preserved=True,upload_disabled=True,requests=0 if reopened else (14 if args.source_preview else 6))
                     if reopened:expected.update(fresh_process=True,offline=True)
-                    else:expected.update(native_navigation=True,denied=0)
+                    else:
+                        expected.update(native_navigation=True,denied=0)
+                        if args.source_preview:expected['source_preview']=True
                     if value!=expected:raise ValueError('result')
                     for path in profile.rglob('*'):
                         if path.is_file() and not path.is_symlink():
@@ -84,7 +93,8 @@ def main():
                         try:kill_reader_session(child)
                         except (ProcessLookupError,RuntimeError):pass
                     stop(child);reap(child.pid)
-            report.update(result='PASS',native_navigation=True,fresh_process=True,pending_preserved=True,upload_disabled=True,requests=6,denied=0,credentials_not_persisted=True)
+            report.update(result='PASS',native_navigation=True,fresh_process=True,pending_preserved=True,upload_disabled=True,requests=14 if args.source_preview else 6,denied=0,credentials_not_persisted=True)
+            if args.source_preview:report['source_preview']=True
     except Exception:
         pass
     finally:report['profile_removed']=root is not None and not root.exists()

@@ -6,6 +6,8 @@ local ok,reason=pcall(function()
     local input=require('json').decode(raw)
     assert(type(input.book)=='string' and input.book:sub(1,3)=='CB_' and type(input.chapter)=='string'
         and type(input.source)=='string' and type(input.offset)=='number' and type(input.percent)=='number')
+    local preview=input.source_preview==true
+    if preview then assert(type(input.chapter_idx)=='number' and input.chapter_idx%1==0 and input.chapter_idx>=0) end
     local target_offset=input.target_offset or input.offset
     assert(type(target_offset)=='number' and target_offset>=input.offset and target_offset-input.offset<=1024)
     local local_chapter=input.chapter=='999999999' and '999999998' or '999999999'
@@ -96,7 +98,8 @@ local ok,reason=pcall(function()
     end
     result.phase='prepare'
     local book={book_id=input.book,bookId=input.book,bookVersion=0,title='合成标题',cached_chapters={}}
-    local chapters={{chapterUid=local_chapter,title='合成章节'},{chapterUid=input.chapter,title='目标章节'}}
+    local chapters={{chapterUid=local_chapter,chapterIdx=input.chapter_idx==0 and 1 or 0,wordCount=1000,title='合成章节'},
+        {chapterUid=input.chapter,chapterIdx=input.chapter_idx,wordCount=1000,title='目标章节'}}
     local bodies={[local_chapter]='<html><body><p>合成本地起始章节。</p></body></html>',[input.chapter]=input.source}
     local sources={}
     for _i,chapter in ipairs(chapters) do
@@ -116,6 +119,7 @@ local ok,reason=pcall(function()
     local reporting=settings:get('read_report',{});reporting.enabled=false;settings:set('read_report',reporting);settings:flush()
     result.phase='navigate'
     local main=host()
+    if preview then assert(main.library_db:putChapters(input.book,chapters)) end
     if single then main:openChapter(book,chapters[1]) else assert(main:startBookReading(book)) end
     wait(function() return Reader.instance and Reader.instance.weread and Reader.instance.weread._current_weread_book_id==input.book end)
     local reader=Reader.instance;local plugin=reader.weread
@@ -137,10 +141,29 @@ local ok,reason=pcall(function()
     assert(reader.document:isXPointerInCurrentPage(anchor.xpointer) and not plugin.progress_sync.verified)
     local saved=assert(plugin.settings:get_book(input.book))
     assert(saved.pending_upload_position.chapter_uid==local_chapter and saved.pending_upload_reason=='synthetic_pending')
+    if preview then
+        result.phase='preview'
+        plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
+        local done,candidate,receipt,why=false,nil,nil,nil
+        assert(plugin.source_position:prepare_cb_current_preview(function(value,error_value,proof)
+            done,candidate,why,receipt=true,value,error_value,proof
+        end))
+        wait(function() return done end)
+        if not candidate then
+            local allowed={source_currentness_unavailable=true,candidate_unavailable=true,context_unavailable=true,
+                source_unsupported=true,resources_unavailable=true,offline=true,web_required=true,source_authentication_unavailable=true}
+            result.preview_reason=allowed[why] and why or 'other'
+        end
+        result.request_count=tonumber(requests[0])
+        assert(candidate and receipt and not why and plugin.source_position:is_current_cb_preview(receipt,candidate))
+        assert(not plugin.source_position:is_current_upload_preview(receipt,candidate)
+            and not plugin.source_position:upload_preview_deadline(receipt,candidate) and not plugin.progress_sync.verified)
+    end
     local output=assert(io.open(home..'/resume-xpointer.txt','wb'));assert(output:write(anchor.xpointer));assert(output:close())
-    plugin:onFlushSettings();reader:onClose(false);assert(requests[0]==6 and requests[1]==0)
-    result={result='PASS',native_navigation=true,pending_preserved=true,upload_disabled=true,requests=6,denied=0}
+    plugin:onFlushSettings();reader:onClose(false);assert(requests[0]==(preview and 14 or 6) and requests[1]==0)
+    result={result='PASS',native_navigation=true,pending_preserved=true,upload_disabled=true,requests=preview and 14 or 6,denied=0}
+    if preview then result.source_preview=true end
 end)
-if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('owner_cb_cloud_view_ui%.lua:(%d+):')) or 0 end
+if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('owner_cb_cloud_live_ui%.lua:(%d+):')) or 0 end
 print('\nWEREAD_OWNER_CB_CLOUD_LIVE='..require('json').encode(result))
 os.exit(result.result=='PASS' and 0 or 1)

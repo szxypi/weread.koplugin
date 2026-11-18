@@ -27,4 +27,23 @@ for i,url in ipairs(urls) do
         old=option.body.b;option.body.b=Protocol.e('CB_Other');expect(not check(option,i-1,11,decode,false));option.body.b=old
     end
 end
+input.owner='1';input.source_preview=true
+check=Guard.new(input,Protocol,Cookie,10)
+local account='https://weread.qq.com/api/userInfo?userVid=1'
+local catalog='https://weread.qq.com/web/book/chapterInfos'
+local tail={account,catalog,reader,urls[3],urls[4],urls[5],catalog,account}
+for i,url in ipairs(tail) do
+    local post=i==2 or i==4 or i==5 or i==6 or i==7
+    local body=post and ((i==2 or i==7) and {bookIds={input.book}} or {b=Protocol.e(input.book),c=Protocol.e(input.chapter)}) or nil
+    local option={method=post and 'POST' or 'GET',url=url,sensitive=true,skip_cookie=true,persist_response_cookies=false,headers=header,body=body}
+    expect(check(option,i+5,11,decode,false))
+    expect(not check(option,i+5,10,decode,false))
+    expect(not check(option,i+5,11,decode,true))
+    expect(not check(option,14,11,decode,false))
+    if i==2 or i==7 then
+        option.body={bookIds={'CB_Other'}};expect(not check(option,i+5,11,decode,false))
+        option.body={bookIds={input.book},extra=true};expect(not check(option,i+5,11,decode,false))
+        option.body=false;expect(not check(option,i+5,11,decode,false))
+    end
+end
 print('cb_cloud_live_guard_spec: '..checks..' checks')
