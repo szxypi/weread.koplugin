@@ -13,9 +13,11 @@ return function(host,request_count,flush)
     host:showProfile();host:cancelProfileRefresh();flush()
     local view=assert(host._profile_view)
     view._profile_buttons[3].callback()
-    pump(function() return request_count('/api/userInfo')>before and not host.profile_name_request end)
+    pump(function() return request_count('/api/userInfo')>before and not host.profile_name_request and not host.profile_request end)
     assert(request_count('/api/userInfo')==before+1,'nickname was requested more than once')
     assert(host._profile_view.data.account_name=='Synthetic Web reader','refreshed name was not displayed')
+    assert(host._profile_view.data.has_data and host.library_db:getProfileState('statistics'),
+        'concurrent statistics refresh did not complete')
     local stored=assert(host.library_db:getProfileState('account_name'))
     assert(stored.name=='Synthetic Web reader' and stored.epoch==host.settings:get_auth_scope().epoch)
     local worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
