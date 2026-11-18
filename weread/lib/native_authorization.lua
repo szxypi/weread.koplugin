@@ -141,6 +141,7 @@ function Auth:read_shelf(credentials)
     end
     if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("shelf", "account_mismatch") end
     local shelf = self:_request("shelf", BASE .. "/shelf/sync", nil, credentials)
+    if not require('weread.lib.shelf_wire').valid(self.client,shelf) then fail('shelf','invalid') end
     if type(shelf.books) ~= "table" then fail("shelf", "invalid") end
     for key in pairs(shelf.books) do
         if type(key) ~= "number" or key % 1 ~= 0 or key < 1 or key > #shelf.books then fail("shelf", "invalid") end

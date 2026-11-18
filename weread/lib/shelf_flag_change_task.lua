@@ -17,7 +17,9 @@ local function observe(client,settings,selected,id,inspect)
         return raw,read and value or nil
     end)
     auth:cancel();if not ok then error(shelf,0) end
-    return {raw=shelf,progress=progress,snapshot=Source.normalize(shelf)}
+    local snapshot=Source.normalize(shelf)
+    assert(type(snapshot.archive)=='table','shelf_flag_change/incomplete_groups')
+    return {raw=shelf,progress=progress,snapshot=snapshot}
 end
 function M.observe(client,settings,selected,id) return observe(client,settings,selected,id,false) end
 function M.inspect(client,settings,selected,id) return observe(client,settings,selected,id,true) end

@@ -2,7 +2,7 @@ package.path='./?.lua;'..package.path
 local C=require('weread.lib.finish_change_contract');local Task=require('weread.lib.finish_change_task')
 local Access=require('weread.lib.native_read_access');local F=require('spec.helpers.thought_edit_fixture')
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
-local function shelf(finished) return {books={{bookId='41',title='Synthetic target',finishReading=finished,secret=0},{bookId='42',title='Synthetic other',finishReading=1}}} end
+local function shelf(finished) return {books={{bookId='41',title='Synthetic target',finishReading=finished,secret=0},{bookId='42',title='Synthetic other',finishReading=1}},archive={{archiveId=1,name='Synthetic',bookIds={'41'}}}} end
 local function progress(offset) return {book={bookId='41',chapterUid=2,chapterIdx=2,chapterOffset=offset or 100,progress=37.5}} end
 local function fixture(queue,before,desired)
     local f={requests={},posts=0,claims=0,phase='prepared',queue=queue,waits=0}
@@ -53,6 +53,9 @@ for _i,status in ipairs({401,403,429}) do
 end
 f=fixture({shelf(1),progress()});result=f.run()
 expect(result.kind=='changed' and not result.attempted and f.posts==0,'state changed after confirmation dispatched')
+local missing=shelf(0);missing.archive=nil
+f=fixture({missing,progress()});result=f.run()
+expect(result.kind=='unavailable' and not result.attempted and f.posts==0,'missing groups allowed finished-mark write')
 f=fixture({shelf(0),progress()});f.fail_claim=true;result=f.run()
 expect(not result.attempted and f.posts==0 and f.phase=='prepared','claim failure dispatched')
 f=fixture({});f.revoked=true;result=f.run();expect(not result.attempted and #f.requests==0,'cancelled state reached transport')

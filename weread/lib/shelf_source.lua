@@ -128,7 +128,8 @@ function M.normalize(data, kind)
         end
         archives[#archives + 1] = archive
     end
-    return { books = books, archive = archives }
+    -- A missing archive field is not evidence that the user has no groups.
+    return { books = books, archive = data.archive ~= nil and archives or nil }
 end
 
 function M.fetch(client, options)
@@ -175,7 +176,8 @@ function M.fetch(client, options)
         attempted_gateway = true
         local ok, result, code, headers = pcall(client.get_gateway_shelf, client)
         if not current(true) then fail("session_changed") end
-        if ok and type(result) == "table" and array(result.books) and (result.archive == nil or array(result.archive)) then
+        if ok and type(result) == "table" and require('weread.lib.shelf_wire').valid(client,result)
+            and array(result.books) and (result.archive == nil or array(result.archive)) then
             result._shelf_source, result._native_fallback = "gateway", fallback
             result._native_revision = selected.credentials and selected.revision or nil
             return result, code, headers

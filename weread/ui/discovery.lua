@@ -145,9 +145,11 @@ function M:showHome(refresh_progress, refreshed_shelf)
 end
 
 function M:refreshHome()
-    self:refreshBookshelf(self.shelf_view, { on_loaded = function(saved, snapshot)
+    self:refreshBookshelf(self.shelf_view, { on_loaded = function(saved, snapshot, groups_incomplete)
         self:showHome(true, snapshot)
-        if not saved then
+        if groups_incomplete and not saved then
+            self:showTransientInfo(_("The bookshelf did not include group information. This temporary list is not saved; refresh again later."), 5)
+        elseif not saved then
             self:showTransientInfo(_("Could not save the bookshelf for offline use. The current list is still available."), 4)
         end
     end })

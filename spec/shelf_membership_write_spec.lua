@@ -51,13 +51,20 @@ f=fixture({shelf('41'),{succ=1},shelf('41'),shelf('41'),shelf('41')});r=f.run()
 expect(not r.confirmed and #f.requests==5 and waits>=2,'stale readback was unbounded or treated as success')
 f=fixture({shelf('41'),{succ=1},shelf('41','42','43')});r=f.run()
 expect(not r.confirmed and r.acknowledged and #f.requests==3,'unrelated post-write membership change was silently confirmed')
-for _i,reply in ipairs({{books={{bookId='41',title='One'},{bookId='41',title='Duplicate'}}},{books={}},
+for _i,reply in ipairs({{books={{bookId='41',title='One'},{bookId='41',title='Duplicate'}}},{books={},archive={}},
     {status=401},{status=429},{invalid=true},{raw=string.rep('x',4*1024*1024+1)}}) do
     f=fixture({reply});r=f.run()
     if reply.books and #reply.books==0 then expect(r.kind=='changed' and not r.attempted,'empty shelf was not a changed preflight')
     else expect(r.kind==(reply.status==401 and 'login' or 'unavailable') and not r.attempted and #f.requests==1,
         'invalid/preflight rejection attempted a write') end
 end
+f=fixture({{books={{bookId='41',title='Synthetic'}}}});r=f.run()
+expect(r.kind=='unavailable' and not r.attempted and #f.requests==1,'missing group data authorized a membership write')
+f=fixture({shelf('41'),{succ=1},{books={{bookId='41',title='Synthetic'},{bookId='42',title='Synthetic'}}},
+    {books={{bookId='41',title='Synthetic'},{bookId='42',title='Synthetic'}}},
+    {books={{bookId='41',title='Synthetic'},{bookId='42',title='Synthetic'}}}});r=f.run()
+expect(r.attempted and not r.confirmed and r.kind=='unconfirmed' and #f.requests==5,
+    'missing groups after a write were treated as a complete readback')
 for _i,reply in ipairs({{status=401},{status=403},{status=429},{raise='native_auth/shelf/http_401'},
     {errcode=401},{status=401,raw=string.rep('x',4*1024*1024+1)},
     {status=401,stream=string.rep('x',4*1024*1024+1)}}) do

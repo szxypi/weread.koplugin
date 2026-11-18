@@ -78,9 +78,18 @@ def main(argv=None):
         report['shelf_write_preview_reading_state_matches']=True
         report['channels']={key:summary(shelves[key],rows) for key,rows in expected.items()}
         report['same_members_observed']={row['book_id'] for row in expected['native']}=={row['book_id'] for row in expected['web']}
+        rotated_before_native=False
         if args.lua_command:
             payload=dict(shelves=shelves)
-            if args.native_http:payload.update(credentials=credentials,session=saved)
+            if args.native_http:
+                # The preceding authenticated Web reads can rotate wr_skey.
+                # Handoff the verified current session, not the stale input.
+                rotated_before_native=save_refreshed_web_session(store,saved,web)
+                if rotated_before_native:
+                    previous=saved;saved=store.load()
+                    if saved['vid']!=owner:raise StoreError('session_changed')
+                    previous.clear()
+                payload.update(credentials=credentials,session=saved)
             encoded=json.dumps(payload,ensure_ascii=False).encode()
             if len(encoded)>8*1024*1024: raise ValueError('flags_input_limit')
             child=subprocess.run(args.lua_command,input=encoded,capture_output=True,timeout=90)
@@ -93,7 +102,7 @@ def main(argv=None):
                 if actual.get('native')!=expected or actual.get('requests')!=2: raise ValueError('flags_native_mismatch')
                 report.update(native_https_projection_matches=True,native_read_requests=2)
         web.verify_account()
-        report['refreshed_web_session_saved']=save_refreshed_web_session(store,saved,web)
+        report['refreshed_web_session_saved']=save_refreshed_web_session(store,saved,web) or rotated_before_native
         report.update(result='SHELF_FLAGS_READ_VERIFIED',same_owner_verified=True,native_stages=native.report['stages'],web_stages=web.report['stages'])
     except (StoreError,ProbeError,PreflightError):report.update(result='UNVERIFIED',reason='shelf_flags_read_failed',native_stages=native.report['stages'],web_stages=web.report['stages'])
     except Exception:report.update(result='UNVERIFIED',reason='shelf_flags_verification_failed')

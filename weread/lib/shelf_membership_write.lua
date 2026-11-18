@@ -65,7 +65,9 @@ function M.fetch(client,settings,selected)
     local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=function()
         return not selected.renewal_pending and Access.matches(settings,selected)
     end})
-    return Source.normalize(auth:read_shelf(selected.credentials))
+    local snapshot=Source.normalize(auth:read_shelf(selected.credentials))
+    assert(type(snapshot.archive)=='table','shelf_membership/incomplete_groups')
+    return snapshot
 end
 function M.preview(client,settings,selected)
     local ok,value=pcall(M.fetch,client,settings,selected)

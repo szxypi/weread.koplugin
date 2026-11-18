@@ -55,6 +55,9 @@ for _i,status in ipairs({401,403,429}) do
 end
 f=fixture({shelf(1),progress()});result=f.run()
 expect(result.kind=='changed' and not result.attempted and f.posts==0,'state changed after confirmation dispatched')
+local missing=shelf(0);missing.archive=nil
+f=fixture({missing,progress()});result=f.run()
+expect(result.kind=='unavailable' and not result.attempted and f.posts==0,'missing groups allowed private-reading write')
 f=fixture({shelf(0),progress()});f.fail_claim=true;result=f.run()
 expect(not result.attempted and f.posts==0 and f.phase=='prepared','claim failure dispatched')
 f=fixture({});f.revoked=true;result=f.run();expect(not result.attempted and #f.requests==0,'cancelled state reached transport')

@@ -11,7 +11,7 @@ local function fixture()
     local point=f.observation.point
     local raw={book={bookId=point.book_id,chapterUid=tonumber(point.chapter_uid),chapterIdx=point.chapter_idx,chapterOffset=point.chapter_offset,
         progress=point.raw_percent,summary=point.summary,readingTime=10,recordReadingTime=20,ttsTime=0}}
-    local shelf={books={{bookId='41',secret=0}},archive={}}
+    local shelf={books={{bookId='41',secret=0}},archive=f.client:json_decode('[]')}
     f.observation.shelf_sha256=Shelf.state_hash(shelf)
     f.queue={{bookId='41',version=0},F.clone(raw),F.clone(shelf),{bookId='41',version=0},F.clone(raw),F.clone(shelf)}
     local decode=f.client.json_decode;local response

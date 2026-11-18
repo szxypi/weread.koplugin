@@ -400,6 +400,33 @@ expect(saved_result==false and refreshed_snapshot.books==grouped_books and refre
     'home refresh did not receive the fresh network snapshot when cache saving failed')
 host:showShelfView('books',nil,nil,{page=2})
 
+local original_info=host.showInfo
+local incomplete_info
+host.showInfo=function(_self,message) incomplete_info=message end
+local before_incomplete=shown[#shown]
+host.library_db.getShelf=function() return grouped_books end
+host.library_db.getShelfArchives=function() return archives end
+host.client.get_shelf=function() return {books={{bookId='new',title='Incomplete'}}} end
+local previous_write=written_archives
+before_incomplete.callbacks.on_refresh();pending()
+expect(shown[#shown]==before_incomplete and written_archives==previous_write and host.shelf_group_key=='archive:7'
+    and incomplete_info and incomplete_info:find('previous complete',1,true),
+    'missing group data replaced the current grouped shelf or cached snapshot')
+local incomplete_home
+host:refreshBookshelf(nil,{on_loaded=function(saved,snapshot,incomplete) incomplete_home={saved,snapshot,incomplete} end});pending()
+expect(incomplete_home and incomplete_home[1] and incomplete_home[2].books==grouped_books
+    and incomplete_home[2].archives==archives and incomplete_home[3],
+    'home did not retain the complete snapshot on missing groups')
+host.library_db.getShelfArchives=function() return nil end
+local incomplete_new
+host:refreshBookshelf(nil,{on_loaded=function(saved,snapshot,incomplete) incomplete_new={saved,snapshot,incomplete} end});pending()
+expect(incomplete_new and not incomplete_new[1] and incomplete_new[2].groups_incomplete and incomplete_new[3]
+    and incomplete_new[2].books[1].bookId=='new' and written_archives==previous_write,
+    'first incomplete shelf was saved or discarded instead of being shown temporarily')
+host.showInfo=original_info
+host:applyShelfSnapshot(grouped_books,archives);host.shelf_group_key='archive:7'
+host:showShelfView('books',nil,nil,{page=2})
+
 host.client.get_shelf = function() return { books = grouped_books, archive = {} } end
 shown[#shown].callbacks.on_refresh()
 pending()

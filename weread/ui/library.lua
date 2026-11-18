@@ -120,6 +120,9 @@ function M:showBookshelf()
     if cached and (#cached > 0 or archives ~= nil) then
         self:applyShelfSnapshot(cached, archives, volatile ~= nil)
         self:showShelfView("books")
+        if volatile and volatile.groups_incomplete then
+            self:showTransientInfo(_("The bookshelf did not include group information. This temporary list is not saved; refresh again later."), 5)
+        end
         local shelf = self.settings:get("shelf")
         -- Only old caches lack archive metadata; an empty archive is current.
         if archives == nil and not shelf.groups_refresh_hint_shown then
@@ -366,12 +369,31 @@ function M:refreshBookshelf(old_view, view_options)
             ))
             return
         end
+        local groups_incomplete = type(result) == "table" and result.archive == nil
+        if groups_incomplete then
+            -- Never pair new membership with old groups or replace a complete
+            -- snapshot with an answer that did not provide group information.
+            local previous=VolatileShelf.get(self)
+            local previous_saved=false
+            if previous and previous.groups_incomplete then previous=nil end
+            if not previous and self.library_db and type(self.library_db.getShelfArchives)=='function'
+                and type(self.library_db.getShelf)=='function' then
+                local archives=self.library_db:getShelfArchives()
+                local books=archives~=nil and self.library_db:getShelf() or nil
+                if type(archives)=='table' and type(books)=='table' then previous={books=books,archives=archives};previous_saved=true end
+            end
+            if previous then
+                if view_options and view_options.on_loaded then view_options.on_loaded(previous_saved,previous,true) end
+                self:showInfo(_("The bookshelf did not include group information. Your previous complete bookshelf is unchanged; refresh again later."))
+                return
+            end
+        end
         local all_books = type(result) == "table"
             and type(result.books) == "table"
             and result.books
             or {}
         local archives = type(result) == "table" and type(result.archive) == "table" and result.archive or {}
-        local snapshot_saved=self.library_db~=nil and self.library_db:cacheShelf(all_books, archives)==true
+        local snapshot_saved=not groups_incomplete and self.library_db~=nil and self.library_db:cacheShelf(all_books, archives)==true
         self.shelf_active_source = type(result) == "table" and result._shelf_source or "gateway"
         if type(result) == "table" and result._native_fallback then
             self:showTransientInfo(_("E-Ink bookshelf is unavailable. Using the standard bookshelf for this refresh."), 3)
@@ -380,10 +402,10 @@ function M:refreshBookshelf(old_view, view_options)
         end
         local old_group_key = self.shelf_group_key
         self:applyShelfSnapshot(all_books, archives)
-        local snapshot = { books = all_books, archives = archives }
+        local snapshot = { books = all_books, archives = archives, groups_incomplete = groups_incomplete or nil }
         if not snapshot_saved then VolatileShelf.remember(self, snapshot, result) end
         if view_options and view_options.on_loaded then
-            view_options.on_loaded(snapshot_saved, snapshot)
+            view_options.on_loaded(snapshot_saved, snapshot, groups_incomplete)
             return
         end
         local next_options = {}
@@ -401,7 +423,8 @@ function M:refreshBookshelf(old_view, view_options)
             next_options
         )
         if not snapshot_saved and self.showTransientInfo then
-            self:showTransientInfo(_("Could not save the bookshelf for offline use. The current list is still available."), 4)
+            self:showTransientInfo(_(groups_incomplete and 'The bookshelf did not include group information. This temporary list is not saved; refresh again later.'
+                or 'Could not save the bookshelf for offline use. The current list is still available.'), 5)
         end
     end
     local started

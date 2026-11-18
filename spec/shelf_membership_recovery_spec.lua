@@ -59,7 +59,7 @@ local function fixture(options)
             elseif request.url=='https://i.weread.qq.com/shelf/sync' then
                 f.reads=f.reads+1
                 local code=table.remove(f.codes,1) or 200
-                decoded={books={{bookId='41',title='Other'}}}
+                decoded={books={{bookId='41',title='Other'}},archive={}}
                 if f.present then decoded.books[2]={bookId='42',title='Synthetic'} end
                 return 'fixture',code
             end

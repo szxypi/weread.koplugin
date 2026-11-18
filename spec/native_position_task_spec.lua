@@ -5,7 +5,7 @@ local F=require('spec.helpers.thought_edit_fixture')
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
 local before={book_id='41',chapter_uid='2',chapter_idx=3,chapter_offset=12,raw_percent=17,summary='synthetic original full summary'}
 local after=F.clone(before);after.chapter_offset=13;after.summary='synthetic desired full summary'
-local shelf={books={{bookId='41',secret=0,finishReading=0}},archive={}}
+local shelf={books={{bookId='41',secret=0,finishReading=0}},archive={{archiveId=1,name='Synthetic',bookIds={'41'}}}}
 local function progress(p,seconds)
     return {book={bookId=p.book_id,chapterUid=tonumber(p.chapter_uid),chapterIdx=p.chapter_idx,chapterOffset=p.chapter_offset,
         progress=p.raw_percent,summary=p.summary,readingTime=seconds or 10,recordReadingTime=20,ttsTime=0}}

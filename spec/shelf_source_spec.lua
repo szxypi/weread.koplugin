@@ -180,4 +180,27 @@ local binary=Source.normalize({books={{bookId='1',title='Binary',secret=false,fi
 expect(binary.secret==0 and binary.finishReading==0 and binary.isTop==false and binary.finished==1,'explicit false flags dropped or independent finished metadata merged')
 binary=Source.normalize({books={{bookId='1',title='Invalid',secret=2,finishReading='1',isTop='true',finished=1}}}).books[1]
 expect(binary.secret==nil and binary.finishReading==nil and binary.isTop==nil and binary.finished==1,'invalid API flags became explicit states')
+expect(Source.normalize({books={}}).archive==nil,'missing archive became an authoritative empty group list')
+expect(type(Source.normalize({books={},archive={}}).archive)=='table','explicit empty group list was lost')
+f=fixture('native');f.data.archive=nil;result=f.fetch()
+expect(result.archive==nil and #result.books==1,'native incomplete groups were hidden')
+f=fixture('gateway');f.change{api_key='',cookies=jar};f.data.archive=nil;result=f.fetch()
+expect(result.archive==nil and #result.books==1,'Web incomplete groups were hidden')
+local array_mt={}
+f=fixture('native');f.data.archive={}
+f.client.json_decode=function(_self,value) if value=='[]' then return setmetatable({},array_mt) end;return f.data end
+ok,err=pcall(f.fetch)
+expect(not ok and err=='shelf_source/native_unavailable','native empty JSON object became an empty group array')
+f=fixture('native');f.data.archive=setmetatable({},array_mt)
+f.client.json_decode=function(_self,value) if value=='[]' then return setmetatable({},array_mt) end;return f.data end
+expect(#f.fetch().archive==0,'native explicit empty JSON array was rejected')
+f=fixture('native');f.data.archive[1].bookIds={}
+f.client.json_decode=function(_self,value) if value=='[]' then return setmetatable({},array_mt) end;return f.data end
+ok,err=pcall(f.fetch)
+expect(not ok and err=='shelf_source/native_unavailable','native empty member object became an empty member list')
+f=fixture('gateway')
+f.client.json_decode=function() return setmetatable({},array_mt) end
+f.client.get_gateway_shelf=function() return {books=setmetatable({},array_mt),archive={}} end
+ok,err=pcall(f.fetch)
+expect(not ok and err=='shelf_source/invalid_snapshot','gateway empty JSON object became an empty group array')
 print("PASS: " .. checks .. " shelf source routing/normalization/account checks")

@@ -87,5 +87,21 @@ class ShelfFlagTests(unittest.TestCase):
         self.assertIn(b'PRIVATE-ACCESS-SENTINEL',child.call_args.kwargs['input'])
         self.assertNotIn('PRIVATE-',text);self.assertEqual(json.loads(text)['result'],'UNVERIFIED')
 
+    def test_native_handoff_uses_verified_rotated_web_session(self):
+        first=dict(vid='88008800',cookies=dict(wr_skey='synthetic-old'))
+        current=dict(vid='88008800',cookies=dict(wr_skey='synthetic-new'))
+        credentials=dict(vid='88008800',accessToken='synthetic-access')
+        web=SimpleNamespace(vid=None,set_cookie=lambda *_:None,verify_account=lambda:None,request=lambda *_:shelf(),close=lambda:None,report=dict(stages=[]))
+        native=SimpleNamespace(request=lambda *_a,**_k:shelf(),report=dict(stages=[]))
+        with patch.object(probe,'SessionStore') as store,patch.object(probe,'NativeSessionStore') as native_store,\
+            patch.object(probe,'WebFlagsProbe',return_value=web),patch.object(probe,'NativeFlagsProbe',return_value=native),\
+            patch.object(probe,'save_refreshed_web_session',return_value=True),\
+            patch.object(probe.subprocess,'run',return_value=SimpleNamespace(returncode=1,stdout=b'')) as child,\
+            redirect_stdout(io.StringIO()):
+            store.return_value.load.side_effect=[first,current];native_store.return_value.load.return_value=credentials
+            self.assertEqual(probe.main(['--saved-session','--native-http','--lua-command','synthetic']),1)
+        self.assertEqual(json.loads(child.call_args.kwargs['input'])['session']['cookies']['wr_skey'],'synthetic-new')
+        self.assertEqual(first,{});self.assertEqual(current,{})
+
 
 if __name__=='__main__':unittest.main()
