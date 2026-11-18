@@ -113,10 +113,11 @@ local function packet(value,expected_value,cb)
 end
 function M.packet(value,expected_value) return packet(value,expected_value,false) end
 function M.packet_cb(value,expected_value) return packet(value,expected_value,true) end
-function M.txt_marker(client,raw,book,uid)
+function M.txt_marker(client,raw,book,uid,cb)
     if type(raw)~='string' or #raw>65536 then fail('txt_marker') end
     local ok,value=pcall(client.json_decode,client,raw)
-    if not ok or type(value)~='table' or Access.book_id(value.bookId)~=book then fail('txt_marker') end
+    local book_id=cb and Access.display_book_id or Access.book_id
+    if not ok or type(value)~='table' or book_id(value.bookId)~=book then fail('txt_marker') end
     local chapter=nullable(value.chapterUid)
     if chapter~=nil and Access.book_id(chapter)~=uid then fail('txt_marker') end
     for _i,key in ipairs({'errcode','errCode'}) do
@@ -131,6 +132,15 @@ function M.packet_txt(value,expected)
     if type(value)~='table' or value.basis~='raw_txt_utf16' then return nil end
     local stripped={};for key,item in pairs(value) do if key~='basis' then stripped[key]=item end end
     local checked=M.packet(stripped,expected)
+    if checked then checked.basis='raw_txt_utf16' end
+    return checked
+end
+-- Imported raw TXT has a distinct typed proof; it never satisfies the
+-- XHTML or numeric-book packet consumers.
+function M.packet_cb_txt(value,expected)
+    if type(value)~='table' or value.basis~='raw_txt_utf16' then return nil end
+    local stripped={};for key,item in pairs(value) do if key~='basis' then stripped[key]=item end end
+    local checked=M.packet_cb(stripped,expected)
     if checked then checked.basis='raw_txt_utf16' end
     return checked
 end
@@ -155,7 +165,8 @@ local function fetch(client,expected_value,selected,format,options,cb)
     if format~='web_xhtml' and format~='web_txt' then fail('format') end
     local expected
     if cb then expected=M.expected_cb(expected_value) else expected=M.expected(expected_value) end
-    if not expected or cb and format~='web_xhtml' then fail('expected') end
+    if not expected or cb and format~='web_xhtml' and (not options or options.cb_txt_readonly~=true
+        or options.cb_initial~=nil or options.cb_remote~=nil) then fail('expected') end
     selected=selected or M.capture(client.settings)
     local cookies=selected and selected.web and selected.web.cookies
     if not cookies or not Access.book_id(cookies.wr_vid) then fail('web_required') end
@@ -242,7 +253,7 @@ local function fetch(client,expected_value,selected,format,options,cb)
     local parts={}
     if format=='web_txt' then
         if Access.book_id(reader.current_chapter and reader.current_chapter.chapterUid)~=expected.chapter_uid then fail('reader') end
-        M.txt_marker(client,request('https://weread.qq.com/web/book/chapter/e_0',params,65536,false),expected.book_id,expected.chapter_uid)
+        M.txt_marker(client,request('https://weread.qq.com/web/book/chapter/e_0',params,65536,false),expected.book_id,expected.chapter_uid,cb)
         parts[1]=request('https://weread.qq.com/web/book/chapter/t_0',params,4*1024*1024,false)
         parts[2]=request('https://weread.qq.com/web/book/chapter/t_1',params,4*1024*1024,false)
         if parts[1]=='{}' then fail('source_invalid') end
@@ -269,6 +280,16 @@ end
 -- the exact previously verified Web position before and after source reads.
 function M.fetch(client,value,selected,format,options) return fetch(client,value,selected,format,options,false) end
 function M.fetch_cb(client,value,selected) return fetch(client,value,selected,'web_xhtml',nil,true) end
+-- Read-only: this proof alone cannot create a position or authorize an upload.
+function M.fetch_cb_txt(client,value,selected)
+    return fetch(client,value,selected,'web_txt',{cb_txt_readonly=true},true)
+end
+function M.run_cb_txt(client,value,selected)
+    local ok,result=pcall(M.fetch_cb_txt,client,value,selected)
+    if ok then return {check=result} end
+    if result=='source_currentness/web_expired' then return {error='source_web_expired'} end
+    return {error='source_currentness_unavailable'}
+end
 -- The caller supplies a mandatory version check applied to both catalogs;
 -- this source-only proof is not permission to dispatch a time upload.
 function M.fetch_cb_versioned(client,value,selected,verify_catalog)
