@@ -42,7 +42,7 @@ class TestFixtureManualTrial(unittest.TestCase):
     def run_trial(self,success):
         target,sample=fixture();sample['source_raw_sha256']=hashlib.sha256(sample['source'].encode()).hexdigest()
         source_plan=fixture_plan(target,sample);state={'offset':source_plan['first'],'summary':'seed summary'}
-        owner='900000';grant=dict(vid=owner);saved=dict(vid=owner,cookies=dict(wr_vid=owner,wr_skey='synthetic-session'))
+        owner='900000';grant=dict(vid=owner);saved=dict(vid=owner,cookies={'wr_vid':owner,'wr_skey':'synthetic-session'})
         class FakeJournal:
             def __init__(self):self.data=dict(phase='imported',target=target,attempt='a'*32,plan=dict(owner=owner));self.receipt=object()
             def read(self):return self.data,self.receipt

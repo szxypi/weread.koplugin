@@ -6,7 +6,7 @@ local ok,reason=pcall(function()
     local input=require('json').decode(raw)
     assert(type(input)=='table' and type(input.book)=='string' and input.book:sub(1,3)=='CB_'
         and type(input.chapter)=='string' and type(input.source)=='string' and type(input.chapters)=='table'
-        and type(input.cookies)=='table' and input.cookies.wr_vid==input.owner
+        and type(input.cookies)=='table' and input.cookies.wr_vid == input.owner
         and type(input.first_offset)=='number' and type(input.next_offset)=='number'
         and math.abs(input.next_offset-input.first_offset)==1)
     local reopening=os.getenv('WEREAD_FIXTURE_CB_REOPEN')=='1';local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
