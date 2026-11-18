@@ -19,6 +19,7 @@ from cb_initial_fixture_intent import Intent
 from cb_initial_fixture_transport import ScopedProbe
 from cloud_group_contract import project
 from cloud_group_nonempty_workflow import strip_fixture
+from fetch_weread_epub import normalize_chapter_infos
 from secure_native_session import NativeSessionStore, project_lock
 from secure_weread_session import ACCOUNT, MacKeychain, SessionStore
 from synthetic_epub_trial import Journal
@@ -30,7 +31,7 @@ from verify_personal_upload_trial import Probe as UploadProbe
 from verify_position_roundtrip import canonical
 from verify_synthetic_epub_upload import run as upload_run
 from verify_translation_preflight import save_refreshed_web_session
-from verify_web_source_progress import BASE as WEB, WebSourceProbe
+from verify_web_source_progress import BASE as WEB, WebSourceProbe, versions
 
 UPLOAD_SERVICE = 'org.codex.weread.cb-first-fixture-upload-v1'
 
@@ -53,6 +54,18 @@ class NativeRead(NativeProbe):
         return super().request(stage, url, credentials=credentials, timeout=timeout)
 
 
+class SourceRead(CbReadingProbe):
+    def __init__(self):
+        super().__init__(); self.catalog_versions = None
+
+    def request(self, stage, url, body=None, **kwargs):
+        result = super().request(stage, url, body, **kwargs)
+        if stage == 'catalog_before':
+            record, _ = normalize_chapter_infos(result, self.book_id)
+            self.catalog_versions = versions(record)
+        return result
+
+
 def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         upload_factory=UploadProbe, uploader=upload_run, sleeper=None):
     import time
@@ -60,7 +73,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
     report = dict(result='UNVERIFIED', phase='preflight', position_writes=0,
                   account_data_writes_known=0, authentication_posts=0, fixture_only=True,
                   existing_book_writes=0, private_data_in_report=False)
-    current = dict(saved=saved, sample=None, target_plan=None, source_hash=None, position=None, web_shelf=None)
+    current = dict(saved=saved, sample=None, target_plan=None, source_hash=None, source_versions=None, position=None, web_shelf=None)
 
     def same_grant(value): return native_store.load(current['saved']['vid']) == value
 
@@ -87,7 +100,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         finally: web.close()
 
     def source(target):
-        web = connect(CbReadingProbe, target)
+        web = connect(SourceRead, target)
         try:
             sample = web.inspect(target); web.verify_account()
             if (sample['book_id'] != target or sample['source_format'] != 'web_xhtml' or TEXT not in sample['source']
@@ -95,6 +108,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
                     or not all(web.last_checks.values())): return False
             current['sample'] = sample
             current['source_hash'] = sample['source_raw_sha256']
+            current['source_versions'] = web.catalog_versions
             current['target_plan'] = position_plan(target, sample)
             persist(web); return True
         finally: web.samples.clear(); web.close()
@@ -132,11 +146,12 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
             web.close()
         # Re-read the same source and catalog, and check all pre-existing Web
         # shelf state, before allowing the upload routine to remove the fixture.
-        again = connect(CbReadingProbe, target)
+        again = connect(SourceRead, target)
         try:
             later = again.inspect(target); again.verify_account()
             valid = (later['source_raw_sha256'] == current['source_hash'] and later['chapter_uid'] == sample['chapter_uid']
                      and later['chapters'] == sample['chapters']
+                     and again.catalog_versions == current['source_versions']
                      and set(again.last_checks) == {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
                      and all(again.last_checks.values()))
             persist(again)

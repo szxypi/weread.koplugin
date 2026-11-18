@@ -15,20 +15,20 @@ import verify_cb_initial_fixture_trial as task
 
 
 class Backend:
-    def __init__(self, fail=None, changed_source=False):
+    def __init__(self, fail=None, changed_source=False, changed_versions=False):
         self.book, self.sample = fixture(); self.sample['source_raw_sha256'] = 'f' * 64
         self.owner = '900000'; self.imported = False; self.fail = fail; self.sent = []
         self.current = dict(bookId=self.book, chapterUid=0, chapterIdx=0, chapterOffset=0,
                             progress=0, summary='', readingTime=0, recordReadingTime=0, ttsTime=0)
         self.receipt = object(); self.cleanup = False
-        self.changed_source, self.source_reads = changed_source, 0
+        self.changed_source, self.changed_versions, self.source_reads = changed_source, changed_versions, 0
         self.state = dict(phase='imported', target=self.book, attempt='a' * 32, plan=dict(owner=self.owner))
 
     def read(self): return (self.state, self.receipt) if self.imported else (None, None)
 
 
-def run_case(fail=None, apply=True, changed_source=False):
-    backend = Backend(fail, changed_source); grant = {'vid': backend.owner}
+def run_case(fail=None, apply=True, changed_source=False, changed_versions=False):
+    backend = Backend(fail, changed_source, changed_versions); grant = {'vid': backend.owner}
     saved = dict(vid=backend.owner, cookies={'wr_vid': backend.owner, 'wr_skey': 'synthetic'})
     intent = Intent(backend=MemoryBackend())
 
@@ -51,12 +51,14 @@ def run_case(fail=None, apply=True, changed_source=False):
     class Source(BaseWeb):
         def __init__(self):
             super().__init__(); self.allowed = set()
+            self.catalog_versions = {'record.version': 1}
             self.last_checks = dict(catalog_unchanged=True, versions_unchanged=True, position_unchanged=True)
         def inspect(self, target):
             assert target == backend.book and target in self.allowed
             backend.source_reads += 1
             value = copy.deepcopy(backend.sample)
             if backend.changed_source and backend.source_reads > 1: value['source_raw_sha256'] = 'e' * 64
+            if backend.changed_versions and backend.source_reads > 1: self.catalog_versions['record.version'] = 2
             return value
 
     class Native:
@@ -84,7 +86,7 @@ def run_case(fail=None, apply=True, changed_source=False):
                     phase='restored' if backend.cleanup else 'imported', cos_put_attempts=1,
                     notify_posts=1, cleanup_posts=int(backend.cleanup))
 
-    with patch.object(task, 'WebSourceProbe', Web), patch.object(task, 'CbReadingProbe', Source), \
+    with patch.object(task, 'WebSourceProbe', Web), patch.object(task, 'SourceRead', Source), \
          patch.object(task, 'NativeRead', Native), patch.object(task, 'ScopedProbe', Sender), \
          patch.object(task, 'save_refreshed_web_session', return_value=False):
         result = task.run(saved, None, NativeStore(), grant, backend, intent, apply=apply,
@@ -120,6 +122,12 @@ class TrialTest(unittest.TestCase):
 
     def test_changed_source_after_write_blocks_cleanup(self):
         result, backend, _intent = run_case(changed_source=True)
+        self.assertEqual(result['result'], 'UNVERIFIED')
+        self.assertEqual(backend.sent, ['enter', 'same'])
+        self.assertTrue(backend.imported and not backend.cleanup)
+
+    def test_changed_catalog_version_after_write_blocks_cleanup(self):
+        result, backend, _intent = run_case(changed_versions=True)
         self.assertEqual(result['result'], 'UNVERIFIED')
         self.assertEqual(backend.sent, ['enter', 'same'])
         self.assertTrue(backend.imported and not backend.cleanup)
