@@ -28,6 +28,7 @@ local settings=require('weread.lib.settings'):new()
 local offline=os.getenv('WEREAD_TRANSLATION_FETCH_OFFLINE')=='1'
 local annotations_test=os.getenv('WEREAD_TRANSLATION_ANNOTATIONS')=='1'
 local cross_chapter=os.getenv('WEREAD_TRANSLATION_CROSS_CHAPTER')=='1'
+local transient=os.getenv('WEREAD_TRANSLATION_TRANSIENT')=='1'
 local function bytes(path) local f=assert(io.open(path,'rb'));local raw=f:read('*a');f:close();return raw end
 local state_path=evidence..'/translation-book-state.json'
 local path,copy,original,bookmark,original_note_time
@@ -135,7 +136,25 @@ if annotations_test then
     assert(original_note_time,'source note timestamp missing')
     chapter(2)
 end
+local retry_core,retry_original
+if transient then
+    retry_core=require('weread.lib.translation_fetch');retry_original=retry_core.run_book
+    retry_core.run_book=function(client,...)
+        local request,reads=client.request,0
+        client.request=function(self,options)
+            if options.url:find('/web/book/chapter/e_0',1,true) then
+                reads=reads+1
+                if reads==3 then options.sink('synthetic partial error body');return nil,503,{},'unavailable' end
+            end
+            return request(self,options)
+        end
+        local result=retry_original(client,...)
+        assert(result.ok and reads==7,'full-book transient retry did not preserve completed chapters')
+        return result
+    end
+end
 choose('Download existing translations for full book')
+if transient then retry_core.run_book=retry_original end
 assert(plugin.translation_fetch_job and plugin.translation_fetch_worker.job,'full book did not start in worker')
 local heartbeat=false;UI:scheduleIn(.05,function() heartbeat=true end)
 pump(function() return not plugin.translation_fetch_job and heartbeat end)
@@ -264,6 +283,32 @@ pump(function() return not plugin.translation_fetch_job end)
 assert(saw_failure and not require('libs/libkoreader-lfs').attributes(partial),'failed chapter left a staged book')
 assert(bytes(path)==original and bytes(copy)==accepted and reader.doc_settings:readSetting('weread_translation_copies').__full.path==copy,
     'failed full-book download changed original or accepted copy')
+if transient then
+    for _,test in ipairs({{code=503,reads=4},{code=401,reads=3},{code=429,reads=3}}) do
+        core.run_book=function(client,...)
+            local request,reads=client.request,0
+            client.request=function(self,options)
+                if options.url:find('/web/book/chapter/e_0',1,true) then
+                    reads=reads+1
+                    if reads>=3 then options.sink('synthetic failure');return nil,test.code,{},'unavailable' end
+                end
+                return request(self,options)
+            end
+            local ok,reason=pcall(run,client,...)
+            assert(not ok and reads==test.reads and tostring(reason):find('HTTP '..test.code,1,true),
+                'persistent or unauthorized read retry was not bounded')
+            return {ok=false,retry_guard=true}
+        end
+        local guarded=false
+        worker.start=function(self,task,callback) return start(self,task,function(value)
+            guarded=type(value)=='table' and value.retry_guard==true;callback(value)
+        end) end
+        clean();assert(Fetch.start(plugin,true));partial=plugin.translation_fetch_job.output.path
+        pump(function() return not plugin.translation_fetch_job end)
+        assert(guarded and not require('libs/libkoreader-lfs').attributes(partial),'failed retry left a staged copy')
+        assert(bytes(path)==original and bytes(copy)==accepted,'failed retry changed an accepted file')
+    end
+end
 local catalog=Content.fetch_catalog
 core.run_book=function(...)
     local calls=0
@@ -311,5 +356,5 @@ local saved=assert(io.open(state_path,'w'));saved:write(require('json').encode{o
 local out=assert(io.open(evidence..'/translation-book.json','w'));out:write(require('json').encode{result='PASS',synthetic_only=true,
     chapters=6,chapters_with_translation=cross_chapter and 4 or 5,blocks=cross_chapter and 48 or 60,original_unchanged=true,bookmark_preserved=true,
     correct_initial_and_offline_chapters=true,independent_worker=true,cancel_and_chapter_failure_cleaned=true,
-    changed_catalog_cleaned=true,no_translation_cleaned=true,account_data_writes=0});out:close()
+    changed_catalog_cleaned=true,no_translation_cleaned=true,transient_retry_tested=transient,account_data_writes=0});out:close()
 reader:onClose(false);print('PASS: native full-book translation copy, chapter navigation and offline original protection')

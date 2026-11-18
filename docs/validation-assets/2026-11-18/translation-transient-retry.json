@@ -1,0 +1,16 @@
+{
+  "result": "SYNTHETIC_NATIVE_TRANSIENT_RETRY_VERIFIED",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_book_chapters": 6,
+  "interrupted_chapter": 3,
+  "transient_503_recovered": true,
+  "earlier_chapters_not_repeated": true,
+  "persistent_503_retried_once": true,
+  "unauthorized_and_rate_limited_not_retried": true,
+  "failed_output_cleaned": true,
+  "original_book_and_existing_copy_preserved": true,
+  "new_offline_process_readback": true,
+  "account_data_writes": 0,
+  "real_network_failure_tested": false,
+  "physical_kindle_verified": false
+}

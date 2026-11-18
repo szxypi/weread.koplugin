@@ -21,6 +21,7 @@ function M.client(client,book,uid)
     local requests,asset_count,asset_bytes=0,0,0
     function proxy:request(options)
         local url,method=options.url,options.method or (options.body and 'POST' or 'GET')
+        local signed_at
         local allowed=method=='GET' and not options.body and (url==Protocol.reader_url(book.book_id) or url==Protocol.reader_url(book.book_id,uid))
         if method=='POST' and type(options.body)=='string' then
             local ok,value=pcall(client.json_decode,client,options.body)
@@ -37,10 +38,10 @@ function M.client(client,book,uid)
                     and value.b==Protocol.e(book.book_id) and value.c==Protocol.e(uid) and value.ps==book.psvts
                     and value.pc==Protocol.e(stamp) and value.sc==1 and value.prevChapter==false
                     and value.st==(url:sub(-3)=='e_2' and 1 or 0) and value.s==Protocol.sign(Protocol.sorted_query(unsigned))
+                if allowed then signed_at=stamp end
             end
         end
         if not allowed then fail('request_scope') end
-        requests=requests+1;if requests>32 then fail('request_limit') end
         local copy={};for k,v in pairs(options) do copy[k]=v end
         copy.sensitive,copy.diagnostic_api=true,'translation_fetch'
         local chunks,bytes={},0
@@ -50,9 +51,27 @@ function M.client(client,book,uid)
             bytes=bytes+#chunk;if bytes>6*1024*1024 then return nil,'translation_fetch_limit' end
             chunks[#chunks+1]=chunk;return 1
         end
-        local _,code,headers,status=client:request(copy)
-        if bytes>6*1024*1024 then fail('response_limit') end
-        return table.concat(chunks),code,headers,status
+        for attempt=1,2 do
+            requests=requests+1;if requests>32 then fail('request_limit') end
+            chunks,bytes={},0
+            local ok,response,code,headers,status=pcall(client.request,client,copy)
+            if bytes>6*1024*1024 then fail('response_limit') end
+            local transient=ok and (code==502 or code==503 or code==504
+                or code==nil and (status=='timeout' or status=='closed'))
+                or not ok and response=='sensitive_request_failed'
+            if attempt==1 and transient then
+                require('socket').sleep(1)
+                -- Signed chapter reads are short-lived. Never reuse a request
+                -- outside the same freshness window after the backoff.
+                if signed_at and math.abs(os.time()-signed_at)>30 then
+                    if not ok then error(response,0) end
+                    return table.concat(chunks),code,headers,status
+                end
+            else
+                if not ok then error(response,0) end
+                return table.concat(chunks),code,headers,status
+            end
+        end
     end
     -- Images are downloaded anonymously; redirects stay on the existing
     -- public asset allowlist, and every response has an enforced size bound.

@@ -65,6 +65,46 @@ for _,url in ipairs({'https://weread.qq.com/web/book/read','https://example.inva
     expect(not pcall(proxy.get_binary,proxy,url),'foreign asset admitted')
 end
 expect(not pcall(binary[1].options.on_redirect,'https://cdn.weread.qq.com/a','https://example.invalid/b'),'foreign redirect admitted')
+local previous_socket=package.loaded.socket;local delays=0
+package.loaded.socket={sleep=function(seconds) expect(seconds==1,'unexpected retry delay');delays=delays+1 end}
+for _,scenario in ipairs({'gateway','gateway502','gateway504','timeout','closed','transport','limited','unauthorized','persistent','other_error'}) do
+    local attempts=0
+    client.request=function(_self,options)
+        attempts=attempts+1
+        if attempts==1 then
+            options.sink('failed-response')
+            if scenario=='gateway' or scenario=='persistent' then return nil,503,{},'unavailable' end
+            if scenario=='gateway502' then return nil,502,{},'unavailable' end
+            if scenario=='gateway504' then return nil,504,{},'unavailable' end
+            if scenario=='timeout' then return nil,nil,{},'timeout' end
+            if scenario=='closed' then return nil,nil,{},'closed' end
+            if scenario=='transport' then error('sensitive_request_failed',0) end
+            if scenario=='limited' then return nil,429,{},'limited' end
+            if scenario=='unauthorized' then return nil,401,{},'unauthorized' end
+            error('synthetic chapter failure',0)
+        end
+        if scenario=='persistent' then return nil,503,{},'unavailable' end
+        options.sink('successful-response');return nil,200,{},'ok'
+    end
+    local scoped=Fetch.client(client,book,'1')
+    local ok,result,code=pcall(scoped.request,scoped,{url=Protocol.reader_url('900001'),method='GET'})
+    if scenario=='gateway' or scenario=='gateway502' or scenario=='gateway504'
+        or scenario=='timeout' or scenario=='closed' or scenario=='transport' then
+        expect(ok and attempts==2 and result=='successful-response' and code==200,scenario..' did not recover cleanly')
+    elseif scenario=='other_error' then expect(not ok and attempts==1,'unexpected error was retried')
+    else expect(ok and attempts==(scenario=='persistent' and 2 or 1) and code==(scenario=='persistent' and 503
+        or scenario=='limited' and 429 or 401),scenario..' was retried unexpectedly') end
+end
+expect(delays==7,'unexpected number of transient retries')
+local now=os.time;local timestamp=now();local signed_attempts=0
+encoded.expiring=Protocol.make_content_params('900001','1','synthetic')
+client.request=function(_self,options) signed_attempts=signed_attempts+1;options.sink('failed-response');return nil,503 end
+package.loaded.socket.sleep=function() rawset(os,'time',function() return timestamp+31 end) end
+local scoped=Fetch.client(client,book,'1')
+local _,expired_code=scoped:request{url='https://weread.qq.com/web/book/chapter/e_0',method='POST',body='expiring'}
+rawset(os,'time',now)
+expect(signed_attempts==1 and expired_code==503,'expired signed read was retried')
+package.loaded.socket=previous_socket
 client.request=function(_self,options) options.sink(string.rep('x',6*1024*1024+1));return nil,200 end
 expect(not pcall(proxy.request,proxy,{url=Protocol.reader_url('900001'),method='GET'}),'oversized response accepted')
 print('translation_fetch_spec: '..checks..' checks')

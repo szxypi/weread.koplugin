@@ -24,6 +24,7 @@ def main():
     parser.add_argument('--fetch-book',action='store_true',help='exercise full-book existing translations and offline chapter navigation')
     parser.add_argument('--annotations',action='store_true',help='exercise annotation copying into the full-book translation')
     parser.add_argument('--cross-chapter',action='store_true',help='exercise cross-chapter highlights and changed-selection rejection')
+    parser.add_argument('--transient',action='store_true',help='inject one transient error during full-book download')
     parser.add_argument('--hash-storage',action='store_true',help='exercise KOReader hash-based metadata storage')
     parser.add_argument('--dir-storage',action='store_true',help='exercise KOReader centralized metadata storage')
     args=parser.parse_args()
@@ -33,6 +34,7 @@ def main():
     if args.fetch and args.fetch_book: parser.error('choose one fetch mode')
     if args.annotations and not args.fetch_book: parser.error('--annotations requires --fetch-book')
     if args.cross_chapter and not args.annotations: parser.error('--cross-chapter requires --annotations')
+    if args.transient and not args.fetch_book: parser.error('--transient requires --fetch-book')
     if (args.hash_storage or args.dir_storage) and not args.fetch_book: parser.error('metadata storage selection requires --fetch-book')
     if args.hash_storage and args.dir_storage: parser.error('choose one metadata storage location')
     if args.fetch_book:
@@ -71,6 +73,7 @@ def main():
             EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8')
         if args.annotations:env['WEREAD_TRANSLATION_ANNOTATIONS']='1'
         if args.cross_chapter:env['WEREAD_TRANSLATION_CROSS_CHAPTER']='1'
+        if args.transient:env['WEREAD_TRANSLATION_TRANSIENT']='1'
         if args.hash_storage:env['WEREAD_TRANSLATION_HASH_STORAGE']='1'
         if args.dir_storage:env['WEREAD_TRANSLATION_DIR_STORAGE']='1'
         log=root/'evidence/runtime.log'
