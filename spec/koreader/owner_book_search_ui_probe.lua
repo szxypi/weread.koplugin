@@ -22,6 +22,11 @@ local ok,result=pcall(function()
     local input=json.decode(raw);raw=nil
     assert(type(input.cookies)=='table' and input.owner==input.cookies.wr_vid and type(input.chapters)=='table'
         and #input.chapters>0 and #input.chapters<=10000 and type(input.allowed)=='table' and #input.allowed>0 and #input.allowed<=4)
+    if input.synthetic_port~=nil then
+        assert(type(input.synthetic_port)=='number' and input.synthetic_port%1==0 and input.synthetic_port>=1
+            and input.synthetic_port<=65535 and input.owner=='900000' and input.book=='CB_SyntheticResume'
+            and input.cookies.wr_skey=='synthetic-search-session' and input.full_download_search==true)
+    end
     pcall(ffi.cdef,'int memfd_create(const char *, unsigned int); void *mmap(void *, unsigned long, int, int, int, long);')
     local function anonymous(value)
         local fd=tonumber(ffi.C.memfd_create('weread-book-search-auth',1));assert(fd>=0)
@@ -34,6 +39,7 @@ local ok,result=pcall(function()
     local Settings=require('weread.lib.settings');local new=Settings.new
     function Settings:new()
         local value=new(self);assert(not value.mock_endpoint)
+        if input.synthetic_port then value.mock_endpoint='http://127.0.0.1:'..input.synthetic_port end
         local flush=value.store.flush
         value.store.flush=function(store,...)
             local held={};local secrets={'account','cookies','api_key','wr_ticket','wr_wrpa','device_fingerprint'}
@@ -55,8 +61,9 @@ local ok,result=pcall(function()
     download_counters=counters+16
     local missing=input.download_missing==true
     local catalog_missing=input.catalog_missing==true
-    assert(not (missing and catalog_missing))
-    if missing then assert(type(input.local_chapter)=='string' and input.local_chapter~=input.chapter) end
+    local full_search=input.full_download_search==true
+    assert(not (missing and catalog_missing) and not (full_search and (missing or catalog_missing)))
+    if missing or full_search then assert(type(input.local_chapter)=='string' and input.local_chapter~=input.chapter) end
     local Protocol=require('weread.lib.protocol');local allowed={}
     for _i,cursor in ipairs(input.allowed) do
         local url='https://weread.qq.com/web/book/search_v2?'..Protocol.sorted_query({bookId=input.book,
@@ -66,10 +73,14 @@ local ok,result=pcall(function()
     local account_url='https://weread.qq.com/api/userInfo?userVid='..Protocol.urlencode(input.owner)
     local Client=require('weread.lib.client');local request=Client.request
     local gate
-    if missing or catalog_missing then
+    if missing or catalog_missing or full_search then
         local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+        local permitted={}
+        if full_search then
+            for _i,chapter in ipairs(input.chapters) do permitted[#permitted+1]={chapter_uid=tostring(chapter.chapterUid)} end
+        else permitted={{chapter_uid=input.chapter}} end
         gate=dofile(fixtures..'note_download_transport.lua'):new({book_id=input.book,owner=input.owner,
-            chapters={{chapter_uid=input.chapter}}},'live',download_counters,tonumber(ffi.C.getpid()))
+            chapters=permitted},'live',download_counters,tonumber(ffi.C.getpid()))
     end
     if catalog_missing then download_counters[5]=1 end
     function Client:request(options)
@@ -77,7 +88,7 @@ local ok,result=pcall(function()
             and (options.url==account_url or allowed[options.url])
         if gate and download_counters[5]==1 and not search_request then
             local kind=gate:classify(self,options)
-            local limits={4,1,8}
+            local limits=full_search and {#input.chapters*4,#input.chapters,#input.chapters*8} or {4,1,8}
             if not kind or catalog_missing and kind==3 or download_counters[kind]>=limits[kind]
                 or tonumber(ffi.C.getpid())==gate.parent then
                 counters[2]=counters[2]+1;counters[3]=1;error('owner_search_download_scope',0)
@@ -118,11 +129,11 @@ local ok,result=pcall(function()
         if tostring(row.chapterUid)==input.chapter then chapter=row end
         if tostring(row.chapterUid)==input.local_chapter then local_chapter=row end
     end
-    assert(chapter and (not missing or local_chapter))
+    assert(chapter and (not (missing or full_search) or local_chapter))
     local book={book_id=input.book,bookId=input.book,title='阅读样本',bookVersion=0,chapters=input.chapters,cached_chapters={}}
-    local initial_uid=missing and input.local_chapter or input.chapter
-    local initial_chapter=missing and local_chapter or chapter
-    local initial_source=missing and '<html><body><p>本地测试章节。</p></body></html>' or input.source
+    local initial_uid=(missing or full_search) and input.local_chapter or input.chapter
+    local initial_chapter=(missing or full_search) and local_chapter or chapter
+    local initial_source=(missing or full_search) and '<html><body><p>本地测试章节。</p></body></html>' or input.source
     local sources={[initial_uid]=assert(Source.capture(book,initial_chapter,initial_source,'web_xhtml'))}
     local bodies={[initial_uid]=initial_source}
     local file=Content.save_book_epub(settings,book,{initial_chapter},bodies,'owner-search',{},nil,nil,Identity.capture(book),sources)
@@ -143,6 +154,56 @@ local ok,result=pcall(function()
             UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
             assert(socket.gettime()<deadline,'owner_search_timeout')
         end
+    end
+    if full_search then
+        phase='search'
+        assert(require('weread.ui.cached_book_search').open(plugin,input.book,input.chapters,input.keyword))
+        local owner=assert(plugin._cached_book_search_owner);assert(owner.input:getInputText()==input.keyword)
+        owner.input.buttons[1][2].callback();wait(function() return owner.finished and not owner.job end,120)
+        assert(owner.missing==#input.chapters-1 and #owner.value==0 and download_counters[0]==0)
+        local function action()
+            for _i,item in ipairs(owner.menu.item_table) do
+                if item.text==require('weread.lib.i18n').tr('Download full book and search again') then return item end
+            end
+            error('owner_full_search_action',0)
+        end
+        owner.menu:onMenuSelect(action());local confirm=assert(owner.download.confirm);confirm.cancel_callback()
+        assert(not owner.download and download_counters[0]==0)
+        owner.menu:onMenuSelect(action());confirm=assert(owner.download.confirm)
+        phase='navigate';download_counters[5]=1;confirm.ok_callback()
+        wait(function() return owner.finished and not owner.job and not owner.download and owner.checked==#input.chapters end,720)
+        download_counters[5]=0
+        assert(owner.missing==0 and reader.document.file==file and not plugin.read_report.job and counters[2]==0)
+        local match=false
+        for _i,hit in ipairs(owner.value) do if hit.chapter_uid==input.chapter then match=true end end
+        assert(match,'owner_full_search_no_target')
+        local stored=assert(plugin.settings:get_book(input.book));local path=assert(stored.cached_full_book)
+        local snapshot=assert(require('weread.lib.cached_book_search').snapshot(path,input.book,input.chapter))
+        assert(snapshot.record.raw_sha256==require('weread.lib.crypto').sha256_hex(input.source))
+        assert(download_counters[6]==0 and download_counters[1]>0 and download_counters[3]>0)
+        wait(function() for _i,pid in ipairs(workers) do if not require('ffi/util').isSubProcessDone(pid) then return false end end;return true end)
+        local lfs=require('libs/libkoreader-lfs');local latest_cookies=plugin.settings:get('cookies',{})
+        local function audit(dir)
+            for entry in lfs.dir(dir) do
+                if entry~='.' and entry~='..' and not (dir==home and entry=='plugins') then
+                    local name=dir..'/'..entry;local stat=assert(lfs.symlinkattributes(name))
+                    if stat.mode=='directory' then audit(name) else
+                        assert(stat.mode=='file' and stat.size<=64*1024*1024)
+                        local f=assert(io.open(name,'rb'));local bytes=f:read('*a');f:close()
+                        for _i,cookies in ipairs({input.cookies,latest_cookies}) do
+                            for key,secret in pairs(cookies) do
+                                if key~='wr_vid' and type(secret)=='string' and #secret>=8 then assert(not bytes:find(secret,1,true)) end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        audit(home)
+        return {result='PASS',full_download_search=true,cancel_without_download=true,current_file_preserved=true,
+            source_verified=true,workers_reaped=true,credential_audit=true,chapters=#input.chapters,checked=owner.checked,
+            denied_requests=tonumber(counters[2]),download_gets=tonumber(download_counters[1]),
+            catalog_posts=tonumber(download_counters[2]),content_posts=tonumber(download_counters[3])}
     end
     assert(plugin:showEndOfBookDialog(input.book))
     local quick=assert(UI:getTopmostVisibleWidget());local button

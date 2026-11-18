@@ -67,7 +67,7 @@ def main(argv=None):
             child=subprocess.Popen([str(runtime/'luajit'),str(probe)],cwd=runtime,env=env,stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
             try:
-                out,err=child.communicate(raw,timeout=180)
+                out,err=child.communicate(raw,timeout=900 if payload.get('full_download_search') is True else 180)
                 if out.count(FRAME)==1:
                     failure=json.loads(out.split(FRAME,1)[1].splitlines()[0])
                     if isinstance(failure,dict) and failure.get('phase') in ('decode','reader','search','navigate'):
@@ -79,13 +79,26 @@ def main(argv=None):
                 if child.returncode or len(out)>8*1024*1024 or out.count(FRAME)!=1 or b'[WeRead] forceRePaint failed:' in out+err:
                     raise ValueError('owner_search/native')
                 value=json.loads(out.split(FRAME,1)[1].splitlines()[0])
+                if payload.get('full_download_search') is True:
+                    flags=('full_download_search','cancel_without_download','current_file_preserved','source_verified',
+                           'workers_reaped','credential_audit')
+                    keys={'result',*flags,'chapters','checked','denied_requests','download_gets','catalog_posts','content_posts'}
+                    if (not isinstance(value,dict) or set(value)!=keys or value['result']!='PASS'
+                            or any(value[k] is not True for k in flags) or value['chapters']!=len(payload['chapters'])
+                            or value['checked']!=value['chapters'] or value['denied_requests']!=0
+                            or any(type(value[k]) is not int or value[k]<1 for k in ('download_gets','content_posts'))
+                            or type(value['catalog_posts']) is not int or value['catalog_posts']<0):
+                        raise ValueError('owner_search/full_download')
+                    report.update(result='PASS',ui=value)
+                    continue_validation=False
+                else:continue_validation=True
                 flags=('native_menu','search_result_verified','source_navigation','workers_reaped')
                 missing=payload.get('download_missing') is True
                 extra={'download_confirmed','cancel_without_download','downloaded_source_verified','credential_audit',
                     'download_gets','catalog_posts','content_posts'} if missing else set()
                 catalog_missing=payload.get('catalog_missing') is True
                 if catalog_missing:extra|={'catalog_restored','catalog_gets','catalog_read_posts','credential_audit'}
-                if (not isinstance(value,dict) or set(value)!={'result',*flags,'account_gets','search_gets','denied_requests',*extra}
+                if continue_validation and (not isinstance(value,dict) or set(value)!={'result',*flags,'account_gets','search_gets','denied_requests',*extra}
                         or value['result']!='PASS' or any(value[k] is not True for k in flags)
                         or type(value['account_gets']) is not int or value['account_gets']<1
                         or type(value['search_gets']) is not int or value['account_gets']!=value['search_gets']
@@ -98,7 +111,7 @@ def main(argv=None):
                 if catalog_missing and (value['catalog_restored'] is not True or value['credential_audit'] is not True
                         or any(type(value[k]) is not int or value[k]<1 for k in ('catalog_gets','catalog_read_posts'))):
                     raise ValueError('owner_search/catalog')
-                report.update(result='PASS',ui=value)
+                if continue_validation:report.update(result='PASS',ui=value)
             finally:
                 if child.poll() is None:
                     try:kill_reader_session(child)
