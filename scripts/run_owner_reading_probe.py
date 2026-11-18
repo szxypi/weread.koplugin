@@ -54,9 +54,11 @@ def main(argv=None):
     parser.add_argument('--missing-resume',action='store_true')
     parser.add_argument('--resume-warning',action='store_true')
     parser.add_argument('--off-shelf-home',action='store_true')
+    parser.add_argument('--off-shelf-store',action='store_true')
     parser.add_argument('--off-shelf-mock-port',type=int)
     parser.add_argument('--resume-mock-port',type=int,help='Synthetic missing-resume fixture only')
     args = parser.parse_args(argv)
+    if args.off_shelf_store and not args.off_shelf_home:parser.error('--off-shelf-store requires --off-shelf-home')
     if args.off_shelf_home and (args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
             or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
             or args.selection_thought_preview or args.missing_resume or args.mock_port is not None or args.cb_mock_port is not None):
@@ -96,6 +98,7 @@ def main(argv=None):
             raise ValueError('input_limit')
         payload = json.loads(raw)
         if args.off_shelf_home != (payload.get('off_shelf_home') is True):raise ValueError('input_limit')
+        if args.off_shelf_store != (payload.get('off_shelf_store') is True):raise ValueError('input_limit')
         if payload.get('off_shelf_mock_port')!=args.off_shelf_mock_port:raise ValueError('input_limit')
         if args.off_shelf_mock_port is not None and (payload.get('vid')!='900000' or payload.get('book_id')!='900001'
                 or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}):raise ValueError('input_limit')
@@ -119,10 +122,15 @@ def main(argv=None):
         if args.cb_mock_port is not None and (payload.get('vid')!='900000' or payload.get('book_id')!='CB_SyntheticResume'
                 or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}):raise ValueError('input_limit')
         if args.native_routing_preview != (payload.get('native_routing_preview') is True):raise ValueError('input_limit')
-        if args.native_routing_preview:
+        if args.native_routing_preview or args.off_shelf_store:
             from verify_eink_renewal import validate_credentials
             validate_credentials(payload.get('native_grant'))
-            if payload['native_grant']['vid']!=payload['vid'] or not isinstance(payload.get('expected_native_remote'),dict):raise ValueError('input_limit')
+            if payload['native_grant']['vid']!=payload['vid']:raise ValueError('input_limit')
+            if args.native_routing_preview and not isinstance(payload.get('expected_native_remote'),dict):raise ValueError('input_limit')
+            if args.off_shelf_store and (not isinstance(payload.get('store_search_keyword'),str)
+                    or not 0<len(payload['store_search_keyword'].encode())<=512):raise ValueError('input_limit')
+            if args.off_shelf_mock_port is not None and (payload['native_grant']['accessToken']!='mock-native-access'
+                    or payload['native_grant']['refreshToken']!='mock-native-refresh'):raise ValueError('input_limit')
         elif 'native_grant' in payload:raise ValueError('input_limit')
         if payload.get('selection_mock_port')!=args.mock_port:
             raise ValueError('input_limit')
@@ -227,7 +235,8 @@ def main(argv=None):
                                    **({'single_page': True} if args.cb_single_page else {}),
                                    **({'missing_resume': True} if args.missing_resume else {}),
                                    **({'resume_warning': True} if args.resume_warning else {}),
-                                   **({'off_shelf_home': True} if args.off_shelf_home else {}))
+                                   **({'off_shelf_home': True} if args.off_shelf_home else {}),
+                                   **({'off_shelf_store': True} if args.off_shelf_store else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview or args.native_source_excerpt: candidate_private.append(envelope['candidate_private'])
@@ -270,6 +279,12 @@ def main(argv=None):
     except subprocess.TimeoutExpired:
         report['runner_error'] = 'child_timeout'
     except Exception as exc:
+        if args.off_shelf_mock_port is not None and os.environ.get('WEREAD_SYNTHETIC_DEBUG')=='1':
+            import traceback
+            traceback.print_exc(file=sys.stderr)
+            if 'out' in locals() and out.count(FRAME)==1:
+                try:sys.stderr.write('SYNTHETIC_STAGE='+json.dumps(json.loads(out.split(FRAME)[1]).get('report'))+'\n')
+                except Exception:pass
         if isinstance(exc,FullBookIncomplete):report['full_book']=exc.summary
         report['runner_error'] = str(exc) if str(exc) in RUNNER_ERRORS else 'runner_exception'
         if args.progress_preview:

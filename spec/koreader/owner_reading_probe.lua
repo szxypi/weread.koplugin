@@ -98,6 +98,18 @@ local ok,reason=pcall(function()
     local missing_resume=input.missing_resume_probe==true
     local resume_warning=input.resume_warning_probe==true
     local off_shelf_home=input.off_shelf_home==true
+    local off_shelf_store=input.off_shelf_store==true
+    assert(input.off_shelf_store==nil or off_shelf_store and off_shelf_home)
+    if off_shelf_store then
+        local grant=assert(input.native_grant)
+        assert(type(grant)=='table' and grant.vid==input.vid and type(input.store_search_keyword)=='string'
+            and #input.store_search_keyword>0 and #input.store_search_keyword<=512
+            and not input.store_search_keyword:find('[%z%c]'))
+        for _i,key in ipairs({'accessToken','refreshToken','deviceId'}) do assert(type(grant[key])=='string' and #grant[key]>=8) end
+        assert(#grant.deviceId==32)
+        report.store_search_verified,report.store_metadata_verified=false,false
+        report.store_search_requests,report.store_metadata_requests=0,0
+    end
     assert(input.off_shelf_home==nil or off_shelf_home and not cb_reading and not input.full_manifest
         and not missing_resume and not input.annotations and not input.progress_preview and not input.progress_roundtrip
         and not input.source_upload_preview and not input.selection_preview)
@@ -212,12 +224,28 @@ local ok,reason=pcall(function()
         local sync=value:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0
         value:set('sync',sync)
         local config=value:get('read_report');config.enabled=false;value:set('read_report',config)
-        if full or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview or input.native_source_excerpt or input.selection_preview or input.native_time_capture then
+        if off_shelf_store then local shelf=value:get('shelf');shelf.source='gateway';value:set('shelf',shelf) end
+        if full or off_shelf_store or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview or input.native_source_excerpt or input.selection_preview or input.native_time_capture then
             local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
+            if off_shelf_store then cache.show_annotations=false end
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
         value:flush()
         return value
+    end
+    if off_shelf_store then
+        local grant_fd=tonumber(ffi.C.memfd_create('weread-reading-native-grant',1));assert(grant_fd>=0)
+        descriptors[#descriptors+1]=grant_fd
+        local saved={};for key,value in pairs(input.native_grant) do saved[key]=value end
+        saved.epoch,saved.verified_at,saved.book_count=1,os.time(),0
+        local grant_bytes='return '..require('dump')({revision=1,authorization=saved},nil,true);local written=0
+        while written<#grant_bytes do
+            local n=tonumber(ffi.C.write(grant_fd,ffi.cast('const char *',grant_bytes)+written,#grant_bytes-written));assert(n>0);written=written+n
+        end
+        local Credentials=require('weread.lib.native_credentials');local new_credentials=Credentials.new
+        function Credentials:new(settings,...)
+            local value=new_credentials(self,settings,...);value.path='/proc/self/fd/'..grant_fd;return value
+        end
     end
     report.anonymous_auth=true
     pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long); int munmap(void *, unsigned long);')
@@ -323,6 +351,18 @@ local ok,reason=pcall(function()
     if selection_case or reader_trial_mode or timer_trial_mode or close_trial_mode or native_recovery_mode or initial_reader_mode or input.raw_cloud_preview then limits={2,60,12,8,18,60} end
     local resource_urls={}
     local protected_resources={}
+    local parent_pid=tonumber(ffi.C.getpid())
+    local native_search_url=off_shelf_store and ('https://i.weread.qq.com/store/search?'
+        ..Protocol.sorted_query{keyword=input.store_search_keyword,scope=10,count=20,maxIdx=0})
+    local native_metadata_url=off_shelf_store and ('https://i.weread.qq.com/book/info?bookId='..Protocol.urlencode(input.book_id))
+    local function native_read(options)
+        if not off_shelf_store or mode~='live' or options.method~='GET' or options.body~=nil
+            or options.skip_cookie~=true or options.persist_response_cookies~=false or options.sensitive~=true then return end
+        local h=options.headers or {}
+        if h.vid~=input.vid or h.accessToken~=input.native_grant.accessToken or h.Cookie or h.cookie or h.Authorization or h.authorization then return end
+        if options.url==native_search_url and options.diagnostic_api=='native_discovery_search' then return 23 end
+        if options.url==native_metadata_url and options.diagnostic_api=='native_metadata' then return 24 end
+    end
     local function protected_resource(url)
         if not resource(url) then return false end
         local parts=URL.parse(url)
@@ -456,6 +496,26 @@ local ok,reason=pcall(function()
         assert(not public_redirect(url))
     end
     assert(public_redirect('https://cdn.qq.com/image') and public_redirect('http://101.32.1.1/image'))
+    if off_shelf_store then
+        local valid_native={url=native_search_url,method='GET',skip_cookie=true,persist_response_cookies=false,sensitive=true,
+            diagnostic_api='native_discovery_search',headers={vid=input.vid,accessToken=input.native_grant.accessToken}}
+        assert((native_read(valid_native)==23)==(mode=='live'))
+        for _i,change in ipairs({'url','method','body','cookie','owner','token','authorization','skip','persist','sensitive'}) do
+            local value={};for key,item in pairs(valid_native) do value[key]=item end
+            value.headers={vid=input.vid,accessToken=input.native_grant.accessToken}
+            if change=='url' then value.url='https://i.weread.qq.com/login' elseif change=='method' then value.method='POST'
+            elseif change=='body' then value.body='{}' elseif change=='cookie' then value.headers.Cookie='forbidden'
+            elseif change=='owner' then value.headers.vid='0' elseif change=='token' then value.headers.accessToken='invalid'
+            elseif change=='authorization' then value.headers.Authorization='forbidden'
+            elseif change=='skip' then value.skip_cookie=false elseif change=='persist' then value.persist_response_cookies=true
+            else value.sensitive=false end
+            assert(not native_read(value))
+        end
+        valid_native.url,valid_native.diagnostic_api=native_metadata_url,'native_metadata'
+        assert((native_read(valid_native)==24)==(mode=='live'))
+        valid_native.url='https://i.weread.qq.com/book/info?bookId=99999999999999999999'
+        assert(not native_read(valid_native))
+    end
     local public_url='https://res.qpic.cn/probe-only'
     resource_urls[public_url]=true
     local public_request={url=public_url,method='GET',skip_cookie=true,persist_response_cookies=false,headers={}}
@@ -472,6 +532,14 @@ local ok,reason=pcall(function()
     end
     report.transport_guard_selftest=true
     function Client:request(options)
+        local native_slot=native_read(options)
+        if native_slot then
+            if counters[native_slot]>=1 or tonumber(ffi.C.getpid())==parent_pid then
+                counters[6]=counters[6]+1;error('native reading scope rejected',0)
+            end
+            counters[native_slot]=counters[native_slot]+1
+            return request(self,options)
+        end
         if candidate_case and candidate_case.is_native and candidate_case:is_native(options) then
             return candidate_case:request(self,options,request)
         end
@@ -486,6 +554,12 @@ local ok,reason=pcall(function()
         if resource_urls[options.url] and not protected_resources[options.url] then options.skip_cookie=true end
         local kind=classify(self,options)
         if not kind or counters[kind-1]>=limits[kind] then
+            if input.off_shelf_mock_port and off_shelf_store and counters[6]==0 then
+                local api=options.diagnostic_api
+                if type(api)=='string' and #api<=60 and api:match('^native_[a-z_]+$') then
+                    ffi.copy(ffi.cast('char *',memory)+512,api,#api);counters[25]=#api
+                end
+            end
             if input.native_source_excerpt and counters[6]==0 then
                 local url,h=options.url or '',options.headers or {}
                 local id,stamp=url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=([1-9]%d*)&_=(%d+)$')
@@ -683,6 +757,29 @@ local ok,reason=pcall(function()
         assert(not target,'off-shelf target unexpectedly in cloud shelf')
         for _i,id in ipairs(input.shelf_ids) do assert(id~=input.book_id) end
         if mode=='reopen' then select_recent_home();report.home_recent_verified=true
+        elseif off_shelf_store then
+            -- Search and details use the production native source. Cover
+            -- downloads are independently verified by the cover test suite.
+            plugin.fetchVisibleShelfCovers=function() end
+            plugin:showBookstore()
+            local search
+            for _i,button in ipairs(plugin.shelf_view._action_buttons or {}) do
+                if button.text==require('weread.lib.plugin_util').tr('Search WeRead') then search=button end
+            end
+            assert(search);search.callback()
+            pump(function() local top=UI:getTopmostVisibleWidget();return top and top.setInputText~=nil end)
+            local dialog=UI:getTopmostVisibleWidget();dialog:setInputText(input.store_search_keyword);dialog.buttons[1][2].callback()
+            pump(function() return not plugin.discovery_loading and plugin.discovery_state
+                and plugin.discovery_state.kind=='search' and plugin.discovery_state.cursor==0 end)
+            assert(plugin.discovery_state.source_kind=='native' and counters[23]==1)
+            local view=assert(plugin.shelf_view);local index
+            for position,row in ipairs(view.books) do if tostring(row.bookId)==input.book_id then index=position end end
+            assert(index and view.paged)
+            local page=math.floor((index-1)/view.page_size)+1
+            if page~=view.page then view.on_page_changed(page);view=assert(plugin.shelf_view) end
+            local visible
+            for _i,row in ipairs(view:getVisibleBooks()) do if tostring(row.bookId)==input.book_id then visible=row end end
+            assert(visible);UI:forceRePaint();view.on_select(visible,'books');report.store_search_verified=true
         else plugin:showBookRecord(input.off_shelf_row,{verified_metadata=true}) end
         report.plugin_selection=true
     else
@@ -708,6 +805,11 @@ local ok,reason=pcall(function()
     local fallback_marker='Synthetic fallback; never a real book.\n'
     if not (off_shelf_home and mode=='reopen') then
     pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    if off_shelf_store then
+        local selected=assert(plugin.settings:get_book(input.book_id))
+        assert(selected.detail_source=='native' and counters[24]==1,'native book detail was not verified')
+        report.store_metadata_verified=true
+    end
     local detail=assert(plugin._book_detail_view)
     if missing_resume and mode=='live' then
         local file=assert(io.open(fallback_path,'wb'));assert(file:write(fallback_marker));assert(file:close())
@@ -927,6 +1029,9 @@ local ok,reason=pcall(function()
     report.phase='audit'
     local lfs=require('libs/libkoreader-lfs')
     local secrets={}
+    if off_shelf_store then
+        for _i,key in ipairs({'accessToken','refreshToken','deviceId'}) do secrets[#secrets+1]=input.native_grant[key] end
+    end
     if annotation_case then
         for _i,value in ipairs(annotation_case:secrets()) do secrets[#secrets+1]=value end
     end
@@ -968,6 +1073,12 @@ if counters then
         if annotation_case.private then recovery_private=annotation_case:private() end
     end
     for index=1,7 do report.requests[index]=tonumber(counters[index-1]) end
+    if report.store_search_requests~=nil then
+        report.store_search_requests,report.store_metadata_requests=tonumber(counters[23]),tonumber(counters[24])
+    end
+    if report.store_search_requests~=nil and counters[25]>0 then
+        report.synthetic_denied_api=ffi.string(ffi.cast('char *',counters)+512,tonumber(counters[25]))
+    end
     report.last_http_status,report.denied_kind=tonumber(counters[7]),tonumber(counters[8])
     report.denied_route,report.denied_flags=tonumber(counters[9]),tonumber(counters[10])
     if report.reader_context_failure then

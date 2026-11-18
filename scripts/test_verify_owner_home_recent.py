@@ -38,6 +38,7 @@ class OwnerHomeRecentTests(unittest.TestCase):
         with patch.object(probe,'SessionStore',side_effect=AssertionError('unexpected credentials')):
             with contextlib.redirect_stdout(io.StringIO()) as out:self.assertEqual(probe.main([]),0)
         self.assertEqual(json.loads(out.getvalue())['result'],'OFFLINE_ONLY')
+        with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):probe.main(['--store-search'])
 
     def test_shelf_ids_are_bounded_and_unique(self):
         self.assertEqual(probe.ids({'books':[{'bookId':123},{'bookId':'CB_Valid'}]}),['123','CB_Valid'])

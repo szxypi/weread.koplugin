@@ -82,9 +82,11 @@ def candidate(web,sample):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--store-search',action='store_true',help='Exercise native bookstore search before reading')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
-    if bool(args.saved_session)!=bool(args.lua_command):parser.error('pair --saved-session with --lua-command last')
+    if bool(args.saved_session)!=bool(args.lua_command) or args.store_search and not args.saved_session:
+        parser.error('pair --saved-session with --lua-command last; store search requires that pair')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,private_data_on_regular_disk=False,screenshots=0)
     if not args.saved_session:print(json.dumps(report));return 0
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
@@ -108,7 +110,7 @@ def main(argv=None):
                 checked+=1
                 try:value=candidate(web,sample)
                 except ValueError:continue
-                if value:payload,baseline=value;break
+                if value:payload,baseline=value;selected_query=query;break
             if payload:break
         if not payload:raise ValueError('home/no_candidate')
         web.book_id=None;web.chapter=None
@@ -116,9 +118,10 @@ def main(argv=None):
         if store.load()!=saved or NativeSessionStore().load(saved['vid'])!=grant:raise ValueError('home/session_changed')
         save_refreshed_web_session(store,saved,web);saved=store.load()
         payload.update(vid=web.vid,cookies=saved['cookies'],shelf_ids=shelf_ids,shelf_books=len(shelf_ids))
+        if args.store_search:payload.update(off_shelf_store=True,store_search_keyword=selected_query,native_grant=grant)
         phase='native'
         child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=340)
-        envelope=decode_envelope(child.stdout,web.vid,off_shelf_home=True)
+        envelope=decode_envelope(child.stdout,web.vid,off_shelf_home=True,off_shelf_store=args.store_search)
         web.cookies.clear()
         for key,value in envelope['cookies'].items():web.set_cookie(key,value)
         web.verify_account();web.book_id=payload['book_id'];web.chapter=payload['chapter_uid']
@@ -131,6 +134,7 @@ def main(argv=None):
         web.verify_account();save_refreshed_web_session(store,saved,web)
         report.update(result='OWNER_OFF_SHELF_HOME_VERIFIED',candidate_books_checked=checked,shelf_books=len(shelf_ids),
                       shelf_and_observed_position_unchanged=True,ui=envelope['report'])
+        if args.store_search:report['store_search_verified']=True
         if child.returncode or envelope['report']['result']!='PASS':raise ValueError('home/native_failed')
     except Exception as error:
         report.update(result='UNVERIFIED',phase=phase,error_type=type(error).__name__)

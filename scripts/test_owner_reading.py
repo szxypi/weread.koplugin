@@ -62,8 +62,29 @@ class OwnerReadingTests(unittest.TestCase):
         common=['--koreader','/synthetic','--candidate','/synthetic.zip']
         for args in (['--off-shelf-home','--cb-reading'],['--off-shelf-home','--missing-resume'],
                      ['--off-shelf-home','--progress-roundtrip'],['--off-shelf-mock-port','1234'],
-                     ['--off-shelf-home','--off-shelf-mock-port','0']):
+                     ['--off-shelf-home','--off-shelf-mock-port','0'],['--off-shelf-store']):
             with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(common+args)
+
+    def test_off_shelf_store_requires_native_search_and_details(self):
+        value=envelope()
+        for index,part in enumerate(value['report']['stages']):
+            part['home_recent_verified']=True
+            for key in ('store_search','store_metadata'):
+                part[key+'_verified']=index==0;part[key+'_requests']=1 if index==0 else 0
+        probe.decode_envelope(frame(value),OWNER,off_shelf_home=True,off_shelf_store=True)
+        for key in ('store_search','store_metadata'):
+            bad=deepcopy(value);bad['report']['stages'][0][key+'_verified']=False
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,off_shelf_home=True,off_shelf_store=True)
+            bad=deepcopy(value);bad['report']['stages'][1][key+'_requests']=1
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,off_shelf_home=True,off_shelf_store=True)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(value),OWNER,off_shelf_home=True)
+        with self.assertRaises(ValueError):probe.validate_stage(stage(),'live',off_shelf_store=True)
+
+    def test_late_probe_line_is_reportable_on_failure(self):
+        value=stage();value['result']='UNVERIFIED';value['failed_line']=1100
+        self.assertEqual(probe.validate_stage(value,'live')['failed_line'],1100)
+        value['failed_line']=10001
+        with self.assertRaises(ValueError):probe.validate_stage(value,'live')
 
     def test_missing_resume_requires_proof_in_both_stages(self):
         value=envelope()
