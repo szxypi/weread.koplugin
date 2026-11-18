@@ -86,6 +86,7 @@ def main():
     parser.add_argument('--search-renewal', action='store_true')
     parser.add_argument('--search-cb', action='store_true')
     parser.add_argument('--search-current-fallback', action='store_true')
+    parser.add_argument('--search-offline-fallback', action='store_true')
     parser.add_argument('--search-local-download', action='store_true')
     parser.add_argument('--search-local-interrupt', action='store_true')
     parser.add_argument('--search-local-restart', action='store_true')
@@ -117,7 +118,7 @@ def main():
         parser.error('--source-format web_txt requires --probe source-state')
     if args.search_scope != 'full' and args.probe != 'quick-search':
         parser.error('--search-scope chapter requires --probe quick-search')
-    if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_current_fallback) and args.probe!='book-search' or args.search_cb and args.probe not in ('book-search','cached-search'):
+    if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_current_fallback or args.search_offline_fallback) and args.probe!='book-search' or args.search_cb and args.probe not in ('book-search','cached-search'):
         parser.error('search fixture options require --probe book-search')
     if args.search_local_download and (args.probe!='book-search' or not args.search_cb or not args.search_missing
                                        or args.search_renewal or args.search_current_fallback or args.search_catalog_missing):
@@ -143,6 +144,9 @@ def main():
         parser.error('imported cloud options require --probe cb-cloud-view')
     if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
         parser.error('current fallback requires a cached CB search fixture')
+    if args.search_offline_fallback and (args.search_missing or args.search_catalog_missing or args.search_renewal
+                                         or args.search_current_fallback or args.search_local_download):
+        parser.error('offline fallback requires the complete cached search fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     server = SearchMockServer(0,args.search_cb,args.search_current_fallback) if args.probe=='book-search' else TimeMockServer(0) if args.cb_sync_time else MockServer(0)
     if args.probe in ('cb-cloud-view','cb-sync'):
@@ -171,6 +175,7 @@ def main():
                                         WEREAD_TEST_SEARCH_RENEWAL='1' if args.search_renewal else '0',
                                         WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
                                         WEREAD_TEST_SEARCH_CURRENT_FALLBACK='1' if args.search_current_fallback else '0',
+                                        WEREAD_TEST_SEARCH_OFFLINE_FALLBACK='1' if args.search_offline_fallback else '0',
                                         WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD='1' if args.search_local_download else '0',
                                         WEREAD_TEST_SEARCH_LOCAL_INTERRUPT='1' if args.search_local_interrupt else '0',
                                         WEREAD_TEST_SEARCH_LOCAL_RESTART='1' if args.search_local_restart else '0',
@@ -387,10 +392,14 @@ def main():
                 if args.search_renewal:expected['renewal_scenarios']=True
                 if args.search_cb and not args.search_local_download:expected['imported_search']=True
                 if args.search_current_fallback:expected['current_fallback']=True
+                if args.search_offline_fallback:
+                    expected=dict(result='PASS',offline_entry=True,disconnect_fallback=True,
+                                  cloud_results_preserved=True,offline_results=2,offline_network_requests=0)
                 assert value==expected, 'online search result mismatch'
                 search_requests=(2 if args.search_local_restart else 1) if args.search_local_download else 7 if args.search_renewal else 2
                 if args.search_cb and not args.search_missing and not args.search_renewal and not args.search_current_fallback:
                     search_requests+=1 # reopen the online results after the offline handoff
+                if args.search_offline_fallback:search_requests=1
                 assert server.request_totals[('/web/book/search_v2','')]==search_requests, 'unexpected search request count'
                 assert server.request_totals[('/web/login/renewal','')]==(2 if args.search_renewal else 0), 'unexpected renewal count'
                 if args.search_local_interrupt:

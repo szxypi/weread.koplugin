@@ -80,9 +80,9 @@ package.preload['weread.lib.memory_worker']=function() return {new=function()
 end} end
 
 local Search=require('weread.ui.book_search')
-local cached_calls,cached_request=0,nil
+local cached_calls,cached_request,cached_available=0,nil,true
 package.preload['weread.ui.cached_book_search']=function() return {open=function(target,id,rows,keyword)
-    cached_calls=cached_calls+1;cached_request={host=target,id=id,rows=rows,keyword=keyword};return true
+    cached_calls=cached_calls+1;cached_request={host=target,id=id,rows=rows,keyword=keyword};return cached_available
 end} end
 local checks=0
 local function expect(value,label) checks=checks+1;if not value then error(label) end end
@@ -110,7 +110,14 @@ local function open_and_submit()
     return assert(host._book_search_owner)
 end
 
-online=false;expect(not Search.open(host,'100',chapters) and host.info=='offline','offline search opened')
+online=false;expect(Search.open(host,'100',chapters) and cached_calls==1 and cached_request.id=='100'
+    and cached_request.rows==chapters and not host._book_search_owner,'offline entry did not open downloaded search')
+account=nil;scope_valid=false
+expect(Search.open(host,'100',chapters) and cached_calls==2,'offline entry incorrectly required an online account')
+account='123';scope_valid=true
+cached_available=false
+expect(not Search.open(host,'100',chapters) and host.info=='offline','unavailable offline search had no explanation')
+cached_available=true;cached_calls=0
 online=true
 scope_valid=false;expect(not Search.open(host,'100',chapters)
     and host.info=='A verified WeRead web login is required for online book search.','missing login had no explanation')
@@ -136,7 +143,21 @@ host.ui.document={file='/synthetic.epub'}
 owner=open_and_submit();active_worker:complete();fetch_mode='fail';owner.menu.items[1].callback();active_worker:complete()
 expect(owner.state.pages==1 and #owner.value==1 and host.info=='Could not search this book. Check the network and try again.',
     'failed later page replaced already displayed results')
+local offline_action
+for _i,item in ipairs(owner.menu.items) do if item.text=='Search downloaded chapters' then offline_action=item end end
+expect(offline_action~=nil,'failed online search did not offer downloaded chapters')
+offline_action.callback()
+expect(cached_calls==1 and cached_request.id=='100' and cached_request.keyword=='term',
+    'failed online search did not preserve the query for downloaded search')
+cached_calls=0
 fetch_mode='ok';Search.cancel(host)
+owner=open_and_submit();active_worker:complete();online=false;owner.menu.items[1].callback()
+expect(owner.state.pages==1 and #owner.value==1 and host.info=='offline','disconnect discarded online search results')
+offline_action=nil
+for _i,item in ipairs(owner.menu.items) do if item.text=='Search downloaded chapters' then offline_action=item end end
+expect(offline_action~=nil,'disconnect did not offer downloaded chapters')
+offline_action.callback();expect(cached_calls==1 and cached_request.keyword=='term','disconnect fallback lost the query')
+cached_calls=0;online=true;Search.cancel(host)
 owner=open_and_submit();access_current=false;active_worker:complete();access_current=true
 expect(owner.state.pages==0 and #owner.value==0 and not host._book_search_owner
     and host.info=='WeRead login changed. Search again.','changed authorization committed a stale response')
@@ -210,6 +231,9 @@ fetch_mode='limited';owner=open_and_submit();active_worker:complete()
 expect(renewals==before_renewals and not owner.recovery
     and host.info=='Search requests are temporarily limited. Wait and try again. Existing results are kept.',
     'rate limiting triggered renewal or lacked an actionable message')
+local rate_fallback
+for _i,item in ipairs(owner.menu.items) do if item.text=='Search downloaded chapters' then rate_fallback=item end end
+expect(rate_fallback~=nil,'rate-limited search did not offer downloaded chapters')
 Search.cancel(host)
 owner=open_and_submit();before_renewals=renewals
 active_worker.callback({reason='web_http_401',page={},state={book='100',keyword='term',pages=0}})
@@ -220,6 +244,9 @@ fetch_mode='ok';owner=open_and_submit();active_worker:complete();fetch_mode='exp
 renewal=pending_renewal;renewal.callback(false,'renewal_unconfirmed')
 expect(not owner.recovery and owner.state.pages==1 and #owner.value==1
     and host.info=='renewal error: renewal_unconfirmed','failed renewal discarded previous results')
+local renewal_fallback
+for _i,item in ipairs(owner.menu.items) do if item.text=='Search downloaded chapters' then renewal_fallback=item end end
+expect(renewal_fallback~=nil,'failed login renewal did not offer downloaded chapters')
 Search.cancel(host);fetch_mode='ok'
 expect(Search.open(host,'CB_Synthetic',chapters),'imported book did not open online search')
 local cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback()
@@ -299,6 +326,15 @@ before=fetches;active_worker:complete()
 expect(not cb_owner.state and not cb_owner.job and fetches==before
     and host.info=="Could not load this book's chapter list.",
     'failed catalog save continued into search')
+local retry,local_fallback
+for _i,item in ipairs(cb_owner.menu.items) do
+    if item.text=='Retry search' then retry=item end
+    if item.text=='Search downloaded chapters' then local_fallback=item end
+end
+expect(retry and local_fallback,'catalog failure did not retain retry and downloaded-search options')
+local_fallback.callback()
+expect(cached_request.keyword=='term' and cached_request.id=='CB_Synthetic',
+    'catalog failure did not preserve the downloaded-search query')
 allow_catalog_save=true;Search.cancel(host)
 allow_db_save=false
 expect(Search.open(host,'CB_Synthetic',nil,'2'),'database-failure search did not open')

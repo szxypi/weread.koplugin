@@ -84,7 +84,10 @@ render=function(host,owner)
                 end
             end}
         end
+        local cached_added=false
         local function cached_option()
+            if cached_added then return end
+            cached_added=true
             items[#items+1]={text=_('Search downloaded chapters'),callback=function()
                 if not current(host,owner) or owner.job or owner.recovery or owner.navigation then return end
                 local opened=require('weread.ui.cached_book_search').open(host,owner.id,owner.chapters,owner.keyword)
@@ -101,11 +104,12 @@ render=function(host,owner)
         elseif owner.cb_book and #owner.value>0 then
             items[#items+1]={text=_('Search results may be incomplete for this book.'),select_enabled=false}
         end
+        if owner.local_available then cached_option() end
         if owner.state and not owner.state.finished and owner.state.pages>=128 then
             items[#items+1]={text=_('Search limit reached; results may be incomplete.'),select_enabled=false}
         end
-        if #items==0 and not owner.state and owner.retry then
-            items[1]={text=_('Retry search'),callback=function()
+        if not owner.state and owner.retry then
+            items[#items+1]={text=_('Retry search'),callback=function()
                 if current(host,owner) and not owner.job and not owner.recovery then owner.retry() end
             end}
         elseif #items==0 then
@@ -138,9 +142,14 @@ end
 
 fetch_page=function(host,owner,recovered)
     if not current(host,owner) or not owner.state or owner.job or owner.recovery or owner.navigation then return false end
-    if not host:isNetworkOnline() then host:showOffline(_('Search entire book'));return false end
+    if not host:isNetworkOnline() then
+        owner.local_available=true;render(host,owner);host:showOffline(_('Search entire book'));return false
+    end
     local access=Access.capture(host.settings)
-    if not access or not access.web then host:showInfo(_('A verified WeRead web login is required for online book search.'));return false end
+    if not access or not access.web then
+        owner.local_available=true;render(host,owner)
+        host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
+    end
     local previous=owner.state
     local work_state=copy(previous)
     local started=begin_work(host,owner,function()
@@ -168,14 +177,17 @@ fetch_page=function(host,owner,recovered)
                 stop_recovery(host,owner)
                 if not current(host,owner) or owner.state~=previous then M.cancel(host);return end
                 if reason=='session_changed' then M.cancel(host);return end
-                if not ok then host:showInfo(renewal.error_text(reason));return end
+                if not ok then owner.local_available=true;render(host,owner);host:showInfo(renewal.error_text(reason));return end
                 local fresh=Access.capture(host.settings)
                 if not fresh or not fresh.web then M.cancel(host);host:showInfo(_('WeRead login changed. Search again.'));return end
                 fetch_page(host,owner,true)
             end)
             if owner.recovery==recovery then
                 if called and started then recovery.request=request
-                else stop_recovery(host,owner);host:showInfo(renewal.error_text(called and request or 'unavailable')) end
+                else
+                    stop_recovery(host,owner);owner.local_available=true;render(host,owner)
+                    host:showInfo(renewal.error_text(called and request or 'unavailable'))
+                end
             elseif called and started then renewal.cancel(host,request) end
             return
         end
@@ -187,7 +199,7 @@ fetch_page=function(host,owner,recovered)
                 or (reason=='web_http_401' or reason=='web_expired')
                     and 'The search login is unavailable. Check your login and try again. Existing results are kept.'
                 or 'Could not search this book. Check the network and try again.'
-            host:showInfo(_(message));return
+            owner.local_available=true;render(host,owner);host:showInfo(_(message));return
         end
         owner.state=value.state
         for _i,hit in ipairs(value.page.hits) do owner.value[#owner.value+1]=hit end
@@ -199,7 +211,7 @@ fetch_page=function(host,owner,recovered)
         end
         render(host,owner)
     end)
-    if not started then host:showInfo(_('Could not search this book. Check the network and try again.')) end
+    if not started then owner.local_available=true;render(host,owner);host:showInfo(_('Could not search this book. Check the network and try again.')) end
     return started
 end
 
@@ -207,7 +219,7 @@ local function begin_search(host,owner,chapters)
     if not current(host,owner) then return end
     chapters=Reading.catalog(chapters)
     local state=chapters and Search.new(owner.id,owner.keyword,chapters)
-    if not state then render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return end
+    if not state then owner.local_available=true;render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return end
     if owner.cb_book and owner.current_uid then
         local fallback=Search.new(owner.id,owner.keyword,chapters,owner.current_uid)
         if fallback and fallback.cursor.chapter~=state.cursor.chapter then owner.fallback_state=fallback end
@@ -232,7 +244,7 @@ local function prepare_catalog(host,owner,chapters)
     end,function(value)
         if WorkerSettings.fingerprint(host.settings)~=fingerprint or type(value)~='table'
             or value.auth and not WorkerSettings.merge(host.settings,fingerprint,value.auth) then
-            render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return
+            owner.local_available=true;render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return
         end
         local prepared_chapters=Reading.catalog(value.chapters)
         local saved=prepared_chapters and pcall(function()
@@ -241,10 +253,10 @@ local function prepare_catalog(host,owner,chapters)
             assert(host.library_db:putChapters(owner.id,prepared_chapters))
             assert(Content.save_catalog_cache(host.client,host.settings,book,prepared_chapters))
         end)
-        if not saved then render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return end
+        if not saved then owner.local_available=true;render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.'));return end
         begin_search(host,owner,prepared_chapters)
     end)
-    if not started then render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.')) end
+    if not started then owner.local_available=true;render(host,owner);host:showInfo(_('Could not load this book\'s chapter list.')) end
 end
 
 function M.open(host,book_id,chapters,current_uid)
@@ -253,10 +265,14 @@ function M.open(host,book_id,chapters,current_uid)
     local scope=host.settings:get_auth_scope()
     local account=host.library_db and host.library_db:accountKey()
     if not document or not document.file then return false end
+    if not host:isNetworkOnline() then
+        local ok,opened=pcall(function() return require('weread.ui.cached_book_search').open(host,book_id,chapters) end)
+        if ok and opened then return true end
+        host:showOffline(_('Search entire book'));return false
+    end
     if not account or not scope or not host.settings:auth_scope_matches(scope) then
         host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
     end
-    if not host:isNetworkOnline() then host:showOffline(_('Search entire book'));return false end
     local access=Access.capture(host.settings)
     if not access or not access.web then host:showInfo(_('A verified WeRead web login is required for online book search.'));return false end
     if host.cancelBookSearch then host:cancelBookSearch() else M.cancel(host) end

@@ -6,6 +6,7 @@ local catalog_missing=os.getenv('WEREAD_TEST_SEARCH_CATALOG_MISSING')=='1'
 local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
+local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
 local local_download=os.getenv('WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD')=='1'
 local local_interrupt=os.getenv('WEREAD_TEST_SEARCH_LOCAL_INTERRUPT')=='1'
 local local_restart=os.getenv('WEREAD_TEST_SEARCH_LOCAL_RESTART')=='1'
@@ -79,6 +80,50 @@ local function wait(predicate)
 end
 local plugin=assert(reader.weread)
 plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
+if offline_fallback then
+    local _=require('weread.lib.i18n').tr
+    local network_before=tonumber(network[0])
+    plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    assert(plugin:showEndOfBookDialog(book_id))
+    local dialog=assert(UI:getTopmostVisibleWidget());local selected
+    for _i,row in ipairs(dialog.buttons) do for _j,item in ipairs(row) do
+        if item.text==_('Search entire book') then selected=item end
+    end end
+    assert(selected);selected.callback()
+    wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+    local cached=assert(plugin._cached_book_search_owner)
+    assert(not plugin._book_search_owner)
+    cached.input:setInputText('amberneedle');cached.input.buttons[1][2].callback()
+    wait(function() return cached.finished and not cached.job end)
+    assert(#cached.value==2 and tonumber(network[0])==network_before,'offline entry missed cached matches or used network')
+    plugin:cancelBookSearch()
+
+    plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    assert(require('weread.ui.book_search').open(plugin,book_id,chapters))
+    local owner=assert(plugin._book_search_owner);owner.input:setInputText('amberneedle');owner.input.buttons[1][2].callback()
+    wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
+    assert(#owner.value==1 and not owner.state.finished)
+    local before_disconnect=tonumber(network[0]);local warned=false
+    local show_offline=plugin.showOffline
+    function plugin:showOffline(...) warned=true;return show_offline(self,...) end
+    plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    owner.menu:onMenuSelect(owner.menu.item_table[1])
+    assert(warned and owner.state.pages==1 and #owner.value==1 and not owner.job,
+        'disconnect discarded the online page')
+    local warning=UI:getTopmostVisibleWidget();if warning and warning~=owner.menu then UI:close(warning) end
+    local fallback
+    for _i,item in ipairs(owner.menu.item_table) do if item.text==_('Search downloaded chapters') then fallback=item end end
+    assert(fallback,'disconnect did not offer cached search');owner.menu:onMenuSelect(fallback)
+    wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+    cached=assert(plugin._cached_book_search_owner)
+    assert(not plugin._book_search_owner and cached.input:getInputText()=='amberneedle')
+    cached.input.buttons[1][2].callback();wait(function() return cached.finished and not cached.job end)
+    assert(#cached.value==2 and tonumber(network[0])==before_disconnect,'disconnect fallback made a request or missed results')
+    plugin:cancelBookSearch()
+    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',offline_entry=true,disconnect_fallback=true,
+        cloud_results_preserved=true,offline_results=2,offline_network_requests=0}))
+    os.exit(0)
+end
 local last_info
 if renewal_test then
     local show_info=plugin.showInfo
