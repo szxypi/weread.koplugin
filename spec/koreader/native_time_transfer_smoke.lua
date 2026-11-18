@@ -35,9 +35,9 @@ return function(reader,flush_tasks,fixture_dir)
     local function shot(name)
         UI:forceRePaint();require('device').screen:shot(home..'/../evidence/native-time-'..name..'.png')
     end
-    local function setup(mode)
+    local function setup(mode,cb,config)
         host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
-        local f=F.new(mode,expect,roots);expect(f.account==host.library_db:accountKey())
+        local f=F.new(mode,expect,roots,cb,config);expect(f.account==host.library_db:accountKey())
         local native_open=require('lua-ljsqlite3/init').open
         local db=native_open(f.coverage.path);db:exec('CREATE TABLE synthetic_dispatch(id INTEGER PRIMARY KEY CHECK(id=1))');db:close()
         local request=f.client.request
@@ -54,11 +54,11 @@ return function(reader,flush_tasks,fixture_dir)
         end
         host.offline_time.store,host.readtime_coverage=f.ledger,f.coverage
         host.settings.get_book=function(settings,id)
-            if id=='42' then return {cached_file='/synthetic-time/book.epub',chapters={{chapterUid=7,chapterIdx=0}}} end
+            if id==f.book_id then return {cached_file='/synthetic-time/book.epub',chapters={{chapterUid=7,chapterIdx=0}}} end
             return original.get_book(settings,id)
         end
         host.library_db.getBook=function(library,id)
-            if id=='42' then return {title='合成书籍 · 历史阅读时长'} end
+            if id==f.book_id then return {title='合成书籍 · 历史阅读时长'} end
             return original.getBook(library,id)
         end
         host.isNetworkConnected=function() return true end
@@ -129,6 +129,32 @@ return function(reader,flush_tasks,fixture_dir)
     show();choose('Review unfinished transfer');detail();button('Check cloud result without sending again');detail()
     expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2 and not f.journal:pending(f.account))
     reports[#reports+1]='many_sources_read_only_recovery'
+    -- The scan worker may need to return the largest supported chapter scope.
+    -- Keep the archive/HTTP synthetic here so this checks actual UI, pipe,
+    -- child processes and SQLite without creating a 10,000-chapter EPUB.
+    f=setup(nil,true,{book_version=0,version_source='epub_unknown'})
+    host.offline_time_review_worker=nil
+    local scope={}
+    for i=1,10000 do scope[i]={chapterUid='1'..string.format('%019d',i),chapterIdx=i-1} end
+    host.settings.get_book=function(settings,id)
+        if id==f.book_id then return {cached_file='/synthetic-time/book.epub',chapters=scope} end
+        return original.get_book(settings,id)
+    end
+    local source=require('weread.lib.readtime_source');local scan_page=source.scan_page
+    local ref={file='/synthetic-time/book.epub',chapter_uid='7',chapter_idx=0,chapters=scope}
+    local encoded=f.client:json_encode{kind='found',reference=ref}
+    expect(#encoded>256*1024 and #encoded<=1024*1024,'large source fixture did not cross the old pipe limit')
+    source.scan_page=function() return {kind='found',reference=ref} end
+    f.options.observe_source=function(_client,_web,selection,refs)
+        expect(selection.file_id==f.file_id and #refs==1 and #refs[1].chapters==10000,'large scope was truncated')
+        return {file_id=selection.file_id,raw_hash=string.rep('b',64),format='web_txt'}
+    end
+    select_batch()
+    expect(host.offline_time_review_worker.limit==1024*1024,'review worker kept the old response limit')
+    button('Transfer this batch');detail();source.scan_page=scan_page
+    expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2 and not f.journal:pending(f.account),
+        'large scan result did not reach the transfer task exactly once')
+    reports[#reports+1]='large_scope_worker_result'
     -- A later GET-only inspection settles the saved ACK without another POST.
     f=setup('no_delta');select_batch();button('Transfer this batch');detail();saved=assert(f.journal:pending(f.account))
     expect(saved.phase=='acknowledged' and f.posts_count()==1);local metadata=C.digest(saved.metadata)

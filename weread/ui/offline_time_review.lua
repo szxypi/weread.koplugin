@@ -5,7 +5,10 @@ local Coverage=require('weread.lib.readtime_coverage')
 local UI=require('ui/uimanager')
 local Util=require('weread.lib.plugin_util')
 local _,T=Util.tr,Util.T
-local M={}
+-- A verified zero-version imported book may return a 10,000-chapter source
+-- reference from the scan worker. Its bounded UID/index list can exceed
+-- 256 KiB, even though no chapter text or credentials are in that response.
+local M={REVIEW_WORKER_MAX_BYTES=1024*1024}
 local STATUS={recording='Recording offline reading',online='Online; offline recording is idle',disabled='Disabled',paused='Paused',
     no_book='Open a WeRead book to record time',reader_hidden='Return to the reading page to record time',
     book_mismatch='This file does not match the reading book; time is not recorded',unsupported_book='Offline time recording is unavailable for public-account articles',
@@ -280,7 +283,7 @@ load=function(host,context,kind,args)
         M.close(host);host:showInfo(_('Could not read saved time. The records are kept.'))
     end
     if not host.offline_time_review_worker then
-        local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=256*1024} end)
+        local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=M.REVIEW_WORKER_MAX_BYTES} end)
         if not ok then fail();return end;host.offline_time_review_worker=worker
     end
     local ledger=host.offline_time.store;local coverage=host.readtime_coverage or Coverage:new(host.settings.data_dir)
