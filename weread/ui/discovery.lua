@@ -22,7 +22,7 @@ function M:discoveryNavigation(active, current)
         { text = _("Bookshelf"), active = active == "shelf",
             callback = switch(function() self:showBookshelf() end) },
         { text = _("Bookstore"), active = active == "store",
-            callback = switch(function() self:showBookstore() end) },
+            callback = switch(function() self:openBookstore() end) },
         { text = _("My WeRead"), active = active == "profile",
             callback = switch(function() self:showProfile() end) },
     }
@@ -285,6 +285,25 @@ function M:showDiscoveryCategories(refresh)
     return require("weread.ui.category_catalog").open(self,refresh)
 end
 
+local function initialChart()
+    return { category_id = "rising", category_title = _("Rising · Published"), rank = true }
+end
+
+-- Load the public chart only on an explicit entry into an otherwise empty
+-- store. Redraws and requests that finish later must not restart this work.
+function M:openBookstore()
+    self:showBookstore()
+    local owner = self.shelf_view
+    if not owner or self.discovery_state or self.discovery_loading then return end
+    local current = owner._discovery_current
+    UIManager:nextTick(function()
+        if not current or not current() or self.shelf_view ~= owner or self.discovery_state
+            or self.discovery_loading or owner._shelf_popup or self.category_catalog_request
+            or self.isNetworkConnected and not self:isNetworkConnected() then return end
+        self:loadDiscoveryBatch("category", nil, 0, false, false, initialChart())
+    end)
+end
+
 function M:showBookstore()
     if self._profile_view then self:closeWeReadUI() end
     local state = self.discovery_state
@@ -325,8 +344,8 @@ function M:showBookstore()
             or state.kind == "search" and _("No search results.") or _("No books found."))
             or _("Choose For you or search to discover books."),
         on_refresh = function()
-            self:loadDiscoveryBatch(state and state.kind or "recommend", state and state.keyword,
-                state and state.cursor or 0, false, true, state)
+            self:loadDiscoveryBatch(state and state.kind or "category", state and state.keyword,
+                state and state.cursor or 0, false, true, state or initialChart())
         end,
     })
 end

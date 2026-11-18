@@ -58,6 +58,7 @@ jobs:
 
       - name: Offline mock service checks
         run: |
+          python3 scripts/test_public_store_entry.py
           python3 scripts/test_book_footnotes.py
           python3 scripts/test_mock_weread.py
           python3 scripts/test_process_loss_runtime.py

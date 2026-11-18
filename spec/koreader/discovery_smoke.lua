@@ -100,6 +100,35 @@ end
 -- Keep the real scheduled controller/HTTP path and invoke native button callbacks.
 plugin.isNetworkOnline = function() return true end
 plugin.isNetworkConnected = function() return false end
+-- The first native store entry must show public books without logging in.
+local initial_account=plugin.settings:get('account',{})
+plugin.settings:set('account',{});plugin.settings:flush()
+assert(not plugin.library_db:accountKey())
+plugin.isNetworkConnected=function() return true end
+plugin.requireLogin=function() error('initial public chart requested login') end
+plugin:showHome()
+local store_button
+for _,button in ipairs(plugin.shelf_view._navigation_buttons) do
+    if button.text==require('weread.lib.plugin_util').tr('Bookstore') then store_button=button end
+end
+assert(store_button);store_button.callback();flush_tasks()
+assert(plugin.discovery_state and plugin.discovery_state.kind=='category'
+    and plugin.discovery_state.category_id=='rising' and plugin.discovery_state.rank
+    and plugin.discovery_state.category_title==require('weread.lib.plugin_util').tr('Rising · Published')
+    and #plugin.discovery_state.books==20 and not plugin.discovery_state.account,
+    'initial native store did not display the guest public chart')
+paint('store-initial-public-chart')
+press(plugin.shelf_view,'Next batch');flush_tasks()
+assert(plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==6,
+    'initial public chart did not paginate')
+plugin:closeWeReadUI();plugin.discovery_state=nil
+plugin.isNetworkConnected=function() return false end
+plugin:openBookstore();flush_tasks()
+assert(plugin.discovery_state and plugin.discovery_state.cached and plugin.discovery_state.category_id=='rising'
+    and plugin.discovery_state.cursor==20,'offline store did not restore the initial chart')
+plugin:closeWeReadUI();plugin.discovery_state=nil
+plugin.settings:set('account',initial_account);plugin.settings:flush()
+plugin.requireLogin=require_login
 plugin:showBookMenu(response.books[1])
 UIManager:forceRePaint()
 Screen:shot(evidence .. "/detail-similar-action.png")

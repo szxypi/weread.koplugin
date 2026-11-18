@@ -653,6 +653,7 @@ local zh = {
     ["WeRead home"] = "微信读书首页",
     ["Bookstore"] = "书城",
     ["For you"] = "为你推荐",
+    ["Rising · Published"] = "飙升·出版",
     ["Browse books"] = "分类·榜单",
     ["Rankings and categories"] = "排行榜与分类",
     ["Book rankings"] = "排行榜",

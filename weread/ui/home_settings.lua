@@ -71,7 +71,7 @@ function M:homeShortcuts(preferences)
     if not preferences.show_shortcuts then return {} end
     local actions = {
         shelf = function() self:closeWeReadUI() self:showBookshelf() end,
-        store = function() self:closeWeReadUI() self:showBookstore() end,
+        store = function() self:closeWeReadUI() self:openBookstore() end,
         search = function() self:showDiscoverySearch() end,
         profile = function() self:closeWeReadUI() self:showProfile() end,
         settings = function() self:showHomeQuickSettings() end,

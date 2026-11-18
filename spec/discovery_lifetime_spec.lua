@@ -143,4 +143,47 @@ expect(not plugin._discovery_menu and not view._shelf_popup and state.calls==0 a
 plugin:showDiscoveryCategoryPicker(categories);picker=assert(plugin._discovery_menu)
 picker.item_table[1].sub_item_table[1].callback();drain()
 expect(state.calls==1 and not plugin._discovery_menu,'current category selection ignored')
+
+-- The first store entry is deferred so that the visible page owns the public
+-- request. A new action, account, or page must be able to supersede it.
+local saved_cache=package.loaded['weread.ui.discovery_cache']
+local cached
+package.loaded['weread.ui.discovery_cache']={read=function() return cached end}
+local function empty_store()
+    local p,s=host();p.discovery_state=nil
+    p.isNetworkConnected=function() return true end
+    p.loadDiscoveryBatch=function(_self,kind,keyword,cursor,previous,refresh,context)
+        s.calls=s.calls+1;s.request={kind=kind,keyword=keyword,cursor=cursor,
+            previous=previous,refresh=refresh,context=context}
+    end
+    return p,s
+end
+plugin,state=empty_store();plugin:openBookstore();view=plugin.shelf_view;drain()
+expect(state.calls==1 and state.request.kind=='category' and state.request.cursor==0
+    and state.request.context.category_id=='rising' and state.request.context.rank
+    and state.request.context.category_title=='Rising · Published','first store entry did not load the public chart')
+view.callbacks.on_refresh()
+expect(state.calls==2 and state.request.refresh and state.request.context.category_id=='rising',
+    'empty store refresh did not retry the public chart')
+local changes={
+    closed=function(p) p:closeWeReadUI() end,
+    replaced=function(p) p:showDiscoveryPage('home',{}, {}) end,
+    account=function(_p,s) s.account='other' end,
+    auth=function(_p,s) s.auth={vid='XXX',epoch=2} end,
+    selected=function(p) p.discovery_state={} end,
+    request=function(p) p.discovery_loading=true end,
+    catalog=function(p) p.category_catalog_request={} end,
+    popup=function(p) p.shelf_view._shelf_popup={} end,
+    offline=function(p) p.isNetworkConnected=function() return false end end,
+}
+for name,change in pairs(changes) do
+    plugin,state=empty_store();plugin:openBookstore();change(plugin,state);drain()
+    expect(state.calls==0,'initial public chart overrode '..name)
+end
+plugin,state=empty_store();plugin:openBookstore();plugin:openBookstore();drain()
+expect(state.calls==1,'reopening empty store dispatched more than one initial request')
+cached={account='account-a',kind='category',category_title='saved',books={},history={},loaded_at=os.time()}
+plugin,state=empty_store();plugin:openBookstore();drain()
+expect(state.calls==0 and plugin.discovery_state==cached,'initial chart replaced cached store')
+package.loaded['weread.ui.discovery_cache']=saved_cache
 print('discovery_lifetime_spec: '..checks..' checks')

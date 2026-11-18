@@ -131,7 +131,7 @@ function M:getMainMenuItems()
         },
         {
             text = _("Bookstore"),
-            callback = self:safeCallback(_("Bookstore"), function() self:showBookstore() end),
+            callback = self:safeCallback(_("Bookstore"), function() self:openBookstore() end),
         },
         {
             text = _("Bookshelf"),
