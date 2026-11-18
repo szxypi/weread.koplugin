@@ -555,7 +555,7 @@ end
 
 function QRLogin:_complete(login_result, generation)
     self.host:showBusy(_("Completing WeRead login..."))
-    self.host:runOnlineTask(_("QR login"), function()
+    local started=self.host:runOnlineTask(_("QR login"), function()
         local continuation=self.continuation
         local valid,current
         if continuation then valid,current=pcall(continuation.current) end
@@ -608,6 +608,10 @@ function QRLogin:_complete(login_result, generation)
             self.settings:is_api_configured() and _("configured") or _("not configured; Web bookshelf is available")
         ))
     end)
+    if started==false and generation==self.generation then
+        self:cancel()
+        self.host:closeBusy()
+    end
 end
 
 return QRLogin

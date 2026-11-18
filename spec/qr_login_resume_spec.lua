@@ -58,4 +58,8 @@ expect(not login.continuation,'offline task scheduling retained a continuation')
 login,host,_=fixture();host.isNetworkOnline=function() return false end;host.showOffline=function() end
 login:start(login.continuation)
 expect(not login.continuation,'offline QR restart retained an old continuation')
+login,host,_=fixture();local closed=0
+host.runOnlineTask=function() return false end;host.closeBusy=function() closed=closed+1 end
+login:_complete({},login.generation)
+expect(not login.continuation and closed==1,'offline login completion retained the reading intent or spinner')
 print('qr_login_resume_spec: '..checks..' checks')
