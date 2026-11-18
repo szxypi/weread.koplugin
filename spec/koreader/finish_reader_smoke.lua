@@ -35,7 +35,8 @@ return function(reader,plugin,pump,shot,clean_popups)
     plugin.settings:set('read_report',off);plugin.read_report:stop('finish_reader_fixture');plugin.settings:flush()
     clean_popups(reader)
     local file_path=reader.document.file;local file_hash=Crypto.sha256_hex(raw(file_path))
-    local state_path=plugin.settings:get_book(id).cache_dir..'/reading_state.json'
+    local state_path=plugin.settings:get_book(id).cache_dir..'/.weread-accounts/'..
+        plugin.settings:account_state_scope()..'/reading_state.json'
     local journal=Journal:new(plugin.library_db,plugin.client)
     local original_request=plugin.client.request;local parent=tonumber(require('ffi').C.getpid())
     function plugin.client:request(options)

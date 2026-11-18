@@ -8,6 +8,11 @@ end
 
 local encoded_values = {}
 local encoded_index = 0
+local sync_events,fail_sync={},nil
+package.preload['ffi/util']=function() return {
+    fsyncOpenedFile=function() sync_events[#sync_events+1]='file';return fail_sync~='file' end,
+    fsyncDirectory=function(dir) sync_events[#sync_events+1]=dir;return fail_sync~='directory' end,
+} end
 local function deepcopy(value)
     if type(value) ~= "table" then return value end
     local copy = {}
@@ -133,6 +138,7 @@ local function close_failure_open(path,mode)
     local file,err=real_open(path,mode)
     if path~=failed_path..'.tmp' or mode~='wb' or not file then return file,err end
     return {write=function(_self,raw) return file:write(raw) end,
+        flush=function() return file:flush() end,
         close=function() assert(file:close());return nil,'synthetic delayed I/O failure' end}
 end
 rawset(io,'open',close_failure_open)
@@ -162,6 +168,34 @@ rawset(io,'open',real_open)
 expect(not receipt,'unconfirmed fclose granted permission to send an upload')
 expect(bytes(failed_path)==journal_before and not exists(failed_path..'.tmp') and not journal:pending('900001'),
     'failed dispatch save changed committed state')
+
+sync_events={};fail_sync='file'
+receipt=journal:begin('900001',wire,source,'position')
+expect(not receipt and not journal:pending('900001') and bytes(failed_path)==journal_before
+    and not exists(failed_path..'.tmp') and sync_events[1]=='file',
+    'failed file synchronization permitted dispatch or replaced the old record')
+sync_events={};fail_sync='directory'
+receipt=journal:begin('900001',wire,source,'position')
+expect(not receipt and journal:pending('900001') and sync_events[1]=='file' and #sync_events==2,
+    'failed directory synchronization permitted dispatch or lost the published marker')
+fail_sync=nil;sync_events={}
+expect(journal:resolve('900001') and not journal:pending('900001') and #sync_events>=2,
+    'explicit resolution did not synchronize the cleared marker')
+sync_events={}
+receipt=assert(journal:begin('900001',wire,source,'position'))
+expect(sync_events[1]=='file' and #sync_events>=2 and journal:owns(receipt),
+    'dispatch receipt preceded file and directory synchronization')
+sync_events={}
+expect(BookStore.patch_reading(settings,'900001',journal_index,{progress=41}) and journal:owns(receipt)
+    and sync_events[1]=='file' and #sync_events>=2,
+    'ordinary patch replaced a pending dispatch without synchronization')
+sync_events={}
+local pending_book=BookStore.load(settings,'900001',journal_index)
+expect(BookStore.save(settings,'900001',pending_book) and journal:owns(receipt)
+    and sync_events[1]=='file' and #sync_events>=2,
+    'full book save replaced a pending dispatch without synchronization')
+expect(journal:finish(receipt,{acknowledged=true,position_confirmed=true}) and not journal:pending('900001'),
+    'confirmed synchronized dispatch did not finish')
 os.remove(journal_index.cache_dir..'/reading_state.json')
 os.remove(journal_index.cache_dir..'/metadata.json');os.remove(journal_index.cache_dir)
 
@@ -228,7 +262,40 @@ expect(own_b.pending_upload_position.percent==61 and own_b.last_local_position.p
 own_b._library_account_key=owner_b;own_b.recent_read_account=nil
 expect(BookStore.save(scoped,'book/42',own_b),'second account metadata update failed')
 local scoped_path=index.cache_dir..'/.weread-accounts/'..owner_b..'/reading_state.json'
-local scoped_before=bytes(scoped_path);failed_path=scoped_path
+local scoped_before;failed_path=scoped_path
+local stale_without_dispatch=BookStore.load(scoped,'book/42',index)
+sync_events={}
+local rename=os.rename
+rawset(os,'rename',function(from,to) sync_events[#sync_events+1]='rename';return rename(from,to) end)
+local synced=BookStore.patch_reading(scoped,'book/42',index,{source_dispatch={account=owner_b,id='scoped-marker'}})
+rawset(os,'rename',rename)
+expect(synced and #sync_events==6 and sync_events[1]=='file' and sync_events[2]=='rename'
+    and sync_events[3]==index.cache_dir..'/.weread-accounts/'..owner_b
+    and sync_events[4]==index.cache_dir..'/.weread-accounts'
+    and sync_events[5]==index.cache_dir and sync_events[6]==root,
+    'scoped dispatch did not synchronize file before rename and all created parent entries afterward')
+sync_events={}
+expect(BookStore.save(scoped,'book/42',stale_without_dispatch)
+    and BookStore.load(scoped,'book/42',index).source_dispatch.id=='scoped-marker'
+    and sync_events[1]=='file' and #sync_events>=2,'stale metadata save erased or failed to sync a pending dispatch')
+local stale_with_dispatch=BookStore.load(scoped,'book/42',index)
+expect(BookStore.patch_reading(scoped,'book/42',index,{source_dispatch=false}),
+    'scoped dispatch could not be cleared')
+expect(BookStore.save(scoped,'book/42',stale_with_dispatch)
+    and not BookStore.load(scoped,'book/42',index).source_dispatch,
+    'stale metadata save resurrected a confirmed dispatch')
+local relative_tmp=os.tmpname();os.remove(relative_tmp)
+local relative_name='weread-durable-'..assert(relative_tmp:match('([^/]+)$'))
+local relative_settings={cache_dir='.',account_state_scope=function() return owner_b end}
+local relative_saved,relative_index=BookStore.save(relative_settings,relative_name,{book_id=relative_name,cache_dir=relative_name})
+expect(relative_saved,'relative cache fixture not saved')
+sync_events={}
+expect(BookStore.patch_reading(relative_settings,relative_name,relative_index,{source_dispatch={id='relative'}})
+    and sync_events[#sync_events]=='.','relative cache parent directory was not synchronized')
+local relative_accounts=relative_name..'/.weread-accounts/'
+os.remove(relative_accounts..owner_b..'/reading_state.json');os.remove(relative_accounts..owner_b)
+os.remove(relative_accounts);os.remove(relative_name..'/metadata.json');os.remove(relative_name)
+scoped_before=bytes(scoped_path)
 rawset(io,'open',close_failure_open)
 local scoped_saved,scoped_error=BookStore.patch_reading(scoped,'book/42',index,{pending_upload_position={percent=99}})
 rawset(io,'open',real_open)

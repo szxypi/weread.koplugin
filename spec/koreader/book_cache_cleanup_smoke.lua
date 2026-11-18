@@ -23,13 +23,14 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
     -- No real account data: this is an opaque synthetic pending-send journal.
     assert(host.settings:patch_reading_state(id,{source_dispatch={schema=1,id=string.rep('a',32)}}))
     local saved=assert(host.settings:get_book(id));local root=saved.cache_dir
-    local raw=read(root..'/reading_state.json')
+    local state_path=root..'/.weread-accounts/'..host.settings:account_state_scope()..'/reading_state.json'
+    local raw=read(state_path)
     local note_dir=root..'/synthetic.sdr';assert(lfs.mkdir(note_dir))
     write(note_dir..'/metadata.epub.lua','return { annotation = "Synthetic local note" }')
     local note_hash=Crypto.sha256_hex(read(note_dir..'/metadata.epub.lua'))
     for i=1,80 do write(root..'/cache-extra-'..string.format('%03d',i)..'.bin','Synthetic removable resource') end
     local function records()
-        assert(read(root..'/reading_state.json')==raw,'cleanup rewrote the reading journal')
+        assert(read(state_path)==raw,'cleanup rewrote the reading journal')
         assert(Crypto.sha256_hex(read(note_dir..'/metadata.epub.lua'))==note_hash,'cleanup removed local notes')
         assert(host.settings:get_book(id).cache_dir==root,'cleanup dropped the pinned record directory')
     end

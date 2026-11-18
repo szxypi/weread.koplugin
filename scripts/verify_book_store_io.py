@@ -20,12 +20,13 @@ local json=require('json');local Store=dofile(assert(os.getenv('WEREAD_IO_MODULE
 local root=assert(os.getenv('WEREAD_IO_ROOT'));local kind=assert(os.getenv('WEREAD_IO_CASE'))
 local target=(kind=='save-metadata' or kind=='clear-downloads') and 'metadata.json'
  or kind=='save-articles' and 'articles.json' or 'reading_state.json'
-local failed_write,failed_close,close_errno
+local failed_write,failed_flush,flush_errno,failed_close,close_errno
 local real_open=io.open
 rawset(io,'open',function(path,mode)
  local file,err=real_open(path,mode)
  if path~=root..'/'..target..'.tmp' or mode~='wb' or not file then return file,err end
  return {write=function(_self,raw) local ok,e=file:write(raw);failed_write=not ok;return ok,e end,
+  flush=function() local ok,e,n=file:flush();failed_flush=not ok;flush_errno=n;return ok,e,n end,
   close=function() local ok,e,n=file:close();failed_close=not ok;close_errno=n;return ok,e,n end}
 end)
 local settings={cache_dir=root};local index={cache_dir=root};local ok
@@ -48,7 +49,39 @@ else
  ok=Store.save(settings,'900001',book)
 end
 rawset(io,'open',real_open)
-print('\nWEREAD_IO_RESULT='..json.encode{reported_success=ok,buffered_write_succeeded=not failed_write,close_failed=failed_close,close_errno=close_errno})
+print('\nWEREAD_IO_RESULT='..json.encode{reported_success=ok,buffered_write_succeeded=not failed_write,
+ flush_failed=failed_flush,flush_errno=flush_errno,close_failed=failed_close,close_errno=close_errno})
+'''
+
+durability_code=r'''require('setupkoenv');package.path=assert(os.getenv('WEREAD_IO_REPO'))..'/?.lua;'..package.path
+local json=require('json');local Store=dofile(assert(os.getenv('WEREAD_IO_MODULE')))
+local root=assert(os.getenv('WEREAD_IO_ROOT'));local mode=assert(os.getenv('WEREAD_IO_CASE'))
+local settings={cache_dir=root,account_state_scope=function() return string.rep('a',20) end,
+ get=function(_self,key,default) if key=='account' then return {user_vid='900000'} end;return default end}
+local saved,index=Store.save(settings,'900001',{book_id='900001',title='Synthetic'})
+assert(saved)
+settings.get_book=function() return Store.load(settings,'900001',index) end
+settings.patch_reading_state=function(_self,id,patch) return Store.patch_reading(settings,id,index,patch) end
+local journal=require('weread.lib.source_dispatch'):new{settings=settings,nonce=function() return string.rep('a',32) end}
+local point={book_id='900001',chapter_uid='2',chapter_offset=5,basis='filtered_xhtml_utf16',upload_verified=false,
+ file_id=string.rep('b',64),raw_sha256=string.rep('c',64),book_version=1,render_path='OEBPS/text/chapter.xhtml'}
+local util=require('ffi/util');local file_sync,dir_sync,rename=util.fsyncOpenedFile,util.fsyncDirectory,os.rename
+local events={};local observed={}
+util.fsyncOpenedFile=function(file,metadata)
+ events[#events+1]='file';if mode=='file-failure' then return false end
+ observed.file=file_sync(file,metadata);return observed.file
+end
+util.fsyncDirectory=function(path)
+ events[#events+1]='dir';if mode=='directory-failure' then return false end
+ local result=dir_sync(path);observed.directories=(observed.directories or 0)+(result and 1 or 0);return result
+end
+os.rename=function(from,to) events[#events+1]='rename';return rename(from,to) end
+local receipt=journal:begin('900001',{book_id='900001',chapter_uid='2',chapter_idx=1,chapter_offset=5,percent=37},point,'position')
+util.fsyncOpenedFile,util.fsyncDirectory,os.rename=file_sync,dir_sync,rename
+local pending=journal:pending('900001');local reloaded=Store.load(settings,'900001',index)
+print('\nWEREAD_DURABILITY_RESULT='..json.encode{receipt=receipt~=nil,pending=pending,
+ reloaded_pending=reloaded.source_dispatch~=nil,events=events,actual_file_sync=observed.file==true,
+ actual_directory_syncs=observed.directories or 0})
 '''
 
 def main(argv=None):
@@ -99,13 +132,37 @@ def main(argv=None):
                 data=json.loads(result.stdout.split('WEREAD_IO_RESULT=',1)[1])
                 data.update(variant=variant,case=kind,prior_bytes_preserved=(work/target).read_bytes()==before,
                             temporary_absent=not (work/(target+'.tmp')).exists())
-                assert data['buffered_write_succeeded'] and data['close_failed'] and data['close_errno']==27,data
+                assert data['buffered_write_succeeded'],data
+                if variant=='fixed' and kind=='dispatch':
+                    assert data.get('flush_failed') and data.get('flush_errno')==27,data
+                else:
+                    assert data['close_failed'] and data['close_errno']==27,data
                 if variant=='fixed':
                     assert not data['reported_success'] and data['prior_bytes_preserved'] and data['temporary_absent'],data
                 else:
                     assert not data['prior_bytes_preserved'],data
                 reports.append(data)
-    print(json.dumps(dict(result='PASS',synthetic_only=True,cases=reports,real_account_requests=0,keychain_accesses=0),indent=2))
+    durability=[]
+    for kind in ('success','file-failure','directory-failure'):
+        with tempfile.TemporaryDirectory(prefix='weread-book-sync-') as name:
+            result=subprocess.run(['./luajit','-e',durability_code],cwd=runtime,env=dict(
+                os.environ,WEREAD_IO_ROOT=name,WEREAD_IO_MODULE=str(repo/'weread/lib/book_store.lua'),
+                WEREAD_IO_CASE=kind,WEREAD_IO_REPO=str(repo)),capture_output=True,text=True,timeout=20)
+            assert result.returncode==0,(kind,result.stderr[-500:])
+            data=json.loads(result.stdout.split('WEREAD_DURABILITY_RESULT=',1)[1]);data['case']=kind
+            if kind=='success':
+                assert data['receipt'] and data['pending'] and data['reloaded_pending'],data
+                assert data['events']==['file','rename','dir','dir','dir','dir'],data
+                assert data['actual_file_sync'] and data['actual_directory_syncs']==4,data
+            elif kind=='file-failure':
+                assert not data['receipt'] and not data['pending'] and not data['reloaded_pending'],data
+                assert data['events']==['file'],data
+            else:
+                assert not data['receipt'] and data['pending'] and data['reloaded_pending'],data
+                assert data['actual_file_sync'] and data['events']==['file','rename','dir'],data
+            durability.append(data)
+    print(json.dumps(dict(result='PASS',synthetic_only=True,cases=reports,durability=durability,
+                          real_account_requests=0,keychain_accesses=0),indent=2))
     return 0
 
 

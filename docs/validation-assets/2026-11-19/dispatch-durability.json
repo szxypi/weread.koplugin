@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "official KOReader 2026.07.1 Linux ARM64, Xvfb",
+  "actual_file_sync_and_four_directory_syncs": true,
+  "file_sync_failure_keeps_old_state_and_blocks_send": true,
+  "directory_sync_failure_keeps_pending_and_blocks_send": true,
+  "kernel_file_size_limit_detected_before_send": true,
+  "stale_metadata_cannot_erase_or_restore_dispatch": true,
+  "scoped_record_lua_checks": true,
+  "screens": [
+    {"width": 600, "height": 800, "dpi": 167},
+    {"width": 1264, "height": 1680, "dpi": 300}
+  ],
+  "both_sizes": ["native reading and source upload", "cloud shelf membership", "finished status", "selection thoughts", "cache cleanup and redownload"],
+  "whole_process_kill": [
+    {"width": 600, "stage": "after-apply", "kind": "manual", "result": "PASS"},
+    {"width": 1264, "stage": "before-state-commit", "kind": "manual", "result": "PASS"}
+  ],
+  "real_account_requests": 0,
+  "physical_power_loss_tested": false,
+  "physical_kindle_tested": false
+}

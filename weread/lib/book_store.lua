@@ -69,6 +69,12 @@ local function dirname(path)
     end
 end
 
+local function parent_dir(path)
+    local parent=dirname(path)
+    if parent and parent~='' then return parent end
+    return path:sub(1,1)=='/' and '/' or '.'
+end
+
 local function resolved_dir(settings, book_id, book)
     if type(book) == "table" and type(book.cache_dir) == "string" and book.cache_dir ~= "" then
         return book.cache_dir
@@ -113,24 +119,55 @@ local function read_json(path)
     return ok and type(value) == "table" and value or nil
 end
 
-local function write_json(path, value)
+local function write_json(path, value, durable_root)
     local ok, content = pcall(encode, value)
     if not ok then return false, content end
+    local util
+    if durable_root then
+        local available
+        available,util=pcall(require,'ffi/util')
+        if not available or type(util)~='table' or type(util.fsyncOpenedFile)~='function' or type(util.fsyncDirectory)~='function' then
+            return false,'reading state synchronization unavailable'
+        end
+    end
     local tmp_path = path .. ".tmp"
     local file, err = io.open(tmp_path, "wb")
     if not file then return false, err end
     local write_ok, write_err = file:write(content)
+    local sync_ok,sync_err=true,nil
+    if write_ok and util then
+        local called,flushed,flush_err=pcall(file.flush,file)
+        if not called or not flushed then sync_ok,sync_err=false,flush_err or 'reading state flush failed'
+        else
+            local called_sync,synced=pcall(util.fsyncOpenedFile,file,true)
+            if not called_sync or synced~=true then sync_ok,sync_err=false,'reading state file synchronization failed' end
+        end
+    end
     -- Buffered writes may succeed while fclose reports the actual I/O error.
     -- Never publish that incomplete state or grant a dispatch receipt for it.
     local close_ok, close_err = file:close()
-    if not write_ok or not close_ok then
+    if not write_ok or not sync_ok or not close_ok then
         os.remove(tmp_path)
-        return false, write_err or close_err
+        return false, write_err or sync_err or close_err
     end
     local rename_ok, rename_err = os.rename(tmp_path, path)
     if not rename_ok then
         os.remove(tmp_path)
         return false, rename_err
+    end
+    if util then
+        -- Account directories may have just been created. Sync their entries
+        -- through the book directory and its parent before allowing dispatch.
+        local parent=parent_dir(path)
+        local dirs={parent,parent_dir(parent),durable_root,parent_dir(durable_root)}
+        local seen={}
+        for _,dir in ipairs(dirs) do
+            if dir and dir~='' and not seen[dir] then
+                seen[dir]=true
+                local called,synced=pcall(util.fsyncDirectory,dir)
+                if not called or synced~=true then return false,'reading state directory synchronization failed' end
+            end
+        end
     end
     return true
 end
@@ -235,7 +272,9 @@ function BookStore.patch_reading(settings, book_id, index, patch)
         state=state or {}
     end
     for key,value in pairs(patch) do state[key] = value ~= false and value or nil end
-    return write_json(path,state)
+    -- A pending dispatch is a write-ahead record, not an ordinary reading
+    -- checkpoint. Its creation and removal must be synchronized separately.
+    return write_json(path,state,(patch.source_dispatch~=nil or state.source_dispatch~=nil) and dir or nil)
 end
 
 function BookStore.save(settings, book_id, book)
@@ -244,10 +283,11 @@ function BookStore.save(settings, book_id, book)
     if not make_dir(dir) then return false,'could not create book directory' end
 
     local path,scope=scoped_path(settings,dir)
+    local previous_metadata
     if path==false then return false,'invalid reading account scope' end
     if path then
         local metadata_path=dir..'/metadata.json'
-        local previous_metadata=read_json(metadata_path)
+        previous_metadata=read_json(metadata_path)
         if not previous_metadata and exists(metadata_path) then return false,'invalid book metadata' end
         local _,state_err=scoped_state(dir,previous_metadata,path,scope)
         if state_err then return false,state_err end
@@ -271,8 +311,17 @@ function BookStore.save(settings, book_id, book)
 
     local ok, err = write_json(dir .. "/metadata.json", metadata)
     if not ok then return false, err end
+    if path then
+        -- Only the bounded reading-state patch may create or clear this
+        -- journal. A stale metadata snapshot must not erase an in-flight
+        -- send or resurrect one that was independently confirmed.
+        local current,state_err=scoped_state(dir,previous_metadata,path,scope)
+        if not current then return false,state_err end
+        reading_state.source_dispatch=current.source_dispatch
+    end
     if path or has_values(reading_state) then
-        ok, err = write_json(path or dir .. "/reading_state.json", reading_state)
+        ok, err = write_json(path or dir .. "/reading_state.json", reading_state,
+            reading_state.source_dispatch~=nil and dir or nil)
         if not ok then return false, err end
     else
         os.remove(dir .. "/reading_state.json")

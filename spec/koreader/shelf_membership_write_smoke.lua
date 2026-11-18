@@ -24,7 +24,8 @@ return function(reader,plugin,pump,shot,clean_popups)
     local function writes() return count('/shelf/add')+count('/shelf/delete') end
     local function raw(path) local file=assert(io.open(path,'rb'));local value=file:read('*a');file:close();return value end
     local path=reader.document.file
-    local state_path=assert(plugin.settings:get_book(id).cache_dir)..'/reading_state.json'
+    local state_path=assert(plugin.settings:get_book(id).cache_dir)..'/.weread-accounts/'..
+        plugin.settings:account_state_scope()..'/reading_state.json'
     local file_hash=Crypto.sha256_hex(raw(path))
     local origin=reader.document:getXPointer()
     local data_before,auth_before=count('/web/book/read'),count('/login')+count('/web/login/renewal')
