@@ -213,6 +213,12 @@ function M:onReaderReady()
     if self.source_close then self.source_close:on_reader_ready(weread_book_id) end
     if self.source_position then self.source_position:on_reader_ready() end
     self.progress_sync:on_reader_ready()
+    self.read_report.on_source_changed=function(book_id)
+        if self.progress_sync.current_book_id~=tostring(book_id) then return end
+        self.progress_sync:checkpoint_local('source_remote_changed')
+        self.progress_sync:_clear_verified('source_remote_changed')
+        self.progress_sync.state='unverified'
+    end
     if weread_book_id then require('weread.ui.chapter_links').attach(self) end
     if self.onTranslationReaderReady then self:onTranslationReaderReady() end
     local prefetch_session_gen = self._reader_session_gen

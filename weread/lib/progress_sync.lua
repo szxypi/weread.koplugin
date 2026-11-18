@@ -1890,7 +1890,7 @@ function ProgressSync:position_for_report(book_id)
         or is_mp_book(book_id) then
         return nil, nil, false
     end
-    if cb_book(tostring(book_id)) then return nil, "progress_unverified", true end
+    local imported=cb_book(tostring(book_id))
     if self.uploading then return nil, "progress_confirmation_pending", true end
     if self.interval.cycle then return nil,"progress_confirmation_pending",true end
     if self.source_dispatch and self.source_dispatch:pending(tostring(book_id)) then
@@ -1898,6 +1898,14 @@ function ProgressSync:position_for_report(book_id)
     end
     if not self.verified then
         return nil, "progress_unverified", true
+    end
+    if imported then
+        local saved=self.get_book(tostring(book_id)) or {}
+        if not self.source_dispatch or self.checkpoint_account~=self:_account_key()
+            or not require('weread.lib.cb_sync_guard').expected(self.remote_position,tostring(book_id))
+            or saved.pending_upload_account==self:_account_key() and saved.pending_upload_reason=='upload_readback_unconfirmed' then
+            return nil, "progress_unverified", true
+        end
     end
     local position, reason = self:capture_local()
     if not position then
@@ -1908,6 +1916,13 @@ function ProgressSync:position_for_report(book_id)
         self.dirty = true
     end
     self.local_position = position
+    if imported then
+        if not position.source_position or position.source_position.basis~='filtered_xhtml_utf16' then
+            return nil,'progress_unverified',true
+        end
+        local intent=copy(position);intent.cb_guarded_sync=true;intent.expected_remote=copy(self.remote_position)
+        return intent,nil,true
+    end
     return position, nil, true
 end
 
@@ -1920,6 +1935,18 @@ function ProgressSync:accept_report_confirmation(remote)
     local position=copy(remote);position.summary=nil
     self.remote_position=position
     self:_persist(self.current_book_id,{last_remote_position=position})
+    if cb_book(self.current_book_id) then
+        local book=self.get_book(self.current_book_id) or {}
+        local local_position=self:capture_local()
+        local pending=book.pending_upload_position
+        if local_position and self:_compare_source(local_position,position,self.get_chapters(book))=='same'
+            and (not pending or book.pending_upload_account==self:_account_key()
+                and book.pending_upload_reason~='upload_readback_unconfirmed'
+                and ProgressReadback.same_intent(pending,local_position)) then
+            if pending then self:_discard_pending_upload(self.current_book_id) end
+            self.local_position=copy(local_position);self.dirty=false;self.interval:refresh()
+        end
+    end
     return true
 end
 

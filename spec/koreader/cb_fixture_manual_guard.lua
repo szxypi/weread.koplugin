@@ -31,7 +31,7 @@ function M.new(input,protocol,cookie)
         if content[url] then
             return body.b==protocol.e(input.book) and body.c==protocol.e(input.chapter) and body.sc==1 and 'read' or nil
         end
-        local timed=input.timer==true or input.close==true
+        local timed=input.timer==true or input.close==true or input.time==true
         local limit=timed and 3 or 2
         local target=timed and writes==2 and input.first_offset or input.next_offset
         local summary=timed and writes==2 and input.timer_summary or input.expected_summary
@@ -43,7 +43,8 @@ function M.new(input,protocol,cookie)
         local fields={appId=true,b=true,c=true,ci=true,co=true,sm=true,pr=true,ct=true,ps=true,pc=true,s=true}
         if not enter then fields.rt=true;fields.ts=true;fields.rn=true;fields.sg=true end
         local count=0;for key in pairs(body) do if not fields[key] then return nil end;count=count+1 end
-        if count~=(enter and 11 or 15) or not enter and body.rt~=0 then return nil end
+        local seconds=input.time==true and writes==2 and 10 or 0
+        if count~=(enter and 11 or 15) or not enter and body.rt~=seconds then return nil end
         local signed={};for key,value in pairs(body) do if key~='s' then signed[key]=value end end
         if body.s~=protocol.sign(protocol.sorted_query(signed)) then return nil end
         return 'write'

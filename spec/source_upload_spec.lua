@@ -115,6 +115,7 @@ expect(begin(cb) and not plan,'CB source check did not start')
 finish(cb_candidate)
 expect(plan and plan.transport=='cb_web_position' and plan.is_current(),'CB upload plan missing')
 expect(plan.position.summary==candidate.summary and plan.source_position.book_id==cb.book_id,'CB wire source changed')
+plan.transport='other';expect(not plan.is_current(),'changed CB transport retained proof');plan.transport='cb_web_position'
 valid=false;expect(not plan.is_current(),'CB stale receipt accepted');valid=true
 local cb_bad=copy(cb);cb_bad.expected_remote.chapter_offset=-1
 local prior=#callbacks

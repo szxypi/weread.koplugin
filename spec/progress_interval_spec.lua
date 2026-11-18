@@ -178,7 +178,9 @@ expect(f.sync.verified and f.sync.interval.task,'imported confirmed point did no
 f.advance(60)
 expect(f.reads==1 and f.writes==1 and f.sync.verified and not f.sync.dirty,'imported timer did not confirm one zero-time position')
 expect(not f.journal:pending('CB_SyntheticTimer') and not f.sync.interval.task,'confirmed imported timer kept a journal')
-expect(f.sync.remote_position.updated_at==11 and not f.sync:position_for_report('CB_SyntheticTimer'),'imported timer enabled reading time or lost baseline')
+local time_intent=f.sync:position_for_report('CB_SyntheticTimer')
+expect(f.sync.remote_position.updated_at==11 and time_intent and time_intent.cb_guarded_sync
+    and time_intent.expected_remote.updated_at==11,'imported timer lost its guarded time baseline')
 for _,field in ipairs({'chapter_offset','raw_percent','updated_at'}) do
     f=fixture(true);f.verify();f.remote[field]=f.remote[field]+1;f.advance(60)
     expect(f.choice and f.writes==0 and not f.sync.verified and not f.sync.interval.task,'imported timer missed changed '..field)

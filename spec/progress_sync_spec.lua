@@ -297,7 +297,9 @@ test('imported automatic comparison qualifies only an equal clean source point',
     f.sync:_resolve(local_position,remote,context,{manual=false})
     eq(f.sync.verified,true,'equal imported source did not establish automatic baseline')
     eq(f.sync.interval.task,nil,'clean imported position armed a deadline')
-    eq(f.sync:position_for_report(id),nil,'automatic comparison enabled reading-time reports')
+    local eligible=f.sync:position_for_report(id)
+    eq(eligible and eligible.cb_guarded_sync,true,'equal imported point lacked guarded time intent')
+    eq(eligible and eligible.expected_remote.updated_at,123,'time intent lost its cloud baseline')
     f.sync:_clear_verified('test');raw.chapterOffset=raw.chapterOffset+1
     remote=assert(f.sync:_fetch_remote(id,chapters));f.sync:_resolve(local_position,remote,context,{manual=false})
     eq(f.sync.verified,false,'different imported source gained automatic authority')
@@ -322,7 +324,8 @@ test('manual CB sync requires explicit choice, guarded preparation and durable d
     eq(f.values.books[id].pending_upload_position,nil,'confirmed position did not clear own pending state')
     eq(f.sync.source_dispatch:pending(id),false,'confirmed journal did not retire')
     eq(f.sync.verified,true,'confirmed imported position did not establish a baseline')
-    eq(f.sync:position_for_report(id),nil,'confirmed imported position enabled reading-time reporting')
+    local eligible=f.sync:position_for_report(id)
+    eq(eligible and eligible.cb_guarded_sync,true,'confirmed imported position lacked guarded time intent')
     eq(f.sync.interval.task,nil,'manual imported send armed automatic upload')
     eq(f.notifications[#f.notifications].code,'upload_success','success notice missing')
 end)
@@ -342,6 +345,39 @@ test('CB upload confirmation preserves a newer page reached during the send',fun
     eq(f.sync.dirty,true,'newer page was marked synchronized')
     eq(f.values.books[id].last_local_position.source_position.chapter_offset,151,'confirmation overwrote newer local resume point')
     eq(f.sync.source_local_anchor.chapter_offset,150,'confirmation changed the uploaded source anchor')
+end)
+
+test('CB reading time requires the same account, exact baseline and no uncertain write',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    local eligible=f.sync:position_for_report(id)
+    eq(eligible.cb_guarded_sync,true);eq(eligible.expected_remote.chapter_offset,150)
+    eligible.expected_remote.chapter_offset=999
+    eq(f.sync.remote_position.chapter_offset,150,'time intent mutated baseline')
+    local saved=f.values.books[id];saved.pending_upload_account=f.sync:_account_key();saved.pending_upload_reason='upload_readback_unconfirmed'
+    eq(f.sync:position_for_report(id),nil,'uncertain CB write enabled time')
+    saved.pending_upload_reason=nil;local account=f.sync.checkpoint_account;f.sync.checkpoint_account='different'
+    eq(f.sync:position_for_report(id),nil,'other account enabled time')
+    f.sync.checkpoint_account=account;f.sync.remote_position.updated_at=nil
+    eq(f.sync:position_for_report(id),nil,'incomplete CB baseline enabled time')
+end)
+
+test('confirmed CB time clears only the matching local position',function()
+    for _,moved in ipairs({false,true}) do
+        local f=cb_manual_fixture();local id=f.source.book_id
+        eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+        local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+        f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+        f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update();f.sync:checkpoint_local('new_page')
+        local remote={book_id=id,source='web',chapter_uid='22',chapter_idx=2,chapter_offset=151,
+            percent=26,raw_percent=26,updated_at=124,has_chapter_index=true,has_chapter_offset=true}
+        if moved then f.source.chapter_offset=152;f.document.page=27;f.sync:on_page_update();f.sync:checkpoint_local('newer_page') end
+        eq(f.sync:accept_report_confirmation(remote),true,'CB time confirmation rejected')
+        eq(f.sync.dirty,moved,'CB time confirmation misclassified newer movement')
+        eq(f.values.books[id].pending_upload_position~=nil,moved,'CB time confirmation erased newer pending position')
+    end
 end)
 
 test('CB close freezes the verified baseline and completes after the reader closes',function()

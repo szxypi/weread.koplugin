@@ -43,6 +43,7 @@ local cloud=os.getenv('WEREAD_TEST_CB_SYNC_CLOUD')=='1'
 local timed=os.getenv('WEREAD_TEST_CB_SYNC_TIMER')=='1'
 local timer_unknown=os.getenv('WEREAD_TEST_CB_TIMER_UNKNOWN')=='1'
 local close_outcome=os.getenv('WEREAD_TEST_CB_SYNC_CLOSE') or ''
+local time_outcome=os.getenv('WEREAD_TEST_CB_SYNC_TIME') or ''
 local file
 if single then
     file=Content.fetch_chapter_epub(client,settings,book,chapters[1]);book.cached_file=file;book.cached_chapters={['1']=file}
@@ -165,6 +166,27 @@ if timed then
         control({progress_offset_delta=0})
     end
 end
+if time_outcome~='' then
+    local config=plugin.settings:get('read_report');config.enabled=true;config.mode='auto';config.interval_seconds=10
+    plugin.settings:set('read_report',config)
+    local report=plugin.read_report
+    assert(report:maybe_start('synthetic_time'),'CB time reporter did not start')
+    if time_outcome=='changed' then control({progress_offset_delta=1}) end
+    if time_outcome=='unknown' then control({progress_confirmation='noack'}) end
+    report:_tick(report.generation,report.task)
+    if time_outcome=='changed' then
+        wait(function() return not sync.verified and report.state=='waiting_for_progress' end)
+        assert(not plugin.source_dispatch:pending(id),'changed cloud left a time dispatch')
+    elseif time_outcome=='unknown' then
+        wait(function() return not report.job and plugin.source_dispatch:pending(id) and not sync.verified end)
+        for _i=1,4 do UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput() end
+        assert(plugin.source_dispatch:pending(id) and not sync.verified,'unconfirmed time was retried')
+    else
+        wait(function() return report.count==1 and not report.job end)
+        assert(sync.verified and not plugin.source_dispatch:pending(id),'confirmed time lost verification')
+    end
+    report:stop('synthetic_time_done')
+end
 if close_outcome~='' then
     local config=plugin.settings:get('sync');config.upload_on_close=true;plugin.settings:set('sync',config)
     reader.rolling:onGotoPage(3)
@@ -203,5 +225,6 @@ if close_outcome~='' then
 else reader:onClose(false) end
 print('\nWEREAD_CB_MANUAL_SYNC='..client:json_encode({result='PASS',choice=true,changed_remote_stopped=true,
     explicit_upload=true,native_point=true,pending_cleared=not noack,journal_cleared=not noack,
-    automatic_disabled=not timed,single=single,uncertain=noack,timer_verified=timed,timer_unknown=timer_unknown,close_outcome=close_outcome}))
+    automatic_disabled=not timed,single=single,uncertain=noack,timer_verified=timed,timer_unknown=timer_unknown,
+    close_outcome=close_outcome,time_outcome=time_outcome}))
 os.exit(0)

@@ -104,7 +104,7 @@ function M:prepare(intent,callback)
             local plan,expected_wire,deadline
             local function current()
                 if plan and (not Candidate.same(plan.position,expected_wire) or not same(plan.source_position,pinned)
-                    or plan.deadline~=deadline) then return false end
+                    or plan.deadline~=deadline or imported and plan.transport~='cb_web_position') then return false end
                 if not same(pinned,self.source:current()) then return false end
                 if imported then return self.source:is_current_cb_upload_preview(receipt,candidate) end
                 return self.source:is_current_upload_preview(receipt,candidate)
