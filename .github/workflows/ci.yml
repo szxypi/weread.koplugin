@@ -161,6 +161,7 @@ jobs:
           python3 scripts/test_owner_cb_cloud_view_ui.py
           python3 scripts/test_owner_cb_cloud_live_ui.py
           python3 scripts/test_owner_cb_cloud_missing_ui.py
+          python3 scripts/test_owner_cb_cloud_no_catalog_ui.py
           python3 scripts/test_reader_progress.py
           python3 scripts/test_progress_readback.py
           python3 scripts/test_position_roundtrip.py
