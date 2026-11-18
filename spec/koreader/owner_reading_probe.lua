@@ -99,6 +99,12 @@ local ok,reason=pcall(function()
     local resume_warning=input.resume_warning_probe==true
     local off_shelf_home=input.off_shelf_home==true
     local off_shelf_store=input.off_shelf_store==true
+    local off_shelf_cover=input.off_shelf_cover==true
+    local off_shelf_marks=input.off_shelf_marks==true
+    assert(input.off_shelf_cover==nil or off_shelf_cover and off_shelf_store)
+    assert(input.off_shelf_marks==nil or off_shelf_marks and off_shelf_store and type(input.native_marks_expected)=='table')
+    if off_shelf_cover then report.store_cover_verified,report.home_cover_verified=false,false end
+    if off_shelf_marks then report.marks_snapshot_verified,report.marks_requests,report.marks_count=false,0,0 end
     assert(input.off_shelf_store==nil or off_shelf_store and off_shelf_home)
     if off_shelf_store then
         local grant=assert(input.native_grant)
@@ -227,7 +233,7 @@ local ok,reason=pcall(function()
         if off_shelf_store then local shelf=value:get('shelf');shelf.source='gateway';value:set('shelf',shelf) end
         if full or off_shelf_store or input.annotations or input.progress_preview or input.progress_roundtrip or input.source_upload_preview or input.native_source_excerpt or input.selection_preview or input.native_time_capture then
             local cache=value:get('cache');cache.download_book_images=full;cache.download_underlines_and_thoughts=false
-            if off_shelf_store then cache.show_annotations=false end
+            if off_shelf_store then cache.show_annotations=off_shelf_marks end
             cache.auto_prefetch_next_chapter=false;value:set('cache',cache)
         end
         value:flush()
@@ -344,6 +350,8 @@ local ok,reason=pcall(function()
             or parts.fragment or type(parts.host)~='string' then return false end
         local host=parts.host:lower()
         return host:match('%.qpic%.cn$') or host:match('%.qlogo%.cn$') or host:match('%.gtimg%.com$')
+            or parts.scheme=='https' and (host:match('^[%w-]+%.file%.myqcloud%.com$')
+                or host:match('^[%w-]+%.image%.myqcloud%.com$'))
             or host:match('%.qq%.com$') and host~='weread.qq.com' and host~='i.weread.qq.com'
     end
     local chapter_count=full and #input.full_manifest or 1
@@ -355,6 +363,7 @@ local ok,reason=pcall(function()
     local native_search_url=off_shelf_store and ('https://i.weread.qq.com/store/search?'
         ..Protocol.sorted_query{keyword=input.store_search_keyword,scope=10,count=20,maxIdx=0})
     local native_metadata_url=off_shelf_store and ('https://i.weread.qq.com/book/info?bookId='..Protocol.urlencode(input.book_id))
+    local native_marks_url=off_shelf_marks and ('https://i.weread.qq.com/book/bookmarklist?bookId='..Protocol.urlencode(input.book_id)..'&synckey=0')
     local function native_read(options)
         if not off_shelf_store or mode~='live' or options.method~='GET' or options.body~=nil
             or options.skip_cookie~=true or options.persist_response_cookies~=false or options.sensitive~=true then return end
@@ -362,6 +371,7 @@ local ok,reason=pcall(function()
         if h.vid~=input.vid or h.accessToken~=input.native_grant.accessToken or h.Cookie or h.cookie or h.Authorization or h.authorization then return end
         if options.url==native_search_url and options.diagnostic_api=='native_discovery_search' then return 23 end
         if options.url==native_metadata_url and options.diagnostic_api=='native_metadata' then return 24 end
+        if options.url==native_marks_url and options.diagnostic_api=='native_my_marks' then return 25 end
     end
     local function protected_resource(url)
         if not resource(url) then return false end
@@ -515,6 +525,12 @@ local ok,reason=pcall(function()
         assert((native_read(valid_native)==24)==(mode=='live'))
         valid_native.url='https://i.weread.qq.com/book/info?bookId=99999999999999999999'
         assert(not native_read(valid_native))
+        if off_shelf_marks then
+            valid_native.url,valid_native.diagnostic_api=native_marks_url,'native_my_marks'
+            assert((native_read(valid_native)==25)==(mode=='live'))
+            valid_native.url='https://i.weread.qq.com/book/bookmarklist?bookId=99999999999999999999&synckey=0'
+            assert(not native_read(valid_native))
+        end
     end
     local public_url='https://res.qpic.cn/probe-only'
     resource_urls[public_url]=true
@@ -534,7 +550,7 @@ local ok,reason=pcall(function()
     function Client:request(options)
         local native_slot=native_read(options)
         if native_slot then
-            if counters[native_slot]>=1 or tonumber(ffi.C.getpid())==parent_pid then
+            if counters[native_slot]>=(native_slot==25 and 2 or 1) or tonumber(ffi.C.getpid())==parent_pid then
                 counters[6]=counters[6]+1;error('native reading scope rejected',0)
             end
             counters[native_slot]=counters[native_slot]+1
@@ -557,7 +573,7 @@ local ok,reason=pcall(function()
             if input.off_shelf_mock_port and off_shelf_store and counters[6]==0 then
                 local api=options.diagnostic_api
                 if type(api)=='string' and #api<=60 and api:match('^native_[a-z_]+$') then
-                    ffi.copy(ffi.cast('char *',memory)+512,api,#api);counters[25]=#api
+                    ffi.copy(ffi.cast('char *',memory)+512,api,#api);counters[29]=#api
                 end
             end
             if input.native_source_excerpt and counters[6]==0 then
@@ -720,7 +736,8 @@ local ok,reason=pcall(function()
         end
     end
     local function pump(predicate)
-        local deadline=socket.gettime()+(full and report.phase=='prepare' and 480 or 70)
+        local deadline=socket.gettime()+(full and report.phase=='prepare' and 480
+            or input.off_shelf_mock_port and off_shelf_cover and 15 or 70)
         while not predicate() do
             assert(download_finished~=false,'full download did not complete')
             assert(not download_failed,'full chapter failed')
@@ -732,6 +749,16 @@ local ok,reason=pcall(function()
     if progress_case and input.progress_roundtrip then progress_case:install_guard() end
     FM:showFiles(home);plugin=assert(FM.instance.weread)
     local host=plugin
+    if off_shelf_cover then
+        local fetch=plugin.fetchVisibleShelfCovers
+        plugin.fetchVisibleShelfCovers=function(self,view,items,options)
+            local only_target={}
+            for index,row in ipairs(items) do
+                only_target[index]=tostring(row.bookId or row.book_id)==input.book_id and row or {}
+            end
+            return fetch(self,view,only_target,options)
+        end
+    end
     report.phase='shelf'
     if mode=='live' and not combined_home then
         local loaded=false
@@ -743,8 +770,22 @@ local ok,reason=pcall(function()
     report.shelf_books=#books
     local target
     for _i,book in ipairs(books) do if tostring(book.bookId)==input.book_id then target=book end end
+    local function target_with_cover()
+        local view=plugin.shelf_view
+        if not view then return end
+        for index,row in ipairs(view:getVisibleBooks()) do
+            if tostring(row.bookId or row.book_id)==input.book_id then
+                local path=plugin:getShelfCoverCache():pathFor(row)
+                if path and view.cover_paths and view.cover_paths[row]==path and view._item_rows
+                    and view._item_rows[index] and view._item_rows[index]._has_cover then return row,path end
+            end
+        end
+    end
     local function select_recent_home()
         plugin:closeWeReadUI();plugin:showHome()
+        if off_shelf_cover then
+            pump(function() return target_with_cover()~=nil end);UI:forceRePaint();report.home_cover_verified=true
+        end
         local view=assert(plugin.shelf_view);local selected
         for _i,row in ipairs(view.books) do
             if tostring(row.bookId or row.book_id)==input.book_id then assert(not selected);selected=row end
@@ -753,14 +794,33 @@ local ok,reason=pcall(function()
         assert(#assert(plugin.library_db:getShelf())==input.shelf_books,'home changed the shelf snapshot')
         view.on_select(selected,'books');return selected
     end
+    local function verify_personal(reader_ui)
+        if not off_shelf_marks then return end
+        pump(function() local state=reader_ui.weread._personal_marks
+            return state and state.loaded and state.snapshot and state.complete end)
+        local state=reader_ui.weread._personal_marks
+        local value={};for key,item in pairs(state.snapshot) do value[key]=item end;value.fetched_at=1
+        local function same(a,b)
+            if type(a)~=type(b) then return false end
+            if type(a)~='table' then return a==b end
+            for key,item in pairs(a) do if not same(item,b[key]) then return false end end
+            for key in pairs(b) do if a[key]==nil then return false end end
+            return true
+        end
+        assert(same(value,input.native_marks_expected),'personal mark snapshot mismatch')
+        if input.off_shelf_mock_port and #input.native_marks_expected.updated>0 then
+            assert(#state.records>0 and state.overlay.enabled,'synthetic personal mark was not mapped')
+        end
+        UI:forceRePaint();report.marks_snapshot_verified=true;report.marks_count=#value.updated
+    end
     if off_shelf_home then
         assert(not target,'off-shelf target unexpectedly in cloud shelf')
         for _i,id in ipairs(input.shelf_ids) do assert(id~=input.book_id) end
         if mode=='reopen' then select_recent_home();report.home_recent_verified=true
         elseif off_shelf_store then
             -- Search and details use the production native source. Cover
-            -- downloads are independently verified by the cover test suite.
-            plugin.fetchVisibleShelfCovers=function() end
+            -- downloads are limited to this selected book in cover mode.
+            if not off_shelf_cover then plugin.fetchVisibleShelfCovers=function() end end
             plugin:showBookstore()
             local search
             for _i,button in ipairs(plugin.shelf_view._action_buttons or {}) do
@@ -777,6 +837,14 @@ local ok,reason=pcall(function()
             assert(index and view.paged)
             local page=math.floor((index-1)/view.page_size)+1
             if page~=view.page then view.on_page_changed(page);view=assert(plugin.shelf_view) end
+            if off_shelf_cover then
+                pump(function() return target_with_cover()~=nil end)
+                view=assert(plugin.shelf_view)
+                local _,path=target_with_cover()
+                local image=assert(require('ui/renderimage'):renderImageFile(path,false,nil,nil))
+                assert(image:getWidth()>0 and image:getWidth()<=300 and image:getHeight()>0 and image:getHeight()<=450)
+                image:free();UI:forceRePaint();report.store_cover_verified=true
+            end
             local visible
             for _i,row in ipairs(view:getVisibleBooks()) do if tostring(row.bookId)==input.book_id then visible=row end end
             assert(visible);UI:forceRePaint();view.on_select(visible,'books');report.store_search_verified=true
@@ -856,6 +924,7 @@ local ok,reason=pcall(function()
     local document=reader.document
     assert(document.file:sub(1,#home)==home and document.file:match('%.epub$'))
     assert(plugin:detectWeReadBook()==input.book_id)
+    verify_personal(reader)
     local book=assert(plugin.settings:get_book(input.book_id))
     if full then assert(book.cached_full_book==document.file)
     else assert(book.cached_chapters and book.cached_chapters[input.chapter_uid]==document.file) end
@@ -1009,6 +1078,7 @@ local ok,reason=pcall(function()
             and Reader.instance.document.file==checkpoint.file
             and Reader.instance.document:isXPointerInCurrentPage(checkpoint.xpointer) end)
         reader=Reader.instance;plugin=reader.weread
+        verify_personal(reader)
         while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
         plugin:closeWeReadUI();plugin:onFlushSettings();reader:onClose(false);reader=nil;plugin.settings:flush()
         report.home_recent_verified=true
@@ -1076,8 +1146,9 @@ if counters then
     if report.store_search_requests~=nil then
         report.store_search_requests,report.store_metadata_requests=tonumber(counters[23]),tonumber(counters[24])
     end
-    if report.store_search_requests~=nil and counters[25]>0 then
-        report.synthetic_denied_api=ffi.string(ffi.cast('char *',counters)+512,tonumber(counters[25]))
+    if report.marks_requests~=nil then report.marks_requests=tonumber(counters[25]) end
+    if report.store_search_requests~=nil and counters[29]>0 then
+        report.synthetic_denied_api=ffi.string(ffi.cast('char *',counters)+512,tonumber(counters[29]))
     end
     report.last_http_status,report.denied_kind=tonumber(counters[7]),tonumber(counters[8])
     report.denied_route,report.denied_flags=tonumber(counters[9]),tonumber(counters[10])

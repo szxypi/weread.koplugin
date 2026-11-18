@@ -21,6 +21,8 @@ from verify_eink_login import BASE as NATIVE_BASE
 from verify_owner_reading import SourceText,decode_envelope
 from verify_source_coordinates import FilteredSource
 from verify_translation_preflight import PUBLIC_QUERIES,TranslationError,TranslationProbe,save_refreshed_web_session
+from verify_my_cloud_marks import MarksProbe
+from my_cloud_marks_model import project as marks_project
 from verify_web_source_progress import BASE,PreflightError,WebSourceProbe
 
 
@@ -83,10 +85,14 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--store-search',action='store_true',help='Exercise native bookstore search before reading')
+    parser.add_argument('--with-cover',action='store_true',help='Verify selected-book cover on store and home')
+    parser.add_argument('--with-marks',action='store_true',help='Verify personal mark snapshot in the native reader')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
     if bool(args.saved_session)!=bool(args.lua_command) or args.store_search and not args.saved_session:
         parser.error('pair --saved-session with --lua-command last; store search requires that pair')
+    if args.with_cover and not args.store_search:parser.error('--with-cover requires --store-search')
+    if args.with_marks and not args.store_search:parser.error('--with-marks requires --store-search')
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_posts=0,private_data_on_regular_disk=False,screenshots=0)
     if not args.saved_session:print(json.dumps(report));return 0
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
@@ -113,15 +119,22 @@ def main(argv=None):
                 if value:payload,baseline=value;selected_query=query;break
             if payload:break
         if not payload:raise ValueError('home/no_candidate')
+        if args.with_marks:
+            marks=MarksProbe();marks.identity=payload['book_id']
+            marks_url=NATIVE_BASE+'/book/bookmarklist?'+urlencode(dict(bookId=marks.identity,synckey=0))
+            mark_model=marks_project(marks.request('marks',marks_url,credentials=grant),marks.identity,saved['vid'],1)
+            if len(json.dumps(mark_model,ensure_ascii=False).encode())>128*1024:raise ValueError('home/marks_limit')
         web.book_id=None;web.chapter=None
         if ids(web.request('shelf',BASE+'/web/shelf/sync'))!=shelf_ids:raise ValueError('home/shelf_changed')
         if store.load()!=saved or NativeSessionStore().load(saved['vid'])!=grant:raise ValueError('home/session_changed')
         save_refreshed_web_session(store,saved,web);saved=store.load()
         payload.update(vid=web.vid,cookies=saved['cookies'],shelf_ids=shelf_ids,shelf_books=len(shelf_ids))
         if args.store_search:payload.update(off_shelf_store=True,store_search_keyword=selected_query,native_grant=grant)
+        if args.with_cover:payload['off_shelf_cover']=True
+        if args.with_marks:payload.update(off_shelf_marks=True,native_marks_expected=mark_model)
         phase='native'
         child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=340)
-        envelope=decode_envelope(child.stdout,web.vid,off_shelf_home=True,off_shelf_store=args.store_search)
+        envelope=decode_envelope(child.stdout,web.vid,off_shelf_home=True,off_shelf_store=args.store_search,off_shelf_cover=args.with_cover,off_shelf_marks=args.with_marks)
         web.cookies.clear()
         for key,value in envelope['cookies'].items():web.set_cookie(key,value)
         web.verify_account();web.book_id=payload['book_id'];web.chapter=payload['chapter_uid']
@@ -129,12 +142,16 @@ def main(argv=None):
         web.book_id=None;web.chapter=None
         final_shelf=web.request('shelf',BASE+'/web/shelf/sync')
         native_after=state_hash(native.request('shelf',NATIVE_BASE+'/shelf/sync',credentials=grant))
+        if args.with_marks and marks_project(marks.request('marks',marks_url,credentials=grant),marks.identity,saved['vid'],1)!=mark_model:
+            raise ValueError('home/marks_changed')
         if (after!=baseline or ids(final_shelf)!=shelf_ids or state_hash(final_shelf)!=web_before or native_after!=native_before
                 or store.load()!=saved or NativeSessionStore().load(saved['vid'])!=grant):raise ValueError('home/baseline_changed')
         web.verify_account();save_refreshed_web_session(store,saved,web)
         report.update(result='OWNER_OFF_SHELF_HOME_VERIFIED',candidate_books_checked=checked,shelf_books=len(shelf_ids),
                       shelf_and_observed_position_unchanged=True,ui=envelope['report'])
         if args.store_search:report['store_search_verified']=True
+        if args.with_cover:report['selected_cover_verified']=True
+        if args.with_marks:report.update(personal_marks_verified=True,marks_count=len(mark_model['updated']))
         if child.returncode or envelope['report']['result']!='PASS':raise ValueError('home/native_failed')
     except Exception as error:
         report.update(result='UNVERIFIED',phase=phase,error_type=type(error).__name__)

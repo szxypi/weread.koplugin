@@ -55,10 +55,14 @@ def main(argv=None):
     parser.add_argument('--resume-warning',action='store_true')
     parser.add_argument('--off-shelf-home',action='store_true')
     parser.add_argument('--off-shelf-store',action='store_true')
+    parser.add_argument('--off-shelf-cover',action='store_true')
+    parser.add_argument('--off-shelf-marks',action='store_true')
     parser.add_argument('--off-shelf-mock-port',type=int)
     parser.add_argument('--resume-mock-port',type=int,help='Synthetic missing-resume fixture only')
     args = parser.parse_args(argv)
     if args.off_shelf_store and not args.off_shelf_home:parser.error('--off-shelf-store requires --off-shelf-home')
+    if args.off_shelf_cover and not args.off_shelf_store:parser.error('--off-shelf-cover requires --off-shelf-store')
+    if args.off_shelf_marks and not args.off_shelf_store:parser.error('--off-shelf-marks requires --off-shelf-store')
     if args.off_shelf_home and (args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
             or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
             or args.selection_thought_preview or args.missing_resume or args.mock_port is not None or args.cb_mock_port is not None):
@@ -99,6 +103,14 @@ def main(argv=None):
         payload = json.loads(raw)
         if args.off_shelf_home != (payload.get('off_shelf_home') is True):raise ValueError('input_limit')
         if args.off_shelf_store != (payload.get('off_shelf_store') is True):raise ValueError('input_limit')
+        if args.off_shelf_cover != (payload.get('off_shelf_cover') is True):raise ValueError('input_limit')
+        if args.off_shelf_marks != (payload.get('off_shelf_marks') is True):raise ValueError('input_limit')
+        if args.off_shelf_marks:
+            from my_cloud_marks_model import project
+            expected=payload.get('native_marks_expected')
+            if (not isinstance(expected,dict) or len(json.dumps(expected,ensure_ascii=False).encode())>128*1024
+                    or project(expected,payload['book_id'],payload['vid'],1)!=expected):raise ValueError('input_limit')
+        elif 'native_marks_expected' in payload:raise ValueError('input_limit')
         if payload.get('off_shelf_mock_port')!=args.off_shelf_mock_port:raise ValueError('input_limit')
         if args.off_shelf_mock_port is not None and (payload.get('vid')!='900000' or payload.get('book_id')!='900001'
                 or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}):raise ValueError('input_limit')
@@ -236,7 +248,9 @@ def main(argv=None):
                                    **({'missing_resume': True} if args.missing_resume else {}),
                                    **({'resume_warning': True} if args.resume_warning else {}),
                                    **({'off_shelf_home': True} if args.off_shelf_home else {}),
-                                   **({'off_shelf_store': True} if args.off_shelf_store else {}))
+                                   **({'off_shelf_store': True} if args.off_shelf_store else {}),
+                                   **({'off_shelf_cover': True} if args.off_shelf_cover else {}),
+                                   **({'off_shelf_marks': True} if args.off_shelf_marks else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview or args.native_source_excerpt: candidate_private.append(envelope['candidate_private'])

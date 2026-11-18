@@ -39,6 +39,8 @@ class OwnerHomeRecentTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()) as out:self.assertEqual(probe.main([]),0)
         self.assertEqual(json.loads(out.getvalue())['result'],'OFFLINE_ONLY')
         with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):probe.main(['--store-search'])
+        for option in ('--with-cover','--with-marks'):
+            with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):probe.main([option])
 
     def test_shelf_ids_are_bounded_and_unique(self):
         self.assertEqual(probe.ids({'books':[{'bookId':123},{'bookId':'CB_Valid'}]}),['123','CB_Valid'])

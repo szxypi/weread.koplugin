@@ -56,7 +56,9 @@ CB_SOURCE_REASONS = {'none', 'walk_diverged', 'anchor_ambiguous', 'anchor_missin
                      'sample_start_mismatch', 'source_anchor_missing', 'source_anchor_unavailable'}
 
 
-def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False):
+def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False):
+    if type(off_shelf_marks) is not bool or off_shelf_marks and not off_shelf_store:raise ValueError('reading_scope')
+    if type(off_shelf_cover) is not bool or off_shelf_cover and not off_shelf_store:raise ValueError('reading_scope')
     if type(off_shelf_store) is not bool or off_shelf_store and not off_shelf_home:raise ValueError('reading_scope')
     if type(off_shelf_home) is not bool or off_shelf_home and (cb_reading or cb_full_book or full_chapters!=1 or selection_preview or single_page or combined_profile or missing_resume):
         raise ValueError('reading_scope')
@@ -77,6 +79,8 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
     if missing_resume: expected.add('missing_resume_verified')
     if off_shelf_home: expected.add('home_recent_verified')
     if off_shelf_store: expected.update(('store_search_verified','store_metadata_verified','store_search_requests','store_metadata_requests'))
+    if off_shelf_cover: expected.update(('store_cover_verified','home_cover_verified'))
+    if off_shelf_marks: expected.update(('marks_snapshot_verified','marks_requests','marks_count'))
     if resume_warning and mode=='live':expected.add('resume_warning_verified')
     if cb_reading: expected.add('source_match_reason')
     if cb_full_book: expected.add('cb_handoff')
@@ -94,6 +98,15 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
                 raise ValueError('reading_schema')
             if value['result']=='PASS' and (value[name+'_verified']!=(mode=='live') or value[name+'_requests']!=(1 if mode=='live' else 0)):
                 raise ValueError('reading_incomplete')
+    if off_shelf_cover:
+        if (type(value['store_cover_verified']) is not bool or type(value['home_cover_verified']) is not bool
+                or value['result']=='PASS' and (value['store_cover_verified']!=(mode=='live') or not value['home_cover_verified'])):
+            raise ValueError('reading_incomplete')
+    if off_shelf_marks:
+        if (type(value['marks_snapshot_verified']) is not bool or type(value['marks_requests']) is not int
+                or type(value['marks_count']) is not int or not 0<=value['marks_requests']<=2 or not 0<=value['marks_count']<=5000
+                or value['result']=='PASS' and (not value['marks_snapshot_verified'] or value['marks_requests']!=(2 if mode=='live' else 0))):
+            raise ValueError('reading_incomplete')
     if missing_resume and (type(value['missing_resume_verified']) is not bool
                            or value['result']=='PASS' and not value['missing_resume_verified']):
         raise ValueError('reading_incomplete')
@@ -148,6 +161,7 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
         raise ValueError('reading_requests')
     if mode == 'reopen' and any(counts):
         raise ValueError('reading_offline_network')
+    if off_shelf_cover and value['result']=='PASS' and mode=='live' and counts[5]<1:raise ValueError('reading_incomplete')
     required_flags=FLAGS-{'page_turn'} if single_page and value['pages']==1 else FLAGS
     if value['result'] == 'PASS' and (not all(value[k] for k in required_flags) or single_page and value['pages']==1 and value['page_turn'] or value['phase'] != 'complete'
             or value['failed_line'] or value['screenshots'] or counts[-1] or value['denied_kind'] or value['denied_route'] or value['denied_flags']
@@ -194,7 +208,7 @@ def validate_full_book(value, chapters, *, complete=True, cb_full_book=False):
     return value
 
 
-def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False):
+def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False):
     """The private cookie envelope is consumed here; never print this value."""
     if not isinstance(raw, bytes) or len(raw) > (8 if full_chapters>1 else 2) * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('reading_frame')
@@ -210,7 +224,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
         raise ValueError('reading_envelope')
     validate_cookies(value['cookies'], owner)
     if mode is not None:
-        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store)
+        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks)
     else:
         report = value['report']
         fields = {'result', 'tmpfs_profile', 'profile_removed', 'stages', 'runner_error'}
@@ -223,11 +237,13 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
                 or not isinstance(report['stages'], list) or len(report['stages']) > 2):
             raise ValueError('reading_runner')
         for phase, stage in zip(('live', 'reopen'), report['stages']):
-            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store)
+            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks)
         if report['result'] == 'PASS' and (not report['tmpfs_profile'] or not report['profile_removed']
                 or report['runner_error'] != 'none' or len(report['stages']) != 2
                 or any(stage['result'] != 'PASS' for stage in report['stages'])
                 or any(report['stages'][0][k] != report['stages'][1][k] for k in ('pages', 'shelf_books'))):
+            raise ValueError('reading_runner_incomplete')
+        if off_shelf_marks and report['result']=='PASS' and report['stages'][0]['marks_count']!=report['stages'][1]['marks_count']:
             raise ValueError('reading_runner_incomplete')
         if full_chapters > 1 and (report['result']=='PASS' or report['full_book'] is not None):
             validate_full_book(report['full_book'], full_chapters,complete=report['result']=='PASS',cb_full_book=cb_full_book)

@@ -62,7 +62,8 @@ class OwnerReadingTests(unittest.TestCase):
         common=['--koreader','/synthetic','--candidate','/synthetic.zip']
         for args in (['--off-shelf-home','--cb-reading'],['--off-shelf-home','--missing-resume'],
                      ['--off-shelf-home','--progress-roundtrip'],['--off-shelf-mock-port','1234'],
-                     ['--off-shelf-home','--off-shelf-mock-port','0'],['--off-shelf-store']):
+                     ['--off-shelf-home','--off-shelf-mock-port','0'],['--off-shelf-store'],
+                     ['--off-shelf-home','--off-shelf-cover'],['--off-shelf-home','--off-shelf-marks']):
             with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(common+args)
 
     def test_off_shelf_store_requires_native_search_and_details(self):
@@ -85,6 +86,31 @@ class OwnerReadingTests(unittest.TestCase):
         self.assertEqual(probe.validate_stage(value,'live')['failed_line'],1100)
         value['failed_line']=10001
         with self.assertRaises(ValueError):probe.validate_stage(value,'live')
+
+    def test_off_shelf_cover_requires_live_download_and_offline_render(self):
+        value=envelope()
+        for index,part in enumerate(value['report']['stages']):
+            part.update(home_recent_verified=True,store_cover_verified=index==0,home_cover_verified=True)
+            for key in ('store_search','store_metadata'):
+                part[key+'_verified']=index==0;part[key+'_requests']=1 if index==0 else 0
+        value['report']['stages'][0]['requests'][5]=1
+        probe.decode_envelope(frame(value),OWNER,off_shelf_home=True,off_shelf_store=True,off_shelf_cover=True)
+        for index,key in ((0,'store_cover_verified'),(0,'home_cover_verified'),(1,'home_cover_verified')):
+            bad=deepcopy(value);bad['report']['stages'][index][key]=False
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,off_shelf_home=True,off_shelf_store=True,off_shelf_cover=True)
+        bad=deepcopy(value);bad['report']['stages'][0]['requests'][5]=0
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,off_shelf_home=True,off_shelf_store=True,off_shelf_cover=True)
+
+    def test_off_shelf_marks_require_both_snapshots_and_exact_network_scope(self):
+        value=envelope()
+        for index,part in enumerate(value['report']['stages']):
+            part.update(home_recent_verified=True,marks_snapshot_verified=True,marks_requests=2 if index==0 else 0,marks_count=1)
+            for key in ('store_search','store_metadata'):
+                part[key+'_verified']=index==0;part[key+'_requests']=1 if index==0 else 0
+        probe.decode_envelope(frame(value),OWNER,off_shelf_home=True,off_shelf_store=True,off_shelf_marks=True)
+        for index,key,bad_value in ((0,'marks_requests',1),(1,'marks_requests',1),(1,'marks_snapshot_verified',False),(1,'marks_count',2)):
+            bad=deepcopy(value);bad['report']['stages'][index][key]=bad_value
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,off_shelf_home=True,off_shelf_store=True,off_shelf_marks=True)
 
     def test_missing_resume_requires_proof_in_both_stages(self):
         value=envelope()
