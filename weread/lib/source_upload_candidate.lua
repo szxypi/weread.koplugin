@@ -87,7 +87,7 @@ local function project(position,summary,chapters,percent,cb)
         basis='filtered_xhtml_utf16',upload_verified=false}
 end
 function M.project(position,summary,chapters,percent) return project(position,summary,chapters,percent,false) end
--- Read-only imported candidate; it does not grant dispatch authority.
+-- Imported candidates remain transient; a separate guarded proof grants dispatch.
 function M.project_cb(position,summary,chapters,percent) return project(position,summary,chapters,percent,true) end
 function M.same(first,second)
     if type(first)~='table' or type(second)~='table' then return false end

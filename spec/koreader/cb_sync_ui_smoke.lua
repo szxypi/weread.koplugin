@@ -42,6 +42,7 @@ local noack=os.getenv('WEREAD_TEST_CB_SYNC_NOACK')=='1'
 local cloud=os.getenv('WEREAD_TEST_CB_SYNC_CLOUD')=='1'
 local timed=os.getenv('WEREAD_TEST_CB_SYNC_TIMER')=='1'
 local timer_unknown=os.getenv('WEREAD_TEST_CB_TIMER_UNKNOWN')=='1'
+local close_outcome=os.getenv('WEREAD_TEST_CB_SYNC_CLOSE') or ''
 local file
 if single then
     file=Content.fetch_chapter_epub(client,settings,book,chapters[1]);book.cached_file=file;book.cached_chapters={['1']=file}
@@ -164,8 +165,43 @@ if timed then
         control({progress_offset_delta=0})
     end
 end
-reader:onClose(false)
+if close_outcome~='' then
+    local config=plugin.settings:get('sync');config.upload_on_close=true;plugin.settings:set('sync',config)
+    reader.rolling:onGotoPage(3)
+    wait(function() local point=plugin.source_position:current();return point and point.chapter_offset~=original.chapter_offset and sync.dirty end)
+    local target=assert(plugin.source_position:current());local closed,posts=false,0
+    local request=plugin.client.request
+    function plugin.client:request(options)
+        if options.url=='https://weread.qq.com/web/book/read' then
+            assert(closed and plugin.source_dispatch:pending(id),'close posted before reader closed or journaled')
+            local body=client:json_decode(options.body)
+            assert(body.rt==0 and body.co==target.chapter_offset,'close did not send the frozen zero-time position')
+            posts=posts+1
+        end
+        return request(self,options)
+    end
+    if close_outcome=='changed' then control({progress_offset_delta=1}) end
+    if close_outcome=='unknown' then control({progress_confirmation='noack'}) end
+    reader:onClose(false);closed=true
+    wait(function() return not sync.uploading end)
+    saved=assert(plugin.settings:get_book(id))
+    if close_outcome=='confirmed' then
+        assert(posts==1 and not plugin.source_dispatch:pending(id) and not saved.pending_upload_position,
+            'confirmed close did not retire its journal')
+        local received={};local _,status=http.request{url=settings.mock_endpoint..'/__state',proxy=settings.mock_endpoint,sink=ltn12.sink.table(received)}
+        assert(status==200 and client:json_decode(table.concat(received)).progress[id].chapterOffset==target.chapter_offset,
+            'cloud did not receive the frozen close position')
+    elseif close_outcome=='changed' then
+        assert(posts==0 and saved.pending_upload_position and not plugin.source_dispatch:pending(id),
+            'changed cloud accepted close or lost local progress')
+    else
+        assert(posts==1 and plugin.source_dispatch:pending(id) and saved.pending_upload_position
+            and saved.pending_upload_reason=='upload_readback_unconfirmed','uncertain close lost journal')
+        for _i=1,4 do UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput() end
+        assert(posts==1 and plugin.source_dispatch:pending(id),'uncertain close was replayed')
+    end
+else reader:onClose(false) end
 print('\nWEREAD_CB_MANUAL_SYNC='..client:json_encode({result='PASS',choice=true,changed_remote_stopped=true,
     explicit_upload=true,native_point=true,pending_cleared=not noack,journal_cleared=not noack,
-    automatic_disabled=not timed,single=single,uncertain=noack,timer_verified=timed,timer_unknown=timer_unknown}))
+    automatic_disabled=not timed,single=single,uncertain=noack,timer_verified=timed,timer_unknown=timer_unknown,close_outcome=close_outcome}))
 os.exit(0)

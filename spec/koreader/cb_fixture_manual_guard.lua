@@ -31,7 +31,7 @@ function M.new(input,protocol,cookie)
         if content[url] then
             return body.b==protocol.e(input.book) and body.c==protocol.e(input.chapter) and body.sc==1 and 'read' or nil
         end
-        local timed=input.timer==true
+        local timed=input.timer==true or input.close==true
         local limit=timed and 3 or 2
         local target=timed and writes==2 and input.first_offset or input.next_offset
         local summary=timed and writes==2 and input.timer_summary or input.expected_summary

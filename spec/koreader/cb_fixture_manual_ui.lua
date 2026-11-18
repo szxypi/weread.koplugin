@@ -11,7 +11,9 @@ local ok,reason=pcall(function()
         and math.abs(input.next_offset-input.first_offset)==1)
     local reopening=os.getenv('WEREAD_FIXTURE_CB_REOPEN')=='1';local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
     local timed=input.timer==true
-    assert(not timed or type(input.timer_summary)=='string' and #input.timer_summary>0)
+    local closing=input.close==true
+    assert(not (timed and closing))
+    assert(not (timed or closing) or type(input.timer_summary)=='string' and #input.timer_summary>0)
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
     require('gettext').changeLang('zh_CN')
@@ -60,7 +62,7 @@ local ok,reason=pcall(function()
         if not kind then counts[2]=counts[2]+1;error('fixture_manual_scope',0) end
         if kind=='write' then counts[1]=counts[1]+1
         else
-            if counts[0]>=(timed and 110 or 60) then counts[2]=counts[2]+1;error('fixture_manual_scope',0) end
+            if counts[0]>=((timed or closing) and 110 or 60) then counts[2]=counts[2]+1;error('fixture_manual_scope',0) end
             counts[0]=counts[0]+1
         end
         options.persist_response_cookies=false
@@ -121,22 +123,26 @@ local ok,reason=pcall(function()
     assert(notice.code=='upload_success' and counts[1]==2 and counts[2]==0,'manual fixture upload failed')
     local saved=assert(plugin.settings:get_book(input.book))
     assert(not saved.pending_upload_position and not plugin.source_dispatch:pending(input.book) and sync.verified)
-    if timed then
-        result.phase='timer';local timer=sync.interval;local clock=100;timer.now=function() return clock end
-        local config=plugin.settings:get('sync');config.upload_interval_minutes=1;plugin.settings:set('sync',config)
+    if timed or closing then
+        result.phase=timed and 'timer' or 'close'
+        local timer=sync.interval;local clock=100;timer.now=function() return clock end
+        local config=plugin.settings:get('sync');config.upload_interval_minutes=timed and 1 or 0
+        config.upload_on_close=closing;plugin.settings:set('sync',config)
         local previous=assert(plugin.source_position:current());previous.chapter_offset=input.first_offset
         local returned=false;assert(plugin:openSourcePosition(previous,function(value) returned=value~=nil end))
         wait(function() local current=plugin.source_position:current()
-            return returned and current and current.chapter_offset==input.first_offset and sync.dirty and timer.task end)
-        clock=timer.due;UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput()
+            return returned and current and current.chapter_offset==input.first_offset and sync.dirty and (not timed or timer.task) end)
+        if timed then clock=timer.due;UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput()
+        else reader:onClose(false) end
         wait(function() return not timer.cycle and not sync.uploading end)
         saved=assert(plugin.settings:get_book(input.book))
-        assert(counts[1]==3 and counts[2]==0 and sync.verified and not sync.dirty and not timer.task
-            and not saved.pending_upload_position and not plugin.source_dispatch:pending(input.book),'timed fixture upload failed')
+        assert(counts[1]==3 and counts[2]==0 and sync.verified==timed and (closing or not sync.dirty) and not timer.task
+            and not saved.pending_upload_position and not plugin.source_dispatch:pending(input.book),'automatic fixture upload failed')
     end
-    plugin:onFlushSettings();reader:onClose(false)
+    plugin:onFlushSettings();if not closing then reader:onClose(false) end
     result={result='PASS',native_choice=true,actual_source=true,upload_confirmed=true,pending_cleared=true,
-        journal_cleared=true,automatic_disabled=not timed,timer_verified=timed,writes=tonumber(counts[1]),denied=tonumber(counts[2])}
+        journal_cleared=true,automatic_disabled=not (timed or closing),timer_verified=timed,writes=tonumber(counts[1]),denied=tonumber(counts[2])}
+    if closing then result.close_verified=true end
 end)
 if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('cb_fixture_manual_ui%.lua:(%d+):')) or 0 end
 print('\nWEREAD_CB_FIXTURE_MANUAL_UI='..require('json').encode(result))

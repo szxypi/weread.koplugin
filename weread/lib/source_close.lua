@@ -48,6 +48,9 @@ function M:freeze(intent)
     if type(point) ~= 'table' or not Source.is_coordinate_basis(point.basis) or point.upload_verified ~= false
         or point.book_id ~= intent.book_id or not same(point,source:current())
         or source.is_busy() or not source.can_prepare() then return nil end
+    local imported=point.book_id:sub(1,3)=='CB_'
+    if imported and (point.basis~='filtered_xhtml_utf16' or intent.cb_guarded_sync~=true
+        or not require('weread.lib.cb_sync_guard').expected(intent.expected_remote,point.book_id)) then return nil end
     if point.basis=='raw_txt_utf16' and (intent.native_position_only~=true or type(intent.expected_remote)~='table') then return nil end
     local scope = source:_live()
     local context = source.get_upload_context and source.get_upload_context()
@@ -55,13 +58,15 @@ function M:freeze(intent)
     local access = Currentness.capture(self.settings)
     if not scope or not source:_current(scope) or not snapshot or not context or not access or not access.web
         or context.book_id ~= point.book_id or context.percent ~= intent.percent then return nil end
-    local expected = Currentness.expected{book_id=point.book_id,chapter_uid=point.chapter_uid,
+    local expected_input={book_id=point.book_id,chapter_uid=point.chapter_uid,
         chapter_idx=Candidate.chapter_index(context.chapters,point.chapter_uid),
         raw_sha256=point.raw_sha256,raw_bytes=snapshot.record.raw_bytes}
+    local expected
+    if imported then expected=Currentness.expected_cb(expected_input) else expected=Currentness.expected(expected_input) end
     if not expected then return nil end
     self:cancel()
     local token = {}
-    local entry = {owner=self,token=token,intent=copy(intent),access=access,expected=expected,frozen=self.now(),
+    local entry = {owner=self,token=token,intent=copy(intent),access=access,expected=expected,imported=imported,frozen=self.now(),
         input={file=scope.file,book_id=point.book_id,chapter_uid=point.chapter_uid,identity=copy(snapshot.identity),
             metadata=snapshot.metadata,render_path=point.render_path,target=copy(point),
             chapters=copy(context.chapters),percent=context.percent,request_id=1}}
@@ -127,21 +132,25 @@ function M:_launch(entry)
     local input,expected,access,client = copy(entry.input),copy(entry.expected),entry.access,self.source.client
     input.request_id=entry.sequence
     local started = entry.worker:start(function()
-        local result = Task.prepare_upload(input)
+        local result = entry.imported and Task.prepare_cb_preview(input) or Task.prepare_upload(input)
         if result.candidate then
-            local proof=Currentness.run(client,expected,access);result.check,result.error=proof.check,proof.error
+            local proof
+            if entry.imported then proof=Currentness.run_cb_upload(client,expected,access,entry.intent.expected_remote)
+            else proof=Currentness.run(client,expected,access) end
+            result.check,result.error=proof.check,proof.error
         end
         return result
     end,function(result)
         if active[self.namespace] ~= entry or entry.sequence~=input.request_id or not entry.callback then return end
         local candidate = type(result) == 'table' and result.candidate
-        local projected = type(candidate) == 'table' and Candidate.project(input.target,candidate.summary,
+        local project=entry.imported and Candidate.project_cb or Candidate.project
+        local projected = type(candidate) == 'table' and project(input.target,candidate.summary,
             self.get_catalog(input.book_id),input.percent)
         local function valid(allow_transition)
             local age = self.now()-entry.started
             return active[self.namespace] == entry and age >= 0 and age <= 30 and self.now()<=entry.deadline
                 and (allow_transition or Currentness.matches(self.settings,entry.access))
-                and Candidate.same(Candidate.project(input.target,candidate.summary,
+                and Candidate.same(project(input.target,candidate.summary,
                     self.get_catalog(input.book_id),input.percent),candidate)
         end
         if type(result) ~= 'table' or result.request_id ~= input.request_id or not same(result.position,input.target)
@@ -160,7 +169,9 @@ function M:_launch(entry)
             end
             return
         end
-        if not Currentness.packet(result.check,expected) then self:_drop(entry,'source_currentness_unavailable');return end
+        if result.error=='source_remote_changed' then self:_drop(entry,'source_remote_changed');return end
+        local checked=entry.imported and Currentness.packet_cb(result.check,expected) or not entry.imported and Currentness.packet(result.check,expected)
+        if not checked then self:_drop(entry,'source_currentness_unavailable');return end
         local wire = {}; for _i,key in ipairs({'book_id','chapter_uid','chapter_idx','chapter_offset','percent','summary'}) do wire[key] = candidate[key] end
         local original,origin,deadline = copy(wire),copy(input.target),math.min(entry.started+30,entry.deadline)
         local plan
@@ -168,8 +179,10 @@ function M:_launch(entry)
             is_current=function()
                 return valid() and Candidate.same(plan.position,original) and same(plan.source_position,origin)
                     and plan.deadline == deadline and plan.detached == true and plan.basis == 'filtered_xhtml_utf16'
+                    and (not entry.imported or plan.transport=='cb_web_position')
             end,
             release=function() self:_drop(entry) end}
+        if entry.imported then plan.transport='cb_web_position' end
         local callback=entry.callback
         entry.callback=nil
         callback(plan)

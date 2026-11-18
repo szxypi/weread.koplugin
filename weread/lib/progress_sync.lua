@@ -971,7 +971,10 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
     local cb_auto=cb_book(book_id) and reason=='interval' and interval_cycle and not close_token and not initial_remote
         and self.verified and self.source_dispatch and self.interval:current(interval_cycle)
         and require('weread.lib.cb_sync_guard').same(self.remote_position,interval_cycle.baseline,book_id)
-    local cb_authorized=cb_manual or cb_auto
+    local cb_close=cb_book(book_id) and reason=='document_close' and close_token and not interval_cycle and not initial_remote
+        and self.verified and self.source_dispatch and self.prepare_closed
+        and require('weread.lib.cb_sync_guard').expected(self.remote_position,book_id)
+    local cb_authorized=cb_manual or cb_auto or cb_close
     if cb_book(book_id) and not cb_authorized then
         self:_unsupported_book(book_id,position,false)
         if show_result and self:_session_current(scope) then self.notify('upload_failed',{error='source_book_sync_unsupported'}) end
@@ -1281,8 +1284,8 @@ function ProgressSync:_resolve_initial(local_position,remote,context,options)
         end})
 end
 
--- Imported books use an explicit, one-shot choice. They do not grant the
--- periodic reading-time or close-upload gates used for ordinary books.
+-- Imported books use a separate Web position comparison. It never grants
+-- authority for the periodic reading-time reporter.
 function ProgressSync:_resolve_cb(local_position,remote,context,options)
     if not self.prepare_upload or not self.source_dispatch
         or not require('weread.lib.cb_sync_guard').expected(remote,context.book_id) then
@@ -1766,12 +1769,17 @@ end
 function ProgressSync:prepare_close(source_position)
     self.interval:halt()
     local position = self:checkpoint_local("document_close", source_position)
-    if position and not cb_book(position.book_id) and self.verified and self.dirty and not self.uploading and self.freeze_close
+    local saved=position and (self.get_book(position.book_id) or {})
+    local imported=position and cb_book(position.book_id)
+    local cb_ready=not imported or self.source_dispatch and self.prepare_closed
+        and require('weread.lib.cb_sync_guard').expected(self.remote_position,position.book_id)
+        and not (saved.pending_upload_account==self:_account_key() and saved.pending_upload_reason=='upload_readback_unconfirmed')
+    if position and cb_ready and self.verified and self.dirty and not self.uploading and self.freeze_close
         and not (self.source_dispatch and self.source_dispatch:pending(position.book_id))
         and self:_config().upload_on_close == true then
         local intent=copy(position);intent.native_position_only=true
-        local saved=self.get_book(position.book_id) or {}
         intent.expected_remote=copy(self.remote_position or saved.last_remote_position)
+        if imported then intent.cb_guarded_sync=true end
         return self.freeze_close(intent),position
     end
     return nil,position

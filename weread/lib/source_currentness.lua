@@ -216,8 +216,8 @@ local function fetch(client,expected_value,selected,format,options,cb)
     if format=='web_txt' then result.basis='raw_txt_utf16' end
     return result
 end
--- CB_ source checking remains an explicit read-only entry point. The existing
--- numeric send/close paths cannot obtain a CB_ proof through their APIs.
+-- CB_ upload proof is isolated from the ordinary source-only check and binds
+-- the exact previously verified Web position before and after source reads.
 function M.fetch(client,value,selected,format,options) return fetch(client,value,selected,format,options,false) end
 function M.fetch_cb(client,value,selected) return fetch(client,value,selected,'web_xhtml',nil,true) end
 function M.fetch_cb_upload(client,value,selected,remote)

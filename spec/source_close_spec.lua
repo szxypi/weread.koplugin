@@ -21,7 +21,7 @@ local source={client={settings={data_dir='synthetic-close-profile'}},current=fun
     is_busy=function() native();return false end,can_prepare=function() native();return true end,
     _live=function() native();return {file='fixture.epub'} end,_current=function() native();return true end,
     get_document=function() native();return {} end,
-    get_upload_context=function() native();return {book_id='900001',percent=37,chapters=copy(chapters)} end,
+    get_upload_context=function() native();return {book_id=point.book_id,percent=37,chapters=copy(chapters)} end,
     make_worker=function()
         return {start=function(_self,task,callback) calls[#calls+1]={task=task,callback=callback};return true end,
             cancel=function() end}
@@ -87,4 +87,37 @@ expect(not plan and count==1 and reason=='source_authentication_unavailable' and
 expired=1;start();finish();local late_recovery=recover_ready;service:cancel();late_recovery({web={}})
 expect(not plan and count==1 and cancelled>0,'cancelled closed recovery delivered a plan')
 Currentness.fetch=success_fetch
+-- Imported close uses a distinct source projection and compares the pinned
+-- Web position twice; the ordinary source proof is insufficient to send it.
+point.book_id='CB_SyntheticClose';intent.book_id=point.book_id;intent.source_position=copy(point)
+local remote={book_id=point.book_id,source='web',chapter_uid='11',chapter_idx=0,chapter_offset=3500,
+    raw_percent=36,updated_at=123,has_chapter_index=true,has_chapter_offset=true}
+intent.cb_guarded_sync=true;intent.expected_remote=copy(remote)
+Task.prepare_cb_preview=function(input)
+    return {request_id=input.request_id,position=copy(input.target),
+        candidate=assert(require('weread.lib.source_upload_candidate').project_cb(input.target,'原文😀',input.chapters,input.percent))}
+end
+local guarded_reads,changed=0,false
+Currentness.run_cb_upload=function(_client,expected,_access,pinned)
+    guarded_reads=guarded_reads+1;expect(pinned.chapter_offset==3500 and pinned.updated_at==123,'close lost pinned cloud baseline')
+    if changed then return {error='source_remote_changed'} end
+    return {check={expected=expected}}
+end
+Currentness.packet_cb=function(packet,expected) return packet and packet.expected.book_id==expected.book_id end
+alive=true;clock=100;auth=true
+local missing=copy(intent);missing.cb_guarded_sync=nil
+expect(not service:freeze(missing),'unguarded imported close froze')
+missing=copy(intent);missing.expected_remote.updated_at=nil
+expect(not service:freeze(missing),'imported close accepted incomplete cloud baseline')
+local cbtoken=assert(service:freeze(copy(intent)));intent.expected_remote.chapter_offset=1
+alive=false;plan,count=nil,0
+expect(service:prepare(cbtoken,copy(intent),function(value,why) plan,reason,count=value,why,count+1 end))
+finish();expect(plan and plan.detached and plan.transport=='cb_web_position' and plan.is_current() and guarded_reads==1,
+    'imported detached plan did not use guarded source proof')
+plan.transport='other';expect(not plan.is_current(),'changed imported transport remained valid');plan.transport='cb_web_position'
+plan.release();expect(not plan.is_current(),'released imported plan remained usable')
+intent.expected_remote=copy(remote);alive=true;clock=100;changed=true
+cbtoken=assert(service:freeze(copy(intent)));alive=false;plan,reason,count=nil,nil,0
+expect(service:prepare(cbtoken,copy(intent),function(value,why) plan,reason,count=value,why,count+1 end))
+finish();expect(not plan and count==1 and reason=='source_remote_changed','changed imported cloud did not stop close')
 print(('source_close_spec: %d checks'):format(checks))

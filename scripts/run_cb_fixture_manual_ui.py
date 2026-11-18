@@ -33,6 +33,8 @@ def main():
         decoded=json.loads(payload)
         if not isinstance(decoded,dict) or not isinstance(decoded.get('cookies'),dict):raise ValueError('input')
         timed=decoded.get('timer') is True
+        closing=decoded.get('close') is True
+        if timed and closing:raise ValueError('input')
         secrets=[value.encode() for key,value in decoded['cookies'].items()
                  if key!='wr_vid' and isinstance(value,str) and len(value)>=8]
         if not secrets:raise ValueError('input')
@@ -55,13 +57,14 @@ def main():
                     out,err=child.communicate(payload,timeout=360);marker=b'\nWEREAD_CB_FIXTURE_MANUAL_UI='
                     if out.count(marker)==1:
                         value=json.loads(out.split(marker,1)[1].splitlines()[0])
-                        if value.get('phase') in ('decode','prepare','choice','upload','timer','reopen'):report['failure_phase']=value['phase']
+                        if value.get('phase') in ('decode','prepare','choice','upload','timer','close','reopen'):report['failure_phase']=value['phase']
                         if type(value.get('failure_line')) is int:report['failure_line']=value['failure_line']
                     if child.returncode or len(out)>8*1024*1024 or out.count(marker)!=1 or b'[WeRead] forceRePaint failed:' in out+err:
                         raise ValueError('native')
                     expected=(dict(result='PASS',fresh_process=True,offline=True,pending_cleared=True,journal_cleared=True,requests=0)
                         if reopened else dict(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,pending_cleared=True,
-                            journal_cleared=True,automatic_disabled=not timed,timer_verified=timed,writes=3 if timed else 2,denied=0))
+                            journal_cleared=True,automatic_disabled=not (timed or closing),timer_verified=timed,writes=3 if timed or closing else 2,denied=0))
+                    if closing and not reopened:expected['close_verified']=True
                     if value!=expected:raise ValueError('result')
                     for path in profile.rglob('*'):
                         if path.is_file() and not path.is_symlink() and any(secret in path.read_bytes() for secret in secrets):
@@ -72,8 +75,9 @@ def main():
                         except (ProcessLookupError,RuntimeError):pass
                     stop(child);reap(child.pid)
             report.update(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,fresh_process=True,
-                          pending_cleared=True,journal_cleared=True,automatic_disabled=not timed,writes=3 if timed else 2,denied=0,credentials_not_persisted=True)
+                          pending_cleared=True,journal_cleared=True,automatic_disabled=not (timed or closing),writes=3 if timed or closing else 2,denied=0,credentials_not_persisted=True)
             if timed:report['timer_verified']=True
+            if closing:report['close_verified']=True
     except Exception:
         pass
     finally:report['profile_removed']=root is not None and not root.exists()

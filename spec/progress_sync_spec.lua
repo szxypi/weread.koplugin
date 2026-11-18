@@ -344,6 +344,48 @@ test('CB upload confirmation preserves a newer page reached during the send',fun
     eq(f.sync.source_local_anchor.chapter_offset,150,'confirmation changed the uploaded source anchor')
 end)
 
+test('CB close freezes the verified baseline and completes after the reader closes',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local first={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    f.ready({position=first,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(f.sync.verified,true,'CB baseline not verified')
+    f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update()
+    local token,closed_ready={},nil
+    f.sync.freeze_close=function(intent)
+        eq(intent.cb_guarded_sync,true,'close lost guarded intent')
+        eq(intent.expected_remote.chapter_offset,150,'close did not pin verified cloud baseline')
+        return token
+    end
+    f.sync.prepare_closed=function(receipt,_position,callback)
+        eq(receipt,token,'close lost its frozen token');closed_ready=callback
+    end
+    local frozen,position=f.sync:prepare_close(f.source)
+    eq(frozen,token,'verified CB close did not freeze')
+    f.sync:on_close_document(f.source,frozen,position)
+    eq(f.sync.verified,false,'closed reader remained verified')
+    local wire={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=151,percent=position.percent,summary='synthetic source'}
+    closed_ready({position=wire,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',
+        detached=true,is_current=function() return true end})
+    eq(#f.uploads,2,'detached CB close did not send exactly once')
+    eq(f.values.books[id].pending_upload_position,nil,'confirmed CB close retained pending point')
+    eq(f.sync.source_dispatch:pending(id),false,'confirmed CB close retained journal')
+end)
+
+test('CB close does not freeze an uncertain or unverified baseline',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    local frozen=0;f.sync.freeze_close=function() frozen=frozen+1;return {} end
+    f.sync.prepare_closed=function() error('unexpected close preparation') end
+    f.sync.verified=true;f.sync.remote_position={};f.sync.dirty=true
+    eq(f.sync:prepare_close(f.source),nil,'malformed cloud baseline froze')
+    f.sync.remote_position={book_id=id,source='web',chapter_uid='22',chapter_idx=2,chapter_offset=140,
+        raw_percent=25,updated_at=123,has_chapter_index=true,has_chapter_offset=true}
+    f.values.books[id].pending_upload_account=f.sync:_account_key()
+    f.values.books[id].pending_upload_reason='upload_readback_unconfirmed'
+    eq(f.sync:prepare_close(f.source),nil,'unconfirmed write froze again')
+    eq(frozen,0,'unsafe CB close reached source freezing')
+end)
+
 test('CB progress comparison uses captured Web access instead of the numeric-only API',function()
     local f=cb_manual_fixture();local id=f.source.book_id
     f.values.account.user_vid='900000';f.values.cookies={wr_vid='900000',wr_skey='synthetic-session'}
