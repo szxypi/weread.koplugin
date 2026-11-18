@@ -8,12 +8,14 @@ from unittest.mock import patch
 from urllib.parse import parse_qs,urlsplit
 
 from cb_native_time_bundle_audit_store import AuditStore
+from cb_native_time_bundle_bridge import Bridge
 from cb_native_time_bundle_broker import execute
 from cb_native_time_bundle_gate import DispatchGate,day
 from cb_native_time_bundle_preflight import GuardedWeb,ReadOnlyNative,run as preflight
+from cb_native_time_bundle_preparation import read_inputs
 from cb_native_time_bundle_readback import NativeReads,run as readback
 from mock_weread import CB_READING_ID
-from native_time_bundle_preparation import SigningInputs
+from native_time_bundle_preparation import SigningInputs,SigningRead
 from native_time_capture_bundle import CaptureBundleStore
 from selection_trial_mock import credentials
 from secure_weread_session import StoreError
@@ -25,6 +27,7 @@ from txt_full_summary import digest
 from verify_cb_native_time_capture import snapshot
 from verify_native_statistics import period
 from verify_cb_native_time_bundle_ui_rpc import seed
+from verify_cb_native_time_guarded_dry import run as host_dry
 
 
 class Server(BaseServer):
@@ -48,7 +51,7 @@ class Server(BaseServer):
 
 
 def scenario(args,mode):
-    armed=mode!='dry'
+    armed=mode not in ('dry','host_dry','malicious_approval')
     raw=('<html><body>'+''.join('<p>Chapter %03d contains a unique synthetic passage through distant forests and rivers.</p>'%i
                                 for i in range(30))+'</body></html>').encode()
     plan=capture('web_xhtml',CB_READING_ID,raw_override=raw);grant=credentials();plan['device_sha256']=digest(grant['deviceId'])
@@ -70,6 +73,8 @@ def scenario(args,mode):
     class AfterNative(NativeReads):
         def __init__(self,provided,book,months,dispatched,current,clock):
             super().__init__(provided,book,months,dispatched,current,clock,opener=Opener(server))
+    class Signer(SigningRead):
+        def __init__(self,provided,current):super().__init__(provided,current,opener=Opener(server))
     try:
         months={period('monthly',plan['start_time'])[0],period('monthly',int(time.time()))[0]}
         web=Web(lambda:True);web.vid=saved['vid']
@@ -87,22 +92,34 @@ def scenario(args,mode):
         server.fault=mode
         if mode=='source_changed':server.chapter_source=lambda _uid,_revision=None:(raw+b'changed').decode()
         if mode=='position_changed':server.progress[CB_READING_ID]['chapterOffset']+=1
-        command=[sys.executable,str(args.source/'scripts/run_cb_native_time_guarded_mock.py'),
+        runner='run_cb_native_time_guarded_dry.py' if not armed else 'run_cb_native_time_guarded_mock.py'
+        command=[sys.executable,str(args.source/'scripts'/runner),
                  '--koreader',str(args.koreader),'--source',str(args.source),'--candidate',str(args.candidate),'--mock-port',str(server.server_port)]
         before_roots={item.name for item in Path('/dev/shm').glob('weread-cb-*')}
         original_popen=subprocess.Popen
         def visible(*pos,**kwargs):kwargs['stderr']=None;return original_popen(*pos,**kwargs)
-        with patch('cb_native_time_bundle_broker.subprocess.Popen',side_effect=visible) if os.getenv('WEREAD_CB_SYNTHETIC_DEBUG')=='1' else nullcontext():
-            result=execute(prepared,SigningInputs('synthetic-guest','synthetic-config'),saved['cookies'],store,gate,audit,lambda:True,command,armed=armed)
+        original_handle=Bridge.handle
+        def malicious(bridge,event):
+            return True if event.get('kind')=='claim' else original_handle(bridge,event)
+        with patch('cb_native_time_bundle_broker.subprocess.Popen',side_effect=visible) if os.getenv('WEREAD_CB_SYNTHETIC_DEBUG')=='1' else nullcontext(),\
+             patch.object(Bridge,'handle',new=malicious) if mode=='malicious_approval' else nullcontext():
+            if mode=='host_dry':
+                def observed(*items):
+                    with patch('cb_native_time_bundle_preflight.save_refreshed_web_session',return_value=False):
+                        return preflight(*items,clock=time.time,sleep=lambda _s:None,web_factory=Web,native_factory=Native)
+                def signing(packet,s,g,a,current):return read_inputs(packet,s,g,a,current,probe_factory=Signer)
+                result=host_dry(store,Session(),NativeStore(),gate,audit,attest=lambda:command,preflight=observed,prepare=signing)
+            else:
+                result=execute(prepared,SigningInputs('synthetic-guest','synthetic-config'),saved['cookies'],store,gate,audit,lambda:True,command,armed=armed)
         if {item.name for item in Path('/dev/shm').glob('weread-cb-*')}-before_roots:raise ValueError('synthetic_cb_guarded/cleanup')
-        expected={'dry':'CB_NATIVE_DRY_RUN_VERIFIED','success':'CB_NATIVE_ACKNOWLEDGED',
-                  'source_changed':'UNVERIFIED','position_changed':'UNVERIFIED','missing_ack':'UNVERIFIED'}[mode]
+        expected={'dry':'CB_NATIVE_DRY_RUN_VERIFIED','host_dry':'CB_NATIVE_DRY_RUN_VERIFIED','success':'CB_NATIVE_ACKNOWLEDGED',
+                  'source_changed':'UNVERIFIED','position_changed':'UNVERIFIED','missing_ack':'UNVERIFIED','malicious_approval':'UNVERIFIED'}[mode]
         writes=int(mode in ('success','missing_ack'))
         if result['result']!=expected or server.writes!=writes:
             stages=[method+' '+path for method,_host,path in server.seen[-20:]]
             raise ValueError('synthetic_cb_guarded/result '+json.dumps({'broker':result,'stages':stages,'writes':server.writes}))
         state,_=gate.read()
-        phase={'dry':None,'success':'acknowledged','source_changed':None,'position_changed':None,'missing_ack':'claimed'}[mode]
+        phase={'dry':None,'host_dry':None,'success':'acknowledged','source_changed':None,'position_changed':None,'missing_ack':'claimed','malicious_approval':None}[mode]
         if (state['phase'] if state else None)!=phase or result['dispatch_may_have_occurred'] is not (phase is not None):
             raise ValueError('synthetic_cb_guarded/gate')
         if state:
@@ -124,9 +141,10 @@ def main(argv=None):
     for name in ('koreader','source','candidate'):parser.add_argument('--'+name,required=True,type=Path)
     args=parser.parse_args(argv)
     try:
-        for mode in ('dry','success','source_changed','position_changed','missing_ack'):scenario(args,mode)
-        report=dict(result='SYNTHETIC_CB_GUARDED_TASK_VERIFIED',scenarios=5,real_account_posts=0,
-                    synthetic_posts=2,source_reads_guarded=True,independent_readbacks=3,no_automatic_replay=True)
+        for mode in ('dry','host_dry','success','source_changed','position_changed','missing_ack','malicious_approval'):scenario(args,mode)
+        report=dict(result='SYNTHETIC_CB_GUARDED_TASK_VERIFIED',scenarios=7,real_account_posts=0,
+                    synthetic_posts=2,source_reads_guarded=True,independent_readbacks=3,no_automatic_replay=True,
+                    dry_approval_override_blocked=True)
     except Exception as error:
         report=dict(result='UNVERIFIED',failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_cb_guarded/result '):

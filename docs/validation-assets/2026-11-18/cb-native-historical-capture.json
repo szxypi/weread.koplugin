@@ -157,13 +157,26 @@
   },
   "synthetic_guarded_native_task": {
     "result": "SYNTHETIC_CB_GUARDED_TASK_VERIFIED",
-    "scenarios": 5,
+    "scenarios": 7,
     "real_account_posts": 0,
     "synthetic_posts": 2,
     "source_reads_guarded": true,
     "independent_readbacks": 3,
     "no_automatic_replay": true,
     "real_dispatch_connected": false,
-    "physical_kindle_tested": false
+    "physical_kindle_tested": false,
+    "dry_approval_override_blocked": true,
+    "full_host_preflight_signing_and_dry_run": true
+  },
+  "early_native_dry_run": {
+    "result": "NOT_YET_HISTORICAL",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "dispatch_may_have_occurred": false,
+    "real_accounting_verified": false,
+    "private_data_in_report": false,
+    "capture_unchanged": true,
+    "dispatch_and_audit_empty": true,
+    "session_unopened": true
   }
 }
