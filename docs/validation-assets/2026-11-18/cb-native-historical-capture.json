@@ -36,5 +36,12 @@
     "private_data_in_report": false,
     "source_version_positions_counts_and_shelves_unchanged": true,
     "saved_capture_unchanged": true
+  },
+  "early_dispatch_gate": {
+    "result": "EARLY_RESERVATION_REFUSED",
+    "gate_unchanged": true,
+    "capture_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
   }
 }
