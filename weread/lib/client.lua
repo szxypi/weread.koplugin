@@ -802,6 +802,26 @@ function Client:get_category_books(category_id, cursor, rank)
     return self:decode_http_json(table.concat(chunks), {sensitive=true,api_name="public_category_books",code=code,headers=headers})
 end
 
+-- Public book search is read-only and deliberately carries no account cookie.
+function Client:get_public_book_search(keyword, cursor)
+    assert(type(keyword)=='string' and keyword~='' and #keyword<=512 and not keyword:find('[%z%c]')
+        and WeRead.utf8_substr(keyword,#keyword+1)==keyword, 'public_search/invalid_query')
+    if cursor==nil then cursor=0 end
+    assert(type(cursor)=='number' and cursor>=0 and cursor<=2147483647 and cursor%1==0, 'public_search/invalid_cursor')
+    local url='https://weread.qq.com/web/search/global?count=20&keyword='..WeRead.urlencode(keyword)..'&maxIdx='..tostring(cursor)
+    local chunks,bytes,exceeded={},0,false
+    local _,code,headers=self:request{url=url,method='GET',skip_cookie=true,persist_response_cookies=false,
+        sensitive=true,diagnostic_api='public_book_search',timeout={8,15},
+        headers={Accept='application/json',Referer='https://weread.qq.com/'},sink=function(chunk)
+            if not chunk then return 1 end
+            bytes=bytes+#chunk
+            if bytes>4*1024*1024 then exceeded=true;return nil,'public_search_limit' end
+            chunks[#chunks+1]=chunk;return 1
+        end}
+    if exceeded or code~=200 then error('public_search/unavailable',0) end
+    return self:decode_http_json(table.concat(chunks),{sensitive=true,api_name='public_book_search',code=code,headers=headers})
+end
+
 function Client:get_book_reviews(book_id, review_list_type, count)
     return self:gateway("/review/list", {
         bookId = book_id,

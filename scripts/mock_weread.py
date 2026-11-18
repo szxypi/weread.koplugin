@@ -670,6 +670,18 @@ class MockServer(ThreadingHTTPServer):
                 return 200, dict(reviews=[] if control["empty_annotations"] else [
                     dict(range=item["range"], metadata=None, pageReviews=[dict(review=review(uid))])
                     for item in data.get("reviews", []) if item["range"] == mark["range"]])
+        if path == "/web/search/global" and method == "GET":
+            if (url.hostname != "weread.qq.com" or set(query) != {"keyword", "count", "maxIdx"}
+                    or any(len(v) != 1 for v in query.values()) or not query["keyword"][0]
+                    or query["count"] != ["20"] or not query["maxIdx"][0].isascii()
+                    or not query["maxIdx"][0].isdigit() or int(query["maxIdx"][0]) > 2147483647):
+                raise ValueError("invalid public search query")
+            start = int(query["maxIdx"][0])
+            keyword = query["keyword"][0]
+            candidates = [b for b in BOOKS if keyword in b["title"] or keyword in b["author"]]
+            batch = candidates[start:start + 20]
+            return 200, dict(books=[dict(bookInfo=b,searchIdx=start+i+1) for i,b in enumerate(batch)],
+                hasMore=start+len(batch)<len(candidates))
         if path == "/web/categories" and method == "GET":
             return 200, CATEGORIES
         if path.startswith("/web/bookListInCategory/") and method == "GET":

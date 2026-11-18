@@ -2,10 +2,10 @@ package.path='./?.lua;./?/init.lua;'..package.path
 local checks=0
 local function expect(value,message) checks=checks+1;assert(value,message) end
 local public_reads,personal_reads,public_writes,personal_writes=0,0,0,0
-local account,change=nil,false
+local account,change,personal_source=nil,false,'native'
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 package.preload['weread.lib.discovery_cache']=function() return {new=function() return {
-    read=function() personal_reads=personal_reads+1;return {kind='search'} end,
+    read=function() personal_reads=personal_reads+1;return {kind='search',source_kind=personal_source} end,
     write=function() personal_writes=personal_writes+1;return 'personal-generation' end,
 } end} end
 package.preload['weread.lib.public_discovery_cache']=function() return {new=function() return {
@@ -31,8 +31,15 @@ expect(UI.read(host).kind=='category','guest last category was not restored')
 local state={kind='category',source_kind='public'}
 expect(UI.save(host,state) and state._cache_generation=='public-generation' and public_writes==1,'guest public batch not saved')
 expect(not UI.save(host,{kind='search',source_kind='native'}) and personal_writes==0,'guest saved personal query')
+local before_public_writes=public_writes
+expect(not UI.save(host,{kind='search',source_kind='public'}) and public_writes==before_public_writes,
+    'guest public search persisted a query in the shared cache')
 account='signed-in';local before=public_reads
 expect(UI.read(host,query).account=='signed-in' and personal_reads==1 and public_reads==before,'signed-in cache routing changed')
+expect(UI.read(host,{kind='search',keyword='test',public_only=true})==nil,'public search loaded a native cache')
+personal_source='public'
+expect(UI.read(host,{kind='search',keyword='test',public_only=true}).source_kind=='public',
+    'public search could not reopen its own account-scoped cache')
 state={kind='category',source_kind='public',account=account}
 expect(UI.save(host,state) and personal_writes==1,'signed-in category lost account-local cache')
 account=nil;change=true

@@ -10,7 +10,8 @@ function M.read(host,query,cursor)
         if account then return Cache:new(host.library_db,host.client):read(query,cursor) end
         return require('weread.lib.public_discovery_cache'):new(host.settings,host.client):read(query,cursor)
     end)
-    if ok and value and account==host.library_db:accountKey() then value.account=account;return value end
+    if ok and value and account==host.library_db:accountKey()
+        and (not query or not query.public_only or value.source_kind=='public') then value.account=account;return value end
 end
 function M.open(host,query,cursor)
     local value=M.read(host,query,cursor)
@@ -22,6 +23,8 @@ function M.open(host,query,cursor)
     host:showBookstore();return true
 end
 function M.save(host,state,previous,continuation)
+    -- Guest search terms are not written to the shared public category cache.
+    if state.kind=='search' and state.source_kind=='public' and not host.library_db:accountKey() then return false end
     local ok,generation=pcall(function()
         local account=host.library_db:accountKey()
         if state.account~=account then return nil end

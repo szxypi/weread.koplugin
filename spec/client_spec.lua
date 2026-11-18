@@ -74,6 +74,7 @@ package.preload["socket.http"] = function()
 end
 package.preload["weread.lib.protocol"] = function()
     return {
+        utf8_substr = dofile('weread/lib/protocol.lua').utf8_substr,
         USER_AGENT = "WeRead client spec",
         SKILL_VERSION = "test-skill",
         reader_url = function(id) return "https://weread.qq.com/web/reader/"..tostring(id) end,
@@ -435,6 +436,22 @@ expect(not pcall(public_client.get_category_books, public_client, "rising", -1),
 expect(not pcall(public_client.get_category_books, public_client, "rising", math.huge), "infinite cursor accepted")
 expect(not pcall(public_client.get_category_books, public_client, "rising", 0.5), "fractional cursor accepted")
 expect(#requests == before_invalid, "invalid category inputs sent HTTP")
+responses[#responses+1]={body='public-search',code=200,headers={['set-cookie']='wr_skey=XXX-public-cookie'}}
+local before_public_cookies=#merged_cookies
+expect(public_client:get_public_book_search('book &',20).payload=='public-search','public search JSON not decoded')
+public_request=requests[#requests]
+expect(public_request.url=='https://weread.qq.com/web/search/global?count=20&keyword=book%20%26&maxIdx=20'
+    and public_request.headers.Cookie==nil and public_request.headers.Authorization==nil
+    and #merged_cookies==before_public_cookies,'public search leaked or saved credentials')
+local before_public_invalid=#requests
+for _,input in ipairs({{'',0},{'bad\nquery',0},{string.char(255),0},{'valid',-1},{'valid',math.huge},{'valid',.5},{'valid','invalid'}}) do
+    expect(not pcall(public_client.get_public_book_search,public_client,input[1],input[2]),'invalid public search accepted')
+end
+expect(#requests==before_public_invalid,'invalid public search sent HTTP')
+logs={};responses[#responses+1]={body='private-public-search-body',code=429}
+local public_ok,public_error=pcall(public_client.get_public_book_search,public_client,'word',0)
+expect(not public_ok and public_error=='public_search/unavailable' and not table.concat(logs,'\n'):find('private-',1,true),
+    'public search failure leaked response')
 logs = {}
 responses[#responses + 1] = { body = "private-response-token", code = 401, headers = { location = "private-location" } }
 client:request({ url = "https://i.weread.qq.com/login?private-session", skip_cookie = true,

@@ -193,6 +193,13 @@ function M:showDiscoverySearch(initial_keyword)
             { text = _("Search suggestions"), callback = function()
                 if valid() then require("weread.ui.search_suggestions").open(self, dialog) end
             end },
+            { text = _("Public book search"), callback = function()
+                if not valid() then return end
+                local keyword=require('weread.lib.search_query').trim(dialog:getInputText())
+                if keyword=='' then return end
+                Popup.close(owner)
+                self:loadDiscoveryBatch('search',keyword,0,false,false,{public_search=true})
+            end },
         }},
     }
     local on_close=dialog.onCloseWidget
@@ -307,6 +314,7 @@ function M:showBookstore()
     local title = _("Bookstore")
     if state then
         title = state.kind == "search" and PluginUtil.T(_("Search: %1"), state.keyword) or _("For you")
+        if state.kind=='search' and state.source_kind=='public' then title=PluginUtil.T(_("Public search: %1"),state.keyword) end
         if state.kind == "similar" then title = PluginUtil.T(_("Similar to: %1"), state.book_title) end
         if state.kind == "category" then title = state.category_title end
         if state.cached or os.time() - state.loaded_at > Data.CACHE_TTL then title = _("Cached") .. " · " .. title end

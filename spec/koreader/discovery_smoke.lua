@@ -158,6 +158,27 @@ assert(plugin.discovery_state.category_id == "100001" and not plugin.discovery_s
     and #plugin.discovery_state.books == 15 and #plugin.discovery_state.history == 0)
 paint("store-subcategory-books")
 dofile(debug.getinfo(1,"S").source:match("^@(.*/)").."category_catalog_smoke.lua")(plugin,evidence)
+-- Search through native widgets and the public read-only endpoint.
+plugin:showBookstore()
+plugin:showDiscoverySearch()
+local search_dialog=assert(plugin.shelf_view._shelf_popup)
+search_dialog.input='合成读物'
+search_dialog.getInputText=function() return '合成读物' end
+search_dialog.buttons[2][2].callback()
+flush_tasks()
+assert(plugin.discovery_state.kind=='search' and plugin.discovery_state.source_kind=='public'
+    and #plugin.discovery_state.books==20 and plugin.discovery_state.has_more)
+paint('store-public-search')
+press(plugin.shelf_view,'Next batch')
+flush_tasks()
+assert(plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==5
+    and not plugin.discovery_state.has_more and plugin.discovery_state.history[1]==0,
+    'public next page: cursor='..tostring(plugin.discovery_state.cursor)..' count='..#plugin.discovery_state.books
+        ..' more='..tostring(plugin.discovery_state.has_more)..' history='..tostring(plugin.discovery_state.history[1]))
+press(plugin.shelf_view,'Previous batch')
+flush_tasks()
+assert(plugin.discovery_state.cursor==0 and #plugin.discovery_state.books==20
+    and #plugin.discovery_state.history==0)
 plugin:closeWeReadUI()
 plugin.discovery_state = nil
 -- Real subprocess, actual account-scoped SQLite and local-over-cloud display.
@@ -302,9 +323,13 @@ plugin.isNetworkConnected = function() return false end
 plugin.client.gateway = function() error("unexpected network request") end
 plugin.client.get_binary = function() error("unexpected image request") end
 plugin.client.get_text = function() error("unexpected public request") end
+-- Keep the recently-read fixture out of the deliberately empty-home case.
+local saved_books=plugin.settings:get('books',{})
+plugin.settings:set('books',{})
 plugin:showHome()
 assert(#plugin.shelf_view.books == 0, "empty-home fixture contains cached books")
 paint("home-empty")
+plugin.settings:set('books',saved_books)
 local books = response.books
 plugin.library_db:cacheShelf(books, response.archive)
 plugin:showHome()

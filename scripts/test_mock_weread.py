@@ -14,6 +14,18 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_public_book_search_requires_bounded_cursor_and_paginates(self):
+        base='https://weread.qq.com/web/search/global?count=20&keyword=%E5%90%88%E6%88%90%E8%AF%BB%E7%89%A9&maxIdx='
+        first=self.server.route('GET',base+'0',{})[1]
+        second=self.server.route('GET',base+'20',{})[1]
+        self.assertEqual((len(first['books']),len(second['books'])),(20,5))
+        self.assertTrue(first['hasMore']);self.assertFalse(second['hasMore'])
+        self.assertFalse({b['bookInfo']['bookId'] for b in first['books']} &
+                         {b['bookInfo']['bookId'] for b in second['books']})
+        for cursor in ('-1','2147483648','1.5'):
+            with self.subTest(cursor=cursor),self.assertRaises(ValueError):
+                self.server.route('GET',base+cursor,{})
+
     def test_direct_initial_styles_match_the_independently_verified_enum(self):
         base='https://i.weread.qq.com';raw=chapter_html(2);quote='这是第2章的第1段。我们沿着小路慢慢前行，'
         first=raw.index(quote);body=dict(bookId=BOOK_ID,chapterUid=2,bookVersion=700,type=1,style=1,colorStyle=0,

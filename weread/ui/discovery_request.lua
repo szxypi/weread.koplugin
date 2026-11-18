@@ -21,22 +21,26 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     context=context or {}
     if context.account and context~=host.discovery_state then return end
     cursor=refresh and 0 or cursor or 0
+    local public_search=kind=='search' and (context.public_search==true or context.source_kind=='public')
     local query={kind=kind,keyword=keyword,book_id=context.book_id,book_title=context.book_title,
-        category_id=context.category_id,category_title=context.category_title,rank=context.rank}
+        category_id=context.category_id,category_title=context.category_title,rank=context.rank,public_only=public_search}
     if context.cached and not refresh or host.isNetworkOnline and not host:isNetworkOnline() then
         if Cache.open(host,query,cursor) then return true end
         host:showInfo(_("No saved books for this batch. Connect to Wi-Fi and refresh the list."));return false
     end
     local selected,reason
-    if kind~="category" then
+    if kind~="category" and not public_search then
         selected,reason=Source.capture(host.settings)
         if not selected then
-            if reason=="login_required" and host.qr_login then
+            if kind=='search' and cursor==0 and not context.source_kind
+                and (reason=='native_required' or reason=='login_required' and not host.library_db:accountKey()) then
+                public_search=true;query.public_only=true
+            elseif reason=="login_required" and host.qr_login then
                 host:showTransientInfo(_("Please scan the QR code to log in first."),2)
                 UIManager:scheduleIn(0.2,function() host.qr_login:start() end)
             elseif host.native_authorization then host.native_authorization:showMenu()
             else host:showInfo(_("The bookstore needs E-Ink authorization or an official API key.")) end
-            return
+            if not public_search then return end
         end
     end
     local book_id,book_title=context.book_id,context.book_title
@@ -50,19 +54,29 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
     local binding=not refresh and (cursor>0 or previous) and (context.source_kind and context or source_state) or nil
     local request={kind=kind,keyword=keyword,cursor=cursor,book_id=book_id,session_id=session_id,
         category_id=context.category_id,rank=context.rank,
-        source_kind=binding and binding.source_kind,source_revision=binding and binding.source_revision}
-    if request.source_revision and kind~="category" and request.source_revision~=selected.revision then
+        source_kind=public_search and 'public' or binding and binding.source_kind,
+        source_revision=public_search and 'public' or binding and binding.source_revision}
+    if request.source_revision and kind~="category" and not public_search and request.source_revision~=selected.revision then
         host:showInfo(_("Bookstore access changed. Refresh or reopen the list."));return
     end
     local operation={account=account,epoch=epoch}
+    local auth_scope=public_search and host.settings.get_auth_scope and host.settings:get_auth_scope()
+    local auth_epoch=public_search and host.settings.get and host.settings:get('auth_epoch',0)
     host.discovery_request_context=operation
     host.discovery_loading=true
     local function current_view()
-        return host.discovery_request_context==operation and account==host.library_db:accountKey()
-            and epoch==(host.discovery_epoch or 0)
+        if host.discovery_request_context~=operation or account~=host.library_db:accountKey()
+            or epoch~=(host.discovery_epoch or 0) then return false end
+        if public_search and host.settings.get_auth_scope then
+            local now=host.settings:get_auth_scope()
+            if auth_scope then return now and now.vid==auth_scope.vid and now.epoch==auth_scope.epoch
+                and host.settings:auth_scope_matches(auth_scope) end
+            return not now and (not host.settings.get or host.settings:get('auth_epoch',0)==auth_epoch)
+        end
+        return true
     end
     local function current()
-        return current_view() and (kind=="category" or (operation.renewing and Recovery.current(host.settings,selected,Source.capture)
+        return current_view() and (kind=="category" or public_search or (operation.renewing and Recovery.current(host.settings,selected,Source.capture)
             or Source.matches(host.settings,selected)))
     end
     local launch

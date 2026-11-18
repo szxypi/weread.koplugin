@@ -90,6 +90,14 @@ plugin.loadDiscoveryBatch=function(_self,kind,keyword,cursor)
 end
 dialog.input='edited query';dialog.buttons[1][2].callback()
 expect(state.calls==1 and not view._shelf_popup,'edited search did not close and submit')
+plugin:showDiscoverySearch();dialog=assert(view._shelf_popup)
+plugin.loadDiscoveryBatch=function(_self,kind,keyword,cursor,_previous,_refresh,context)
+    expect(kind=='search' and keyword=='public query' and cursor==0 and context.public_search,
+        'public search did not select its source')
+    state.calls=state.calls+1
+end
+dialog.input=' public query ';dialog.buttons[2][2].callback()
+expect(state.calls==2 and not view._shelf_popup,'public search did not submit exactly once')
 plugin:showDiscoverySearch('bad\nquery');dialog=assert(view._shelf_popup)
 expect(dialog.input=='','invalid prefilled query was displayed')
 plugin,state=host();view=state.open('home')
