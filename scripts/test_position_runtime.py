@@ -97,6 +97,7 @@ def main():
     parser.add_argument('--cached-ignore-case', action='store_true')
     parser.add_argument('--cached-unicode-case', action='store_true')
     parser.add_argument('--cached-txt-source', action='store_true')
+    parser.add_argument('--cached-canonical-case', choices=('source','query'))
     parser.add_argument('--cached-restore-catalog', action='store_true')
     parser.add_argument('--cb-cloud-single', action='store_true')
     parser.add_argument('--cb-sync-noack', action='store_true')
@@ -107,6 +108,7 @@ def main():
     parser.add_argument('--cb-sync-time', choices=('confirmed','changed','unknown'), default='')
     parser.add_argument('--cb-cloud-gap', action='store_true')
     args = parser.parse_args()
+    if args.cached_canonical_case and not args.cached_unicode_case:parser.error('--cached-canonical-case requires --cached-unicode-case')
     if args.cached_txt_source and not args.cached_unicode_case:parser.error('--cached-txt-source requires --cached-unicode-case')
     if args.cached_unicode_case:args.cached_ignore_case=True
     if min(args.width, args.height, args.dpi) <= 0:
@@ -180,6 +182,7 @@ def main():
                                         WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
                                         WEREAD_TEST_CACHED_UNICODE_CASE='1' if args.cached_unicode_case else '0',
                                         WEREAD_TEST_CACHED_TXT_SOURCE='1' if args.cached_txt_source else '0',
+                                        WEREAD_TEST_CACHED_CANONICAL_CASE=args.cached_canonical_case or '',
                                         WEREAD_TEST_CACHED_RESTORE_CATALOG='1' if args.cached_restore_catalog else '0',
                                         WEREAD_TEST_CB_CLOUD_SINGLE='1' if args.cb_cloud_single else '0',
                                         WEREAD_TEST_CB_SYNC_NOACK='1' if args.cb_sync_noack else '0',
