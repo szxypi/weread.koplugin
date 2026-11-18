@@ -1,0 +1,29 @@
+{
+  "date": "2026-11-18",
+  "scope": "self-authored imported EPUB fixtures, current-window requests",
+  "blank_summary_trial": {
+    "seconds": 2,
+    "original_trial_verified": false,
+    "source_unchanged": true,
+    "coordinates_unchanged": true,
+    "summary_removed_on_both_interfaces": true,
+    "independent_readbacks": 2,
+    "fixture_removed": true,
+    "replays": 0
+  },
+  "preserved_summary_trial": {
+    "seconds": 2,
+    "native_and_web_position_unchanged": true,
+    "native_and_web_summary_unchanged": true,
+    "book_and_daily_and_monthly_delta": 2,
+    "other_reading_counters_unchanged": true,
+    "fixture_removed": true,
+    "positive_time_posts": 1,
+    "existing_book_writes": 0,
+    "replays": 0
+  },
+  "limitations": [
+    "historical CB offline time not tested",
+    "Kindle KO2 device not tested"
+  ]
+}

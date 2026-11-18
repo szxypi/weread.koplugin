@@ -18,6 +18,24 @@ assert(book.hours[1].startOfHour==1699999200 and book.hours[1].readingTime==1)
 assert(book.hours[2].startOfHour==1700002800 and book.hours[2].readingTime==1)
 for _i,key in ipairs({'chapterUid','chapterIdx','chapterOffset','voiceType','novelTime'}) do assert(book[key]==nil) end
 assert(value.recordCreateTimeZone==nil and book.recordCreateTimeZone=='+00:00')
+local function cb(summary,id,selected_rows)
+    return P.cb_batch(credentials,id or 'CB_Synthetic',selected_rows or rows(),'5ecdcfd7f','fixture-config',1700007200,123,
+        {timestamp=1700007200123,random=456,current_zone='+00:00'},summary)
+end
+local imported=cb('合成摘要')
+assert(imported.books[1].summary=='合成摘要' and imported.books[1].bookId=='CB_Synthetic')
+assert(imported.books[1].signature=='6355e24b30adc9475d9b8c96168c552abe58370ce7cb7b90a5a081fba692bc0e')
+assert(imported.signature==value.signature and imported.books[1].readingTime==2)
+for _i,invalid in ipairs({'','CB_','CB_bad/','CB_'..string.rep('A',65),'900001'}) do
+    fails(function() cb('合成摘要',invalid) end)
+end
+for _i,invalid in ipairs({'', 'a\0b',string.rep('文',513), '\255'}) do
+    fails(function() cb(invalid) end)
+end
+fails(function() cb(nil) end)
+fails(function() P.batch(credentials,'CB_Synthetic',rows(),'5ecdcfd7f','fixture-config',1700007200,123) end)
+local invalid_cb_rows=rows();invalid_cb_rows[1].start_time=1700007200
+fails(function() cb('合成摘要','CB_Synthetic',invalid_cb_rows) end)
 local keys={bookId=true,bookVersion=true,appId=true,deviceId=true,installId=true,summary=true,progress=true,currentProgress=true,
     autoTime=true,isLecture=true,isResendReadingInfo=true,lectureTime=true,lectureTextTime=true,novalTime=true,ttsTime=true,
     finish=true,risk=true,readingTime=true,recordCreateTimeZone=true,timestamp=true,random=true,hours=true,signature=true}

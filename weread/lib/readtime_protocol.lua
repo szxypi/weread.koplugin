@@ -74,8 +74,10 @@ function M.sign(parts)
     table.sort(values,byte_less)
     return Crypto.sha256_hex(rotate(Crypto.sha256_hex(rotate(table.concat(values)))))
 end
-function M.validate_rows(rows,book_id,now)
-    assert(bounded(book_id,20) and book_id:match('^[1-9]%d*$') and integer(now,1,4102444800),'readtime/identity_clock')
+local function validate_rows(rows,book_id,now,cb)
+    local valid=cb and bounded(book_id,67) and book_id:match('^CB_[A-Za-z0-9]+$')
+        or not cb and bounded(book_id,20) and book_id:match('^[1-9]%d*$')
+    assert(valid and integer(now,1,4102444800),'readtime/identity_clock')
     dense(rows,100);local sorted={};local keys={start_time=true,duration=true,time_zone=true,book_version=true}
     for _i,row in ipairs(rows) do
         assert(type(row)=='table','readtime/rows');local count=0
@@ -92,6 +94,8 @@ function M.validate_rows(rows,book_id,now)
     end
     assert(total<=600,'readtime/batch_limit');return total,version
 end
+function M.validate_rows(rows,book_id,now) return validate_rows(rows,book_id,now,false) end
+function M.validate_cb_rows(rows,book_id,now) return validate_rows(rows,book_id,now,true) end
 function M.hours(rows)
     local buckets,keys={},{}
     for _i,row in ipairs(rows) do
@@ -111,17 +115,18 @@ function M.hours(rows)
     end)
     local result={};for _i,key in ipairs(keys) do result[#result+1]=buckets[key] end;return result
 end
-function M.batch(credentials,book_id,rows,guest,config_token,now,random,envelope)
+local function batch(credentials,book_id,rows,guest,config_token,now,random,envelope,summary,cb)
     assert(type(credentials)=='table' and bounded(credentials.vid,32) and credentials.vid:match('^[1-9]%d*$')
         and bounded(credentials.deviceId,32) and #credentials.deviceId==32
         and bounded(credentials.accessToken,8192) and bounded(credentials.refreshToken,8192),'readtime/credentials')
-    local total,version=M.validate_rows(rows,book_id,now);envelope=envelope or {}
+    local total,version=validate_rows(rows,book_id,now,cb);envelope=envelope or {}
+    if cb then assert(require('weread.lib.native_position_protocol').summary(summary),'readtime/summary') end
     local stamp,outer_random=envelope.timestamp or now*1000,envelope.random or random
     local zone=M.zone(envelope.current_zone or M.time_zone(now))
     assert(integer(random,0,999) and integer(outer_random,0,999) and integer(stamp,1000,4102444800999)
         and stamp-now*1000>=0 and stamp-now*1000<2000 and bounded(guest,4096) and bounded(config_token,4096),'readtime/parameters')
     local buckets=M.hours(rows)
-    local book={bookId=book_id,bookVersion=version,appId='',deviceId=credentials.deviceId,installId='',summary='',
+    local book={bookId=book_id,bookVersion=version,appId='',deviceId=credentials.deviceId,installId='',summary=summary or '',
         progress=0,currentProgress=0,autoTime=0,isLecture=0,isResendReadingInfo=1,lectureTime=0,lectureTextTime=0,
         novalTime=0,ttsTime=0,finish=false,risk=0,readingTime=total,recordCreateTimeZone=zone,timestamp=now,random=random,hours=buckets}
     local parts={credentials.vid,book.deviceId,'',book_id,'0',zone,tostring(total),'0'}
@@ -131,5 +136,13 @@ function M.batch(credentials,book_id,rows,guest,config_token,now,random,envelope
     book.signature=M.sign({guest,tostring(random),tostring(now),table.concat(parts,'_')})
     return {books={book},timestamp=stamp,random=outer_random,
         signature=Crypto.sha256_hex(string.format('%.0f',stamp)..config_token..tostring(outer_random))}
+end
+function M.batch(credentials,book_id,rows,guest,config_token,now,random,envelope)
+    return batch(credentials,book_id,rows,guest,config_token,now,random,envelope,nil,false)
+end
+-- Isolated construction only: callers must independently prove the source,
+-- current matching Web/native summary and historical accounting before dispatch.
+function M.cb_batch(credentials,book_id,rows,guest,config_token,now,random,envelope,summary)
+    return batch(credentials,book_id,rows,guest,config_token,now,random,envelope,summary,true)
 end
 return M
