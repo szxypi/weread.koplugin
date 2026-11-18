@@ -342,7 +342,10 @@ def main():
                 if args.search_cb:expected['imported_search']=True
                 if args.search_current_fallback:expected['current_fallback']=True
                 assert value==expected, 'online search result mismatch'
-                assert server.request_totals[('/web/book/search_v2','')]==(7 if args.search_renewal else 2), 'unexpected search request count'
+                search_requests=7 if args.search_renewal else 2
+                if args.search_cb and not args.search_missing and not args.search_renewal and not args.search_current_fallback:
+                    search_requests+=1 # reopen the online results after the offline handoff
+                assert server.request_totals[('/web/book/search_v2','')]==search_requests, 'unexpected search request count'
                 assert server.request_totals[('/web/login/renewal','')]==(2 if args.search_renewal else 0), 'unexpected renewal count'
                 for event in server.events:
                     if event['method']=='POST':

@@ -84,9 +84,20 @@ render=function(host,owner)
                 end
             end}
         end
+        local function cached_option()
+            items[#items+1]={text=_('Search downloaded chapters'),callback=function()
+                if not current(host,owner) or owner.job or owner.recovery or owner.navigation then return end
+                local opened=require('weread.ui.cached_book_search').open(host,owner.id,owner.chapters,owner.keyword)
+                if not opened and current(host,owner) then host:showInfo(_('Could not search downloaded chapters.')) end
+            end}
+        end
+        -- The server's imported-book index can omit real matches. Offer the
+        -- local source-index search alongside both partial and empty results.
+        if owner.cb_book and owner.state and owner.state.pages>0 and #owner.value>0 then cached_option() end
         if #owner.value==0 and owner.state and owner.state.finished then
             items[#items+1]={text=_(owner.cb_book and 'No matches returned. Search may be incomplete for this book.'
                 or 'No matching text found.'),select_enabled=false}
+            if owner.cb_book then cached_option() end
         elseif owner.cb_book and #owner.value>0 then
             items[#items+1]={text=_('Search results may be incomplete for this book.'),select_enabled=false}
         end
@@ -201,7 +212,7 @@ local function begin_search(host,owner,chapters)
         local fallback=Search.new(owner.id,owner.keyword,chapters,owner.current_uid)
         if fallback and fallback.cursor.chapter~=state.cursor.chapter then owner.fallback_state=fallback end
     end
-    owner.state=state;owner.titles={}
+    owner.state=state;owner.titles={};owner.chapters=chapters
     for _i,chapter in ipairs(chapters) do owner.titles[tostring(chapter.chapterUid)]=chapter.title end
     render(host,owner);fetch_page(host,owner)
 end

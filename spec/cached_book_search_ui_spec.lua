@@ -63,6 +63,10 @@ function host:showList(_title,items)
     return menu
 end
 local chapters={{chapterUid='1',title='First'},{chapterUid='2',title='Second'},{chapterUid='3',title='Not downloaded'}}
+expect(Cached.open(host,'CB_Synthetic',chapters,'original term') and displayed.input=='original term',
+    'online fallback did not prefill its query')
+Cached.cancel(host)
+expect(not Cached.open(host,'CB_Synthetic',chapters,'bad\nquery'),'unsafe prefilled query was accepted')
 local function open(rows,ignore_case)
     assert(Cached.open(host,'CB_Synthetic',rows));local input=assert(displayed)
     input.input='needle';(ignore_case and input.buttons[2][1] or input.buttons[1][2]).callback()

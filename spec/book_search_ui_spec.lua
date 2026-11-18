@@ -80,6 +80,10 @@ package.preload['weread.lib.memory_worker']=function() return {new=function()
 end} end
 
 local Search=require('weread.ui.book_search')
+local cached_calls,cached_request=0,nil
+package.preload['weread.ui.cached_book_search']=function() return {open=function(target,id,rows,keyword)
+    cached_calls=cached_calls+1;cached_request={host=target,id=id,rows=rows,keyword=keyword};return true
+end} end
 local checks=0
 local function expect(value,label) checks=checks+1;if not value then error(label) end end
 local account='123';local online=true;local scope_valid=true
@@ -222,12 +226,24 @@ local cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].ca
 local cb_owner=assert(host._book_search_owner);active_worker:complete()
 expect(cb_owner.menu.items[#cb_owner.menu.items].text=='Search results may be incomplete for this book.',
     'imported book results did not disclose indexing limitations')
+local offline
+for _i,item in ipairs(cb_owner.menu.items) do if item.text=='Search downloaded chapters' then offline=item end end
+expect(offline~=nil,'incomplete imported results did not offer downloaded search')
+offline.callback()
+expect(cached_calls==1 and cached_request.host==host and cached_request.id=='CB_Synthetic'
+    and cached_request.rows==chapters and cached_request.keyword=='term','offline search lost its book, catalog or query')
 Search.cancel(host)
+offline.callback();expect(cached_calls==1,'closed online results launched downloaded search')
 fetch_mode='empty';expect(Search.open(host,'CB_Synthetic',chapters),'imported book search did not reopen')
 cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
 active_worker:complete()
 expect(cb_owner.menu.items[1].text=='No matches returned. Search may be incomplete for this book.',
     'empty imported search claimed a complete negative result')
+offline=cb_owner.menu.items[2]
+expect(offline and offline.text=='Search downloaded chapters','empty online result did not offer downloaded search')
+scope_valid=false;offline.callback();scope_valid=true
+expect(cached_calls==1,'changed account launched an old offline action')
+offline.callback();expect(cached_calls==2 and cached_request.keyword=='term','empty-result fallback lost query')
 Search.cancel(host)
 expect(not Search.open(host,'CB_bad/path',chapters),'invalid imported book ID was accepted')
 local two_chapters={{chapterUid='1',title='First'},{chapterUid='2',title='Second'}}

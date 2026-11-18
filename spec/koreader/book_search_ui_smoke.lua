@@ -135,6 +135,25 @@ wait(function() return owner.state and owner.state.pages==1 and not owner.job en
 assert(#owner.value==1 and owner.value[1].source_verified==false)
 if imported then
     assert(owner.menu.item_table[#owner.menu.item_table].text==require('weread.lib.i18n').tr('Search results may be incomplete for this book.'))
+    if not missing and not renewal_test then
+        local local_action
+        for _i,item in ipairs(owner.menu.item_table) do
+            if item.text==require('weread.lib.i18n').tr('Search downloaded chapters') then local_action=item end
+        end
+        assert(local_action,'imported online results have no local search action')
+        local network_before=tonumber(network[0]);owner.menu:onMenuSelect(local_action)
+        wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+        local cached=plugin._cached_book_search_owner
+        assert(not plugin._book_search_owner and cached.input:getInputText()=='amberneedle','local search lost the query')
+        cached.input.buttons[1][2].callback()
+        wait(function() return cached.finished and not cached.job end)
+        assert(#cached.value==2 and tonumber(network[0])==network_before,'downloaded search missed results or used network')
+        plugin:cancelBookSearch()
+        assert(require('weread.ui.book_search').open(plugin,book_id,chapters))
+        owner=assert(plugin._book_search_owner);owner.input:setInputText('amberneedle');owner.input.buttons[1][2].callback()
+        wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
+        assert(#owner.value==1,'online search did not reopen after downloaded search')
+    end
 end
 if renewal_test then
     assert(not owner.recovery and count('/web/login/renewal')==1 and count('/web/book/search_v2')==2)

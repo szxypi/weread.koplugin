@@ -207,8 +207,10 @@ start=function(host,owner)
     step();return true
 end
 
-function M.open(host,id,chapters)
+function M.open(host,id,chapters,initial_keyword)
     if type(id)~='string' or not Access.display_book_id(id) then return false end
+    if initial_keyword~=nil and (type(initial_keyword)~='string' or #initial_keyword>160
+        or initial_keyword:find('[%z%c]')) then return false end
     local document=host.ui and host.ui.document
     if not document or not document.file or not host.library_db then return false end
     local scope=host.settings:get_auth_scope()
@@ -248,7 +250,7 @@ function M.open(host,id,chapters)
             render(host,owner);start(host,owner)
         end
     end
-    input=Input:new{title=_('Search downloaded chapters (ignores spaces)'),input='',buttons={{
+    input=Input:new{title=_('Search downloaded chapters (ignores spaces)'),input=initial_keyword or '',buttons={{
         {text=_('Cancel'),callback=function() if current(host,owner) then M.cancel(host) end end},
         {text=_('Search (match case)'),is_enter_default=true,callback=search(false)},
     },{
