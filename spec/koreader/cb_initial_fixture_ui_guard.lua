@@ -9,6 +9,9 @@ function M.new(input,protocol,cookie)
     local catalog,write=base..'/web/book/chapterInfos',base..'/web/book/read'
     local content={}
     for _i,name in ipairs({'e_0','e_1','e_3'}) do content[base..'/web/book/chapter/'..name]=true end
+    if input.source_format=='web_txt' then
+        content[base..'/web/book/chapter/t_0']=true;content[base..'/web/book/chapter/t_1']=true
+    end
     return function(options,writes,decode)
         if type(options)~='table' or options.sensitive~=true or type(options.headers)~='table' then return nil end
         local url,method=options.url,options.method

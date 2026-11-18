@@ -97,8 +97,11 @@ local ok,reason=pcall(function()
     for _i,chapter in ipairs(input.chapters) do if tostring(chapter.chapterUid)==input.chapter then
         assert(not target and chapter.chapterIdx==input.chapter_idx);target=chapter end end
     assert(target and type(target.wordCount)=='number' and target.wordCount>0)
-    local source=assert(Source.capture(book,target,input.source,'web_xhtml'))
-    local file=assert(Content.save_book_epub(settings,book,{target},{[input.chapter]=input.source},'fixture-first',{},nil,nil,
+    local source_format=input.source_format or 'web_xhtml'
+    assert(source_format=='web_xhtml' or source_format=='web_txt')
+    local source=assert(Source.capture(book,target,input.source,source_format))
+    local rendered=source_format=='web_txt' and Content.txt_to_xhtml(input.source) or input.source
+    local file=assert(Content.save_book_epub(settings,book,{target},{[input.chapter]=rendered},'fixture-first',{},nil,nil,
         Identity.capture(book),{[input.chapter]=source}))
     book.cached_file=file;book.cached_chapters[input.chapter]=file;book.chapters=input.chapters
     assert(Content.save_catalog_cache(client,settings,book,input.chapters))

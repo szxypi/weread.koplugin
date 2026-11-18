@@ -74,8 +74,15 @@ def target_matches(raw, target, chapters, channel, summary):
             and type(value.get('raw_percent')) in (int, float) and 0 <= value['raw_percent'] <= 100)
 
 
+def xhtml_summary(sample, plan):
+    model = FilteredSource(sample['source'], allow_multiple_bodies=True)
+    return ''.join(c for c in model.anchor_at(plan['first'], size=96) if not c.isspace())[:20]
+
+
 def run(saved, session, native_store, grant, journal, intent, command, *, apply=False,
-        upload_factory=UploadProbe, uploader=upload_run, ui_runner=run_ui, attest=ui_command):
+        upload_factory=UploadProbe, uploader=upload_run, ui_runner=run_ui, attest=ui_command,
+        source_format='web_xhtml', source_marker=TEXT, position_planner=position_plan,
+        summary_planner=xhtml_summary, upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=None):
     report = dict(result='UNVERIFIED', phase='preflight', position_writes_known=0,
                   position_writes_uncertain=False, account_data_writes_known=0, authentication_posts=0,
                   existing_book_writes=0, fixture_only=True, private_data_in_report=False)
@@ -109,10 +116,10 @@ def run(saved, session, native_store, grant, journal, intent, command, *, apply=
         web = connect(SourceRead, target)
         try:
             sample = web.inspect(target); web.verify_account()
-            if (sample['book_id'] != target or sample['source_format'] != 'web_xhtml' or TEXT not in sample['source']
+            if (sample['book_id'] != target or sample['source_format'] != source_format or source_marker not in sample['source']
                     or set(web.last_checks) != {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
                     or not all(web.last_checks.values())): return False
-            current.update(sample=sample, plan=position_plan(target, sample), source_hash=sample['source_raw_sha256'],
+            current.update(sample=sample, plan=position_planner(target, sample), source_hash=sample['source_raw_sha256'],
                            versions=web.catalog_versions)
             persist(web); return True
         finally: web.samples.clear(); web.close()
@@ -121,9 +128,12 @@ def run(saved, session, native_store, grant, journal, intent, command, *, apply=
         sample, plan = current['sample'], current['plan']
         if not sample or not plan or shelf(target) != current['shelf']: return False
         owner = current['saved']['vid']
-        if not owned(upload, receipt, target, owner, grant, same_grant): return False
+        def owned_fixture():
+            return (owned(upload, receipt, target, owner, grant, same_grant)
+                    and (fixture_authorized is None or fixture_authorized(upload, receipt, target, owner)))
+        if not owned_fixture(): return False
         upload_state, _ = upload.read(); attempt = upload_state['attempt']; native = NativeRead(grant, target)
-        def authority(): return owned(upload, receipt, target, owner, grant, same_grant)
+        def authority(): return owned_fixture()
         def pair():
             if not authority(): raise ValueError('cb_first_ui/owner')
             web = connect(WebSourceProbe, target)
@@ -141,8 +151,7 @@ def run(saved, session, native_store, grant, journal, intent, command, *, apply=
             return value
         before = baseline()
         if baseline() != before: return False
-        model = FilteredSource(sample['source'], allow_multiple_bodies=True)
-        summary = ''.join(c for c in model.anchor_at(plan['first'], size=96) if not c.isspace())[:20]
+        summary = summary_planner(sample, plan)
         if not summary: return False
         bound = hashlib.sha256((current['source_hash'] + ':' + str(plan['first'])).encode()).hexdigest()
         reservation = intent.reserve(owner, target, attempt, bound)
@@ -152,7 +161,7 @@ def run(saved, session, native_store, grant, journal, intent, command, *, apply=
             if type(item.get('wordCount')) not in (int, float) or item['wordCount'] <= 0: item['wordCount'] = 1000
             chapters.append(item)
         payload = dict(book=target, chapter=plan['chapter'], chapter_idx=plan['index'], offset=plan['first'],
-                       expected_summary=summary, source=sample['source'], chapters=chapters, book_version=0,
+                       expected_summary=summary, source=sample['source'], source_format=source_format, chapters=chapters, book_version=0,
                        owner=owner, cookies=current['saved']['cookies'], native=grant, armed=False)
         if not authority() or attest() != command or not ui_runner(command, payload): return False
         report['native_dry_run_verified'] = True
@@ -199,7 +208,7 @@ def run(saved, session, native_store, grant, journal, intent, command, *, apply=
         report['account_data_writes_known'] = (report['position_writes_known'] + result.get('cos_put_attempts', 0)
                                                + result.get('notify_posts', 0) + result.get('cleanup_posts', 0))
         if result.get('result') == 'READ_ONLY_PREVIEW': report['result'] = 'READ_ONLY_PREVIEW'
-        elif result.get('result') == 'EPUB_IMPORT_AND_SOURCE_VERIFIED' and current['completed'] and shelf() == before:
+        elif result.get('result') == upload_success and current['completed'] and shelf() == before:
             report.update(result='CB_FIRST_NATIVE_UI_VERIFIED', web_shelf_restored=True, independent_dual_readback=True)
     except Exception:
         report['result'] = 'UNVERIFIED'

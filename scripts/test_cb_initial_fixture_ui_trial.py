@@ -13,8 +13,11 @@ import verify_cb_initial_fixture_ui_trial as task
 
 
 class Backend:
-    def __init__(self):
+    def __init__(self, txt=False):
         self.book, self.sample = fixture(); self.sample['source_raw_sha256'] = 'f' * 64
+        if txt:
+            from verify_cb_txt_fixture import MARKER
+            self.sample.update(source_format='web_txt', source=MARKER + '\nA second synthetic line.')
         self.owner = '900000'; self.imported = False; self.calls = []
         self.current = dict(bookId=self.book, chapterUid=0, chapterIdx=0, chapterOffset=0,
                             progress=0, summary='', readingTime=0, recordReadingTime=0, ttsTime=0)
@@ -23,8 +26,8 @@ class Backend:
     def read(self): return (self.state, self.receipt) if self.imported else (None, None)
 
 
-def run_case(*, fail=None, apply=True):
-    backend = Backend(); grant = {'vid': backend.owner}
+def run_case(*, fail=None, apply=True, txt=False, fixture_authorized=None):
+    backend = Backend(txt); grant = {'vid': backend.owner}
     saved = dict(vid=backend.owner, cookies={'wr_vid': backend.owner, 'wr_skey': 'synthetic'})
     intent = Intent(backend=MemoryBackend()); command = ['synthetic-runner']
     class NativeStore:
@@ -65,7 +68,7 @@ def run_case(*, fail=None, apply=True):
         try: backend.cleanup = cleanup_gate(backend, backend.receipt, backend.state['plan'], backend.book)
         except Exception: backend.cleanup = False
         if backend.cleanup: backend.imported = False
-        return dict(result='EPUB_IMPORT_AND_SOURCE_VERIFIED' if backend.cleanup else 'UNVERIFIED',
+        return dict(result=('TXT_IMPORT_AND_SOURCE_VERIFIED' if txt else 'EPUB_IMPORT_AND_SOURCE_VERIFIED') if backend.cleanup else 'UNVERIFIED',
                     phase='restored' if backend.cleanup else 'imported', cos_put_attempts=1,
                     notify_posts=1, cleanup_posts=int(backend.cleanup))
     attests = []
@@ -74,8 +77,15 @@ def run_case(*, fail=None, apply=True):
         return ['changed'] if fail == 'attestation' and len(attests) > 1 else command
     with patch.object(task, 'WebSourceProbe', Web), patch.object(task, 'SourceRead', Source), \
          patch.object(task, 'NativeRead', Native), patch.object(task, 'save_refreshed_web_session', return_value=False):
+        options = {}
+        if txt:
+            from cb_txt_initial_fixture_plan import plan
+            from verify_cb_txt_fixture import MARKER
+            from verify_cb_txt_initial_fixture_ui_trial import summary
+            options = dict(source_format='web_txt', source_marker=MARKER, position_planner=plan, summary_planner=summary,
+                           upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=fixture_authorized)
         result = task.run(saved, None, NativeStore(), grant, backend, intent, command, apply=apply,
-                          upload_factory=lambda *_: None, uploader=uploader, ui_runner=ui_runner, attest=attest)
+                          upload_factory=lambda *_: None, uploader=uploader, ui_runner=ui_runner, attest=attest, **options)
     return result, backend, intent
 
 
@@ -103,6 +113,14 @@ class TrialTest(unittest.TestCase):
         result, backend, intent = run_case(apply=False)
         self.assertEqual(result['result'], 'READ_ONLY_PREVIEW')
         self.assertFalse(backend.imported or backend.calls or intent.backend.load())
+
+    def test_txt_ui_requires_fresh_fixture_receipt_throughout(self):
+        result, backend, _intent = run_case(txt=True, fixture_authorized=lambda *_: True)
+        self.assertEqual(result['result'], 'CB_FIRST_NATIVE_UI_VERIFIED')
+        self.assertEqual(backend.calls, [False, True]); self.assertTrue(backend.cleanup)
+        result, backend, intent = run_case(txt=True, fixture_authorized=lambda upload, *_: not upload.calls)
+        self.assertEqual(result['result'], 'UNVERIFIED'); self.assertEqual(backend.calls, [False])
+        self.assertTrue(backend.imported and not backend.cleanup); self.assertIsNotNone(intent.backend.load())
 
 
 if __name__ == '__main__': unittest.main()

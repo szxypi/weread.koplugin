@@ -7,9 +7,10 @@ from pathlib import Path
 import subprocess
 import threading
 
-from mock_weread import CHAPTERS, chapter_html, prepare
+from mock_weread import CHAPTERS, QUOTE, chapter_html, chapter_txt, prepare
 from native_reader_fixture import GRANT
 from test_cb_initial_ui_runtime import BOOK, FirstServer
+from txt_coordinates import PlainSource
 from verify_source_coordinates import FilteredSource
 
 
@@ -18,16 +19,18 @@ def main():
     parser.add_argument('--koreader', type=Path, required=True); parser.add_argument('--run-dir', type=Path, required=True)
     parser.add_argument('--width', type=int, default=600); parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167); parser.add_argument('--dry', action='store_true')
+    parser.add_argument('--format', choices=('epub', 'txt'), default='epub')
     args = parser.parse_args(); root, runtime = args.run_dir.resolve(), args.koreader.resolve()
-    server = FirstServer('normal'); thread = None
+    server = FirstServer('normal'); server.content_format = args.format; thread = None
     try:
         prepare(root, runtime, server.server_port, args.width, args.height, args.dpi)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-        source = chapter_html(1); model = FilteredSource(source)
-        offset = model.locate('这是第1章的第16段。我们沿着小路慢慢前行')[0]
-        summary = ''.join(c for c in model.anchor_at(offset, size=96) if not c.isspace())[:20]
+        source = chapter_txt(1) if args.format == 'txt' else chapter_html(1)
+        model = PlainSource(source) if args.format == 'txt' else FilteredSource(source)
+        offset = model.locate('这是第1章的第16段。' + QUOTE if args.format == 'txt' else '这是第1章的第16段。我们沿着小路慢慢前行')[0]
+        summary = model.excerpt(offset)['text'] if args.format == 'txt' else ''.join(c for c in model.anchor_at(offset, size=96) if not c.isspace())[:20]
         payload = dict(book=BOOK, chapter='1', chapter_idx=1, offset=offset, expected_summary=summary,
-                       source=source, chapters=CHAPTERS, book_version=0, owner=GRANT['vid'], native=GRANT,
+                       source=source, source_format='web_txt' if args.format == 'txt' else 'web_xhtml', chapters=CHAPTERS, book_version=0, owner=GRANT['vid'], native=GRANT,
                        cookies=dict(wr_vid=GRANT['vid'], wr_skey='synthetic-cookie-session'), armed=not args.dry)
         env = os.environ | dict(WEREAD_FIXTURE_SYNTHETIC='1', WEREAD_FIXTURE_MOCK_PORT=str(server.server_port))
         runner = Path(__file__).resolve().parent / 'run_cb_initial_fixture_ui.py'

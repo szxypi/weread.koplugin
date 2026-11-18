@@ -23,6 +23,13 @@ for _i,url in ipairs({base..'/api/userInfo?userVid=900000',Protocol.reader_url(i
 expect(not check(option(base..'/web/book/getProgress?bookId=CB_Other'),0,decode))
 expect(check(option(base..'/web/book/chapterInfos','POST',{bookIds={input.book}}),0,decode)=='read')
 expect(not check(option(base..'/web/book/chapterInfos','POST',{bookIds={input.book,'CB_Other'}}),0,decode))
+local txt=base..'/web/book/chapter/t_0'
+local shard={b=Protocol.e(input.book),c=Protocol.e(input.chapter),sc=1}
+expect(not check(option(txt,'POST',shard),0,decode))
+input.source_format='web_txt';local txt_check=Guard.new(input,Protocol,Cookie)
+expect(txt_check(option(txt,'POST',shard),0,decode)=='read')
+shard.b=Protocol.e('CB_Other');expect(not txt_check(option(txt,'POST',shard),0,decode));shard.b=Protocol.e(input.book)
+shard.c=Protocol.e('12');expect(not txt_check(option(txt,'POST',shard),0,decode));shard.c=Protocol.e(input.chapter)
 local payload=Payload.build('enter',{book_id=input.book,chapter_uid=input.chapter,chapter_idx=input.chapter_idx,
     chapter_offset=input.offset,progress=37,summary=input.expected_summary,psvts='synthetic-ps',pclts='synthetic-pc',token='synthetic-token'})
 local url=base..'/web/book/read'
