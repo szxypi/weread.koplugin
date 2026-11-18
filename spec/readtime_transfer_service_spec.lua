@@ -80,6 +80,7 @@ local multi_input={book_id='CB_Synthetic',book_version=0}
 local multi_refs={{file='/synthetic.epub',chapter_uid='7',chapter_idx=0,chapters={{chapterUid='7',chapterIdx=0},{chapterUid='8',chapterIdx=1}}}}
 expect(f.service:start('send',f.account,multi_input,multi_refs,f.guard,function(value) f.result=value end))
 expect(f.service.job.deadline==130)
+expect(f.worker.timeout==130,'worker retained its shorter default timeout')
 f.clock=f.clock+71;expect(f.service:_current(f.service.job),'multi-chapter worker timed out at single-chapter deadline')
 f.clock=f.clock+60;f.service.job.poll()
 expect(f.result.kind=='cancelled' and not f.service.job and not f.gate.active and f.posts==0,'multi-chapter deadline did not cancel')
@@ -87,7 +88,44 @@ f=fixture();local many={}
 for i=1,10000 do many[i]={chapterUid=tostring(i),chapterIdx=i} end
 multi_refs[1].chapters=many
 expect(f.service:start('send',f.account,multi_input,multi_refs,f.guard,function(value) f.result=value end))
-expect(f.service.job.deadline==3600 and f.service:cancel(),'large scope deadline must be bounded')
+expect(f.service.job.deadline==3600 and f.worker.timeout==3600 and f.service:cancel(),'large scope deadline must be bounded')
+f.gate.active=true;expect(f.start() and f.worker.timeout==70,'reused worker retained an old long timeout')
+expect(f.service:cancel(),'reused worker could not be cancelled')
+-- Exercise the actual MemoryWorker timeout, not only the parent's deadline.
+-- The runner is deterministic; no real process or network is started.
+local function attach_memory_worker(context,discard)
+    local run,bytes,done,terminated=nil,'',false,false
+    local runner={
+        run=function(fn) run=fn;return 21,22 end,
+        write=function(_fd,value) if not discard then bytes=bytes..value;done=true end;return true end,
+        read=function() local result=bytes;bytes='';return result end,
+        done=function() return done end,
+        close=function() end,
+        terminate=function() terminated=true;done=true end,
+    }
+    context.worker=require('weread.lib.memory_worker'):new{scheduler=context.scheduler,codec=context.client,
+        runner=runner,now=function() return context.clock end}
+    context.service.worker=context.worker
+    return {run=function() context.in_child=true;run(22);context.in_child=false end,
+        terminated=function() return terminated end}
+end
+f=fixture();local memory=attach_memory_worker(f,false)
+multi_refs[1].chapters={{chapterUid='7',chapterIdx=0},{chapterUid='8',chapterIdx=1}}
+expect(f.service:start('send',f.account,multi_input,multi_refs,f.guard,function(value) f.result=value end))
+local memory_job=f.worker.job;f.clock=f.clock+76;memory_job.poll()
+expect(f.worker.job==memory_job and not memory.terminated() and not f.result,
+    'actual worker abandoned the job at its old 75-second timeout')
+memory.run();memory_job.poll();memory_job.poll()
+expect(f.result.kind=='unavailable' and not f.service.job and not memory.terminated() and f.posts==0,
+    'long-running worker could not deliver its result')
+-- A timeout after a possibly dispatched request keeps the durable claim; a
+-- later attempt cannot send the same interval again.
+f=fixture('lost');memory=attach_memory_worker(f,true);expect(f.start());memory.run()
+expect(f.posts==1 and f.journal:pending(f.account).phase=='claimed','dispatch was not durably claimed')
+f.clock=f.clock+71;f.service.job.poll()
+expect(memory.terminated() and f.result.kind=='cancelled' and f.journal:pending(f.account).phase=='claimed',
+    'timeout lost a possibly sent request')
+f.gate.active=true;expect(not f.start() and f.posts==1,'timeout allowed a duplicate transfer')
 -- If the worker died after a dispatch, cancellation keeps the sealed intent.
 f=fixture('lost');expect(f.start());f.deliver()
 expect(f.result.kind=='unconfirmed' and f.journal:pending(f.account).phase=='claimed' and f.posts==1)

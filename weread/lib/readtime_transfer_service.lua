@@ -80,6 +80,10 @@ function M:start(mode,account,input,references,guard,callback)
     local worker_ok,worker=pcall(function() return self.worker or require('weread.lib.memory_worker'):new{scheduler=self.scheduler,codec=self.client} end)
     if not worker_ok or not worker then self:cancel();return false,'unavailable' end
     self.worker=worker
+    -- MemoryWorker has its own deadline in addition to the parent guard.
+    -- Keep it aligned with the chapter-aware bound for this particular job,
+    -- including when the same worker is reused for a later, shorter task.
+    worker.timeout=job.deadline
     local options={};for k,v in pairs(self.task_options) do options[k]=v end
     options.account=account;options.is_current=function() return gate:valid() end
     local ran,started=pcall(worker.start,worker,function()

@@ -22,9 +22,12 @@ return function(reader,flush_tasks,fixture_dir)
         end
         error('native time menu missing: '..label)
     end
-    local function button(row)
-        local widget=assert(host._offline_time_detail);local item=assert(widget.buttons[row][1])
-        expect(item.callback~=nil);item.callback()
+    local function button(label)
+        local widget=assert(host._offline_time_detail);local wanted=require('weread.lib.i18n').tr(label)
+        for _i,row in ipairs(widget.buttons) do for _j,item in ipairs(row) do
+            if item.text==wanted and item.callback then item.callback();return end
+        end end
+        error('native time action missing: '..label)
     end
     local function detail() pump(function() return host._offline_time_detail~=nil end) end
     local function menu() pump(function() return host._offline_time_menu~=nil end) end
@@ -67,10 +70,14 @@ return function(reader,flush_tasks,fixture_dir)
     end
     local function select_batch()
         show();choose('Check saved time');detail()
-        expect(#host._offline_time_detail.buttons==2,'historical batch has no explicit action')
+        local found=false
+        for _i,row in ipairs(host._offline_time_detail.buttons) do for _j,item in ipairs(row) do
+            if item.text==require('weread.lib.i18n').tr('Transfer this batch') then found=true end
+        end end
+        expect(found,'historical batch has no explicit action')
     end
     -- One native action -> real child, durable claim+ACK+two checks+settlement.
-    local f=setup();select_batch();shot('selection');button(2);detail();shot('confirmed')
+    local f=setup();select_batch();shot('selection');button('Transfer this batch');detail();shot('confirmed')
     expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2 and not f.journal:pending(f.account))
     expect(not host._offline_time_transfer_lock and not host.offline_time_transfer_service.job)
     reports[#reports+1]='confirmed'
@@ -111,31 +118,31 @@ return function(reader,flush_tasks,fixture_dir)
         end})
     end
     -- Cancel a live source scan before any transfer is claimed or sent.
-    select_batch();button(2)
+    select_batch();button('Transfer this batch')
     local scan_job=assert(host.offline_time_review_worker.job);local scan_pid=scan_job.pid
     host:closeOfflineTimeUI();pump(function() return require('ffi/util').isSubProcessDone(scan_pid) end)
     expect(f.posts_count()==0 and f.ledger:summary(f.account).pending==2 and not f.journal:pending(f.account))
     reports[#reports+1]='many_sources_cancel_before_send'
-    select_batch();button(2);detail();local saved=assert(f.journal:pending(f.account))
+    select_batch();button('Transfer this batch');detail();local saved=assert(f.journal:pending(f.account))
     expect(saved.phase=='acknowledged' and f.posts_count()==1)
     f.posts=1;f.mode=nil;f.applied=true
-    show();choose('Review unfinished transfer');detail();button(2);detail()
+    show();choose('Review unfinished transfer');detail();button('Check cloud result without sending again');detail()
     expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2 and not f.journal:pending(f.account))
     reports[#reports+1]='many_sources_read_only_recovery'
     -- A later GET-only inspection settles the saved ACK without another POST.
-    f=setup('no_delta');select_batch();button(2);detail();saved=assert(f.journal:pending(f.account))
+    f=setup('no_delta');select_batch();button('Transfer this batch');detail();saved=assert(f.journal:pending(f.account))
     expect(saved.phase=='acknowledged' and f.posts_count()==1);local metadata=C.digest(saved.metadata)
     f.posts=1;f.mode=nil;f.applied=true
-    show();choose('Review unfinished transfer');detail();shot('acknowledged');button(2);detail()
+    show();choose('Review unfinished transfer');detail();shot('acknowledged');button('Check cloud result without sending again');detail()
     expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2)
     expect(C.digest(assert(f.journal:get(f.account,saved.attempt)).metadata)==metadata)
     reports[#reports+1]='read_only_recovery'
     -- A lost reply stays unknown, and explicit retirement retains its seal.
-    f=setup('lost');select_batch();button(2);detail();saved=assert(f.journal:pending(f.account))
+    f=setup('lost');select_batch();button('Transfer this batch');detail();saved=assert(f.journal:pending(f.account))
     expect(saved.phase=='claimed' and f.posts_count()==1)
     show();choose('Review unfinished transfer');detail();shot('unknown')
     expect(#host._offline_time_detail.buttons==2,'lost ACK incorrectly offered cloud confirmation')
-    button(2);detail();expect(not f.journal:pending(f.account) and f.ledger:summary(f.account).unknown==2)
+    button('Keep as uncertain and continue');detail();expect(not f.journal:pending(f.account) and f.ledger:summary(f.account).unknown==2)
     expect(assert(f.journal:get(f.account,saved.attempt)).phase=='retired' and f.posts_count()==1)
     reports[#reports+1]='lost_ack_no_replay'
     -- A failed local settlement is completed later without any new HTTP.
@@ -143,17 +150,17 @@ return function(reader,flush_tasks,fixture_dir)
     local trigger=db:prepare([[CREATE TRIGGER fail_settle BEFORE UPDATE ON offline_time_records
         WHEN NEW.phase='settled' BEGIN SELECT RAISE(ABORT,'synthetic'); END]])
     trigger:step();trigger:close();db:close()
-    select_batch();button(2);detail();saved=assert(f.journal:pending(f.account))
+    select_batch();button('Transfer this batch');detail();saved=assert(f.journal:pending(f.account))
     expect(saved.phase=='confirmed' and saved.evidence.audit and f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2)
     db=require('lua-ljsqlite3/init').open(f.coverage.path);db:exec('DROP TRIGGER fail_settle');db:close()
     show();choose('Review unfinished transfer');detail()
     expect(host._offline_time_detail.title:find(require('weread.lib.i18n').tr('Cloud accounting is confirmed. Only local bookkeeping remains.'),1,true)~=nil)
-    shot('local-recovery');button(2);detail()
+    shot('local-recovery');button('Finish local bookkeeping');detail()
     expect(not f.journal:pending(f.account) and f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2)
     reports[#reports+1]='local_settlement_recovery'
     -- Close while the child waits after ACK. Its record survives and is sealed.
     f=setup('no_delta');f.options.sleep=function(seconds) socket.sleep(seconds);f.clock=f.clock+seconds end
-    select_batch();button(2)
+    select_batch();button('Transfer this batch')
     pump(function() local row=f.journal:pending(f.account);return row and row.phase=='acknowledged' end)
     local worker=assert(host.offline_time_transfer_service.worker.job);local pid=worker.pid
     host:closeOfflineTimeUI()
@@ -161,6 +168,22 @@ return function(reader,flush_tasks,fixture_dir)
     expect(not host._offline_time_review and not host.busy_message and not host._offline_time_transfer_lock)
     expect(f.posts_count()==1 and f.journal:pending(f.account).phase=='acknowledged' and f.ledger:summary(f.account).confirmed==0)
     reports[#reports+1]='cancel_after_ack'
+    -- Use an actual subprocess and MemoryWorker with a controlled clock to
+    -- cross the old 75-second timeout without a real 76-second wait.
+    f=setup();host._offline_time_review={}
+    local service=host.offline_time_transfer_service
+    service.worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=f.client,now=function() return f.clock end}
+    local result
+    local input={book_id='CB_Synthetic',book_version=0}
+    local refs={{file='/synthetic.epub',chapters={{chapterUid='7',chapterIdx=0},{chapterUid='8',chapterIdx=1}}}}
+    expect(service:start('send',f.account,input,refs,function() return host._offline_time_review~=nil end,
+        function(value) result=value end))
+    expect(service.job.deadline==130 and service.worker.timeout==130,'worker did not receive the extended deadline')
+    f.clock=f.clock+76
+    pump(function() return result~=nil end)
+    expect(result.kind=='unavailable' and not service.job and f.posts_count()==0,
+        'long-running worker was terminated by the old timeout or dispatched a request')
+    reports[#reports+1]='multi_chapter_worker_deadline'
     host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
     host.offline_time.store,host.readtime_coverage=original.ledger,original.coverage
     host.settings.get_book,host.library_db.getBook,host.isNetworkConnected=original.get_book,original.getBook,original.connected
