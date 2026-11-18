@@ -109,5 +109,19 @@
     "two_stable_snapshots": true,
     "two_stable_statistics": true,
     "gate_and_audit_unchanged": true
+  },
+  "early_readback": {
+    "result": "NOT_READY",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "real_accounting_verified": false,
+    "saved_capture_unchanged": true,
+    "dispatch_and_audit_empty": true
+  },
+  "synthetic_readback": {
+    "result": "SYNTHETIC_CB_READBACK_VERIFIED",
+    "independent_samples": 3,
+    "account_data_posts": 0,
+    "authentication_posts": 0
   }
 }
