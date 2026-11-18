@@ -82,7 +82,8 @@ def xhtml_summary(sample, plan):
 def run(saved, session, native_store, grant, journal, intent, command, *, apply=False,
         upload_factory=UploadProbe, uploader=upload_run, ui_runner=run_ui, attest=ui_command,
         source_format='web_xhtml', source_marker=TEXT, position_planner=position_plan,
-        summary_planner=xhtml_summary, upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=None):
+        summary_planner=xhtml_summary, upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=None,
+        after_verified=None):
     report = dict(result='UNVERIFIED', phase='preflight', position_writes_known=0,
                   position_writes_uncertain=False, account_data_writes_known=0, authentication_posts=0,
                   existing_book_writes=0, fixture_only=True, private_data_in_report=False)
@@ -185,6 +186,12 @@ def run(saved, session, native_store, grant, journal, intent, command, *, apply=
                    for k in ('readingTime', 'recordReadingTime', 'ttsTime')): return False
             if previous is not None and projected != previous: return False
             previous = projected
+        if after_verified is not None:
+            context = dict(sample=sample, plan=plan, chapters=chapters, pair=pair, authority=authority,
+                           shelf_current=lambda: shelf(target)==current['shelf'], cookies=lambda: current['saved']['cookies'],
+                           owner=owner, attempt=attempt, source_hash=current['source_hash'], target=target,
+                           initial_observed=previous, attest=attest, command=command)
+            if after_verified(context,report) is not True: return False
         again = connect(SourceRead, target)
         try:
             later = again.inspect(target); again.verify_account()

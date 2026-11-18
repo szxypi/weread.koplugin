@@ -26,7 +26,7 @@ class Backend:
     def read(self): return (self.state, self.receipt) if self.imported else (None, None)
 
 
-def run_case(*, fail=None, apply=True, txt=False, fixture_authorized=None):
+def run_case(*, fail=None, apply=True, txt=False, fixture_authorized=None, after_verified=None):
     backend = Backend(txt); grant = {'vid': backend.owner}
     saved = dict(vid=backend.owner, cookies={'wr_vid': backend.owner, 'wr_skey': 'synthetic'})
     intent = Intent(backend=MemoryBackend()); command = ['synthetic-runner']
@@ -85,7 +85,8 @@ def run_case(*, fail=None, apply=True, txt=False, fixture_authorized=None):
             options = dict(source_format='web_txt', source_marker=MARKER, position_planner=plan, summary_planner=summary,
                            upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=fixture_authorized)
         result = task.run(saved, None, NativeStore(), grant, backend, intent, command, apply=apply,
-                          upload_factory=lambda *_: None, uploader=uploader, ui_runner=ui_runner, attest=attest, **options)
+                          upload_factory=lambda *_: None, uploader=uploader, ui_runner=ui_runner, attest=attest,
+                          after_verified=after_verified, **options)
     return result, backend, intent
 
 
@@ -121,6 +122,12 @@ class TrialTest(unittest.TestCase):
         result, backend, intent = run_case(txt=True, fixture_authorized=lambda upload, *_: not upload.calls)
         self.assertEqual(result['result'], 'UNVERIFIED'); self.assertEqual(backend.calls, [False])
         self.assertTrue(backend.imported and not backend.cleanup); self.assertIsNotNone(intent.backend.load())
+
+    def test_dependent_trial_failure_preserves_fixture_after_first_write(self):
+        result, backend, _intent = run_case(txt=True, fixture_authorized=lambda *_: True,
+                                            after_verified=lambda _context, _report: False)
+        self.assertEqual(result['result'], 'UNVERIFIED'); self.assertEqual(result['position_writes_known'], 1)
+        self.assertTrue(backend.imported and not backend.cleanup)
 
 
 if __name__ == '__main__': unittest.main()

@@ -34,6 +34,12 @@ expect(not check(option(url,'POST',enter),1,decode) and not check(option(url,'PO
 local changed={};for k,v in pairs(read) do changed[k]=v end;changed.co=46
 expect(not check(option(url,'POST',changed),1,decode))
 changed.co=45;changed.sm='different';expect(not check(option(url,'POST',changed),1,decode))
+input.armed=false;expect(not check(option(url,'POST',enter),0,decode));input.armed=true
+local txt=base..'/web/book/chapter/t_0';local shard={b=Protocol.e(input.book),c=Protocol.e(input.chapter),sc=1}
+expect(not check(option(txt,'POST',shard),0,decode))
+input.source_format='web_txt';local txt_check=Guard.new(input,Protocol,Cookie)
+expect(txt_check(option(txt,'POST',shard),0,decode)=='read')
+shard.b=Protocol.e('CB_Other');expect(not txt_check(option(txt,'POST',shard),0,decode))
 input.timer=true;input.first_offset=44;input.timer_summary='Synthetic prior text';check=Guard.new(input,Protocol,Cookie)
 local prior={};for key,value in pairs(args) do prior[key]=value end
 prior.chapter_offset=input.first_offset;prior.summary=input.timer_summary

@@ -32,10 +32,12 @@ def main():
         if not 0<len(payload)<=8*1024*1024:raise ValueError('input')
         decoded=json.loads(payload)
         if not isinstance(decoded,dict) or not isinstance(decoded.get('cookies'),dict):raise ValueError('input')
+        if decoded.get('armed') is not None and type(decoded['armed']) is not bool:raise ValueError('input')
+        dry=decoded.get('armed') is False
         timed=decoded.get('timer') is True
         closing=decoded.get('close') is True
         reading_time=decoded.get('time') is True
-        if sum((timed,closing,reading_time))>1:raise ValueError('input')
+        if sum((timed,closing,reading_time))>1 or dry and (timed or closing or reading_time):raise ValueError('input')
         secrets=[value.encode() for key,value in decoded['cookies'].items()
                  if key!='wr_vid' and isinstance(value,str) and len(value)>=8]
         if not secrets:raise ValueError('input')
@@ -43,6 +45,12 @@ def main():
         with tempfile.TemporaryDirectory(prefix='weread-cb-manual-fixture-',dir='/dev/shm') as temporary:
             root=Path(temporary);profile=root/'profile';plugins=profile/'plugins';plugins.mkdir(parents=True)
             xdg=root/'xdg';xdg.mkdir(mode=0o700);extract_candidate(candidate,plugins)
+            if os.environ.get('WEREAD_FIXTURE_SYNTHETIC')=='1':
+                port=int(os.environ.get('WEREAD_FIXTURE_MOCK_PORT','0'))
+                if not 1<=port<=65535:raise ValueError('mock')
+                (profile/'settings').mkdir(exist_ok=True)
+                (profile/'settings/weread-environment.lua').write_text(
+                    f'return {{ enabled = true, host = "127.0.0.1", port = {port} }}\n')
             with zipfile.ZipFile(candidate) as archive:
                 for item in archive.infolist():
                     if not item.is_dir() and (plugins/item.filename).read_bytes()!=archive.read(item):raise ValueError('candidate')
@@ -50,7 +58,7 @@ def main():
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),EMULATE_READER='1',EMULATE_BW_SCREEN='1',
                 EMULATE_BB_TYPE='BB8',EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi))
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/cb_fixture_manual_ui.lua'
-            for reopened in (False,True):
+            for reopened in ((False,) if dry else (False,True)):
                 child=subprocess.Popen([str(runtime/'luajit'),str(probe)],cwd=runtime,
                     env=env | {'WEREAD_FIXTURE_CB_REOPEN':'1' if reopened else '0'},stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,stderr=subprocess.PIPE,start_new_session=True)
@@ -62,7 +70,8 @@ def main():
                         if type(value.get('failure_line')) is int:report['failure_line']=value['failure_line']
                     if child.returncode or len(out)>8*1024*1024 or out.count(marker)!=1 or b'[WeRead] forceRePaint failed:' in out+err:
                         raise ValueError('native')
-                    expected=(dict(result='PASS',fresh_process=True,offline=True,pending_cleared=True,journal_cleared=True,requests=0)
+                    expected=(dict(result='DRY_RUN',native_choice=True,write_blocked=True,writes=0,denied=1) if dry else
+                        dict(result='PASS',fresh_process=True,offline=True,pending_cleared=True,journal_cleared=True,requests=0)
                         if reopened else dict(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,pending_cleared=True,
                             journal_cleared=True,automatic_disabled=not (timed or closing or reading_time),timer_verified=timed,writes=3 if timed or closing or reading_time else 2,denied=0))
                     if closing and not reopened:expected['close_verified']=True
@@ -76,7 +85,8 @@ def main():
                         try:kill_reader_session(child)
                         except (ProcessLookupError,RuntimeError):pass
                     stop(child);reap(child.pid)
-            report.update(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,fresh_process=True,
+            if dry:report.update(result='DRY_RUN',native_choice=True,write_blocked=True,writes=0,denied=1,credentials_not_persisted=True)
+            else:report.update(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,fresh_process=True,
                           pending_cleared=True,journal_cleared=True,automatic_disabled=not (timed or closing or reading_time),writes=3 if timed or closing or reading_time else 2,denied=0,credentials_not_persisted=True)
             if timed:report['timer_verified']=True
             if closing:report['close_verified']=True
@@ -84,7 +94,7 @@ def main():
     except Exception:
         pass
     finally:report['profile_removed']=root is not None and not root.exists()
-    print(json.dumps(report));return int(report['result']!='PASS' or not report['profile_removed'])
+    print(json.dumps(report));return int(report['result'] not in ('PASS','DRY_RUN') or not report['profile_removed'])
 
 
 if __name__=='__main__':raise SystemExit(main())

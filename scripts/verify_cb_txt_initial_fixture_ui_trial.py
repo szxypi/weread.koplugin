@@ -37,7 +37,7 @@ def summary(sample, target):
 
 
 def execute(saved, session, native, grant, journal, receipt, intent, command, *, apply=False,
-            trial=run, upload=upload_run):
+            trial=run, upload=upload_run, after_verified=None):
     if receipt.backend.load() is not None:
         return dict(result='UNVERIFIED', phase='preflight', account_data_writes_known=0,
                     position_writes_uncertain=False, authentication_posts=0)
@@ -59,7 +59,8 @@ def execute(saved, session, native, grant, journal, receipt, intent, command, *,
 
     result = trial(saved, session, native, grant, journal, intent, command, apply=apply, uploader=uploader,
                    source_format='web_txt', source_marker=MARKER, position_planner=plan, summary_planner=summary,
-                   upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=fixture_authorized)
+                   upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=fixture_authorized,
+                   after_verified=after_verified)
     if result.get('result') == 'CB_FIRST_NATIVE_UI_VERIFIED': result['result'] = 'CB_TXT_FIRST_NATIVE_UI_VERIFIED'
     return result
 

@@ -103,7 +103,7 @@ local ok,reason=pcall(function()
         assert(not target and chapter.chapterIdx==input.chapter_idx);target=chapter end end
     assert(target and type(target.wordCount)=='number' and target.wordCount>0)
     local source_format=input.source_format or 'web_xhtml'
-    assert(source_format=='web_xhtml' or synthetic and source_format=='web_txt')
+    assert(source_format=='web_xhtml' or source_format=='web_txt')
     local source=assert(Source.capture(book,target,input.source,source_format))
     local rendered=source_format=='web_txt' and Content.txt_to_xhtml(input.source) or input.source
     local file=assert(Content.save_book_epub(settings,book,{target},{[input.chapter]=rendered},'fixture-manual',{},nil,nil,
@@ -151,6 +151,12 @@ local ok,reason=pcall(function()
     end
     choice.keep_local();result.phase='upload'
     wait(function() return notice~=nil end)
+    if input.armed==false then
+        local state=assert(plugin.settings:get_book(input.book))
+        assert(notice.code=='upload_unconfirmed' and counts[1]==0 and counts[2]==1 and not sync.verified
+            and state.pending_upload_position and plugin.source_dispatch:pending(input.book),'manual dry run did not block write')
+        result={result='DRY_RUN',native_choice=true,write_blocked=true,writes=0,denied=1};return
+    end
     assert(notice.code=='upload_success' and counts[1]==2 and counts[2]==0,'manual fixture upload failed')
     local saved=assert(plugin.settings:get_book(input.book))
     assert(not saved.pending_upload_position and not plugin.source_dispatch:pending(input.book) and sync.verified)
@@ -189,4 +195,4 @@ local ok,reason=pcall(function()
 end)
 if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('cb_fixture_manual_ui%.lua:(%d+):')) or 0 end
 print('\nWEREAD_CB_FIXTURE_MANUAL_UI='..require('json').encode(result))
-os.exit(result.result=='PASS' and 0 or 1)
+os.exit((result.result=='PASS' or result.result=='DRY_RUN') and 0 or 1)
