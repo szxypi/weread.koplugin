@@ -928,46 +928,8 @@ end
 
 function M:showAbout()
     UIManager:show(InfoMessage:new{
-        text = T(_("WeRead Plugin v%1\n\nDisclaimer: This project is for personal learning and technical research only, not for commercial use. All consequences arising from the use of this project (including but not limited to account bans, data loss, etc.) are borne by the user. The project author assumes no responsibility. Please comply with WeRead's user agreement and applicable laws and regulations.\n\nhttps://github.com/finlater/weread.koplugin"), self.version),
+        text = T(_("WeRead for KOReader v%1\n\nAn unofficial plugin for reading WeRead books in KOReader.\n\nProject: https://github.com/szxypi/weread.koplugin\nOriginal project: https://github.com/finlater/weread.koplugin\nLicense: AGPL-3.0"), self.version),
     })
-end
-
-function M:showWeReaderInfo()
-    local Screen = require("device").screen
-    local TextViewer = require("ui/widget/textviewer")
-    local viewer
-    viewer = TextViewer:new{
-        title = _("WeReader closed-source edition"),
-        text = _("More features, smoother reading") .. "\n\n"
-            .. _("An interface inspired by the WeRead e-ink app, making reading, syncing, and interaction easier.") .. "\n\n"
-            .. _("• Bookstore recommendations and precise reading progress sync\n• Offline reading, with reading time uploaded when back online\n• Highlights, thoughts, comments, and likes") .. "\n\n"
-            .. _("Watch demo videos on Xiaohongshu, or buy the author a coffee to support continued development.") .. "\n\n"
-            .. T(_("Xiaohongshu/Xianyu nickname: %1"), "finlater"),
-        width = math.floor(Screen:getWidth() * 0.9),
-        height = math.floor(Screen:getHeight() * 0.8),
-        text_type = "general",
-        show_menu = false,
-        add_default_buttons = false,
-        buttons_table = {
-            {{
-                text = _("Xiaohongshu QR code"),
-                callback = function()
-                    local QRMessage = require("ui/widget/qrmessage")
-                    local side = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.9)
-                    UIManager:show(QRMessage:new{
-                        text = "http://xhslink.com/m/8aP668RQREF",
-                        width = side,
-                        height = side,
-                    })
-                end,
-            }},
-            {{
-                text = _("Back to About"),
-                callback = function() viewer:onClose() end,
-            }},
-        },
-    }
-    UIManager:show(viewer)
 end
 
 function M:getAboutMenuItems()
@@ -980,19 +942,12 @@ function M:getAboutMenuItems()
             end,
         },
         {
-            text = T(_("Author: %1"), "finlater"),
+            text = T(_("Original author: %1"), "finlater"),
             keep_menu_open = true,
             callback = function()
                 UIManager:show(InfoMessage:new{
                     text = "finlater\n\nhttps://github.com/finlater",
                 })
-            end,
-        },
-        {
-            text = _("Discover WeReader closed-source edition"),
-            keep_menu_open = true,
-            callback = function()
-                self:showWeReaderInfo()
             end,
         },
     }

@@ -32,7 +32,7 @@ cd weread.koplugin
 bash scripts/package_release.sh dist/weread.koplugin-eink-ui-dev.zip
 ```
 
-开发版沿用基线内部版本号，在线更新仍指向上游仓库。试装期间不要使用插件在线更新，以免覆盖本项目的开发改动。
+开发版沿用基线内部版本号。插件的在线更新只检查本项目的正式 Release；当前尚未发布正式版本，开发分支的后续改动需要重新打包安装。
 
 ## 登录
 
