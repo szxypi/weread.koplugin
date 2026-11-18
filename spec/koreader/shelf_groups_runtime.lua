@@ -235,6 +235,16 @@ if mode=='live' then
     plugin:showShelfView('books',nil,selected);assert(#plugin.shelf_view.books==0 and #plugin.shelf_view.group_keys==1,
         'empty remembered ungrouped selection unexpectedly showed all books')
     selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
+    selected=plugin.shelf_view;selected.on_select_group('__ungrouped__')
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=selected end)
+    assert(#plugin.shelf_view.books>0 and plugin.shelf_group_key=='__ungrouped__')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,{{archiveId='1',name='Synthetic',bookIds=all_ids}})
+    plugin:showShelfView('books',nil,selected)
+    assert(#plugin.shelf_view.books==0 and plugin.shelf_group_key=='__ungrouped__',
+        'single ungrouped selection unexpectedly showed all books')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
+    assert(#plugin.shelf_view.books>0 and plugin.shelf_group_key=='__ungrouped__',
+        'single ungrouped selection did not recover')
     selected=plugin.shelf_view;selected.on_select_groups({'archive:1','archive:21'})
     pump(function() return plugin.shelf_view and plugin.shelf_view~=selected end)
     assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21)

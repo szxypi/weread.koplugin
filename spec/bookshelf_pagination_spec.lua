@@ -354,6 +354,12 @@ shown[#shown].callbacks.on_select_group("archive:8")
 expect(#shown[#shown].data.books == 0, "empty group fell back to the entire shelf")
 shown[#shown].callbacks.on_select_group("__ungrouped__")
 expect(#shown[#shown].data.books == 10, "uncategorized group has wrong membership")
+host:applyShelfSnapshot(grouped_books,{{archiveId=7,name='History',bookIds=all_ids}});host:showShelfView('books')
+expect(host.shelf_group_key=='__ungrouped__' and #shown[#shown].data.books==0,
+    'single uncategorized selection unexpectedly showed all books after its last book was grouped')
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(host.shelf_group_key=='__ungrouped__' and #shown[#shown].data.books==10,
+    'single uncategorized selection did not recover when ungrouped books returned')
 shown[#shown].callbacks.on_select_group("archive:7")
 for index = 1, 12 do grouped_books[index].cover = "https://cdn.example/group-" .. index end
 host.isNetworkOnline = function() return true end

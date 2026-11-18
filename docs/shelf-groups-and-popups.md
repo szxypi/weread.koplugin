@@ -44,6 +44,8 @@
 
 单选也会核对分组标识：若刷新后的两个分组共用标识，之前的单选失效并返回全部书籍，菜单标出「不可用」，点击时提示刷新；同名且有不同标识的分组仍可分别选择。不会把有歧义的标识当成第一个分组，也不会沿用旧的分页结果。两种尺寸的实际 KOReader 界面已用合成数据验证，包含点击提示和新进程离线重开；实体设备尚未验证。合成界面：[600×800](validation-assets/2026-11-18/shelf-duplicate-groups-600.png) · [KO2 尺寸](validation-assets/2026-11-18/shelf-duplicate-groups-ko2.png)。
 
+单选「未分组」时，若最后一本未分组的书移入其他分组，刷新后保留空结果；之后有书再次变为未分组，结果随之恢复。两种尺寸的实际 KOReader 页面已使用合成书架验证这一变化，不修改云端书架；实体 Kindle 尚未验证。范围见[验收记录](validation-assets/2026-11-18/shelf-single-ungrouped.json)。
+
 两种模拟屏幕尺寸的实际 KOReader 菜单、分页选择、取消、缺失分组、保存及新进程离线恢复已用合成数据核对。真实账号的隔离配置也只读核对了多选结果及离线操作；之后补充的空「未分组」边界仅经合成数据验证，实体 Kindle 仍待验收。
 
 合成界面：[600×800](validation-assets/2026-11-17/shelf-multi-groups-600.png) · [KO2 尺寸](validation-assets/2026-11-17/shelf-multi-groups-ko2.png)；范围及结果见[验收记录](validation-assets/2026-11-17/shelf-multi-groups.json)。

@@ -259,14 +259,15 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
     end
     self.shelf_books = self.shelf_regular
     self.shelf_groups = ShelfGroups.list(archives, self.shelf_regular, _("Unnamed group"), _("Uncategorized"))
-    -- A remembered uncategorized selection remains a valid empty group if
-    -- the last ungrouped book is later assigned to a group.
+    -- Keep an active uncategorized selection empty when its last book is
+    -- assigned to a group, rather than unexpectedly showing the full shelf.
     if #self.shelf_groups>0 and not ShelfGroups.find(self.shelf_groups,'__ungrouped__') then
+        local selected=self.shelf_group_key=='__ungrouped__'
         for _i,key in ipairs(self.shelf_multi_groups or {}) do
-            if key=='__ungrouped__' then
-                self.shelf_groups[#self.shelf_groups+1]={key=key,label=_('Uncategorized'),books={}}
-                break
-            end
+            if key=='__ungrouped__' then selected=true;break end
+        end
+        if selected then
+            self.shelf_groups[#self.shelf_groups+1]={key='__ungrouped__',label=_('Uncategorized'),books={}}
         end
     end
     if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups, self.shelf_group_key) then
