@@ -91,6 +91,9 @@ local ok,reason=pcall(function()
     local cb_reading=input.cb_reading==true
     local cb_full=input.cb_full_book==true
     local single_page=input.cb_single_page==true
+    local synthetic_txt_retry=os.getenv('WEREAD_SYNTHETIC_TXT_RETRY')=='1'
+    assert(not synthetic_txt_retry or cb_reading and not cb_full and input.cb_mock_port
+        and input.vid=='900000' and input.book_id=='CB_SyntheticResume' and input.source_format=='web_txt')
     assert(input.cb_single_page==nil or single_page and cb_reading and not cb_full)
     assert(not cb_full or cb_reading and type(input.full_manifest)=='table')
     assert(input.diagnostic_read_pacing==nil or input.diagnostic_read_pacing==true and cb_full)
@@ -357,6 +360,7 @@ local ok,reason=pcall(function()
     local chapter_count=full and #input.full_manifest or 1
     local limits={2,60,math.max(8,2*chapter_count+4),4,math.max(12,6*chapter_count),full and 512 or 60}
     if selection_case or reader_trial_mode or timer_trial_mode or close_trial_mode or native_recovery_mode or initial_reader_mode or input.raw_cloud_preview then limits={2,60,12,8,18,60} end
+    if synthetic_txt_retry then limits={2,60,20,4,32,60} end
     local resource_urls={}
     local protected_resources={}
     local parent_pid=tonumber(ffi.C.getpid())
@@ -689,6 +693,15 @@ local ok,reason=pcall(function()
     local socket=require('socket')
     local download_finished
     local download_failed=false
+    local synthetic_failure=false
+    if synthetic_txt_retry and mode=='live' then
+        local Downloader=require('weread.lib.downloader')
+        local completed=Downloader._notifyCompletion
+        function Downloader:_notifyCompletion(dl,success,...)
+            if dl.suffix=='chapter' and not success then synthetic_failure=true end
+            return completed(self,dl,success,...)
+        end
+    end
     if full then
         local Downloader=require('weread.lib.downloader')
         local completed=Downloader._notifyCompletion
@@ -871,6 +884,8 @@ local ok,reason=pcall(function()
     local fallback_uid=input.chapter_uid=='99999999999999999999' and '99999999999999999998' or '99999999999999999999'
     local fallback_path=home..'/synthetic-resume-fallback.epub'
     local fallback_marker='Synthetic fallback; never a real book.\n'
+    local detail,read_button
+    local tr=require('weread.lib.plugin_util').tr
     if not (off_shelf_home and mode=='reopen') then
     pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
     if off_shelf_store then
@@ -878,7 +893,7 @@ local ok,reason=pcall(function()
         assert(selected.detail_source=='native' and counters[24]==1,'native book detail was not verified')
         report.store_metadata_verified=true
     end
-    local detail=assert(plugin._book_detail_view)
+    detail=assert(plugin._book_detail_view)
     if missing_resume and mode=='live' then
         local file=assert(io.open(fallback_path,'wb'));assert(file:write(fallback_marker));assert(file:close())
         local saved=plugin.settings:get('books',{});local selected=assert(saved[input.book_id])
@@ -892,7 +907,6 @@ local ok,reason=pcall(function()
             and checked.pending_upload_position.chapter_uid==input.chapter_uid)
     end
     local label=require('weread.lib.plugin_util').tr(full and mode=='live' and '⇩ Download full book' or '▤ Read')
-    local tr=require('weread.lib.plugin_util').tr
     local pressed=false
     for _i,buttons in ipairs({detail._action_buttons or {},detail._footer_actions or {}}) do
         for _j,button in ipairs(buttons) do
@@ -909,7 +923,7 @@ local ok,reason=pcall(function()
                         and unchanged.cached_chapters[fallback_uid]==fallback_path)
                     forced_offline=false;report.resume_warning_verified=true
                 end
-                button.callback();pressed=true;break
+                read_button=button;button.callback();pressed=true;break
             end
         end
         if pressed then break end
@@ -918,6 +932,19 @@ local ok,reason=pcall(function()
     end
     if mode=='live' then assert((full or plugin.book_reading_context) and not Reader.instance) end
     report.phase='prepare'
+    if synthetic_txt_retry and mode=='live' then
+        pump(function() return synthetic_failure or Reader.instance~=nil end)
+        assert(synthetic_failure and not Reader.instance,'failed TXT shard opened a partial book')
+        pump(function() return not plugin.book_reading_context and not plugin.downloader._active_job end)
+        local book=plugin.settings:get_book(input.book_id) or {}
+        assert(not book.cached_file and not (book.cached_chapters and book.cached_chapters[input.chapter_uid]),
+            'failed TXT shard replaced the reading cache')
+        local message=assert(UI:getTopmostVisibleWidget())
+        assert(message.text==tr('No chapters were downloaded.'),'TXT failure did not show the expected message')
+        UI:close(message)
+        assert(plugin._book_detail_view==detail and read_button and read_button.enabled~=false)
+        read_button.callback()
+    end
     pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document end)
     reader=Reader.instance;plugin=reader.weread
     report.phase='native'

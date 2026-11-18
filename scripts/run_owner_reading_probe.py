@@ -51,6 +51,7 @@ def main(argv=None):
     addons.add_argument('--selection-thought-preview', action='store_true')
     parser.add_argument('--mock-port',type=int)
     parser.add_argument('--cb-mock-port',type=int,help='Synthetic CB reading fixture only')
+    parser.add_argument('--synthetic-txt-retry',action='store_true')
     parser.add_argument('--missing-resume',action='store_true')
     parser.add_argument('--resume-warning',action='store_true')
     parser.add_argument('--off-shelf-home',action='store_true')
@@ -83,6 +84,8 @@ def main(argv=None):
         parser.error('--mock-port requires --selection-thought-preview and a valid loopback port')
     if args.cb_mock_port is not None and (not args.cb_reading or not 1<=args.cb_mock_port<=65535 or args.mock_port is not None):
         parser.error('--cb-mock-port requires CB reading and a valid loopback port')
+    if args.synthetic_txt_retry and (not args.cb_reading or args.cb_mock_port is None or args.cb_full_book or args.cb_single_page):
+        parser.error('--synthetic-txt-retry requires a single synthetic CB fixture')
     if args.diagnostic_read_pacing and not args.cb_full_book:
         parser.error('--diagnostic-read-pacing requires --cb-full-book')
     runtime = args.koreader.resolve()
@@ -218,6 +221,8 @@ def main(argv=None):
                        EMULATE_READER='1', EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8',
                        EMULATE_READER_W=str(args.width), EMULATE_READER_H=str(args.height),
                        EMULATE_READER_DPI=str(args.dpi))
+            env.pop('WEREAD_SYNTHETIC_TXT_RETRY', None)
+            if args.synthetic_txt_retry:env['WEREAD_SYNTHETIC_TXT_RETRY']='1'
             probe = Path(__file__).resolve().parent.parent / 'spec/koreader/owner_reading_probe.lua'
             full_hash = None
             for mode in (('live',) if args.progress_preview or args.progress_roundtrip else ('live', 'reopen')):
@@ -245,6 +250,7 @@ def main(argv=None):
                 envelope = decoder(out, payload['vid'], mode=mode, full_chapters=full_chapters,
                                    **({'cb_reading': True,'cb_full_book':args.cb_full_book} if cb_reading else {}),
                                    **({'single_page': True} if args.cb_single_page else {}),
+                                   **({'synthetic_txt_retry': True} if args.synthetic_txt_retry else {}),
                                    **({'missing_resume': True} if args.missing_resume else {}),
                                    **({'resume_warning': True} if args.resume_warning else {}),
                                    **({'off_shelf_home': True} if args.off_shelf_home else {}),

@@ -46,6 +46,20 @@ def frame(value):
     return probe.FRAME + json.dumps(value).encode() + b'\n'
 
 
+class SyntheticTxtRetryBoundsTests(unittest.TestCase):
+    def test_retry_bounds_are_explicit_and_cb_scoped(self):
+        value=stage()
+        value['source_match_reason']='none'
+        value['requests'][2]=12
+        value['requests'][4]=20
+        with self.assertRaises(ValueError):probe.validate_stage(value,'live',cb_reading=True)
+        probe.validate_stage(value,'live',cb_reading=True,synthetic_txt_retry=True)
+        with self.assertRaises(ValueError):probe.validate_stage(value,'live',synthetic_txt_retry=True)
+        with self.assertRaises(ValueError):probe.validate_stage(value,'live',cb_reading=True,single_page=True,synthetic_txt_retry=True)
+        value['requests'][4]=33
+        with self.assertRaises(ValueError):probe.validate_stage(value,'live',cb_reading=True,synthetic_txt_retry=True)
+
+
 class OwnerReadingTests(unittest.TestCase):
     def test_off_shelf_home_requires_both_live_and_offline_evidence(self):
         value=envelope()

@@ -26,7 +26,9 @@ class Opener:
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-short',action='store_true');parser.add_argument('--txt-single',action='store_true');parser.add_argument('--txt-empty-second',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-short',action='store_true');parser.add_argument('--txt-single',action='store_true');parser.add_argument('--txt-empty-second',action='store_true');parser.add_argument('--txt-retry',action='store_true');args=parser.parse_args()
+    if args.txt_retry and (args.single_page or args.txt_single or args.txt_short or args.txt_empty_second):parser.error('--txt-retry requires the long TXT fixture')
+    if args.txt_retry:args.txt=True
     if args.txt_empty_second:args.txt_single=True
     if args.txt_single:args.txt=True;args.single_page=True
     if args.txt_short:args.txt=True
@@ -54,17 +56,30 @@ def main():
         probe=CbReadingProbe();probe.opener=Opener(server);probe.vid='900000';probe.set_cookie('wr_vid','900000');probe.set_cookie('wr_skey','mock_key');probe.authenticated=True
         sample=probe.prepare(1,expected_book_id=CB_READING_ID)[0]
         if args.txt:assert sample['source_format']=='web_txt'
+        faults={'remaining':0,'injected':0}
+        if args.txt_retry:
+            from urllib.parse import urlsplit
+            original=server.route
+            def route(method,url,data):
+                status,result=original(method,url,data)
+                if method=='POST' and urlsplit(url).path=='/web/book/chapter/t_1' and status==200 and faults['remaining']>0:
+                    faults['remaining']-=1;faults['injected']+=1;return 503,'synthetic TXT shard failure'
+                return status,result
+            server.route=route
         payload={k:sample[k] for k in ('book_id','chapter_uid','source_format','source_text','source_raw_sha256','source_sample_offset','shelf_ids','shelf_books')}
         payload.update(cb_reading=True,vid='900000',cookies=dict(wr_vid='900000',wr_skey='mock_key'),cb_mock_port=server.server_port)
         if args.single_page:payload['cb_single_page']=True
         for width,height,dpi in ((600,800,167),(1264,1680,300)):
             env=os.environ|dict(LD_LIBRARY_PATH=str(args.koreader/'libs'),SDL_VIDEODRIVER='dummy')
+            if args.txt_retry:faults.update(remaining=3,injected=0)
             cmd=['python3',str(REPO/'scripts/run_owner_reading_probe.py'),'--koreader',str(args.koreader),'--candidate',str(args.candidate),
                 '--width',str(width),'--height',str(height),'--dpi',str(dpi),'--cb-reading','--cb-mock-port',str(server.server_port)]
             if args.single_page:cmd.append('--cb-single-page')
+            if args.txt_retry:cmd.append('--synthetic-txt-retry')
             child=subprocess.run(cmd,input=json.dumps(payload).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,env=env,timeout=360)
-            value=decode_envelope(child.stdout,'900000',cb_reading=True,single_page=args.single_page)
+            value=decode_envelope(child.stdout,'900000',cb_reading=True,single_page=args.single_page,synthetic_txt_retry=args.txt_retry)
             if child.returncode or value['report']['result']!='PASS':raise AssertionError('synthetic reader stage '+repr(value['report']))
+            if args.txt_retry:assert faults['remaining']==0 and faults['injected']==3,'expected shard failures were not exercised'
             assert value['report']['profile_removed'] and len(value['report']['stages'])==2
             if args.single_page:assert all(s['pages']==1 and s['page_turn'] is False for s in value['report']['stages'])
             print(f'PASS: scoped native CB book selection, reading and offline reopen {width}x{height}',flush=True)
