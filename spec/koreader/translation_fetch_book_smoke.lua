@@ -136,6 +136,18 @@ if annotations_test then
     assert(original_note_time,'source note timestamp missing')
     chapter(2)
 end
+local dialog_type=require('weread.ui.download_dialog')
+local report_progress=dialog_type.reportProgress
+local progress_updates,progress_shot={},false
+dialog_type.reportProgress=function(self,value)
+    progress_updates[#progress_updates+1]=value
+    local result=report_progress(self,value)
+    if not progress_shot and value>0 and value<90 then
+        UI:setDirty(self,function() return 'ui',self.dimen end);UI:forceRePaint()
+        Device.screen:shot(evidence..'/translation-progress.png');progress_shot=true
+    end
+    return result
+end
 local retry_core,retry_original
 if transient then
     retry_core=require('weread.lib.translation_fetch');retry_original=retry_core.run_book
@@ -156,8 +168,13 @@ end
 choose('Download existing translations for full book')
 if transient then retry_core.run_book=retry_original end
 assert(plugin.translation_fetch_job and plugin.translation_fetch_worker.job,'full book did not start in worker')
+assert(plugin.busy_message and plugin.busy_message.progress_bar,'native progress bar was not displayed')
 local heartbeat=false;UI:scheduleIn(.05,function() heartbeat=true end)
 pump(function() return not plugin.translation_fetch_job and heartbeat end)
+dialog_type.reportProgress=report_progress
+assert(progress_shot and #progress_updates>=3 and progress_updates[1]==0 and progress_updates[#progress_updates]==98,
+    'native progress updates were not received')
+for i=2,#progress_updates do assert(progress_updates[i]>progress_updates[i-1],'native progress moved backwards') end
 local dialog=assert(plugin._translation_fetch_result,'full book copy not published')
 local record=assert(reader.doc_settings:readSetting('weread_translation_copies').__full)
 copy=record.path
@@ -258,7 +275,7 @@ end
 local accepted=bytes(copy)
 assert(Fetch.start(plugin,true));local job=assert(plugin.translation_fetch_job)
 local partial,pid=job.output.path,plugin.translation_fetch_worker.job.pid
-plugin.busy_message:onTapClose()
+plugin.busy_message.buttons[1][1].callback()
 assert(not plugin.translation_fetch_job and not require('libs/libkoreader-lfs').attributes(partial),'cancel retained staged book')
 pump(function() return require('ffi/util').isSubProcessDone(pid) end)
 local core=require('weread.lib.translation_fetch');local run=core.run_book
@@ -356,5 +373,6 @@ local saved=assert(io.open(state_path,'w'));saved:write(require('json').encode{o
 local out=assert(io.open(evidence..'/translation-book.json','w'));out:write(require('json').encode{result='PASS',synthetic_only=true,
     chapters=6,chapters_with_translation=cross_chapter and 4 or 5,blocks=cross_chapter and 48 or 60,original_unchanged=true,bookmark_preserved=true,
     correct_initial_and_offline_chapters=true,independent_worker=true,cancel_and_chapter_failure_cleaned=true,
-    changed_catalog_cleaned=true,no_translation_cleaned=true,transient_retry_tested=transient,account_data_writes=0});out:close()
+    changed_catalog_cleaned=true,no_translation_cleaned=true,transient_retry_tested=transient,
+    native_progress_updates=true,account_data_writes=0});out:close()
 reader:onClose(false);print('PASS: native full-book translation copy, chapter navigation and offline original protection')

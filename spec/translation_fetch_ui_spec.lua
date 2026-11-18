@@ -22,13 +22,18 @@ end}
 rawset(os,'rename',function() return not state.rename_failed end)
 package.preload['ui/uimanager']=function() return {close=function(_self,widget) widget.closed=true end,show=function() end} end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) return options end} end
+package.loaded['weread.ui.download_dialog']={new=function(_self,options)
+    function options:show() state.progress_dialog=self end
+    function options:reportProgress(value) state.progress_values[#state.progress_values+1]=value end
+    return options
+end}
 package.loaded['weread.lib.plugin_util']={tr=function(text) return text end,T=function(text) return text end}
 local UI=require('weread.ui.translation_fetch')
 local checks=0
 local function expect(v,reason) checks=checks+1;assert(v,reason) end
 local function fixture()
     state={account='synthetic-account',location={xpointer='/body/DocFragment[1]/body/p[1]/text().0',page=1},
-        stat={mode='file',size=300,ino=1,dev=1,modification=1},notices={},jobs={},released=0,aborted=0,cancelled=0}
+        stat={mode='file',size=300,ino=1,dev=1,modification=1},notices={},jobs={},progress_values={},released=0,aborted=0,cancelled=0}
     state.result={ok=true,chapter_uid='1',bytes=100,blocks=2,file_id=string.rep('b',64)}
     local settings={get_auth_scope=function() return {epoch=1} end,auth_scope_matches=function() return not state.auth_changed end,
         get=function(_self,key,default) if key=='cookies' then return {['wr_skey']=state.cookie or 'synthetic'} end;return default end,
@@ -41,10 +46,10 @@ local function fixture()
         closeWeReadUI=function(self) UI.cancel(self) end,showOffline=function() state.notices[#state.notices+1]='offline' end,
         showInfo=function(_self,text) state.notices[#state.notices+1]=text end,
         showBusy=function(self,_text,cancel) self.busy_message={};state.dismiss=cancel end,closeBusy=function(self) self.busy_message=nil end,
-        translation_fetch_worker={start=function(_self,task,callback)
+        translation_fetch_worker={start=function(_self,task,callback,progress)
             if state.start_error then error('private worker failure') end
             if state.start_failed then return false end
-            state.jobs[#state.jobs+1]={task=task,callback=callback};return true
+            state.jobs[#state.jobs+1]={task=task,callback=callback,progress=progress};return true
         end,cancel=function() state.cancelled=state.cancelled+1 end}}
     local function deliver(index,result) state.jobs[index or #state.jobs].callback(result or state.result) end
     return host,deliver
@@ -97,8 +102,17 @@ host,deliver=fixture();state.result={ok=true,chapter_uid='1',bytes=100,blocks=2,
     matched=true,target='/body/DocFragment[3]/body/p[1]',file_id=string.rep('b',64)}
 expect(UI.start(host,true),'full-book download did not start')
 expect(host.translation_fetch_worker.timeout==3600,'full-book worker kept the chapter timeout')
+local progress=assert(state.jobs[1].progress)
+for _,value in ipairs({0,20,20,10,99,98}) do progress(value) end
+expect(table.concat(state.progress_values,',')=='0,20,98','full-book progress was missing, regressed, or exceeded the verified bound')
 deliver();expect(state.copies.__full and state.copies.__full.file_id==string.rep('b',64)
     and not state.copies['1'] and host._translation_fetch_result,'full-book copy was not indexed separately')
+progress(97);expect(#state.progress_values==3,'late progress changed a completed dialog')
+host=fixture();UI.start(host,true);state.progress_dialog.buttons[1][1].callback()
+expect(not host.translation_fetch_job and not host.busy_message and state.aborted==1 and state.released==1,
+    'progress dialog cancel did not clean the job')
+host=fixture();UI.start(host,true);progress=state.jobs[1].progress;state.location.page=2;progress(10)
+expect(not host.translation_fetch_job and not host.busy_message and state.aborted==1,'stale progress did not cancel the job')
 for _,change in ipairs({'no_chapters','too_many_translated','bad_fragment','bad_path','missing_target','missing_match'}) do
     host,deliver=fixture();state.result={ok=true,chapter_uid='1',bytes=100,blocks=2,chapters=6,translated_chapters=4,
         matched=true,target='/body/DocFragment[3]/body/p[1]',file_id=string.rep('b',64)}

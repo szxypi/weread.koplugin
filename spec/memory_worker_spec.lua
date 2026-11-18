@@ -2,7 +2,7 @@ package.path = "./?.lua;./?/init.lua;" .. package.path
 local Worker = require("weread.lib.memory_worker")
 local checks = 0
 local function expect(value, label) checks = checks + 1 assert(value, label) end
-local function fixture(max_bytes, timeout)
+local function fixture(max_bytes, timeout, read_size)
     local queue, pending, bytes, completed, terminated, closed, now = {}, nil, "", false, false, false, 0
     local scheduler = {
         scheduleIn = function(_self, delay, fn) expect(delay >= 0.1, "cooperative scheduling") queue[#queue + 1] = fn end,
@@ -14,8 +14,8 @@ local function fixture(max_bytes, timeout)
     end }
     local runner = {
         run = function(fn) pending = fn return 42, 43 end,
-        write = function(_fd, raw) bytes, completed = raw, true end,
-        read = function() local chunk = bytes:sub(1, 4096) bytes = bytes:sub(4097) return chunk end,
+        write = function(_fd, raw, keep_open) bytes = bytes .. raw; if not keep_open then completed = true end end,
+        read = function() local size=read_size or 4096;local chunk = bytes:sub(1, size) bytes = bytes:sub(size+1) return chunk end,
         done = function() return completed end,
         close = function() closed = true end,
         terminate = function() terminated, completed = true, true end,
@@ -26,7 +26,8 @@ local function fixture(max_bytes, timeout)
         tick = function() local fn = table.remove(queue, 1) if fn then fn() end end,
         idle = function() while #queue > 0 do table.remove(queue, 1)() end end,
         time = function(value) now = value end,
-        state = function() return terminated, closed end, runner = runner }
+        state = function() return terminated, closed end, runner = runner,
+        inject = function(value) bytes=bytes..value;completed=true end }
 end
 local f, got = fixture(), nil
 expect(f.worker:start(function() return string.rep("x", 20000) end, function(value) got = value end), "worker starts")
@@ -66,4 +67,29 @@ f.run(); f.idle()
 expect(got and #got.private == 100000, "configured shelf capacity accepts data above the authorization limit")
 f = fixture(); f.runner.run = function() return false, "private-error" end
 expect(not f.worker:start(function() end, function() error("must not callback") end), "fork failure returned without diagnostic data")
+f = fixture(nil,nil,1);got=nil
+local updates={}
+f.worker:start(function(report)
+    for _,value in ipairs({0,10,10,2,-1,1.5,101,90,100}) do report(value) end
+    return 'finished'
+end,function(value) got=value end,function(value) updates[#updates+1]=value end)
+f.run();f.idle()
+expect(got and got.private=='finished' and table.concat(updates,',')=='0,10,90,100',
+    'fragmented progress stream or normal result was lost')
+for _,malformed in ipairs({'p01\nrvalue','p101\nrvalue','p1\np1\nrvalue','p12','bad','p12345'}) do
+    f=fixture(nil,nil,2);got=false
+    f.worker:start(function() end,function(value) got=value or 'failed' end,function() end)
+    f.inject(malformed);f.idle()
+    expect(got=='failed','malformed progress stream was accepted')
+end
+f=fixture(nil,nil,2);got=nil
+f.worker:start(function(report) report(10);return 'finished' end,function(value) got=value end,function() f.worker:cancel() end)
+f.run();f.idle();terminated,closed=f.state()
+expect(terminated and closed and got==nil,'progress callback cancellation applied an old result')
+f=fixture(nil,nil,2);got=nil
+f.worker:start(function(report) report(10);return 'finished' end,function(value) got=value end,function() error('private') end)
+f.run();f.idle();expect(got and got.private=='finished','progress callback failure stopped the result')
+f=fixture(131072,nil,4096);got=nil
+f.worker:start(function(report) report(1);return string.rep('x',100000) end,function(value) got=value end,function() end)
+f.run();f.idle();expect(got and #got.private==100000,'progress stream truncated a large bounded result')
 print("PASS: " .. checks .. " bounded memory worker checks")

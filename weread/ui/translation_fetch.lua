@@ -177,17 +177,29 @@ function M.start(host,full)
     if not created or not output then gate:release();failed(host);return false end
     local input=input_for(o,book)
     local job={owner=o,output=output,gate=gate,started=os.time()};host.translation_fetch_job=job
-    host:showBusy(_(full and 'Downloading existing translations for the full book…\nTap or press a key to cancel.'
-        or 'Downloading existing translation…\nTap or press a key to cancel.'),function() if host.translation_fetch_job==job then M.cancel(host) end end)
+    job.cancel=function() if host.translation_fetch_job==job then M.cancel(host) end end
+    if full then
+        local shown=pcall(function()
+            local dialog=require('weread.ui.download_dialog'):new{
+                title=_('Download existing translations for full book'),
+                description=_('Downloading chapters and checking the completed copy.'),
+                buttons={{{text=_('Cancel'),callback=job.cancel}}},
+            }
+            host:closeBusy();host.busy_message=dialog;job.busy=dialog;dialog:show()
+        end)
+        if not shown then M.cancel(host);failed(host);return false end
+    else
+        host:showBusy(_('Downloading existing translation…\nTap or press a key to cancel.'),job.cancel)
+    end
     job.busy=host.busy_message
     if not host.translation_fetch_worker then
         local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UIManager,codec=host.client} end)
         if not ok then M.cancel(host);failed(host);return false end;host.translation_fetch_worker=worker
     end
     host.translation_fetch_worker.timeout=full and 3600 or 75
-    local launched,started=pcall(host.translation_fetch_worker.start,host.translation_fetch_worker,function()
+    local launched,started=pcall(host.translation_fetch_worker.start,host.translation_fetch_worker,function(progress)
         local capture=WorkerSettings.capture(host.settings)
-        local good,result=pcall(full and Fetch.run_book or Fetch.run,host.client,host.settings,input,output)
+        local good,result=pcall(full and Fetch.run_book or Fetch.run,host.client,host.settings,input,output,progress)
         if not good then
             if full and (result=='translation_fetch/source_limit' or result=='translation_fetch/asset_limit'
                 or result=='translation_fetch/content_limit' or result=='translation_fetch/chapter_limit') then return {ok=false,reason='limit'} end
@@ -229,7 +241,14 @@ function M.start(host,full)
         local saved,where=pcall(o.doc_settings.flush,o.doc_settings)
         if not saved or not where then host:showInfo(_('The translated copy was saved, but its offline shortcut could not be saved. Check storage.')) end
         success(host,o,output,result,full)
-    end)
+    end,full and function(value)
+        if host.translation_fetch_job~=job then return end
+        if not current(host,o) or host.busy_message~=job.busy then M.cancel(host);return end
+        if type(value)=='number' and value%1==0 and value>=0 and value<=98
+            and value>(job.progress or -1) then
+            job.progress=value;job.busy:reportProgress(value)
+        end
+    end or nil)
     if not launched or not started then M.cancel(host);failed(host);return false end
     return true
 end

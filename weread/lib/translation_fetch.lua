@@ -178,7 +178,8 @@ end
 -- EPUB through the caller's exclusively owned descriptor. Any missing chapter,
 -- changed catalog or limit failure aborts the whole copy rather than silently
 -- producing a truncated book.
-function M.run_book(client,settings,input,output)
+function M.run_book(client,settings,input,output,progress)
+    local function report(value) if type(progress)=='function' then pcall(progress,value) end end
     local book={book_id=input.book_id,title=input.title,author=input.author,cache_dir=input.directory}
     local before,metadata=local_source(input,input.path)
     if metadata~=input.metadata then fail('source') end
@@ -195,6 +196,7 @@ function M.run_book(client,settings,input,output)
         if uid==input.chapter_uid then current=index end
     end
     if not current then fail('catalog') end
+    report(0)
     book.bookVersion=version
     local identity=Identity.capture(book)
     local bodies,sources,assets,state,block_counts={}, {}, {}, {}, {}
@@ -228,15 +230,18 @@ function M.run_book(client,settings,input,output)
             target=Model.refresh_target(before,after,input.xpointer,index)
         end
         bodies[uid],sources[uid]=xhtml,source
+        report(math.floor(index*90/#chapters))
     end
     if blocks<1 then return {ok=false,reason='missing'} end
     local again,later=Content.fetch_catalog(M.client(client,book,input.chapter_uid),book)
     if version~=later or not equal(chapters,again) then fail('catalog_changed') end
+    report(94)
     Content.save_book_epub(settings,book,chapters,bodies,'translation',assets,css,nil,identity,sources,output)
     local info=require('libs/libkoreader-lfs').attributes(output.path)
     local profile=DisplayArchive.inspect(output.path,book.book_id)
     if not info or info.size<1 or info.size>M.MAX_OUTPUT or not profile or profile.blocks~=blocks
         or #profile.chapters~=#chapters or not profile.chapters[current] then fail('output') end
+    report(98)
     for index=1,#chapters do
         if profile.chapters[index].blocks~=block_counts[index] then fail('output') end
     end

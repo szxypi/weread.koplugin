@@ -11,14 +11,15 @@ local function runner()
         run = function(callback)
             return util.runInSubProcess(function(_pid, fd) callback(fd) end, true)
         end,
-        write = function(fd, bytes)
+        write = function(fd, bytes, keep_open)
             local offset = 0
             while offset < #bytes do
                 local n = tonumber(ffi.C.write(fd, bytes:sub(offset + 1), #bytes - offset))
-                if n <= 0 then break end
-                offset = offset + n
+                if n > 0 then offset = offset + n
+                elseif n >= 0 or ffi.errno() ~= ffi.C.EINTR then break end
             end
-            ffi.C.close(fd)
+            if not keep_open then ffi.C.close(fd) end
+            return offset == #bytes
         end,
         read = function(fd)
             local size = util.getNonBlockingReadSize(fd)
@@ -67,33 +68,75 @@ function Worker:cancel()
     self:_collect(job)
 end
 
-function Worker:start(task, callback)
+-- Optional progress is a bounded stream of integer percentages on the same
+-- anonymous pipe. At most 101 small updates can precede the normal result;
+-- source text and credentials never enter progress frames.
+function Worker:start(task, callback, on_progress)
     self:cancel()
+    local streaming = type(on_progress) == 'function'
     local ok, pid, fd = pcall(self.runner.run, function(output)
-        local success, value = pcall(task)
+        local last = -1
+        local function report(value)
+            if not streaming or type(value) ~= 'number' or value % 1 ~= 0
+                or value < 0 or value > 100 or value <= last then return end
+            last = value
+            self.runner.write(output, 'p' .. tostring(value) .. '\n', true)
+        end
+        local success, value
+        if streaming then success, value = pcall(task, report)
+        else success, value = pcall(task) end
         local encoded, bytes = pcall(self.codec.json_encode, self.codec,
             success and value or { error = "worker_failed" })
         if not encoded or type(bytes) ~= "string" or #bytes > self.limit then bytes = '{"error":"worker_failed"}' end
-        self.runner.write(output, bytes)
+        self.runner.write(output, (streaming and 'r' or '') .. bytes)
     end)
     if not ok or type(pid) ~= "number" or type(fd) ~= "number" then return false end
-    local job = { pid = pid, fd = fd, chunks = {}, size = 0, started = self.now() }
+    local job = { pid = pid, fd = fd, chunks = {}, size = 0, started = self.now(),
+        streaming = streaming, prefix = '', last_progress = -1 }
     self.job = job
     job.poll = function()
         if self.job ~= job then return end
         local chunk = self.runner.read(job.fd)
-        if chunk then
+        local empty = chunk == ''
+        local valid = true
+        if chunk and streaming and not job.result_started then
+            job.prefix = job.prefix .. chunk
+            while #job.prefix > 0 and not job.result_started do
+                if job.prefix:sub(1,1) == 'r' then
+                    job.result_started = true
+                    chunk = job.prefix:sub(2); job.prefix = ''
+                elseif job.prefix:sub(1,1) == 'p' then
+                    local at = job.prefix:find('\n', 1, true)
+                    if not at then
+                        if #job.prefix > 4 then valid = false end
+                        chunk = ''; break
+                    end
+                    local raw = job.prefix:sub(2,at-1)
+                    local value = raw:match('^%d%d?%d?$') and tonumber(raw)
+                    if not value or tostring(value) ~= raw or value > 100 or value <= job.last_progress then valid = false; break end
+                    job.last_progress = value
+                    job.prefix = job.prefix:sub(at+1)
+                    pcall(on_progress,value)
+                    if self.job ~= job then return end
+                else valid = false; break end
+            end
+            if not job.result_started then chunk = '' end
+        end
+        if chunk and (not streaming or job.result_started) then
             job.size = job.size + #chunk
             if job.size <= self.limit then job.chunks[#job.chunks + 1] = chunk end
         end
         local done = self.runner.done(job.pid)
-        if not chunk or job.size > self.limit or self.now() - job.started > self.timeout then
+        if not valid or not chunk or job.size > self.limit or self.now() - job.started > self.timeout then
             self:cancel()
             callback(nil)
-        elseif done and #chunk == 0 then
+        elseif done and empty then
             self.runner.close(job.fd)
             self.job = nil
-            local parsed, value = pcall(self.codec.json_decode, self.codec, table.concat(job.chunks))
+            local parsed, value = false, nil
+            if not streaming or job.result_started then
+                parsed, value = pcall(self.codec.json_decode, self.codec, table.concat(job.chunks))
+            end
             job.chunks = nil
             callback(parsed and type(value) == "table" and value or nil)
         else

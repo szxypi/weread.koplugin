@@ -372,6 +372,7 @@ local zh = {
     ["Reading language"] = "阅读语言",
     ["Download existing translation"] = "下载本章已有译文",
     ["Download existing translations for full book"] = "下载整本书已有译文",
+    ["Downloading chapters and checking the completed copy."] = "正在下载章节并核对完整副本。",
     ["Copy local annotations to translated copy"] = "将原书批注复制到译文副本",
     ["The translated copy may share reading records with the original book, so it cannot be opened safely. The original notes are kept."] = "译文副本可能与原书共用阅读记录，暂时无法安全打开；原书笔记已保留。",
     ["This book has too many annotations to copy at once. The original notes are kept."] = "本书批注过多，暂时无法一次复制；原书批注已保留。",
