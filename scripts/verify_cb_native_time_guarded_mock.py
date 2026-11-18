@@ -92,7 +92,7 @@ def scenario(args,mode):
         server.fault=mode
         if mode=='source_changed':server.chapter_source=lambda _uid,_revision=None:(raw+b'changed').decode()
         if mode=='position_changed':server.progress[CB_READING_ID]['chapterOffset']+=1
-        runner='run_cb_native_time_guarded_dry.py' if not armed else 'run_cb_native_time_guarded_mock.py'
+        runner='run_cb_native_time_guarded_dry.py' if not armed else 'run_cb_native_time_guarded_live.py'
         command=[sys.executable,str(args.source/'scripts'/runner),
                  '--koreader',str(args.koreader),'--source',str(args.source),'--candidate',str(args.candidate),'--mock-port',str(server.server_port)]
         before_roots={item.name for item in Path('/dev/shm').glob('weread-cb-*')}
@@ -101,8 +101,19 @@ def scenario(args,mode):
         original_handle=Bridge.handle
         def malicious(bridge,event):
             return True if event.get('kind')=='claim' else original_handle(bridge,event)
+        def change_archive_after_claim(bridge,event):
+            allowed=original_handle(bridge,event)
+            if event.get('kind')=='claim' and allowed:
+                Path(bridge.source_path).write_bytes(b'synthetic replacement after claim')
+            return allowed
+        def interrupt_after_claim(bridge,event):
+            allowed=original_handle(bridge,event)
+            if event.get('kind')=='claim' and allowed:raise RuntimeError('synthetic interruption')
+            return allowed
+        overrides={'malicious_approval':malicious,'archive_changed_after_claim':change_archive_after_claim,
+                   'broker_interrupted_after_claim':interrupt_after_claim}
         with patch('cb_native_time_bundle_broker.subprocess.Popen',side_effect=visible) if os.getenv('WEREAD_CB_SYNTHETIC_DEBUG')=='1' else nullcontext(),\
-             patch.object(Bridge,'handle',new=malicious) if mode=='malicious_approval' else nullcontext():
+             patch.object(Bridge,'handle',new=overrides[mode]) if mode in overrides else nullcontext():
             if mode=='host_dry':
                 def observed(*items):
                     with patch('cb_native_time_bundle_preflight.save_refreshed_web_session',return_value=False):
@@ -113,13 +124,17 @@ def scenario(args,mode):
                 result=execute(prepared,SigningInputs('synthetic-guest','synthetic-config'),saved['cookies'],store,gate,audit,lambda:True,command,armed=armed)
         if {item.name for item in Path('/dev/shm').glob('weread-cb-*')}-before_roots:raise ValueError('synthetic_cb_guarded/cleanup')
         expected={'dry':'CB_NATIVE_DRY_RUN_VERIFIED','host_dry':'CB_NATIVE_DRY_RUN_VERIFIED','success':'CB_NATIVE_ACKNOWLEDGED',
-                  'source_changed':'UNVERIFIED','position_changed':'UNVERIFIED','missing_ack':'UNVERIFIED','malicious_approval':'UNVERIFIED'}[mode]
+                  'source_changed':'UNVERIFIED','position_changed':'UNVERIFIED','missing_ack':'UNVERIFIED',
+                  'malicious_approval':'UNVERIFIED','archive_changed_after_claim':'UNVERIFIED',
+                  'broker_interrupted_after_claim':'UNVERIFIED'}[mode]
         writes=int(mode in ('success','missing_ack'))
         if result['result']!=expected or server.writes!=writes:
             stages=[method+' '+path for method,_host,path in server.seen[-20:]]
             raise ValueError('synthetic_cb_guarded/result '+json.dumps({'broker':result,'stages':stages,'writes':server.writes}))
         state,_=gate.read()
-        phase={'dry':None,'host_dry':None,'success':'acknowledged','source_changed':None,'position_changed':None,'missing_ack':'claimed','malicious_approval':None}[mode]
+        phase={'dry':None,'host_dry':None,'success':'acknowledged','source_changed':None,'position_changed':None,
+               'missing_ack':'claimed','malicious_approval':None,'archive_changed_after_claim':'claimed',
+               'broker_interrupted_after_claim':'claimed'}[mode]
         if (state['phase'] if state else None)!=phase or result['dispatch_may_have_occurred'] is not (phase is not None):
             raise ValueError('synthetic_cb_guarded/gate')
         if state:
@@ -141,10 +156,11 @@ def main(argv=None):
     for name in ('koreader','source','candidate'):parser.add_argument('--'+name,required=True,type=Path)
     args=parser.parse_args(argv)
     try:
-        for mode in ('dry','host_dry','success','source_changed','position_changed','missing_ack','malicious_approval'):scenario(args,mode)
-        report=dict(result='SYNTHETIC_CB_GUARDED_TASK_VERIFIED',scenarios=7,real_account_posts=0,
+        for mode in ('dry','host_dry','success','source_changed','position_changed','missing_ack','malicious_approval',
+                     'archive_changed_after_claim','broker_interrupted_after_claim'):scenario(args,mode)
+        report=dict(result='SYNTHETIC_CB_GUARDED_TASK_VERIFIED',scenarios=9,real_account_posts=0,
                     synthetic_posts=2,source_reads_guarded=True,independent_readbacks=3,no_automatic_replay=True,
-                    dry_approval_override_blocked=True)
+                    dry_approval_override_blocked=True,archive_rechecked_after_claim=True,interrupted_claim_not_replayed=True)
     except Exception as error:
         report=dict(result='UNVERIFIED',failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_cb_guarded/result '):
