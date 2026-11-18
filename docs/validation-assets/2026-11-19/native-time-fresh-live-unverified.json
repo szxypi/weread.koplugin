@@ -1,0 +1,40 @@
+{
+  "dispatch": {
+    "account_data_posts": 1,
+    "authentication_posts": 0,
+    "server_acknowledged": true,
+    "durable_gate_phase": "acknowledged",
+    "automatic_retry_allowed": false
+  },
+  "strict_readback": {
+    "result": "UNVERIFIED",
+    "reason": "native full shelf projection changed",
+    "native_full_shelf_matches": false,
+    "web_full_shelf_matches": true,
+    "two_shelf_samples_stable": true,
+    "account_data_posts": 0
+  },
+  "later_accounting_diagnostic": {
+    "seconds_since_claim": 197,
+    "samples": 2,
+    "samples_stable": true,
+    "per_book_reading_time_delta_seconds": 6,
+    "historical_date_statistics_exact": true,
+    "native_and_web_positions_unchanged": true,
+    "other_counters_unchanged": true,
+    "native_shelf_members_flags_and_core_groups_unchanged": true,
+    "account_data_posts": 0
+  },
+  "later_source_diagnostic": {
+    "seconds_since_claim": 242,
+    "samples": 2,
+    "samples_stable": true,
+    "source_catalog_version_positions_counters_and_core_native_shelf_exact": true,
+    "web_full_shelf_exact": true,
+    "capture_and_experiment_records_unchanged": true,
+    "account_data_posts": 0
+  },
+  "full_native_shelf_difference_explained": false,
+  "strict_accounting_verified": false,
+  "physical_kindle_tested": false
+}
