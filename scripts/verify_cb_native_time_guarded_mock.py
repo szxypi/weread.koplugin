@@ -28,6 +28,7 @@ from verify_cb_native_time_capture import snapshot
 from verify_native_statistics import period
 from verify_cb_native_time_bundle_ui_rpc import seed
 from verify_cb_native_time_guarded_dry import run as host_dry
+from verify_cb_native_time_guarded_live import run as host_live
 
 
 class Server(BaseServer):
@@ -89,7 +90,7 @@ def scenario(args,mode):
             report,prepared=preflight(store,Session(),NativeStore(),gate,audit,clock=time.time,sleep=lambda _s:None,
                                       web_factory=Web,native_factory=Native)
         if report['result']!='CB_CROSS_DAY_READONLY_VERIFIED' or prepared is None:raise ValueError('synthetic_cb_guarded/preflight')
-        server.fault=mode
+        server.fault='missing_ack' if mode=='host_live_missing_ack' else mode
         if mode=='source_changed':server.chapter_source=lambda _uid,_revision=None:(raw+b'changed').decode()
         if mode=='position_changed':server.progress[CB_READING_ID]['chapterOffset']+=1
         runner='run_cb_native_time_guarded_dry.py' if not armed else 'run_cb_native_time_guarded_live.py'
@@ -114,27 +115,39 @@ def scenario(args,mode):
                    'broker_interrupted_after_claim':interrupt_after_claim}
         with patch('cb_native_time_bundle_broker.subprocess.Popen',side_effect=visible) if os.getenv('WEREAD_CB_SYNTHETIC_DEBUG')=='1' else nullcontext(),\
              patch.object(Bridge,'handle',new=overrides[mode]) if mode in overrides else nullcontext():
-            if mode=='host_dry':
+            if mode in ('host_dry','host_live_success','host_live_missing_ack'):
                 def observed(*items):
                     with patch('cb_native_time_bundle_preflight.save_refreshed_web_session',return_value=False):
                         return preflight(*items,clock=time.time,sleep=lambda _s:None,web_factory=Web,native_factory=Native)
                 def signing(packet,s,g,a,current):return read_inputs(packet,s,g,a,current,probe_factory=Signer)
-                result=host_dry(store,Session(),NativeStore(),gate,audit,attest=lambda:command,preflight=observed,prepare=signing)
+                if mode=='host_dry':
+                    result=host_dry(store,Session(),NativeStore(),gate,audit,attest=lambda:command,preflight=observed,prepare=signing)
+                else:
+                    dry_command=command.copy()
+                    dry_command[1]=str(args.source/'scripts'/'run_cb_native_time_guarded_dry.py')
+                    def rehearsal(*items):
+                        return host_dry(*items,attest=lambda:dry_command,preflight=observed,prepare=signing)
+                    def independent(*items):
+                        with patch('cb_native_time_bundle_readback.save_refreshed_web_session',return_value=False):
+                            return readback(*items,clock=time.time,sleep=lambda _s:None,web_factory=Web,native_factory=AfterNative)
+                    result=host_live(store,Session(),NativeStore(),gate,audit,attest=lambda:command,rehearsal=rehearsal,
+                                     preflight=observed,prepare=signing,readback=independent)
             else:
                 result=execute(prepared,SigningInputs('synthetic-guest','synthetic-config'),saved['cookies'],store,gate,audit,lambda:True,command,armed=armed)
         if {item.name for item in Path('/dev/shm').glob('weread-cb-*')}-before_roots:raise ValueError('synthetic_cb_guarded/cleanup')
         expected={'dry':'CB_NATIVE_DRY_RUN_VERIFIED','host_dry':'CB_NATIVE_DRY_RUN_VERIFIED','success':'CB_NATIVE_ACKNOWLEDGED',
                   'source_changed':'UNVERIFIED','position_changed':'UNVERIFIED','missing_ack':'UNVERIFIED',
                   'malicious_approval':'UNVERIFIED','archive_changed_after_claim':'UNVERIFIED',
-                  'broker_interrupted_after_claim':'UNVERIFIED'}[mode]
-        writes=int(mode in ('success','missing_ack'))
+                  'broker_interrupted_after_claim':'UNVERIFIED','host_live_success':'CB_NATIVE_TRANSFER_READBACK_MATCH',
+                  'host_live_missing_ack':'UNVERIFIED'}[mode]
+        writes=int(mode in ('success','missing_ack','host_live_success','host_live_missing_ack'))
         if result['result']!=expected or server.writes!=writes:
             stages=[method+' '+path for method,_host,path in server.seen[-20:]]
             raise ValueError('synthetic_cb_guarded/result '+json.dumps({'broker':result,'stages':stages,'writes':server.writes}))
         state,_=gate.read()
         phase={'dry':None,'host_dry':None,'success':'acknowledged','source_changed':None,'position_changed':None,
                'missing_ack':'claimed','malicious_approval':None,'archive_changed_after_claim':'claimed',
-               'broker_interrupted_after_claim':'claimed'}[mode]
+               'broker_interrupted_after_claim':'claimed','host_live_success':'acknowledged','host_live_missing_ack':'claimed'}[mode]
         if (state['phase'] if state else None)!=phase or result['dispatch_may_have_occurred'] is not (phase is not None):
             raise ValueError('synthetic_cb_guarded/gate')
         if state:
@@ -157,10 +170,11 @@ def main(argv=None):
     args=parser.parse_args(argv)
     try:
         for mode in ('dry','host_dry','success','source_changed','position_changed','missing_ack','malicious_approval',
-                     'archive_changed_after_claim','broker_interrupted_after_claim'):scenario(args,mode)
-        report=dict(result='SYNTHETIC_CB_GUARDED_TASK_VERIFIED',scenarios=9,real_account_posts=0,
-                    synthetic_posts=2,source_reads_guarded=True,independent_readbacks=3,no_automatic_replay=True,
-                    dry_approval_override_blocked=True,archive_rechecked_after_claim=True,interrupted_claim_not_replayed=True)
+                     'archive_changed_after_claim','broker_interrupted_after_claim','host_live_success','host_live_missing_ack'):scenario(args,mode)
+        report=dict(result='SYNTHETIC_CB_GUARDED_TASK_VERIFIED',scenarios=11,real_account_posts=0,
+                    synthetic_posts=4,source_reads_guarded=True,independent_readbacks_per_success=3,no_automatic_replay=True,
+                    dry_approval_override_blocked=True,archive_rechecked_after_claim=True,interrupted_claim_not_replayed=True,
+                    full_host_rehearsal_dispatch_readback=True)
     except Exception as error:
         report=dict(result='UNVERIFIED',failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_cb_guarded/result '):
