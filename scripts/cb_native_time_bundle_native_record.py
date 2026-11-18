@@ -1,16 +1,17 @@
 """Validate a CB worker's claimed journal against sealed preflight evidence."""
 import re
+from pathlib import Path
 
 from cb_native_time_bundle_evidence import PreflightEvidence
 from cb_native_time_bundle_gate import day
-from native_time_bundle_native_record import archive_details,point_hash
+from native_time_bundle_native_record import archive_details,archive_details_bytes,point_hash
 from native_time_bundle_selection import native_digest,validate_selection
 from native_time_capture_evidence import account_key
 from readtime_upload_model import integer
 from verify_native_position_lua import equivalent
 
 
-def validate_record(bundle,grant,evidence,selection,body,record,source_path,now):
+def validate_record(bundle,grant,evidence,selection,body,record,source_path,now,*,archive=None):
     if not isinstance(evidence,PreflightEvidence):raise ValueError('cb_native_record/evidence')
     _report,snapshot,months=evidence.for_bundle(bundle,grant);plan=bundle['plan']
     validate_selection(bundle,selection,imported=True)
@@ -28,7 +29,9 @@ def validate_record(bundle,grant,evidence,selection,body,record,source_path,now)
                                   {key:value for key,value in original.items() if key!='id'})
                    for actual,original in zip(rows,wanted))):raise ValueError('cb_native_record/rows')
     metadata=record['metadata'];source=metadata.get('source') if isinstance(metadata,dict) else None
-    meta_hash,raw_bytes=archive_details(plan,source_path)
+    if not isinstance(source_path,(str,Path)) or not Path(source_path).is_absolute() or '\0' in str(source_path):
+        raise ValueError('cb_native_record/source')
+    meta_hash,raw_bytes=archive_details(plan,source_path) if archive is None else archive_details_bytes(plan,archive)
     expected_source={'expected':{'book_id':plan['book_id'],'chapter_uid':plan['chapter_uid'],'chapter_idx':plan['chapter_idx'],
                                  'raw_sha256':plan['raw_sha256'],'raw_bytes':raw_bytes},
                      'format':plan['format'],'metadata_hash':meta_hash,

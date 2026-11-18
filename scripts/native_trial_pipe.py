@@ -36,10 +36,11 @@ def reply(stream,value):
 
 
 class Frames:
-    def __init__(self,stream,token,timeout=240):
+    def __init__(self,stream,token,timeout=240,*,max_frame=MAX_FRAME):
         if not isinstance(token,str) or not re.fullmatch('[a-f0-9]{32}',token):raise ValueError('trial_pipe/token')
+        if type(max_frame) is not int or not MAX_FRAME<=max_frame<=MAX_INPUT:raise ValueError('trial_pipe/frame_limit')
         self.stream=stream;self.prefix=b'WEREAD_NATIVE_THOUGHT_'+token.encode()+b'_'
-        self.buffer=b'';self.total=0;self.deadline=time.monotonic()+timeout
+        self.buffer=b'';self.total=0;self.deadline=time.monotonic()+timeout;self.max_frame=max_frame
 
     def next(self):
         with selectors.DefaultSelector() as selector:
@@ -48,7 +49,7 @@ class Frames:
                 while b'\n' in self.buffer:
                     line,self.buffer=self.buffer.split(b'\n',1)
                     if not line.startswith(self.prefix):continue
-                    if len(line)>MAX_FRAME:raise ValueError('trial_pipe/frame')
+                    if len(line)>self.max_frame:raise ValueError('trial_pipe/frame')
                     kind,separator,raw=line[len(self.prefix):].partition(b'=')
                     if not separator or kind not in (b'STEP',b'RESULT'):raise ValueError('trial_pipe/frame')
                     value=json.loads(raw)
@@ -60,7 +61,7 @@ class Frames:
                 self.total+=len(chunk)
                 if self.total>16*1024*1024:raise ValueError('trial_pipe/limit')
                 self.buffer+=chunk
-                if len(self.buffer)>MAX_FRAME and b'\n' not in self.buffer:raise ValueError('trial_pipe/frame')
+                if len(self.buffer)>self.max_frame and b'\n' not in self.buffer:raise ValueError('trial_pipe/frame')
         raise TimeoutError('trial_pipe/timeout')
 
 

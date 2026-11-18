@@ -1,4 +1,5 @@
 """Fail closed around CB selection, persisted baseline, one claim and ACK."""
+import base64
 from copy import deepcopy
 import tempfile,unittest
 from unittest.mock import patch
@@ -99,6 +100,24 @@ class ImportedSupervisorTests(unittest.TestCase):
                 bridge.handle(dict(kind='selection',selection=selection));bridge.handle(dict(kind='claim',body=body,selection=selection,record=record))
                 with self.assertRaises(ValueError):bridge.handle(dict(kind='ack',status=status,response=response))
                 self.assertEqual(gate.read()[0]['phase'],'claimed');self.assertEqual(bridge.phase,'stopped')
+    def test_private_remote_archive_is_required_and_bound_before_claim(self):
+        for mode in ('success','dry','missing','altered','invalid','wrong_path'):
+            with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory:
+                bundle,grant,_evidence,selection,body,record,path,_now,gate,audit,_capture,_state,supervisor,_bridge=fixture(directory,mode!='dry')
+                raw=path.read_bytes();path.unlink()
+                bridge=Bridge(supervisor,path,armed=mode!='dry',remote=True)
+                bridge.handle(dict(kind='selection',selection=selection))
+                event=dict(kind='claim',body=body,selection=selection,record=record,archive_base64=base64.b64encode(raw).decode())
+                if mode=='missing':del event['archive_base64']
+                elif mode=='altered':event['archive_base64']=base64.b64encode(raw+b'x').decode()
+                elif mode=='invalid':event['archive_base64']='!'
+                elif mode=='wrong_path':record['metadata']['source']['ref']['file']+='.other'
+                if mode in ('success','dry'):
+                    self.assertEqual(bridge.handle(event),mode=='success')
+                    self.assertEqual(gate.read()[0]['phase'] if gate.read()[0] else None,'claimed' if mode=='success' else None)
+                else:
+                    with self.assertRaises(ValueError):bridge.handle(event)
+                    self.assertEqual(gate.read(),(None,None));self.assertEqual(audit.read(),(None,None))
 
 
 if __name__=='__main__':unittest.main()

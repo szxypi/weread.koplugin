@@ -123,5 +123,17 @@
     "independent_samples": 3,
     "account_data_posts": 0,
     "authentication_posts": 0
+  },
+  "synthetic_remote_archive": {
+    "result": "SYNTHETIC_CB_REMOTE_PIPE_VERIFIED",
+    "process_pipe_scenarios": 3,
+    "native_ui_scenarios_per_size": 19,
+    "screen_sizes": 2,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "changed_archive_blocked": true,
+    "unknown_not_replayed": true,
+    "profile_removed": true,
+    "real_dispatch_connected": false
   }
 }

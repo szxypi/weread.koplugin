@@ -36,9 +36,9 @@ class Supervisor:
         if report['completed_at']!=self.preflight_at or digest(snapshot)!=self.snapshot_hash or digest(months)!=self.months_hash:
             raise ValueError('cb_supervisor/evidence')
         return snapshot,months
-    def _check_native(self,body,selection,record,source_path):
+    def _check_native(self,body,selection,record,source_path,archive):
         now,_zone=self.gate._wall_clock()
-        validate_record(self.bundle,self.grant,self.evidence,selection,body,record,source_path,now)
+        validate_record(self.bundle,self.grant,self.evidence,selection,body,record,source_path,now,archive=archive)
     def _check_audit(self,phase,receipt):
         saved,token,state,current=self.audit_store.inspect(self.bundle,self.grant,self.gate)
         if (token!=self.audit_receipt or state['phase']!=phase or current!=receipt or saved['prepared_at']!=self.preflight_at
@@ -63,36 +63,36 @@ class Supervisor:
             validate_selection(self.bundle,selection,imported=True);self.selection_hash=digest(selection);self.phase='selected'
         except BaseException:
             self.phase='stopped';raise
-    def _preclaim(self,body,selection,record,source_path):
+    def _preclaim(self,body,selection,record,source_path,archive):
         if self.phase!='selected' or not self._fresh() or not self._recent() or self.gate.read()!=(None,None) or self.audit_store.read()!=(None,None):
             raise ValueError('cb_supervisor/state')
         validate_selection(self.bundle,selection,imported=True)
         if digest(selection)!=self.selection_hash:raise ValueError('cb_supervisor/selection')
-        snapshot,months=self._check_evidence();self._check_native(body,selection,record,source_path)
+        snapshot,months=self._check_evidence();self._check_native(body,selection,record,source_path,archive)
         self.gate.preview(self.bundle,self.grant,snapshot,body,self.guest,self.config)
         if not self._fresh() or not self._recent():raise ValueError('cb_supervisor/stale')
         return snapshot,months
-    def preview(self,body,selection,record,source_path):
+    def preview(self,body,selection,record,source_path,*,archive=None):
         try:
-            self._preclaim(body,selection,record,source_path)
+            self._preclaim(body,selection,record,source_path,archive)
             if self.gate.read()!=(None,None) or self.audit_store.read()!=(None,None):raise ValueError('cb_supervisor/stale')
-            self._check_evidence();self._check_native(body,selection,record,source_path)
+            self._check_evidence();self._check_native(body,selection,record,source_path,archive)
             return True
         except BaseException:
             self.phase='stopped';raise
-    def claim(self,body,selection,record,source_path):
+    def claim(self,body,selection,record,source_path,*,archive=None):
         try:
             frozen=deepcopy((body,selection,record,str(source_path)));body,selection,record,source_path=frozen
-            snapshot,months=self._preclaim(body,selection,record,source_path)
+            snapshot,months=self._preclaim(body,selection,record,source_path,archive)
             reserved=self.gate.reserve(self.bundle,self.grant,snapshot)
             if not self._fresh() or not self._recent():raise ValueError('cb_supervisor/stale')
-            self._check_native(body,selection,record,source_path);self._check_evidence()
+            self._check_native(body,selection,record,source_path,archive);self._check_evidence()
             self.audit_receipt=self.audit_store.seal(self.bundle,self.grant,self.gate,snapshot,months,self.preflight_at)
-            self._check_audit('prepared',reserved);self._check_native(body,selection,record,source_path)
+            self._check_audit('prepared',reserved);self._check_native(body,selection,record,source_path,archive)
             if not self._fresh() or not self._recent():raise ValueError('cb_supervisor/stale')
             self.dispatch_receipt=self.gate.claim(reserved,self.bundle,self.grant,snapshot,body,self.guest,self.config)
             self.phase='claimed';self._check_audit('claimed',self.dispatch_receipt)
-            self._check_native(body,selection,record,source_path);self._check_evidence()
+            self._check_native(body,selection,record,source_path,archive);self._check_evidence()
             if not self._fresh() or not self._recent():raise ValueError('cb_supervisor/stale')
             self.gate.assert_claim_current(self.dispatch_receipt,self.bundle,self.grant,snapshot,body,self.guest,self.config)
             return self.dispatch_receipt

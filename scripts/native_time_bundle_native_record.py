@@ -29,6 +29,19 @@ def point_hash(point,book):
     return native_digest(value)
 
 
+def archive_details_bytes(plan,actual):
+    """Verify private archive bytes, including captures relayed from tmpfs."""
+    expected=base64.b64decode(plan['archive_base64'],validate=True)
+    try:
+        if (not isinstance(actual,bytes) or len(actual)!=len(expected) or len(actual)>2*1024*1024
+                or actual!=expected or hashlib.sha256(actual).hexdigest()!=plan['archive_sha256']):raise ValueError()
+        with zipfile.ZipFile(io.BytesIO(actual)) as archive:
+            path='OEBPS/weread-position/uid-'+hashlib.sha256(plan['chapter_uid'].encode()).hexdigest()+'.meta'
+            metadata=archive.read(path);raw=archive.read('OEBPS/weread-position/raw-'+plan['raw_sha256']+'.txt')
+        return hashlib.sha256(metadata).hexdigest(),len(raw)
+    except Exception:raise ValueError('native_record/archive') from None
+
+
 def archive_details(plan,source_path):
     if not isinstance(source_path,(str,Path)) or not Path(source_path).is_absolute() or '\0' in str(source_path):
         raise ValueError('native_record/archive')
@@ -41,11 +54,7 @@ def archive_details(plan,source_path):
             raise ValueError()
         with os.fdopen(fd,'rb') as stream:
             fd=None;actual=stream.read(len(expected)+1)
-        if actual!=expected or hashlib.sha256(actual).hexdigest()!=plan['archive_sha256']:raise ValueError()
-        with zipfile.ZipFile(io.BytesIO(actual)) as archive:
-            path='OEBPS/weread-position/uid-'+hashlib.sha256(plan['chapter_uid'].encode()).hexdigest()+'.meta'
-            metadata=archive.read(path);raw=archive.read('OEBPS/weread-position/raw-'+plan['raw_sha256']+'.txt')
-        return hashlib.sha256(metadata).hexdigest(),len(raw)
+        return archive_details_bytes(plan,actual)
     except Exception:raise ValueError('native_record/archive') from None
     finally:
         if fd is not None:os.close(fd)

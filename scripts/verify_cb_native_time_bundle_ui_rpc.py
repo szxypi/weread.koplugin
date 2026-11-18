@@ -8,6 +8,7 @@ from cb_native_time_bundle_audit_store import AuditStore
 from cb_native_time_bundle_bridge import Bridge
 from cb_native_time_bundle_evidence import PreflightEvidence
 from cb_native_time_bundle_gate import DispatchGate,day
+from cb_native_time_bundle_remote_archive import Relay
 from cb_native_time_bundle_supervisor import Supervisor
 from native_time_bundle_workspace import restore
 from native_time_capture_evidence import PROTOCOL,account_key,validate_evidence
@@ -71,7 +72,7 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi,seeded):
     audit=AuditStore(FileBackend(audit_path),lambda:project_lock(folder/'audit.lock'),clock=time.time)
     supervisor=Supervisor(gate,Capture(bundle),bundle,grant,'synthetic-guest','synthetic-config',lambda:True,
                           audit_store=audit,evidence=evidence);supervisor.prepare()
-    bridge=Bridge(supervisor,epub,armed=mode!='dry_run');token=secrets.token_hex(16)
+    bridge=Bridge(supervisor,epub,armed=mode!='dry_run',remote=True);relay=Relay(plan,folder,epub);token=secrets.token_hex(16)
     payload={key:value for key,value in plan.items() if key!='archive_base64'}
     payload.update(grant=grant,guest='synthetic-guest',config='synthetic-config',mode=mode,token=token,months=months)
     if (payload['owner']!='900000' or payload['book_id']!='CB_Synthetic' or grant['accessToken']!='mock-native-access'
@@ -87,8 +88,11 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi,seeded):
             kind,event=frames.next()
             if kind=='RESULT':result=event;break
             pending=event;name=event.get('kind');allowed=False
-            try:allowed=bridge.handle(event)
-            except (ValueError,StoreError):pass
+            try:
+                offered=relay.prepare(event) if name=='claim' else event
+                allowed=bridge.handle(offered)
+                if name=='claim' and allowed:relay.recheck()
+            except (ValueError,StoreError):allowed=False
             events.append((name,allowed));reply(child.stdin,{'kind':name,'ok':allowed});pending=None
         status=child.wait(timeout=10)
         if status!=0 or not isinstance(result,dict) or result.get('result')!='PASS':
