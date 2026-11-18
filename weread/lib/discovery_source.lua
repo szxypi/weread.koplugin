@@ -93,6 +93,14 @@ function M.fetch(client, request, selected, options)
                 value.source_kind,value.source_revision="gateway",selected.revision
                 return value
             end
+            -- Search can use the anonymous catalogue when there is no Skill
+            -- key. Never splice a different source into an existing batch.
+            if fallback and not selected.api_key and request.kind=='search'
+                and (request.cursor or 0)==0 and not request.source_kind then
+                local value=M.fetch(client,{kind='search',keyword=request.keyword,cursor=0,source_kind='public'})
+                current()
+                return value
+            end
             fail("native_unavailable")
         end
         local value=M.project(client,request.kind,data,request.cursor)

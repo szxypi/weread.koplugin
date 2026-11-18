@@ -12,7 +12,7 @@ local function expect(value,label) checks=checks+1;assert(value,label) end
 local function fixture(kind,options)
     options=options or {}
     local scope={vid="900000",epoch=1}
-    local state={revision=1,pending=false,posts=0,reads=0,gateway=0,saves=0,rendered=0,current=true,
+    local state={revision=1,pending=false,posts=0,reads=0,gateway=0,public=0,saves=0,rendered=0,current=true,
         key="synthetic-key",codes=options.codes or {401},credentials={vid="900000",accessToken="old-synthetic-access",
             refreshToken="synthetic-refresh",deviceId=string.rep("1",32)}}
     local books={['900001']={book_id="900001",progress=83,bookVersion=47}}
@@ -54,6 +54,9 @@ local function fixture(kind,options)
             else decoded=page() end
             return "fixture",code
         end,
+        get_public_book_search=function(_self,keyword,cursor)
+            assert(keyword=='Synthetic' and cursor==0);state.public=state.public+1;return page({cursor=cursor})
+        end,
         get_gateway_discovery=function(_self,_kind,query) state.gateway=state.gateway+1;return page(query) end,
         get_display_book_metadata=function() state.gateway=state.gateway+1;return {bookId="900001",title="Fallback metadata"} end}
     local host={settings=settings,client=client,library_db={accountKey=function() return "owner-a" end,
@@ -86,6 +89,24 @@ local function fixture(kind,options)
         end,
         empty=function() return #queue==0 end,
         cancel=function() if kind=="metadata" then Metadata.cancel(host) else Discovery.cancel(host) end end}
+end
+for _,lost in ipairs({false,true}) do
+    local f=fixture('search',{lost=lost,codes={401,401}});f.state.key=''
+    f.load();f.tick('read');f.tick('renew');f.tick('read')
+    expect(f.state.posts==1 and f.state.public==1 and f.host.discovery_state.source_kind=='public'
+        and f.state.gateway==0 and f.empty(),'failed or repeated renewal did not fall back to public search')
+    expect(f.state.pending==lost,'public search changed an uncertain renewal record')
+    if lost then
+        f.state.codes={401};f.load();f.tick('read')
+        expect(f.state.posts==1 and f.state.pending and f.state.public==2 and f.empty(),
+            'public search replayed an uncertain renewal')
+    end
+end
+do
+    local f=fixture('search',{lost=true});f.state.key=''
+    f.load();f.tick('read');f.tick('renew');f.state.current=false;f.tick('read')
+    expect(f.state.public==0 and not f.host.discovery_state and f.empty(),
+        'public fallback ignored a changed login')
 end
 for _,kind in ipairs({"metadata","search","similar"}) do
     local f=fixture(kind)

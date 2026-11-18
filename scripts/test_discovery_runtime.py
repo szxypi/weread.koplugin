@@ -27,6 +27,7 @@ def main():
     parser.add_argument("--dpi", type=int, default=167)
     parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
     parser.add_argument('--guest-login-read',action='store_true',help='Exercise guest public search through synthetic QR login into the native reader')
+    parser.add_argument('--guest-rank-login-read',action='store_true',help='Exercise first-entry public ranking through synthetic QR login and offline reading')
     parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
     parser.add_argument("--progress-response", action="store_true", help="Reject foreign/malformed sync responses in the reading flow")
     parser.add_argument('--progress-confirmation', action='store_true', help='Exercise delayed and unconfirmed position write receipts')
@@ -54,7 +55,10 @@ def main():
     parser.add_argument('--process-loss-kind', choices=('periodic','manual','close'), default='periodic',
                         help='Select periodic reading time, manual progress, or close-time progress')
     args = parser.parse_args()
-    if args.guest_login_read and (args.reading_flow or args.cached_resume or args.footnotes or args.rich_footnotes
+    guest_read = args.guest_login_read or args.guest_rank_login_read
+    if args.guest_login_read and args.guest_rank_login_read:
+        parser.error('select only one guest entry')
+    if guest_read and (args.reading_flow or args.cached_resume or args.footnotes or args.rich_footnotes
             or args.chapter_links or args.chapter_link_scroll or args.chapter_link_preflight or args.process_loss):
         parser.error('--guest-login-read uses a separate fixture')
     if args.chapter_link_scroll and (args.chapter_links or args.chapter_link_preflight or args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
@@ -125,8 +129,9 @@ def main():
     else:
         server = MockServer(0, root / "evidence/requests.jsonl")
     server.content_format=args.content_format
-    server.guest_login_fixture=args.guest_login_read
-    if args.guest_login_read:server.control['guest_login_pending']=True
+    server.guest_login_fixture=guest_read
+    if guest_read:server.control['guest_login_pending']=True
+    if args.guest_rank_login_read:environment['WEREAD_GUEST_RANK']='1'
     server.finish_fixture=args.finish_change
     server.selection_fixture=args.selection_thought
     server.cb_reading=args.cb_resume
@@ -170,7 +175,7 @@ def main():
     try:
         with (root / "evidence/runtime.log").open("w") as log:
             fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"
-            if args.guest_login_read:fixture='guest_login_read_smoke.lua'
+            if guest_read:fixture='guest_login_read_smoke.lua'
             if args.cached_resume:
                 fixture='cached_resume_smoke.lua'
             fixture_args = []
@@ -196,12 +201,17 @@ def main():
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
                                         cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                         timeout=240 if args.cache_cleanup else 120)
-            if args.guest_login_read and result.returncode==0:
-                for path in ('/web/search/global','/web/book/publicinfos','/api/userInfo'):
+            if guest_read and result.returncode==0:
+                entry='/web/bookListInCategory/rising' if args.guest_rank_login_read else '/web/search/global'
+                for path in (entry,'/web/book/publicinfos','/api/userInfo'):
                     assert server.request_totals[(path,'')]==1, 'guest login/read did not perform exactly one expected request'
                 assert server.request_totals[('/api/auth/getLoginUid','')]==2, 'QR cancellation or retry was not exercised'
                 assert server.request_totals[('/api/auth/getLoginInfo','')]>=1, 'QR login was not checked'
                 assert server.request_totals[('/web/book/read','')]==0,'guest login/read wrote reading progress'
+                before=server.request_totals.copy()
+                result=subprocess.run(['./luajit',str(REPO/'spec/koreader'/fixture)],cwd=runtime,
+                    env=dict(environment,WEREAD_READING_REOPEN='1'),stdout=log,stderr=subprocess.STDOUT,timeout=120)
+                assert server.request_totals==before,'guest offline reopen contacted the mock service'
             if (args.reading_flow or args.cached_resume) and result.returncode == 0 and not args.process_loss:
                 if args.cached_resume:
                     assert server.request_totals[('/web/book/read','')]==0,'cached reading wrote progress/time'

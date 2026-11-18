@@ -48,6 +48,28 @@ expect(public.source_kind=='public' and public.source_revision=='public' and #pu
 expect(public.books[1]._public_info.intro=='Public intro' and public.books[1]._public_info.publisher=='Public publisher'
     and public.books[1]._public_info.newRating==860 and not public.books[1]._public_info.token,
     'public search did not safely project available book details')
+for _,status in ipairs({401,403,500,503,'transport'}) do
+    local fallback=fixture();fallback.change{status=status,key=''}
+    local calls=0
+    fallback.client.get_public_book_search=function(_self,keyword,cursor)
+        calls=calls+1;return public_client:get_public_book_search(keyword,cursor)
+    end
+    local access=fallback.capture()
+    local found=Source.fetch(fallback.client,{kind='search',keyword='term',cursor=0},access)
+    expect(found.source_kind=='public' and calls==1,'unavailable native search did not fall back publicly')
+    expect(not pcall(Source.fetch,fallback.client,{kind='search',keyword='term',cursor=20,
+        source_kind='native',source_revision=access.revision},access) and calls==1,
+        'bound native page switched to public search')
+end
+do
+    local fallback=fixture();fallback.change{status=429,key=''}
+    fallback.client.get_public_book_search=function() error('rate-limited request fanned out') end
+    expect(not pcall(Source.fetch,fallback.client,{kind='search',keyword='term',cursor=0},fallback.capture()),
+        'rate limit triggered public fallback')
+    fallback.change{status=401}
+    local valid,reason=pcall(Source.fetch,fallback.client,{kind='search',keyword='term',cursor=0},fallback.capture(),{recover_auth=true})
+    expect(not valid and reason=='discovery/native_expired','public fallback skipped native renewal')
+end
 local selected=f.capture()
 local result=Source.fetch(f.client,{kind="search",keyword="三体 &",cursor=0},selected)
 expect(result.source_kind=="native" and result.next_cursor==20 and #result.books==1,"native root books projection")

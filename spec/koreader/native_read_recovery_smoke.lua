@@ -69,15 +69,31 @@ return function(plugin,count,flush_tasks,home,pump_until)
     assert(plugin.discovery_state.source_kind=="native" and plugin.discovery_state.session_id==session
         and #plugin.discovery_state.books==5 and count("/login","native_renewal")==posts+4,"similar continuation lost its session after renewal")
     UIManager:forceRePaint();Screen:shot(home.."/../evidence/native-read-renewed-similar.png")
+    local public_reads=count('/web/search/global')
+    control{match='/store/search',times=2,status=401,delay=0}
+    plugin:loadDiscoveryBatch('search','测试作者',0);wait()
+    state=plugin.discovery_state
+    assert(state.source_kind=='public' and #state.books==20 and count('/login','native_renewal')==posts+5
+        and count('/web/search/global')==public_reads+1,'persistent keyless 401 did not open public search')
+    plugin:loadDiscoveryBatch('search',state.keyword,state.next_cursor,false,false,state);wait()
+    assert(plugin.discovery_state.source_kind=='public' and #plugin.discovery_state.books==6
+        and plugin.discovery_state.history[1]==0 and count('/web/search/global')==public_reads+2,
+        'public fallback mixed sources or lost its next page')
+    local public_page=plugin.discovery_state
+    control{match='/store/search',times=1,status=429,delay=0}
+    plugin:loadDiscoveryBatch('search','测试作者',0);wait()
+    assert(plugin.discovery_state==public_page and count('/web/search/global')==public_reads+2
+        and count('/login','native_renewal')==posts+5,'429 fanned out or replaced public results')
+    UIManager:close(UIManager:getTopmostVisibleWidget())
     settings:set("api_key",previous_key);settings:flush()
     control{match="/store/search",times=2,status=401,delay=0}
     plugin:loadDiscoveryBatch("search","测试作者",0);wait()
-    assert(count("/login","native_renewal")==posts+5 and plugin.discovery_state.source_kind=="gateway",
+    assert(count("/login","native_renewal")==posts+6 and plugin.discovery_state.source_kind=="gateway",
         "persistent 401 renewed more than once or lost first-page fallback")
     local stable=plugin.discovery_state
     control{match="/store/search",times=1,status=429,delay=0}
     plugin:loadDiscoveryBatch("search","测试作者",0);wait()
-    assert(plugin.discovery_state==stable and count("/login","native_renewal")==posts+5,"429 renewed or replaced cached books")
+    assert(plugin.discovery_state==stable and count("/login","native_renewal")==posts+6,"429 renewed or replaced cached books")
     UIManager:close(UIManager:getTopmostVisibleWidget())
 
     -- Delay every request: only the first native read fails; renewal then

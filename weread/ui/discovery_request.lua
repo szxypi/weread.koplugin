@@ -60,8 +60,8 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         host:showInfo(_("Bookstore access changed. Refresh or reopen the list."));return
     end
     local operation={account=account,epoch=epoch}
-    local auth_scope=public_search and host.settings.get_auth_scope and host.settings:get_auth_scope()
-    local auth_epoch=public_search and host.settings.get and host.settings:get('auth_epoch',0)
+    local auth_scope=host.settings.get_auth_scope and host.settings:get_auth_scope()
+    local auth_epoch=host.settings.get and host.settings:get('auth_epoch',0)
     host.discovery_request_context=operation
     host.discovery_loading=true
     local function current_view()
@@ -80,6 +80,13 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
             or Source.matches(host.settings,selected)))
     end
     local launch
+    local function fallback_public()
+        if kind~='search' or request.cursor~=0 or request.source_kind or selected.api_key then return false end
+        public_search=true;query.public_only=true
+        request.source_kind,request.source_revision='public','public'
+        launch(false)
+        return true
+    end
     local function complete(value)
         if not current() then
             if host.discovery_request_context==operation then M.cancel(host) end
@@ -93,9 +100,10 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
                         if request.source_kind=="native" then request.source_revision=renewed.revision end
                         launch(false)
                     elseif request.cursor==0 and not request.source_kind and renewed.api_key then launch(true)
-                    else complete(nil) end
+                    elseif not fallback_public() then complete(nil) end
                 end})
             if recovering then return end
+            if fallback_public() then return end
         end
         host.discovery_request_context=nil;host.discovery_loading=nil
         if operation.busy and host.busy_message==operation.busy then host:closeBusy() end
@@ -144,6 +152,7 @@ function M.load(host,kind,keyword,cursor,previous,refresh,context)
         host.discovery_worker=worker
         launch=function(skip_native)
             local ok,running=pcall(worker.start,worker,function()
+                if not current() then return {ok=false} end
                 local valid,page=pcall(Source.fetch,host.client,request,selected,{
                     recover_auth=host.native_renewal~=nil and not operation.recovery_attempted,skip_native=skip_native,
                 })

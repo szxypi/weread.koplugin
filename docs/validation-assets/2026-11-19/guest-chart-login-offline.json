@@ -1,0 +1,15 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "official KOReader 2026.07.1 Linux ARM64, Xvfb",
+  "chart_screens": [
+    {"width": 600, "height": 800, "dpi": 167},
+    {"width": 1264, "height": 1680, "dpi": 300}
+  ],
+  "search_regression_screens": [{"width": 600, "height": 800, "dpi": 167}],
+  "flow": ["native home", "public bookstore entry", "book detail", "cancelled QR", "successful mock QR", "native EPUB", "page turn", "fresh offline process", "recent book and saved native page"],
+  "offline_requests": 0,
+  "progress_writes": 0,
+  "real_account_used": false,
+  "physical_device_tested": false
+}
