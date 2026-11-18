@@ -18,9 +18,10 @@ class TxtCatalogFixtureTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())['result'], 'OFFLINE_ONLY')
 
     def test_counts_distinguish_missing_zero_and_invalid(self):
-        rows = [{}, {'wordCount': None}, {'wordCount': 0}, {'wordCount': 2}, {'wordCount': '7'}, {'wordCount': True}]
-        self.assertEqual(task.catalog_counts(rows), dict(catalog_chapters=6, count_missing=2,
-                         count_zero=1, count_positive=1, count_invalid=2))
+        rows = [{}, {'wordCount': None}, {'wordCount': 0}, {'wordCount': 2}, {'wordCount': '7'},
+                {'wordCount': True}, {'wordCount': float('nan')}, {'wordCount': float('inf')}]
+        self.assertEqual(task.catalog_counts(rows), dict(catalog_chapters=8, count_missing=2,
+                         count_zero=1, count_positive=1, count_invalid=4))
 
     def test_unique_fixture_cleanup_and_no_replay(self):
         journal = task.Journal(Backend()); receipt = Receipt(Backend()); probe = FakeProbe()

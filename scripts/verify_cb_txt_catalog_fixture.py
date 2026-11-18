@@ -7,6 +7,7 @@ only the just-imported fixture may be removed. Private data stays in memory.
 import argparse
 import hashlib
 import json
+import math
 import resource
 import subprocess
 import tempfile
@@ -70,7 +71,8 @@ def catalog_counts(rows):
     for row in rows:
         if not isinstance(row, dict): raise ValueError('cb_txt_catalog/rows')
         if 'wordCount' not in row or row['wordCount'] is None: result['count_missing'] += 1
-        elif type(row['wordCount']) not in (int, float) or row['wordCount'] < 0: result['count_invalid'] += 1
+        elif (type(row['wordCount']) not in (int, float) or not math.isfinite(row['wordCount'])
+              or row['wordCount'] < 0): result['count_invalid'] += 1
         elif row['wordCount'] == 0: result['count_zero'] += 1
         else: result['count_positive'] += 1
     return result
