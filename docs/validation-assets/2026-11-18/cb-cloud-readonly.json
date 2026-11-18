@@ -19,11 +19,17 @@
   "pending_position_preserved": true,
   "upload_enabled": false,
   "exact_cloud_coordinate_and_write_semantics_verified": false,
-  "real_account_native_ui_tested": false,
+  "real_account_native_ui_tested": true,
   "physical_kindle_tested": false,
   "real_source_native_ui_isolated_books": 1,
   "real_source_native_ui_scenarios": 4,
   "real_source_native_ui_cloud_fetch_substituted": true,
   "real_source_native_ui_no_network": true,
-  "real_source_native_ui_profiles_removed": true
+  "real_source_native_ui_profiles_removed": true,
+  "real_account_native_ui_books": 1,
+  "real_account_native_ui_scenarios": 4,
+  "real_account_native_ui_scoped_reads_per_scenario": 6,
+  "real_account_native_ui_denied_requests": 0,
+  "real_account_native_ui_credentials_not_persisted": true,
+  "real_account_native_ui_target_pre_cached": true
 }
