@@ -23,6 +23,27 @@ return function(plugin,count,flush_tasks,home,pump_until)
     local function wait() flush_tasks();pump_until(function() return not plugin.discovery_loading and not plugin.book_metadata_context end) end
     local writes=count("/web/book/read")
     local posts=count("/login","native_renewal")
+    -- Suggestions use the same owned renewal service, but retain their input
+    -- and never renew repeatedly when the retried GET also returns 401.
+    plugin:closeWeReadUI();plugin:showBookstore();plugin.shelf_view.on_search()
+    local input=assert(plugin.shelf_view._shelf_popup);input:setInputText('测试')
+    local suggest_reads=count('/store/suggest')
+    control{match='/store/suggest',times=1,status=401,delay=0}
+    input.buttons[2][1].callback()
+    pump_until(function() return plugin._discovery_menu~=nil or not plugin.search_suggestions_job end)
+    assert(plugin._discovery_menu and count('/login','native_renewal')==posts+1
+        and count('/store/suggest')==suggest_reads+2,'suggestion 401 did not renew and retry once')
+    require('weread.ui.shelf_popup').close(plugin.shelf_view)
+    plugin.shelf_view.on_search();input=assert(plugin.shelf_view._shelf_popup);input:setInputText('测试')
+    suggest_reads=count('/store/suggest')
+    control{match='/store/suggest',times=2,status=401,delay=0}
+    input.buttons[2][1].callback()
+    pump_until(function() return not plugin.search_suggestions_job end)
+    assert(not plugin._discovery_menu and count('/login','native_renewal')==posts+2
+        and count('/store/suggest')==suggest_reads+2,'persistent suggestion 401 renewed repeatedly')
+    local warning=UIManager:getTopmostVisibleWidget();if warning~=input then UIManager:close(warning) end
+    require('weread.ui.shelf_popup').close(plugin.shelf_view)
+    posts=count('/login','native_renewal')
     plugin:closeWeReadUI();plugin:showBookMenu(settings:get("books",{})[id])
     control{match="/book/info",times=1,status=401,delay=0}
     plugin._book_detail_view._refresh_button.callback();wait()
