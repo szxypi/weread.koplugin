@@ -4,6 +4,7 @@
   "existing_imported_books_tested": 1,
   "actual_source_and_chapter_index": true,
   "isolated_local_book_metadata": true,
+  "isolated_cache_mode": "single_chapter",
   "real_shelf_selection_tested": false,
   "native_reader_screen_sizes": ["600x800", "1264x1680"],
   "explicit_local_choices": 2,
