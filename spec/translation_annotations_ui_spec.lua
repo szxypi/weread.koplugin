@@ -13,7 +13,7 @@ package.loaded['weread.lib.position_source']={MAX_META_BYTES=4096,document_metad
     return {chapter_uid=uid or '1',metadata='meta1'}
 end}
 package.loaded['weread.lib.translation_fetch']={MAX_ANNOTATIONS=500,MAX_ANNOTATION_CHAPTERS=64,
-    saved=function() return state.saved end,plan_annotations=function() return state.plan end}
+    saved=function() return state.saved end,plan_annotations=function(_input,_path,items) state.refs=items;return state.plan end}
 package.loaded['weread.lib.book_file_identity']={read_document=function() return {file_id=string.rep(state.wrong_target_identity and 'c' or 'b',64)} end}
 package.preload['libs/libkoreader-lfs']=function() return {symlinkattributes=function() return state.file end} end
 package.loaded['weread.ui.translation_fetch']={
@@ -46,7 +46,7 @@ local function fixture()
         owner={document=doc,book_id='42',file=doc.file,source={chapter_uid='1',metadata='meta1',identity={file_id=string.rep('a',64)}},
             location={xpointer='/body/DocFragment[1]/body/p[1]/text().0'}},
         saved={ok=true,file_id=string.rep('b',64),bytes=50,target='/body/DocFragment[1]/body/p[1]'},
-        plan={ok=true,total=2,mapped={{index=1,uid='1',first='/body/DocFragment[1]/body/p[3]/text().0',last='/body/DocFragment[1]/body/p[3]/text().8'},
+        plan={ok=true,total=2,mapped={{index=1,uid='1',first='/body/DocFragment[1]/body/p[3]/text().0',last='/body/DocFragment[1]/body/p[3]/text().8',last_uid='1'},
             {index=2,uid='1',first='/body/DocFragment[1]/body/p[4]/text().0'}}},opens=0,notices={},cancels=0,events={}}
     local target_doc=document();target_doc.file='/book/copy.epub'
     local annotation={annotations={}}
@@ -72,6 +72,24 @@ expect(state.opens==1 and #state.target.annotation.annotations==2,'matched highl
 expect(state.target.annotation.annotations[1].note=='private note' and state.target.annotation.annotations[1].color=='yellow','highlight content changed')
 expect(#state.events==2 and state.events[1].name=='AnnotationsModified','reader annotation caches were not notified')
 expect(#host.ui.annotation.annotations==2 and host.ui.annotation.annotations[1].note=='private note','original annotations changed')
+host,pump,deliver=fixture()
+host.ui.annotation.annotations[1].pos1='/body/DocFragment[2]/body/other[1]/text().8'
+state.plan.mapped[1].last='/body/DocFragment[2]/body/other[1]/text().8';state.plan.mapped[1].last_uid='2'
+M.start(host);pump();deliver()
+expect(state.refs[1].last_uid=='2' and state.refs[1].last_metadata=='meta2','cross-chapter endpoint was not scoped')
+expect(#state.target.annotation.annotations==2 and state.target.annotation.annotations[1].note=='private note',
+    'verified cross-chapter highlight was not copied')
+host,pump,deliver=fixture()
+host.ui.annotation.annotations[1].pos1='/body/DocFragment[2]/body/other[1]/text().8'
+state.plan.mapped[1].last='/body/DocFragment[2]/body/other[1]/text().8';state.plan.mapped[1].last_uid='2'
+M.start(host);pump();state.changed_quote=true;deliver()
+expect(#state.target.annotation.annotations==1 and state.target.annotation.annotations[1].text=='bookmark',
+    'changed cross-chapter selection was copied')
+host,pump,deliver=fixture()
+host.ui.annotation.annotations[1].pos1='/body/DocFragment[2]/body/other[1]/text().8'
+state.plan.mapped[1].last='/body/DocFragment[2]/body/other[1]/text().8';state.plan.mapped[1].last_uid='2'
+M.start(host);pump();state.plan.mapped[1].last_uid='3';deliver()
+expect(state.opens==0,'cross-chapter plan with wrong endpoint chapter was accepted')
 host,pump,deliver=fixture();state.target.annotation.annotations[1]={page=state.plan.mapped[1].first,pos0=state.plan.mapped[1].first,
     pos1=state.plan.mapped[1].last,drawer='underscore',note='existing target'}
 M.start(host);pump();deliver();expect(#state.target.annotation.annotations==2 and state.target.annotation.annotations[1].note=='existing target','existing target note was replaced or duplicated')

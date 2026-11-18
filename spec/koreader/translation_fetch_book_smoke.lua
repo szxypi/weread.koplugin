@@ -27,6 +27,7 @@ local tr=require('weread.lib.i18n').tr
 local settings=require('weread.lib.settings'):new()
 local offline=os.getenv('WEREAD_TRANSLATION_FETCH_OFFLINE')=='1'
 local annotations_test=os.getenv('WEREAD_TRANSLATION_ANNOTATIONS')=='1'
+local cross_chapter=os.getenv('WEREAD_TRANSLATION_CROSS_CHAPTER')=='1'
 local function bytes(path) local f=assert(io.open(path,'rb'));local raw=f:read('*a');f:close();return raw end
 local state_path=evidence..'/translation-book-state.json'
 local path,copy,original,bookmark,original_note_time
@@ -93,10 +94,11 @@ if offline then
     assert(assert(Source.document_metadata(doc,'900001',nil,member.render_path)).chapter_uid=='4','offline copy reopened wrong chapter')
     assert(plugin._translation_mode=='bilingual' and bytes(path)==original,'offline copy changed original or lost mode')
     if annotations_test then
-        assert(#reader.annotation.annotations==3,'offline copy lost or duplicated annotations')
+        assert(#reader.annotation.annotations==(cross_chapter and 4 or 3),'offline copy lost or duplicated annotations')
         local notes={};for _,item in ipairs(reader.annotation.annotations) do if item.note then notes[item.note]=true end end
         assert(notes['Existing target note'] and notes['Original chapter four note'] and not notes['Ambiguous note'],
             'offline copied annotations changed or included ambiguous text')
+        if cross_chapter then assert(notes['Cross-chapter note'] and not notes['Changed selection note'],'offline cross-chapter result changed') end
     end
     local out=assert(io.open(evidence..'/translation-book-offline.json','w'))
     out:write(require('json').encode{result='PASS',new_process=true,correct_chapter=true,network_requests=0});out:close()
@@ -116,6 +118,17 @@ if annotations_test then
     add_note(2,8,'Original chapter two note')
     add_note(3,11,'Ambiguous note')
     add_note(4,8,'Original chapter four note')
+    if cross_chapter then
+        local function add_cross(first_chapter,note)
+            local first='/body/DocFragment['..first_chapter..']/body/p[12]/text().300'
+            local last='/body/DocFragment['..(first_chapter+1)..']/body/p[1]/text().20'
+            assert(doc:isXPointerInDocument(first) and doc:isXPointerInDocument(last))
+            local quote=assert(doc:getTextFromXPointers(first,last));doc:clearSelection()
+            assert(#quote>0);reader.annotation:addItem{page=first,pos0=first,pos1=last,text=quote,note=note,drawer='underscore',color='yellow'}
+        end
+        add_cross(4,'Changed selection note')
+        add_cross(5,'Cross-chapter note')
+    end
     for _,item in ipairs(reader.annotation.annotations) do
         if item.note=='Original chapter four note' then original_note_time=item.datetime end
     end
@@ -165,7 +178,7 @@ do
 end
 assert(plugin.settings:get_book('900001').cached_full_book==path,'full copy replaced the original cache')
 local profile=assert(require('weread.lib.translation_archive').inspect(copy,'900001'))
-assert(#profile.chapters==6 and profile.blocks==60 and record.blocks==60,'full book missed or invented translation chapters')
+assert(#profile.chapters==6 and profile.blocks==(cross_chapter and 48 or 60) and record.blocks==profile.blocks,'full book missed or invented translation chapters')
 assert(profile.chapters[6].blocks==0,'untranslated chapter was omitted or invented')
 local old=reader;dialog.ok_callback()
 pump(function() return Reader.instance and Reader.instance~=old and Reader.instance.document.file==copy end)
@@ -190,7 +203,7 @@ adopt(Reader.instance)
 location=require('weread.lib.source_context').location(doc,'page');member=require('weread.lib.source_dom').member(doc,location.xpointer)
 assert(assert(Source.document_metadata(doc,'900001',nil,member.render_path)).chapter_uid=='4','offline shortcut opened wrong chapter')
 if annotations_test then
-    assert(#reader.annotation.annotations==3,'annotation copy count was incorrect')
+    assert(#reader.annotation.annotations==(cross_chapter and 4 or 3),'annotation copy count was incorrect')
     local notes={}
     for _,item in ipairs(reader.annotation.annotations) do
         if item.note then
@@ -206,17 +219,19 @@ if annotations_test then
     end
     assert(notes['Existing target note'] and notes['Original chapter four note'] and not notes['Original chapter two note'] and not notes['Ambiguous note'],
         'copy overwrote an existing note or included ambiguous source')
+    if cross_chapter then assert(notes['Cross-chapter note'] and not notes['Changed selection note'],
+        'cross-chapter match or changed-selection guard failed') end
 end
 reader:onClose(false);open(path)
 if annotations_test then
-    assert(#reader.annotation.annotations==4,'original annotations were changed')
+    assert(#reader.annotation.annotations==(cross_chapter and 6 or 4),'original annotations were changed')
     local original_notes={};for _,item in ipairs(reader.annotation.annotations) do if item.note then original_notes[item.note]=true end end
     assert(original_notes['Original chapter two note'] and original_notes['Ambiguous note'] and original_notes['Original chapter four note'],
         'original notes changed during copy')
     chapter(4);plugin.client.request=function() error('repeat annotation copy attempted HTTP') end
     old=reader;choose('Copy local annotations to translated copy')
     pump(function() return Reader.instance and Reader.instance~=old and Reader.instance.document.file==copy end)
-    adopt(Reader.instance);assert(#reader.annotation.annotations==3,'repeated copy created duplicates')
+    adopt(Reader.instance);assert(#reader.annotation.annotations==(cross_chapter and 4 or 3),'repeated copy created duplicates')
     reader:onClose(false);open(path)
 end
 -- A cancelled worker and a failure after two chapters must not publish a
@@ -294,7 +309,7 @@ core.run_book=run;worker.start=start;clean()
 local saved=assert(io.open(state_path,'w'));saved:write(require('json').encode{original=path,copy=copy,bookmark=bookmark,
     original_sha256=require('weread.lib.crypto').sha256_hex(original)});saved:close()
 local out=assert(io.open(evidence..'/translation-book.json','w'));out:write(require('json').encode{result='PASS',synthetic_only=true,
-    chapters=6,chapters_with_translation=5,blocks=60,original_unchanged=true,bookmark_preserved=true,
+    chapters=6,chapters_with_translation=cross_chapter and 4 or 5,blocks=cross_chapter and 48 or 60,original_unchanged=true,bookmark_preserved=true,
     correct_initial_and_offline_chapters=true,independent_worker=true,cancel_and_chapter_failure_cleaned=true,
     changed_catalog_cleaned=true,no_translation_cleaned=true,account_data_writes=0});out:close()
 reader:onClose(false);print('PASS: native full-book translation copy, chapter navigation and offline original protection')

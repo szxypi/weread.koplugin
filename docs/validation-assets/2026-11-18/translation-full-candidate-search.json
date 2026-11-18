@@ -1,0 +1,16 @@
+{
+  "result": "READ_ONLY_SEARCH_NO_CANDIDATE",
+  "fixed_public_queries": 13,
+  "public_book_results_by_offset": {"0": 16, "2": 3, "4": 0},
+  "public_results_may_overlap": true,
+  "qualifying_full_book_candidates": 0,
+  "shelf_books_observed": 141,
+  "shelf_titles_observed": 141,
+  "shelf_english_title_heuristic_matches": 0,
+  "shelf_english_content_absence_proven": false,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authorization_requests": 0,
+  "full_book_downloaded": false,
+  "physical_kindle_verified": false
+}

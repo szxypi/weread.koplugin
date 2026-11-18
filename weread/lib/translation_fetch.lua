@@ -111,19 +111,23 @@ function M.plan_annotations(input,path,items,target_file_id)
     local profile=DisplayArchive.inspect(path,input.book_id)
     if not profile or profile.file_id~=target_file_id or profile.blocks<1 then fail('annotation_output') end
     local grouped,order={},{}
-    for index,item in ipairs(items) do
-        if type(item)~='table' or type(item.uid)~='string' or #item.uid>256
-            or type(item.metadata)~='string' or #item.metadata>Source.MAX_META_BYTES
-            or type(item.first)~='string' or #item.first>4096
-            or item.last~=nil and (type(item.last)~='string' or #item.last>4096) then fail('annotation_scope') end
-        local group=grouped[item.uid]
+    local function include(uid,metadata,index,field,xp)
+        if type(uid)~='string' or #uid==0 or #uid>256 or type(metadata)~='string' or #metadata>Source.MAX_META_BYTES
+            or type(xp)~='string' or #xp>4096 then fail('annotation_scope') end
+        local group=grouped[uid]
         if not group then
             if #order>=M.MAX_ANNOTATION_CHAPTERS then fail('annotation_limit') end
-            group={metadata=item.metadata,items={}};grouped[item.uid]=group;order[#order+1]=item.uid
-        elseif group.metadata~=item.metadata then fail('annotation_scope') end
-        group.items[#group.items+1]={index=index,first=item.first,last=item.last}
+            group={metadata=metadata,items={}};grouped[uid]=group;order[#order+1]=uid
+        elseif group.metadata~=metadata then fail('annotation_scope') end
+        group.items[#group.items+1]={index=index,field=field,xp=xp}
     end
-    local mapped={}
+    for index,item in ipairs(items) do
+        if type(item)~='table' then fail('annotation_scope') end
+        include(item.uid,item.metadata,index,'first',item.first)
+        if item.last~=nil then include(item.last_uid,item.last_metadata,index,'last',item.last)
+        elseif item.last_uid~=nil or item.last_metadata~=nil then fail('annotation_scope') end
+    end
+    local endpoints={}
     for _,uid in ipairs(order) do
         local group=grouped[uid]
         local selected={book_id=input.book_id,chapter_uid=uid}
@@ -133,10 +137,19 @@ function M.plan_annotations(input,path,items,target_file_id)
         if ok and after and copy_id.file_id==target_file_id and profile.chapters[ordinal]
             and profile.chapters[ordinal].member_path==meta.render_path then
             for _,item in ipairs(group.items) do
-                local first=Model.refresh_point(before,after,item.first,ordinal)
-                local last=item.last and Model.refresh_point(before,after,item.last,ordinal) or nil
-                if first and (not item.last or last) then mapped[#mapped+1]={index=item.index,uid=uid,first=first,last=last} end
+                local point=Model.refresh_point(before,after,item.xp,ordinal)
+                if point then
+                    endpoints[item.index]=endpoints[item.index] or {}
+                    endpoints[item.index][item.field]=point
+                end
             end
+        end
+    end
+    local mapped={}
+    for index,item in ipairs(items) do
+        local points=endpoints[index]
+        if points and points.first and (not item.last or points.last) then
+            mapped[#mapped+1]={index=index,uid=item.uid,first=points.first,last=points.last,last_uid=item.last_uid}
         end
     end
     return {ok=true,mapped=mapped,total=#items}

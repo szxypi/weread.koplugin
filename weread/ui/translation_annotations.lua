@@ -69,7 +69,7 @@ local function capture(doc,book_id,row)
     local item={first=first,highlight=highlight,row=row}
     if highlight then
         local last=point(doc,book_id,row.pos1)
-        if not last or first.uid~=last.uid or first.metadata~=last.metadata then return nil end
+        if not last or first.uid==last.uid and first.metadata~=last.metadata then return nil end
         local read,quote=pcall(doc.getTextFromXPointers,doc,first.xp,last.xp)
         if doc.clearSelection then pcall(doc.clearSelection,doc) end
         if not read or not text(quote,65536) or quote=='' or doc:compareXPointers(first.xp,last.xp)~=1 then return nil end
@@ -111,7 +111,7 @@ local function apply(reader,host,book_id,entry,info,captured,plan,skipped)
         local ok,valid=pcall(function()
             if not item or item.first.uid~=mapped.uid or not target_point(doc,book_id,mapped.uid,mapped.first,item.first.node) then return false end
             if item.highlight then
-                if not mapped.last or not target_point(doc,book_id,mapped.uid,mapped.last,item.last.node)
+                if not mapped.last or item.last.uid~=mapped.last_uid or not target_point(doc,book_id,mapped.last_uid,mapped.last,item.last.node)
                     or doc:compareXPointers(mapped.first,mapped.last)~=1 then return false end
                 local read,quote=pcall(doc.getTextFromXPointers,doc,mapped.first,mapped.last)
                 if doc.clearSelection then pcall(doc.clearSelection,doc) end
@@ -207,11 +207,14 @@ function M.start(host)
             local ok,item=pcall(capture,owner.document,owner.book_id,row)
             if ok and item then
                 local size=#item.first.node+#(item.last and item.last.node or '')+#(item.quote or '')+#(row.text or '')+#(row.note or '')
-                local known=job.chapters[item.first.uid]
-                if job.bytes+size<=M.MAX_BYTES and (known or job.chapter_count<Core.MAX_ANNOTATION_CHAPTERS) then
-                    if not known then job.chapters[item.first.uid]=true;job.chapter_count=job.chapter_count+1 end
+                local needed=job.chapters[item.first.uid] and 0 or 1
+                if item.last and item.last.uid~=item.first.uid and not job.chapters[item.last.uid] then needed=needed+1 end
+                if job.bytes+size<=M.MAX_BYTES and job.chapter_count+needed<=Core.MAX_ANNOTATION_CHAPTERS then
+                    if not job.chapters[item.first.uid] then job.chapters[item.first.uid]=true;job.chapter_count=job.chapter_count+1 end
+                    if item.last and not job.chapters[item.last.uid] then job.chapters[item.last.uid]=true;job.chapter_count=job.chapter_count+1 end
                     job.bytes=job.bytes+size;job.captured[#job.captured+1]=item
-                    job.refs[#job.refs+1]={uid=item.first.uid,metadata=item.first.metadata,first=item.first.xp,last=item.last and item.last.xp}
+                    job.refs[#job.refs+1]={uid=item.first.uid,metadata=item.first.metadata,first=item.first.xp,
+                        last=item.last and item.last.xp,last_uid=item.last and item.last.uid,last_metadata=item.last and item.last.metadata}
                 else job.skipped=job.skipped+1 end
             else job.skipped=job.skipped+1 end
             job.index=job.index+1;UI:scheduleIn(0,job.step);return
@@ -239,7 +242,8 @@ function M.start(host)
             for _,mapped in ipairs(result.plan.mapped) do
                 if type(mapped)~='table' or type(mapped.index)~='number' or mapped.index%1~=0 or mapped.index<1
                     or mapped.index>#job.refs or seen[mapped.index] or not text(mapped.first,4096)
-                    or not text(mapped.last,4096,true) or mapped.uid~=job.refs[mapped.index].uid then failed();return end
+                    or not text(mapped.last,4096,true) or mapped.uid~=job.refs[mapped.index].uid
+                    or mapped.last_uid~=job.refs[mapped.index].last_uid or (mapped.last~=nil)~=(job.refs[mapped.index].last~=nil) then failed();return end
                 seen[mapped.index]=true
             end
             local skipped=job.skipped+#job.refs-#result.plan.mapped
