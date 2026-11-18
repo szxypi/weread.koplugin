@@ -1,0 +1,22 @@
+{
+  "result": "REAL_SOURCE_NATIVE_ANNOTATION_COPY_VERIFIED",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "scope": "one explicitly accessible real chapter per run; a temporary original-only excerpt and synthetic local annotations",
+  "source_and_translated_copy_have_different_structure": true,
+  "annotation_position_shifted_and_text_verified": true,
+  "synthetic_bookmark_and_note_copied": true,
+  "original_local_records_and_file_preserved": true,
+  "new_offline_process_reopened_copy": true,
+  "offline_network_requests": 0,
+  "cloud_shelf_position_and_reported_counters_unchanged": true,
+  "source_read_back_unchanged": true,
+  "existing_capture_and_generation_records_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "translation_generation_or_mode_requests": 0,
+  "private_data_on_regular_disk": false,
+  "temporary_profile_removed": true,
+  "real_user_local_annotations_tested": false,
+  "complete_real_book_tested": false,
+  "physical_kindle_verified": false
+}

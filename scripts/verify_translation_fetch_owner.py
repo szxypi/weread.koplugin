@@ -15,6 +15,7 @@ from verify_web_source_progress import BASE as WEB
 from urllib.parse import urlencode
 from run_translation_fetch_owner import payload_valid,validate_stage
 from verify_owner_reading import validate_cookies
+from translation_owner_excerpt import original_excerpt
 
 FRAME=b'\nWEREAD_TRANSLATION_OWNER_RUNNER='
 
@@ -32,7 +33,7 @@ def snapshot(api,web,grant):
         web_shelf=state_hash(web.request('generation_shelf',WEB+'/web/shelf/sync')))
 
 
-def execute(command,payload):
+def execute(command,payload,annotations=False):
     child=subprocess.run(command,input=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode(),capture_output=True,timeout=360)
     if len(child.stdout)>1024*1024 or child.stdout.count(FRAME)!=1:raise ValueError('translation_owner/frame')
     value=json.loads(child.stdout.split(FRAME)[1])
@@ -48,16 +49,17 @@ def execute(command,payload):
             or not isinstance(value['installed'],dict) or set(value['installed'])!={'files','bytes_match'}
             or type(value['installed']['files']) is not int or not 1<=value['installed']['files']<=1000
             or value['installed']['bytes_match'] is not True):raise ValueError('translation_owner/stages')
-    for stage,mode in zip(value['stages'],('live','reopen')):validate_stage(stage,mode)
+    for stage,mode in zip(value['stages'],('live','reopen')):validate_stage(stage,mode,annotations)
     validate_cookies(value['cookies'],payload['vid'])
     return value
 
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);access=p.add_mutually_exclusive_group();access.add_argument('--saved-session',action='store_true');access.add_argument('--mock',action='store_true')
+    p.add_argument('--annotations',action='store_true')
     p.add_argument('--native-ui-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
     if bool(a.saved_session or a.mock)!=bool(a.native_ui_command):p.error('explicit access and private native UI command required')
-    r=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),synthetic_only=a.mock,account_data_posts=0,
+    r=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),synthetic_only=a.mock,annotation_test=a.annotations,account_data_posts=0,
         authentication_posts=0,generation_requests=0,translation_mode_requests=0,real_screenshots=0,private_data_on_regular_disk=False)
     api=web=saved=grant=server=None;phase='init'
     try:
@@ -82,8 +84,9 @@ def main(argv=None):
                     and c.domain in ('.weread.qq.com','weread.qq.com') and c.path=='/'},book_id=source['book_id'],chapter_uid=str(source['chapter_uid']),
                     title=sample['info'].get('title',''),author=sample['info'].get('author') or '',source=source['source'],
                     source_sha256=hashlib.sha256(source['source'].encode()).hexdigest(),blocks=content['nonempty_translation_blocks'])
-            payload_valid(payload,server.server_port if server else None)
-            phase='native';result=execute(command,payload)
+            if a.annotations:payload['original_source']=original_excerpt(payload['source'])
+            payload_valid(payload,server.server_port if server else None,a.annotations)
+            phase='native';result=execute(command,payload,a.annotations)
             r.update(native_stages=result['stages'],installed=result['installed'],profile_removed=result['profile_removed'])
             if a.saved_session:
                 validate_cookies(result['cookies'],saved['vid'])

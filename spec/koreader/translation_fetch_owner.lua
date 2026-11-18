@@ -4,9 +4,15 @@ require('setupkoenv')
 local ffi=require('ffi');require('ffi/posix_h')
 local json=require('json')
 local home=assert(os.getenv('KO_HOME'));local mode=assert(arg[1])
+local annotation_test=os.getenv('WEREAD_TRANSLATION_OWNER_ANNOTATIONS')=='1'
 local report={result='UNVERIFIED',mode=mode,phase='input',screenshots=0,requests=0,forbidden=0,failed_line=0,
     native_reader=false,downloaded=false,bilingual=false,translated_text_visible=false,original_kept=false,
     bookmark_kept=false,cache_path_kept=false,source_exact=false,shortcut=false,credential_audit=false,workers_reaped=false}
+if annotation_test then
+    report.annotation_copied=false;report.annotation_text_verified=false
+    report.annotation_original_preserved=false;report.annotation_stage_complete=false
+    report.annotation_changed_source=false;report.annotation_shifted=false
+end
 local latest,fd,counters
 local ok,reason=pcall(function()
     local raw=assert(io.stdin:read(256*1024+1));assert(#raw<=256*1024)
@@ -90,8 +96,10 @@ local ok,reason=pcall(function()
         for _,chapter in ipairs(chapters) do if tostring(chapter.chapterUid)==input.chapter_uid then assert(not selected);selected=chapter end end
         assert(selected and Crypto.sha256_hex(input.source)==input.source_sha256)
         book.bookVersion=version
-        local source=assert(Source.capture(book,selected,input.source,'web_xhtml'))
-        original=Content.save_chapter_epub(settings,book,selected,input.source,nil,nil,Identity.capture(book),source)
+        local original_source=annotation_test and input.original_source or input.source
+        if annotation_test then assert(type(original_source)=='string' and original_source~=input.source) end
+        local source=assert(Source.capture(book,selected,original_source,'web_xhtml'))
+        original=Content.save_chapter_epub(settings,book,selected,original_source,nil,nil,Identity.capture(book),source)
         book.cached_chapters={[input.chapter_uid]=original}
         assert(Content.save_catalog_cache(client,settings,book,chapters))
         settings:set('books',{[input.book_id]=require('weread.lib.book_store').without_reading_state(book)});settings:flush()
@@ -109,8 +117,41 @@ local ok,reason=pcall(function()
     end
     local function clear() while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end end
     clear();assert(tostring(plugin:detectWeReadBook())==input.book_id);report.native_reader=true
-    if mode=='live' then reader.bookmark:onToggleBookmark();bookmark=assert(reader.annotation.annotations[1]).page
+    if mode=='live' and annotation_test then
+        local Model=require('weread.lib.translation')
+        local rendered=assert(reader.document:getDocumentFileContent('OEBPS/text/chapter.xhtml'))
+        local model=assert(Model.analyze(rendered,input.chapter_uid,1,true))
+        local chosen
+        for _,node in ipairs(model.original_nodes or {}) do
+            if node.tag=='p' and node.path~='/body' then
+                local first='/body/DocFragment[1]'..node.path..'/text().0'
+                local last='/body/DocFragment[1]'..node.path..'/text().12'
+                local valid,text=pcall(function()
+                    if not reader.document:isXPointerInDocument(first) or not reader.document:isXPointerInDocument(last)
+                        or not Model.refresh_point(model,model,first,1) or not Model.refresh_point(model,model,last,1)
+                        or reader.document:compareXPointers(first,last)~=1 then return nil end
+                    local quote=reader.document:getTextFromXPointers(first,last);reader.document:clearSelection()
+                    return type(quote)=='string' and #quote>=8 and quote or nil
+                end)
+                if valid and text then chosen={first=first,last=last,text=text};break end
+            end
+        end
+        assert(chosen,'no uniquely mappable original text')
+        reader.annotation:addItem{page=chosen.first,text='Synthetic local bookmark'}
+        reader.annotation:addItem{page=chosen.first,pos0=chosen.first,pos1=chosen.last,text=chosen.text,
+            note='Synthetic local annotation',drawer='underscore',color='yellow'}
+        bookmark=chosen.first
+    elseif mode=='live' then reader.bookmark:onToggleBookmark();bookmark=assert(reader.annotation.annotations[1]).page
     else assert(reader.annotation.annotations[1].page==bookmark) end
+    local function original_notes()
+        local mark,note=false,false
+        for _,item in ipairs(reader.annotation.annotations) do
+            if not item.drawer and item.page==bookmark then mark=true end
+            if item.note=='Synthetic local annotation' and item.drawer=='underscore' then note=true end
+        end
+        return mark and note
+    end
+    if annotation_test then assert(original_notes()) end
     plugin:showReadingLanguage();pump(function() return not plugin.translation_job end)
     local menu=assert(plugin._translation_menu);local entry
     local label=require('weread.lib.i18n').tr(mode=='live' and 'Download existing translation' or 'Open saved translated copy')
@@ -145,6 +186,36 @@ local ok,reason=pcall(function()
     report.translated_text_visible=true
     assert(plugin.settings:get_book(input.book_id).cached_chapters[input.chapter_uid]==original);report.cache_path_kept=true
     assert(Crypto.sha256_hex(bytes(original))==before);report.original_kept=true;report.bookmark_kept=true;report.shortcut=true
+    if annotation_test and mode=='live' then
+        reader:onClose(false)
+        reader=Reader:new{dimen=Device.screen:getSize(),document=require('document/documentregistry'):openDocument(original)}
+        UI:show(reader);plugin=assert(reader.weread);clear()
+        assert(original_notes() and Crypto.sha256_hex(bytes(original))==before);report.annotation_original_preserved=true
+        local before_requests=tonumber(counters[0])
+        plugin:showReadingLanguage();pump(function() return not plugin.translation_job end)
+        menu=assert(plugin._translation_menu);entry=nil
+        for _,item in ipairs(menu.item_table) do
+            if item.text==require('weread.lib.i18n').tr('Copy local annotations to translated copy') then entry=item end
+        end
+        assert(entry);local old=reader;menu:onMenuSelect(entry)
+        pump(function() return Reader.instance and Reader.instance~=old and Reader.instance.document.file==copy end)
+        reader=Reader.instance;plugin=assert(reader.weread);document=reader.document;clear()
+        assert(tonumber(counters[0])==before_requests,'annotation copying attempted network')
+    elseif annotation_test then report.annotation_original_preserved=true end
+    if annotation_test then
+        local note,mark
+        for _,item in ipairs(reader.annotation.annotations) do
+            if item.note=='Synthetic local annotation' then note=item
+            elseif not item.drawer and item.text=='Synthetic local bookmark' then mark=item end
+        end
+        assert(note and mark and note.drawer=='underscore' and note.color=='yellow')
+        assert(document:isXPointerInDocument(note.pos0) and document:isXPointerInDocument(note.pos1))
+        local quote=document:getTextFromXPointers(note.pos0,note.pos1);document:clearSelection()
+        assert(type(quote)=='string' and quote==note.text and #quote>=8)
+        assert(document:getNormalizedXPointer(note.pos0)~=document:getNormalizedXPointer(bookmark),'annotation did not cross a changed document structure')
+        report.annotation_copied=true;report.annotation_text_verified=true;report.annotation_stage_complete=true
+        report.annotation_changed_source=true;report.annotation_shifted=true
+    end
     reader:onClose(false)
     if mode=='live' then
         local f=assert(io.open(state_path,'wb'));f:write(json.encode{original=original,copy=copy,bookmark=bookmark,sha256=before});f:close()

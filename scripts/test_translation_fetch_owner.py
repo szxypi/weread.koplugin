@@ -1,7 +1,8 @@
 import contextlib,hashlib,io,json,subprocess,unittest
 from unittest.mock import patch
-from run_translation_fetch_owner import FLAGS,FRAME as NATIVE_FRAME,decode,payload_valid,validate_stage
+from run_translation_fetch_owner import ANNOTATION_FLAGS,FLAGS,FRAME as NATIVE_FRAME,decode,payload_valid,validate_stage
 from verify_translation_fetch_owner import FRAME,execute,main,observation,synthetic_source
+from translation_owner_excerpt import original_excerpt
 
 
 def payload():
@@ -66,6 +67,48 @@ class TranslationOwnerTest(unittest.TestCase):
                 value_stage=stage('live');value_stage[flag]=value
                 with self.subTest(flag=flag,value=value),self.assertRaises(ValueError):validate_stage(value_stage,'live')
         with self.assertRaises(ValueError):validate_stage(dict(stage('live'),unexpected=True),'live')
+
+    def test_annotation_checks_are_required_only_in_explicit_mode(self):
+        valid=dict(stage('live'),**{key:True for key in ANNOTATION_FLAGS})
+        validate_stage(valid,'live',True)
+        with self.assertRaises(ValueError):validate_stage(valid,'live')
+        with self.assertRaises(ValueError):validate_stage(stage('live'),'live',True)
+        for key in ANNOTATION_FLAGS:
+            with self.subTest(flag=key),self.assertRaises(ValueError):
+                validate_stage(dict(valid,**{key:False}),'live',True)
+
+    def test_annotation_excerpt_is_unique_original_and_revalidated(self):
+        original='Unique source paragraph with enough words & punctuation to be safely selected.'
+        repeated='Repeated source paragraph with enough words to be excluded from selection.'
+        source=('<html><body><p>'+repeated+'</p><p>'+repeated+'</p><p>'+original.replace('&','&amp;')+'</p>'
+                '<p class="wr-translation">Translated paragraph with more than enough characters.</p></body></html>')
+        excerpt=original_excerpt(source)
+        self.assertIn('words &amp; punctuation',excerpt)
+        self.assertNotIn('Translated',excerpt)
+        item=payload();item.update(source=source,source_sha256=hashlib.sha256(source.encode()).hexdigest(),original_source=excerpt)
+        payload_valid(item,annotations=True)
+        with self.assertRaises(ValueError):payload_valid(dict(item,original_source='<html><body><p>other</p></body></html>'),annotations=True)
+        with self.assertRaises(ValueError):original_excerpt('<html><body><p>'+repeated+'</p><p>'+repeated+'</p></body></html>')
+
+    def test_excerpt_excludes_nested_translated_and_nonbody_paragraphs(self):
+        phrase='A long synthetic paragraph with sufficient distinct original characters.'
+        invalid=('<html><head><p>'+phrase+'</p></head><body><div class="wr-translation"><p>'+phrase+'</p></div>'
+                 '<p>Here is a nested <em>'+phrase+'</em> rather than a simple paragraph.</p></body></html>')
+        with self.assertRaises(ValueError):original_excerpt(invalid)
+        source=invalid.replace('</body>', '<p>'+phrase+'</p></body>')
+        self.assertEqual(original_excerpt(source),'<html><body><p>'+phrase+'</p></body></html>')
+
+    def test_host_rejects_missing_annotation_stage_evidence(self):
+        value=result()
+        value['stages']=[dict(stage(mode),**{key:True for key in ANNOTATION_FLAGS}) for mode in ('live','reopen')]
+        raw=FRAME+json.dumps(value).encode()
+        with patch('verify_translation_fetch_owner.subprocess.run',return_value=subprocess.CompletedProcess([],0,raw,b'')):
+            self.assertEqual(execute(['private-command'],payload(),True),value)
+            with self.assertRaises(ValueError):execute(['private-command'],payload(),False)
+        value['stages'][1]['annotation_shifted']=False
+        raw=FRAME+json.dumps(value).encode()
+        with patch('verify_translation_fetch_owner.subprocess.run',return_value=subprocess.CompletedProcess([],0,raw,b'')):
+            with self.assertRaises(ValueError):execute(['private-command'],payload(),True)
 
     def test_live_bounded_reads_and_offline_zero_requests(self):
         for mode,requests in (('live',0),('live',33),('live',True),('reopen',1),('reopen',False)):
