@@ -30,14 +30,16 @@ def trusted_command():
         if (len(matches)!=1 or matches[0].get('Type')!='bind' or Path(matches[0].get('Source','')).resolve()!=expected
                 or matches[0].get('RW') is not writable):raise ValueError('cb_dry/container')
     prefix=[docker,'exec','-i','-w','/source',identifier]
-    checked=subprocess.run(prefix+['python3','scripts/check_cb_dry_candidate.py','--source','/source',
-                                    '--candidate','/validation/cb-capture-candidate.zip'],
+    checked=subprocess.run(prefix+['python3','scripts/build_cb_dry_candidate.py','--source','/source',
+                                    '--directory','/validation'],
                            stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=30,check=True)
     value=json.loads(checked.stdout)
-    if (not isinstance(value,dict) or set(value)!={'result','files'} or value['result']!='CANDIDATE_MATCH'
-            or type(value['files']) is not int or value['files']<1):raise ValueError('cb_dry/candidate')
+    if (not isinstance(value,dict) or set(value)!={'result','files','path'} or value['result']!='CANDIDATE_READY'
+            or type(value['files']) is not int or value['files']<1 or not isinstance(value['path'],str)
+            or not re.fullmatch(r'/validation/cb-dry-candidate-[a-f0-9]{64}\.zip',value['path'])):
+        raise ValueError('cb_dry/candidate')
     return prefix+['python3','scripts/run_cb_native_time_guarded_dry.py','--koreader','/validation/runtime/lib/koreader',
-                   '--source','/source','--candidate','/validation/cb-capture-candidate.zip']
+                   '--source','/source','--candidate',value['path']]
 
 
 def run(store,session,native,gate,audit,*,clock=time.time,attest=trusted_command,preflight=preflight_run,

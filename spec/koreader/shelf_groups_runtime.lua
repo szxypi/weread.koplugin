@@ -99,6 +99,23 @@ search_dialog:setInputText('   ');search_dialog.buttons[1][2].callback()
 pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
 assert(plugin.shelf_search_keyword==nil and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-123456',
     'whitespace-only search did not restore the selected group')
+-- Unicode case folding and compatibility characters work within the active
+-- group using KOReader's own utf8proc implementation.
+plugin:applyShelfSnapshot({
+    {bookId='SYN-U1',title='Café des livres'},
+    {bookId='SYN-U2',title='Die Straße',author='JOSÉ'},
+    {bookId='SYN-U3',title='ＡＢＣ 全角'},
+    {bookId='SYN-OUT',title='Café outside group'},
+},{{archiveId=98,name='合成分组',bookIds={'SYN-U1','SYN-U2','SYN-U3'}},
+   {archiveId=99,name='其他',bookIds={'SYN-OUT'}}})
+plugin.shelf_group_key='archive:98';plugin:showShelfView('books')
+for _,case in ipairs({{'CAFÉ','SYN-U1'},{'STRASSE','SYN-U2'},{'josé','SYN-U2'},{'abc','SYN-U3'}}) do
+    search_view=assert(plugin.shelf_view);search_view.on_search();search_dialog=assert(search_view._shelf_popup)
+    search_dialog:setInputText(case[1]);search_dialog.buttons[1][2].callback()
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
+    assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId==case[2],
+        'Unicode shelf search missed a grouped book or escaped the active group')
+end
 -- Real paged shelf: equal values keep original order within pinned/unpinned
 -- sections after page changes and after switching the sort field.
 local tied,expected,pinned,unpinned={},{},{},{}

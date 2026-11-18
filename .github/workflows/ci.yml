@@ -194,6 +194,7 @@ jobs:
           python3 scripts/test_cb_native_time_bundle_synthetic_trial.py
           python3 scripts/test_cb_native_time_guarded_mock.py
           python3 scripts/test_check_cb_dry_candidate.py
+          python3 scripts/test_build_cb_dry_candidate.py
           python3 scripts/test_cb_native_time_guarded_dry_runner.py
           python3 scripts/test_verify_cb_native_time_guarded_dry.py
           python3 scripts/test_native_trial_pipe_archive_frames.py

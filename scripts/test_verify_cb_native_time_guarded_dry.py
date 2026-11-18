@@ -62,7 +62,7 @@ class DryHostTests(unittest.TestCase):
             self.assertEqual(task.main([]),0)
         store.assert_not_called();self.assertEqual(json.loads(output.getvalue())['result'],'OFFLINE_ONLY')
     def test_only_expected_readonly_source_mount_and_candidate_are_accepted(self):
-        for mode in ('valid','source_writable','wrong_source','wrong_validation','candidate_failed','stopped'):
+        for mode in ('valid','source_writable','wrong_source','wrong_validation','candidate_failed','candidate_path','stopped'):
             with self.subTest(mode=mode),tempfile.TemporaryDirectory() as directory:
                 parent=Path(directory);source=parent/'repo';(source/'scripts').mkdir(parents=True);validation=parent/'.validation';validation.mkdir()
                 mounts=[{'Type':'bind','Source':str(source),'Destination':'/source','RW':False},
@@ -72,7 +72,9 @@ class DryHostTests(unittest.TestCase):
                 if mode=='wrong_validation':mounts[1]['Source']=str(parent)
                 running=mode!='stopped';identifier='a'*64
                 inspection=Mock(stdout=(json.dumps(running)+' '+json.dumps(identifier)+' '+json.dumps(mounts)).encode())
-                candidate=Mock(stdout=json.dumps({'result':'UNVERIFIED'} if mode=='candidate_failed' else {'result':'CANDIDATE_MATCH','files':9}).encode())
+                candidate=Mock(stdout=json.dumps({'result':'UNVERIFIED'} if mode=='candidate_failed' else {
+                    'result':'CANDIDATE_READY','files':9,'path':'/validation/'+('evil.zip' if mode=='candidate_path'
+                        else 'cb-dry-candidate-'+'b'*64+'.zip')}).encode())
                 with patch.object(task,'__file__',str(source/'scripts'/'dummy.py')),patch.object(task.shutil,'which',return_value='/usr/bin/docker'),\
                      patch.object(task.subprocess,'run',side_effect=[inspection,candidate]):
                     if mode=='valid':

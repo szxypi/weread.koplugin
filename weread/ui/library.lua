@@ -6,6 +6,7 @@ local ConfirmBox = require("ui/widget/confirmbox")
 local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfFlags = require("weread.lib.shelf_flags")
+local ShelfSearch = require("weread.lib.shelf_search")
 local VolatileShelf = require("weread.lib.volatile_shelf")
 local InputDialog = require("ui/widget/inputdialog")
 local logger = require("weread.lib.logger")
@@ -469,23 +470,6 @@ function M:refreshBookshelf(old_view, view_options)
     end
 end
 
-local function shelf_search_match(book, keyword)
-    if not keyword or keyword == "" then return true end
-    local needle = string.lower(keyword)
-    -- Iterate field names: an absent optional author must not terminate the
-    -- search before reaching either form of the book identifier.
-    for _, field in ipairs({ "title", "author", "bookId", "book_id" }) do
-        local value = book[field]
-        if type(value) == "number" and (field == "bookId" or field == "book_id") then
-            value = tostring(value)
-        end
-        if type(value) == "string" and string.find(string.lower(value), needle, 1, true) then
-            return true
-        end
-    end
-    return false
-end
-
 local function shelf_page_items(items, page, page_size)
     items = type(items) == "table" and items or {}
     page_size = math.max(1, math.floor(tonumber(page_size) or 1))
@@ -697,13 +681,14 @@ function M:showShelfView(mode, keyword, old_view, options)
     self.shelf_view_pages = self.shelf_view_pages or { books = 1, public_account = 1 }
     local saved_books = self.settings:get("books", {})
     local downloaded_cache = {}
+    local needle = ShelfSearch.prepare(keyword)
     local function filtered(source, with_download_state)
         local result = {}
         local sorted = sortBooks(source or {}, self.settings:get("shelf").sort_order)
         for _i, book in ipairs(sorted) do
             local matches_filters = not with_download_state
                 or self:bookMatchesFilters(book, saved_books, downloaded_cache)
-            if matches_filters and shelf_search_match(book, keyword) then
+            if matches_filters and ShelfSearch.matches(book, needle) then
                 if with_download_state then
                     book._cached = self:isBookDownloaded(book, saved_books, downloaded_cache)
                 end

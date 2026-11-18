@@ -4,8 +4,8 @@ import argparse,json,stat,zipfile
 from pathlib import Path
 
 
-def check(source,candidate):
-    source=Path(source).resolve(strict=True);candidate=Path(candidate)
+def source_files(source):
+    source=Path(source).resolve(strict=True)
     names=('main.lua','_meta.lua','LICENSE','NOTICE','README.md')
     paths={name:source/name for name in names}
     for folder in ('fonts','icons','integrations','weread'):
@@ -15,6 +15,11 @@ def check(source,candidate):
             if path.is_symlink():raise ValueError('cb_dry_candidate/source')
             if path.is_file() and path.name!='.DS_Store':paths[path.relative_to(source).as_posix()]=path
     if any(path.is_symlink() or not path.is_file() for path in paths.values()):raise ValueError('cb_dry_candidate/source')
+    return paths
+
+
+def check(source,candidate):
+    paths=source_files(source);candidate=Path(candidate)
     seen=set()
     with zipfile.ZipFile(candidate) as archive:
         for item in archive.infolist():
