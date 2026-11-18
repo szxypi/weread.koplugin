@@ -85,4 +85,20 @@ host=fixture();Model.show(host,{'900001'});shown.ok_callback();table.remove(sche
 table.remove(scheduled,1)();expect(removed==32 and released==1 and patches==1 and #host.info==0,'context change continued deletion or showed stale result')
 host=fixture();Model.show(host,{'900001'});shown.ok_callback();Model.cancel(host)
 expect(released==1 and removed==0 and not host.book_cache_cleanup_job and not host.busy_message,'leaving UI leaked cleanup task')
+local generation,clears='first',0
+package.loaded['weread.lib.translation_resume']={new=function() return {
+    tokens=function() return {['900001']={book_id='900001',generation=generation}} end,
+    clear=function(_self,token) clears=clears+1;return token.generation==generation end,
+} end}
+host=fixture();host.client={};host.library_db={accountKey=function() return 'account' end,open=function() end}
+Model.show(host,{'900001'});expect(shown.text:find('Interrupted translation',1,true),'preview omitted pending translated chapters')
+shown.ok_callback();table.remove(scheduled,1)();host.stop()
+expect(clears==0,'cancelled cleanup removed resumable chapters')
+host=fixture();host.client={};host.library_db={accountKey=function() return 'account' end,open=function() end}
+Model.show(host,{'900001'});shown.ok_callback();while #scheduled>0 do table.remove(scheduled,1)() end
+expect(clears==1,'completed cleanup kept the selected translation checkpoint')
+host=fixture();host.client={};host.library_db={accountKey=function() return 'account' end,open=function() end}
+Model.show(host,{'900001'});shown.ok_callback();generation='replacement'
+while #scheduled>0 do table.remove(scheduled,1)() end
+expect(clears==2 and host.info[#host.info]:find('stopped',1,true),'changed checkpoint was removed or cleanup claimed success')
 print(('book_cache_cleanup_ui_spec: %d checks'):format(checks))

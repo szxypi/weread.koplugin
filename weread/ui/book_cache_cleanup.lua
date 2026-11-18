@@ -50,6 +50,15 @@ end
 function M.prepare(host,ids)
     local job={owner=scope(host),items={},index=1,files=0,bytes=0}
     if host.settings.get_auth_scope then job.auth=host.settings:get_auth_scope() end
+    if job.auth and host.library_db and type(host.library_db.open)=='function' then
+        local ok,store=pcall(require('weread.lib.translation_resume').new,
+            require('weread.lib.translation_resume'),host.library_db,host.client,job.auth)
+        if not ok or not store then return nil,'unavailable' end
+        job.translation_store=store
+        local checked,tokens=pcall(store.tokens,store)
+        if not checked or not tokens then return nil,'unavailable' end
+        job.translation_tokens=tokens
+    end
     local books=host.settings:get('books',{});local seen={}
     for _i,id in ipairs(ids) do
         local book=books[id]
@@ -60,7 +69,9 @@ function M.prepare(host,ids)
         if info then
             local ok,plan=pcall(Model.scan,root,id)
             if not ok then return nil,'unavailable' end
-            job.items[#job.items+1]={id=id,root=root,book=book,preview=plan}
+            local item={id=id,root=root,book=book,preview=plan}
+            if job.translation_tokens then item.translation_token=job.translation_tokens[id] end
+            job.items[#job.items+1]=item
             job.bytes=job.bytes+plan.bytes;job.files=job.files+plan.files
         end
     end
@@ -107,6 +118,10 @@ local function finalize(host,job,item,complete)
     if complete then
         local called,cleared=pcall(host.clearBookAnnotationData,host,item.id,item.book)
         ok=called and cleared==true and ok
+        if item.translation_token and item.translation_token.generation then
+            local removed,success=pcall(job.translation_store.clear,job.translation_store,item.translation_token)
+            ok=removed and success==true and ok
+        end
     end
     if not ok then job.failed=true end
     return ok
@@ -175,6 +190,12 @@ function M.show(host,ids,title,on_cleared)
     local text=title and T(_('Clear cache for "%1"?'),title) or _('Clear selected caches?')
     text=text..'\n\n'..T(_('%1 downloaded files (%2) and cached cloud annotations will be removed.\nReading positions, pending sync records, and local notes are kept.'),
         job.files,size(job.bytes))
+    for _i,item in ipairs(job.items) do
+        if item.translation_token and item.translation_token.generation then
+            text=text..'\n\n'.._('Interrupted translation downloads will also be removed.')
+            break
+        end
+    end
     local dialog
     dialog=require('ui/widget/confirmbox'):new{text=text,ok_text=_('Clear'),keep_dialog_open=true,
         cancel_callback=function() if host.book_cache_cleanup_job==job then M.cancel(host) end end,

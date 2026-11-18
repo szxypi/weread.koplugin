@@ -26,6 +26,7 @@ def main():
     parser.add_argument('--annotations',action='store_true',help='exercise annotation copying into the full-book translation')
     parser.add_argument('--cross-chapter',action='store_true',help='exercise cross-chapter highlights and changed-selection rejection')
     parser.add_argument('--transient',action='store_true',help='inject one transient error during full-book download')
+    parser.add_argument('--resume',action='store_true',help='interrupt and resume the full-book download in a new process')
     parser.add_argument('--hash-storage',action='store_true',help='exercise KOReader hash-based metadata storage')
     parser.add_argument('--dir-storage',action='store_true',help='exercise KOReader centralized metadata storage')
     args=parser.parse_args()
@@ -37,6 +38,7 @@ def main():
     if args.annotations and not args.fetch_book: parser.error('--annotations requires --fetch-book')
     if args.cross_chapter and not args.annotations: parser.error('--cross-chapter requires --annotations')
     if args.transient and not args.fetch_book: parser.error('--transient requires --fetch-book')
+    if args.resume and (not args.fetch_book or args.transient or args.annotations): parser.error('--resume requires a separate --fetch-book scenario')
     if (args.hash_storage or args.dir_storage) and not args.fetch_book: parser.error('metadata storage selection requires --fetch-book')
     if args.hash_storage and args.dir_storage: parser.error('choose one metadata storage location')
     if args.fetch_book:
@@ -83,7 +85,11 @@ def main():
             with log.open('w') as out:
                 probe='txt_layout_smoke.lua' if args.txt_layout else 'translation_fetch_book_smoke.lua' if args.fetch_book else 'translation_fetch_smoke.lua' if args.fetch else 'translation_reader_smoke.lua' if args.reader else 'translation_display_smoke.lua'
                 result=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],
-                    cwd=runtime,env=env,stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                    cwd=runtime,env=env|({'WEREAD_TRANSLATION_RESUME':'interrupt'} if args.resume else {}),stdout=out,stderr=subprocess.STDOUT,timeout=120)
+            if args.resume and result.returncode==0:
+                with (root/'evidence/resume.log').open('w') as out:
+                    result=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                        env=env|dict(WEREAD_TRANSLATION_RESUME='resume'),stdout=out,stderr=subprocess.STDOUT,timeout=120)
             if (args.fetch or args.fetch_book) and result.returncode==0:
                 before=len(server.events)
                 with (root/'evidence/offline.log').open('w') as out:

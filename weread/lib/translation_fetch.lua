@@ -106,7 +106,7 @@ local function local_source(input,path)
     local ordinal=meta.render_path=='OEBPS/text/chapter.xhtml' and 1
         or tonumber(meta.render_path:match('^OEBPS/text/chapter%-(%d+)%.xhtml$'))
     if not ordinal or ordinal<1 or ordinal>M.MAX_BOOK_CHAPTERS then fail('source') end
-    return Model.analyze(values[meta.render_path],uid,ordinal,true),metadata,original,ordinal,meta
+    return Model.analyze(values[meta.render_path],uid,ordinal,true),metadata,original,ordinal,meta,headers[Identity.PATH]
 end
 function M.saved(input,path)
     if path==input.path then fail('source') end
@@ -178,10 +178,10 @@ end
 -- EPUB through the caller's exclusively owned descriptor. Any missing chapter,
 -- changed catalog or limit failure aborts the whole copy rather than silently
 -- producing a truncated book.
-function M.run_book(client,settings,input,output,progress)
+function M.run_book(client,settings,input,output,progress,resume_store,resume)
     local function report(value) if type(progress)=='function' then pcall(progress,value) end end
     local book={book_id=input.book_id,title=input.title,author=input.author,cache_dir=input.directory}
-    local before,metadata=local_source(input,input.path)
+    local before,metadata,original,_,_,identity_record=local_source(input,input.path)
     if metadata~=input.metadata then fail('source') end
     local initial=M.client(client,book,input.chapter_uid)
     Content.ensure_reader_state(initial,book)
@@ -196,6 +196,10 @@ function M.run_book(client,settings,input,output,progress)
         if uid==input.chapter_uid then current=index end
     end
     if not current then fail('catalog') end
+    -- A legacy identity without its sealed content digest cannot bind a
+    -- checkpoint to the original file. The download still works normally.
+    local token=resume_store and Identity.has_text_digest(identity_record)
+        and resume_store:begin(input.book_id,original.file_id,chapters,version,resume)
     report(0)
     book.bookVersion=version
     local identity=Identity.capture(book)
@@ -204,7 +208,14 @@ function M.run_book(client,settings,input,output,progress)
     for index,chapter in ipairs(chapters) do
         local uid=tostring(chapter.chapterUid)
         local scoped=M.client(client,book,uid)
-        local raw,source=Content.fetch_chapter_xhtml(scoped,settings,book,chapter)
+        local raw=token and resume_store:get(token,uid)
+        local source
+        if raw then
+            Content.refresh_reader_state(scoped,book,chapter)
+            source=Source.capture(book,chapter,raw,'web_xhtml')
+        else
+            raw,source=Content.fetch_chapter_xhtml(scoped,settings,book,chapter)
+        end
         if not source or source.format~='web_xhtml' then fail('format') end
         source_bytes=source_bytes+#raw
         if source_bytes>M.MAX_BOOK_SOURCE then fail('source_limit') end
@@ -229,6 +240,7 @@ function M.run_book(client,settings,input,output,progress)
             if not after then fail('content') end
             target=Model.refresh_target(before,after,input.xpointer,index)
         end
+        if token then resume_store:put(token,uid,raw) end
         bodies[uid],sources[uid]=xhtml,source
         report(math.floor(index*90/#chapters))
     end
@@ -251,6 +263,7 @@ function M.run_book(client,settings,input,output,progress)
     if not result_identity or not result_meta or profile.file_id~=result_identity.file_id
         or result_meta.file_id~=result_identity.file_id or profile.chapters[current].member_path~=result_meta.render_path then fail('output') end
     return {ok=true,bytes=info.size,blocks=profile.blocks,chapters=#chapters,translated_chapters=translated,file_id=result_identity.file_id,
+        resume_token=token,
         chapter_uid=input.chapter_uid,matched=target~=nil,target=target or '/body/DocFragment['..current..']/body'}
 end
 function M.run(client,settings,input,output)

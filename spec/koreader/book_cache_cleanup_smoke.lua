@@ -28,6 +28,9 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
     local note_dir=root..'/synthetic.sdr';assert(lfs.mkdir(note_dir))
     write(note_dir..'/metadata.epub.lua','return { annotation = "Synthetic local note" }')
     local note_hash=Crypto.sha256_hex(read(note_dir..'/metadata.epub.lua'))
+    local pending=require('weread.lib.translation_resume'):new(host.library_db,host.client,host.settings:get_auth_scope())
+    local token=assert(pending:begin(id,string.rep('a',64),{{chapterUid=1,title='Synthetic'}},7,false))
+    assert(pending:put(token,'1','<p>Synthetic incomplete translation</p>'))
     for i=1,80 do write(root..'/cache-extra-'..string.format('%03d',i)..'.bin','Synthetic removable resource') end
     local function records()
         assert(read(state_path)==raw,'cleanup rewrote the reading journal')
@@ -38,6 +41,7 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
     local dialog=assert(job.dialog);assert(UI:getTopmostVisibleWidget()==dialog)
     UI:forceRePaint();require('device').screen:shot(evidence..'/cache-clear-confirmation.png')
     dialog:onClose();records();assert(not host.book_cache_cleanup_job,'cancelled confirmation survived')
+    assert(pending:get(token,'1'),'cancelled confirmation removed the unfinished translation')
     host:confirmClearBookCache(id,'Synthetic cache');job=assert(host.book_cache_cleanup_job)
     job.dialog.ok_callback()
     pump(function() return job.items[1].deletion and job.items[1].deletion.files>=32 end)
@@ -45,12 +49,14 @@ return function(reader,current,id,report,pump,tick,press,evidence,detail,close_r
     local busy=assert(host.busy_message);assert(UI:getTopmostVisibleWidget()==busy)
     UI:forceRePaint();require('device').screen:shot(evidence..'/cache-clear-cancellation.png')
     busy:onTapClose();assert(not host.book_cache_cleanup_job);records()
+    assert(pending:get(token,'1'),'stopped cleanup removed the unfinished translation')
     dismiss(view)
     local count=job.items[1].deletion.files
     for _i=1,12 do tick() end
     assert(job.items[1].deletion.files==count,'cancelled cleanup continued')
     host:confirmClearBookCache(id,'Synthetic cache');job=assert(host.book_cache_cleanup_job)
     job.dialog.ok_callback();pump(function() return not host.book_cache_cleanup_job end);records()
+    assert(not pending:get(token,'1') and not pending:token(id).generation,'completed cleanup kept unfinished translation')
     saved=assert(host.settings:get_book(id));assert(not saved.cached_full_book and not saved.cached_file and not next(saved.cached_chapters or {}))
     dismiss(view)
     host,view=detail();press(view,'⇩ Download full book')

@@ -39,6 +39,8 @@ local function close_result(host)
 end
 function M.cancel(host)
     local annotations=package.loaded['weread.ui.translation_annotations'];if annotations then annotations.cancel(host) end
+    local prompt=host._translation_resume_prompt;host._translation_resume_prompt=nil;host._translation_resume_owner=nil
+    if prompt then UIManager:close(prompt) end
     close_result(host)
     local job=host.translation_fetch_job;host.translation_fetch_job=nil
     if not job then return end
@@ -51,6 +53,7 @@ function M.view_changed(host)
     local annotations=package.loaded['weread.ui.translation_annotations'];if annotations then annotations.view_changed(host) end
     local job=host.translation_fetch_job
     if job and not current(host,job.owner) then M.cancel(host) end
+    if host._translation_resume_owner and not current(host,host._translation_resume_owner) then M.cancel(host) end
     if host._translation_fetch_owner and not current(host,host._translation_fetch_owner) then close_result(host) end
 end
 local function failed(host,missing,full,limit)
@@ -144,12 +147,13 @@ function M.open_saved(host)
     if not good or not started then M.cancel(host);failed(host);return false end
     return true
 end
-local function success(host,o,output,result,full)
+local function success(host,o,output,result,full,cleanup_failed)
     local dialog
     dialog=require('ui/widget/confirmbox'):new{keep_dialog_open=true,
         text=(full and T(_('Downloaded existing translations for %1 of %2 chapters as a separate book copy. The original file and its notes are kept.'),result.translated_chapters,result.chapters)
             or T(_('Downloaded %1 translated blocks as a separate chapter copy. The original file and its notes are kept.'),result.blocks))
-            ..'\n\n'.._((full and result.matched or not full and result.target) and 'Open at the matching original paragraph.' or 'No unique matching paragraph was found. Open from this chapter’s beginning.'),
+            ..'\n\n'.._((full and result.matched or not full and result.target) and 'Open at the matching original paragraph.' or 'No unique matching paragraph was found. Open from this chapter’s beginning.')
+            ..(cleanup_failed and '\n\n'.._('The copy was saved, but interrupted chapters could not be removed. You can delete them from the download menu.') or ''),
         ok_text=_('Open translated copy'),cancel_text=_('Close'),
         cancel_callback=function() if host._translation_fetch_result==dialog then host._translation_fetch_result=nil;host._translation_fetch_owner=nil end end,
         ok_callback=function()
@@ -159,12 +163,42 @@ local function success(host,o,output,result,full)
         end}
     host._translation_fetch_result=dialog;host._translation_fetch_owner=o;UIManager:show(dialog)
 end
-function M.start(host,full)
+function M.start(host,full,resume)
     host:closeWeReadUI()
     local captured,o=pcall(owner,host)
     if not captured or not o then failed(host);return false end
     if not host:isNetworkOnline() then host:showOffline(_(full and 'Download existing translations for full book' or 'Download existing translation'));return false end
     if not host:requireLogin(true,false) then return false end
+    local resume_store
+    if full and type(host.library_db.open)=='function' then
+        resume_store=require('weread.lib.translation_resume'):new(host.library_db,host.client,o.scope)
+        local saved=resume==nil and resume_store:summary(o.book_id,o.source.identity.file_id)
+        if saved then
+            local dialog
+            local dated,when=pcall(os.date,'%Y-%m-%d %H:%M',saved.started)
+            if not dated or type(when)~='string' then when=_('Unknown') end
+            local function choose(value)
+                if host._translation_resume_prompt~=dialog or not current(host,o) then return end
+                host._translation_resume_prompt,host._translation_resume_owner=nil,nil
+                UIManager:close(dialog);M.start(host,true,value)
+            end
+            dialog=require('ui/widget/buttondialog'):new{
+                title=T(_('An interrupted download started at %1 has %2 saved chapters. Translations may have changed since then. Continue with these chapters, or download the whole book again?'),when,saved.count),
+                buttons={{{text=_('Continue download'),callback=function() choose(true) end}},
+                    {{text=_('Download again'),callback=function() choose(false) end}},
+                    {{text=_('Delete saved chapters'),callback=function()
+                        if host._translation_resume_prompt~=dialog or not current(host,o) then return end
+                        host._translation_resume_prompt,host._translation_resume_owner=nil,nil
+                        UIManager:close(dialog)
+                        if resume_store:clear{book_id=o.book_id,generation=saved.generation} then
+                            host:showInfo(_('The interrupted download was removed.'))
+                        else host:showInfo(_('Could not remove the interrupted download. Check storage and try again.')) end
+                    end}},
+                    {{text=_('Cancel'),callback=function() if host._translation_resume_prompt==dialog then M.cancel(host) end end}}},
+            }
+            host._translation_resume_prompt,host._translation_resume_owner=dialog,o;UIManager:show(dialog);return true
+        end
+    end
     if host.downloader and (host.downloader._active_job or host.downloader._pending_start or host.downloader._scheduled_start) then
         host:showInfo(_('The reader is busy. Please try again shortly.'));return false
     end
@@ -182,7 +216,7 @@ function M.start(host,full)
         local shown=pcall(function()
             local dialog=require('weread.ui.download_dialog'):new{
                 title=_('Download existing translations for full book'),
-                description=_('Downloading chapters and checking the completed copy.'),
+                description=_('Downloading chapters and checking the completed copy. Completed chapters are saved when storage is available.'),
                 buttons={{{text=_('Cancel'),callback=job.cancel}}},
             }
             host:closeBusy();host.busy_message=dialog;job.busy=dialog;dialog:show()
@@ -199,7 +233,7 @@ function M.start(host,full)
     host.translation_fetch_worker.timeout=full and 3600 or 75
     local launched,started=pcall(host.translation_fetch_worker.start,host.translation_fetch_worker,function(progress)
         local capture=WorkerSettings.capture(host.settings)
-        local good,result=pcall(full and Fetch.run_book or Fetch.run,host.client,host.settings,input,output,progress)
+        local good,result=pcall(full and Fetch.run_book or Fetch.run,host.client,host.settings,input,output,progress,resume_store,resume==true)
         if not good then
             if full and (result=='translation_fetch/source_limit' or result=='translation_fetch/asset_limit'
                 or result=='translation_fetch/content_limit' or result=='translation_fetch/chapter_limit') then return {ok=false,reason='limit'} end
@@ -230,6 +264,10 @@ function M.start(host,full)
         o.auth=WorkerSettings.fingerprint(host.settings)
         local committed,published=pcall(publish,output,directory,title,result.bytes)
         if not committed or not published then M.cancel(host);failed(host);return end
+        local cleanup_failed=false
+        if resume_store and type(result.resume_token)=='table' and result.resume_token.book_id==input.book_id
+            and type(result.resume_token.generation)=='string' and #result.resume_token.generation==32
+            and result.resume_token.generation:match('^[a-f0-9]+$') then cleanup_failed=not resume_store:clear(result.resume_token) end
         job.output=nil;M.cancel(host)
         -- Keep an offline entry on the original document's existing sidecar;
         -- it never replaces its native bookmarks or current book cache path.
@@ -240,7 +278,7 @@ function M.start(host,full)
         o.doc_settings:saveSetting('weread_translation_copies',records)
         local saved,where=pcall(o.doc_settings.flush,o.doc_settings)
         if not saved or not where then host:showInfo(_('The translated copy was saved, but its offline shortcut could not be saved. Check storage.')) end
-        success(host,o,output,result,full)
+        success(host,o,output,result,full,cleanup_failed)
     end,full and function(value)
         if host.translation_fetch_job~=job then return end
         if not current(host,o) or host.busy_message~=job.busy then M.cancel(host);return end

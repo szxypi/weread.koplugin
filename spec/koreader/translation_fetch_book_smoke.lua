@@ -29,10 +29,11 @@ local offline=os.getenv('WEREAD_TRANSLATION_FETCH_OFFLINE')=='1'
 local annotations_test=os.getenv('WEREAD_TRANSLATION_ANNOTATIONS')=='1'
 local cross_chapter=os.getenv('WEREAD_TRANSLATION_CROSS_CHAPTER')=='1'
 local transient=os.getenv('WEREAD_TRANSLATION_TRANSIENT')=='1'
+local resume_stage=os.getenv('WEREAD_TRANSLATION_RESUME')
 local function bytes(path) local f=assert(io.open(path,'rb'));local raw=f:read('*a');f:close();return raw end
 local state_path=evidence..'/translation-book-state.json'
 local path,copy,original,bookmark,original_note_time
-if offline then
+if offline or resume_stage=='resume' then
     local state=require('json').decode(bytes(state_path));path,copy,bookmark=state.original,state.copy,state.bookmark
     original=bytes(path);assert(require('weread.lib.crypto').sha256_hex(original)==state.original_sha256)
 else
@@ -105,7 +106,12 @@ if offline then
     out:write(require('json').encode{result='PASS',new_process=true,correct_chapter=true,network_requests=0});out:close()
     reader:onClose(false);return
 end
-chapter(2);reader.bookmark:onToggleBookmark();bookmark=assert(reader.annotation.annotations[1]).page
+chapter(2)
+if resume_stage=='resume' then
+    assert(reader.annotation.annotations[1].page==bookmark,'original bookmark lost before resuming')
+else
+    reader.bookmark:onToggleBookmark();bookmark=assert(reader.annotation.annotations[1]).page
+end
 if annotations_test then
     local function add_note(index,paragraph,note)
         chapter(index)
@@ -149,6 +155,34 @@ dialog_type.reportProgress=function(self,value)
     return result
 end
 local retry_core,retry_original
+if resume_stage=='interrupt' then
+    retry_core=require('weread.lib.translation_fetch');retry_original=retry_core.run_book
+    retry_core.run_book=function(client,...)
+        local request,reads=client.request,0
+        client.request=function(self,options)
+            if options.url:find('/web/book/chapter/e_0',1,true) then
+                reads=reads+1
+                if reads>=3 then options.sink('synthetic interrupted response');return nil,503,{},'unavailable' end
+            end
+            return request(self,options)
+        end
+        return retry_original(client,...)
+    end
+    choose('Download existing translations for full book')
+    pump(function() return not plugin.translation_fetch_job end)
+    retry_core.run_book=retry_original
+    local pending=require('weread.lib.translation_resume'):new(plugin.library_db,plugin.client,plugin.settings:get_auth_scope())
+    local _,own=Fetch.saved_entry(plugin)
+    -- No translated copy exists yet; obtain the original identity directly.
+    local location=require('weread.lib.source_context').location(doc,'page')
+    local member=require('weread.lib.source_dom').member(doc,location.xpointer)
+    local origin=assert(Source.document_metadata(doc,'900001',nil,member.render_path))
+    local saved=assert(pending:summary('900001',origin.identity.file_id))
+    assert(not own and saved.count==2 and not plugin._translation_fetch_result,'interrupted download was not retained')
+    local out=assert(io.open(state_path,'w'))
+    out:write(require('json').encode{original=path,original_sha256=require('weread.lib.crypto').sha256_hex(original),bookmark=bookmark});out:close()
+    reader:onClose(false);return
+end
 if transient then
     retry_core=require('weread.lib.translation_fetch');retry_original=retry_core.run_book
     retry_core.run_book=function(client,...)
@@ -165,8 +199,27 @@ if transient then
         return result
     end
 end
+if resume_stage=='resume' then
+    retry_core=require('weread.lib.translation_fetch');retry_original=retry_core.run_book
+    retry_core.run_book=function(client,...)
+        local request,reads=client.request,0
+        client.request=function(self,options)
+            if options.url:find('/web/book/chapter/e_0',1,true) then reads=reads+1 end
+            return request(self,options)
+        end
+        local result=retry_original(client,...)
+        assert(result.ok and reads==4,'resumed download did not reuse two saved chapters')
+        return result
+    end
+end
 choose('Download existing translations for full book')
-if transient then retry_core.run_book=retry_original end
+if resume_stage=='resume' then
+    local prompt=assert(plugin._translation_resume_prompt,'resume choice was not shown')
+    UI:setDirty(prompt,function() return 'ui',prompt.dimen end);UI:forceRePaint()
+    Device.screen:shot(evidence..'/translation-resume-choice.png')
+    prompt.buttons[1][1].callback()
+end
+if transient or resume_stage=='resume' then retry_core.run_book=retry_original end
 assert(plugin.translation_fetch_job and plugin.translation_fetch_worker.job,'full book did not start in worker')
 assert(plugin.busy_message and plugin.busy_message.progress_bar,'native progress bar was not displayed')
 local heartbeat=false;UI:scheduleIn(.05,function() heartbeat=true end)
@@ -177,6 +230,12 @@ assert(progress_shot and #progress_updates>=3 and progress_updates[1]==0 and pro
 for i=2,#progress_updates do assert(progress_updates[i]>progress_updates[i-1],'native progress moved backwards') end
 local dialog=assert(plugin._translation_fetch_result,'full book copy not published')
 local record=assert(reader.doc_settings:readSetting('weread_translation_copies').__full)
+if resume_stage=='resume' then
+    local pending=require('weread.lib.translation_resume'):new(plugin.library_db,plugin.client,plugin.settings:get_auth_scope())
+    local source=assert(Source.document_metadata(doc,'900001',nil,assert(require('weread.lib.source_dom').member(doc,
+        require('weread.lib.source_context').location(doc,'page').xpointer)).render_path))
+    assert(not pending:summary('900001',source.identity.file_id),'completed download retained its checkpoint')
+end
 copy=record.path
 assert(copy~=path and bytes(path)==original and reader.annotation.annotations[1].page==bookmark,'original file or bookmark changed')
 local isolation=require('weread.lib.translation_record_isolation')
@@ -273,7 +332,7 @@ end
 -- A cancelled worker and a failure after two chapters must not publish a
 -- partial book or replace either the original or an already accepted copy.
 local accepted=bytes(copy)
-assert(Fetch.start(plugin,true));local job=assert(plugin.translation_fetch_job)
+assert(Fetch.start(plugin,true,false));local job=assert(plugin.translation_fetch_job)
 local partial,pid=job.output.path,plugin.translation_fetch_worker.job.pid
 plugin.busy_message.buttons[1][1].callback()
 assert(not plugin.translation_fetch_job and not require('libs/libkoreader-lfs').attributes(partial),'cancel retained staged book')
@@ -295,7 +354,7 @@ local worker=plugin.translation_fetch_worker;local start=worker.start;local saw_
 worker.start=function(self,task,callback) return start(self,task,function(value)
     saw_failure=type(value)=='table' and value.third_chapter_failure==true;callback(value)
 end) end
-assert(Fetch.start(plugin,true));partial=plugin.translation_fetch_job.output.path
+assert(Fetch.start(plugin,true,false));partial=plugin.translation_fetch_job.output.path
 pump(function() return not plugin.translation_fetch_job end)
 assert(saw_failure and not require('libs/libkoreader-lfs').attributes(partial),'failed chapter left a staged book')
 assert(bytes(path)==original and bytes(copy)==accepted and reader.doc_settings:readSetting('weread_translation_copies').__full.path==copy,
@@ -318,7 +377,7 @@ local saw_empty=false
 worker.start=function(self,task,callback) return start(self,task,function(value)
     saw_empty=type(value)=='table' and value.empty_chapter_rejected==true;callback(value)
 end) end
-clean();assert(Fetch.start(plugin,true));partial=plugin.translation_fetch_job.output.path
+clean();assert(Fetch.start(plugin,true,false));partial=plugin.translation_fetch_job.output.path
 pump(function() return not plugin.translation_fetch_job end)
 assert(saw_empty and not require('libs/libkoreader-lfs').attributes(partial),'empty chapter left a staged book')
 assert(bytes(path)==original and bytes(copy)==accepted and reader.doc_settings:readSetting('weread_translation_copies').__full.path==copy,
@@ -343,7 +402,7 @@ if transient then
         worker.start=function(self,task,callback) return start(self,task,function(value)
             guarded=type(value)=='table' and value.retry_guard==true;callback(value)
         end) end
-        clean();assert(Fetch.start(plugin,true));partial=plugin.translation_fetch_job.output.path
+        clean();assert(Fetch.start(plugin,true,false));partial=plugin.translation_fetch_job.output.path
         pump(function() return not plugin.translation_fetch_job end)
         assert(guarded and not require('libs/libkoreader-lfs').attributes(partial),'failed retry left a staged copy')
         assert(bytes(path)==original and bytes(copy)==accepted,'failed retry changed an accepted file')
@@ -365,7 +424,7 @@ local saw_catalog=false
 worker.start=function(self,task,callback) return start(self,task,function(value)
     saw_catalog=type(value)=='table' and value.catalog_changed==true;callback(value)
 end) end
-clean();assert(Fetch.start(plugin,true));partial=plugin.translation_fetch_job.output.path
+clean();assert(Fetch.start(plugin,true,false));partial=plugin.translation_fetch_job.output.path
 pump(function() return not plugin.translation_fetch_job end)
 assert(saw_catalog and not require('libs/libkoreader-lfs').attributes(partial),'changed catalog left a staged book')
 assert(bytes(path)==original and bytes(copy)==accepted and reader.doc_settings:readSetting('weread_translation_copies').__full.path==copy,
@@ -385,7 +444,7 @@ local saw_missing=false
 worker.start=function(self,task,callback) return start(self,task,function(value)
     saw_missing=type(value)=='table' and value.missing_verified==true;callback(value)
 end) end
-clean();assert(Fetch.start(plugin,true));partial=plugin.translation_fetch_job.output.path
+clean();assert(Fetch.start(plugin,true,false));partial=plugin.translation_fetch_job.output.path
 pump(function() return not plugin.translation_fetch_job end)
 assert(saw_missing and not require('libs/libkoreader-lfs').attributes(partial),'untranslated book left a staged copy')
 assert(bytes(path)==original and bytes(copy)==accepted and reader.doc_settings:readSetting('weread_translation_copies').__full.path==copy,

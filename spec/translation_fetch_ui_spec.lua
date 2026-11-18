@@ -2,7 +2,8 @@ package.path='./?.lua;'..package.path
 local state
 local function clone(v) local t={};for k,x in pairs(v) do t[k]=x end;return t end
 package.loaded['weread.lib.translation_fetch']={MAX_OUTPUT=10000,MAX_BOOK_CHAPTERS=2000,
-    run=function() return state.result end,run_book=function() if state.run_error then error(state.run_error,0) end;return state.result end}
+    run=function() return state.result end,run_book=function(...) state.resume_choice=select(7,...)
+        if state.run_error then error(state.run_error,0) end;return state.result end}
 package.loaded['weread.lib.position_source']={document_metadata=function() return {chapter_uid='1',metadata='metadata',record={format='web_xhtml'},identity={file_id=string.rep('a',64)}} end}
 package.loaded['weread.lib.source_dom']={member=function() return {render_path='OEBPS/chapter.xhtml'} end}
 package.loaded['weread.lib.source_context']={location=function() return clone(state.location) end,
@@ -22,6 +23,7 @@ end}
 rawset(os,'rename',function() return not state.rename_failed end)
 package.preload['ui/uimanager']=function() return {close=function(_self,widget) widget.closed=true end,show=function() end} end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) return options end} end
+package.preload['ui/widget/buttondialog']=function() return {new=function(_self,options) return options end} end
 package.loaded['weread.ui.download_dialog']={new=function(_self,options)
     function options:show() state.progress_dialog=self end
     function options:reportProgress(value) state.progress_values[#state.progress_values+1]=value end
@@ -135,4 +137,28 @@ state.copy_stat.ino=state.stat.ino
 expect(not UI.saved_entry(host),'hard-linked copy was accepted as independent')
 state.copy_stat.ino=2;state.copies.__full.account='another-account'
 expect(not UI.saved_entry(host),'another account’s full-book copy was accepted')
+package.loaded['weread.lib.translation_resume']={new=function() return {summary=function() return {count=2,generation=string.rep('a',32)} end,
+    clear=function(_self,token) state.cleared=token;return not state.clear_failed end} end}
+host=fixture();host.library_db.open=function() end
+expect(UI.start(host,true) and host._translation_resume_prompt and not host.translation_fetch_job,'saved download did not offer a choice')
+local prompt=host._translation_resume_prompt
+prompt.buttons[1][1].callback();expect(host.translation_fetch_job and prompt.closed,'resume choice did not start the job')
+state.jobs[1].task();expect(state.resume_choice==true,'resume choice was not passed to the worker')
+host=fixture();host.library_db.open=function() end;UI.start(host,true);prompt=host._translation_resume_prompt
+prompt.buttons[2][1].callback();state.jobs[1].task()
+expect(state.resume_choice==false and prompt.closed,'restart choice reused old chapters')
+host=fixture();host.library_db.open=function() end;UI.start(host,true);prompt=host._translation_resume_prompt
+prompt.buttons[3][1].callback()
+expect(prompt.closed and state.cleared.book_id=='900001' and #state.cleared.generation==32 and not host.translation_fetch_job
+    and #state.notices==1,'delete choice did not remove the selected checkpoint')
+host,deliver=fixture();host.library_db.open=function() end;state.clear_failed=true
+state.result={ok=true,chapter_uid='1',bytes=100,blocks=2,chapters=6,translated_chapters=4,matched=true,
+    target='/body/DocFragment[3]/body/p[1]',file_id=string.rep('b',64),
+    resume_token={book_id='900001',generation=string.rep('a',32)}}
+UI.start(host,true,false);deliver()
+expect(host._translation_fetch_result and host._translation_fetch_result.text:find('could not be removed',1,true)
+    and state.copies.__full,'checkpoint cleanup failure hid a successfully saved copy or its warning')
+host=fixture();host.library_db.open=function() end;UI.start(host,true);prompt=host._translation_resume_prompt
+state.location.page=2;UI.view_changed(host);prompt.buttons[1][1].callback()
+expect(prompt.closed and not host._translation_resume_prompt and not host.translation_fetch_job,'stale resume prompt started a download')
 print('translation_fetch_ui_spec: '..checks..' checks')
