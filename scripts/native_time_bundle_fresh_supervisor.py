@@ -9,7 +9,7 @@ from copy import deepcopy
 from annotation_experiment_model import digest
 from native_time_bundle_accounting import baseline
 from native_time_bundle_evidence import FreshShelfEvidence
-from native_time_bundle_fresh_audit import FreshAuditStore
+from native_time_bundle_fresh_audit import FreshAuditStore,MAX_RECORD_BYTES,packet_size
 from native_time_bundle_native_record import validate_record
 from native_time_bundle_supervisor import NativeBoundSupervisor,Supervisor
 from native_time_bundle_fresh_audit import SERVICE as FRESH_SERVICE
@@ -37,8 +37,12 @@ class FreshNativeBoundSupervisor(NativeBoundSupervisor):
         self._packet={'report':report,'baseline':baseline(bundle,grant,snapshot,months,report['completed_at']),
                       'catalog_stamp':stamp,'shelves':list(shelves),'trial_scope':trial}
         components=evidence.components_for_bundle(bundle,grant)
-        if components is not None:
+        self._include_components=components is not None
+        if self._include_components:
             self._packet['components']=list(components);self._packet['components_sha256']=digest(components)
+            if packet_size(self._packet)>MAX_RECORD_BYTES:
+                self._packet.pop('components');self._packet.pop('components_sha256');self._include_components=False
+        if packet_size(self._packet)>MAX_RECORD_BYTES:raise ValueError('fresh_supervisor/audit_size')
         self.audit_receipt=None
         Supervisor.__init__(self,gate,store,bundle,grant,guest,config_token,current,
                             lambda:self.evidence.for_bundle(self.bundle,self.grant)[0])
@@ -56,7 +60,8 @@ class FreshNativeBoundSupervisor(NativeBoundSupervisor):
         packet={'report':report,'baseline':baseline(self.bundle,self.grant,snapshot,months,report['completed_at']),
                 'catalog_stamp':stamp,'shelves':list(shelves),'trial_scope':trial}
         components=self.evidence.components_for_bundle(self.bundle,self.grant)
-        if components is not None:
+        if self._include_components:
+            if components is None:raise ValueError('fresh_supervisor/evidence_changed')
             packet['components']=list(components);packet['components_sha256']=digest(components)
         if packet!=self._packet or report['completed_at']!=self.preflight_at or self.trial_reader()!=trial:
             raise ValueError('fresh_supervisor/evidence_changed')
@@ -73,7 +78,8 @@ class FreshNativeBoundSupervisor(NativeBoundSupervisor):
 
     def _before_claim(self,reserved):
         self._check_native();self._check_evidence()
-        self.audit_receipt=self.audit_store.seal(self.bundle,self.grant,self.gate,self.evidence,self.trial_reader())
+        self.audit_receipt=self.audit_store.seal(self.bundle,self.grant,self.gate,self.evidence,self.trial_reader(),
+                                                 include_components=self._include_components)
         self._check_fresh_audit('prepared',reserved)
         self._check_evidence();self._check_native()
 

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from annotation_experiment_model import canonical
-from native_time_bundle_fresh_audit import FreshAuditStore
+from native_time_bundle_fresh_audit import FreshAuditStore,packet_size
 from secure_weread_session import StoreError
 from test_native_time_bundle_accounting import example
 from test_native_time_bundle_evidence import fresh_fixture,synthetic_scope
@@ -28,7 +28,8 @@ class FreshAuditTests(unittest.TestCase):
         now=evidence.for_bundle(bundle,grant)[0]['completed_at'];_b,_g,_before,samples,_n=example()
         _b,_g,body,_n=fixture();keeper=gate(now);reservation=keeper.reserve(bundle,grant)
         store=FreshAuditStore(Backend(),clock=lambda:now);trial=synthetic_scope(bundle)
-        store.seal(bundle,grant,keeper,evidence,trial);self.assertEqual(store.read()[0]['schema'],2)
+        store.seal(bundle,grant,keeper,evidence,trial);record,_=store.read();self.assertEqual(record['schema'],2)
+        self.assertEqual(packet_size(record['packet']),len(canonical(record)))
         reopened=FreshAuditStore(store.backend,clock=lambda:now);packet,_,_,_=reopened.inspect(bundle,grant,keeper)
         self.assertIn('components',packet)
         claim=keeper.claim(reservation,bundle,grant,body,'synthetic-guest','synthetic-config')

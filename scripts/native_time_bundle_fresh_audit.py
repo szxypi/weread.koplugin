@@ -22,6 +22,13 @@ from secure_weread_session import ACCOUNT,MacKeychain,StoreError
 from verify_native_position_lua import equivalent
 
 SERVICE='org.codex.weread.goal-native-time-fresh-audit-v1'
+MAX_RECORD_BYTES=65536
+
+
+def packet_size(packet):
+    """Compute the exact envelope size before a one-shot gate is reserved."""
+    return len(canonical({'schema':2 if 'components' in packet else 1,'scope':ACCOUNT,'phase':'baseline',
+                          'attempt':'0'*32,'binding_sha256':'0'*64,'packet':packet}))
 
 
 class FreshAuditStore:
@@ -42,7 +49,7 @@ class FreshAuditStore:
         raw=self.backend.load()
         if raw is None:return None,None
         try:
-            if not isinstance(raw,bytes) or not 0<len(raw)<=65536:raise ValueError()
+            if not isinstance(raw,bytes) or not 0<len(raw)<=MAX_RECORD_BYTES:raise ValueError()
             value=json.loads(raw)
             if (not isinstance(value,dict) or set(value)!={'schema','scope','phase','attempt','binding_sha256','packet'}
                     or type(value['schema']) is not int or value['schema'] not in (1,2) or value['scope']!=ACCOUNT
@@ -59,10 +66,12 @@ class FreshAuditStore:
         with self.lock():
             value,raw=self._read();return value,Receipt(raw) if raw is not None else None
 
-    def seal(self,bundle,grant,gate,evidence,current_trial):
+    def seal(self,bundle,grant,gate,evidence,current_trial,*,include_components=True):
+        if type(include_components) is not bool:raise ValueError('fresh_audit/components_mode')
         if not isinstance(evidence,FreshShelfEvidence):raise ValueError('fresh_audit/evidence')
         report,snapshot,months,stamp,shelves,trial=evidence.for_bundle(bundle,grant)
-        components=evidence.components_for_bundle(bundle,grant)
+        observed_components=evidence.components_for_bundle(bundle,grant)
+        components=observed_components if include_components else None
         if trial!=current_trial:raise ValueError('fresh_audit/trial_changed')
         original=baseline(bundle,grant,snapshot,months,report['completed_at']);now=self._now()
         if not 0<=now-report['completed_at']<30 or day(now)!=day(report['completed_at']):raise ValueError('fresh_audit/stale')
@@ -75,11 +84,11 @@ class FreshAuditStore:
         value={'schema':2 if components is not None else 1,'scope':ACCOUNT,'phase':'baseline','attempt':state['attempt'],
                'binding_sha256':digest(state['binding']),'packet':packet}
         raw=canonical(value)
-        if len(raw)>65536:raise StoreError('fresh_audit/size')
+        if len(raw)>MAX_RECORD_BYTES:raise StoreError('fresh_audit/size')
         with self.lock():
             if self._read()!=(None,None):raise StoreError('fresh_audit/consumed')
             if (gate.read()!=(state,receipt) or evidence.for_bundle(bundle,grant)!=(report,snapshot,months,stamp,shelves,trial)
-                    or evidence.components_for_bundle(bundle,grant)!=components):
+                    or evidence.components_for_bundle(bundle,grant)!=observed_components):
                 raise ValueError('fresh_audit/changed')
             self.backend.save(raw)
             if self.backend.load()!=raw:raise StoreError('fresh_audit/readback')
