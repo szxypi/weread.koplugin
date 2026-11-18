@@ -5,6 +5,7 @@ local result={result='UNVERIFIED',checked=0}
 local ok=pcall(function()
     local raw=io.stdin:read(8*1024*1024+1);assert(#raw<=8*1024*1024)
     local input=require('json').decode(raw)
+    assert(input.ignore_case==nil or input.ignore_case==true)
     local Search=require('weread.lib.cached_book_search')
     local Target=require('weread.lib.cached_search_target')
     local Source=require('weread.lib.position_source')
@@ -24,7 +25,8 @@ local ok=pcall(function()
         end
         return out
     end
-    local found=Search.scan({book=input.book,chapter=input.chapter,paths={'/memory.epub'},keyword=input.keyword,from=1},archive)
+    local found=Search.scan({book=input.book,chapter=input.chapter,paths={'/memory.epub'},keyword=input.keyword,from=1,
+        ignore_ascii_case=input.ignore_case==true},archive)
     assert(found.complete and #found.hits==1 and found.hits[1].offset==input.offset)
     local row=assert(Target.row(input.book,input.keyword,found.hits[1]))
     local bound=Target.bind_file('/memory.epub',input.book,row,1,archive)

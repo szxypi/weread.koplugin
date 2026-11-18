@@ -9,6 +9,7 @@ local ok=pcall(function()
     assert(type(input.book)=='string' and type(input.chapter)=='string' and type(input.local_chapter)=='string'
         and input.chapter~=input.local_chapter and type(input.source)=='string' and type(input.keyword)=='string'
         and type(input.offset)=='number')
+    assert(input.ignore_case==nil or input.ignore_case==true)
     if input.entries~=nil then assert(type(input.entries)=='table' and #input.entries>=2 and #input.entries<=128) end
     G_defaults=require('luadefaults'):open()
     G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
@@ -116,7 +117,8 @@ local ok=pcall(function()
     assert(button and button.enabled~=false);button.callback()
     wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
     local owner=plugin._cached_book_search_owner;assert(owner.catalog_missing)
-    owner.input:setInputText(input.keyword);owner.input.buttons[1][2].callback()
+    owner.input:setInputText(input.keyword)
+    if input.ignore_case then owner.input.buttons[2][1].callback() else owner.input.buttons[1][2].callback() end
     wait(function() return owner.finished and not owner.job end)
     if full then assert(owner.discovered and not owner.discovery_incomplete and owner.checked==#chapters and owner.missing==0) end
     assert(#owner.value==1 and owner.value[1].chapter_uid==input.chapter and owner.value[1].offset==input.offset)
