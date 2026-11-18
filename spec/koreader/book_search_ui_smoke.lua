@@ -7,6 +7,7 @@ local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
+local no_login_fallback=os.getenv('WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK')=='1'
 local local_download=os.getenv('WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD')=='1'
 local local_interrupt=os.getenv('WEREAD_TEST_SEARCH_LOCAL_INTERRUPT')=='1'
 local local_restart=os.getenv('WEREAD_TEST_SEARCH_LOCAL_RESTART')=='1'
@@ -28,8 +29,10 @@ local Source=require('weread.lib.position_source')
 local Identity=require('weread.lib.book_file_identity')
 local settings=require('weread.lib.settings'):new()
 assert(settings.mock_endpoint and settings.data_dir:match('/weread%-mock$'))
-settings:update_auth({account={user_vid='900000',name='Synthetic'},
-    cookies={wr_vid='900000',wr_skey='synthetic-search-session'}},{replace_cookies=true})
+if not no_login_fallback then
+    settings:update_auth({account={user_vid='900000',name='Synthetic'},
+        cookies={wr_vid='900000',wr_skey='synthetic-search-session'}},{replace_cookies=true})
+end
 local chapters={{chapterUid='1',chapterIdx=1,title='合成第一章',wordCount=1000},
     {chapterUid='2',chapterIdx=2,title='合成第二章',wordCount=1000}}
 local book={book_id=book_id,bookId=book_id,bookVersion=7,title='合成书内搜索',chapters=chapters,cached_chapters={}}
@@ -80,6 +83,27 @@ local function wait(predicate)
 end
 local plugin=assert(reader.weread)
 plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
+if no_login_fallback then
+    plugin.settings:reset_account()
+    assert(not plugin.settings:get_auth_scope() and not plugin.library_db:accountKey())
+    local before=tonumber(network[0])
+    assert(plugin:showEndOfBookDialog(book_id))
+    local dialog=assert(UI:getTopmostVisibleWidget());local selected
+    for _i,row in ipairs(dialog.buttons) do for _j,item in ipairs(row) do
+        if item.text==require('weread.lib.i18n').tr('Search entire book') then selected=item end
+    end end
+    assert(selected);selected.callback()
+    wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+    local cached=assert(plugin._cached_book_search_owner)
+    assert(not plugin._book_search_owner)
+    cached.input:setInputText('amberneedle');cached.input.buttons[1][2].callback()
+    wait(function() return cached.finished and not cached.job end)
+    assert(#cached.value==2 and tonumber(network[0])==before,'signed-out fallback missed cached results or used network')
+    plugin:cancelBookSearch()
+    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',signed_out_entry=true,
+        offline_results=2,network_requests=0}))
+    os.exit(0)
+end
 if offline_fallback then
     local _=require('weread.lib.i18n').tr
     local network_before=tonumber(network[0])

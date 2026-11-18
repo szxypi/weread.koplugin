@@ -86,9 +86,9 @@ package.preload['weread.ui.cached_book_search']=function() return {open=function
 end} end
 local checks=0
 local function expect(value,label) checks=checks+1;if not value then error(label) end end
-local account='123';local online=true;local scope_valid=true
+local account='123';local online=true;local scope_valid=true;local has_scope=true
 local host={ui={document={file='/synthetic.epub'}},_reader_session_gen=1,
-    settings={get_auth_scope=function() return {vid='123',epoch=1} end,
+    settings={get_auth_scope=function() return has_scope and {vid='123',epoch=1} or nil end,
         auth_scope_matches=function() return scope_valid end,get_book=function() return {book_id='CB_Synthetic'} end},
     library_db={accountKey=function() return account end,putChapters=function(_self,_id,_chapters)
         saved_catalogs=saved_catalogs+1;return allow_db_save
@@ -120,8 +120,20 @@ expect(not Search.open(host,'100',chapters) and host.info=='offline','unavailabl
 cached_available=true;cached_calls=0
 online=true
 scope_valid=false;expect(not Search.open(host,'100',chapters)
-    and host.info=='A verified WeRead web login is required for online book search.','missing login had no explanation')
+    and cached_calls==0 and host.info=='A verified WeRead web login is required for online book search.',
+    'invalid account scope was not blocked')
 scope_valid=true
+account=nil;has_scope=false
+expect(Search.open(host,'100',chapters) and cached_calls==1 and cached_request.id=='100',
+    'signed-out search did not open downloaded chapters')
+cached_available=false
+expect(not Search.open(host,'100',chapters)
+    and host.info=='A verified WeRead web login is required for online book search.',
+    'missing login and cache had no explanation')
+cached_available=true;cached_calls=0;account='123';has_scope=true
+local web_access=access.web;access.web=nil
+expect(Search.open(host,'100',chapters) and cached_calls==1,'missing Web credentials did not open downloaded chapters')
+cached_calls=0;access.web=web_access
 local owner=open_and_submit()
 expect(owner.state.pages==0 and owner.job~=nil,'first page did not start asynchronously')
 active_worker:complete()

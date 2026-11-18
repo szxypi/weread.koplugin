@@ -188,6 +188,23 @@ local function wait(predicate)
     end
 end
 local plugin=assert(reader.weread)
+if signed_out then
+    plugin.settings:reset_account()
+    assert(not plugin.settings:get_auth_scope() and not plugin.library_db:accountKey(), 'mock session was not signed out')
+    -- The isolated mock environment injects a synthetic login for every new
+    -- settings instance. Keep the explicit logout across reader reopening so
+    -- this test exercises the same stable auth epoch as a real signed-out user.
+    local Settings=require('weread.lib.settings')
+    local original_new=Settings.new
+    function Settings:new(...)
+        local instance=original_new(self,...)
+        instance.store:saveSetting('api_key','')
+        instance.store:saveSetting('cookies',{})
+        instance.store:saveSetting('account',{})
+        instance.store:flush()
+        return instance
+    end
+end
 plugin.isNetworkOnline=function() return restore_catalog end;plugin.isNetworkConnected=plugin.isNetworkOnline
 assert(plugin:showEndOfBookDialog(book_id))
 local quick=assert(UI:getTopmostVisibleWidget());local button
@@ -261,6 +278,9 @@ wait(function()
         and plugin.source_navigation and plugin.source_navigation.state=='ready'
         and held and held.chapter_uid==target_uid and held.chapter_offset==expected
 end)
+if signed_out then
+    assert(not plugin.settings:get_auth_scope() and not plugin.library_db:accountKey(), 'reopened reader was not signed out')
+end
 assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
 assert(not plugin.progress_sync.verified and not plugin.read_report.job)
 if no_catalog then

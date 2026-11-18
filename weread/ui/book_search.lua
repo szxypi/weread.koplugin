@@ -11,6 +11,13 @@ local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
 
+local function open_downloaded(host,book,chapters,keyword)
+    local ok,opened=pcall(function()
+        return require('weread.ui.cached_book_search').open(host,book,chapters,keyword)
+    end)
+    return ok and opened==true
+end
+
 local function copy(value)
     if type(value)~='table' then return value end
     local out={}
@@ -90,7 +97,7 @@ render=function(host,owner)
             cached_added=true
             items[#items+1]={text=_('Search downloaded chapters'),callback=function()
                 if not current(host,owner) or owner.job or owner.recovery or owner.navigation then return end
-                local opened=require('weread.ui.cached_book_search').open(host,owner.id,owner.chapters,owner.keyword)
+                local opened=open_downloaded(host,owner.id,owner.chapters,owner.keyword)
                 if not opened and current(host,owner) then host:showInfo(_('Could not search downloaded chapters.')) end
             end}
         end
@@ -266,15 +273,21 @@ function M.open(host,book_id,chapters,current_uid)
     local account=host.library_db and host.library_db:accountKey()
     if not document or not document.file then return false end
     if not host:isNetworkOnline() then
-        local ok,opened=pcall(function() return require('weread.ui.cached_book_search').open(host,book_id,chapters) end)
-        if ok and opened then return true end
+        if open_downloaded(host,book_id,chapters) then return true end
         host:showOffline(_('Search entire book'));return false
     end
-    if not account or not scope or not host.settings:auth_scope_matches(scope) then
+    if scope and not host.settings:auth_scope_matches(scope) then
+        host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
+    end
+    if not account or not scope then
+        if open_downloaded(host,book_id,chapters) then return true end
         host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
     end
     local access=Access.capture(host.settings)
-    if not access or not access.web then host:showInfo(_('A verified WeRead web login is required for online book search.'));return false end
+    if not access or not access.web then
+        if open_downloaded(host,book_id,chapters) then return true end
+        host:showInfo(_('A verified WeRead web login is required for online book search.'));return false
+    end
     if host.cancelBookSearch then host:cancelBookSearch() else M.cancel(host) end
     local owner={id=book_id,scope=scope,account=account,document=document,file=document.file,
         session=host._reader_session_gen or 0,value={},titles={},search_results=true,cb_book=book_id:sub(1,3)=='CB_',
