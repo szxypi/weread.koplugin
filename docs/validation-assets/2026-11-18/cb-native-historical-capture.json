@@ -135,5 +135,24 @@
     "unknown_not_replayed": true,
     "profile_removed": true,
     "real_dispatch_connected": false
+  },
+  "synthetic_native_broker": {
+    "result": "SYNTHETIC_CB_BROKER_UI_VERIFIED",
+    "screen_sizes": 2,
+    "scenarios_per_size": 2,
+    "native_menu": true,
+    "background_service": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "profile_removed": true,
+    "real_dispatch_connected": false,
+    "physical_kindle_tested": false
+  },
+  "synthetic_broker_faults": {
+    "result": "SYNTHETIC_CB_BROKER_VERIFIED",
+    "scenarios": 7,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "ambiguous_claims_not_replayed": true
   }
 }

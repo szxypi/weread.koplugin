@@ -189,6 +189,9 @@ jobs:
           python3 scripts/test_cb_native_time_bundle_supervisor.py
           python3 scripts/test_cb_native_time_bundle_remote_archive.py
           python3 scripts/test_cb_native_time_bundle_remote_runtime.py
+          python3 scripts/test_cb_native_time_bundle_broker.py
+          python3 scripts/test_cb_native_time_bundle_broker_runtime.py
+          python3 scripts/test_cb_native_time_bundle_synthetic_trial.py
           python3 scripts/test_native_trial_pipe_archive_frames.py
           python3 scripts/test_cb_native_time_bundle_ui_rpc.py
           python3 scripts/test_cb_native_time_bundle_preflight.py
