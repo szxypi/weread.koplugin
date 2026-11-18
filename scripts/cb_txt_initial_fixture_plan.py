@@ -20,6 +20,9 @@ def plan(book, sample, *, now=time.time):
             or sample.get('source_format') != 'web_txt'
             or sample.get('baseline') != dict(chapter='0', offset=0, percent=0)):
         raise ValueError('cb_txt_initial/scope')
+    baseline = sample['baseline']
+    if type(baseline['offset']) is not int or type(baseline['percent']) not in (int, float):
+        raise ValueError('cb_txt_initial/scope')
     raw, chapter = sample.get('source'), sample.get('chapter_uid')
     rows, context = sample.get('chapters'), sample.get('context')
     if (not isinstance(raw, str) or not isinstance(chapter, str) or not chapter.isdigit()

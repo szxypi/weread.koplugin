@@ -30,6 +30,8 @@ class TxtInitialPlanTest(unittest.TestCase):
             {'book_id': 'CB_Other'}, {'source_format': 'web_xhtml'}, {'source': 'unrelated'},
             {'source': MARKER + '\n' + MARKER}, {'chapters': []},
             {'baseline': dict(chapter='1', offset=0, percent=0)},
+            {'baseline': dict(chapter='0', offset=False, percent=0)},
+            {'baseline': dict(chapter='0', offset=0, percent=False)},
         ):
             with self.subTest(mutation=mutation), self.assertRaises(ValueError):
                 plan(book, dict(sample, **mutation))
