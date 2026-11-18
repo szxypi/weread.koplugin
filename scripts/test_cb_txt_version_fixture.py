@@ -16,7 +16,7 @@ class FakeWeb:
         self.last_checks=dict(catalog_unchanged=True,versions_unchanged=True,position_unchanged=True)
     def set_cookie(self,key,value): self.cookies[key]=value
     def verify_account(self): return True
-    def inspect(self,target): return dict(book_id=target,source_format='web_txt',source=MARKER)
+    def inspect(self,target): return dict(book_id=target,source_format='web_txt',source=MARKER,source_raw_sha256='a'*64)
     def close(self): self.closed=True
 
 
@@ -78,6 +78,13 @@ class TxtVersionFixtureTest(unittest.TestCase):
             with self.assertRaises(task.CbReadingError):
                 task.inspect_fixture({}, {}, 'CB_Synthetic', lambda _:True, {}, sleep=lambda _:self.fail('retry'))
         self.assertEqual(inspect.call_count,1)
+
+    def test_expected_source_hash_is_required_when_supplied(self):
+        web=FakeWeb();summary={}
+        result=task.inspect_once(dict(vid='900000',cookies={}),{},'CB_Synthetic',lambda _grant:True,summary,
+                                 expected_source='b'*64,web_factory=lambda:web,
+                                 native_factory=lambda:self.fail('unexpected native read'))
+        self.assertFalse(result);self.assertTrue(web.closed);self.assertEqual(summary,{})
 
 
 if __name__ == '__main__': unittest.main()

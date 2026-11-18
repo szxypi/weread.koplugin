@@ -52,13 +52,15 @@ class CatalogProbe(CbReadingProbe):
         return value
 
 
-def inspect_once(saved, grant, target, current, summary, *, web_factory=CatalogProbe, native_factory=CbNativeMetadataProbe):
+def inspect_once(saved, grant, target, current, summary, *, expected_source=None,
+                 web_factory=CatalogProbe, native_factory=CbNativeMetadataProbe):
     if current(grant) is not True: raise ValueError('txt_version/session')
     web = web_factory(); web.vid = saved['vid']; web.allowed = {target}
     try:
         for key, value in saved['cookies'].items(): web.set_cookie(key, value)
         web.verify_account(); sample = web.inspect(target); web.verify_account()
         if (sample['book_id'] != target or sample['source_format'] != 'web_txt' or MARKER not in sample['source']
+                or expected_source is not None and sample.get('source_raw_sha256') != expected_source
                 or set(web.last_checks) != {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
                 or not all(value is True for value in web.last_checks.values())): return False
         before, after = web.version_fields.get('catalog_before'), web.version_fields.get('catalog_after')
@@ -82,9 +84,9 @@ def inspect_once(saved, grant, target, current, summary, *, web_factory=CatalogP
         web.samples.clear(); web.close()
 
 
-def inspect_fixture(saved, grant, target, current, summary, *, sleep=time.sleep):
+def inspect_fixture(saved, grant, target, current, summary, *, expected_source=None, sleep=time.sleep):
     for attempt in range(5):
-        try: return inspect_once(saved, grant, target, current, summary)
+        try: return inspect_once(saved, grant, target, current, summary, expected_source=expected_source)
         except (CbReadingError, CbMetadataError) as error:
             if str(error) not in ('cb_catalog_empty', 'cb_catalog_invalid') or attempt == 4: raise
         sleep(2 * (attempt + 1))
