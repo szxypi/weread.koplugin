@@ -26,7 +26,8 @@ class Opener:
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-short',action='store_true');parser.add_argument('--txt-single',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-short',action='store_true');parser.add_argument('--txt-single',action='store_true');parser.add_argument('--txt-empty-second',action='store_true');args=parser.parse_args()
+    if args.txt_empty_second:args.txt_single=True
     if args.txt_single:args.txt=True;args.single_page=True
     if args.txt_short:args.txt=True
     if args.single_page and args.txt and not args.txt_single:parser.error('choose one source format')
@@ -36,6 +37,17 @@ def main():
             import mock_weread
             from verify_cb_txt_native_fixture import BODY,SHORT_BODY,SINGLE_BODY
             server.content_format='txt';mock_weread.chapter_txt=lambda _uid:(SINGLE_BODY if args.txt_single else SHORT_BODY if args.txt_short else BODY).decode('utf-8')
+            if args.txt_empty_second:
+                from urllib.parse import urlsplit
+                original=server.route
+                def route(method,url,data):
+                    path=urlsplit(url).path
+                    if method=='POST' and path in ('/web/book/chapter/t_0','/web/book/chapter/t_1'):
+                        status,result=original(method,url,data)
+                        if status!=200:return status,result
+                        return (200,mock_weread.shards(SINGLE_BODY.decode('utf-8'),1)[0]) if path.endswith('t_0') else (200,'{}')
+                    return original(method,url,data)
+                server.route=route
         if args.single_page and not args.txt_single:
             from synthetic_upload_pdf import TEXT
             server.chapter_source=lambda _uid,_revision=None: '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Fixture</title></head><body><p>'+TEXT+'</p></body></html>'

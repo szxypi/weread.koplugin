@@ -1691,6 +1691,9 @@ function Content.fetch_chapter_shard(client, _settings, book, chapter, endpoint)
         error(endpoint .. " failed: HTTP " .. tostring(code or "unknown"))
     end
     if text == "{}" then
+        -- TXT's second shard may be explicitly empty. A failed request is
+        -- different: it must not be silently treated as an empty shard.
+        if endpoint == "/web/book/chapter/t_1" then return "" end
         error(endpoint .. " returned empty object")
     end
     return text
@@ -1712,8 +1715,12 @@ end
 
 function Content.fetch_txt_as_xhtml(client, settings, book, chapter)
     local t0 = Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/t_0")
-    local ok_t1, t1 = pcall(Content.fetch_chapter_shard, client, settings, book, chapter, "/web/book/chapter/t_1")
-    if not ok_t1 then t1 = "" end
+    if type(t0) ~= "string" or #t0 <= 32 then error("Invalid TXT first shard") end
+    local t1 = Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/t_1")
+    if type(t1) ~= "string" or #t1 > 0 and (#t1 < 32
+        or #t1 == 32 and t1 ~= Crypto.md5_hex(""):upper()) then
+        error("Invalid TXT second shard")
+    end
     local plain = Content.decode_content_shards(t0, t1, "")
     Content.cache_annotation_source(settings, book, chapter, plain, true)
     local source = PositionSource.capture(book, chapter, plain, "web_txt")
