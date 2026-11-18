@@ -21,7 +21,7 @@ local worked,reason=pcall(function()
     G_defaults=require('luadefaults'):open()
     G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     local Contract=require('weread.lib.readtime_transfer_contract')
-    assert(Contract.cb_id(input.book_id) and input.owner==input.grant.vid and input.cookies.wr_vid==input.owner)
+    assert(Contract.cb_id(input.book_id) and input.owner==input.grant.vid and input.cookies.wr_vid == input.owner)
     assert(type(input.months)=='table' and type(input.armed)=='boolean')
     local scope={vid=input.owner,epoch=1}
     local settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_self,value)
