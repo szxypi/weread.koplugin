@@ -14,6 +14,18 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_public_book_metadata_fixture_is_single_target_and_read_only(self):
+        url='https://weread.qq.com/web/book/publicinfos'
+        status,value=self.server.route('POST',url,{'bookIds':[BOOK_ID]})
+        self.assertEqual(status,200)
+        self.assertEqual(len(value['data']),1)
+        self.assertEqual(value['data'][0]['bookId'],BOOK_ID)
+        self.assertEqual(self.server.route('POST',url,{'bookIds':['999999']})[1]['data'],[])
+        for body in ({},{'bookIds':[]},{'bookIds':[BOOK_ID,BOOK_ID]},{'bookIds':['CB_bad']},
+                     {'bookIds':[BOOK_ID],'extra':True}):
+            with self.subTest(body=body),self.assertRaises(ValueError):
+                self.server.route('POST',url,body)
+
     def test_public_book_search_requires_bounded_cursor_and_paginates(self):
         base='https://weread.qq.com/web/search/global?count=20&keyword=%E5%90%88%E6%88%90%E8%AF%BB%E7%89%A9&maxIdx='
         first=self.server.route('GET',base+'0',{})[1]

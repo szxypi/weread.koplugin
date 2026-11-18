@@ -53,6 +53,18 @@ function M.normalize_native(source, book_id)
     return M.normalize(copy, book_id)
 end
 
+function M.fetch_public(client,book_id)
+    book_id=Access.book_id(book_id)
+    if not book_id then fail('invalid_book') end
+    local data=client:get_public_book_metadata(book_id)
+    if type(data)~='table' or (data.errcode~=nil and tonumber(data.errcode)~=0)
+        or (data.errCode~=nil and tonumber(data.errCode)~=0)
+        or (data.succ~=nil and data.succ~=true and tonumber(data.succ)~=1)
+        or type(data.data)~='table' or #data.data~=1 then fail('invalid') end
+    for key in pairs(data.data) do if key~=1 then fail('invalid') end end
+    return {metadata=M.normalize_native(data.data[1],book_id),source='public'}
+end
+
 function M.capture(settings, store)
     if not settings then return end
     local native = NativeAccess.capture(settings, store)

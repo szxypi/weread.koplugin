@@ -395,6 +395,29 @@ expect(not ok and io.open(download_path .. ".part", "rb") == nil,
 
 local public_client = Client:new(settings)
 public_client.json_decode = function(_self, text) return { payload = text } end
+local encoded_public
+public_client.json_encode=function(_self,value) encoded_public=value;return '{"bookIds":["900001"]}' end
+responses[#responses+1]={body='public-metadata',code=200,headers={['set-cookie']='ignored=value'}}
+local public_cookie_count=#merged_cookies
+expect(public_client:get_public_book_metadata('900001').payload=='public-metadata','public metadata response not decoded')
+local public_metadata_request=requests[#requests]
+expect(public_metadata_request.url=='https://weread.qq.com/web/book/publicinfos' and public_metadata_request.method=='POST'
+    and encoded_public.bookIds[1]=='900001' and #encoded_public.bookIds==1
+    and not public_metadata_request.headers.Cookie and not public_metadata_request.headers.Authorization
+    and #merged_cookies==public_cookie_count,'public metadata request leaked credentials or changed target')
+local public_before=#requests
+for _,id in ipairs({'0','CB_bad','1&bad',false,string.rep('9',21)}) do
+    expect(not pcall(public_client.get_public_book_metadata,public_client,id),'invalid public metadata identity accepted')
+end
+expect(#requests==public_before,'invalid public metadata sent HTTP')
+responses[#responses+1]={code=200,chunks={string.rep('x',1024*1024),'overflow','unread'}}
+local limited=responses[#responses]
+expect(not pcall(public_client.get_public_book_metadata,public_client,'900001') and limited.sink_calls==2,
+    'public metadata response limit did not stop the sink')
+logs={};responses[#responses+1]={body='private-public-metadata-body',code=429}
+local meta_ok,meta_error=pcall(public_client.get_public_book_metadata,public_client,'900001')
+expect(not meta_ok and meta_error=='book_metadata/unavailable' and not table.concat(logs,'\n'):find('private-',1,true),
+    'public metadata failure exposed response contents')
 responses[#responses + 1] = { body = "categories", code = 200 }
 expect(public_client:get_store_categories().payload == "categories", "categories JSON not decoded")
 local public_request = requests[#requests]

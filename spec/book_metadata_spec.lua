@@ -57,16 +57,18 @@ local function fixture()
     local books={['900001']={book_id="900001",title="Old title",progress=83,chapter_uid=99,bookVersion=7,
         pending_upload_position={percent=83},cached_file="existing.epub"}}
     local job,shown,saves,flushed,errors,qr,cancels=nil,nil,0,0,0,0,0
-    local owner,online="account-a",true
+    local owner,online,guest_epoch="account-a",true,0
     local original_get=settings.get
     local local_settings={get=function(_self,name,default)
         if name=="books" then return books end
+        if name=='auth_epoch' then return guest_epoch end
         return original_get(settings,name,default)
-    end,get_auth_scope=settings.get_auth_scope,auth_scope_matches=settings.auth_scope_matches,
+    end,get_auth_scope=function() if owner then return settings:get_auth_scope() end end,auth_scope_matches=settings.auth_scope_matches,
         set=function(_self,name,value) expect(name=="books","metadata changed another setting") books=value end,
         flush=function() flushed=flushed+1 end}
     local host={settings=local_settings,discovery_epoch=1,
-        client={settings=local_settings,get_display_book_metadata=function(_self,id) local copy={} for k,v in pairs(source) do copy[k]=v end copy.bookId=id return copy end},
+        client={settings=local_settings,get_display_book_metadata=function(_self,id) local copy={} for k,v in pairs(source) do copy[k]=v end copy.bookId=id return copy end,
+            get_public_book_metadata=function(_self,id) local copy={} for k,v in pairs(source) do copy[k]=v end copy.bookId=id return {data={copy}} end},
         library_db={accountKey=function() return owner end,putBook=function() saves=saves+1 return true end},
         isNetworkOnline=function() return online end,
         showBusy=function(self,_label,cancel) self.busy_message={};self.cancel_busy=cancel end,
@@ -80,6 +82,7 @@ local function fixture()
         function(value)
             if value.signed_out then owner=nil elseif value.owner~=nil then owner=value.owner end
             if value.online~=nil then online=value.online end
+            if value.auth_epoch~=nil then guest_epoch=value.auth_epoch end
         end
 end
 local host,state=fixture()
@@ -130,14 +133,47 @@ UI.refresh(host,{book_id="900001"},nil,{automatic=true})
 local _,_,_,_,_,_,qr_count=state()
 expect(qr_count==1,"unverified account did not request login")
 host,state,alter=fixture();alter{signed_out=true};valid=false
-expect(not UI.refresh(host,{book_id="900001",title="Public title"},nil,{automatic=true}),
-    "guest metadata unexpectedly started")
-local _,_,guest_book,_,_,_,guest_qr=state()
-expect(guest_book and guest_book.title=="Public title" and guest_qr==0,
-    "automatic public detail did not preserve book or asked guest to sign in")
-UI.refresh(host,guest_book,nil,{})
+expect(UI.refresh(host,{book_id="900001",title="Public title"},nil,{automatic=true}),
+    "guest public metadata did not start")
+job=state();job.cb(job.task())
+local _,guest_books,guest_book,guest_saves,_,_,guest_qr=state()
+expect(guest_book and guest_book.title==source.title and guest_book.detail_source=='public'
+    and guest_book.progress==83 and not guest_book.token and guest_saves==0 and guest_qr==0,
+    "guest public detail failed, changed reading state, saved to account DB or prompted login")
+expect(guest_books['900001'].detail_source=='public','public metadata was not saved for guest offline use')
+expect(UI.refresh(host,guest_book,nil,{}),'explicit guest refresh did not start')
+job=state();job.cb(job.task())
 local _,_,_,_,_,_,manual_qr=state()
-expect(manual_qr==1,"explicit guest metadata refresh did not ask for login")
+expect(manual_qr==0,'public metadata refresh unexpectedly requested login')
+host,state,alter=fixture();alter{signed_out=true};valid=false
+UI.refresh(host,{book_id='900001'},nil,{automatic=true});job=state();local guest_result=job.task()
+alter{owner='account-b'};job.cb(guest_result)
+local _,_,stale_book,stale_saves=state()
+expect(not stale_book and stale_saves==0 and not host.book_metadata_context,
+    'guest metadata crossed an account change')
+host,state,alter=fixture();alter{signed_out=true};valid=false
+UI.refresh(host,{book_id='900001'},nil,{automatic=true});job=state();guest_result=job.task()
+alter{auth_epoch=1};job.cb(guest_result)
+local _,_,stale_epoch_book=state()
+expect(not stale_epoch_book and not host.book_metadata_context,'guest metadata crossed a login epoch')
+host,state,alter=fixture();alter{signed_out=true};valid=false
+UI.refresh(host,{book_id='900001',title='Cached'},nil,{automatic=true});job=state();job.cb({metadata={bookId='wrong',title='Other'},source='public'})
+local _,_,fallback_public,_,_,_,fallback_qr=state()
+expect(fallback_public.title=='Cached' and fallback_qr==0 and not host.book_metadata_context,
+    'failed public metadata lost cached details or prompted login')
+host,state,alter=fixture();alter{signed_out=true};valid=false
+UI.refresh(host,{book_id='900001',title='Cached'},nil,{automatic=true});job=state()
+job.cb({metadata=source,source='native'})
+local _,_,foreign_source,foreign_saves=state()
+expect(foreign_source.title=='Cached' and foreign_saves==0,
+    'guest accepted metadata from a non-public source')
+host,state,alter=fixture();alter{signed_out=true};valid=false
+host.settings.flush=function() error('synthetic save failure') end
+UI.refresh(host,{book_id='900001',title='Cached'},nil,{automatic=true});job=state();job.cb(job.task())
+local _,_,failed_public,_,_,guest_errors=state()
+expect(failed_public and failed_public.title=='Cached' and guest_errors==1
+    and not host.busy_message and not host.book_metadata_context,
+    'guest storage failure lost the cached view or retained the worker')
 host,state=fixture()
 host.library_db.putBook=function() return false end
 UI.refresh(host,{book_id="900001"},nil,{automatic=true})

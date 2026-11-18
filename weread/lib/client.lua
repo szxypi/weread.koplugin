@@ -746,6 +746,26 @@ function Client:get_book_info(book_id)
     return self:gateway("/book/info", { bookId = book_id })
 end
 
+-- The public catalogue endpoint is a read-only POST and never uses a login.
+function Client:get_public_book_metadata(book_id)
+    assert(require('weread.lib.read_access').book_id(book_id), 'book_metadata/invalid_book')
+    local chunks,bytes,exceeded={},0,false
+    local _,code,headers=self:request{
+        url='https://weread.qq.com/web/book/publicinfos',method='POST',
+        body=self:json_encode({bookIds={tostring(book_id)}}),
+        skip_cookie=true,persist_response_cookies=false,sensitive=true,diagnostic_api='public_book_metadata',
+        timeout={8,15},headers={['Content-Type']='application/json',Accept='application/json',
+            Referer='https://weread.qq.com/'},sink=function(chunk)
+            if not chunk then return 1 end
+            bytes=bytes+#chunk
+            if bytes>1024*1024 then exceeded=true;return nil,'public_metadata_limit' end
+            chunks[#chunks+1]=chunk;return 1
+        end,
+    }
+    if exceeded or code~=200 then error('book_metadata/unavailable',0) end
+    return self:decode_http_json(table.concat(chunks),{sensitive=true,api_name='public_book_metadata',code=code,headers=headers})
+end
+
 function Client:get_gateway_discovery(kind, options, api_key)
     options = options or {}
     local endpoint = ({search="/store/search",recommend="/book/recommend",similar="/book/similar"})[kind]

@@ -31,28 +31,28 @@ function M.refresh(host, book, old_view, options)
         if options.automatic then host:showBookMenu(book) else host:showOffline(_("Book info")) end
         return false
     end
-    if not access then
+    local guest=not access and not (host.library_db and host.library_db:accountKey()) and Access.book_id(id)~=nil
+    if not access and not guest then
         if options.automatic then
             host:showBookMenu(book)
-            -- Public search and categories can be browsed before signing in.
-            -- Keep the supplied book fields visible without interrupting that
-            -- browsing; an explicit refresh still asks for authentication.
             if not (host.library_db and host.library_db:accountKey()) then return false end
         end
         host:showTransientInfo(_("Please scan the QR code to log in first."), 2)
         UIManager:scheduleIn(0.2, function() host.qr_login:start() end)
         return false
     end
-    local context = { epoch = host.discovery_epoch or 0,
+    local context = { epoch = host.discovery_epoch or 0,auth_epoch=guest and host.settings:get('auth_epoch',0),
         account = host.library_db and host.library_db:accountKey(), view = old_view }
     host.book_metadata_context = context
     local function current_view()
         return host.book_metadata_context == context and (host.discovery_epoch or 0) == context.epoch
             and (not host.library_db or host.library_db:accountKey() == context.account)
             and (not old_view or host._book_detail_view == old_view)
+            and (not guest or host.settings:get('auth_epoch',0)==context.auth_epoch
+                and (not host.settings.get_auth_scope or not host.settings:get_auth_scope()))
     end
     local function current()
-        return current_view() and (context.renewing and Recovery.current(host.settings, access, Metadata.capture)
+        return current_view() and (guest or context.renewing and Recovery.current(host.settings, access, Metadata.capture)
             or Metadata.matches(host.settings, access))
     end
     local function finish()
@@ -77,7 +77,7 @@ function M.refresh(host, book, old_view, options)
             if host.book_metadata_context == context then M.cancel(host) end
             return
         end
-        if type(result) == "table" and result.native_expired then
+        if not guest and type(result) == "table" and result.native_expired then
             local recovering = Recovery.start(host, context, access, { capture = Metadata.capture,
                 is_current = current_view, stale = function()
                     if host.book_metadata_context == context then M.cancel(host) end
@@ -91,7 +91,9 @@ function M.refresh(host, book, old_view, options)
         end
         finish()
         local valid, metadata = pcall(Metadata.normalize, type(result) == "table" and result.metadata, id)
-        if not valid or (result.source ~= "gateway" and result.source ~= "web" and result.source ~= "native") then failed(); return end
+        local source_ok=type(result)=='table' and (guest and result.source=='public'
+            or not guest and (result.source=='gateway' or result.source=='web' or result.source=='native'))
+        if not valid or not source_ok then failed(); return end
         -- Re-read after the network task: reading and downloads may have
         -- changed local state while the metadata request was outstanding.
         local committed, latest = pcall(function()
@@ -100,13 +102,14 @@ function M.refresh(host, book, old_view, options)
             for key, value in pairs(metadata) do saved[key] = value end
             saved.book_id, saved._library_account_key = id, context.account
             saved.detail_updated_at, saved.detail_source = os.time(), result.source
-            if host.library_db and not host.library_db:putBook(saved) then error("metadata_save_failed", 0) end
+            if not guest and host.library_db and not host.library_db:putBook(saved) then error("metadata_save_failed", 0) end
             books[id] = saved
             host.settings:set("books", books)
             host.settings:flush()
             return saved
         end)
         if not committed then
+            if guest and options.automatic then host:showBookMenu(book) end
             host:showInfo(_("Could not save book information. Check storage and try again."))
             return
         end
@@ -116,9 +119,11 @@ function M.refresh(host, book, old_view, options)
     end
     launch = function(skip_native)
         local ok, started = pcall(host.book_metadata_worker.start, host.book_metadata_worker, function()
-            local valid, result = pcall(Metadata.fetch, host.client, id, access, {
-                recover_auth = host.native_renewal ~= nil and not context.recovery_attempted, skip_native = skip_native,
-            })
+            local valid,result
+            if guest then valid,result=pcall(Metadata.fetch_public,host.client,id)
+            else valid,result=pcall(Metadata.fetch,host.client,id,access,{
+                recover_auth=host.native_renewal~=nil and not context.recovery_attempted,skip_native=skip_native,
+            }) end
             return valid and result or { native_expired = result == "book_metadata/native_expired" }
         end, complete)
         if not ok or not started then

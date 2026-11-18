@@ -683,6 +683,14 @@ class MockServer(ThreadingHTTPServer):
             return 200, dict(books=[dict(bookInfo=dict(b,publisher="合成出版社",newRating=860,newRatingCount=12),
                 searchIdx=start+i+1) for i,b in enumerate(batch)],
                 hasMore=start+len(batch)<len(candidates))
+        if path == '/web/book/publicinfos' and method == 'POST':
+            ids=data.get('bookIds')
+            if (query or set(data)!={'bookIds'} or not isinstance(ids,list) or len(ids)!=1
+                    or not isinstance(ids[0],str) or not ids[0].isascii() or not ids[0].isdigit()):
+                raise ValueError('invalid public book metadata query')
+            matches=[book for book in BOOKS if book['bookId']==ids[0]]
+            return 200,dict(data=[dict(book_metadata(book),totalWords=12000,secret=1,progress=99,version=700)
+                                  for book in matches])
         if path == "/web/categories" and method == "GET":
             return 200, CATEGORIES
         if path.startswith("/web/bookListInCategory/") and method == "GET":
