@@ -111,5 +111,18 @@ queue=({fixture({{start_time=150000,duration=60},{start_time=50000,duration=60},
 result=assert(queue:select(account,nil,{historical=true}));eq(result.selection.seconds,60);eq(result.selection.parts[1].start_time,50000)
 ledger,_,queue=fixture({{start_time=150000,duration=60}})
 eq(assert(queue:select(account,nil,{historical=true})).selection,false);eq(ledger:summary(account).pending,60)
+-- Imported time remains invisible to the normal queue until its explicit gate
+-- is enabled. Its journal must bind the same CB book and protocol.
+ledger,coverage,queue=fixture({{book_id='CB_Synthetic',start_time=100000,duration=2}})
+eq(assert(queue:select(account,nil,{historical=true})).selection,false)
+eq(queue:select(account,'CB_Synthetic'),nil)
+result=assert(queue:select(account,'CB_Synthetic',{historical=true,allow_cb=true}))
+eq(result.selection.book_id,'CB_Synthetic');eq(result.selection.seconds,2)
+journal=Journal:new{ledger=ledger,coverage=coverage,codec=codec}
+eq(journal:begin(account,result.selection,{request_hash=string.rep('d',64)}),nil)
+eq(journal:begin(account,result.selection,{protocol='native-historical-time-cst-cb-v1',book_id='CB_Other',request_hash=string.rep('d',64)}),nil)
+record=assert(journal:begin(account,result.selection,{protocol='native-historical-time-cst-cb-v1',book_id='CB_Synthetic',request_hash=string.rep('d',64)}))
+eq(ledger:summary(account).in_flight,2);assert(journal:cancel_prepared(record));eq(ledger:summary(account).pending,2)
+eq(queue:select(account,'CB_invalid/',{allow_cb=true}),nil)
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
 print('readtime_transfer_queue_spec: '..checks..' checks')

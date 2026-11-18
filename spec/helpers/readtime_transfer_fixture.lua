@@ -11,8 +11,8 @@ local Dates=require('weread.lib.read_stats');local A=require('weread.lib.readtim
 local F=require('spec.helpers.thought_edit_fixture');local Json=require('json')
 
 local M={}
-function M.new(mode,expect,roots)
-    local f={posts=0,reads=0,clock=1700007200,current=true,source_reads=0,mode=mode}
+function M.new(mode,expect,roots,cb)
+    local f={posts=0,reads=0,clock=1700007200,current=true,source_reads=0,mode=mode,book_id=cb and 'CB_Synthetic' or '42'}
     f.root=os.tmpname()..'-time-task';os.execute('mkdir -p '..string.format('%q',f.root));roots[#roots+1]=f.root
     local settings,credentials_store,state=F.access();f.settings,f.state=settings,state
     function settings:get(key,default) return key=='cookies' and {wr_vid='900000',wr_skey='synthetic-current-cookie'} or default end
@@ -21,10 +21,10 @@ function M.new(mode,expect,roots)
     f.native,f.web=Native.capture(settings,credentials_store),Web.capture(settings)
     f.account=Account(grant.vid);local start=f.clock-86400;local day=A.day(start);local month=Dates.period_start('monthly',start)
     f.ledger=Ledger:new(f.root);f.coverage=Coverage:new(f.root,function() return start-100 end);assert(f.coverage:initialize())
-    local window=assert(f.ledger:begin(f.account,{book_id='42',stats_book=1,start_time=start,time_zone='+08:00',book_version=7,
+    local window=assert(f.ledger:begin(f.account,{book_id=f.book_id,stats_book=1,start_time=start,time_zone='+08:00',book_version=7,
         file_id=string.rep('f',64),version_source='epub_snapshot'}))
     assert(f.ledger:collect(f.account,window,{{page='1',start_time=start,duration=2}},start+2,true))
-    f.selection=assert(Queue:new{ledger=f.ledger,coverage=f.coverage,now=function() return f.clock end}:select(f.account)).selection
+    f.selection=assert(Queue:new{ledger=f.ledger,coverage=f.coverage,now=function() return f.clock end}:select(f.account,nil,{allow_cb=cb})).selection
     f.client={settings=settings,json_encode=function(_s,x) return Json.encode(x) end,json_decode=function(_s,x) return Json.decode(x) end}
     f.journal=Journal:new{coverage=f.coverage,ledger=f.ledger,codec=f.client,now=function() return f.clock end,nonce=function() return string.rep('1',32) end}
     local function progress(web)
@@ -32,11 +32,19 @@ function M.new(mode,expect,roots)
         local summary='Synthetic complete summary'
         if f.mode=='absent_summary' or f.mode=='summary_presence_changed' and f.posts==0 or f.mode=='summary_disappeared' and f.posts>0 then summary=nil end
         if f.mode=='empty_summary' or f.mode=='summary_presence_changed' and f.posts>0 then summary='' end
-        return {timestamp=f.clock,book={bookId='42',chapterUid=7,chapterIdx=0,chapterOffset=co,progress=10,
-            summary=summary,readingTime=20+(f.applied and 2 or 0),recordReadingTime=0,ttsTime=(f.mode=='tts' and f.posts>0) and 1 or 0}}
+        if f.mode=='cb_summary_mismatch' and web then summary='Different summary' end
+        if f.mode=='cb_summary_changed_before' and f.configs then summary='Changed before send' end
+        local reading=20+(f.applied and 2 or 0)
+        if web and (f.mode=='cb_web_counter_mismatch' or f.mode=='cb_web_counter_changed' and f.posts>0) then reading=reading+1 end
+        if web and f.mode=='cb_web_counter_delay' and f.posts>0 and f.reads<=1 then reading=20 end
+        return {timestamp=f.clock,book={bookId=f.book_id,chapterUid=7,chapterIdx=0,chapterOffset=co,progress=10,
+            summary=summary,readingTime=reading,recordReadingTime=0,ttsTime=(f.mode=='tts' and f.posts>0) and 1 or 0}}
     end
     function f.client:get_progress_snapshot(book,access)
-        expect(book=='42' and access.cookies.wr_vid=='900000');return progress(true)
+        expect(not cb and book==f.book_id and access.cookies.wr_vid=='900000');return progress(true)
+    end
+    function f.client:get_shelf_display_progress(book,access)
+        expect(cb and book==f.book_id and access.cookies.wr_vid=='900000');return progress(true)
     end
     function f.client:request(options)
         expect(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
@@ -49,7 +57,7 @@ function M.new(mode,expect,roots)
             if f.mode=='lost' then error('synthetic lost reply') end
             if f.mode=='cancel_post' then f.current=false end
             data=f.mode=='no_ack' and {} or {succ=1}
-        elseif options.url:find('/book/info?',1,true) then data={bookId='42',bookVersion=f.mode=='metadata_version' and 8 or 7}
+        elseif options.url:find('/book/info?',1,true) then data={bookId=f.book_id,bookVersion=f.mode=='metadata_version' and 8 or 7}
         elseif options.url:find('/book/getProgress?',1,true) then
             if f.posts>0 then
                 expect(f.journal:pending(f.account).phase=='acknowledged','readback preceded durable ACK')
@@ -57,7 +65,7 @@ function M.new(mode,expect,roots)
                 if f.mode=='delay' then f.applied=f.reads>1 end
             end
             data=progress(false)
-        elseif options.url:find('/shelf/sync',1,true) then data={books={{bookId='42',secret=0,finishReading=0}},archive={}}
+        elseif options.url:find('/shelf/sync',1,true) then data={books={{bookId=f.book_id,secret=0,finishReading=0}},archive=real and Json.decode('[]') or {}}
         elseif options.url:find('/readdata/detail?',1,true) then
             data={baseTime=month,readTimes={[tostring(day)]=5},totalReadTime=5,readDays=1}
             if f.applied then
@@ -69,7 +77,7 @@ function M.new(mode,expect,roots)
         else error('unexpected native route') end
         return Json.encode(data),200
     end
-    f.options={account=f.account,is_current=function() return f.current end,now=function() return f.clock end,random=function() return 123 end,
+    f.options={account=f.account,experimental_cb=cb==true,is_current=function() return f.current end,now=function() return f.clock end,random=function() return 123 end,
         sleep=function(s) f.clock=f.clock+s end,observe_source=function(_client,_web,selection,_refs,previous)
             f.source_reads=f.source_reads+1;expect(selection.file_id==string.rep('f',64))
             if f.mode=='source_changed' and previous then error('source changed') end

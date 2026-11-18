@@ -220,6 +220,12 @@ end
 -- the exact previously verified Web position before and after source reads.
 function M.fetch(client,value,selected,format,options) return fetch(client,value,selected,format,options,false) end
 function M.fetch_cb(client,value,selected) return fetch(client,value,selected,'web_xhtml',nil,true) end
+-- The caller supplies a mandatory version check applied to both catalogs;
+-- this source-only proof is not permission to dispatch a time upload.
+function M.fetch_cb_versioned(client,value,selected,verify_catalog)
+    if type(verify_catalog)~='function' then fail('expected') end
+    return fetch(client,value,selected,'web_xhtml',{verify_catalog=verify_catalog},true)
+end
 function M.fetch_cb_upload(client,value,selected,remote)
     local expected=M.expected_cb(value)
     local guarded=expected and require('weread.lib.cb_sync_guard').expected(remote,expected.book_id)

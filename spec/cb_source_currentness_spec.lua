@@ -61,6 +61,20 @@ local function fixture()
 end
 local client,state=fixture();local result=Check.fetch_cb(client,expected)
 expect(Check.packet_cb(result,expected) and #state.requests==8,'CB proof did not use the bounded eight reads')
+client,state=fixture();local versions=0
+result=Check.fetch_cb_versioned(client,expected,nil,function(value)
+    versions=versions+1;assert(value[1].book.bookVersion==3)
+end)
+expect(Check.packet_cb(result,expected) and versions==2 and #state.requests==8,'both catalogs were not version checked')
+for _i,stop in ipairs({1,2}) do
+    client,state=fixture();versions=0
+    expect(not pcall(Check.fetch_cb_versioned,client,expected,nil,function()
+        versions=versions+1;if versions==stop then error('synthetic version mismatch') end
+    end) and #state.requests==(stop==1 and 2 or 7),'version mismatch did not stop proof')
+end
+client,state=fixture()
+expect(not pcall(Check.fetch_cb_versioned,client,expected,nil,nil) and #state.requests==0,'missing version check accepted')
+client,state=fixture();Check.fetch_cb(client,expected)
 for index,options in ipairs(state.requests) do
     expect(options.sensitive and options.skip_cookie and options.persist_response_cookies==false
         and options.headers.Cookie:find('synthetic-current-cookie',1,true),'CB read lost frozen access')

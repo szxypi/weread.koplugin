@@ -86,6 +86,35 @@ for _i,mode in ipairs({'summary_presence_changed','summary_disappeared'}) do
     expect(result.kind=='unconfirmed' and f.posts==1 and f.journal:pending(f.account).phase=='acknowledged',mode)
     expect(f.ledger:summary(f.account).confirmed==0)
 end
+-- Imported-book historical transfer is reachable only through the explicit
+-- experimental gate. Neither the plaintext summary nor source enters metadata.
+f=require('spec.helpers.readtime_transfer_fixture').new(nil,expect,roots,true)
+f.options.experimental_cb=false;result=f.run()
+expect(not result.attempted and f.posts==0 and f.ledger:summary(f.account).pending==2,'CB gate')
+f.options.experimental_cb=true;result=f.run()
+expect(result.kind=='confirmed' and result.attempted and f.posts==1 and f.ledger:summary(f.account).confirmed==2,'CB send')
+expect(f.body.books[1].bookId=='CB_Synthetic' and f.body.books[1].summary=='Synthetic complete summary')
+record=assert(f.journal:get(f.account,result.attempt))
+expect(record.metadata.protocol=='native-historical-time-cst-cb-v1'
+    and not Json.encode(record.metadata):find('Synthetic complete summary',1,true),'CB metadata leaked summary')
+result=f.run();expect(not result.attempted and f.posts==1,'CB settled replay')
+for _i,mode in ipairs({'absent_summary','empty_summary','cb_summary_mismatch','cb_summary_changed_before','cb_web_counter_mismatch','metadata_version'}) do
+    f=require('spec.helpers.readtime_transfer_fixture').new(mode,expect,roots,true);result=f.run()
+    expect(not result.attempted and f.posts==0 and f.ledger:summary(f.account).pending==2,mode)
+end
+for _i,mode in ipairs({'summary_disappeared','position','lost','no_ack','source_changed','tts','current_day','cb_web_counter_changed'}) do
+    f=require('spec.helpers.readtime_transfer_fixture').new(mode,expect,roots,true);result=f.run()
+    expect(result.kind=='unconfirmed' and result.attempted and f.posts==1,mode)
+    expect(f.ledger:summary(f.account).confirmed==0 and f.journal:pending(f.account)~=nil,mode)
+    result=f.run();expect(not result.attempted and f.posts==1,'CB unknown replayed: '..mode)
+end
+f=require('spec.helpers.readtime_transfer_fixture').new('cb_web_counter_delay',expect,roots,true);result=f.run()
+expect(result.kind=='confirmed' and result.readbacks==3 and f.posts==1,'CB Web counter lag')
+f=require('spec.helpers.readtime_transfer_fixture').new('no_delta',expect,roots,true);result=f.run()
+expect(result.kind=='unconfirmed' and f.journal:pending(f.account).phase=='acknowledged')
+record=f.journal:pending(f.account);f.applied=true;f.mode=nil;local cb_configs=f.configs
+result=Task.resolve(f.client,f.settings,f.native,f.web,record,{},f.journal,f.options)
+expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==cb_configs,'CB read-only resolution')
 Signing.time_zone=original_zone
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
 print('readtime_transfer_task_spec: '..n..' checks')

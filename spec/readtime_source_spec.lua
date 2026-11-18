@@ -47,9 +47,13 @@ for _i,mode in ipairs({'identity','raw','render','version','swap','metadata'}) d
 end
 expect(M.version(catalog,'42')==7)
 for _i,change in ipairs({function(v) v[2]=F.clone(v[1]) end,function(v) v[1].book.bookVersion=true end,
-    function(v) v[1].bookId='43' end,function(v) v[1].book.bookVersion='7' end}) do
+    function(v) v[1].bookId='43' end,function(v) v[1].book.bookVersion='7' end,
+    function(v) v[1].book.version=8 end,function(v) v[1].bookVersion=8 end,
+    function(v) v[1].version='7' end,function(v) v[1].book.bookVersion=nil end}) do
     local value=F.clone(catalog);change(value);expect(M.version(value,'42')==nil)
 end
+local same_versions=F.clone(catalog);same_versions[1].bookVersion=7;same_versions[1].book.version=7
+expect(M.version(same_versions,'42')==7)
 expect(M.references({},chapters)==nil)
 -- More than 128 cached references are scanned in bounded background pages.
 -- The matching file is deliberately after the old limit.
@@ -84,6 +88,44 @@ local last_match=M.scan_page({cached_chapters={['7']='/synthetic.epub'}},largest
 expect(last_match.kind=='found' and last_match.reference.chapter_uid=='7','last supported catalog entry was skipped')
 local first_full=M.scan_page({cached_full_book='/synthetic.epub'},chapters,selection,nil,1,probe.options)
 expect(first_full.kind=='found' and first_full.reference.file=='/synthetic.epub','full-book source did not get priority')
+-- Imported XHTML source is independently tied to its cached archive, owner
+-- identity and both Web catalog versions. This proves source only, not dispatch.
+local cb_book={bookId='CB_Synthetic',bookVersion=7}
+local cb_identity_raw=Identity.encode(cb_book,chapters,Identity.capture(cb_book),Crypto.sha256_hex(raw),7)
+local cb_identity=assert(Identity.decode(cb_identity_raw))
+local cb_captured=assert(Source.capture(cb_book,chapters[1],raw,'web_xhtml'))
+local cb_metadata=assert(Source.bind(cb_captured,cb_identity,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(rendered)))
+local cb_members={[Identity.PATH]=cb_identity_raw,[Source.meta_path('7')]=cb_metadata,
+    [Source.raw_path(cb_captured.raw_sha256)]=raw,['OEBPS/text/chapter.xhtml']=rendered}
+local cb_selection={book_id='CB_Synthetic',book_version=7,file_id=cb_identity.file_id}
+local cb_catalog={{bookId='CB_Synthetic',book={bookVersion=7},updated=chapters}}
+local cb_options={read_archive=function(_file,wanted)
+    local out={} for key,maximum in pairs(wanted) do
+        local value=cb_members[key];if not value or #value>maximum then return nil end;out[key]=value
+    end
+    return out
+end}
+local checks=0
+cb_options.fetch=function(_client,expected,_access,format,options,cb)
+    expect(cb and format=='web_xhtml');checks=checks+1
+    options.verify_catalog(cb_catalog);options.verify_catalog(cb_catalog)
+    return Current.project_cb(expected,cb_catalog,{book_id='CB_Synthetic',psvts='synthetic-session'},raw,cb_catalog)
+end
+local cb_ref={{file='/synthetic.epub',chapter_uid='7',chapter_idx=0}}
+local cb_page=M.scan_page({cached_full_book='/synthetic.epub'},chapters,cb_selection,nil,1,cb_options)
+expect(cb_page.kind=='found' and cb_page.reference.chapter_uid=='7')
+local cb_proof=M.observe({},{},cb_selection,cb_ref,nil,cb_options)
+expect(checks==1 and cb_proof.expected.book_id=='CB_Synthetic' and cb_proof.raw==nil)
+expect(M.observe({},{},cb_selection,cb_ref,cb_proof,cb_options).catalog_stamp==cb_proof.catalog_stamp)
+cb_catalog[1].book.bookVersion=8
+expect(not pcall(M.observe,{},{},cb_selection,cb_ref,cb_proof,cb_options))
+cb_catalog[1].book.bookVersion=7
+cb_members['OEBPS/text/chapter.xhtml']='changed'
+expect(not pcall(M.observe,{},{},cb_selection,cb_ref,cb_proof,cb_options))
+cb_members['OEBPS/text/chapter.xhtml']=rendered
+local cb_invalid=F.clone(cb_selection);cb_invalid.book_id='CB_invalid/'
+expect(M.scan_page({cached_full_book='/synthetic.epub'},chapters,cb_invalid,nil,1,cb_options).kind=='unavailable')
+expect(not pcall(M.observe,{},{},cb_invalid,cb_ref,nil,cb_options))
 if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     local ffi=require('ffi');require('ffi/posix_h')
     local path=os.tmpname();local fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)
@@ -99,5 +141,15 @@ if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     collectgarbage('collect');local before=descriptors()
     for _i=1,5 do expect(M.observe({},{},selection,real_refs,proof,archive_case.options).catalog_stamp==proof.catalog_stamp) end
     collectgarbage('collect');expect(descriptors()==before,'archive descriptor leak');assert(os.remove(path))
+    local cb_path=os.tmpname();local cb_fd=ffi.C.open(cb_path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(cb_fd>=0)
+    local cb_writer=require('weread.lib.epub_export_writer').new(cb_fd)
+    for name,value in pairs(cb_members) do cb_writer:add(name,value,#value,false) end
+    assert(cb_writer:close());assert(ffi.C.close(cb_fd)==0)
+    local cb_real_refs={{file=cb_path,chapter_uid='7',chapter_idx=0}}
+    local cb_runtime_options={fetch=cb_options.fetch}
+    local real_cb_proof=M.observe({},{},cb_selection,cb_real_refs,nil,cb_runtime_options)
+    expect(real_cb_proof.metadata_hash==Crypto.sha256_hex(cb_metadata))
+    expect(M.observe({},{},cb_selection,cb_real_refs,real_cb_proof,cb_runtime_options).catalog_stamp==real_cb_proof.catalog_stamp)
+    assert(os.remove(cb_path))
 end
 print('readtime_source_spec: '..n..' checks')

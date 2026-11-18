@@ -37,9 +37,16 @@ function M.version(payload,id)
     for _i,row in ipairs(rows) do
         local book=type(row)=='table' and row.book
         if type(row)=='table' and tostring(row.bookId or type(book)=='table' and book.bookId)==id then
-            count=count+1;book=type(book)=='table' and book or row
-            local v=book.bookVersion;if v==nil then v=book.version end
-            if not C.integer(v,1,2147483647) then return nil end;result=v
+            count=count+1
+            for _j,node in ipairs({row,type(book)=='table' and book or {}}) do
+                for _k,key in ipairs({'bookVersion','version'}) do
+                    local v=node[key]
+                    if v~=nil then
+                        if not C.integer(v,1,2147483647) or result and result~=v then return nil end
+                        result=v
+                    end
+                end
+            end
         end
     end
     return count==1 and result or nil
@@ -66,7 +73,7 @@ end
 function M.scan_page(book,chapters,selection,previous,cursor,options)
     options=options or {}
     if type(book)~='table' or not C.array(chapters,1,10000) or type(selection)~='table'
-        or not C.id(selection.book_id) or not C.hash(selection.file_id)
+        or not C.book_id(selection.book_id) or not C.hash(selection.file_id)
         or not C.integer(selection.book_version,1,2147483647)
         or not C.integer(cursor,1,#chapters+2) then return {kind='unavailable'} end
     local indexes=Candidate.chapter_indices(chapters)
@@ -90,6 +97,8 @@ function M.scan_page(book,chapters,selection,previous,cursor,options)
 end
 function M.observe(client,selected,selection,references,previous,options)
     options=options or {};local read=options.read_archive or Archive.read
+    assert(type(selection)=='table' and C.book_id(selection.book_id),'readtime_source/selection')
+    local cb=C.cb_id(selection.book_id)
     assert(C.array(references,1,128),'readtime_source/references')
     local chosen
     for _i,ref in ipairs(references) do
@@ -102,10 +111,18 @@ function M.observe(client,selected,selection,references,previous,options)
         assert(chosen.format==previous.format and chosen.metadata_hash==previous.metadata_hash
             and C.digest(chosen.expected)==C.digest(previous.expected),'readtime_source/changed')
     end
-    local proof=(options.fetch or Current.fetch)(client,chosen.expected,selected,chosen.format,{verify_catalog=function(raw)
+    assert(not cb or chosen.format=='web_xhtml','readtime_source/format')
+    local function verify_catalog(raw)
         assert(M.version(raw,selection.book_id)==selection.book_version,'readtime_source/version')
-    end})
-    local checked=chosen.format=='web_txt' and Current.packet_txt(proof,chosen.expected) or Current.packet(proof,chosen.expected)
+    end
+    local proof
+    if options.fetch then proof=options.fetch(client,chosen.expected,selected,chosen.format,{verify_catalog=verify_catalog},cb)
+    elseif cb then proof=Current.fetch_cb_versioned(client,chosen.expected,selected,verify_catalog)
+    else proof=Current.fetch(client,chosen.expected,selected,chosen.format,{verify_catalog=verify_catalog}) end
+    local checked
+    if cb then checked=Current.packet_cb(proof,chosen.expected)
+    elseif chosen.format=='web_txt' then checked=Current.packet_txt(proof,chosen.expected)
+    else checked=Current.packet(proof,chosen.expected) end
     assert(checked,'readtime_source/remote')
     chosen.catalog_stamp=checked.catalog_stamp
     local again=local_source(selection,chosen.ref,read)

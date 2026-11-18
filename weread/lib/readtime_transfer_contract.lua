@@ -6,6 +6,8 @@ function M.integer(v,low,high) return type(v)=='number' and v==v and v%1==0 and 
 function M.hash(v) return type(v)=='string' and #v==64 and v:match('^[a-f0-9]+$')~=nil end
 function M.account(v) return type(v)=='string' and #v==20 and v:match('^[a-f0-9]+$')~=nil end
 function M.id(v) return type(v)=='string' and #v<=20 and v:match('^[1-9]%d*$')~=nil end
+function M.cb_id(v) return type(v)=='string' and #v<=67 and v:match('^CB_[A-Za-z0-9]+$')~=nil end
+function M.book_id(v) return M.id(v) or M.cb_id(v) end
 function M.attempt(v) return type(v)=='string' and #v==43 and v:match('^offtime%-v1:[a-f0-9]+$')~=nil end
 function M.array(v,minimum,maximum)
     if type(v)~='table' or not M.integer(#v,minimum,maximum) then return false end
@@ -51,8 +53,8 @@ function M.row(row)
 end
 function M.part(part) return exact_keys(part,PART_KEYS) and M.integer(part.row_id,1,2^53-1)
     and M.integer(part.start_time,1,4102444800) and M.integer(part.duration,1,60) end
-function M.verified(row,now)
-    return M.row(row) and M.id(row.book_id) and row.book_version>0 and M.hash(row.file_id)
+function M.verified(row,now,allow_cb)
+    return M.row(row) and (M.id(row.book_id) or allow_cb==true and M.cb_id(row.book_id)) and row.book_version>0 and M.hash(row.file_id)
         and row.version_source=='epub_snapshot' and row.start_time+row.duration<=now and pcall(Protocol.zone,row.time_zone)
 end
 function M.protocol_rows(rows)
@@ -62,7 +64,7 @@ function M.protocol_rows(rows)
     end
     return result
 end
-function M.select(rows,coverage,now,book_id)
+function M.select(rows,coverage,now,book_id,allow_cb)
     assert(M.array(rows,0,100) and type(coverage)=='table' and M.array(coverage.parts,0,6000))
     local by_id={};for _i,row in ipairs(rows) do assert(M.row(row) and not by_id[row.id]);by_id[row.id]=row end
     local selected={rows={},parts={},seconds=0};local seen={}
@@ -71,7 +73,7 @@ function M.select(rows,coverage,now,book_id)
         local row=assert(by_id[part.row_id])
         assert(M.integer(part.start_time,row.start_time,row.start_time+row.duration-1)
             and M.integer(part.duration,1,row.start_time+row.duration-part.start_time))
-        if M.verified(row,now) and (not book_id or row.book_id==book_id) and selected.seconds<600 and #selected.parts<100 then
+        if M.verified(row,now,allow_cb) and (not book_id or row.book_id==book_id) and selected.seconds<600 and #selected.parts<100 then
             if not selected.book_id then
                 selected.book_id,selected.file_id,selected.book_version,selected.time_zone=row.book_id,row.file_id,row.book_version,row.time_zone
             end
@@ -89,7 +91,9 @@ function M.select(rows,coverage,now,book_id)
         local row=by_id[part.row_id]
         protocol[#protocol+1]={start_time=part.start_time,duration=part.duration,time_zone=row.time_zone,book_version=row.book_version}
     end
-    Protocol.validate_rows(protocol,selected.book_id,now);selected.protocol_rows=protocol
+    if M.cb_id(selected.book_id) then Protocol.validate_cb_rows(protocol,selected.book_id,now)
+    else Protocol.validate_rows(protocol,selected.book_id,now) end
+    selected.protocol_rows=protocol
     selected.rows_hash=M.digest(selected.rows);selected.parts_hash=M.digest(selected.parts)
     return selected
 end

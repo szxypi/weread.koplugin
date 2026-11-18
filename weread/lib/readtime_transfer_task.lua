@@ -10,6 +10,7 @@ local Native=require('weread.lib.native_read_access')
 local Web=require('weread.lib.read_access')
 local Remote=require('weread.lib.remote_progress')
 local Point=require('weread.lib.readtime_point')
+local CBGuard=require('weread.lib.cb_readtime_guard')
 local Source=require('weread.lib.readtime_source')
 local Shelf=require('weread.lib.shelf_flag_change_contract')
 local Auth=require('weread.lib.native_authorization')
@@ -21,19 +22,25 @@ local function web_point(raw,book)
     point.summary=node.summary;return P.point_hash(point)
 end
 local function snapshotter(client,auth,selected,web,book,expected_version,expected_months,current,now,day_guard,point_contract)
+    local cb=C.cb_id(book)
     return function()
         assert(current(),'readtime_transfer/stale')
         assert(not day_guard or day_guard(),'readtime_transfer/day_changed')
         local info=auth:_request('time_metadata',BASE..'/book/info?bookId='..book,nil,selected.credentials)
-        assert(P.id(info.bookId)==book,'readtime_transfer/book')
+        assert(cb and info.bookId==book or not cb and P.id(info.bookId)==book,'readtime_transfer/book')
         local version=info.bookVersion;if version==nil then version=info.version end
         assert(C.integer(version,1,2147483647) and version==expected_version,'readtime_transfer/version')
         local raw=auth:_request('time_progress',BASE..'/book/getProgress?bookId='..book,nil,selected.credentials)
         assert(C.integer(raw.timestamp,1,4102444800) and math.abs(raw.timestamp-now())<=60,'readtime_transfer/clock')
-        local remote=client:get_progress_snapshot(book,web.web,{classify_auth=true,fresh=true})
-        local native_hash,wp,counts
+        local fetch=cb and client.get_shelf_display_progress or client.get_progress_snapshot
+        local remote=fetch(client,book,web.web,{classify_auth=true,fresh=true})
+        local native_hash,wp,counts,summary,web_counts
         if point_contract==Point.CONTRACT then
-            native_hash,wp=Point.hash(raw,book,'native'),Point.hash(remote,book,'web')
+            if cb then
+                local observed=assert(CBGuard.observe(raw,remote,book),'readtime_transfer/cb_position')
+                native_hash,wp,summary=observed.native_hash,observed.web_hash,observed.summary
+                web_counts=P.counts(assert(Remote.node(remote,book)))
+            else native_hash,wp=Point.hash(raw,book,'native'),Point.hash(remote,book,'web') end
             counts=P.counts(assert(Remote.node(raw,book)))
         else
             local native=P.snapshot(raw,book);native_hash=P.point_hash(native.position);counts=native.counts
@@ -45,7 +52,7 @@ local function snapshotter(client,auth,selected,web,book,expected_version,expect
             months[month]={baseTime=value.baseTime,readTimes=value.readTimes,totalReadTime=value.totalReadTime,readDays=value.readDays}
         end
         assert(current(),'readtime_transfer/stale')
-        return {native_hash=native_hash,web_hash=wp,counts=counts,shelf_hash=shelf,months=months}
+        return {native_hash=native_hash,web_hash=wp,counts=counts,web_counts=web_counts,shelf_hash=shelf,months=months},summary
     end
 end
 local function verify(client,web,selection,references,journal,record,metadata,snapshot,current,now,sleep,observe,out)
@@ -56,7 +63,12 @@ local function verify(client,web,selection,references,journal,record,metadata,sn
         local seen=snapshot();out.readbacks=attempt
         assert(seen.native_hash==metadata.native_hash and seen.web_hash==metadata.web_hash and seen.shelf_hash==metadata.shelf_hash,'readtime_transfer/position_changed')
         local checked=assert(Accounting.check(metadata,seen.counts,seen.months),'readtime_transfer/accounting')
-        if checked.kind=='target' then
+        local target=checked.kind=='target'
+        if metadata.protocol=='native-historical-time-cst-cb-v1' then
+            local web_checked=assert(Accounting.check(metadata,seen.web_counts,seen.months),'readtime_transfer/web_accounting')
+            target=target and web_checked.kind=='target'
+        end
+        if target then
             local hash=C.digest(seen)
             out.stable_reads=previous==hash and out.stable_reads+1 or 1;previous=hash
             if out.stable_reads==2 then
@@ -91,10 +103,12 @@ function M.run(client,settings,selected,web,selection,references,journal,options
     local observe=options.observe_source or Source.observe
     local ok,reason=pcall(function()
         assert(type(selection)=='table' and selection.rows_hash==C.digest(selection.rows) and selection.parts_hash==C.digest(selection.parts),'readtime_transfer/selection')
+        local cb=C.cb_id(selection.book_id)
+        assert(not cb or options.experimental_cb==true,'readtime_transfer/cb_disabled')
         local account=Account(selected.scope.vid);assert(C.account(account),'readtime_transfer/account')
         assert(options.account==account,'readtime_transfer/account')
         local pending,why=journal:pending(account);assert(not pending and not why,'readtime_transfer/pending')
-        local rebuilt=assert(C.select(selection.rows,{parts=selection.parts},now(),selection.book_id),'readtime_transfer/selection')
+        local rebuilt=assert(C.select(selection.rows,{parts=selection.parts},now(),selection.book_id,cb),'readtime_transfer/selection')
         for _i,key in ipairs({'book_id','file_id','book_version','time_zone','seconds','rows_hash','parts_hash'}) do
             assert(rebuilt[key]==selection[key],'readtime_transfer/selection')
         end
@@ -107,16 +121,19 @@ function M.run(client,settings,selected,web,selection,references,journal,options
         local snapshot=snapshotter(client,auth,selected,web,selection.book_id,window.version,window.months,current,now,function()
             return not metadata or Accounting.day(now())==Accounting.day(metadata.created_at)
         end,Point.CONTRACT)
-        local before=snapshot()
+        local before,summary=snapshot()
+        assert(not cb or P.same_counts(before.counts,before.web_counts),'readtime_transfer/cb_counts')
         local config=auth:_request('time_config',BASE..'/config?token=1',nil,selected.credentials)
         local guest=Signing.guest_token(auth:_request('time_feature',BASE..'/feature?synckey=0',nil,selected.credentials))
-        assert(C.digest(snapshot())==C.digest(before),'readtime_transfer/concurrent_before')
+        local again,latest_summary=snapshot()
+        assert(C.digest(again)==C.digest(before) and (not cb or summary==latest_summary),'readtime_transfer/concurrent_before')
         local stamp=now();assert(Signing.time_zone(stamp)=='+08:00','readtime_transfer/zone')
         local random=options.random or function() return tonumber(auth.digits(3)) end
         assert(C.digest(selection)==selection_hash,'readtime_transfer/selection_changed')
-        body=Signing.batch(selected.credentials,selection.book_id,selection.protocol_rows,guest,config.token,stamp,random(),
-            {timestamp=stamp*1000,random=random(),current_zone='+08:00'})
-        metadata={protocol='native-historical-time-cst-v1',position_contract=Point.CONTRACT,book_id=selection.book_id,file_id=selection.file_id,book_version=window.version,
+        local inner_random=random();local envelope={timestamp=stamp*1000,random=random(),current_zone='+08:00'}
+        if cb then body=Signing.cb_batch(selected.credentials,selection.book_id,selection.protocol_rows,guest,config.token,stamp,inner_random,envelope,summary)
+        else body=Signing.batch(selected.credentials,selection.book_id,selection.protocol_rows,guest,config.token,stamp,inner_random,envelope) end
+        metadata={protocol=cb and 'native-historical-time-cst-cb-v1' or 'native-historical-time-cst-v1',position_contract=Point.CONTRACT,book_id=selection.book_id,file_id=selection.file_id,book_version=window.version,
             seconds=window.seconds,day=window.day,created_at=stamp,device_hash=C.digest(selected.credentials.deviceId),source=source,native_hash=before.native_hash,web_hash=before.web_hash,
             counts=before.counts,shelf_hash=before.shelf_hash,months=before.months,request_hash=C.digest(body)}
         Accounting.validate(metadata)
@@ -161,12 +178,15 @@ function M.resolve(client,settings,selected,web,record,references,journal,option
     local ok=pcall(function()
         local m=record.metadata
         assert(options.account==Account(selected.scope.vid) and record.account==options.account,'readtime_transfer/account')
-        assert(m.protocol=='native-historical-time-cst-v1' and C.id(m.book_id) and C.hash(m.file_id)
+        local identity=m.protocol=='native-historical-time-cst-v1' and C.id(m.book_id)
+            or m.protocol=='native-historical-time-cst-cb-v1' and C.cb_id(m.book_id)
+        assert(identity and C.hash(m.file_id)
             and C.integer(m.book_version,1,2147483647) and C.integer(m.created_at,1,now())
             and m.device_hash==C.digest(selected.credentials.deviceId),'readtime_transfer/metadata')
         assert(C.hash(m.native_hash) and C.hash(m.web_hash) and C.hash(m.shelf_hash),'readtime_transfer/metadata')
         Accounting.validate(m)
         assert(m.position_contract==nil or m.position_contract==Point.CONTRACT,'readtime_transfer/position_contract')
+        assert(not C.cb_id(m.book_id) or m.position_contract==Point.CONTRACT,'readtime_transfer/position_contract')
         assert(type(record.evidence)=='table' and record.evidence.request_hash==record.request_hash,'readtime_transfer/ack')
         local selection={book_id=m.book_id,file_id=m.file_id,book_version=m.book_version}
         local observe=options.observe_source or Source.observe

@@ -12,7 +12,8 @@ local function same(row,group)
 end
 function M:select(account,book_id,options)
     options=options or {}
-    if not C.account(account) or book_id~=nil and not C.id(book_id) then return nil,'invalid_selection' end
+    local allow_cb=options.allow_cb==true
+    if not C.account(account) or book_id~=nil and not (C.id(book_id) or allow_cb and C.cb_id(book_id)) then return nil,'invalid_selection' end
     local now=self.now()
     if not C.integer(now,1,4102444800) then return nil,'invalid_clock' end
     local selected={rows={},parts={},seconds=0};local report={scanned=0,unsupported=0,conflicting=0,covered=0,untracked=0,deferred=0}
@@ -34,7 +35,7 @@ function M:select(account,book_id,options)
                 if not C.array(range,2,2) or not C.integer(range[1],row.start_time,row.start_time+row.duration-1)
                     or not C.integer(range[2],range[1]+1,row.start_time+row.duration) then return nil,'invalid_page' end
             end
-            if not C.verified(row,now) then report.unsupported=report.unsupported+row.duration
+            if not C.verified(row,now,allow_cb) then report.unsupported=report.unsupported+row.duration
             elseif (not book_id or row.book_id==book_id) and same(row,selected) then
                 candidates[#candidates+1]=row;blocked[row.id]=entry.blocked
             end
@@ -65,7 +66,7 @@ function M:select(account,book_id,options)
                     end
                 end
             end
-            local next_group=C.select(candidates,available,now,book_id)
+            local next_group=C.select(candidates,available,now,book_id,allow_cb)
             if next_group then
                 if not selected.book_id then
                     selected.book_id,selected.file_id,selected.book_version,selected.time_zone=
@@ -85,7 +86,7 @@ function M:select(account,book_id,options)
             report.upper_id,report.last_id,report.scan_complete=upper,cursor,not page.has_more
             if selected.seconds==0 then return {selection=false,report=report} end
             table.sort(selected.parts,function(a,b) return a.start_time<b.start_time end)
-            local complete=C.select(selected.rows,{parts=selected.parts},now,selected.book_id)
+            local complete=C.select(selected.rows,{parts=selected.parts},now,selected.book_id,allow_cb)
             return {selection=assert(complete),report=report}
         end
         if #page.rows==0 or page.last_id~=cursor then return nil,'invalid_page' end

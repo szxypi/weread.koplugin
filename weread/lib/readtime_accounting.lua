@@ -8,7 +8,10 @@ local M={}
 function M.day(stamp) return math.floor((stamp+28800)/86400)*86400-28800 end
 local function copy(v) if type(v)~='table' then return v end;local o={};for k,x in pairs(v) do o[k]=copy(x) end;return o end
 function M.window(rows,book,now)
-    local seconds,version=Wire.validate_rows(rows,book,now);local first=M.day(rows[1].start_time)
+    local seconds,version
+    if C.cb_id(book) then seconds,version=Wire.validate_cb_rows(rows,book,now)
+    else seconds,version=Wire.validate_rows(rows,book,now) end
+    local first=M.day(rows[1].start_time)
     assert(first<M.day(now),'readtime_accounting/not_historical')
     for _i,row in ipairs(rows) do
         assert(row.time_zone=='+08:00' and M.day(row.start_time)==first and M.day(row.start_time+row.duration-1)==first,
