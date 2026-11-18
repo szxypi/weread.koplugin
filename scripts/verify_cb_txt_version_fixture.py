@@ -10,12 +10,13 @@ import json
 from pathlib import Path
 import resource
 import tempfile
+import time
 from urllib.parse import urlencode
 
 from secure_native_session import NativeSessionStore, project_lock
 from secure_weread_session import ACCOUNT, MacKeychain, SessionStore
-from verify_cb_metadata import CbNativeMetadataProbe
-from verify_cb_reading import CbReadingProbe, readable_chapters
+from verify_cb_metadata import CbMetadataError, CbNativeMetadataProbe
+from verify_cb_reading import CbReadingError, CbReadingProbe, readable_chapters
 from verify_cb_txt_fixture import Journal, MARKER, Receipt, execute, guarded_previous
 from verify_eink_login import BASE, NativeProbe
 from verify_personal_upload_trial import Probe
@@ -51,7 +52,7 @@ class CatalogProbe(CbReadingProbe):
         return value
 
 
-def inspect_fixture(saved, grant, target, current, summary, *, web_factory=CatalogProbe, native_factory=CbNativeMetadataProbe):
+def inspect_once(saved, grant, target, current, summary, *, web_factory=CatalogProbe, native_factory=CbNativeMetadataProbe):
     if current(grant) is not True: raise ValueError('txt_version/session')
     web = web_factory(); web.vid = saved['vid']; web.allowed = {target}
     try:
@@ -79,6 +80,15 @@ def inspect_fixture(saved, grant, target, current, summary, *, web_factory=Catal
         return True
     finally:
         web.samples.clear(); web.close()
+
+
+def inspect_fixture(saved, grant, target, current, summary, *, sleep=time.sleep):
+    for attempt in range(5):
+        try: return inspect_once(saved, grant, target, current, summary)
+        except (CbReadingError, CbMetadataError) as error:
+            if str(error) not in ('cb_catalog_empty', 'cb_catalog_invalid') or attempt == 4: raise
+        sleep(2 * (attempt + 1))
+    return False
 
 
 def main(argv=None):

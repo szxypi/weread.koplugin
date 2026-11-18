@@ -34,8 +34,8 @@ class TxtVersionFixtureTest(unittest.TestCase):
             def request(self,stage,url,credentials=None):
                 calls.append((stage,url,credentials)); return deepcopy(native[len(calls)-1])
         summary={}; saved=dict(vid='900000',cookies={'wr_vid':'900000','wr_skey':'synthetic'})
-        result=task.inspect_fixture(saved,{'vid':'900000'},'CB_Synthetic',current,summary,
-                                    web_factory=lambda:web,native_factory=Native)
+        result=task.inspect_once(saved,{'vid':'900000'},'CB_Synthetic',current,summary,
+                                 web_factory=lambda:web,native_factory=Native)
         self.assertTrue(web.closed); return result,summary,calls
 
     def test_unversioned_and_matched_positive_are_distinct(self):
@@ -68,6 +68,16 @@ class TxtVersionFixtureTest(unittest.TestCase):
         with patch.object(task,'SessionStore') as session, redirect_stdout(io.StringIO()) as output:
             self.assertEqual(task.main([]),0)
         session.assert_not_called();self.assertEqual(json.loads(output.getvalue())['result'],'OFFLINE_ONLY')
+
+    def test_only_not_yet_ready_catalogs_are_read_again(self):
+        delays=[]
+        with patch.object(task,'inspect_once',side_effect=[task.CbReadingError('cb_catalog_empty'),True]) as inspect:
+            self.assertTrue(task.inspect_fixture({}, {}, 'CB_Synthetic', lambda _:True, {}, sleep=delays.append))
+        self.assertEqual(inspect.call_count,2);self.assertEqual(delays,[2])
+        with patch.object(task,'inspect_once',side_effect=task.CbReadingError('other')) as inspect:
+            with self.assertRaises(task.CbReadingError):
+                task.inspect_fixture({}, {}, 'CB_Synthetic', lambda _:True, {}, sleep=lambda _:self.fail('retry'))
+        self.assertEqual(inspect.call_count,1)
 
 
 if __name__ == '__main__': unittest.main()
