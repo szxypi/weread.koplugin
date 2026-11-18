@@ -104,7 +104,7 @@ end
 local function parse(raw, options)
     if type(raw) ~= "string" or #raw > M.MAX_BYTES or not raw:find("<body", 1, true) then fail("invalid_source") end
     -- Concatenated chapter documents are a separately opted-in local model.
-    -- Cloud coordinate consumers keep the original single-body validation.
+    -- Cloud consumers opt in only when their source format supports it.
     local multiple = options and options.allow_multiple_bodies == true
     local _, opens = raw:gsub("<body", "")
     local _, closes = raw:gsub("</body", "")
@@ -365,6 +365,31 @@ function Map:anchor(co, options)
     end)
     if ok then return result end
     return nil, type(result) == "string" and result:match("^source_coordinates/[a-z_]+$") or "source_coordinates/unavailable"
+end
+
+-- Find only the first following visible source boundary. The caller must
+-- independently validate the returned boundary and must not treat it as an
+-- exact server coordinate. Used for provisional, read-only imported books.
+function Map:next_visible(co, limit)
+    local ok, result = pcall(function()
+        if self.literal or type(co)~='number' or co~=co or co%1~=0 or co<0 or co>M.MAX_BYTES*8
+            or type(limit)~='number' or limit%1~=0 or limit<1 or limit>1024 then fail('invalid_offset') end
+        local selected
+        for _i,segment in ipairs(self.segments) do
+            local cursor,text,at=segment[1],segment[2],1
+            while at<=#text do
+                local clean,next_at,n=self:_token(text,at)
+                if clean~='' and cursor>co and cursor-co<=limit and (not selected or cursor<selected) then
+                    selected=cursor
+                end
+                at,cursor=next_at,cursor+n
+            end
+        end
+        if not selected then fail('visible_boundary_missing') end
+        return selected
+    end)
+    if ok then return result end
+    return nil, type(result)=='string' and result:match('^source_coordinates/[a-z_]+$') or 'source_coordinates/unavailable'
 end
 
 -- A bounded literal slice for native TXT preparation. This is deliberately

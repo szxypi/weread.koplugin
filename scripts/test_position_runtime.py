@@ -82,6 +82,7 @@ def main():
     parser.add_argument('--cached-dual', action='store_true')
     parser.add_argument('--cached-ignore-case', action='store_true')
     parser.add_argument('--cb-cloud-single', action='store_true')
+    parser.add_argument('--cb-cloud-gap', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
         parser.error("screen dimensions and DPI must be positive")
@@ -100,8 +101,8 @@ def main():
         parser.error('--cached-incomplete requires --cached-full')
     if args.cached_dual and not args.cached_full:
         parser.error('--cached-dual requires --cached-full')
-    if args.cb_cloud_single and args.probe!='cb-cloud-view':
-        parser.error('--cb-cloud-single requires --probe cb-cloud-view')
+    if (args.cb_cloud_single or args.cb_cloud_gap) and args.probe!='cb-cloud-view':
+        parser.error('imported cloud options require --probe cb-cloud-view')
     if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
         parser.error('current fallback requires a cached CB search fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
@@ -109,7 +110,9 @@ def main():
     if args.probe=='cb-cloud-view':
         from verify_source_coordinates import FilteredSource
         server.cb_reading=True
-        offset=FilteredSource(chapter_html(6)).locate('这是第6章的第16段。我们沿着小路慢慢前行')[0]
+        needle=('窗外的风穿过树梢，带来远处山谷的回声。' if args.cb_cloud_gap else '')+'这是第6章的第16段。我们沿着小路慢慢前行'
+        target_offset=FilteredSource(chapter_html(6)).locate(needle)[0]
+        offset=target_offset-1 if args.cb_cloud_gap else target_offset
         server.progress['CB_SyntheticResume']=dict(chapterUid=6,chapterIdx=6,chapterOffset=offset,progress=83,summary='Synthetic cloud target')
     if args.probe == 'cloud-source':
         from verify_source_coordinates import FilteredSource
@@ -137,6 +140,8 @@ def main():
                                         WEREAD_TEST_CACHED_DUAL='1' if args.cached_dual else '0',
                                         WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
                                         WEREAD_TEST_CB_CLOUD_SINGLE='1' if args.cb_cloud_single else '0',
+                                        WEREAD_TEST_CB_CLOUD_TARGET=str(target_offset) if args.probe=='cb-cloud-view' else '',
+                                        WEREAD_TEST_CB_CLOUD_GAP='1' if args.cb_cloud_gap else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                                         EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
@@ -233,7 +238,7 @@ def main():
                 assert raw.count(marker)==1, 'missing imported cloud view result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                 assert value==dict(result='PASS',native_navigation=True,pending_preserved=True,upload_disabled=True,
-                                   local_reopen=True,download_confirmed=args.cb_cloud_single), 'imported cloud view mismatch'
+                                   local_reopen=True,download_confirmed=args.cb_cloud_single,approximate=args.cb_cloud_gap), 'imported cloud view mismatch'
                 assert server.request_totals[('/web/book/read','')]==0, 'read-only view sent reading progress'
                 reopened_raw=(root/'evidence/reopen.log').read_bytes();marker=b'\nWEREAD_CB_CLOUD_REOPEN='
                 assert reopened_raw.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened_raw

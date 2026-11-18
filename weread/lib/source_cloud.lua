@@ -49,10 +49,18 @@ function M.project(id,before,reader,raw,after,format)
     check_reader(id,first,reader)
     if type(raw)~='string' or #raw<1 or #raw>Source.MAX_BYTES then fail('source_invalid') end
     local map=Coordinates.build(raw,{format=format,allow_multiple_bodies=imported})
-    local anchor=map and map:anchor(first.chapter_offset)
+    local offset=first.chapter_offset
+    local anchor,reason
+    if map then anchor,reason=map:anchor(offset) end
+    -- A CB_ offset may fall in markup before visible text. This is a bounded
+    -- read-only approximation; ambiguous or interior coordinates stay rejected.
+    if not anchor and imported and reason=='source_coordinates/visible_boundary_missing' then
+        local following=map:next_visible(offset,1024)
+        if following then anchor=map:anchor(following);offset=following end
+    end
     local reverse=anchor and map:locate_point(anchor.text,anchor.point_offset)
-    if not reverse or reverse.co~=first.chapter_offset then fail('target_unavailable') end
-    return {book_id=id,chapter_uid=first.chapter_uid,chapter_offset=first.chapter_offset,percent=first.percent,
+    if not reverse or reverse.co~=offset then fail('target_unavailable') end
+    return {book_id=id,chapter_uid=first.chapter_uid,chapter_offset=offset,percent=first.percent,
         raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw,basis=Source.coordinate_basis(format),upload_verified=false}
 end
 

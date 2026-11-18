@@ -49,5 +49,12 @@
   "real_account_no_catalog_fresh_offline_reopen": true,
   "real_account_no_catalog_source_matched": true,
   "real_account_no_catalog_full_catalog_persistence_verified": false,
-  "real_account_no_catalog_credentials_not_persisted": true
+  "real_account_no_catalog_credentials_not_persisted": true,
+  "nearby_visible_fallback_limit_utf16": 1024,
+  "nearby_fallback_real_books": 1,
+  "nearby_fallback_native_scenarios": 4,
+  "nearby_fallback_live_read_only": true,
+  "nearby_fallback_cloud_position_unchanged": true,
+  "nearby_fallback_shelf_order_unchanged": true,
+  "nearby_fallback_exact_coordinate_semantics_verified": false
 }

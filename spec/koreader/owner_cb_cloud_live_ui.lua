@@ -6,6 +6,8 @@ local ok,reason=pcall(function()
     local input=require('json').decode(raw)
     assert(type(input.book)=='string' and input.book:sub(1,3)=='CB_' and type(input.chapter)=='string'
         and type(input.source)=='string' and type(input.offset)=='number' and type(input.percent)=='number')
+    local target_offset=input.target_offset or input.offset
+    assert(type(target_offset)=='number' and target_offset>=input.offset and target_offset-input.offset<=1024)
     local local_chapter=input.chapter=='999999999' and '999999998' or '999999999'
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
@@ -127,7 +129,7 @@ local ok,reason=pcall(function()
     wait(function()
         if Reader.instance and Reader.instance.weread then reader=Reader.instance;plugin=reader.weread end
         local held=plugin.source_position and plugin.source_position:current()
-        return held and held.chapter_uid==input.chapter and held.chapter_offset==input.offset
+        return held and held.chapter_uid==input.chapter and held.chapter_offset==target_offset
             and not plugin.cloud_source_request and not plugin.cloud_source_incoming
     end)
     assert(not single or reader~=original)

@@ -178,4 +178,14 @@ for _i,invalid in ipairs({'<body>one<body>nested</body></body>','<body>one</body
     eq(Source.build(invalid,{allow_multiple_bodies=true}),nil)
 end
 
+-- A provisional caller may select only a bounded following visible boundary.
+local nearby=build('<html><body><p>unique nearby source text long enough to verify.</p></body></html>')
+eq(select(2,nearby:anchor(12)),'source_coordinates/visible_boundary_missing')
+eq(nearby:next_visible(12,3),15)
+eq(nearby:next_visible(12,2),nil)
+eq(nearby:next_visible(15,3),16)
+eq(nearby:next_visible(12,1025),nil)
+eq(nearby:next_visible(-1,10),nil)
+eq(txt_map:next_visible(0,10),nil)
+
 print("source_coordinates_spec: " .. checks .. " checks")

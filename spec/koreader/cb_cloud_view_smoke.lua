@@ -76,6 +76,9 @@ plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=func
 local http,ltn12=require('socket.http'),require('ltn12');local chunks={}
 local _,code=http.request{url=settings.mock_endpoint..'/__state',proxy=settings.mock_endpoint,sink=ltn12.sink.table(chunks)}
 assert(code==200);local remote=client:json_decode(table.concat(chunks)).progress[id]
+local target_offset=assert(tonumber(os.getenv('WEREAD_TEST_CB_CLOUD_TARGET')))
+local approximate=os.getenv('WEREAD_TEST_CB_CLOUD_GAP')=='1'
+assert(approximate and remote.chapterOffset<target_offset or not approximate and remote.chapterOffset==target_offset)
 if not single then assert(Source.read_document(document,id,6));reader.rolling:onGotoPage(1) end
 local pending={book_id=id,chapter_uid='1',chapter_idx=1,percent=3}
 local account=assert(plugin.library_db:accountKey())
@@ -99,10 +102,10 @@ if single then
     end)
 end
 wait(function() return not plugin.cloud_source_request end)
-local reference=assert(Dom.open(document,id,6));local target=assert(reference:locate(remote.chapterOffset))
+local reference=assert(Dom.open(document,id,6));local target=assert(reference:locate(target_offset))
 assert(document:isXPointerInCurrentPage(target.xpointer),'imported cloud target was not visible')
 local source=assert(plugin.source_position:current())
-assert(source.chapter_uid=='6' and source.chapter_offset==remote.chapterOffset and not source.upload_verified)
+assert(source.chapter_uid=='6' and source.chapter_offset==target_offset and not source.upload_verified)
 local saved=assert(plugin.settings:get_book(id))
 assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_reason=='synthetic_pending')
 assert(not plugin.progress_sync.verified,'read-only viewing enabled uploading')
@@ -120,5 +123,5 @@ assert(not plugin.progress_sync.verified,'reopening granted upload authority')
 local output=assert(io.open(assert(os.getenv('WEREAD_EVIDENCE'))..'/cb-cloud-view-xpointer.txt','w'))
 output:write(xpointer);output:close();reader:onClose(false)
 print('\nWEREAD_CB_CLOUD_VIEW='..client:json_encode({result='PASS',native_navigation=true,pending_preserved=true,
-    upload_disabled=true,local_reopen=true,download_confirmed=single}))
+    upload_disabled=true,local_reopen=true,download_confirmed=single,approximate=approximate}))
 os.exit(0)

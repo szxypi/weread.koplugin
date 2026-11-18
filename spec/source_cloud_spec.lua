@@ -172,6 +172,30 @@ local cb_reader=copy(reader);cb_reader.bookInfo.bookId=cb_target.book_id;cb_read
 local cb_projected=Cloud.project(cb_target.book_id,cb_before,cb_reader,raw,cb_before)
 expect(Cloud.remote(cb_projected) and cb_projected.upload_verified==false and cb_projected.chapter_offset==21,
     'read-only imported XHTML position was not projected')
+local nearby_before=copy(cb_before);nearby_before.book.chapterOffset=12
+local nearby_reader=copy(cb_reader);nearby_reader.progress=nearby_before
+local approximate=Cloud.project(cb_target.book_id,nearby_before,nearby_reader,raw,nearby_before)
+expect(approximate.chapter_offset==15 and approximate.upload_verified==false,'imported markup gap did not select nearby text')
+local far='<html><body><p data-padding="'..string.rep('a',1030)..'">unique distant source with enough context.</p></body></html>'
+expect(not pcall(Cloud.project,cb_target.book_id,nearby_before,nearby_reader,far,nearby_before),
+    'imported markup gap escaped maximum distance')
+local repeated='<html><body><p>'..string.rep('x',500)..'</p></body></html>'
+expect(not pcall(Cloud.project,cb_target.book_id,nearby_before,nearby_reader,repeated,nearby_before),
+    'ambiguous nearby text was accepted')
+local emoji='<html><body><p>unique before 😀 unique after sufficiently long text</p></body></html>'
+local emoji_before=copy(cb_before);emoji_before.book.chapterOffset=30
+local emoji_reader=copy(cb_reader);emoji_reader.progress=emoji_before
+expect(not pcall(Cloud.project,cb_target.book_id,emoji_before,emoji_reader,emoji,emoji_before),
+    'interior UTF-16 surrogate snapped to another source position')
+local ambiguous='<html><body><p>'..string.rep('>',20)..'</p><p>abcdefghijklmnop unique trailing context</p></body></html>'
+local ambiguity_before=copy(cb_before);ambiguity_before.book.chapterOffset=43
+local ambiguity_reader=copy(cb_reader);ambiguity_reader.progress=ambiguity_before
+expect(not pcall(Cloud.project,cb_target.book_id,ambiguity_before,ambiguity_reader,ambiguous,ambiguity_before),
+    'ambiguous imported coordinate was snapped')
+local numeric_gap=copy(before);numeric_gap.book.chapterOffset=12
+local numeric_reader=copy(reader);numeric_reader.progress=numeric_gap
+expect(not pcall(Cloud.project,id,numeric_gap,numeric_reader,raw,numeric_gap),
+    'numeric book inherited imported provisional snapping')
 local multi=raw..raw:gsub('Cloud original target','Entirely distinct other passage')
 expect(Cloud.project(cb_target.book_id,cb_before,cb_reader,multi,cb_before).upload_verified==false,
     'read-only imported multi-body source was rejected')
