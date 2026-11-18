@@ -25,8 +25,20 @@ for _,case in ipairs(request.cases) do
     else
         assert(not result and type(err)=='string' and err:match('^source_archive/'),'invalid archive accepted')
     end
+    local wanted={}
+    for name,maximum in pairs(case.wanted) do
+        wanted[name]={maximum=maximum,sha256=case.hashes[name] or string.rep('0',64)}
+    end
+    assert(Archive.verify_members(case.path,wanted)==case.success,'bulk member verification differed')
     passed=passed+1
 end
+assert(Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='safe synthetic body'}}))
+assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='different'}}))
+assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,sha256=string.rep('0',64)}}))
+assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='safe synthetic body',size=1}}))
+assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=0,bytes=''}}))
+assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,sha256='not a hash'}}))
+assert(not Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='x',sha256=string.rep('0',64)}}))
 local discovered=0
 for _,case in ipairs(request.metadata_cases or {}) do
     local rows=Archive.position_metadata(case.path)
@@ -38,9 +50,12 @@ for _,case in ipairs(request.metadata_cases or {}) do
     else assert(not rows,'invalid metadata archive accepted') end
     discovered=discovered+1
 end
-for _i=1,20 do assert(Archive.read(request.warm.path,request.warm.wanted)) end
+for _i=1,20 do
+    assert(Archive.read(request.warm.path,request.warm.wanted))
+    assert(Archive.verify_members(request.warm.path,{['body.txt']={maximum=64,bytes='safe synthetic body'}}))
+end
 collectgarbage('collect')
 local after=descriptors()
 assert(after==before,'archive descriptor leaked')
 io.stdout:write(json.encode({cases=passed,passed=passed,repeated_reads=20,descriptors_before=before,descriptors_after=after,
-    metadata_cases=discovered,public_network_used=false,files_extracted=0}))
+    metadata_cases=discovered,bulk_cases=passed,public_network_used=false,files_extracted=0}))

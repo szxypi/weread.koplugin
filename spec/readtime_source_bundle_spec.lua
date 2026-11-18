@@ -270,11 +270,39 @@ if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     local real_long=assert(M.inspect(long_selection,path,long_chapters))
     expect(#real_long.entries==4 and real_long.entries[3].chapter_uid=='9007199254740993',
         'real archive lost the precise long chapter ID')
+    expect(real_long.inventory_hash==long_proof.inventory_hash,'bulk and individual archive proofs differed')
     local real_page=Reader.scan_page({cached_full_book=path},long_chapters,long_selection,nil,1)
     expect(real_page.kind=='found','real archive with long IDs could not be discovered')
     long_calls=0
     local real_proof=Reader.observe({}, {},long_selection,{real_page.reference},nil,{fetch=long_options.fetch})
     expect(real_proof.chapter_count==4 and long_calls==4,'real archive did not verify every long ID')
+    assert(os.remove(path))
+    local first_uid=long_chapters[1].chapterUid
+    local first_meta=Source.meta_path(first_uid)
+    local first_path='OEBPS/text/chapter-001.xhtml'
+    local first_raw=Source.raw_path(Crypto.sha256_hex('Synthetic long chapter 1'))
+    for _i,change in ipairs({
+        function(v) v[Identity.PATH]=v[Identity.PATH]..'x' end,
+        function(v) v[first_meta]=v[first_meta]..'x' end,
+        function(v) v[Source.path_meta_path(first_path)]='different metadata' end,
+        function(v) v[first_raw]='different raw' end,
+        function(v) v[first_path]='different rendered chapter' end,
+        function(v) v[first_path]=nil end,
+    }) do
+        local damaged=F.clone(long_members);change(damaged)
+        path=os.tmpname();fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)
+        writer=require('weread.lib.epub_export_writer').new(fd)
+        for name,value in pairs(damaged) do writer:add(name,value,#value,false) end
+        assert(writer:close());assert(ffi.C.close(fd)==0)
+        expect(M.inspect(long_selection,path,long_chapters)==nil,'bulk verification accepted damaged real archive')
+        assert(os.remove(path))
+    end
+    path=os.tmpname();fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)
+    writer=require('weread.lib.epub_export_writer').new(fd)
+    for name,value in pairs(long_members) do writer:add(name,value,#value,false) end
+    writer:add(first_raw,long_members[first_raw],#long_members[first_raw],false)
+    assert(writer:close());assert(ffi.C.close(fd)==0)
+    expect(M.inspect(long_selection,path,long_chapters)==nil,'duplicate source member was accepted')
     assert(os.remove(path))
 end
 print('readtime_source_bundle_spec: '..n..' checks')

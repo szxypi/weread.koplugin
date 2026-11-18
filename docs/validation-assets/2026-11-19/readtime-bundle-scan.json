@@ -1,0 +1,20 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "real_account_data_writes": 0,
+  "authorization_posts": 0,
+  "screens": ["600x800", "1264x1680"],
+  "actual_koreader_reader_subprocess_and_archive": true,
+  "real_archive_synthetic_short_text_chapters": 10000,
+  "distinct_chapter_texts": true,
+  "real_worker_scan_seconds_observed": 9.255,
+  "comparison_chapters": 3000,
+  "old_direct_scan_seconds_observed": 109.503,
+  "new_direct_scan_seconds_observed": 2.253,
+  "new_worker_scan_seconds_observed": 2.801,
+  "duplicate_missing_tampered_oversize_truncated_symlink_rejected": true,
+  "archive_descriptor_leaks_observed": false,
+  "remote_chapter_verification": "synthetic in UI regression, not included in scale timing",
+  "real_historical_credit_verified": false,
+  "physical_kindle_verified": false
+}

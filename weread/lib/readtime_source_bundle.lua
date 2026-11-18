@@ -7,6 +7,8 @@ local Search=require('weread.lib.cached_book_search')
 local Archive=require('weread.lib.source_archive')
 local Candidate=require('weread.lib.source_upload_candidate')
 local Current=require('weread.lib.source_currentness')
+local Source=require('weread.lib.position_source')
+local Crypto=require('weread.lib.crypto')
 local M={}
 
 local function version(value)
@@ -40,6 +42,24 @@ function M.inspect(selection,file,chapters,options)
         local discovered=Search.discover(discovery,read,function() return listed end)
         if type(discovered)~='table' or discovered.error or discovered.incomplete
             or not C.array(discovered.entries,identity.chapter_count,identity.chapter_count) then return nil end
+        -- Production archives are verified in one pass; injected archive
+        -- readers retain the independently checked per-chapter path.
+        local bulk=not options.read_archive and not options.list_metadata
+        local metadata,wanted={},{}
+        local function add(name,item)
+            local old=wanted[name]
+            if old then
+                assert(old.maximum==item.maximum and old.bytes==item.bytes and old.sha256==item.sha256 and old.size==item.size)
+            else wanted[name]=item end
+        end
+        if bulk then
+            add(Identity.PATH,{maximum=Identity.MAX_BYTES,bytes=raw})
+            for _i,item in ipairs(listed) do
+                local record=assert(Source.decode_metadata(item.metadata))
+                assert(not metadata[record.chapter_uid])
+                metadata[record.chapter_uid]={value=item.metadata,record=record,name=item.name}
+            end
+        end
         local entries,seen_index,cursor={}, {},1
         for i,item in ipairs(discovered.entries) do
             while cursor<=#chapters do
@@ -54,14 +74,27 @@ function M.inspect(selection,file,chapters,options)
             if item.index~=i or item.uid~=uid or not C.id(uid) or not C.integer(idx,0,1000000)
                 or seen_index[idx] then return nil end
             seen_index[idx]=true
-            local snapshot=Search.snapshot(file,selection.book_id,uid,read)
-            local info=snapshot and snapshot.record
+            local snapshot,info
+            if bulk then
+                local meta=metadata[uid];info=meta and meta.record
+                if not info or info.book_id~=selection.book_id or info.chapter_uid~=uid
+                    or info.file_id~=selection.file_id or info.book_version~=0 or meta.name~=Source.meta_path(uid) then return nil end
+                add(meta.name,{maximum=Source.MAX_META_BYTES,bytes=meta.value})
+                add(Source.path_meta_path(info.render_path),{maximum=Source.MAX_META_BYTES,bytes=meta.value})
+                add(Source.raw_path(info.raw_sha256),{maximum=Source.MAX_BYTES,sha256=info.raw_sha256,size=info.raw_bytes})
+                add(info.render_path,{maximum=Source.MAX_RENDERED_BYTES,sha256=info.render_sha256})
+                snapshot={identity=identity,record=info,metadata_hash=Crypto.sha256_hex(meta.value)}
+            else
+                snapshot=Search.snapshot(file,selection.book_id,uid,read)
+                info=snapshot and snapshot.record
+            end
             if not snapshot or snapshot.identity.file_id~=selection.file_id or snapshot.identity.book_version~=0
                 or snapshot.identity.chapter_count~=identity.chapter_count or not info or info.format~='web_txt' then return nil end
             entries[i]={book_id=selection.book_id,chapter_uid=uid,chapter_idx=idx,
                 raw_sha256=info.raw_sha256,raw_bytes=info.raw_bytes,metadata_hash=snapshot.metadata_hash}
             cursor=cursor+1
         end
+        if bulk and not Archive.verify_members(file,wanted) then return nil end
         -- Detect replacement or metadata-list changes while the chapters were read.
         local last=read(file,{[Identity.PATH]=Identity.MAX_BYTES})
         local relisted=list(file)
