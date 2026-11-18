@@ -38,7 +38,7 @@ def run(probe,journal,credentials,grant_check,read_content,*,apply=False,sleep=t
     report=dict(result='UNVERIFIED',phase='preflight',credential_requests=0,cos_put_attempts=0,notify_posts=0,cleanup_posts=0,
                 authentication_posts=0,source_verified=False)
     try:
-        if fixture_extension not in ('epub','pdf','mobi','azw3') or type(readback_tries) is not int or not 1<=readback_tries<=9:raise ValueError('synthetic_epub/extension')
+        if fixture_extension not in ('epub','pdf','mobi','azw3','txt') or type(readback_tries) is not int or not 1<=readback_tries<=9:raise ValueError('synthetic_epub/extension')
         baseline=probe.shelf(credentials);name='KOReaderSynthetic-'+secrets.token_hex(8)+'.'+fixture_extension;body=fixture_builder()
         plan=prepare_plan(credentials,baseline,name);check_plan(plan,credentials,probe.shelf(credentials))
         if not grant_check(credentials):raise ValueError('synthetic_epub/grant')
