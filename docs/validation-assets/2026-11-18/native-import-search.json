@@ -1,0 +1,17 @@
+{
+  "result": "NATIVE_IMPORT_SEARCH_CHECKED",
+  "scope": "one imported book, one source-derived query, one native GET",
+  "native_search_gets": 1,
+  "native_response": {
+    "accepted": false,
+    "http_status": 401,
+    "api_rejected": false
+  },
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "position_unchanged": true,
+  "catalog_unchanged": true,
+  "shelf_unchanged": true,
+  "private_data_saved": false,
+  "interpretation": "Authentication status and endpoint restriction cannot be distinguished; search coverage and response format remain unverified."
+}
