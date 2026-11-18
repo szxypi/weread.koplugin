@@ -70,6 +70,38 @@ do
     local valid,reason=pcall(Source.fetch,fallback.client,{kind='search',keyword='term',cursor=0},fallback.capture(),{recover_auth=true})
     expect(not valid and reason=='discovery/native_expired','public fallback skipped native renewal')
 end
+for _,native in ipairs({false,true}) do
+    local fallback=fixture();fallback.change{present=native,status=403}
+    local gateways,public_reads=0,0
+    fallback.client.get_gateway_discovery=function()
+        gateways=gateways+1;error('discovery/gateway_recoverable',0)
+    end
+    fallback.client.get_public_book_search=function(_self,keyword,cursor)
+        public_reads=public_reads+1;return public_client:get_public_book_search(keyword,cursor)
+    end
+    local access=fallback.capture()
+    local found=Source.fetch(fallback.client,{kind='search',keyword='term',cursor=0},access)
+    expect(found.source_kind=='public' and gateways==1 and public_reads==1,
+        'unavailable gateway did not fall back to public search')
+    expect(not pcall(Source.fetch,fallback.client,{kind='search',keyword='term',cursor=20,
+        source_kind='gateway',source_revision=access.revision},access) and public_reads==1,
+        'gateway continuation changed source')
+    expect(not pcall(Source.fetch,fallback.client,{kind='recommend',cursor=0},access) and public_reads==1,
+        'failed recommendations silently became public search')
+    fallback.client.get_gateway_discovery=function() error('discovery/gateway_unavailable',0) end
+    expect(not pcall(Source.fetch,fallback.client,{kind='search',keyword='term',cursor=0},access) and public_reads==1,
+        'gateway rate limit or malformed result triggered fallback')
+    fallback.client.get_gateway_discovery=function() return {errcode=-2012} end
+    expect(not pcall(Source.fetch,fallback.client,{kind='search',keyword='term',cursor=0},access) and public_reads==1,
+        'gateway business rejection triggered fallback')
+end
+do
+    local fallback=fixture();fallback.change{present=false}
+    fallback.client.get_gateway_discovery=function() fallback.change{current=false};error('discovery/gateway_recoverable',0) end
+    fallback.client.get_public_book_search=function() error('stale account requested public data') end
+    expect(not pcall(Source.fetch,fallback.client,{kind='search',keyword='term',cursor=0},fallback.capture()),
+        'changed account survived gateway failure')
+end
 local selected=f.capture()
 local result=Source.fetch(f.client,{kind="search",keyword="三体 &",cursor=0},selected)
 expect(result.source_kind=="native" and result.next_cursor==20 and #result.books==1,"native root books projection")

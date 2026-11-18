@@ -86,6 +86,29 @@ return function(plugin,count,flush_tasks,home,pump_until)
         and count('/login','native_renewal')==posts+5,'429 fanned out or replaced public results')
     UIManager:close(UIManager:getTopmostVisibleWidget())
     settings:set("api_key",previous_key);settings:flush()
+    -- Exercise the real gateway and public transport without native access.
+    -- Override only the synthetic store's reader; never alter its on-disk grant.
+    local Credentials=require('weread.lib.native_credentials')
+    local read_grant=Credentials.read;Credentials.read=function() return nil end
+    local gateway_reads=count('/api/agent/gateway','/store/search')
+    public_reads=count('/web/search/global')
+    control{match='/store/search',times=1,status=403,delay=0}
+    plugin:loadDiscoveryBatch('search','测试作者',0);wait()
+    state=plugin.discovery_state
+    assert(state.source_kind=='public' and #state.books==20
+        and count('/api/agent/gateway','/store/search')==gateway_reads+1
+        and count('/web/search/global')==public_reads+1,'gateway 403 did not open public search')
+    plugin:loadDiscoveryBatch('search',state.keyword,state.next_cursor,false,false,state);wait()
+    assert(plugin.discovery_state.source_kind=='public' and #plugin.discovery_state.books==6
+        and count('/api/agent/gateway','/store/search')==gateway_reads+1
+        and count('/web/search/global')==public_reads+2,'gateway fallback mixed next-page sources')
+    local gateway_page=plugin.discovery_state
+    control{match='/store/search',times=1,status=429,delay=0}
+    plugin:loadDiscoveryBatch('search','测试作者',0);wait()
+    assert(plugin.discovery_state==gateway_page and count('/web/search/global')==public_reads+2
+        and count('/api/agent/gateway','/store/search')==gateway_reads+2,'gateway 429 fanned out or replaced results')
+    UIManager:close(UIManager:getTopmostVisibleWidget())
+    Credentials.read=read_grant
     control{match="/store/search",times=2,status=401,delay=0}
     plugin:loadDiscoveryBatch("search","测试作者",0);wait()
     assert(count("/login","native_renewal")==posts+6 and plugin.discovery_state.source_kind=="gateway",

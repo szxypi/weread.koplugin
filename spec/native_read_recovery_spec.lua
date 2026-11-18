@@ -102,6 +102,16 @@ for _,lost in ipairs({false,true}) do
             'public search replayed an uncertain renewal')
     end
 end
+for _,lost in ipairs({false,true}) do
+    local f=fixture('search',{lost=lost,codes={401,401}})
+    f.host.client.get_gateway_discovery=function()
+        f.state.gateway=f.state.gateway+1;error('discovery/gateway_recoverable',0)
+    end
+    f.load();f.tick('read');f.tick('renew');f.tick('read')
+    expect(f.state.posts==1 and f.state.gateway==1 and f.state.public==1
+        and f.host.discovery_state.source_kind=='public' and f.state.pending==lost and f.empty(),
+        'native renewal and gateway failure did not safely fall back to public search')
+end
 do
     local f=fixture('search',{lost=true});f.state.key=''
     f.load();f.tick('read');f.tick('renew');f.state.current=false;f.tick('read')

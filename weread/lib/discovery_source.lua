@@ -74,6 +74,22 @@ function M.fetch(client, request, selected, options)
     local function current() if not M.matches(client.settings,selected) then fail("session_changed") end end
     current()
     if request.source_revision and request.source_revision~=selected.revision then fail("source_changed") end
+    local function gateway()
+        local ok,data=pcall(client.get_gateway_discovery,client,request.kind,request,selected.api_key)
+        current()
+        if not ok then
+            if data=='discovery/gateway_recoverable' and request.kind=='search'
+                and (request.cursor or 0)==0 and not request.source_kind then
+                local value=M.fetch(client,{kind='search',keyword=request.keyword,cursor=0,source_kind='public'})
+                current()
+                return value
+            end
+            fail('gateway_unavailable')
+        end
+        local value=M.project(client,request.kind,data,request.cursor)
+        value.source_kind,value.source_revision='gateway',selected.revision
+        return value
+    end
     local kind=request.source_kind or (not options.skip_native and selected.native and "native" or "gateway")
     if kind=="native" then
         if not selected.native then fail("source_changed") end
@@ -87,11 +103,7 @@ function M.fetch(client, request, selected, options)
             local fallback=reason:match("/http_50%d$") or reason:match("/http_40[13]$")
                 or reason:match("/transport$") or reason:match("/timeout$")
             if selected.api_key and (request.cursor or 0)==0 and not request.source_kind and fallback then
-                local payload=client:get_gateway_discovery(request.kind,request,selected.api_key)
-                current()
-                local value=M.project(client,request.kind,payload,request.cursor)
-                value.source_kind,value.source_revision="gateway",selected.revision
-                return value
+                return gateway()
             end
             -- Search can use the anonymous catalogue when there is no Skill
             -- key. Never splice a different source into an existing batch.
@@ -107,11 +119,7 @@ function M.fetch(client, request, selected, options)
         value.source_kind,value.source_revision="native",selected.revision
         return value
     elseif kind=="gateway" and selected.api_key then
-        local data=client:get_gateway_discovery(request.kind,request,selected.api_key)
-        current()
-        local value=M.project(client,request.kind,data,request.cursor)
-        value.source_kind,value.source_revision="gateway",selected.revision
-        return value
+        return gateway()
     end
     fail("source_changed")
 end

@@ -656,6 +656,20 @@ for _,response in ipairs({{code=302,body="private-discovery"},{code=401,body="pr
     expect(not ok and not tostring(err):find("private-",1,true),"gateway discovery must redact and bound failures")
 end
 expect(not table.concat(logs,"\n"):find("private-",1,true),"gateway discovery logged response or credentials")
+for _,item in ipairs({
+    {response={code=401,body='private-response'},reason='discovery/gateway_recoverable'},
+    {response={code=403,body='private-response'},reason='discovery/gateway_recoverable'},
+    {response={code=503,body='private-response'},reason='discovery/gateway_recoverable'},
+    {response={raise='private-transport'},reason='discovery/gateway_recoverable'},
+    {response={code=429,body='private-response'},reason='discovery/gateway_unavailable'},
+    {response={code=302,body='private-response'},reason='discovery/gateway_unavailable'},
+    {response={code=200,body=string.rep('x',4*1024*1024+1)},reason='discovery/gateway_unavailable'},
+}) do
+    responses[#responses+1]=item.response
+    ok,err=pcall(client.get_gateway_discovery,client,'search',{keyword='term'},'captured-discovery-key')
+    expect(not ok and err==item.reason,'gateway failure was not safely classified')
+end
+expect(not table.concat(logs,'\n'):find('private-',1,true),'gateway failure classification exposed private data')
 responses[#responses+1]={code=200,body="statistics",headers={["set-cookie"]="ignored=value"}}
 client:get_gateway_read_stats("monthly",1706716800,"captured-statistics-key")
 local statistics_request=requests[#requests]

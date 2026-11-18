@@ -36,7 +36,7 @@ bash scripts/package_release.sh dist/weread.koplugin-eink-ui-dev.zip
 
 ## 登录
 
-在手机微信读书 App 的“我 → 设置 → 微信读书 Skill”中获取个人 API Key，再在插件中使用微信扫码登录。可阅读内容取决于账号的实际权限。
+在插件中使用微信扫码登录。部分功能可使用手机微信读书 App“我 → 设置 → 微信读书 Skill”中的个人 API Key；公开书目浏览不需要登录。可阅读内容取决于账号的实际权限。
 
 ## 开发与反馈
 

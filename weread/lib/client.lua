@@ -774,15 +774,20 @@ function Client:get_gateway_discovery(kind, options, api_key)
         keyword=kind=="search" and options.keyword or nil,scope=kind=="search" and 10 or nil,
         bookId=kind=="similar" and options.book_id or nil,sessionId=kind=="similar" and options.session_id or nil}
     local chunks, bytes, exceeded = {}, 0, false
-    local _,code,headers = self:request{url="https://i.weread.qq.com/api/agent/gateway",method="POST",body=self:json_encode(payload),
+    local ok,_,code,headers = pcall(self.request,self,{url="https://i.weread.qq.com/api/agent/gateway",method="POST",body=self:json_encode(payload),
         skip_cookie=true,persist_response_cookies=false,sensitive=true,diagnostic_api="discovery",timeout={8,15},
         headers={Authorization="Bearer "..api_key,["Content-Type"]="application/json"},sink=function(chunk)
             if not chunk then return 1 end
             bytes=bytes+#chunk
             if bytes>4*1024*1024 then exceeded=true;return nil,"discovery_limit" end
             chunks[#chunks+1]=chunk;return 1
-        end}
-    if exceeded or code~=200 then error("discovery/gateway_unavailable",0) end
+        end})
+    if exceeded then error("discovery/gateway_unavailable",0) end
+    code=tonumber(code)
+    if not ok or not code or code==401 or code==403 or code>=500 and code<=599 then
+        error("discovery/gateway_recoverable",0)
+    end
+    if code~=200 then error("discovery/gateway_unavailable",0) end
     return self:decode_http_json(table.concat(chunks),{sensitive=true,api_name="discovery",code=code,headers=headers})
 end
 
