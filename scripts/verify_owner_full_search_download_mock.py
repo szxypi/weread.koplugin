@@ -3,19 +3,26 @@
 import argparse,json,os,subprocess,sys,threading
 from pathlib import Path
 
-from test_position_runtime import SearchMockServer,synthetic_search_source
+from test_position_runtime import SearchMockServer
+from verify_cb_book_search import query_text
 
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',required=True,type=Path);parser.add_argument('--candidate',required=True,type=Path)
     args=parser.parse_args(argv);server=SearchMockServer(0,True)
+    def synthetic_source(uid,_revision=None):
+        return '<html><body><p>合成章节'+str(uid)+' 内容开始。独特的河流山川与星光照亮旅程。尾声。</p></body></html>'
+    server.chapter_source=synthetic_source
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
+        source=synthetic_source(2);keyword,offset=query_text(source,(16,12,8))
+        if not keyword or not offset:raise ValueError('synthetic/query')
         payload=dict(owner='900000',cookies={'wr_vid':'900000','wr_skey':'synthetic-search-session'},
-            book='CB_SyntheticResume',chapter='2',local_chapter='1',source=synthetic_search_source(2),
+            book='CB_SyntheticResume',chapter='2',local_chapter='1',source=source,
             chapters=[dict(chapterUid=str(i),chapterIdx=i,title='Synthetic chapter '+str(i),wordCount=1000) for i in (1,2)],
-            keyword='amberneedle',allowed=[dict(chapter='1',start=0,finish=0)],full_download_search=True,
+            keyword=keyword,expected_offset=offset[0],
+            allowed=[dict(chapter='1',start=0,finish=0)],full_download_search=True,
             synthetic_port=server.server_port)
         command=[sys.executable,str(Path(__file__).with_name('run_owner_book_search_ui.py')),
                  '--koreader',str(args.koreader),'--candidate',str(args.candidate)]

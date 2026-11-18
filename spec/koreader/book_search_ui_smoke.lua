@@ -157,8 +157,18 @@ if imported then
         wait(function() return cached.finished and not cached.job and not cached.download and cached.checked==2 end)
         assert(#cached.value==2 and cached.missing==0 and tonumber(network[0])>before,'full download did not fill search coverage')
         assert(reader.document.file==book.cached_file,'download replaced the current reader document')
+        local expected=cached.value[2].offset;cached.menu:onMenuSelect(cached.menu.item_table[2])
+        wait(function()
+            local instance=require('apps/reader/readerui').instance
+            if instance and instance.weread then reader=instance;plugin=instance.weread end
+            local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
+            return plugin.source_navigation and plugin.source_navigation.state=='ready'
+                and held and held.chapter_uid=='2' and held.chapter_offset==expected
+        end)
+        assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
+        assert(not plugin.progress_sync.verified and not plugin.read_report.job)
         print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',local_download_search=true,
-            unavailable_before=1,results=2,cancel_safe=true,current_file_preserved=true}))
+            unavailable_before=1,results=2,cancel_safe=true,current_file_preserved=true,navigation_verified=true}))
         os.exit(0)
     end
     if not missing and not renewal_test then

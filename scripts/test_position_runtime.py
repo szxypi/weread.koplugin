@@ -345,7 +345,7 @@ def main():
                               downloaded=args.search_missing,catalog_downloaded=args.search_catalog_missing)
                 if args.search_local_download:
                     expected=dict(result='PASS',local_download_search=True,unavailable_before=1,results=2,
-                                  cancel_safe=True,current_file_preserved=True)
+                                  cancel_safe=True,current_file_preserved=True,navigation_verified=True)
                 if args.search_renewal:expected['renewal_scenarios']=True
                 if args.search_cb and not args.search_local_download:expected['imported_search']=True
                 if args.search_current_fallback:expected['current_fallback']=True

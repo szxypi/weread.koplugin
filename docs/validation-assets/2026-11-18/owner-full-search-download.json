@@ -5,6 +5,7 @@
   "cancel_before_download": true,
   "all_catalog_chapters_searched": true,
   "target_source_verified": true,
+  "offline_navigation_verified": true,
   "current_reader_file_preserved": true,
   "position_unchanged": true,
   "catalog_unchanged": true,
@@ -17,5 +18,6 @@
   "credential_audit_passed": true,
   "temporary_profile_removed": true,
   "private_data_on_regular_disk": false,
-  "physical_kindle_tested": false
+  "physical_kindle_tested": false,
+  "prior_navigation_attempt": "unverified; cause not identified; independent account readback unchanged"
 }

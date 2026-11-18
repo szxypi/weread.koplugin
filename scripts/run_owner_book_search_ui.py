@@ -76,11 +76,14 @@ def main(argv=None):
                             report['navigation_diagnostic']=failure['navigation_diagnostic']
                         if failure.get('failure_detail') in ('unknown','blocked','blocked_catalog','blocked_policy','blocked_search','blocked_other','http_failed','no_catalog','no_search','after_search'):
                             report['failure_detail']=failure['failure_detail']
+                        if failure.get('full_diagnostic') in ('not_started','start','initial_search','downloaded','target_found',
+                                                               'source_checked','navigation_started','navigation_ready','audited'):
+                            report['full_diagnostic']=failure['full_diagnostic']
                 if child.returncode or len(out)>8*1024*1024 or out.count(FRAME)!=1 or b'[WeRead] forceRePaint failed:' in out+err:
                     raise ValueError('owner_search/native')
                 value=json.loads(out.split(FRAME,1)[1].splitlines()[0])
                 if payload.get('full_download_search') is True:
-                    flags=('full_download_search','cancel_without_download','current_file_preserved','source_verified',
+                    flags=('full_download_search','cancel_without_download','current_file_preserved','source_verified','navigation_verified',
                            'workers_reaped','credential_audit')
                     keys={'result',*flags,'chapters','checked','denied_requests','download_gets','catalog_posts','content_posts'}
                     if (not isinstance(value,dict) or set(value)!=keys or value['result']!='PASS'

@@ -43,7 +43,9 @@ def safe_chapters(chapters):
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true');args=parser.parse_args(argv)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--diagnostic-two',action='store_true',help='Limit the isolated test to the target and one other chapter')
+    args=parser.parse_args(argv)
     report=dict(result='OFFLINE_ONLY',account_data_writes=0,authentication_writes=0,private_data_on_regular_disk=False)
     if not args.saved_session:
         print(json.dumps(report));return 0
@@ -58,6 +60,9 @@ def main(argv=None):
         chapters=safe_chapters(sample['chapters']);ids=[row['chapterUid'] for row in chapters]
         target=sample['chapter_uid'];other=next((uid for uid in ids if uid!=target),None)
         if target not in ids or other is None:raise ValueError('owner_full_search/catalog')
+        if args.diagnostic_two:
+            chapters=[row for row in chapters if row['chapterUid'] in (target,other)]
+            ids=[row['chapterUid'] for row in chapters]
         keyword,offset=query_text(sample['source'],(16,12,8))
         if not keyword or not offset:raise ValueError('owner_full_search/query')
         phase='baseline';before=snapshot(web,saved['vid'],sample['book_id'])
@@ -67,7 +72,7 @@ def main(argv=None):
                  if cookie.name in COOKIE_NAMES and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
         payload=dict(owner=saved['vid'],cookies=cookies,book=sample['book_id'],chapter=target,local_chapter=other,
                      source=sample['source'],chapters=chapters,keyword=keyword,allowed=[dict(chapter=ids[0],start=0,finish=0)],
-                     full_download_search=True)
+                     expected_offset=offset[0],full_download_search=True)
         raw=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
         if len(raw)>8*1024*1024:raise ValueError('owner_full_search/input')
         phase='native_ui';print(json.dumps(dict(phase=phase,chapters=len(chapters),screens=1)),flush=True)
@@ -75,9 +80,14 @@ def main(argv=None):
                        '/validation/runtime/lib/koreader','--candidate',candidate,'--width','1264','--height','1680','--dpi','300']
         child=subprocess.run(runner,input=raw,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=1000)
         ui_result=None
-        if child.returncode==0 and len(child.stdout)<=65536:
-            value=json.loads(child.stdout)
-            if (value.get('result')=='PASS' and value.get('profile_removed') is True
+        if len(child.stdout)<=65536:
+            try:value=json.loads(child.stdout)
+            except (ValueError,UnicodeError):value={}
+            if not isinstance(value,dict):value={}
+            if value.get('full_diagnostic') in ('not_started','start','initial_search','downloaded','target_found',
+                                                'source_checked','navigation_started','navigation_ready','audited'):
+                report['native_diagnostic']=value['full_diagnostic']
+            if (child.returncode==0 and value.get('result')=='PASS' and value.get('profile_removed') is True
                     and value.get('installed_bytes_match') is True and value.get('account_data_posts')==0
                     and value.get('authentication_posts')==0 and value.get('ui',{}).get('checked')==len(chapters)):
                 ui_result=value['ui']
@@ -87,7 +97,8 @@ def main(argv=None):
         if ui_result is None:raise ValueError('owner_full_search/native')
         save_refreshed_web_session(store,saved,web)
         report.update(result='PASS',chapters=len(chapters),native_screens=1,downloaded_source_verified=True,
-                      cancellation_verified=True,credentials_absent_from_profile=True,profile_removed=True,
+                      cancellation_verified=True,offline_navigation_verified=True,credentials_absent_from_profile=True,profile_removed=True,
+                      diagnostic_subset=args.diagnostic_two,
                       read_only_download_gets=ui_result['download_gets'],read_only_catalog_posts=ui_result['catalog_posts'],
                       read_only_content_posts=ui_result['content_posts'])
     except Exception as error:

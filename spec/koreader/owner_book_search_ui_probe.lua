@@ -16,6 +16,7 @@ local json=require('json')
 local raw=io.stdin:read(8*1024*1024+1)
 local phase='decode'
 local navigation_diagnostic='unknown'
+local full_diagnostic='not_started'
 local counters,download_counters
 local ok,result=pcall(function()
     assert(#raw<=8*1024*1024)
@@ -156,10 +157,12 @@ local ok,result=pcall(function()
         end
     end
     if full_search then
+        full_diagnostic='start'
         phase='search'
         assert(require('weread.ui.cached_book_search').open(plugin,input.book,input.chapters,input.keyword))
         local owner=assert(plugin._cached_book_search_owner);assert(owner.input:getInputText()==input.keyword)
         owner.input.buttons[1][2].callback();wait(function() return owner.finished and not owner.job end,120)
+        full_diagnostic='initial_search'
         assert(owner.missing==#input.chapters-1 and #owner.value==0 and download_counters[0]==0)
         local function action()
             for _i,item in ipairs(owner.menu.item_table) do
@@ -172,15 +175,34 @@ local ok,result=pcall(function()
         owner.menu:onMenuSelect(action());confirm=assert(owner.download.confirm)
         phase='navigate';download_counters[5]=1;confirm.ok_callback()
         wait(function() return owner.finished and not owner.job and not owner.download and owner.checked==#input.chapters end,720)
+        full_diagnostic='downloaded'
         download_counters[5]=0
         assert(owner.missing==0 and reader.document.file==file and not plugin.read_report.job and counters[2]==0)
-        local match=false
-        for _i,hit in ipairs(owner.value) do if hit.chapter_uid==input.chapter then match=true end end
+        local match,index
+        for at,hit in ipairs(owner.value) do
+            if hit.chapter_uid==input.chapter and hit.offset==input.expected_offset then match,index=hit,at;break end
+        end
         assert(match,'owner_full_search_no_target')
+        full_diagnostic='target_found'
         local stored=assert(plugin.settings:get_book(input.book));local path=assert(stored.cached_full_book)
         local snapshot=assert(require('weread.lib.cached_book_search').snapshot(path,input.book,input.chapter))
         assert(snapshot.record.raw_sha256==require('weread.lib.crypto').sha256_hex(input.source))
+        full_diagnostic='source_checked'
         assert(download_counters[6]==0 and download_counters[1]>0 and download_counters[3]>0)
+        local before_navigation=tonumber(download_counters[0])
+        owner.menu:onMenuSelect(assert(owner.menu.item_table[index]))
+        full_diagnostic='navigation_started'
+        wait(function()
+            local instance=require('apps/reader/readerui').instance
+            if instance and instance.weread then reader=instance;plugin=instance.weread end
+            local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
+            return plugin.source_navigation and plugin.source_navigation.state=='ready'
+                and held and held.chapter_uid==input.chapter and held.chapter_offset==input.expected_offset
+        end,120)
+        assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
+        full_diagnostic='navigation_ready'
+        assert(not plugin.progress_sync.verified and not plugin.read_report.job and download_counters[0]==before_navigation
+            and counters[2]==0,'owner_full_search_navigation')
         wait(function() for _i,pid in ipairs(workers) do if not require('ffi/util').isSubProcessDone(pid) then return false end end;return true end)
         local lfs=require('libs/libkoreader-lfs');local latest_cookies=plugin.settings:get('cookies',{})
         local function audit(dir)
@@ -200,8 +222,10 @@ local ok,result=pcall(function()
             end
         end
         audit(home)
+        full_diagnostic='audited'
         return {result='PASS',full_download_search=true,cancel_without_download=true,current_file_preserved=true,
-            source_verified=true,workers_reaped=true,credential_audit=true,chapters=#input.chapters,checked=owner.checked,
+            source_verified=true,navigation_verified=true,workers_reaped=true,credential_audit=true,
+            chapters=#input.chapters,checked=owner.checked,
             denied_requests=tonumber(counters[2]),download_gets=tonumber(download_counters[1]),
             catalog_posts=tonumber(download_counters[2]),content_posts=tonumber(download_counters[3])}
     end
@@ -352,5 +376,5 @@ if not ok and counters then
     else failure_detail='after_search' end
 end
 print('\nWEREAD_OWNER_BOOK_SEARCH_UI='..json.encode(ok and result or {result='UNVERIFIED',phase=phase,
-    navigation_diagnostic=navigation_diagnostic,failure_detail=failure_detail}))
+    navigation_diagnostic=navigation_diagnostic,failure_detail=failure_detail,full_diagnostic=full_diagnostic}))
 os.exit(ok and result.result=='PASS' and 0 or 1)
