@@ -1,0 +1,24 @@
+{
+  "result": "TXT_REPRESENTATION_UNVERIFIED",
+  "scope": "one separate self-authored text file with many short paragraphs",
+  "synthetic_native_reader": {"screens": [[600, 800, 167], [1264, 1680, 300]], "result": "PASS"},
+  "real_native_reader": {
+    "screen": [600, 800, 167],
+    "source_format": "web_xhtml",
+    "underlying_reader_result": "PASS",
+    "online_and_offline_stages": "complete",
+    "source_text_and_cloud_position_verified": true,
+    "outer_txt_format_requirement_met": false,
+    "second_screen_attempted": false,
+    "account_data_posts_during_reader": 0,
+    "authentication_posts_during_reader": 0
+  },
+  "fixture_import_and_removal_independently_observed": true,
+  "import_notification_posts": 1,
+  "fixture_removal_posts": 1,
+  "previous_txt_and_native_records_unchanged": true,
+  "previous_group_fixture_retained": true,
+  "private_source_or_credentials_saved": false,
+  "single_use_records_retained": true,
+  "physical_device_verified": false
+}

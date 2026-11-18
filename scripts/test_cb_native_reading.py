@@ -124,6 +124,15 @@ class CbNativeReadingTests(unittest.TestCase):
         value.update(page_turn=False,pages=2)
         with self.assertRaises(ValueError):validate_stage(value,'live',cb_reading=True,single_page=True)
 
+    def test_single_page_txt_scope_accepts_only_fixed_fixture_marker(self):
+        from verify_cb_txt_fixture import MARKER
+        args=['--saved-session','--book-index','1','--lua-command','synthetic']
+        with patch.object(cb,'SessionStore',side_effect=RuntimeError('offline')),redirect_stdout(io.StringIO()):
+            self.assertEqual(cb.main(args,expected_book_id=FIRST,expected_source_text=MARKER,single_page=True),1)
+        with patch.object(cb,'SessionStore') as store,self.assertRaises(ValueError):
+            cb.main(args,expected_book_id=FIRST,expected_source_text='arbitrary private content is outside the fixture',single_page=True)
+        store.assert_not_called()
+
     def test_explicit_new_book_and_expected_text_are_checked_before_native_reader(self):
         code,report,run,_after=self.invoke(expected_book_id=FIRST,expected_source_text=TEXT[:64])
         self.assertEqual(code,0);self.assertEqual(report['result'],'CB_NATIVE_READING_VERIFIED');self.assertEqual(run.call_count,1)

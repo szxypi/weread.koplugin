@@ -31,7 +31,8 @@ def main(argv=None, *, expected_book_id=None, expected_source_text=None, single_
     args = parser.parse_args(argv)
     if single_page:
         from synthetic_upload_pdf import TEXT as PDF_TEXT
-        if expected_source_text!=PDF_TEXT or args.full_book or args.sync_limit:raise ValueError('cb_native/single_page_scope')
+        from verify_cb_txt_fixture import MARKER as TXT_TEXT
+        if expected_source_text not in (PDF_TEXT,TXT_TEXT) or args.full_book or args.sync_limit:raise ValueError('cb_native/single_page_scope')
     if type(single_page) is not bool:raise ValueError('cb_native/single_page_scope')
     if args.sync_limit and (not args.saved_session or args.full_book):parser.error('--sync-limit requires single CB reading')
     if args.diagnostic_read_pacing and not (args.saved_session and args.full_book):

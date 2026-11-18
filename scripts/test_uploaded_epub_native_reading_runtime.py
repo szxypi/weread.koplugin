@@ -26,14 +26,22 @@ class Opener:
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-short',action='store_true');parser.add_argument('--txt-single',action='store_true');args=parser.parse_args()
+    if args.txt_single:args.txt=True;args.single_page=True
+    if args.txt_short:args.txt=True
+    if args.single_page and args.txt and not args.txt_single:parser.error('choose one source format')
     server=MockServer(0);server.cb_reading=True;thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
-        if args.single_page:
+        if args.txt:
+            import mock_weread
+            from verify_cb_txt_native_fixture import BODY,SHORT_BODY,SINGLE_BODY
+            server.content_format='txt';mock_weread.chapter_txt=lambda _uid:(SINGLE_BODY if args.txt_single else SHORT_BODY if args.txt_short else BODY).decode('utf-8')
+        if args.single_page and not args.txt_single:
             from synthetic_upload_pdf import TEXT
             server.chapter_source=lambda _uid,_revision=None: '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>Fixture</title></head><body><p>'+TEXT+'</p></body></html>'
         probe=CbReadingProbe();probe.opener=Opener(server);probe.vid='900000';probe.set_cookie('wr_vid','900000');probe.set_cookie('wr_skey','mock_key');probe.authenticated=True
         sample=probe.prepare(1,expected_book_id=CB_READING_ID)[0]
+        if args.txt:assert sample['source_format']=='web_txt'
         payload={k:sample[k] for k in ('book_id','chapter_uid','source_format','source_text','source_raw_sha256','source_sample_offset','shelf_ids','shelf_books')}
         payload.update(cb_reading=True,vid='900000',cookies=dict(wr_vid='900000',wr_skey='mock_key'),cb_mock_port=server.server_port)
         if args.single_page:payload['cb_single_page']=True
