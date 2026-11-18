@@ -10,14 +10,18 @@ from test_native_time_bundle_evidence import fresh_fixture,synthetic_scope
 from txt_full_summary import digest
 
 
-def example():
+def example(*,with_components=False):
     bundle,grant,before,report,_now,pairs,_shelves,_evidence=fresh_fixture()
     native=source();native['archive'][0]['bookIds'].remove(TARGET)
     web=deepcopy(native)
     # Keep different full channel projections to ensure comparison is per channel.
     web['books'][0]['bookId']='900008'
     shelves=(digest(project(native)),digest(project(web)))
-    evidence=FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves,synthetic_scope(bundle))
+    if with_components:
+        from native_time_shelf_components import make
+        components=(make(project(native)),make(project(web)))
+    else:components=None
+    evidence=FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves,synthetic_scope(bundle),components=components)
     group=dict(phase='create_claimed',dispatched=True,native_fixture_present=True,web_fixture_present=True,
                native_group_present=False,web_group_present=False)
     original=dict(native_original_state_unchanged=False,web_original_state_unchanged=False,old_group_absent=True)

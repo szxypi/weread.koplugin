@@ -23,6 +23,41 @@ def setup():
 
 
 class FreshAuditTests(unittest.TestCase):
+    def test_component_baseline_survives_reopen_and_identifies_only_changed_fields(self):
+        bundle,grant,evidence,observations=shelf_example(with_components=True)
+        now=evidence.for_bundle(bundle,grant)[0]['completed_at'];_b,_g,_before,samples,_n=example()
+        _b,_g,body,_n=fixture();keeper=gate(now);reservation=keeper.reserve(bundle,grant)
+        store=FreshAuditStore(Backend(),clock=lambda:now);trial=synthetic_scope(bundle)
+        store.seal(bundle,grant,keeper,evidence,trial);self.assertEqual(store.read()[0]['schema'],2)
+        reopened=FreshAuditStore(store.backend,clock=lambda:now);packet,_,_,_=reopened.inspect(bundle,grant,keeper)
+        self.assertIn('components',packet)
+        claim=keeper.claim(reservation,bundle,grant,body,'synthetic-guest','synthetic-config')
+        keeper.acknowledge(claim,{'succ':1})
+        changed=deepcopy(observations)
+        for row in changed:row['native']['archive'][0]['updateTime']=2
+        result=reopened.assess_acknowledged(bundle,grant,keeper,samples,trial,changed)
+        self.assertFalse(result['full_shelf_exact']);self.assertTrue(result['component_diagnosis_available'])
+        self.assertEqual(result['native_shelf_change']['group_fields_changed'],['updateTime'])
+        self.assertEqual(result['web_shelf_change']['group_fields_changed'],[])
+        self.assertFalse(result['real_accounting_verified'])
+        self.assertNotIn('Synthetic',repr(result));self.assertNotIn('CB_SyntheticOnly',repr(result))
+
+    def test_schema_two_component_corruption_is_rejected(self):
+        bundle,grant,evidence,_observations=shelf_example(with_components=True)
+        now=evidence.for_bundle(bundle,grant)[0]['completed_at'];keeper=gate(now);keeper.reserve(bundle,grant)
+        store=FreshAuditStore(Backend(),clock=lambda:now);store.seal(bundle,grant,keeper,evidence,synthetic_scope(bundle))
+        value,_=store.read();next(iter(value['packet']['components'][0]['groups'].values()))['name']='a'*64
+        store.backend.save(canonical(value))
+        with self.assertRaises(ValueError):store.inspect(bundle,grant,keeper)
+
+    def test_mutated_component_evidence_never_reserves_an_audit(self):
+        bundle,grant,evidence,_observations=shelf_example(with_components=True)
+        now=evidence.for_bundle(bundle,grant)[0]['completed_at'];keeper=gate(now);keeper.reserve(bundle,grant)
+        store=FreshAuditStore(Backend(),clock=lambda:now)
+        evidence._components[0]['members']='a'*64
+        with self.assertRaises(ValueError):store.seal(bundle,grant,keeper,evidence,synthetic_scope(bundle))
+        self.assertEqual(store.read(),(None,None));self.assertEqual(keeper.read()[0]['phase'],'prepared')
+
     def test_real_keychain_scope_forbids_replacing_clock_or_lock(self):
         import native_time_bundle_fresh_audit as module
         class FakeMac:service=module.SERVICE

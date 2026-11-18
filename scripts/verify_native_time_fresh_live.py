@@ -93,6 +93,9 @@ def run(store,session,native,gate,audit,legacy_audit,*,clock=time.time,attest=tr
                 and checked.get('accounting_and_core_state_exact') is True and checked.get('full_shelf_exact') is False
                 and checked.get('account_data_posts')==0 and checked.get('authentication_posts')==0):
             result.update(accounting_and_core_state_observed=True,full_shelf_exact=False)
+            if checked.get('component_diagnosis_available') is True:
+                result.update(component_diagnosis_available=True,native_shelf_change=checked['native_shelf_change'],
+                              web_shelf_change=checked['web_shelf_change'])
         if (checked.get('result')!='READBACK_MATCH' or checked.get('independent_samples')!=3
                 or checked.get('other_state_exact') is not True or checked.get('account_data_posts')!=0
                 or checked.get('authentication_posts')!=0 or store.read()!=(bundle,receipt)

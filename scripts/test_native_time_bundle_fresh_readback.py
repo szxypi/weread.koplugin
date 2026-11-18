@@ -89,7 +89,7 @@ class FreshReadbackTests(unittest.TestCase):
                     elif mode=='shelf_changed':
                         result=run(**args);self.assertEqual(result['result'],'READBACK_PARTIAL')
                         self.assertTrue(result['accounting_and_core_state_exact']);self.assertFalse(result['full_shelf_exact'])
-                        self.assertFalse(result['real_accounting_verified'])
+                        self.assertFalse(result['real_accounting_verified']);self.assertFalse(result['component_diagnosis_available'])
                     else:
                         with self.assertRaises(ValueError):run(**args)
             self.assertEqual(keeper.read(),gate_before);self.assertEqual(audit.read(),audit_before)

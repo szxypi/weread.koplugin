@@ -6,6 +6,7 @@ supervisor. The old trial's status is retained verbatim, never called restored.
 """
 from copy import deepcopy
 
+from annotation_experiment_model import digest
 from native_time_bundle_accounting import baseline
 from native_time_bundle_evidence import FreshShelfEvidence
 from native_time_bundle_fresh_audit import FreshAuditStore
@@ -35,6 +36,9 @@ class FreshNativeBoundSupervisor(NativeBoundSupervisor):
         self.snapshot,self.months=deepcopy(snapshot),deepcopy(months)
         self._packet={'report':report,'baseline':baseline(bundle,grant,snapshot,months,report['completed_at']),
                       'catalog_stamp':stamp,'shelves':list(shelves),'trial_scope':trial}
+        components=evidence.components_for_bundle(bundle,grant)
+        if components is not None:
+            self._packet['components']=list(components);self._packet['components_sha256']=digest(components)
         self.audit_receipt=None
         Supervisor.__init__(self,gate,store,bundle,grant,guest,config_token,current,
                             lambda:self.evidence.for_bundle(self.bundle,self.grant)[0])
@@ -51,6 +55,9 @@ class FreshNativeBoundSupervisor(NativeBoundSupervisor):
         report,snapshot,months,stamp,shelves,trial=self.evidence.for_bundle(self.bundle,self.grant)
         packet={'report':report,'baseline':baseline(self.bundle,self.grant,snapshot,months,report['completed_at']),
                 'catalog_stamp':stamp,'shelves':list(shelves),'trial_scope':trial}
+        components=self.evidence.components_for_bundle(self.bundle,self.grant)
+        if components is not None:
+            packet['components']=list(components);packet['components_sha256']=digest(components)
         if packet!=self._packet or report['completed_at']!=self.preflight_at or self.trial_reader()!=trial:
             raise ValueError('fresh_supervisor/evidence_changed')
 

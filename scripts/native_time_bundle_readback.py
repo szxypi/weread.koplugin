@@ -179,9 +179,13 @@ def run(*,saved,grant,store,gate,audit,current,web,clock=time.time,sleep=time.sl
     else:result=audit.check_acknowledged(bundle,grant,gate,samples)
     if not state_current():raise ValueError('bundle_readback/changed')
     if fresh_audit and result['full_shelf_exact'] is False:
-        return dict(result='READBACK_PARTIAL',independent_samples=result['independent_samples'],
-                    accounting_and_core_state_exact=result['other_counters_positions_source_shelf_exact'],
-                    full_shelf_exact=False,real_accounting_verified=False,account_data_posts=0,authentication_posts=0)
+        partial=dict(result='READBACK_PARTIAL',independent_samples=result['independent_samples'],
+                     accounting_and_core_state_exact=result['other_counters_positions_source_shelf_exact'],
+                     full_shelf_exact=False,real_accounting_verified=False,account_data_posts=0,authentication_posts=0,
+                     component_diagnosis_available=result['component_diagnosis_available'])
+        if result['component_diagnosis_available']:
+            partial.update(native_shelf_change=result['native_shelf_change'],web_shelf_change=result['web_shelf_change'])
+        return partial
     return dict(result='READBACK_MATCH',independent_samples=result['independent_samples'],
                 other_state_exact=result['other_counters_positions_source_shelf_exact'],
                 real_accounting_verified=False,account_data_posts=0,authentication_posts=0)

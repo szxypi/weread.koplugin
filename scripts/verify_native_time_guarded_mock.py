@@ -13,6 +13,7 @@ from native_time_bundle_evidence import FreshShelfEvidence
 from native_time_bundle_fresh_audit import FreshAuditStore
 from native_time_bundle_fresh_broker import Prepared,execute
 from native_time_bundle_gate import DispatchGate,day
+from native_time_shelf_components import make as component_fingerprints
 from native_time_bundle_preparation import SigningInputs,SigningRead
 from native_time_bundle_audit_store import AuditStore as LegacyAuditStore
 from native_time_bundle_readback import NativeReads,StatisticsReads,ShelfRead,run as readback
@@ -46,7 +47,7 @@ class Server(MockServer):
         self.months=deepcopy(months);self.applied=False;self.writes=0;self.fault=None;self.seen=[]
         self.shelf={'books':[{'bookId':plan['book_id'],'title':'Synthetic book','secret':0,'finishReading':0},
                              {'bookId':TARGET,'title':'Synthetic fixture','secret':0,'finishReading':0}],
-                    'archive':[{'archiveId':2,'name':'Synthetic group','bookIds':[plan['book_id']],'updatedAt':1}]}
+                    'archive':[{'archiveId':2,'name':'合成分组','bookIds':[plan['book_id']],'updateTime':1}]}
         self.catalog=synthetic_catalog(plan)
 
     def route(self,method,target,data):
@@ -60,7 +61,7 @@ class Server(MockServer):
             if url.path=='/book/info' and method=='GET':return 200,dict(bookId=self.plan['book_id'],bookVersion=7)
             if url.path=='/shelf/sync' and method=='GET':
                 value=deepcopy(self.shelf)
-                if self.applied and self.fault=='shelf_metadata_changed':value['archive'][0]['updatedAt']=2
+                if self.applied and self.fault=='shelf_metadata_changed':value['archive'][0]['updateTime']=2
                 return 200,value
             if url.path=='/readdata/detail' and method=='GET':
                 month=parse_qs(url.query)['baseTime'][0];value=deepcopy(self.months[month])
@@ -105,7 +106,8 @@ def scenario(args,mode):
                   fresh_native_and_web_shelf_stable=True,previous_native_group_baseline_matches=False,previous_web_group_baseline_matches=False)
     shelf_digest=digest(project(server.shelf))
     evidence=FreshShelfEvidence(bundle,grant,report,before['snapshot'],months,synthetic_pairs(server.catalog),
-                                (shelf_digest,shelf_digest),synthetic_scope(bundle))
+                                (shelf_digest,shelf_digest),synthetic_scope(bundle),
+                                components=(component_fingerprints(project(server.shelf)),component_fingerprints(project(server.shelf))))
     store=Capture(bundle);gate=DispatchGate(Backend(),clock=time.time,zone=lambda:'+08:00');audit=FreshAuditStore(Backend(),clock=time.time)
     prepared=Prepared(bundle,store.receipt,grant,evidence);armed=mode not in ('dry','host_dry','malicious_approval')
     server.fault=('missing_ack' if mode=='host_live_missing_ack' else
@@ -191,7 +193,10 @@ def scenario(args,mode):
                 or result.get('historical_date_matched') is not True or result.get('real_accounting_verified') is not False):
             raise ValueError('synthetic_native/host_readback')
         if mode=='host_live_shelf_changed' and (result.get('accounting_and_core_state_observed') is not True
-                or result.get('full_shelf_exact') is not False or result.get('real_accounting_verified') is not False):
+                or result.get('full_shelf_exact') is not False or result.get('real_accounting_verified') is not False
+                or result.get('component_diagnosis_available') is not True
+                or result.get('native_shelf_change',{}).get('group_fields_changed')!=['updateTime']
+                or result.get('web_shelf_change',{}).get('group_fields_changed')!=[]):
             raise ValueError('synthetic_native/partial_readback')
         if mode=='success':
             web=Web();web.vid='900000'
@@ -214,7 +219,7 @@ def main(argv=None):
             scenario(args,mode)
         report=dict(result='SYNTHETIC_NATIVE_GUARDED_TASK_VERIFIED',scenarios=12,real_account_posts=0,
                     synthetic_posts=5,independent_readbacks_on_success=3,host_dry_run=True,dry_override_blocked=True,
-                    changed_shelf_records_partial_only=True,
+                    changed_shelf_records_partial_only=True,changed_group_field_identified_without_ids=True,
                     archive_rechecked=True,uncertain_claims_not_replayed=True,full_host_rehearsal_dispatch_readback=True)
     except Exception as error:
         if os.getenv('WEREAD_NATIVE_SYNTHETIC_DEBUG')=='1':

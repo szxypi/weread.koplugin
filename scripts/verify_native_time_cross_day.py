@@ -129,28 +129,33 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
         return {'native': native.shelf(), 'web': web.request('shelf', WEB+'/web/shelf/sync')}
     guard = Guard(old, Binding(), grant, current, read_pair)
     readonly = NonemptyBinding()
-    fresh_projection,prior_matches = None,None
+    fresh_projection,prior_matches,fresh_components = None,None,None
     def check_groups():
-        nonlocal fresh_projection,prior_matches
+        nonlocal fresh_projection,prior_matches,fresh_components
         result = inspect(groups, fixture, grant, current, read_pair, readonly)
         original = inspect_original(old, groups, fixture, grant, current, read_pair, guard.check, readonly)
         if not fresh_shelf:
             check_group(result, original)
             return
         check_group_fresh(result, original)
-        observations=[]
+        observations=[];last_projected=None
         for _ in range(2):
             pair=read_pair()
             if not isinstance(pair,dict) or set(pair)!={'native','web'}:raise ValueError('native_cross_day/shelf')
             # Both channels must retain precisely one ungrouped fixture; never
             # remove it or infer that the earlier unobserved operation failed.
             for key in ('native','web'):without_fixture(pair[key],upload['target'])
-            observations.append(tuple(digest(project(pair[key])) for key in ('native','web')))
+            last_projected=tuple(project(pair[key]) for key in ('native','web'))
+            observations.append(tuple(digest(value) for value in last_projected))
         matches=(original['native_original_state_unchanged'],original['web_original_state_unchanged'])
         if observations[0]!=observations[1] or fresh_projection is not None and observations[1]!=fresh_projection \
                 or prior_matches is not None and matches!=prior_matches:
             raise ValueError('native_cross_day/shelf_changed')
         fresh_projection,prior_matches=observations[1],matches
+        if private_evidence:
+            from native_time_shelf_components import make
+            components=tuple(make(value) for value in last_projected)
+            fresh_components=components if all(value is not None for value in components) else None
     check_groups()
     web.verify_account()
     web.prepare()
@@ -228,7 +233,8 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
             from native_time_bundle_evidence import FreshShelfEvidence
             from native_time_bundle_trial_scope import from_journals
             trial=from_journals(state,upload,upload_token,group,group_token,old_state,old_token)
-            return FreshShelfEvidence(state,grant,report,sample,observations[-1],catalog_pairs,fresh_projection,trial)
+            return FreshShelfEvidence(state,grant,report,sample,observations[-1],catalog_pairs,fresh_projection,trial,
+                                      components=fresh_components)
         from native_time_bundle_evidence import PreflightEvidence
         return PreflightEvidence(state,grant,report,sample,observations[-1],catalog_pairs)
     return report

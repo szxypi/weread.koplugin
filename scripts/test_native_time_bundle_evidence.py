@@ -95,6 +95,10 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(scope,synthetic_scope(bundle))
         self.assertFalse(report['previous_native_group_baseline_matches'])
         self.assertFalse(report['previous_web_group_baseline_matches'])
+        components=evidence.components_for_bundle(bundle,grant)
+        self.assertEqual(len(components),2);self.assertNotIn('Synthetic',repr(components))
+        components[0]['members']='a'*64
+        self.assertNotEqual(components,evidence.components_for_bundle(bundle,grant))
 
     def test_fresh_evidence_is_private_copied_and_cannot_authorize_dispatch(self):
         bundle,grant,before,report,now,_pairs,shelves,evidence=fresh_fixture()

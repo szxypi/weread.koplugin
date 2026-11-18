@@ -34,6 +34,30 @@
     "capture_and_experiment_records_unchanged": true,
     "account_data_posts": 0
   },
+  "later_shelf_structure_diagnostic": {
+    "preflight_native_and_web_full_projections_equal": false,
+    "current_native_and_web_full_projections_equal": true,
+    "current_projection_matches_preflight_web": true,
+    "current_native_core_matches_captured_baseline": true,
+    "consecutive_samples_stable": true,
+    "bounded_hypotheses_tested": 2282,
+    "preflight_native_projection_reconstructed": false,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "component_fingerprint_readonly_check": {
+    "result": "PASS",
+    "samples_per_channel": 2,
+    "both_channels_supported": true,
+    "samples_stable": true,
+    "legacy_record_had_components": false,
+    "initial_format_attempt_stopped": true,
+    "initial_failure": "non-ASCII projection serialization mismatch",
+    "unicode_regression_added": true,
+    "legacy_record_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
   "full_native_shelf_difference_explained": false,
   "strict_accounting_verified": false,
   "physical_kindle_tested": false

@@ -88,20 +88,32 @@ class FreshShelfEvidence:
     This is deliberately not PreflightEvidence: the existing dispatch
     supervisor cannot accept it as proof that the old group baseline matched.
     """
-    def __init__(self,bundle,grant,report,snapshot,months,catalog_pairs,shelf_digests,trial_scope):
+    def __init__(self,bundle,grant,report,snapshot,months,catalog_pairs,shelf_digests,trial_scope,*,components=None):
         if not isinstance(shelf_digests,tuple):raise ValueError('bundle_evidence/fresh_report')
         validate_fresh_report(bundle,report,months,shelf_digests,trial_scope)
+        if components is not None:
+            from native_time_shelf_components import validate
+            if not isinstance(components,tuple) or len(components)!=2:raise ValueError('bundle_evidence/components')
+            for value,expected in zip(components,shelf_digests):validate(value,expected)
         original=baseline(bundle,grant,snapshot,months,report['completed_at'])
         self._value=deepcopy((report,original,catalog_stamp(bundle,catalog_pairs),shelf_digests,trial_scope))
-        self._bundle_hash=digest(bundle);self._grant_hash=digest(grant);self._value_hash=digest(self._value)
+        self._components=deepcopy(components)
+        self._bundle_hash=digest(bundle);self._grant_hash=digest(grant);self._value_hash=digest((self._value,self._components))
 
     def __repr__(self):return '<FreshShelfEvidence private>'
 
     def for_bundle(self,bundle,grant):
         if (digest(bundle)!=self._bundle_hash or digest(grant)!=self._grant_hash
-                or digest(self._value)!=self._value_hash):raise ValueError('bundle_evidence/changed')
+                or digest((self._value,self._components))!=self._value_hash):raise ValueError('bundle_evidence/changed')
         report,original,stamp,shelves,trial_scope=deepcopy(self._value)
         validate_fresh_report(bundle,report,original['months'],shelves,trial_scope)
         if baseline(bundle,grant,original['snapshot'],original['months'],report['completed_at'])!=original:
             raise ValueError('bundle_evidence/changed')
         return report,original['snapshot'],original['months'],stamp,shelves,trial_scope
+
+    def components_for_bundle(self,bundle,grant):
+        _report,_snapshot,_months,_stamp,shelves,_scope=self.for_bundle(bundle,grant)
+        if self._components is not None:
+            from native_time_shelf_components import validate
+            for value,expected in zip(self._components,shelves):validate(value,expected)
+        return deepcopy(self._components)
