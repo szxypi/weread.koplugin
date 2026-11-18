@@ -182,7 +182,7 @@ class MockServer(ThreadingHTTPServer):
         self.active_requests = Counter()
         self.progress = {}
         self.control = dict(delay=0, match="", status=503, times=0, skip=0, native_annotation_many=False,
-                            empty_shelf=False, empty_annotations=False, web_renewal_mode="plain", mp_article_version=1,
+                            empty_shelf=False, empty_annotations=False, guest_login_pending=False, web_renewal_mode="plain", mp_article_version=1,
                             progress_response="plain", progress_confirmation="plain", progress_roundtrip_mode="plain", progress_offset_delta=0,
                             shelf_membership_mode='plain',finished_mark_mode='plain',selection_thought_mode='plain',selection_source_revision=1)
         self.progress_confirmation_book = None
@@ -192,6 +192,7 @@ class MockServer(ThreadingHTTPServer):
         self.web_renewal_posts = 0
         self.content_format = 'epub'
         self.cb_reading = False
+        self.guest_login_fixture = False
         self.combined_upload_read = False
         self.near_upload_fixture = False
         self.shelf_removed = set()
@@ -300,6 +301,13 @@ class MockServer(ThreadingHTTPServer):
             return control["status"], dict(errcode=-1, errmsg="Injected mock failure")
 
         book_id = str(data.get("bookId") or query.get("bookId", [BOOK_ID])[0])
+        if self.guest_login_fixture and method=='GET' and url.hostname=='weread.qq.com':
+            if path=='/r/weread-skills' and not query:return 200,'<html>synthetic login</html>'
+            if path=='/api/auth/getLoginUid' and not query:return 200,dict(uid='synthetic-qr-uid')
+            if path=='/api/auth/getLoginInfo' and query=={'uid':['synthetic-qr-uid']}:
+                if control['guest_login_pending']:return 200,dict(transport_pending=True)
+                return 200,dict(succeed=True,webLoginVid='900000',accessToken='synthetic-web-login',
+                    refreshToken='synthetic-refresh-token')
         if path == "/web/login/renewal" and method == "POST":
             if data != {"rq": "%2Fweb%2Fbook%2Fread", "ql": False}:
                 raise ValueError("invalid Web renewal request")
@@ -924,7 +932,7 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError('roundtrip fixture not enabled')
             if type(candidate["mp_article_version"]) is not int or not 1 <= candidate["mp_article_version"] <= 100:
                 raise ValueError("invalid MP article version")
-            for key in ("empty_shelf", "empty_annotations", "native_annotation_many"):
+            for key in ("empty_shelf", "empty_annotations", "native_annotation_many", "guest_login_pending"):
                 if type(candidate[key]) is not bool:
                     raise ValueError(key + " must be boolean")
             self.server.control = candidate

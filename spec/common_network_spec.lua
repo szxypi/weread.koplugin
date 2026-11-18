@@ -56,7 +56,7 @@ eq(host:runOnlineTask("manual", function() end), false,
     "regular offline task does not start")
 eq(offline_notices, 1, "regular offline task still shows a notice")
 
-local notices,qr_starts=0,0
+local notices,qr_starts,login_continuation=0,0,nil
 local cookie,key,valid=true,false,true
 local scope={vid="900000",epoch=1}
 local login_host=setmetatable({settings={
@@ -64,7 +64,7 @@ local login_host=setmetatable({settings={
     is_api_configured=function() return key end,
     get_auth_scope=function() return scope end,
     auth_scope_matches=function() return valid end,
-},qr_login={start=function() qr_starts=qr_starts+1 end},
+},qr_login={start=function(_self,value) qr_starts=qr_starts+1;login_continuation=value end},
     showInfo=function(_self,text) assert(text:find("Skill",1,true));notices=notices+1 end,
     showTransientInfo=function() end,
 },{__index=Common})
@@ -78,6 +78,13 @@ eq(qr_starts,1,"invalid scope needs login")
 cookie=false
 eq(login_host:requireLogin(true,false),false,"cookie-free reading needs login")
 eq(qr_starts,2,"missing cookie invokes login")
+local intent={current=function() return false end,resume=function() end}
+eq(login_host:requireLogin(true,false,intent),false,'stale login intent did not return')
+eq(qr_starts,2,'stale login intent opened the QR')
+intent.current=function() return true end
+eq(login_host:requireLogin(true,false,intent),false,'current login intent did not return')
+eq(qr_starts,3,'current login intent did not open the QR')
+eq(login_continuation,intent,'login lost the authorized continuation')
 
 -- KOReader notifies children before removing their parent from its stack.
 -- Closing an owned busy dialog in that callback must not repaint freed text.

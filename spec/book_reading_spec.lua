@@ -125,6 +125,18 @@ local function fixture()
 end
 local book = { book_id = "900001", title = "Old title" }
 local host, state = fixture()
+local guest_view={};local intent,resumed_book
+state.owner=nil;state.login=false;host._book_detail_view=guest_view;host.ui={}
+host.settings.get_auth_scope=function() return nil end
+host.requireLogin=function(_self,_cookie,_key,value) intent=value;return false end
+host.startBookReading=function(_self,value) resumed_book=value end
+expect(not Reading.start(host,book,guest_view) and intent and intent.current(),'guest read lost login intent')
+intent.resume()
+expect(resumed_book.book_id=='900001' and resumed_book.title==nil,'login continuation retained stale book state')
+host._book_detail_view={};expect(not intent.current(),'closed guest detail retained login intent')
+host._book_detail_view=guest_view;host.discovery_epoch=2;expect(not intent.current(),'changed page retained login intent')
+host.discovery_epoch=1;state.owner='other';expect(not intent.current(),'new account retained guest login intent')
+host,state=fixture()
 expect(Reading.start(host, book), "reading preparation did not start")
 expect(state.downloads == 0 and host.busy_message, "network preparation blocked or skipped busy UI")
 local result = state.job.task()

@@ -14,6 +14,20 @@ from verify_bookstore import categories as verify_categories, page as verify_pag
 
 
 class MockTests(unittest.TestCase):
+    def test_guest_qr_fixture_requires_explicit_enable_and_can_wait(self):
+        url='https://weread.qq.com/api/auth/getLoginInfo?uid=synthetic-qr-uid&otp='
+        with self.assertRaises(LookupError):self.server.route('GET',url,{})
+        self.server.guest_login_fixture=True
+        try:
+            self.assertEqual(self.request('/__control',dict(guest_login_pending=True))[0],200)
+            self.assertTrue(self.server.route('GET',url,{})[1]['transport_pending'])
+            self.assertEqual(self.request('/__control',dict(guest_login_pending=False))[0],200)
+            self.assertTrue(self.server.route('GET',url,{})[1]['succeed'])
+            self.assertEqual(self.request('/__control',dict(guest_login_pending=1))[0],400)
+        finally:
+            self.server.guest_login_fixture=False
+            self.request('/__control',dict(guest_login_pending=False))
+
     def test_public_book_metadata_fixture_is_single_target_and_read_only(self):
         url='https://weread.qq.com/web/book/publicinfos'
         status,value=self.server.route('POST',url,{'bookIds':[BOOK_ID]})

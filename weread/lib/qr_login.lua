@@ -328,25 +328,28 @@ end
 
 function QRLogin:cancel()
     self.generation = self.generation + 1
+    self.continuation = nil
     self.login_cookies = nil
     self.started_at = nil
     self:_close_qr_dialog(true)
 end
 
-function QRLogin:start()
+function QRLogin:start(continuation)
     if self.host.native_renewal then self.host.native_renewal:cancel() end
     if self.host.cancelShelfRefresh then self.host:cancelShelfRefresh() end
     if self.host.native_authorization then self.host.native_authorization:cancel() end
+    self:cancel()
     if not self.host:isNetworkOnline() then
         self.host:showOffline(_("QR login"))
         return
     end
 
-    self:cancel()
+    if type(continuation)=='table' and type(continuation.current)=='function'
+        and type(continuation.resume)=='function' then self.continuation=continuation end
     local generation = self.generation
     self.started_at = os.time()
     self.host:showBusy(_("Getting login QR code..."))
-    self.host:runOnlineTask(_("QR login"), function()
+    local started=self.host:runOnlineTask(_("QR login"), function()
         local ok, uid_or_error = pcall(function()
             return self:_begin_protocol()
         end)
@@ -356,11 +359,16 @@ function QRLogin:start()
         end
         if not ok then
             logger.err("get login UID failed:", error_text(uid_or_error))
+            self:cancel()
             self.host:showInfo(T(_("QR login failed:\n%1"), error_text(uid_or_error)))
             return
         end
         self:_show_qr(uid_or_error, generation)
     end)
+    if started==false and generation==self.generation then
+        self:cancel()
+        self.host:closeBusy()
+    end
 end
 
 function QRLogin:_show_qr(uid, generation)
@@ -548,6 +556,10 @@ end
 function QRLogin:_complete(login_result, generation)
     self.host:showBusy(_("Completing WeRead login..."))
     self.host:runOnlineTask(_("QR login"), function()
+        local continuation=self.continuation
+        local valid,current
+        if continuation then valid,current=pcall(continuation.current) end
+        if not valid or current~=true then continuation=nil end
         local ok, account_or_error = pcall(function()
             return self:_complete_protocol(login_result, generation)
         end)
@@ -560,6 +572,27 @@ function QRLogin:_complete(login_result, generation)
             self:cancel()
             self.host:showInfo(T(_("QR login failed:\n%1"), error_text(account_or_error)))
             return
+        end
+        self.continuation=nil
+
+        if continuation then
+            local scope=self.settings:get_auth_scope()
+            if scope and self.settings:auth_scope_matches(scope) and self.settings:is_cookie_configured() then
+                local host=self.host
+                local epoch,session,document=host.discovery_epoch or 0,host._reader_session_gen,host.ui and host.ui.document
+                host:refreshLoginMenu()
+                host:showTransientInfo(_("Login successful. Opening book..."),2)
+                local resumed=false
+                UIManager:nextTick(function()
+                    if resumed or generation~=self.generation or not self.settings:auth_scope_matches(scope)
+                        or not self.settings:is_cookie_configured() or (host.discovery_epoch or 0)~=epoch
+                        or host._reader_session_gen~=session or (host.ui and host.ui.document)~=document
+                        or host.shelf_view or host._book_detail_view then return end
+                    resumed=true
+                    host:safeCallback(_("Read"),continuation.resume)()
+                end)
+                return
+            end
         end
 
         local account_name = account_or_error.name

@@ -120,7 +120,22 @@ function M.start(host, book, view)
     local online
     if host.isNetworkConnected then online = host:isNetworkConnected() else online = host:isNetworkOnline() end
     if not online then host:showOffline(_("Read")); return false end
-    if not host:requireLogin(true, false) then return false end
+    local continuation
+    if view and host.library_db and not host.library_db:accountKey()
+        and host.settings.get_auth_scope and not host.settings:get_auth_scope() then
+        local epoch,auth_epoch=host.discovery_epoch or 0,host.settings:get('auth_epoch',0)
+        local session,document=host._reader_session_gen,host.ui and host.ui.document
+        continuation={
+            current=function()
+                return host._book_detail_view==view and (host.discovery_epoch or 0)==epoch
+                    and host._reader_session_gen==session and (host.ui and host.ui.document)==document
+                    and not host.library_db:accountKey() and not host.settings:get_auth_scope()
+                    and host.settings:get('auth_epoch',0)==auth_epoch
+            end,
+            resume=function() return host:startBookReading({book_id=id}) end,
+        }
+    end
+    if not host:requireLogin(true, false, continuation) then return false end
     local access = Source.web_access(host.settings)
     if not access then return false end
     M.cancel(host)

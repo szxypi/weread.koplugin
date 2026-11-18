@@ -849,6 +849,7 @@ local zh = {
     ["Later"] = "稍后",
     ["Sync progress now"] = "立即同步进度",
     ["Book details"] = "书籍详情",
+    ["Login successful. Opening book..."] = "登录成功，正在打开书籍…",
     ["Show underlines, thoughts and bookmarks"] = "显示划线、想法和书签",
     ["Hide underlines, thoughts and bookmarks"] = "隐藏划线、想法和书签",
     ["Underlines, thoughts and bookmarks shown"] = "已显示划线、想法和书签",
