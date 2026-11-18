@@ -1,0 +1,12 @@
+{
+  "result": "UNVERIFIED",
+  "phase": "group_baseline_preflight",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "original_group_baseline_matches": false,
+  "previous_fixture_present": true,
+  "previous_groups_absent": true,
+  "original_shelf_difference_explained": false,
+  "captured_record_retained_and_unsent": true,
+  "historical_accounting_verified": false
+}
