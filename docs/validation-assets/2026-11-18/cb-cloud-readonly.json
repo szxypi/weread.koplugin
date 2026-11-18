@@ -10,12 +10,20 @@
   "account_data_writes": 0,
   "browser_modifying_requests_blocked": true,
   "private_text_and_images_saved": false,
-  "synthetic_native_dimensions": ["600x800", "1264x1680"],
+  "synthetic_native_dimensions": [
+    "600x800",
+    "1264x1680"
+  ],
   "synthetic_full_and_single_chapter": true,
   "synthetic_offline_fresh_process_reopen": true,
   "pending_position_preserved": true,
   "upload_enabled": false,
   "exact_cloud_coordinate_and_write_semantics_verified": false,
   "real_account_native_ui_tested": false,
-  "physical_kindle_tested": false
+  "physical_kindle_tested": false,
+  "real_source_native_ui_isolated_books": 1,
+  "real_source_native_ui_scenarios": 4,
+  "real_source_native_ui_cloud_fetch_substituted": true,
+  "real_source_native_ui_no_network": true,
+  "real_source_native_ui_profiles_removed": true
 }
