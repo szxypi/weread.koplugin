@@ -95,7 +95,7 @@ assert(plugin.shelf_search_keyword=='syn-123456' and #plugin.shelf_view.books==1
     'identifier search missed a grouped book without an author')
 UI:forceRePaint()
 search_view=plugin.shelf_view;search_view.on_search();search_dialog=assert(search_view._shelf_popup)
-search_dialog:setInputText('   ');search_dialog.buttons[1][2].callback()
+search_dialog:setInputText(' 　\194\160 ');search_dialog.buttons[1][2].callback()
 pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)
 assert(plugin.shelf_search_keyword==nil and #plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-123456',
     'whitespace-only search did not restore the selected group')
@@ -109,7 +109,7 @@ plugin:applyShelfSnapshot({
 },{{archiveId=98,name='合成分组',bookIds={'SYN-U1','SYN-U2','SYN-U3'}},
    {archiveId=99,name='其他',bookIds={'SYN-OUT'}}})
 plugin.shelf_group_key='archive:98';plugin:showShelfView('books')
-for _,case in ipairs({{'CAFÉ','SYN-U1'},{'STRASSE','SYN-U2'},{'josé','SYN-U2'},{'abc','SYN-U3'}}) do
+for _,case in ipairs({{'CAFÉ','SYN-U1'},{'STRASSE','SYN-U2'},{'josé','SYN-U2'},{'　abc\194\160','SYN-U3'}}) do
     search_view=assert(plugin.shelf_view);search_view.on_search();search_dialog=assert(search_view._shelf_popup)
     search_dialog:setInputText(case[1]);search_dialog.buttons[1][2].callback()
     pump(function() return plugin.shelf_view and plugin.shelf_view~=search_view end)

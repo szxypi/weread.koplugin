@@ -78,7 +78,13 @@ plugin,state=host();view=state.open();view.callbacks.on_search()
 local first=assert(view._shelf_popup);local old=first.buttons[1][2].callback
 view.callbacks.on_search();dialog=assert(view._shelf_popup);old()
 expect(view._shelf_popup==dialog and state.calls==0,'replaced search operated on new dialog')
-dialog.input=' words ';dialog.buttons[1][2].callback();drain()
+dialog.input='　\194\160';dialog.buttons[1][2].callback()
+expect(state.calls==0 and view._shelf_popup==dialog,'blank Unicode search dispatched or closed')
+plugin.loadDiscoveryBatch=function(_self,kind,keyword,cursor)
+    expect(kind=='search' and keyword=='words' and cursor==0,'Unicode search edges were not trimmed')
+    state.calls=state.calls+1
+end
+dialog.input='　words\194\160';dialog.buttons[1][2].callback();drain()
 expect(state.calls==1 and plugin.shelf_view==view and not view._shelf_popup,'current search did not submit exactly once')
 old();expect(state.calls==1,'old search submitted twice')
 plugin,state=host();view=state.open();view.callbacks.on_search();dialog=assert(view._shelf_popup)

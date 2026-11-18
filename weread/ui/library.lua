@@ -978,7 +978,7 @@ function M:showShelfSearchDialog(view, mode, keyword, options, is_current)
                 is_enter_default = true,
                 callback = self:safeCallback(_("Search"), function()
                     if not current() then return end
-                    local value = (dialog:getInputText() or ""):match("^%s*(.-)%s*$")
+                    local value = require("weread.lib.search_query").trim(dialog:getInputText())
                     Popup.close(view)
                     self.shelf_view_pages = { books = 1, public_account = 1 }
                     options.prepared_shelf = nil
@@ -2271,7 +2271,8 @@ function M:showSearch()
 end
 
 function M:searchWithUI(keyword)
-    if not keyword or keyword == "" then
+    keyword = require("weread.lib.search_query").trim(keyword)
+    if keyword == "" then
         return
     end
     self:runOnlineTask(_("Search"), function()

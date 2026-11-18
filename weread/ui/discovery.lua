@@ -168,7 +168,7 @@ function M:showDiscoverySearch()
             { text = _("Cancel"), id = "close", callback = function() if valid() then Popup.close(owner) end end },
             { text = _("Search"), is_enter_default = true, callback = function()
                 if not valid() then return end
-                local keyword = dialog:getInputText():match("^%s*(.-)%s*$")
+                local keyword = require("weread.lib.search_query").trim(dialog:getInputText())
                 if keyword == "" then return end
                 Popup.close(owner)
                 self:loadDiscoveryBatch("search", keyword, 0)

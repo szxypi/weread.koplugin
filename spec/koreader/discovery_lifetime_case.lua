@@ -55,7 +55,12 @@ return function(plugin,evidence)
             paint();Screen:shot(evidence..'/portal-'..tab..'-search.png')
             local before=dispatched
             if choice=='cancel' then dialog.buttons[1][1].callback()
-            else dialog:setInputText('合成查询');dialog.buttons[1][2].callback() end
+            else
+                dialog:setInputText('　\194\160');dialog.buttons[1][2].callback()
+                assert(plugin.shelf_view==view and view._shelf_popup==dialog and dispatched==before,
+                    'whitespace-only store search dispatched or closed the dialog')
+                dialog:setInputText('　合成查询\194\160');dialog.buttons[1][2].callback()
+            end
             drain()
             if choice=='cancel' then assert(plugin.shelf_view and plugin.shelf_view~=view and dispatched==before)
             else assert(not plugin.shelf_view and dispatched==before+1) end
