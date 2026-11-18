@@ -34,4 +34,13 @@ expect(not check(option(url,'POST',enter),1,decode) and not check(option(url,'PO
 local changed={};for k,v in pairs(read) do changed[k]=v end;changed.co=46
 expect(not check(option(url,'POST',changed),1,decode))
 changed.co=45;changed.sm='different';expect(not check(option(url,'POST',changed),1,decode))
+input.timer=true;input.first_offset=44;input.timer_summary='Synthetic prior text';check=Guard.new(input,Protocol,Cookie)
+local prior={};for key,value in pairs(args) do prior[key]=value end
+prior.chapter_offset=input.first_offset;prior.summary=input.timer_summary
+local timed=Payload.build('position',prior)
+expect(check(option(url,'POST',enter),0,decode)=='write')
+expect(check(option(url,'POST',read),1,decode)=='write')
+expect(check(option(url,'POST',timed),2,decode)=='write')
+expect(not check(option(url,'POST',read),2,decode) and not check(option(url,'POST',timed),3,decode))
+expect(not check(option(url,'POST',enter),2,decode))
 print('cb_fixture_manual_guard_spec: '..n..' checks')
