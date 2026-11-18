@@ -62,7 +62,7 @@ local function fixture(imported)
         if imported then expect(intent.cb_guarded_sync and intent.expected_remote.updated_at==f.remote.updated_at,'imported timer lost guard') end
         if f.prepare_error then callback(nil,f.prepare_error);return end
         local plan={transport=imported and 'cb_web_position' or nil,position={book_id=id,chapter_uid='11',chapter_idx=0,chapter_offset=1000,percent=intent.percent,summary='SYNTHETIC'},
-            source_position=copy(f.point),basis='filtered_xhtml_utf16',is_current=function() return true end,
+            source_position=copy(f.point),basis=f.point.basis,is_current=function() return true end,
             release=function() f.released=f.released+1 end}
         if f.defer_prepare then f.ready=function() callback(plan) end else callback(plan) end
     end
@@ -181,6 +181,10 @@ expect(not f.journal:pending('CB_SyntheticTimer') and not f.sync.interval.task,'
 local time_intent=f.sync:position_for_report('CB_SyntheticTimer')
 expect(f.sync.remote_position.updated_at==11 and time_intent and time_intent.cb_guarded_sync
     and time_intent.expected_remote.updated_at==11,'imported timer lost its guarded time baseline')
+f=fixture(true);f.point.basis='raw_txt_utf16';f.position.source_position=copy(f.point);f.verify()
+expect(f.sync.interval.task,'verified imported TXT did not arm deadline');f.advance(60)
+expect(f.reads==1 and f.writes==1 and f.sync.verified and not f.sync.dirty
+    and not f.journal:pending('CB_SyntheticTimer'),'imported TXT timer did not confirm exactly once')
 for _,field in ipairs({'chapter_offset','raw_percent','updated_at'}) do
     f=fixture(true);f.verify();f.remote[field]=f.remote[field]+1;f.advance(60)
     expect(f.choice and f.writes==0 and not f.sync.verified and not f.sync.interval.task,'imported timer missed changed '..field)

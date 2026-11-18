@@ -1,6 +1,5 @@
 -- A current native source point becomes wire coordinates only at dispatch.
 -- Opaque plans and text stay in memory; checkpoints retain their local units.
-local Source=require('weread.lib.position_source')
 local Candidate=require('weread.lib.source_upload_candidate')
 local M={};M.__index=M
 local fields={'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}
@@ -44,8 +43,10 @@ function M:cancel()
 end
 function M:prepare(intent,callback)
     assert(type(callback)=='function')
+    local imported=type(intent)=='table' and type(intent.book_id)=='string' and intent.book_id:sub(1,3)=='CB_'
+    local cb_raw=imported and intent.cb_guarded_sync==true
     if type(intent)=='table' and type(intent.source_position)=='table' and intent.source_position.basis=='raw_txt_utf16'
-        and intent.native_position_only~=true then callback(nil,'source_format_unsupported');return false end
+        and intent.native_position_only~=true and not cb_raw then callback(nil,'source_format_unsupported');return false end
     if self.native and self.native.job and (type(intent)~='table' or intent.native_position_only~=true) then
         callback(nil,'source_busy');return false
     end
@@ -55,7 +56,6 @@ function M:prepare(intent,callback)
         self:_finish(self.job,nil,'source_cancelled')
     end
     if type(intent)~='table' then callback(nil,'source_position_unavailable');return false end
-    local imported=type(intent.book_id)=='string' and intent.book_id:sub(1,3)=='CB_'
     local initial=imported and intent.initialize_cloud==true
     local initial_state=initial and require('weread.lib.cb_initial_state').expected_remote(intent.expected_remote,intent.book_id)
     if imported and (intent.cb_guarded_sync~=true
@@ -64,13 +64,14 @@ function M:prepare(intent,callback)
         callback(nil,'source_book_sync_unsupported');return false
     end
     local point=intent.source_position
-    if intent.native_position_only==true and type(point)=='table' and point.basis=='raw_txt_utf16' then
+    if not imported and intent.native_position_only==true and type(point)=='table' and point.basis=='raw_txt_utf16' then
         return self:_native():prepare(intent,callback)
     end
-    if type(point)=='table' and point.basis~='filtered_xhtml_utf16' then callback(nil,'source_format_unsupported');return false end
+    local function supported(basis) return basis=='filtered_xhtml_utf16' or cb_raw and basis=='raw_txt_utf16' end
+    if type(point)=='table' and not supported(point.basis) then callback(nil,'source_format_unsupported');return false end
     local provided=point~=nil
     local scope=not provided and self.source:_live()
-    if (provided and (type(point)~='table' or point.basis~='filtered_xhtml_utf16'
+    if (provided and (type(point)~='table' or not supported(point.basis)
         or point.upload_verified~=false or point.book_id~=intent.book_id or not same(point,self.source:current())))
         or not provided and (not scope or scope.book_id~=intent.book_id) then
         callback(nil,'source_position_unavailable');return false
@@ -84,14 +85,14 @@ function M:prepare(intent,callback)
     self.scheduler:scheduleIn(35,job.timeout)
     local function prepare_point(captured,why)
         if self.job~=job then return end
-        if captured and captured.basis=='raw_txt_utf16' and intent.native_position_only==true
+        if not imported and captured and captured.basis=='raw_txt_utf16' and intent.native_position_only==true
             and captured.book_id==intent.book_id and (not scope or self.source:_current(scope)) then
             self.job=nil;self.scheduler:unschedule(job.timeout)
             local native_intent={};for key,value in pairs(intent) do native_intent[key]=value end
             native_intent.source_position=captured
             self:_native():prepare(native_intent,callback);return
         end
-        if captured and captured.basis~='filtered_xhtml_utf16' then self:_finish(job,nil,'source_format_unsupported');return end
+        if captured and not supported(captured.basis) then self:_finish(job,nil,'source_format_unsupported');return end
         if not captured or captured.upload_verified~=false
             or captured.book_id~=intent.book_id or scope and not self.source:_current(scope) then
             self:_finish(job,nil,failure(why));return
@@ -101,12 +102,12 @@ function M:prepare(intent,callback)
         local function previewed(candidate,reason,receipt)
             if self.job~=job then return end
             if type(candidate)~='table' or candidate.book_id~=pinned.book_id or candidate.chapter_uid~=pinned.chapter_uid
-                or candidate.chapter_offset~=pinned.chapter_offset or candidate.basis~='filtered_xhtml_utf16' or candidate.upload_verified~=false then
+                or candidate.chapter_offset~=pinned.chapter_offset or candidate.basis~=pinned.basis or candidate.upload_verified~=false then
                 self:_finish(job,nil,failure(reason));return
             end
             local plan,expected_wire,deadline
             local function current()
-                if plan and (not Candidate.same(plan.position,expected_wire) or not same(plan.source_position,pinned)
+                if plan and (not Candidate.same(plan.position,expected_wire) or not same(plan.source_position,pinned) or plan.basis~=pinned.basis
                     or plan.deadline~=deadline or imported and plan.transport~=(initial and 'cb_web_initial' or 'cb_web_position')
                     or initial and not require('weread.lib.cb_initial_state').equal(plan.initial_remote,initial_state)) then return false end
                 if not same(pinned,self.source:current()) then return false end
@@ -124,15 +125,15 @@ function M:prepare(intent,callback)
             for _i,key in ipairs({'book_id','chapter_uid','chapter_idx','chapter_offset','percent','summary'}) do wire[key]=candidate[key] end
             expected_wire={};for key,value in pairs(wire) do expected_wire[key]=value end
             local origin={};for _i,key in ipairs(fields) do origin[key]=pinned[key] end
-            plan={position=wire,is_current=current,deadline=deadline,basis=Source.coordinate_basis('web_xhtml'),source_position=origin}
+            plan={position=wire,is_current=current,deadline=deadline,basis=pinned.basis,source_position=origin}
             if initial then
                 plan.transport='cb_web_initial';plan.initial_remote={}
                 for key,value in pairs(initial_state) do plan.initial_remote[key]=value end
             elseif imported then plan.transport='cb_web_position' end
             self:_finish(job,plan)
         end
-        if initial then self.source:prepare_cb_initial_upload_preview(initial_state,previewed)
-        elseif imported then self.source:prepare_cb_current_upload_preview(intent.expected_remote,previewed)
+        if initial then self.source:prepare_cb_initial_upload_preview(initial_state,previewed,pinned.basis)
+        elseif imported then self.source:prepare_cb_current_upload_preview(intent.expected_remote,previewed,pinned.basis)
         else self.source:prepare_current_upload_preview(previewed) end
     end
     if provided then prepare_point(point)

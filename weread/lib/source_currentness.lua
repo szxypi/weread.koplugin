@@ -165,8 +165,11 @@ local function fetch(client,expected_value,selected,format,options,cb)
     if format~='web_xhtml' and format~='web_txt' then fail('format') end
     local expected
     if cb then expected=M.expected_cb(expected_value) else expected=M.expected(expected_value) end
-    if not expected or cb and format~='web_xhtml' and (not options or options.cb_txt_readonly~=true
-        or options.cb_initial~=nil or options.cb_remote~=nil) then fail('expected') end
+    local txt_guarded=options and options.cb_txt_guarded==true
+        and (options.cb_initial~=nil)~=(options.cb_remote~=nil)
+    local txt_readonly=options and options.cb_txt_readonly==true
+        and options.cb_initial==nil and options.cb_remote==nil
+    if not expected or cb and format~='web_xhtml' and not (txt_readonly or txt_guarded) then fail('expected') end
     selected=selected or M.capture(client.settings)
     local cookies=selected and selected.web and selected.web.cookies
     if not cookies or not Access.book_id(cookies.wr_vid) then fail('web_required') end
@@ -296,16 +299,18 @@ function M.fetch_cb_versioned(client,value,selected,verify_catalog)
     if type(verify_catalog)~='function' then fail('expected') end
     return fetch(client,value,selected,'web_xhtml',{verify_catalog=verify_catalog},true)
 end
-function M.fetch_cb_upload(client,value,selected,remote)
+local function fetch_cb_upload(client,value,selected,remote,format)
     local expected=M.expected_cb(value)
     local guarded=expected and require('weread.lib.cb_sync_guard').expected(remote,expected.book_id)
     if not guarded then fail('expected') end
-    return fetch(client,value,selected,'web_xhtml',{cb_remote=guarded},true)
+    return fetch(client,value,selected,format,{cb_remote=guarded,cb_txt_guarded=format=='web_txt'},true)
 end
+function M.fetch_cb_upload(client,value,selected,remote) return fetch_cb_upload(client,value,selected,remote,'web_xhtml') end
+function M.fetch_cb_txt_upload(client,value,selected,remote) return fetch_cb_upload(client,value,selected,remote,'web_txt') end
 -- A separate read-only preparation for first position. Both account channels
 -- must still show an explicitly unstarted book; native counters must be zero.
 -- The resulting source packet alone never grants permission to send.
-function M.fetch_cb_initial(client,value,selected,initial,native_selected)
+local function fetch_cb_initial(client,value,selected,initial,native_selected,format)
     local expected=M.expected_cb(value)
     local State=require('weread.lib.cb_initial_state')
     local P=require('weread.lib.native_position_protocol')
@@ -315,23 +320,37 @@ function M.fetch_cb_initial(client,value,selected,initial,native_selected)
     selected=selected or M.capture(client.settings)
     if not selected or not selected.web or not selected.web.cookies
         or not initial_native_current(client.settings,native_selected,selected.web.cookies.wr_vid) then fail('expected') end
-    return fetch(client,value,selected,'web_xhtml',{cb_initial=initial,native_selected=native_selected},true)
+    return fetch(client,value,selected,format,{cb_initial=initial,native_selected=native_selected,cb_txt_guarded=format=='web_txt'},true)
 end
-function M.run_cb_initial(client,value,selected,initial,native_selected)
-    local ok,result=pcall(M.fetch_cb_initial,client,value,selected,initial,native_selected)
+function M.fetch_cb_initial(client,value,selected,initial,native_selected)
+    return fetch_cb_initial(client,value,selected,initial,native_selected,'web_xhtml')
+end
+function M.fetch_cb_txt_initial(client,value,selected,initial,native_selected)
+    return fetch_cb_initial(client,value,selected,initial,native_selected,'web_txt')
+end
+local function run_cb_initial(fetcher,client,value,selected,initial,native_selected)
+    local ok,result=pcall(fetcher,client,value,selected,initial,native_selected)
     if ok then return {check=result} end
     if result=='source_currentness/web_expired' then return {error='source_web_expired'} end
     if result=='source_currentness/native_expired' then return {error='source_native_expired'} end
     if result=='source_currentness/remote_changed' then return {error='source_remote_changed'} end
     return {error='source_currentness_unavailable'}
 end
-function M.run_cb_upload(client,value,selected,remote)
-    local ok,result=pcall(M.fetch_cb_upload,client,value,selected,remote)
+function M.run_cb_initial(client,value,selected,initial,native_selected)
+    return run_cb_initial(M.fetch_cb_initial,client,value,selected,initial,native_selected)
+end
+function M.run_cb_txt_initial(client,value,selected,initial,native_selected)
+    return run_cb_initial(M.fetch_cb_txt_initial,client,value,selected,initial,native_selected)
+end
+local function run_cb_upload(fetcher,client,value,selected,remote)
+    local ok,result=pcall(fetcher,client,value,selected,remote)
     if ok then return {check=result} end
     if result=='source_currentness/web_expired' then return {error='source_web_expired'} end
     if result=='source_currentness/remote_changed' then return {error='source_remote_changed'} end
     return {error='source_currentness_unavailable'}
 end
+function M.run_cb_upload(client,value,selected,remote) return run_cb_upload(M.fetch_cb_upload,client,value,selected,remote) end
+function M.run_cb_txt_upload(client,value,selected,remote) return run_cb_upload(M.fetch_cb_txt_upload,client,value,selected,remote) end
 function M.run_cb(client,value,selected)
     local ok,result=pcall(M.fetch_cb,client,value,selected)
     if ok then return {check=result} end

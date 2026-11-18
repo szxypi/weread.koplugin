@@ -82,4 +82,11 @@ report,plan,posts=fixture('normal')
 expect(not report:upload_position(id,position,1,plan) and #posts==0,'nonzero elapsed time reached CB route')
 local fractional=clone(position);fractional.percent=42.5;plan.position=clone(fractional)
 expect(not report:upload_cb_position(id,fractional,plan) and #posts==0,'fractional CB position was dispatched')
+local original=position.summary;position.summary='raw\r\nTXT source'
+report,plan,posts=fixture('normal');plan.basis='raw_txt_utf16';plan.source_position.basis=plan.basis
+expect(report:upload_cb_position(id,position,plan) and #posts==2 and posts[2].sm==position.summary,
+    'imported TXT position was not confirmed with its original summary')
+report,plan,posts=fixture('normal');plan.source_position.basis='raw_txt_utf16'
+expect(not report:upload_cb_position(id,position,plan) and #posts==0,'mismatched TXT coordinate basis accepted')
+position.summary=original
 print(('cb_read_report_position_spec: %d checks'):format(checks))

@@ -49,9 +49,10 @@ function M:freeze(intent)
         or point.book_id ~= intent.book_id or not same(point,source:current())
         or source.is_busy() or not source.can_prepare() then return nil end
     local imported=point.book_id:sub(1,3)=='CB_'
-    if imported and (point.basis~='filtered_xhtml_utf16' or intent.cb_guarded_sync~=true
+    if imported and (intent.cb_guarded_sync~=true
         or not require('weread.lib.cb_sync_guard').expected(intent.expected_remote,point.book_id)) then return nil end
-    if point.basis=='raw_txt_utf16' and (intent.native_position_only~=true or type(intent.expected_remote)~='table') then return nil end
+    if not imported and point.basis=='raw_txt_utf16'
+        and (intent.native_position_only~=true or type(intent.expected_remote)~='table') then return nil end
     local scope = source:_live()
     local context = source.get_upload_context and source.get_upload_context()
     local snapshot = scope and Source.document_metadata(source.get_document(),point.book_id,point.chapter_uid,point.render_path)
@@ -95,7 +96,7 @@ function M:prepare(token,intent,callback)
     entry.used,entry.callback,entry.started = true,callback,self.now()
     entry.deadline=entry.started+35
     self.scheduler:unschedule(entry.timeout); self.scheduler:scheduleIn(35,entry.timeout)
-    if entry.input.target.basis=='raw_txt_utf16' then return self:_launch_native(entry) end
+    if not entry.imported and entry.input.target.basis=='raw_txt_utf16' then return self:_launch_native(entry) end
     entry.worker = self.source.make_worker()
     return self:_launch(entry)
 end
@@ -131,11 +132,20 @@ function M:_launch(entry)
     -- These child inputs do not reference any inherited native document.
     local input,expected,access,client = copy(entry.input),copy(entry.expected),entry.access,self.source.client
     input.request_id=entry.sequence
+    local raw_cb=entry.imported and input.target.basis=='raw_txt_utf16'
     local started = entry.worker:start(function()
-        local result = entry.imported and Task.prepare_cb_preview(input) or Task.prepare_upload(input)
+        local result
+        if raw_cb then
+            result=Task.prepare_native_excerpt(input)
+            if same(result.position,input.target) and result.excerpt then
+                result.candidate=require('weread.lib.native_source_candidate').project_cb(
+                    {position=input.target,excerpt=result.excerpt},input.chapters,input.percent)
+            end
+        else result=entry.imported and Task.prepare_cb_preview(input) or Task.prepare_upload(input) end
         if result.candidate then
             local proof
-            if entry.imported then proof=Currentness.run_cb_upload(client,expected,access,entry.intent.expected_remote)
+            if raw_cb then proof=Currentness.run_cb_txt_upload(client,expected,access,entry.intent.expected_remote)
+            elseif entry.imported then proof=Currentness.run_cb_upload(client,expected,access,entry.intent.expected_remote)
             else proof=Currentness.run(client,expected,access) end
             result.check,result.error=proof.check,proof.error
         end
@@ -144,14 +154,18 @@ function M:_launch(entry)
         if active[self.namespace] ~= entry or entry.sequence~=input.request_id or not entry.callback then return end
         local candidate = type(result) == 'table' and result.candidate
         local project=entry.imported and Candidate.project_cb or Candidate.project
-        local projected = type(candidate) == 'table' and project(input.target,candidate.summary,
-            self.get_catalog(input.book_id),input.percent)
+        local function project_current()
+            if type(candidate)~='table' then return nil end
+            if raw_cb then return require('weread.lib.native_source_candidate').project_cb(
+                {position=input.target,excerpt=result.excerpt},self.get_catalog(input.book_id),input.percent) end
+            return project(input.target,candidate.summary,self.get_catalog(input.book_id),input.percent)
+        end
+        local projected=project_current()
         local function valid(allow_transition)
             local age = self.now()-entry.started
             return active[self.namespace] == entry and age >= 0 and age <= 30 and self.now()<=entry.deadline
                 and (allow_transition or Currentness.matches(self.settings,entry.access))
-                and Candidate.same(project(input.target,candidate.summary,
-                    self.get_catalog(input.book_id),input.percent),candidate)
+                and Candidate.same(project_current(),candidate)
         end
         if type(result) ~= 'table' or result.request_id ~= input.request_id or not same(result.position,input.target)
             or not Candidate.same(projected,candidate) or not valid() then
@@ -170,15 +184,17 @@ function M:_launch(entry)
             return
         end
         if result.error=='source_remote_changed' then self:_drop(entry,'source_remote_changed');return end
-        local checked=entry.imported and Currentness.packet_cb(result.check,expected) or not entry.imported and Currentness.packet(result.check,expected)
+        local checked=raw_cb and Currentness.packet_cb_txt(result.check,expected)
+            or entry.imported and not raw_cb and Currentness.packet_cb(result.check,expected)
+            or not entry.imported and Currentness.packet(result.check,expected)
         if not checked then self:_drop(entry,'source_currentness_unavailable');return end
         local wire = {}; for _i,key in ipairs({'book_id','chapter_uid','chapter_idx','chapter_offset','percent','summary'}) do wire[key] = candidate[key] end
         local original,origin,deadline = copy(wire),copy(input.target),math.min(entry.started+30,entry.deadline)
         local plan
-        plan = {position=wire,source_position=copy(origin),basis='filtered_xhtml_utf16',deadline=deadline,detached=true,
+        plan = {position=wire,source_position=copy(origin),basis=input.target.basis,deadline=deadline,detached=true,
             is_current=function()
                 return valid() and Candidate.same(plan.position,original) and same(plan.source_position,origin)
-                    and plan.deadline == deadline and plan.detached == true and plan.basis == 'filtered_xhtml_utf16'
+                    and plan.deadline == deadline and plan.detached == true and plan.basis == origin.basis
                     and (not entry.imported or plan.transport=='cb_web_position')
             end,
             release=function() self:_drop(entry) end}

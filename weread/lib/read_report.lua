@@ -1414,7 +1414,8 @@ function ReadReport:_upload_position(book_id, position, elapsed_seconds, plan, c
         if Access.display_book_id(book_id)~=book_id or type(position)~='table' or not Native.summary(position.summary)
             or type(plan)~='table' or plan.transport~='cb_web_position' or type(plan.before_send)~='function'
             or type(source)~='table' or source.book_id~=book_id or source.chapter_uid~=position.chapter_uid
-            or source.chapter_offset~=position.chapter_offset or source.basis~='filtered_xhtml_utf16'
+            or source.chapter_offset~=position.chapter_offset or not require('weread.lib.position_source').is_coordinate_basis(source.basis)
+            or plan.basis~=source.basis
             or source.upload_verified~=false then
             return false, { error = "upload_position_invalid", error_kind = "position" }
         end
@@ -1426,7 +1427,8 @@ function ReadReport:_upload_position(book_id, position, elapsed_seconds, plan, c
     local function current()
         if not plan then return true end
         local same=require('weread.lib.source_upload_candidate').same
-        return type(plan)=='table' and plan.basis=='filtered_xhtml_utf16' and type(plan.is_current)=='function'
+        return type(plan)=='table' and (plan.basis=='filtered_xhtml_utf16' or cb_position and plan.basis=='raw_txt_utf16')
+            and type(plan.is_current)=='function'
             and same(plan.position,position) and plan.is_current()==true
     end
     if not current() then return false,{error='source_position_changed',error_kind='position'} end
@@ -1486,7 +1488,8 @@ function ReadReport:_upload_cb_initial(book_id,position,plan)
         or not State.none(plan.initial_remote) or plan.initial_remote.book_id~=book_id
         or type(plan.before_send)~='function' or type(plan.is_current)~='function'
         or type(source)~='table' or source.book_id~=book_id or source.chapter_uid~=position.chapter_uid
-        or source.chapter_offset~=position.chapter_offset or source.basis~='filtered_xhtml_utf16'
+        or source.chapter_offset~=position.chapter_offset or not require('weread.lib.position_source').is_coordinate_basis(source.basis)
+        or plan.basis~=source.basis
         or source.upload_verified~=false then return false,{error='upload_position_invalid',error_kind='position'} end
     local function current()
         return plan.transport=='cb_web_initial' and Candidate.same(plan.position,position)

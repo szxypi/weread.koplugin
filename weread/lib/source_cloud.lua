@@ -43,7 +43,6 @@ function M.project(id,before,reader,raw,after,format)
     id=Access.display_book_id(id)
     if not id then fail('invalid_book') end
     local imported=id:sub(1,3)=='CB_'
-    if imported and format~='web_xhtml' then fail('source_invalid') end
     local first,last=position(before,id),position(after,id)
     if not same(first,last) then fail('target_changed') end
     check_reader(id,first,reader)
@@ -54,7 +53,7 @@ function M.project(id,before,reader,raw,after,format)
     if map then anchor,reason=map:anchor(offset) end
     -- A CB_ offset may fall in markup before visible text. This is a bounded
     -- read-only approximation; ambiguous or interior coordinates stay rejected.
-    if not anchor and imported and reason=='source_coordinates/visible_boundary_missing' then
+    if not anchor and imported and format=='web_xhtml' and reason=='source_coordinates/visible_boundary_missing' then
         local following=map:next_visible(offset,1024)
         if following then anchor=map:anchor(following);offset=following end
     end
@@ -107,7 +106,7 @@ function M.fetch(client,id,selected)
     local first_part=request('https://weread.qq.com/web/book/chapter/e_0',params,4*1024*1024,false,referer)
     local format,parts='web_xhtml',{first_part}
     if first_part:match('^%s*{') then
-        require('weread.lib.source_currentness').txt_marker(client,first_part,id,first.chapter_uid)
+        require('weread.lib.source_currentness').txt_marker(client,first_part,id,first.chapter_uid,id:sub(1,3)=='CB_')
         format,parts='web_txt',{}
         for _i,name in ipairs({'t_0','t_1'}) do parts[#parts+1]=request('https://weread.qq.com/web/book/chapter/'..name,params,4*1024*1024,false,referer) end
         parts[3]=''
@@ -127,8 +126,7 @@ function M.remote(value)
         or not number(value.chapter_offset,Source.MAX_BYTES*8) or value.chapter_offset%1~=0
         or not number(value.percent,100) or type(value.raw_sha256)~='string' or #value.raw_sha256~=64
         or not value.raw_sha256:match('^[0-9a-f]+$') or not number(value.raw_bytes,Source.MAX_BYTES) or value.raw_bytes<1
-        or value.raw_bytes%1~=0 or not Source.is_coordinate_basis(value.basis) or value.upload_verified~=false
-        or type(value.book_id)=='string' and value.book_id:sub(1,3)=='CB_' and value.basis~='filtered_xhtml_utf16' then return nil end
+        or value.raw_bytes%1~=0 or not Source.is_coordinate_basis(value.basis) or value.upload_verified~=false then return nil end
     local out={}
     for _,key in ipairs({'book_id','chapter_uid','chapter_offset','percent','raw_sha256','raw_bytes','basis','upload_verified'}) do out[key]=value[key] end
     out.book_id,out.chapter_uid=Access.display_book_id(value.book_id),Access.book_id(value.chapter_uid)
@@ -217,7 +215,6 @@ function M.bind(input,remote,read_archive)
         if type(input)~='table' or type(input.identity)~='table' or type(remote)~='table'
             or remote.book_id~=input.book_id or not Access.book_id(remote.chapter_uid)
             or not Source.is_coordinate_basis(remote.basis) or remote.upload_verified~=false
-            or type(remote.book_id)=='string' and remote.book_id:sub(1,3)=='CB_' and remote.basis~='filtered_xhtml_utf16'
             or not number(remote.chapter_offset,Source.MAX_BYTES*8) or remote.chapter_offset%1~=0 then return {error='target_invalid'} end
         local Archive=require('weread.lib.source_archive')
         local Identity=require('weread.lib.book_file_identity')

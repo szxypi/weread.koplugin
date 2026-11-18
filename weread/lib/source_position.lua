@@ -204,12 +204,14 @@ end
 function Service:prepare_cb_current_preview(callback,recovered)
     return self:_prepare_current_upload_preview(callback,recovered,true)
 end
-function Service:prepare_cb_current_upload_preview(remote,callback)
+function Service:prepare_cb_current_upload_preview(remote,callback,basis)
     if remote==nil then self:cancel_upload_preview();callback(nil,'source_remote_changed');return false end
+    if basis=='raw_txt_utf16' then return self:_prepare_cb_txt_preview(remote,callback,false) end
     return self:_prepare_current_upload_preview(callback,false,true,remote)
 end
-function Service:prepare_cb_initial_upload_preview(initial,callback)
+function Service:prepare_cb_initial_upload_preview(initial,callback,basis)
     if initial==nil then self:cancel_upload_preview();callback(nil,'source_remote_changed');return false end
+    if basis=='raw_txt_utf16' then return self:_prepare_cb_txt_preview(initial,callback,true) end
     return self:_prepare_current_upload_preview(callback,false,true,initial,true)
 end
 function Service:is_current_upload_preview(receipt,candidate)
@@ -228,22 +230,27 @@ function Service:is_current_cb_upload_preview(receipt,candidate)
     local job=type(receipt)=='table' and self.checked_cb_upload_previews and self.checked_cb_upload_previews[receipt]
     if not job or not job.cb_upload or not self.client or not self.is_online() or not Candidate.same(job.candidate,candidate) then return false end
     local age=self.now()-job.started
-    return age>=0 and age<=30 and Currentness.matches(self.client.settings,job.access) and self:_preview_current(job,candidate) or false
+    return age>=0 and age<=30 and Currentness.matches(self.client.settings,job.access)
+        and (job.cb_txt and self:_cb_txt_preview_current(job) or not job.cb_txt and self:_preview_current(job,candidate)) or false
 end
 function Service:cb_upload_preview_deadline(receipt,candidate)
     if not self:is_current_cb_upload_preview(receipt,candidate) then return nil end
-    return self.checked_cb_upload_previews[receipt].started+30
+    local job=self.checked_cb_upload_previews[receipt]
+    local local_job=job.cb_txt and self.checked_native_excerpts[job.local_receipt]
+    return job.cb_txt and local_job and math.min(job.started,local_job.started)+30 or not job.cb_txt and job.started+30 or nil
 end
 function Service:is_current_cb_initial_preview(receipt,candidate)
     local job=type(receipt)=='table' and self.checked_cb_initial_previews and self.checked_cb_initial_previews[receipt]
     if not job or not job.cb_initial or not self.client or not self.is_online() or not Candidate.same(job.candidate,candidate) then return false end
     local age=self.now()-job.started
     return age>=0 and age<=30 and Currentness.matches_cb_initial_access(self.client.settings,job.access,job.native_access)
-        and self:_preview_current(job,candidate) or false
+        and (job.cb_txt and self:_cb_txt_preview_current(job) or not job.cb_txt and self:_preview_current(job,candidate)) or false
 end
 function Service:cb_initial_preview_deadline(receipt,candidate)
     if not self:is_current_cb_initial_preview(receipt,candidate) then return nil end
-    return self.checked_cb_initial_previews[receipt].started+30
+    local job=self.checked_cb_initial_previews[receipt]
+    local local_job=job.cb_txt and self.checked_native_excerpts[job.local_receipt]
+    return job.cb_txt and local_job and math.min(job.started,local_job.started)+30 or not job.cb_txt and job.started+30 or nil
 end
 function Service:upload_preview_deadline(receipt,candidate)
     if not self:is_current_upload_preview(receipt,candidate) then return nil end
@@ -362,6 +369,99 @@ function Service:is_current_native_excerpt(receipt,packet)
         or not Candidate.same(packet.excerpt,job.packet.excerpt) then return false end
     local age=self.now()-job.started
     return age>=0 and age<=30 and self:_native_excerpt_current(job) or false
+end
+function Service:_cb_txt_preview_current(job)
+    if not self:_current(job.scope) or not self:is_current_native_excerpt(job.local_receipt,job.packet) then return false end
+    local live=self.get_upload_context and self.get_upload_context()
+    local projected=live and live.book_id==job.point.book_id
+        and require('weread.lib.native_source_candidate').project_cb(job.packet,live.chapters,live.percent)
+    return Candidate.same(projected,job.candidate)
+end
+-- Imported TXT uses a local raw excerpt and a format-specific online proof.
+-- The resulting receipt is separately bound to the selected remote state.
+function Service:_prepare_cb_txt_preview(remote,callback,initial,recovered)
+    assert(type(callback)=='function')
+    local book=self.get_book_id()
+    if initial then
+        if not require('weread.lib.cb_initial_state').none(remote) or remote.book_id~=book then
+            self:cancel_upload_preview();callback(nil,'source_remote_changed');return false
+        end
+        remote=clone(remote)
+    else
+        remote=require('weread.lib.cb_sync_guard').expected(remote,book)
+        if not remote then self:cancel_upload_preview();callback(nil,'source_remote_changed');return false end
+        remote.source,remote.has_chapter_index,remote.has_chapter_offset='web',true,true
+    end
+    if not self.is_online() then self:cancel_upload_preview();callback(nil,'offline');return false end
+    if not self.client then self:cancel_upload_preview();callback(nil,'web_required');return false end
+    return self:prepare_native_excerpt(function(packet,reason,local_receipt)
+        if not packet then callback(nil,reason);return end
+        if not self.is_online() then callback(nil,'offline');return end
+        local selected=Currentness.capture(self.client.settings)
+        if not selected or not selected.web then callback(nil,'web_required');return end
+        local native_selected
+        if initial then
+            native_selected=require('weread.lib.native_read_access').capture(self.client.settings)
+            if not Currentness.matches_cb_initial_access(self.client.settings,selected,native_selected) then
+                callback(nil,'source_native_authentication_unavailable');return
+            end
+        end
+        local point=packet.position
+        local live=self.get_upload_context and self.get_upload_context()
+        local candidate=live and live.book_id==point.book_id
+            and require('weread.lib.native_source_candidate').project_cb(packet,live.chapters,live.percent)
+        local scope=self:_live()
+        local snapshot=scope and Source.document_metadata(scope.document,point.book_id,point.chapter_uid,point.render_path)
+        if not candidate or not snapshot then callback(nil,'context_unavailable');return end
+        scope.metadata,scope.render_path=snapshot.metadata,point.render_path
+        local expected=Currentness.expected_cb{book_id=point.book_id,chapter_uid=point.chapter_uid,chapter_idx=candidate.chapter_idx,
+            raw_sha256=point.raw_sha256,raw_bytes=snapshot.record.raw_bytes}
+        if not expected then callback(nil,'context_unavailable');return end
+        self.sequence=self.sequence+1
+        local job={scope=scope,point=clone(point),packet=clone(packet),local_receipt=local_receipt,candidate=clone(candidate),
+            access=selected,native_access=native_selected,started=self.now(),request_id=self.sequence,cb_txt=true,
+            cb_initial=initial==true,cb_upload=not initial}
+        local token=self.preview_token;self.preview_job=job
+        local started=self.preview_worker:start(function()
+            local result=initial and Currentness.run_cb_txt_initial(self.client,expected,selected,remote,native_selected)
+                or Currentness.run_cb_txt_upload(self.client,expected,selected,remote)
+            result.request_id=job.request_id;return result
+        end,function(result)
+            if self.preview_job~=job or self.preview_token~=token then return end
+            if not self.is_online() or not self:_cb_txt_preview_current(job) or not Currentness.matches(self.client.settings,selected)
+                or initial and not Currentness.matches_cb_initial_access(self.client.settings,selected,native_selected) then
+                self.preview_job=nil;return
+            end
+            if type(result)=='table' and result.request_id==job.request_id and result.error=='source_web_expired' and not result.check then
+                if recovered or not self.recovery then self:_auth_unavailable(callback,point.book_id);return end
+                local renewing,handle=self.recovery:start(point.book_id,selected,function()
+                    return self.preview_job==job and self.preview_token==token and self.is_online() and self:_cb_txt_preview_current(job)
+                end,function(fresh)
+                    if self.preview_job~=job or self.preview_token~=token then return end
+                    if fresh then self:_prepare_cb_txt_preview(remote,callback,initial,true)
+                    else self:_auth_unavailable(callback,point.book_id) end
+                end)
+                if self.preview_job==job then
+                    if renewing then job.recovery=handle else self:_auth_unavailable(callback,point.book_id) end
+                end
+                return
+            end
+            self.preview_job=nil
+            if type(result)=='table' and result.request_id==job.request_id and result.error=='source_remote_changed' then
+                callback(nil,'source_remote_changed');return
+            end
+            if type(result)=='table' and result.request_id==job.request_id and result.error=='source_native_expired' then
+                callback(nil,'source_native_authentication_unavailable');return
+            end
+            local age=self.now()-job.started
+            if type(result)~='table' or result.request_id~=job.request_id or not Currentness.packet_cb_txt(result.check,expected)
+                or age<0 or age>30 then callback(nil,'source_currentness_unavailable');return end
+            local receipt={}
+            if initial then self.checked_cb_initial_previews[receipt]=job else self.checked_cb_upload_previews[receipt]=job end
+            callback(clone(candidate),nil,receipt)
+        end)
+        if not started and self.preview_job==job then self.preview_job=nil;callback(nil,'worker_unavailable') end
+    end)
 end
 function Service:_native_preview_current(job)
     if not self:_current(job.scope) or not self:is_current_native_excerpt(job.local_receipt,job.packet) then return false end

@@ -347,6 +347,16 @@ test('CB upload confirmation preserves a newer page reached during the send',fun
     eq(f.sync.source_local_anchor.chapter_offset,150,'confirmation changed the uploaded source anchor')
 end)
 
+test('manual CB TXT sync journals its raw source and leaves time reporting disabled',function()
+    local f=cb_manual_fixture();local id=f.source.book_id;f.source.basis='raw_txt_utf16'
+    f.sync:sync_now();f.drain();eq(#f.choices,1);f.choices[1].keep_local()
+    eq(f.intent.cb_guarded_sync,true);eq(f.intent.expected_remote.chapter_offset,140)
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='raw\r\ntext'}
+    f.ready({position=pos,source_position=f.source,basis='raw_txt_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(#f.uploads,1);eq(f.sync.verified,true);eq(f.sync.source_dispatch:pending(id),false)
+    eq(f.sync:position_for_report(id),nil,'TXT position accidentally enabled reading-time reporting')
+end)
+
 test('CB reading time requires the same account, exact baseline and no uncertain write',function()
     local f=cb_manual_fixture();local id=f.source.book_id
     eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
@@ -510,7 +520,7 @@ local function cb_first_fixture(mode)
     end
     function f:ready_first()
         local position={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=self.intent.percent,summary='synthetic source'}
-        self.ready({position=position,source_position=self.source,basis='filtered_xhtml_utf16',transport='cb_web_initial',
+        self.ready({position=position,source_position=self.source,basis=self.source.basis,transport='cb_web_initial',
             initial_remote=self.intent.expected_remote.no_chapter,is_current=function() return true end})
     end
     return f
@@ -531,6 +541,19 @@ test('CB first sync requires explicit choice and confirms before granting automa
     eq(f.values.books[id].pending_upload_position,nil,'confirmed CB first request retained local intent')
     eq(f.sync.verified,true,'confirmed CB first point did not grant authority')
     eq(f.notifications[#f.notifications].code,'upload_success','CB first success not shown')
+end)
+
+test('CB TXT first sync requires explicit choice and preserves unknown dispatch',function()
+    local f=cb_first_fixture();local id=f.source.book_id;f.source.basis='raw_txt_utf16'
+    f.sync:_pull({manual=false});f.drain();eq(#f.choices,0,'automatic TXT first write offered')
+    f.sync:sync_now();f.drain();eq(f.choices[1].initialize_cloud,true,'TXT first choice missing')
+    f.choices[1].initialize();eq(f.intent.cb_guarded_sync,true);f:ready_first()
+    eq(#f.uploads,1);eq(f.sync.verified,true);eq(f.sync.source_dispatch:pending(id),false)
+    f=cb_first_fixture('unknown');id=f.source.book_id;f.source.basis='raw_txt_utf16'
+    f.sync:sync_now();f.drain();f.choices[1].initialize();f:ready_first()
+    eq(#f.uploads,1);eq(f.sync.verified,false);eq(f.sync.source_dispatch:pending(id),true)
+    local choices=#f.choices;f.sync:sync_now();f.drain()
+    eq(#f.choices,choices,'uncertain TXT first write offered another request');eq(#f.uploads,1)
 end)
 
 test('CB first sync accepts delayed dual readback without sending again',function()
@@ -2505,6 +2528,14 @@ test('imported cloud viewing preserves pending local intent and never verifies u
     eq(f.values.books[id].pending_upload_reason,'synthetic_pending','imported viewing changed pending reason')
     local hint=assert(f.values.books[id].cb_cloud_view_resume)
     eq(hint.chapter_uid,'22','cloud view did not remember the viewed chapter')
+    f.sync.current_book_id=id;f.sync.checkpoint_account=f.sync:_account_key()
+    f.sync.dirty=true;f.sync:checkpoint_local('synthetic_flush')
+    eq(f.values.books[id].pending_upload_position,original,'provisional cloud view replaced the earlier pending point')
+    eq(f.sync.dirty,false,'cloud reflow was treated as a fresh page turn')
+    point.chapter_offset=10001;f.sync.dirty=true;f.sync:checkpoint_local('synthetic_user_move')
+    eq(f.sync.cb_cloud_view_target,nil,'actual movement retained the provisional cloud guard')
+    eq(f.values.books[id].pending_upload_reason,'synthetic_user_move','actual movement failed to checkpoint')
+    f.values.books[id].pending_upload_position=original
     f.sync:_persist(id,{last_local_position={book_id=id,chapter_uid='22'}})
     eq(f.values.books[id].cb_cloud_view_resume.chapter_uid,'22','same-chapter position erased the cloud view')
     f.sync:_persist(id,{last_local_position={book_id=id,chapter_uid='23'}})

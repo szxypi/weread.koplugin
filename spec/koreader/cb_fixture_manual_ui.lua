@@ -13,7 +13,8 @@ local ok,reason=pcall(function()
     local timed=input.timer==true
     local closing=input.close==true
     local reading_time=input.time==true
-    assert((timed and 1 or 0)+(closing and 1 or 0)+(reading_time and 1 or 0)<=1)
+    local cloud=input.cloud==true
+    assert((timed and 1 or 0)+(closing and 1 or 0)+(reading_time and 1 or 0)+(cloud and 1 or 0)<=1)
     assert(not (timed or closing or reading_time) or type(input.timer_summary)=='string' and #input.timer_summary>0)
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
@@ -83,6 +84,13 @@ local ok,reason=pcall(function()
         assert(main:startBookReading(saved))
         wait(function() return Reader.instance and Reader.instance.weread and Reader.instance.weread._current_weread_book_id==input.book end)
         local plugin=Reader.instance.weread;local state=assert(plugin.settings:get_book(input.book))
+        if cloud then
+            assert(state.pending_upload_position and state.pending_upload_position.source_position
+                and state.pending_upload_position.source_position.chapter_offset==input.next_offset
+                and not plugin.source_dispatch:pending(input.book) and not plugin.progress_sync.verified
+                and counts[0]==0 and counts[1]==0 and counts[2]==0)
+            result={result='PASS',fresh_process=true,offline=true,pending_preserved=true,journal_cleared=true,requests=0};return
+        end
         assert(not state.pending_upload_position and not plugin.source_dispatch:pending(input.book)
             and not plugin.progress_sync.verified and counts[0]==0 and counts[1]==0 and counts[2]==0)
         result={result='PASS',fresh_process=true,offline=true,pending_cleared=true,journal_cleared=true,requests=0};return
@@ -94,8 +102,11 @@ local ok,reason=pcall(function()
     for _i,chapter in ipairs(input.chapters) do if tostring(chapter.chapterUid)==input.chapter then
         assert(not target and chapter.chapterIdx==input.chapter_idx);target=chapter end end
     assert(target and type(target.wordCount)=='number' and target.wordCount>0)
-    local source=assert(Source.capture(book,target,input.source,'web_xhtml'))
-    local file=assert(Content.save_book_epub(settings,book,{target},{[input.chapter]=input.source},'fixture-manual',{},nil,nil,
+    local source_format=input.source_format or 'web_xhtml'
+    assert(source_format=='web_xhtml' or synthetic and source_format=='web_txt')
+    local source=assert(Source.capture(book,target,input.source,source_format))
+    local rendered=source_format=='web_txt' and Content.txt_to_xhtml(input.source) or input.source
+    local file=assert(Content.save_book_epub(settings,book,{target},{[input.chapter]=rendered},'fixture-manual',{},nil,nil,
         Identity.capture(book),{[input.chapter]=source}))
     book.cached_file=file;book.cached_chapters[input.chapter]=file;book.chapters=input.chapters
     assert(Content.save_catalog_cache(client,settings,book,input.chapters))
@@ -119,7 +130,26 @@ local ok,reason=pcall(function()
     sync.notify=function(code,data) notice={code=code,data=data} end
     assert(sync:sync_now());wait(function() return choice and box end)
     assert(choice.remote_position.chapter_offset==input.first_offset and choice.local_position.source_position.chapter_offset==input.next_offset)
-    UI:close(box);choice.keep_local();result.phase='upload'
+    if cloud then
+        local account=assert(plugin.library_db:accountKey())
+        assert(plugin.settings:patch_reading_state(input.book,{pending_upload_position={book_id=input.book,chapter_uid=input.chapter,
+            chapter_offset=input.next_offset,percent=12},pending_upload_reason='synthetic_pending',pending_upload_account=account}))
+    end
+    UI:close(box)
+    if cloud then
+        result.phase='cloud';choice.use_remote()
+        wait(function() local current=plugin.source_position:current()
+            local state=plugin.settings:get_book(input.book)
+            return current and current.chapter_offset==input.first_offset and sync.source_anchor
+                and not plugin.cloud_source_request and state and state.cb_cloud_view_resume end)
+        local state=assert(plugin.settings:get_book(input.book))
+        assert(not sync.verified and state.pending_upload_position and state.pending_upload_position.source_position
+            and state.pending_upload_position.source_position.chapter_offset==input.next_offset
+            and not plugin.source_dispatch:pending(input.book) and counts[1]==0 and counts[2]==0)
+        plugin:onFlushSettings();reader:onClose(false)
+        result={result='PASS',cloud_choice=true,pending_preserved=true,upload_disabled=true,writes=0,denied=0};return
+    end
+    choice.keep_local();result.phase='upload'
     wait(function() return notice~=nil end)
     assert(notice.code=='upload_success' and counts[1]==2 and counts[2]==0,'manual fixture upload failed')
     local saved=assert(plugin.settings:get_book(input.book))

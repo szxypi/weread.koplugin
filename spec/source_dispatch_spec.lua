@@ -63,4 +63,14 @@ local old_session=assert(begin());epoch=2
 expect(not journal:finish(old_session,{acknowledged=true,position_confirmed=true}) and journal:pending('900001'),
     'same-account login accepted an earlier session receipt')
 expect(journal:resolve('900001'),'new session could not explicitly resolve old uncertainty')
+local imported=copy(point);imported.book_id='CB_Synthetic';imported.basis='raw_txt_utf16'
+local imported_wire=copy(wire);imported_wire.book_id=imported.book_id
+expect(not journal:begin(imported.book_id,imported_wire,imported,'time'),'raw TXT enabled reading-time dispatch')
+local raw=assert(journal:begin(imported.book_id,imported_wire,imported,'position'))
+expect(journal:owns(raw) and journal:pending(imported.book_id),'raw TXT position was not journaled')
+expect(journal:finish(raw,{enter_attempted=true,report_attempted=false}) and journal:pending(imported.book_id),
+    'uncertain raw TXT write lost its journal')
+expect(journal:finish(raw,{acknowledged=true,position_confirmed=true}) and not journal:pending(imported.book_id))
+local numeric_raw=copy(point);numeric_raw.basis='raw_txt_utf16'
+expect(not journal:begin('900001',wire,numeric_raw,'position'),'numeric raw TXT escaped its separate journal')
 print(('source_dispatch_spec: %d checks'):format(checks))

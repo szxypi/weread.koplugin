@@ -138,4 +138,26 @@ local bad_first=copy(cb_first);bad_first.expected_remote.no_chapter.book_id='CB_
 expect(not begin(bad_first) and #callbacks==prior and reason=='source_book_sync_unsupported','foreign first state dispatched reads')
 bad_first=copy(cb_first);bad_first.cb_guarded_sync=false
 expect(not begin(bad_first) and #callbacks==prior,'first source request bypassed explicit guard')
+local raw_cb=copy(cb);raw_cb.native_position_only=true;raw_cb.source_position.basis='raw_txt_utf16'
+local raw_candidate=copy(cb_candidate);raw_candidate.basis='raw_txt_utf16';raw_candidate.summary='raw\r\nsummary'
+current=copy(raw_cb.source_position)
+local selected_basis
+source.prepare_cb_current_upload_preview=function(_self,remote,callback,basis)
+    expect(remote.chapter_offset==3999);selected_basis=basis;callbacks[#callbacks+1]=callback
+end
+expect(begin(raw_cb) and selected_basis=='raw_txt_utf16' and routed==1,'CB TXT used numeric native sender')
+finish(raw_candidate)
+expect(plan and plan.transport=='cb_web_position' and plan.basis=='raw_txt_utf16' and plan.is_current()
+    and plan.position.summary=='raw\r\nsummary','CB TXT position plan lost raw source')
+plan.basis='filtered_xhtml_utf16';expect(not plan.is_current(),'changed TXT coordinate basis retained authority')
+local raw_first=copy(cb_first);raw_first.native_position_only=true;raw_first.source_position.basis='raw_txt_utf16'
+source.prepare_cb_initial_upload_preview=function(_self,_remote,callback,basis)
+    selected_basis=basis;callbacks[#callbacks+1]=callback
+end
+expect(begin(raw_first) and selected_basis=='raw_txt_utf16','CB TXT initial source proof was not selected')
+finish(raw_candidate)
+expect(plan and plan.transport=='cb_web_initial' and plan.basis=='raw_txt_utf16' and plan.is_current(),
+    'CB TXT first position plan missing')
+raw_first.cb_guarded_sync=false;prior=#callbacks
+expect(not begin(raw_first) and #callbacks==prior,'unguarded CB TXT triggered source reads')
 print(('source_upload_spec: %d checks'):format(checks))

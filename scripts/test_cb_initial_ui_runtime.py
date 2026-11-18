@@ -46,16 +46,17 @@ def main():
     parser.add_argument('--koreader', type=Path, required=True); parser.add_argument('--run-dir', type=Path, required=True)
     parser.add_argument('--width', type=int, default=600); parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167)
+    parser.add_argument('--format', choices=('epub', 'txt'), default='epub')
     parser.add_argument('--mode', choices=('normal', 'noack', 'noack_unapplied', 'changed', 'save_failed', 'verify_save_failed',
                                            'delayed', 'native_time', 'no_native'), default='normal')
     args = parser.parse_args(); root, runtime = args.run_dir.resolve(), args.koreader.resolve()
-    server = FirstServer(args.mode); thread = None
+    server = FirstServer(args.mode); server.content_format = args.format; thread = None
     try:
         prepare(root, runtime, server.server_port, args.width, args.height, args.dpi)
         (root / 'xdg').mkdir(mode=0o700); server.log_path = root / 'evidence/requests.jsonl'
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         environment = os.environ | dict(KO_HOME=str(root / 'profile'), XDG_RUNTIME_DIR=str(root / 'xdg'),
-            WEREAD_CB_FIRST_MODE=args.mode, EMULATE_READER='1', EMULATE_READER_W=str(args.width),
+            WEREAD_CB_FIRST_MODE=args.mode, WEREAD_CB_FIRST_FORMAT=args.format, EMULATE_READER='1', EMULATE_READER_W=str(args.width),
             EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi), EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8')
         probe = REPO / 'spec/koreader/cb_initial_ui_smoke.lua'; log = root / 'evidence/runtime.log'
         with log.open('w') as output:
@@ -80,7 +81,7 @@ def main():
             value = json.loads(raw.split(marker, 1)[1].splitlines()[0])
             if value != dict(result='PASS', offline=True, requests=0, journal_pending=not success):
                 raise ValueError('first offline reopen mismatch')
-        print(json.dumps(dict(result='PASS', mode=args.mode, width=args.width, height=args.height,
+        print(json.dumps(dict(result='PASS', mode=args.mode, source_format=args.format, width=args.width, height=args.height,
                               first_requests=server.first_posts, offline_reopen=not blocked)))
     finally:
         if thread is not None: server.shutdown(); thread.join()

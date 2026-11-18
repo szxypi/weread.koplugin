@@ -10,6 +10,9 @@ function M.new(input,protocol,cookie)
     local write=base..'/web/book/read'
     local content={}
     for _i,name in ipairs({'e_0','e_1','e_3'}) do content[base..'/web/book/chapter/'..name]=true end
+    if input.source_format=='web_txt' then
+        content[base..'/web/book/chapter/t_0']=true;content[base..'/web/book/chapter/t_1']=true
+    end
     local function one_book(body)
         if type(body)~='table' or type(body.bookIds)~='table' or #body.bookIds~=1 or body.bookIds[1]~=input.book then return false end
         local n,m=0,0;for _key in pairs(body) do n=n+1 end;for _key in pairs(body.bookIds) do m=m+1 end

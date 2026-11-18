@@ -88,5 +88,15 @@ report,plan,posts=fixture('normal');plan.initial_remote.book_id='CB_Foreign'
 expect(not report:upload_position(id,position,0,plan) and #posts==0,'foreign initial state accepted')
 report,plan,posts=fixture('normal')
 expect(not report:upload_position(id,position,1,plan) and #posts==0,'time upload entered first-position path')
+local original_summary=position.summary;position.summary='raw\r\nTXT summary'
+report,plan,posts=fixture('normal');plan.basis='raw_txt_utf16';plan.source_position.basis=plan.basis
+ok,result=report:upload_position(id,position,0,plan)
+expect(ok and result.position_confirmed and #posts==1 and posts[1].sm==position.summary,'TXT first position lost raw summary')
+report,plan,posts=fixture('no_ack');plan.basis='raw_txt_utf16';plan.source_position.basis=plan.basis
+ok,result=report:upload_position(id,position,0,plan)
+expect(not ok and result.enter_attempted and #posts==1,'unknown TXT first write was not retained')
+report,plan,posts=fixture('normal');plan.source_position.basis='raw_txt_utf16'
+expect(not report:upload_position(id,position,0,plan) and #posts==0,'mismatched TXT source units accepted')
+position.summary=original_summary
 Initial.capture,Initial.current,Initial.before,Initial.target=old_capture,old_current,old_before,old_target
 print(('cb_initial_read_report_spec: %d checks'):format(checks))

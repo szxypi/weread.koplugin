@@ -199,9 +199,17 @@ expect(not pcall(Cloud.project,id,numeric_gap,numeric_reader,raw,numeric_gap),
 local multi=raw..raw:gsub('Cloud original target','Entirely distinct other passage')
 expect(Cloud.project(cb_target.book_id,cb_before,cb_reader,multi,cb_before).upload_verified==false,
     'read-only imported multi-body source was rejected')
-local cb_txt=copy(cb_projected);cb_txt.basis='raw_txt_utf16'
-expect(not Cloud.remote(cb_txt) and not pcall(Cloud.project,cb_target.book_id,cb_before,cb_reader,raw,cb_before,'web_txt'),
-    'unverified imported TXT position was accepted')
+local txt_raw='ABCD😀 unique imported raw TXT target with sufficient original context.'
+local txt_before=copy(cb_before);txt_before.book.chapterOffset=7
+local txt_reader=copy(cb_reader);txt_reader.progress=txt_before
+local cb_txt=Cloud.project(cb_target.book_id,txt_before,txt_reader,txt_raw,txt_before,'web_txt')
+expect(Cloud.remote(cb_txt) and cb_txt.basis=='raw_txt_utf16' and cb_txt.chapter_offset==7 and not cb_txt.upload_verified,
+    'exact imported TXT source target was not projected')
+expect(not Cloud.bind(input,cb_txt,archive).position,'imported TXT target matched an XHTML archive')
+local txt_interior=copy(txt_before);txt_interior.book.chapterOffset=5
+local txt_interior_reader=copy(txt_reader);txt_interior_reader.progress=txt_interior
+expect(not pcall(Cloud.project,cb_target.book_id,txt_interior,txt_interior_reader,txt_raw,txt_interior,'web_txt'),
+    'imported TXT interior surrogate was snapped')
 local other=copy(cb_before);other.book.bookId='CB_Other'
 expect(not pcall(Cloud.project,cb_target.book_id,other,cb_reader,raw,other),'foreign imported book was accepted')
 expect(not pcall(Cloud.project,id,before,reader,raw..raw,before),

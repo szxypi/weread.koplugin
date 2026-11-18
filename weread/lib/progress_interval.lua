@@ -52,7 +52,7 @@ function M:_eligible()
         local saved=sync.get_book(sync.current_book_id) or {}
         if saved.pending_upload_account==sync:_account_key() and saved.pending_upload_reason=='upload_readback_unconfirmed'
             or not CBGuard.expected(sync.remote_position,sync.current_book_id)
-            or type(point)~='table' or point.basis~='filtered_xhtml_utf16' then return false end
+            or type(point)~='table' or not Source.is_coordinate_basis(point.basis) then return false end
     end
     return type(point)=='table' and point.book_id==sync.current_book_id
         and Source.is_coordinate_basis(point.basis) and point.upload_verified==false

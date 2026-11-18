@@ -237,6 +237,7 @@ end
 
 function ProgressSync:_begin_source_transition(reason)
     self:begin_local_navigation()
+    self.cb_cloud_view_target=nil
     local id=tostring(self.detect_book() or '')
     if self.upload_job and self.upload_job.book_id==id then self.upload_job,self.uploading=nil,false end
     self:_clear_verified(reason)
@@ -254,12 +255,17 @@ function ProgressSync:accept_cloud_source_target(position,sync_choice,checked_re
     if position.book_id:sub(1,3)=='CB_' then
         -- Viewing a provisional cloud target never grants upload authority or
         -- discards the user's previously captured local intent.
-        if position.basis~='filtered_xhtml_utf16' then return false end
         local hint=require('weread.lib.unindexed_resume').make(position,position.book_id,
             self:_account_key(),self.settings:get('auth_epoch',0))
         if not hint then return false end
         self:_persist(position.book_id,{cb_cloud_view_resume=hint})
         self:_clear_verified('cloud_source_selected')
+        -- The engine has moved to a provisional cloud point. Use its current
+        -- local page as the movement baseline without rewriting the pending
+        -- local intent; later flush/close must not treat this jump as a turn.
+        local current=self:capture_local()
+        if current then self.local_position=copy(current) end
+        self.cb_cloud_view_target=copy(held)
         self.dirty,self.state=false,'unverified'
         return true
     end
@@ -334,6 +340,7 @@ end
 function ProgressSync:on_account_changed()
     self.interval:halt()
     self.file_resume=nil
+    self.cb_cloud_view_target=nil
     self.account_generation = self.account_generation + 1
     self.generation = self.generation + 1
     self:_invalidate_pull()
@@ -1291,7 +1298,7 @@ function ProgressSync:_resolve_initial(local_position,remote,context,options)
         self.notify('upload_unconfirmed',{error='upload_readback_unconfirmed'});return
     end
     if not self.prepare_upload or type(source)~='table'
-        or cb_initial and (source.basis~='filtered_xhtml_utf16' or not self.source_dispatch)
+        or cb_initial and (not Source.is_coordinate_basis(source.basis) or not self.source_dispatch)
         or not cb_initial and source.basis~='raw_txt_utf16' then
         self.notify('pull_failed',{error='progress_no_chapter'});return
     end
@@ -1786,6 +1793,14 @@ function ProgressSync:checkpoint_local(reason, source_position)
         position.source_position = copy(source_position)
     end
     if self.local_position and not PositionMapper.same_position(position, self.local_position) then self.dirty = true end
+    if self.cb_cloud_view_target then
+        local held=self:current_source_target()
+        local same=type(held)=='table'
+        for _,key in ipairs({'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis'}) do
+            if not held or held[key]~=self.cb_cloud_view_target[key] then same=false;break end
+        end
+        if same then self.dirty=false else self.cb_cloud_view_target=nil end
+    end
     local patch = { last_local_position = position }
     if self.dirty then
         local saved = self.get_book(position.book_id) or {}
@@ -1842,6 +1857,7 @@ function ProgressSync:on_close_document(source_position, close_token, close_posi
     self.remote_position = nil
     self.document_context = nil
     self.remote_anchor, self.source_anchor = nil, nil
+    self.cb_cloud_view_target=nil
     self.file_resume=nil
 end
 

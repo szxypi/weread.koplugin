@@ -27,4 +27,17 @@ end
 for _i,catalog in ipairs({{},{{chapterUid=11}},{{chapterUid=11,chapterIdx=true}},{{chapterUid=11,chapterIdx=1,chapter_idx=2}},
     {{chapterUid=11,chapterIdx=0},{chapterUid=11,chapterIdx=0}}}) do expect(not C.project(packet,catalog,37),'ambiguous UID/index') end
 local extra=copy(packet);extra.summary='private';expect(not C.project(extra,chapters,37))
+local imported=copy(packet);imported.position.book_id='CB_Synthetic'
+local cb=assert(C.project_cb(imported,chapters,37))
+expect(cb.book_id=='CB_Synthetic' and cb.chapter_idx==0 and cb.percent==37 and cb.summary==packet.excerpt.text
+    and cb.chapter_offset==1 and cb.basis=='raw_txt_utf16' and cb.upload_verified==false,'imported raw candidate changed its text or units')
+expect(not C.project(imported,chapters,37) and not C.project_cb(packet,chapters,37),'numeric and imported candidates mixed')
+for _i,change in ipairs({{book_id='CB_'},{book_id='CB_bad/'},{chapter_uid='9007199254740992'},
+    {chapter_offset=-1},{basis='filtered_xhtml_utf16'},{upload_verified=true}}) do
+    local v=copy(imported);for key,value in pairs(change) do v.position[key]=value end
+    expect(not C.project_cb(v,chapters,37),'invalid imported raw candidate accepted')
+end
+for _i,value in ipairs({-1,101,37.5,'37',true,0/0,math.huge}) do
+    expect(not C.project_cb(imported,chapters,value),'invalid imported viewport percent')
+end
 print(('native_source_candidate_spec: %d checks'):format(checks))

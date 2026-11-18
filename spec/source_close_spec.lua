@@ -120,4 +120,27 @@ intent.expected_remote=copy(remote);alive=true;clock=100;changed=true
 cbtoken=assert(service:freeze(copy(intent)));alive=false;plan,reason,count=nil,nil,0
 expect(service:prepare(cbtoken,copy(intent),function(value,why) plan,reason,count=value,why,count+1 end))
 finish();expect(not plan and count==1 and reason=='source_remote_changed','changed imported cloud did not stop close')
+changed=false;point.basis='raw_txt_utf16';point.chapter_offset=2;point.render_path='OEBPS/text/chapter.xhtml'
+intent.source_position=copy(point);intent.expected_remote=copy(remote)
+local text='AB😀\r\nRaw synthetic text for detached synchronization.'
+Task.prepare_native_excerpt=function(input)
+    local actual=copy(input.target);actual.chapter_title='Synthetic chapter'
+    return {request_id=input.request_id,position=actual,
+        excerpt=assert(require('weread.lib.source_coordinates').build(text,{format='web_txt'}):literal_excerpt(input.target.chapter_offset))}
+end
+Currentness.run_cb_txt_upload=function(_client,expected,_access,pinned)
+    expect(pinned.chapter_offset==3500,'TXT close lost cloud baseline')
+    if changed then return {error='source_remote_changed'} end
+    return {check={expected=expected}}
+end
+Currentness.packet_cb_txt=function(packet,expected) return packet and packet.expected.book_id==expected.book_id end
+alive=true;clock=100;cbtoken=assert(service:freeze(copy(intent)));alive=false;plan,reason,count=nil,nil,0
+expect(service:prepare(cbtoken,copy(intent),function(value,why) plan,reason,count=value,why,count+1 end))
+finish();expect(plan and plan.detached and plan.transport=='cb_web_position' and plan.basis=='raw_txt_utf16'
+    and plan.is_current() and count==1 and reason==nil,'detached imported TXT plan missing')
+plan.basis='filtered_xhtml_utf16';expect(not plan.is_current(),'changed detached TXT units accepted')
+plan.basis='raw_txt_utf16';plan.release()
+alive=true;clock=100;changed=true;cbtoken=assert(service:freeze(copy(intent)));alive=false;plan,reason,count=nil,nil,0
+expect(service:prepare(cbtoken,copy(intent),function(value,why) plan,reason,count=value,why,count+1 end))
+finish();expect(not plan and count==1 and reason=='source_remote_changed','changed imported TXT cloud did not stop close')
 print(('source_close_spec: %d checks'):format(checks))

@@ -33,8 +33,9 @@ expect(bound.position and bound.position.basis=='raw_txt_utf16' and bound.positi
 expect(bound.position.chapter_offset==found.hits[1].offset and bound.request_id==9,'target changed local source position')
 local remote={book_id=book.book_id,chapter_uid='2',chapter_offset=found.hits[1].offset,raw_sha256=captured.raw_sha256,
     raw_bytes=#raw,basis='raw_txt_utf16',upload_verified=false,percent=1}
-expect(not Cloud.remote(remote) and not Cloud.bind({file='/fixture.epub',identity=identity,book_id=book.book_id},remote,archive).position,
-    'local search changed the CB TXT cloud-coordinate restriction')
+local cloud=Cloud.bind({file='/fixture.epub',identity=identity,book_id=book.book_id},remote,archive)
+expect(Cloud.remote(remote) and cloud.position and cloud.position.basis=='raw_txt_utf16' and not cloud.position.upload_verified
+    and cloud.position.chapter_offset==found.hits[1].offset,'local and cloud TXT targets did not bind the same raw source')
 files[render]=rendered..'changed'
 expect(not Target.bind_file('/fixture.epub',book.book_id,row,9,archive).position,'changed rendered text was accepted')
 files[render]=rendered

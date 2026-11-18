@@ -51,6 +51,8 @@ local reader=Reader.instance;local plugin=reader.weread
 plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
 reader.rolling:onGotoPage(2)
 wait(function() local value=plugin.source_position:current();return value and value.chapter_uid=='1' end)
+local wanted=os.getenv('WEREAD_CB_FIRST_FORMAT')=='txt' and 'raw_txt_utf16' or 'filtered_xhtml_utf16'
+assert(plugin.source_position:current().basis==wanted,'unexpected synthetic source basis')
 local sync=plugin.progress_sync;local choice,box,notice
 local show=UI.show
 function UI:show(widget,...)
