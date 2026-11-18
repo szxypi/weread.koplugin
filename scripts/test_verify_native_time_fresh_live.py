@@ -64,6 +64,15 @@ class LiveTests(unittest.TestCase):
         self.assertEqual(result['account_data_posts'],1);self.assertFalse(result['independent_readback'])
         self.assertFalse(result['real_accounting_verified']);self.broker.assert_called_once()
 
+    def test_partial_readback_preserves_evidence_without_claiming_full_success(self):
+        self.readback.return_value=dict(result='READBACK_PARTIAL',independent_samples=3,accounting_and_core_state_exact=True,
+            full_shelf_exact=False,account_data_posts=0,authentication_posts=0)
+        result=self.run_case()
+        self.assertEqual(result['result'],'NATIVE_FRESH_ACKNOWLEDGED_READBACK_UNVERIFIED')
+        self.assertTrue(result['accounting_and_core_state_observed']);self.assertFalse(result['full_shelf_exact'])
+        self.assertFalse(result['independent_readback']);self.assertFalse(result['real_accounting_verified'])
+        self.broker.assert_called_once()
+
     def test_missing_durable_ack_is_never_called_verified(self):
         self.broker.side_effect=None;self.broker.return_value=dict(result='NATIVE_FRESH_ACKNOWLEDGED',profile_removed=True,
                    dispatch_may_have_occurred=True,account_data_posts_confirmed=1,authentication_posts=0)

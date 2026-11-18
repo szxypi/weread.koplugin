@@ -43,6 +43,19 @@ class FreshAuditTests(unittest.TestCase):
         keeper.acknowledge(claimed,{'succ':1})
         result=reopened.check_acknowledged(bundle,grant,keeper,samples,trial,observations)
         self.assertEqual(result['result'],'ACCOUNTING_MATCH');self.assertFalse(result['real_accounting_verified'])
+        changed=deepcopy(observations)
+        for row in changed:row['web']['books'][0]['bookId']='900009'
+        partial=reopened.assess_acknowledged(bundle,grant,keeper,samples,trial,changed)
+        self.assertFalse(partial['full_shelf_exact']);self.assertFalse(partial['real_accounting_verified'])
+        with self.assertRaisesRegex(ValueError,'fresh_shelf/changed'):
+            reopened.check_acknowledged(bundle,grant,keeper,samples,trial,changed)
+        # A changed shelf never masks a later invalid group or bad accounting.
+        changed[1]['group']['web_group_present']=True
+        with self.assertRaises(ValueError):reopened.assess_acknowledged(bundle,grant,keeper,samples,trial,changed)
+        changed=deepcopy(observations)
+        for row in changed:row['web']['books'][0]['bookId']='900009'
+        samples[-1]['snapshot']['counts']['ttsTime']+=1
+        with self.assertRaises(ValueError):reopened.assess_acknowledged(bundle,grant,keeper,samples,trial,changed)
         observations[1]['web']['books'].pop()
         with self.assertRaises(ValueError):reopened.check_acknowledged(bundle,grant,keeper,samples,trial,observations)
         for name in ('send','post','claim','advance','delete','verify'):self.assertFalse(hasattr(store,name))

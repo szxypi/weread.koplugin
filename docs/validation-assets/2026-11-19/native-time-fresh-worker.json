@@ -1,15 +1,16 @@
 {
   "synthetic": {
     "runtime": "official KOReader 2026.07.1 Linux ARM64",
-    "scenarios": 11,
+    "scenarios": 12,
     "result": "PASS",
     "host_rehearsal_dispatch_readback": true,
     "independent_readbacks_per_success": 3,
-    "synthetic_account_writes": 4,
+    "synthetic_account_writes": 5,
     "real_account_writes": 0,
     "dry_approval_override_blocked": true,
     "archive_rechecked_after_claim": true,
     "missing_receipt_and_interrupted_claim_not_replayed": true,
+    "changed_shelf_returns_partial_only": true,
     "shelf_and_trial_identity": "synthetic"
   },
   "real_account_rehearsal": {

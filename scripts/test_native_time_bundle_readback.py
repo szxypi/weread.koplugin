@@ -39,6 +39,23 @@ def sealed():
 
 
 class ReadbackTests(unittest.TestCase):
+    def test_partial_readback_has_nonzero_exit_and_keeps_accounting_unverified(self):
+        keeper=Mock();keeper.read.return_value=({'phase':'acknowledged'},Receipt(b'synthetic'))
+        saved={'vid':'900000','cookies':{'wr_vid':'900000','wr_skey':'synthetic'}};grant={'vid':'900000'}
+        session=Mock();session.load.return_value=saved;native=Mock();native.load.return_value=grant
+        web=Mock();web.shards={};web._time_catalog_pair=[]
+        partial=dict(result='READBACK_PARTIAL',independent_samples=3,accounting_and_core_state_exact=True,
+                     full_shelf_exact=False,real_accounting_verified=False,account_data_posts=0,authentication_posts=0)
+        with ExitStack() as stack:
+            for name,value in [('DispatchGate',keeper),('SessionStore',session),('NativeSessionStore',native),('XhtmlSource',web),
+                               ('CaptureBundleStore',Mock()),('FreshAuditStore',Mock())]:
+                stack.enter_context(patch.object(command,name,return_value=value))
+            stack.enter_context(patch.object(command.resource,'setrlimit'))
+            stack.enter_context(patch.object(command,'run',return_value=partial))
+            output=stack.enter_context(redirect_stdout(io.StringIO()))
+            self.assertEqual(command.main(['--saved-session','--fresh-shelf']),1)
+        self.assertEqual(json.loads(output.getvalue()),partial)
+
     def test_command_is_offline_by_default_and_unacknowledged_scope_stays_offline(self):
         with patch.object(command,'DispatchGate') as gates,patch.object(command,'SessionStore') as sessions,redirect_stdout(io.StringIO()) as out:
             self.assertEqual(command.main([]),0)

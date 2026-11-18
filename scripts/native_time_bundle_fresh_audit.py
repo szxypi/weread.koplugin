@@ -103,10 +103,20 @@ class FreshAuditStore:
         return deepcopy(packet),receipt,state,gate_receipt
 
     def check_acknowledged(self,bundle,grant,gate,samples,trial_scope,shelf_observations):
+        result=self.assess_acknowledged(bundle,grant,gate,samples,trial_scope,shelf_observations)
+        if result['full_shelf_exact'] is not True:raise ValueError('fresh_shelf/changed')
+        return {key:value for key,value in result.items() if key!='full_shelf_exact'}
+
+    def assess_acknowledged(self,bundle,grant,gate,samples,trial_scope,shelf_observations):
+        """Compare accounting separately, without declaring a changed full shelf safe."""
         from native_time_bundle_fresh_shelf import compare_bound
         packet,receipt,state,gate_receipt=self.inspect(bundle,grant,gate)
         if state['phase']!='acknowledged':raise ValueError('fresh_audit/no_ack')
-        compare_bound(packet['report'],packet['shelves'],packet['trial_scope'],trial_scope,shelf_observations)
+        full_shelf_exact=True
+        try:compare_bound(packet['report'],packet['shelves'],packet['trial_scope'],trial_scope,shelf_observations)
+        except ValueError as error:
+            if str(error)!='fresh_shelf/changed':raise
+            full_shelf_exact=False
         result=audit(bundle,grant,packet['baseline'],samples,state['claimed_at'])
         if self.read()[1]!=receipt or gate.read()!=(state,gate_receipt):raise ValueError('fresh_audit/changed')
-        return result
+        return dict(result,full_shelf_exact=full_shelf_exact)

@@ -30,7 +30,7 @@ class FreshReadbackTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())['result'],'NOT_READY')
 
     def test_fresh_readback_requires_exact_shelves_trial_catalog_and_accounting(self):
-        for mode in ('match','shelf_changed','trial_changed','catalog_changed','accounting_changed'):
+        for mode in ('match','shelf_changed','shelf_unstable','trial_changed','catalog_changed','accounting_changed'):
             bundle,grant,evidence,observations=shelf_example();_b,_g,before,samples,now=accounting_example()
             _b,_g,body,_n=fixture();keeper=gate(now);reservation=keeper.reserve(bundle,grant)
             audit=FreshAuditStore(Backend(),clock=lambda:now);audit.seal(bundle,grant,keeper,evidence,synthetic_scope(bundle))
@@ -63,9 +63,10 @@ class FreshReadbackTests(unittest.TestCase):
             def check_original(*args):
                 args[5]();args[5]()
                 return deepcopy(observations[0]['original'])
-            if mode=='shelf_changed':
+            if mode in ('shelf_changed','shelf_unstable'):
                 changed=deepcopy(web_shelf);changed['books'][0]['bookId']='900009'
-                web.request.side_effect=[web_shelf]*5+[changed]*5
+                if mode=='shelf_unstable':web.request.side_effect=[web_shelf]*5+[changed]*5
+                else:web.request.return_value=changed
             if mode=='catalog_changed':web._time_catalog_pair[1][0]['updated'][0]['version']=1
             import native_time_bundle_readback as module
             with ExitStack() as stack:
@@ -85,6 +86,10 @@ class FreshReadbackTests(unittest.TestCase):
                     if mode=='match':
                         result=run(**args);self.assertEqual(result['result'],'READBACK_MATCH')
                         self.assertFalse(result['real_accounting_verified']);self.assertEqual(len(shelf_open.requests),10)
+                    elif mode=='shelf_changed':
+                        result=run(**args);self.assertEqual(result['result'],'READBACK_PARTIAL')
+                        self.assertTrue(result['accounting_and_core_state_exact']);self.assertFalse(result['full_shelf_exact'])
+                        self.assertFalse(result['real_accounting_verified'])
                     else:
                         with self.assertRaises(ValueError):run(**args)
             self.assertEqual(keeper.read(),gate_before);self.assertEqual(audit.read(),audit_before)

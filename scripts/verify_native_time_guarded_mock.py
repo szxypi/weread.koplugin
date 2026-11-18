@@ -45,7 +45,8 @@ class Server(MockServer):
         super().__init__(0);self.plan=plan;self.chapter_source=lambda _uid,_revision=None:raw
         self.months=deepcopy(months);self.applied=False;self.writes=0;self.fault=None;self.seen=[]
         self.shelf={'books':[{'bookId':plan['book_id'],'title':'Synthetic book','secret':0,'finishReading':0},
-                             {'bookId':TARGET,'title':'Synthetic fixture','secret':0,'finishReading':0}],'archive':[]}
+                             {'bookId':TARGET,'title':'Synthetic fixture','secret':0,'finishReading':0}],
+                    'archive':[{'archiveId':2,'name':'Synthetic group','bookIds':[plan['book_id']],'updatedAt':1}]}
         self.catalog=synthetic_catalog(plan)
 
     def route(self,method,target,data):
@@ -57,7 +58,10 @@ class Server(MockServer):
                 if self.fault=='position_changed':point['chapterOffset']+=1
                 return 200,dict(timestamp=int(time.time()),book=point)
             if url.path=='/book/info' and method=='GET':return 200,dict(bookId=self.plan['book_id'],bookVersion=7)
-            if url.path=='/shelf/sync' and method=='GET':return 200,deepcopy(self.shelf)
+            if url.path=='/shelf/sync' and method=='GET':
+                value=deepcopy(self.shelf)
+                if self.applied and self.fault=='shelf_metadata_changed':value['archive'][0]['updatedAt']=2
+                return 200,value
             if url.path=='/readdata/detail' and method=='GET':
                 month=parse_qs(url.query)['baseTime'][0];value=deepcopy(self.months[month])
                 if self.applied and int(month)==period('monthly',self.plan['start_time'])[0]:
@@ -104,7 +108,8 @@ def scenario(args,mode):
                                 (shelf_digest,shelf_digest),synthetic_scope(bundle))
     store=Capture(bundle);gate=DispatchGate(Backend(),clock=time.time,zone=lambda:'+08:00');audit=FreshAuditStore(Backend(),clock=time.time)
     prepared=Prepared(bundle,store.receipt,grant,evidence);armed=mode not in ('dry','host_dry','malicious_approval')
-    server.fault='missing_ack' if mode=='host_live_missing_ack' else mode
+    server.fault=('missing_ack' if mode=='host_live_missing_ack' else
+                  'shelf_metadata_changed' if mode=='host_live_shelf_changed' else mode)
     if mode=='source_changed':server.chapter_source=lambda _uid,_revision=None:raw+'changed'
     command=[sys.executable,str(args.source/'scripts/run_native_time_guarded_worker.py'),'--koreader',str(args.koreader),
              '--source',str(args.source),'--candidate',str(args.candidate),'--mock-port',str(server.server_port)]
@@ -149,7 +154,7 @@ def scenario(args,mode):
     try:
         with patch.object(NativeTimeBridge,'handle',new=override) if override else nullcontext(),\
                 patch('native_time_bundle_fresh_broker.subprocess.Popen',side_effect=visible) if os.getenv('WEREAD_NATIVE_SYNTHETIC_DEBUG')=='1' else nullcontext():
-            if mode in ('host_dry','host_live_success','host_live_missing_ack'):
+            if mode in ('host_dry','host_live_success','host_live_missing_ack','host_live_shelf_changed'):
                 saved={'vid':'900000','cookies':{'wr_vid':'900000','wr_skey':'mock_key'}}
                 session=Mock();session.load.side_effect=lambda:deepcopy(saved)
                 native=Mock();native.load.side_effect=lambda _owner:deepcopy(grant)
@@ -172,6 +177,7 @@ def scenario(args,mode):
         expected={'dry':('NATIVE_FRESH_DRY_RUN_VERIFIED',None,0),'host_dry':('NATIVE_FRESH_DRY_RUN_VERIFIED',None,0),
                   'host_live_success':('NATIVE_FRESH_TRANSFER_READBACK_MATCH','acknowledged',1),
                   'host_live_missing_ack':('UNVERIFIED','claimed',1),
+                  'host_live_shelf_changed':('NATIVE_FRESH_ACKNOWLEDGED_READBACK_UNVERIFIED','acknowledged',1),
                   'malicious_approval':('UNVERIFIED',None,0),'success':('NATIVE_FRESH_ACKNOWLEDGED','acknowledged',1),
                   'source_changed':('UNVERIFIED',None,0),'position_changed':('UNVERIFIED',None,0),
                   'missing_ack':('UNVERIFIED','claimed',1),'archive_changed':('UNVERIFIED','claimed',0),
@@ -184,6 +190,9 @@ def scenario(args,mode):
         if mode=='host_live_success' and (result.get('independent_readback') is not True
                 or result.get('historical_date_matched') is not True or result.get('real_accounting_verified') is not False):
             raise ValueError('synthetic_native/host_readback')
+        if mode=='host_live_shelf_changed' and (result.get('accounting_and_core_state_observed') is not True
+                or result.get('full_shelf_exact') is not False or result.get('real_accounting_verified') is not False):
+            raise ValueError('synthetic_native/partial_readback')
         if mode=='success':
             web=Web();web.vid='900000'
             for key,value in {'wr_vid':'900000','wr_skey':'mock_key'}.items():web.set_cookie(key,value)
@@ -201,10 +210,11 @@ def main(argv=None):
     args=parser.parse_args(argv)
     try:
         for mode in ('dry','host_dry','malicious_approval','success','source_changed','position_changed','missing_ack',
-                     'archive_changed','interrupted','host_live_success','host_live_missing_ack'):
+                     'archive_changed','interrupted','host_live_success','host_live_missing_ack','host_live_shelf_changed'):
             scenario(args,mode)
-        report=dict(result='SYNTHETIC_NATIVE_GUARDED_TASK_VERIFIED',scenarios=11,real_account_posts=0,
-                    synthetic_posts=4,independent_readbacks_on_success=3,host_dry_run=True,dry_override_blocked=True,
+        report=dict(result='SYNTHETIC_NATIVE_GUARDED_TASK_VERIFIED',scenarios=12,real_account_posts=0,
+                    synthetic_posts=5,independent_readbacks_on_success=3,host_dry_run=True,dry_override_blocked=True,
+                    changed_shelf_records_partial_only=True,
                     archive_rechecked=True,uncertain_claims_not_replayed=True,full_host_rehearsal_dispatch_readback=True)
     except Exception as error:
         if os.getenv('WEREAD_NATIVE_SYNTHETIC_DEBUG')=='1':

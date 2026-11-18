@@ -49,7 +49,7 @@ def main(argv=None):
         for value in (saved,grant):
             if value:value.clear()
     print(json.dumps(result,ensure_ascii=False,indent=2))
-    return int(result['result']=='UNVERIFIED')
+    return int(result['result'] not in ('OFFLINE_ONLY','NOT_READY','READBACK_MATCH'))
 
 
 if __name__=='__main__':raise SystemExit(main())
