@@ -39,6 +39,10 @@ def main():
     if args.cross_chapter and not args.annotations: parser.error('--cross-chapter requires --annotations')
     if args.transient and not args.fetch_book: parser.error('--transient requires --fetch-book')
     if args.resume and (not args.fetch_book or args.transient or args.annotations): parser.error('--resume requires a separate --fetch-book scenario')
+    if args.resume:
+        # Exercise KOReader's JSON-null sentinel in the persisted fingerprint.
+        import mock_weread
+        mock_weread.CHAPTERS[0]['syntheticNullableField']=None
     if (args.hash_storage or args.dir_storage) and not args.fetch_book: parser.error('metadata storage selection requires --fetch-book')
     if args.hash_storage and args.dir_storage: parser.error('choose one metadata storage location')
     if args.fetch_book:

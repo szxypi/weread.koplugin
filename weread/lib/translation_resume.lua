@@ -12,18 +12,36 @@ local function query(db,sql,...)
     end)
     stmt:close();if not ok then error(result,0) end;return result
 end
-local function same(a,b)
-    if type(a)~=type(b) then return false end
-    if type(a)~='table' then return a==b end
-    for k,v in pairs(a) do if not same(v,b[k]) then return false end end
-    for k in pairs(b) do if a[k]==nil then return false end end
-    return true
-end
 local function nonce()
     local f=assert(io.open('/dev/urandom','rb'));local raw=f:read(16);assert(f:close() and raw and #raw==16)
     return (raw:gsub('.',function(c) return string.format('%02x',c:byte()) end))
 end
 local function text(v,n) return type(v)=='string' and #v>0 and #v<=n and not v:find('[%z%c]') end
+-- KOReader's JSON null is a function. Type tags keep it distinct from real
+-- arrays and objects, and make fingerprints independent of table iteration.
+local function canonical(value,null,depth)
+    assert(depth<16,'translation_resume/depth')
+    if null~=nil and value==null then return 'z;' end
+    local kind=type(value)
+    if kind=='string' then return 's'..#value..':'..value end
+    if kind=='boolean' then return value and 't;' or 'f;' end
+    if kind=='number' then
+        assert(value==value and math.abs(value)<math.huge,'translation_resume/number')
+        return 'n'..(value==0 and '0' or string.format('%.17g',value))..';'
+    end
+    assert(kind=='table','translation_resume/value')
+    local entries={}
+    for key,item in pairs(value) do
+        assert(type(key)=='string' or type(key)=='number' and key%1==0 and key>=1,'translation_resume/key')
+        entries[#entries+1]={key=canonical(key,null,depth+1),value=item}
+    end
+    table.sort(entries,function(a,b) return a.key<b.key end)
+    local output={'m',tostring(#entries),':'}
+    for _,entry in ipairs(entries) do
+        output[#output+1]=entry.key;output[#output+1]=canonical(entry.value,null,depth+1)
+    end
+    return table.concat(output)
+end
 function M:new(library,codec,scope)
     return setmetatable({library=library,codec=codec,scope=scope,account=library:accountKey()},self)
 end
@@ -87,16 +105,21 @@ function M:tokens()
 end
 function M:begin(book_id,source_id,chapters,version,resume)
     if not text(book_id,256) or not text(source_id,64) or type(chapters)~='table' or #chapters<1 or #chapters>2000 then return nil end
-    local manifest=self.codec:json_encode({chapters=chapters,version=version})
-    if type(manifest)~='string' or #manifest>M.MAX_MANIFEST then return nil end
+    local encoded=self.codec:json_encode({chapters=chapters,version=version})
+    if type(encoded)~='string' or #encoded>M.MAX_MANIFEST then return nil end
+    -- The catalogue can contain signed resource URLs. Persist only a stable
+    -- fingerprint, never the catalogue or any of its access parameters.
+    local null_ok,null=pcall(self.codec.json_decode,self.codec,'null')
+    if not null_ok then null=nil end
+    local hashed,manifest=pcall(function()
+        return Crypto.sha256_hex(canonical({chapters=chapters,version=version},null,0))
+    end)
+    if not hashed then return nil end
     return access(self,function(db)
         db:exec('BEGIN IMMEDIATE')
         local rows=query(db,'SELECT source_id,generation,manifest FROM translation_pending WHERE book_id=?',book_id)
         local row=rows[1];local accepted=false
-        if resume and row and row[1]==source_id and type(row[3])=='string' and #row[3]<=M.MAX_MANIFEST then
-            local ok,old=pcall(self.codec.json_decode,self.codec,row[3])
-            accepted=ok and type(old)=='table' and old.version==version and same(old.chapters,chapters)
-        end
+        if resume and row and row[1]==source_id and row[3]==manifest then accepted=true end
         local generation
         if accepted then generation=row[2]
         else

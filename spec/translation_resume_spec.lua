@@ -8,10 +8,14 @@ local account='account-a';local valid=true
 local library={settings={auth_scope_matches=function(_self,scope) return valid and scope.account==account end},
     accountKey=function() return account end,open=function() return helper.connect(account=='account-a' and path_a or path_b) end}
 local store=Store:new(library,codec,{account='account-a'})
-local chapters={{chapterUid=1,title='One'},{chapterUid=2,title='Two'}}
+local chapters={{chapterUid=1,title='One',tar='https://example.invalid/resource?signature=synthetic-secret'},
+    {chapterUid=2,title='Two'}}
 local source=string.rep('a',64)
 local function make(resume,items,version,id) return store:begin('42',id or source,items or chapters,version or 7,resume) end
 local token=assert(make(false))
+local manifest_db=assert(library:open());local manifest_stmt=manifest_db:prepare('SELECT manifest FROM translation_pending WHERE book_id=?')
+local manifest=assert(manifest_stmt:bind('42'):step())[1];manifest_stmt:close();manifest_db:close()
+assert(#manifest==64 and not manifest:find('synthetic-secret',1,true),'catalogue access parameters were persisted')
 assert(store:token('42').generation==token.generation and not store:token('missing').generation)
 assert(store:tokens()['42'].generation==token.generation,'cleanup preview lost checkpoint generation')
 assert(not store:summary('42',source),'empty checkpoint shown as resumable')
@@ -52,5 +56,18 @@ local third=assert(store:begin('3',source,chapters,7,false))
 local fourth=assert(store:begin('4',source,chapters,7,false))
 assert(not store:begin('5',source,chapters,7,false),'checkpoint count was not bounded')
 for _,entry in ipairs({first,second,third,fourth}) do assert(store:clear(entry)) end
+local decode=codec.json_decode;local null=function() end
+codec.json_decode=function(self,value) if value=='null' then return null end;return decode(self,value) end
+local nullable={{chapterUid=1,title='One',optional=null}}
+local with_null=assert(store:begin('6',source,nullable,7,false));assert(store:put(with_null,'1','captured'))
+null=function() end;nullable[1].optional=null
+local after_restart=assert(store:begin('6',source,nullable,7,true))
+assert(after_restart.generation==with_null.generation and store:get(after_restart,'1')=='captured',
+    'JSON null identity changed the cross-process catalogue fingerprint')
+nullable[1].optional={}
+local null_changed=assert(store:begin('6',source,nullable,7,true))
+assert(null_changed.generation~=after_restart.generation and not store:get(null_changed,'1'),
+    'JSON null was confused with an empty object')
+assert(store:clear(null_changed));codec.json_decode=decode
 for _,path in ipairs({path_a,path_b}) do os.remove(path);os.remove(path..'-wal');os.remove(path..'-shm') end
 print('translation_resume_spec: SQLite resume, identity, scope, integrity and replacement passed')
