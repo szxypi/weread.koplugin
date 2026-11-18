@@ -43,6 +43,7 @@ for i,url in ipairs(tail) do
     if i==2 or i==7 then
         option.body={bookIds={'CB_Other'}};expect(not check(option,i+5,11,decode,false))
         option.body={bookIds={input.book},extra=true};expect(not check(option,i+5,11,decode,false))
+        option.body={bookIds={[1]=input.book,extra='CB_Other'}};expect(not check(option,i+5,11,decode,false))
         option.body=false;expect(not check(option,i+5,11,decode,false))
     end
 end

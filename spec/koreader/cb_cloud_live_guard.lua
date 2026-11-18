@@ -23,7 +23,11 @@ function M.new(input,protocol,cookie,parent)
             local ok_body,body=pcall(decode,options.body)
             if options.url=='https://weread.qq.com/web/book/chapterInfos' then
                 local count=0;if type(body)=='table' then for _key in pairs(body) do count=count+1 end end
-                allowed=ok_body and count==1 and type(body.bookIds)=='table' and #body.bookIds==1 and body.bookIds[1]==input.book
+                local items=0;if type(body)=='table' and type(body.bookIds)=='table' then
+                    for _key in pairs(body.bookIds) do items=items+1 end
+                end
+                allowed=ok_body and count==1 and items==1 and type(body.bookIds)=='table'
+                    and #body.bookIds==1 and body.bookIds[1]==input.book
             else
                 allowed=ok_body and type(body)=='table' and body.b==protocol.e(input.book) and body.c==protocol.e(input.chapter)
             end
