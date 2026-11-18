@@ -2,7 +2,9 @@
 -- They are rebound to the exact downloaded file before native navigation.
 local Access=require('weread.lib.read_access')
 local Cache=require('weread.lib.cached_book_search')
-local Cloud=require('weread.lib.source_cloud')
+local Worker=require('weread.lib.source_position_worker')
+local Archive=require('weread.lib.source_archive')
+local Identity=require('weread.lib.book_file_identity')
 local Source=require('weread.lib.position_source')
 local M={}
 
@@ -35,12 +37,21 @@ function M.bind_file(file,book,row,request_id,read_archive)
     local snapshot=Cache.snapshot(file,book,uid,read_archive)
     if not snapshot or snapshot.identity.file_id~=row.bookmarkId or snapshot.metadata_hash~=row.reviewId
         or snapshot.record.raw_sha256~=row.abstract then return {error='cached_search/source_changed',request_id=request_id} end
-    local remote={book_id=book,chapter_uid=uid,chapter_offset=tonumber(row.range),raw_sha256=snapshot.record.raw_sha256,
-        raw_bytes=snapshot.record.raw_bytes,basis=Source.coordinate_basis(snapshot.record.format),upload_verified=false}
-    local bound=Cloud.bind({file=file,identity=snapshot.identity,book_id=book,request_id=request_id},remote,read_archive)
-    if not bound.position or bound.metadata~=snapshot.metadata then return {error='cached_search/source_changed',request_id=request_id} end
-    bound.file,bound.identity=file,snapshot.identity
-    return bound
+    -- A downloaded-source result is local, not a cloud progress projection.
+    -- Recheck the archive and create a non-uploadable target independently of
+    -- cloud-format restrictions, which still apply to actual cloud positions.
+    local record=snapshot.record
+    local path=Source.meta_path(uid)
+    local ok,members=pcall(read_archive or Archive.read,file,{[Identity.PATH]=Identity.MAX_BYTES,[path]=Source.MAX_META_BYTES})
+    local identity=ok and type(members)=='table' and Identity.decode(members[Identity.PATH])
+    if not identity or identity.file_id~=snapshot.identity.file_id or identity.book_id~=book
+        or members[path]~=snapshot.metadata then return {error='cached_search/source_changed',request_id=request_id} end
+    local target={chapter_offset=tonumber(row.range),basis=Source.coordinate_basis(record.format),upload_verified=false}
+    for _,key in ipairs({'book_id','chapter_uid','file_id','book_version','raw_sha256','render_path'}) do target[key]=record[key] end
+    local prepared=Worker.prepare_target({file=file,identity=snapshot.identity,metadata=snapshot.metadata,book_id=book,
+        chapter_uid=uid,render_path=record.render_path,target=target,request_id=request_id},read_archive)
+    if not prepared.position then return {error='cached_search/source_changed',request_id=request_id} end
+    return {position=prepared.position,metadata=snapshot.metadata,request_id=request_id,file=file,identity=snapshot.identity}
 end
 function M.resolve(book,current_file,row,request_id,read_archive)
     if type(book)~='table' or not M.can_locate(row) then return {error='cached_search/scope',request_id=request_id} end

@@ -219,7 +219,7 @@ function Map:_index()
     self.flat, self.points = table.concat(chunks), points
 end
 
-function Map:_point(byte, ending)
+function Map:_point(byte, ending, include_location)
     self:_index()
     local low, high = 1, #self.points
     while low <= high do
@@ -238,11 +238,53 @@ function Map:_point(byte, ending)
                 return co + n
             end
             if byte ~= flat then fail("inside_entity_or_scalar") end
+            if include_location then return co, point.segment, at end
             return co
         end
         at, co, flat = next_at, co + n, flat + #clean
     end
     fail("visible_boundary_missing")
+end
+
+-- Bounded human-readable context from the same verified source, preserving
+-- word spacing while leaving the normalized search and offsets untouched.
+function Map:snippet(byte, limit)
+    local ok,result=pcall(function()
+        if type(limit)~='number' or limit%1~=0 or limit<1 or limit>160 then fail('invalid_limit') end
+        local _,segment_index,start=self:_point(byte,false,true)
+        local pieces,count,pending,scanned={},0,false,0
+        for index=segment_index,#self.segments do
+            local text=self.segments[index][2]
+            local at=index==segment_index and start or 1
+            while at<=#text and count<limit and scanned<M.MAX_ANCHOR_BYTES do
+                local display,next_at
+                if not self.literal and text:sub(at,at)=='&' and text:sub(at+1,at+1):match('[%a#]') then
+                    local ending=text:find(';',at+1,true)
+                    if not ending or ending-at>64 then fail('invalid_entity') end
+                    display=self.decode(text:sub(at,ending));next_at=ending+1
+                else
+                    local width=select(2,scalar(text,at))
+                    display=text:sub(at,at+width-1);next_at=at+width
+                end
+                scanned=scanned+next_at-at
+                local cursor=1
+                while cursor<=#display and count<limit do
+                    local cp,width=scalar(display,cursor)
+                    if whitespace(cp) then pending=count>0
+                    else
+                        if pending and count<limit then pieces[#pieces+1]=' ';count=count+1 end
+                        pending=false
+                        if count<limit then pieces[#pieces+1]=display:sub(cursor,cursor+width-1);count=count+1 end
+                    end
+                    cursor=cursor+width
+                end
+                at=next_at
+            end
+            if count>=limit or scanned>=M.MAX_ANCHOR_BYTES then break end
+        end
+        return (table.concat(pieces):gsub(' +$',''))
+    end)
+    return ok and result or nil
 end
 
 function Map:locate(text, before, after)

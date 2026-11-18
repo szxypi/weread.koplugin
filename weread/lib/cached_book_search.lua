@@ -9,7 +9,9 @@ local Identity=require('weread.lib.book_file_identity')
 local Protocol=require('weread.lib.protocol')
 local Source=require('weread.lib.position_source')
 local Crypto=require('weread.lib.crypto')
+local UnicodeSearch=require('weread.lib.unicode_search')
 local M={MAX_HITS=30,MAX_EXAMINED=100}
+M.unicode_casefold_available=UnicodeSearch.available
 
 -- ASCII case folding preserves UTF-8 byte offsets; the original text remains
 -- the source of the displayed context and of every navigation anchor.
@@ -113,22 +115,40 @@ function M.scan(input,read_archive)
         if not snapshot then return {missing=true,hits={}} end
         local record=snapshot.record
         local haystack=map.flat
-        if input.ignore_ascii_case then haystack,keyword=fold_ascii(haystack),fold_ascii(keyword) end
-        local hits,at,examined,unresolved={},input.from,0,0
+        local unicode,at,resume=nil,input.from,input.from
+        if input.ignore_ascii_case then
+            if UnicodeSearch.available() and (haystack:find('[\128-\255]') or keyword:find('[\128-\255]')) then
+                local reason
+                unicode,reason=UnicodeSearch.build(haystack,input.from,keyword)
+                if not unicode then return {error=reason or 'unavailable'} end
+                haystack,keyword,at=unicode.text,unicode.needle,1
+            else haystack,keyword=fold_ascii(haystack),fold_ascii(keyword) end
+        end
+        local hits,examined,unresolved={},0,0
         while #hits<M.MAX_HITS and examined<M.MAX_EXAMINED do
             local first=haystack:find(keyword,at,true)
             if not first then return {hits=hits,complete=true,unresolved=unresolved} end
             examined=examined+1
-            local found,co=pcall(map._point,map,first)
+            local source_first,exact,last=first,true,first+#keyword-1
+            if unicode then
+                local source_size,starts
+                source_first,source_size,starts=unicode.locate(first)
+                local ending,_,_,end_of_character=unicode.locate(last)
+                exact=source_first~=nil and source_size>0 and ending~=nil and starts and end_of_character==last
+                resume=source_first and source_first+1 or resume
+            else resume=first+1 end
             at=first+1
-            local anchor=found and type(co)=='number' and (map:anchor(co,{segment_only=true}) or map:anchor(co))
-            if anchor then
-                hits[#hits+1]={chapter_uid=input.chapter,offset=co,source_hash=record.raw_sha256,
-                    file_id=record.file_id,metadata_hash=snapshot.metadata_hash,
-                    context=Protocol.utf8_substr(map.flat:sub(first),80)}
-            else unresolved=unresolved+1 end
+            if exact then
+                local found,co=pcall(map._point,map,source_first)
+                local anchor=found and type(co)=='number' and (map:anchor(co,{segment_only=true}) or map:anchor(co))
+                if anchor then
+                    hits[#hits+1]={chapter_uid=input.chapter,offset=co,source_hash=record.raw_sha256,
+                        file_id=record.file_id,metadata_hash=snapshot.metadata_hash,
+                        context=map:snippet(source_first,80) or Protocol.utf8_substr(map.flat:sub(source_first),80)}
+                else unresolved=unresolved+1 end
+            end
         end
-        return {hits=hits,next_byte=at,unresolved=unresolved}
+        return {hits=hits,next_byte=resume,unresolved=unresolved}
     end)
     return ok and result or {error='unavailable'}
 end

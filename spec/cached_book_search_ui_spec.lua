@@ -34,8 +34,9 @@ package.preload['weread.ui.book_reading']=function() return {catalog=function(ro
 package.preload['weread.lib.source_dom']=function() return {normalize=function(value)
     return type(value)=='string' and value:gsub('%s','') or nil
 end} end
-local scans,last_case=0
+local scans,last_case,unicode_available=0,nil,false
 package.preload['weread.lib.cached_book_search']=function() return {MAX_HITS=30,MAX_EXAMINED=100,
+    unicode_casefold_available=function() return unicode_available end,
     scan=function(input)
         scans=scans+1
         last_case=input.ignore_ascii_case
@@ -81,7 +82,12 @@ end
 local chapters={{chapterUid='1',title='First'},{chapterUid='2',title='Second'},{chapterUid='3',title='Not downloaded'}}
 expect(Cached.open(host,'CB_Synthetic',chapters,'original term') and displayed.input=='original term',
     'online fallback did not prefill its query')
+expect(displayed.buttons[2][1].text=='Search (ignore English case)','missing Unicode fallback label')
 Cached.cancel(host)
+unicode_available=true
+expect(Cached.open(host,'CB_Synthetic',chapters) and displayed.buttons[2][1].text=='Search (ignore case)',
+    'Unicode casefold option label missing')
+Cached.cancel(host);unicode_available=false
 expect(not Cached.open(host,'CB_Synthetic',chapters,'bad\nquery'),'unsafe prefilled query was accepted')
 local function open(rows,ignore_case)
     assert(Cached.open(host,'CB_Synthetic',rows));local input=assert(displayed)

@@ -55,7 +55,7 @@ files['/unicode.epub']=fixture(input.book,'2',unicode_raw)
 local unicode_input={book=input.book,chapter='2',paths={'/unicode.epub'},keyword='中文 Élan nEEDLE',from=1,
     ignore_ascii_case=true}
 local unicode=Search.scan(unicode_input,archive)
-expect(#unicode.hits==1 and unicode.hits[1].context:find('中文ÉlanNeedle',1,true),
+expect(#unicode.hits==1 and unicode.hits[1].context:find('中文 Élan Needle',1,true),
     'mixed UTF-8 and English match did not retain original text')
 unicode_input.keyword='中文 élan needle'
 expect(#Search.scan(unicode_input,archive).hits==0,'non-ASCII characters were unexpectedly case-folded')

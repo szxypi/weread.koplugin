@@ -409,7 +409,7 @@ function M.open(host,id,chapters,initial_keyword)
         {text=_('Cancel'),callback=function() if current(host,owner) then M.cancel(host) end end},
         {text=_('Search (match case)'),is_enter_default=true,callback=search(false)},
     },{
-        {text=_('Search (ignore English case)'),callback=search(true)},
+        {text=_(Search.unicode_casefold_available() and 'Search (ignore case)' or 'Search (ignore English case)'),callback=search(true)},
     }}}
     owner.input=input
     local closed=input.onCloseWidget

@@ -7,6 +7,10 @@ local full=os.getenv('WEREAD_TEST_CACHED_FULL')=='1'
 local incomplete=os.getenv('WEREAD_TEST_CACHED_INCOMPLETE')=='1'
 local dual=os.getenv('WEREAD_TEST_CACHED_DUAL')=='1'
 local ignore_case=os.getenv('WEREAD_TEST_CACHED_IGNORE_CASE')=='1'
+local unicode_case=os.getenv('WEREAD_TEST_CACHED_UNICODE_CASE')=='1'
+local txt_source=os.getenv('WEREAD_TEST_CACHED_TXT_SOURCE')=='1'
+assert(not txt_source or unicode_case)
+assert(not unicode_case or ignore_case)
 local restore_catalog=os.getenv('WEREAD_TEST_CACHED_RESTORE_CATALOG')=='1'
 local target_uid=incomplete and '1' or '2'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
@@ -104,9 +108,23 @@ local book={book_id=book_id,bookId=book_id,bookVersion=7,title='合成本地搜�
 local bodies,sources={},{}
 for i=1,2 do
     local chapter=chapters[i];local uid=chapter.chapterUid
-    bodies[uid]='<html><body><p>chapter '..uid..' '..string.rep('ordinary synthetic text ',80)..'amberneedle distinct ending '..uid..'</p></body></html>'
-    sources[uid]=assert(Source.capture(book,chapter,bodies[uid],'web_xhtml'))
+    local text='chapter '..uid..' '..string.rep('ordinary synthetic text ',80)
+        ..(unicode_case and 'Straße Éclair Σίσυφος' or 'amberneedle')..' distinct ending '..uid
+    local raw=txt_source and ('chapter '..uid..'\n\n    '..text) or '<html><body><p>'..text..'</p></body></html>'
+    bodies[uid]=txt_source and Content.txt_to_xhtml(raw) or raw
+    sources[uid]=assert(Source.capture(book,chapter,raw,txt_source and 'web_txt' or 'web_xhtml'))
     book.cached_chapters[uid]=assert(Content.save_book_epub(settings,book,{chapter},bodies,'cached-search-'..uid,{},nil,nil,Identity.capture(book),sources))
+end
+if unicode_case then
+    local Search=require('weread.lib.cached_book_search')
+    local Target=require('weread.lib.cached_search_target')
+    for _,test in ipairs({{'éCLAIR','Éclair'},{'ΣΊΣΥΦΟΣ','Σίσυφος'}}) do
+        local found=Search.scan({book=book_id,chapter='1',paths={book.cached_chapters['1']},
+            keyword=test[1],from=1,ignore_ascii_case=true})
+        assert(found and #found.hits==1 and found.hits[1].context:find(test[2],1,true))
+        local row=assert(Target.row(book_id,test[1],found.hits[1]))
+        assert(Target.bind_file(book.cached_chapters['1'],book_id,row,17).position)
+    end
 end
 book.cached_file=book.cached_chapters['1']
 if full then
@@ -177,7 +195,11 @@ if full then Search.discover=function(...) socket.sleep(.8);return original_disc
 else Search.scan=function(...) socket.sleep(.8);return original(...) end end
 local owner=plugin._cached_book_search_owner
 if ignore_case then UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-options.png') end
-owner.input:setInputText(ignore_case and 'AmBeRnEeDlE' or 'amberneedle')
+if unicode_case then
+    assert(Search.unicode_casefold_available())
+    assert(owner.input.buttons[2][1].text==require('weread.lib.i18n').tr('Search (ignore case)'))
+end
+owner.input:setInputText(unicode_case and 'STRASSE' or ignore_case and 'AmBeRnEeDlE' or 'amberneedle')
 if ignore_case then owner.input.buttons[2][1].callback() else owner.input.buttons[1][2].callback() end
 wait(function() return owner.worker and owner.worker.job end)
 local pid=owner.worker.job.pid;assert(plugin.busy_message);plugin.busy_message:onTapClose()
@@ -187,6 +209,7 @@ owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return owner.finished and not owner.job end)
 local count=incomplete and 1 or 2
 assert(#owner.value==count and owner.checked==count and owner.missing==(no_catalog and 0 or 1))
+if unicode_case then for _i,hit in ipairs(owner.value) do assert(hit.context:find('Straße',1,true)) end end
 if restore_catalog then
     local function action(label)
         for _i,item in ipairs(owner.menu.item_table) do if item.text==require('weread.lib.i18n').tr(label) then return item end end

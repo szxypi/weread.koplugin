@@ -763,6 +763,7 @@ local zh = {
     ["Search downloaded chapters (ignores spaces)"] = "搜索已下载章节（忽略空白）",
     ["Search (match case)"] = "搜索（区分大小写）",
     ["Search (ignore English case)"] = "搜索（忽略英文大小写）",
+    ["Search (ignore case)"] = "搜索（忽略大小写）",
     ["Downloaded search results"] = "已下载章节的搜索结果",
     ["Searching downloaded chapters…"] = "正在搜索已下载章节…",
     ["Search requests are temporarily limited. Wait and try again. Existing results are kept."] = "搜索请求暂时受限，请稍后重试。已有结果会保留。",

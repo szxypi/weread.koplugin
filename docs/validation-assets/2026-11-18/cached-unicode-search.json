@@ -1,0 +1,24 @@
+{
+  "date": "2026-11-18",
+  "feature": "downloaded chapter search with Unicode casefold and readable context",
+  "unicode_examples": ["German sharp s expansion", "accented Latin case", "Greek sigma case"],
+  "source_position_mapping": "original source byte boundaries and local UTF-16 coordinates",
+  "partial_casefold_expansion_matches_rejected": true,
+  "fallback_without_unicode_library": "English ASCII case only, explicitly labeled",
+  "cross_character_canonical_equivalence": "not guaranteed",
+  "synthetic_native_reader": {
+    "screens": [[600, 800, 167], [1264, 1680, 300]],
+    "source_formats": ["web_txt", "web_xhtml"],
+    "personal_book_txt_offline_search_and_navigation": true,
+    "single_chapter_and_catalog_missing_full_book": true,
+    "search_cancel_and_resume": true,
+    "fresh_offline_reopen": true,
+    "pending_sync_preserved": true,
+    "account_network_requests": 0,
+    "screenshots_visually_checked": true
+  },
+  "prior_failure": "personal TXT cached-source target rejected by cloud-only coordinate guard; fixed with separately verified local binding",
+  "cloud_position_policy_changed": false,
+  "real_account_tested": false,
+  "physical_device_tested": false
+}
