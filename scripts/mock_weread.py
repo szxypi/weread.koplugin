@@ -535,6 +535,11 @@ class MockServer(ThreadingHTTPServer):
                 source.pop("bookVersion", None)
                 source.update(version=700,progress=99,chapterOffset=321,finishReading=1)
                 return 200, source
+            if path == '/store/suggest' and method == 'GET':
+                if set(query)!={'keyword','count'} or len(query['keyword'])!=1 or query['count']!=['10']:
+                    raise ValueError('invalid synthetic suggestion query')
+                word=query['keyword'][0]
+                return 200,dict(keyword=word,list=[],parts=[word],records=[dict(word=word+'作者'),dict(word=word+'书籍')])
             if path in {"/store/search", "/book/recommend", "/book/detailinfo"} and method == "GET":
                 required = {"maxIdx", "count"}
                 if path == "/store/search":required |= {"keyword", "scope"}

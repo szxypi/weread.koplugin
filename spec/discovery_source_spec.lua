@@ -78,11 +78,27 @@ auth:read_discovery({vid="123",accessToken="synthetic"},"similar",{book_id="9000
 request=f.requests[1]
 expect(request.url:find("/book/detailinfo?",1,true) and request.url:find("listtypes=2",1,true)
     and request.url:find("synckey=0",1,true) and request.url:find("sessionId=s%%261"),"native similar session contract")
+auth:read_search_suggestions({vid="123",accessToken="synthetic"},"书 &")
+request=f.requests[#f.requests]
+expect(request.url:find('/store/suggest?count=10&keyword=',1,true) and request.url:find('%%26')
+    and request.method=='GET' and request.skip_cookie and request.sensitive,'suggestions transport contract')
+expect(not pcall(auth.read_search_suggestions,auth,{vid='456',accessToken='synthetic'},'word'),
+    'suggestions did not enforce the account')
 local before=#f.requests
 for _,options in ipairs({{cursor=-1},{cursor=0/0},{cursor=math.huge},{cursor=1.5},{cursor=2147483648}}) do
     expect(not pcall(auth.read_discovery,auth,{vid="123",accessToken="synthetic"},"recommend",options),"invalid cursor rejected")
 end
 expect(#f.requests==before,"invalid query sends no HTTP")
+f=fixture();f.data.keyword='science';f.data.records={{word='science books'}};f.data.list={};f.data.parts={}
+local Suggest=require('weread.lib.search_suggestions')
+local suggestions=Suggest.fetch(f.client,f.capture(),'science')
+expect(#suggestions==1 and suggestions[1]=='science books' and #f.requests==1,
+    'session-bound suggestions were not returned')
+f=fixture();selected=f.capture();f.change{revision=2}
+expect(not pcall(Suggest.fetch,f.client,selected,'science') and #f.requests==0,
+    'stale suggestion credentials sent a request')
+f=fixture();selected=f.capture();f.change{callback=function() f.change{current=false} end}
+expect(not pcall(Suggest.fetch,f.client,selected,'science'), 'account change accepted suggestion response')
 for _,data in ipairs({{}, {books={bad=true}}, {books=string.rep("x",10)}, {results={{}}}, {results={false}}, {books={},succ=0}}) do
     expect(not pcall(Source.project,{},"search",data,0),"malformed page rejected")
 end

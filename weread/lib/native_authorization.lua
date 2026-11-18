@@ -200,6 +200,16 @@ function Auth:read_discovery(credentials, kind, options)
     return self:_request("discovery_" .. kind, BASE .. path .. "?" .. table.concat(query, "&"), nil, credentials)
 end
 
+-- Suggestions use a distinct, bounded read-only endpoint and no pagination.
+function Auth:read_search_suggestions(credentials, keyword)
+    if type(credentials) ~= "table" or not vid(credentials.vid) or not text(credentials.accessToken, 8192) then
+        fail("suggest", "invalid_credentials")
+    end
+    if self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail("suggest", "account_mismatch") end
+    if not text(keyword, 512) then fail("suggest", "invalid_keyword") end
+    return self:_request("suggest", BASE .. "/store/suggest?count=10&keyword=" .. Protocol.urlencode(keyword), nil, credentials)
+end
+
 -- Native metadata verified by verify_native_metadata.py before Lua integration.
 function Auth:read_book_metadata(credentials, book_id)
     if type(credentials) ~= "table" or not vid(credentials.vid) or not text(credentials.accessToken, 8192) then

@@ -403,6 +403,10 @@ class MockTests(unittest.TestCase):
 
     def test_native_discovery_contract_and_continuation(self):
         base='https://i.weread.qq.com'
+        _,suggest=self.server.route('GET',base+'/store/suggest?keyword=测试&count=10',{})
+        self.assertEqual([row['word'] for row in suggest['records']],['测试作者','测试书籍'])
+        for query in ('keyword=测试&count=11','keyword=测试&count=10&extra=1'):
+            with self.assertRaises(ValueError):self.server.route('GET',base+'/store/suggest?'+query,{})
         _,first=self.server.route('GET',base+'/store/search?keyword=测试作者&scope=10&count=20&maxIdx=0',{})
         self.assertEqual(len(first['books']),20)
         self.assertNotIn('results',first)

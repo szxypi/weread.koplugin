@@ -179,8 +179,17 @@ function M:showDiscoverySearch()
                 -- background redraws wait until the replacement menu closes.
                 require("weread.ui.saved_searches").open(self, dialog)
             end },
+        },{
+            { text = _("Search suggestions"), callback = function()
+                if valid() then require("weread.ui.search_suggestions").open(self, dialog) end
+            end },
         }},
     }
+    local on_close=dialog.onCloseWidget
+    dialog.onCloseWidget=function(widget,...)
+        require("weread.ui.search_suggestions").cancel(self)
+        if on_close then return on_close(widget,...) end
+    end
     Popup.show(owner, dialog, function(widget) self:showInputDialog(widget) end)
 end
 
@@ -306,6 +315,8 @@ end
 
 function M:cancelDiscoveryRequest()
     require("weread.ui.category_catalog").cancel(self)
+    local suggestions=package.loaded['weread.ui.search_suggestions']
+    if suggestions then suggestions.cancel(self) end
     return require("weread.ui.discovery_request").cancel(self)
 end
 

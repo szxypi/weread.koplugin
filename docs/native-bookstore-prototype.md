@@ -151,3 +151,5 @@ Web 条目沿用 `verify_web_source_progress.py --clear-saved-session`。
 后续已在统计接口观察真实 Lua HTTP 401，并完成一次 Python 续期、书架／钥匙串回读及 Lua 统计恢复，
 见[原生统计说明](native-statistics-prototype.md)；不作为书城所有真实失效／限频的验收。
 实体 Kindle Oasis 2、其他业务码／限频、非空个性化推荐、其他接口、精确同步写后回读仍待验收。
+
+书城搜索框现可主动获取[搜索建议](bookstore-search-suggestions.md)，选择建议词后直接进入原生书城搜索；两尺寸模拟及真实接口只读核对通过。
