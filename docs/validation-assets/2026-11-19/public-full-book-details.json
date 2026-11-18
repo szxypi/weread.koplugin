@@ -1,8 +1,10 @@
 {
   "result": "PASS",
   "screens": [
-    {"width": 600, "height": 800, "search_first": 20, "search_second": 20},
-    {"width": 1264, "height": 1680, "search_first": 20, "search_second": 20}
+    {"width": 600, "height": 800, "search_first": 20, "search_second": 20,
+     "candidate_sha256": "7accc050e725aeaf2e977aca5107bfd1272246f07a9137520e2524d72454d5e0"},
+    {"width": 1264, "height": 1680, "search_first": 20, "search_second": 20,
+     "candidate_sha256": "ee8b3c05cca474119b953497f41fa5c9a4bc71569475c25379012394d908950b"}
   ],
   "native_file_manager_plugin": true,
   "signed_out": true,
