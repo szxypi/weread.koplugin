@@ -61,7 +61,7 @@ def scenario(directory,mode):
     cookies={'wr_vid':bundle['plan']['owner'],'wr_skey':'mock_key'}
     command=[sys.executable,'-c',CHILD,mode]
     report=execute(prepared,signing,cookies,store,gate,audit,lambda:state['current'],command,armed=mode!='dry')
-    if {p.name for p in Path('/dev/shm').glob('weread-cb-*')}-existing:raise ValueError('synthetic_cb_broker/cleanup')
+    if {p.name for p in Path('/dev/shm').glob('weread-cb-*')}-existing:raise ValueError('synthetic_cb_broker/cleanup_'+mode)
     state_value,_receipt=gate.read();phase=state_value['phase'] if state_value else None
     expected={'success':('CB_NATIVE_ACKNOWLEDGED','acknowledged',True),
               'dry':('CB_NATIVE_DRY_RUN_VERIFIED',None,False),

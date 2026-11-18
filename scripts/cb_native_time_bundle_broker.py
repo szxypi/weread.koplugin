@@ -32,7 +32,7 @@ def execute(prepared,signing,cookies,store,gate,audit,current,command,*,armed=Fa
     payload=dict(bundle=deepcopy(bundle),grant=deepcopy(grant),cookies=deepcopy(cookies),months=deepcopy(months),token=token,armed=armed)
     result=dict(result='UNVERIFIED',account_data_posts_confirmed=0,authentication_posts=0,
                 dispatch_may_have_occurred=False,real_accounting_verified=False,profile_removed=False)
-    child=pending=None;ready=False;reported=None
+    child=pending=None;ready=False;reported=None;denied=False
     try:
         child=subprocess.Popen(command,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
         write_initial(child.stdin,payload);frames=Frames(child.stdout,token,timeout=180,max_frame=3*1024*1024)
@@ -61,10 +61,14 @@ def execute(prepared,signing,cookies,store,gate,audit,current,command,*,armed=Fa
     except (Exception,KeyboardInterrupt) as error:
         if isinstance(error,ValueError) and re.fullmatch(r'cb_broker/[a-z_]+',str(error)):result['reason']=str(error)
         if child is not None and child.poll() is None and pending is not None:
-            try:reply(child.stdin,dict(kind=pending.get('kind'),ok=False))
+            try:reply(child.stdin,dict(kind=pending.get('kind'),ok=False));denied=True
             except Exception:pass
     finally:
-        if child is not None:stop(child)
+        if child is not None:
+            if denied:
+                try:child.wait(timeout=3)
+                except subprocess.TimeoutExpired:pass
+            stop(child)
         for value in (payload.get('grant'),payload.get('cookies')):
             if isinstance(value,dict):value.clear()
         payload.clear()
