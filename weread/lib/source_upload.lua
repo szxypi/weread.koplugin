@@ -56,7 +56,7 @@ function M:prepare(intent,callback)
     end
     if type(intent)~='table' then callback(nil,'source_position_unavailable');return false end
     local imported=type(intent.book_id)=='string' and intent.book_id:sub(1,3)=='CB_'
-    if imported and (intent.cb_explicit_sync~=true
+    if imported and (intent.cb_guarded_sync~=true
         or not require('weread.lib.cb_sync_guard').expected(intent.expected_remote,intent.book_id)) then
         callback(nil,'source_book_sync_unsupported');return false
     end

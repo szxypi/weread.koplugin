@@ -100,7 +100,7 @@ local previous_callbacks=#callbacks
 local unsupported=copy(intent);unsupported.book_id='CB_SyntheticOnly';unsupported.source_position.book_id=unsupported.book_id
 expect(not begin(unsupported) and reason=='source_book_sync_unsupported','CB upload masqueraded as temporary source failure')
 expect(#callbacks==previous_callbacks and not upload.job and not plan,'CB upload performed source preparation')
-local cb=copy(unsupported);cb.cb_explicit_sync=true
+local cb=copy(unsupported);cb.cb_guarded_sync=true
 cb.expected_remote={book_id=cb.book_id,source='web',chapter_uid='11',chapter_idx=0,chapter_offset=3999,
     raw_percent=37,updated_at=1,has_chapter_index=true,has_chapter_offset=true}
 local cb_point=copy(point);cb_point.book_id=cb.book_id;cb.source_position=cb_point

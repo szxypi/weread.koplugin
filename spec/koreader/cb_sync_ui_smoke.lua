@@ -40,6 +40,8 @@ assert(Content.save_catalog_cache(client,settings,book,chapters))
 local single=os.getenv('WEREAD_TEST_CB_CLOUD_SINGLE')=='1'
 local noack=os.getenv('WEREAD_TEST_CB_SYNC_NOACK')=='1'
 local cloud=os.getenv('WEREAD_TEST_CB_SYNC_CLOUD')=='1'
+local timed=os.getenv('WEREAD_TEST_CB_SYNC_TIMER')=='1'
+local timer_unknown=os.getenv('WEREAD_TEST_CB_TIMER_UNKNOWN')=='1'
 local file
 if single then
     file=Content.fetch_chapter_epub(client,settings,book,chapters[1]);book.cached_file=file;book.cached_chapters={['1']=file}
@@ -47,7 +49,7 @@ else
     file=Content.fetch_chapters_epub(client,settings,book,chapters,{suffix='cb-manual-sync'});book.cached_file=file;book.cached_full_book=file
 end
 book.chapters=chapters;settings:set('books',{[id]=book})
-settings:set('sync',{pull_on_open=false,upload_on_close=false,ask_on_conflict=true})
+settings:set('sync',{pull_on_open=false,upload_on_close=false,ask_on_conflict=true,upload_interval_minutes=timed and 1 or 0})
 settings:set('read_report',{enabled=false})
 local cache=settings:get('cache');cache.auto_prefetch_next_chapter=false;settings:set('cache',cache);settings:flush()
 local socket=require('socket')
@@ -125,7 +127,7 @@ assert(notice.code==(noack and 'upload_unconfirmed' or 'upload_success'),
 local chunks={};local _,code=http.request{url=settings.mock_endpoint..'/__state',proxy=settings.mock_endpoint,sink=ltn12.sink.table(chunks)}
 assert(code==200);local server=client:json_decode(table.concat(chunks));local remote=server.progress[id]
 assert(tostring(remote.chapterUid)==original.chapter_uid and remote.chapterOffset==original.chapter_offset,'cloud did not receive native point')
-assert(not sync.verified and not sync.interval.task,'manual sync enabled automatic writes')
+assert(sync.verified==not noack and not sync.interval.task,'manual sync verification or disabled timer was incorrect')
 local saved=assert(plugin.settings:get_book(id))
 if noack then
     assert(plugin.source_dispatch:pending(id) and saved.pending_upload_position
@@ -134,8 +136,36 @@ if noack then
 else
     assert(not plugin.source_dispatch:pending(id) and not saved.pending_upload_position,'confirmed sync retained pending state')
 end
+if timed then
+    local timer=sync.interval;local clock=100;timer.now=function() return clock end
+    reader.rolling:onGotoPage(3)
+    wait(function() local point=plugin.source_position:current();return point and point.chapter_offset~=original.chapter_offset and sync.dirty and timer.task end)
+    local target=assert(plugin.source_position:current())
+    clock=timer.due;UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput()
+    wait(function() return not timer.cycle and not sync.uploading end)
+    assert(sync.verified and not sync.dirty and not timer.task and not plugin.source_dispatch:pending(id),'timed imported position was not confirmed')
+    local received={};local _,status=http.request{url=settings.mock_endpoint..'/__state',proxy=settings.mock_endpoint,sink=ltn12.sink.table(received)}
+    assert(status==200);local current=client:json_decode(table.concat(received)).progress[id]
+    assert(current.chapterOffset==target.chapter_offset,'timer sent a different source position')
+    reader.rolling:onGotoPage(2)
+    wait(function() local point=plugin.source_position:current();return point and point.chapter_offset~=target.chapter_offset and sync.dirty and timer.task end)
+    control(timer_unknown and {progress_confirmation='noack'} or {progress_offset_delta=1});clock=timer.due
+    UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput()
+    if timer_unknown then
+        wait(function() return not sync.uploading and not timer.cycle end)
+        assert(not sync.verified and plugin.source_dispatch:pending(id) and not timer.task,'uncertain timer lost its journal')
+        clock=clock+600
+        for _i=1,4 do UI:shiftScheduledTasksBy(-1e9);UI:setInputTimeout(0);UI:handleInput() end
+        assert(plugin.source_dispatch:pending(id) and not sync.uploading and not timer.task,'uncertain timer retried')
+    else
+        wait(function() return sync.state=='awaiting_choice' end)
+        assert(not sync.verified and not timer.task and not sync.uploading,'changed cloud did not stop imported timer')
+        if box then UI:close(box) end
+        control({progress_offset_delta=0})
+    end
+end
 reader:onClose(false)
 print('\nWEREAD_CB_MANUAL_SYNC='..client:json_encode({result='PASS',choice=true,changed_remote_stopped=true,
     explicit_upload=true,native_point=true,pending_cleared=not noack,journal_cleared=not noack,
-    automatic_disabled=true,single=single,uncertain=noack}))
+    automatic_disabled=not timed,single=single,uncertain=noack,timer_verified=timed,timer_unknown=timer_unknown}))
 os.exit(0)

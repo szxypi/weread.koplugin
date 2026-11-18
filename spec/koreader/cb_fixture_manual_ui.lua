@@ -118,7 +118,7 @@ local ok,reason=pcall(function()
     wait(function() return notice~=nil end)
     assert(notice.code=='upload_success' and counts[1]==2 and counts[2]==0,'manual fixture upload failed')
     local saved=assert(plugin.settings:get_book(input.book))
-    assert(not saved.pending_upload_position and not plugin.source_dispatch:pending(input.book) and not sync.verified)
+    assert(not saved.pending_upload_position and not plugin.source_dispatch:pending(input.book) and sync.verified)
     plugin:onFlushSettings();reader:onClose(false)
     result={result='PASS',native_choice=true,actual_source=true,upload_confirmed=true,pending_cleared=true,
         journal_cleared=true,automatic_disabled=true,writes=tonumber(counts[1]),denied=tonumber(counts[2])}

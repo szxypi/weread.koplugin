@@ -9,6 +9,9 @@ local expected={book_id=book,source='web',chapter_uid='11',chapter_idx=0,chapter
 local value={book={bookId=book,chapterUid=11,chapterIdx=0,chapterOffset=25,progress=37,updateTime=123}}
 local checked=Guard.expected(expected,book)
 expect(checked and Guard.matches(value,checked),'valid cloud state rejected')
+expect(Guard.same(expected,copy(expected),book),'identical cloud baselines differed')
+local new_time=copy(expected);new_time.updated_at=124
+expect(not Guard.same(expected,new_time,book),'changed cloud timestamp retained timer authority')
 local changes={{chapterUid=12},{chapterIdx=1},{chapterOffset=26},{progress=38},{updateTime=124},{bookId='CB_Other'}}
 for _i,change in ipairs(changes) do
     local changed=copy(value);for key,item in pairs(change) do changed.book[key]=item end

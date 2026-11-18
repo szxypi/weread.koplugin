@@ -8,24 +8,26 @@ local function copy(value)
     if type(value)~='table' then return value end
     local out={};for key,item in pairs(value) do out[key]=copy(item) end;return out
 end
-local function fixture()
+local function fixture(imported)
+    local id=imported and 'CB_SyntheticTimer' or '900001'
     local f={clock=100,online=true,tasks={},queue={},reads=0,writes=0,report_busy=false,cancelled=0,released=0,notifications={}}
     f.values={account={user_vid='900000'},sync={upload_interval_minutes=1,ask_on_conflict=false},
-        books={['900001']={book_id='900001',title='Synthetic book'}}}
+        books={[id]={book_id=id,title='Synthetic book'}}}
     local settings={get=function(_self,key,default) return f.values[key] or default end,
         set=function(_self,key,value) f.values[key]=value end,flush=function() end}
-    f.point={book_id='900001',chapter_uid='11',chapter_offset=1000,basis='filtered_xhtml_utf16',upload_verified=false,
+    f.point={book_id=id,chapter_uid='11',chapter_offset=1000,basis='filtered_xhtml_utf16',upload_verified=false,
         file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
-    f.position={book_id='900001',chapter_uid=11,chapter_idx=0,chapter_offset=5,percent=10,source_position=copy(f.point)}
-    f.remote={book_id='900001',chapter_uid=11,chapter_idx=0,chapter_offset=500,percent=10,
+    f.position={book_id=id,chapter_uid=11,chapter_idx=0,chapter_offset=5,percent=10,source_position=copy(f.point)}
+    f.remote={book_id=id,chapter_uid=11,chapter_idx=0,chapter_offset=500,percent=10,
         has_chapter_offset=true,has_chapter_index=true}
+    if imported then f.remote.source='web';f.remote.raw_percent=10;f.remote.updated_at=10 end
     local chapters={{chapterUid=11,chapterIdx=0,wordCount=100}}
     local document={file='synthetic.epub'}
     f.scheduler={scheduleIn=function(_self,delay,fn) f.tasks[fn]=f.clock+delay end,
         unschedule=function(_self,fn) f.tasks[fn]=nil end}
     local sync=Sync:new{settings=settings,client={},scheduler=f.scheduler,
         now=function() return f.clock end,get_document=function() return document end,
-        detect_book=function() return '900001' end,get_book=function(id) return f.values.books[id] end,
+        detect_book=function() return id end,get_book=function(book_id) return f.values.books[book_id] end,
         get_source_position=function() return copy(f.point) end,get_chapters=function() return chapters end,
         get_file_context=function() return nil,nil,true end,goto_fraction=function() error('timer navigated') end,
         open_chapter=function() error('timer opened a chapter') end,on_choice=function(choice) f.choice=choice end,
@@ -39,29 +41,37 @@ local function fixture()
         end,
         upload_position=function(_id,wire,elapsed,plan)
             expect(elapsed==0 and wire.chapter_offset==1000,'timer used time or estimated coordinates')
-            expect(plan.before_send() and f.journal:pending('900001'),'timer sent before journal')
+            if imported then expect(plan.transport=='cb_web_position','imported timer used wrong transport') end
+            expect(plan.before_send() and f.journal:pending(id),'timer sent before journal')
             f.writes=f.writes+1
             if f.unknown then return false,{error_kind='unconfirmed',report_attempted=true,enter_attempted=false} end
             f.remote.chapter_offset=1000
+            if imported then f.remote.updated_at=f.remote.updated_at+1 end
             return true,{acknowledged=true,position_confirmed=true,remote=copy(f.remote)}
         end}
     f.sync=sync
     f.journal=Dispatch:new{settings=settings,now=function() return f.clock end,nonce=function() return string.rep('a',32) end}
     sync.source_dispatch=f.journal
-    sync.capture_local=function() return copy(f.position),nil,{book_id='900001',book=f.values.books['900001'],chapters=chapters} end
+    sync.capture_local=function() return copy(f.position),nil,{book_id=id,book=f.values.books[id],chapters=chapters} end
     sync._fetch_remote=function()
         f.reads=f.reads+1
         if f.read_failure then return nil,'synthetic transport' end
         return copy(f.remote)
     end
     sync.prepare_upload=function(intent,callback)
-        local plan={position={book_id='900001',chapter_uid='11',chapter_idx=0,chapter_offset=1000,percent=intent.percent,summary='SYNTHETIC'},
+        if imported then expect(intent.cb_guarded_sync and intent.expected_remote.updated_at==f.remote.updated_at,'imported timer lost guard') end
+        if f.prepare_error then callback(nil,f.prepare_error);return end
+        local plan={transport=imported and 'cb_web_position' or nil,position={book_id=id,chapter_uid='11',chapter_idx=0,chapter_offset=1000,percent=intent.percent,summary='SYNTHETIC'},
             source_position=copy(f.point),basis='filtered_xhtml_utf16',is_current=function() return true end,
             release=function() f.released=f.released+1 end}
         if f.defer_prepare then f.ready=function() callback(plan) end else callback(plan) end
     end
     function f.verify()
-        sync:_mark_verified('900001','synthetic',copy(f.position),copy(f.remote));sync.dirty=true;sync.interval:refresh()
+        if imported then
+            local baseline=copy(f.position);baseline.source_position.chapter_offset=f.remote.chapter_offset
+            sync:_mark_verified(id,'cb_positions_match',baseline,copy(f.remote))
+        else sync:_mark_verified(id,'synthetic',copy(f.position),copy(f.remote)) end
+        sync.dirty=true;sync.interval:refresh()
     end
     function f.advance(seconds)
         f.clock=f.clock+seconds
@@ -161,4 +171,29 @@ expect(not f.sync.uploading and not f.sync.dirty and not f.sync.interval.task an
     'TXT timer retained work or used Web dispatch state')
 f=fixture();f.point.basis='unknown';f.position.source_position=copy(f.point);f.verify()
 expect(not f.sync.interval.task,'unknown units enabled the timer')
+-- Imported-book deadlines require an exact, recent Web baseline and a
+-- source-bound zero-time write. Server mutations and uncertain results stop it.
+f=fixture(true);f.verify()
+expect(f.sync.verified and f.sync.interval.task,'imported confirmed point did not arm deadline')
+f.advance(60)
+expect(f.reads==1 and f.writes==1 and f.sync.verified and not f.sync.dirty,'imported timer did not confirm one zero-time position')
+expect(not f.journal:pending('CB_SyntheticTimer') and not f.sync.interval.task,'confirmed imported timer kept a journal')
+expect(f.sync.remote_position.updated_at==11 and not f.sync:position_for_report('CB_SyntheticTimer'),'imported timer enabled reading time or lost baseline')
+for _,field in ipairs({'chapter_offset','raw_percent','updated_at'}) do
+    f=fixture(true);f.verify();f.remote[field]=f.remote[field]+1;f.advance(60)
+    expect(f.choice and f.writes==0 and not f.sync.verified and not f.sync.interval.task,'imported timer missed changed '..field)
+end
+f=fixture(true);f.verify();f.unknown=true;f.advance(60)
+expect(f.writes==1 and f.journal:pending('CB_SyntheticTimer') and not f.sync.verified,'uncertain imported timer lost journal')
+f.advance(600);expect(f.writes==1 and not f.sync.interval.task,'uncertain imported timer repeated a write')
+f=fixture(true);f.verify();f.prepare_error='source_remote_changed';f.advance(60)
+expect(f.writes==0 and not f.sync.verified and not f.sync.interval.task,'changed imported source still wrote')
+f=fixture(true);f.verify();f.defer_prepare=true;f.advance(60);f.values.sync.upload_interval_minutes=0
+f.sync.interval:reschedule();f.ready()
+expect(f.writes==0 and f.cancelled==1 and not f.sync.uploading,'disabled imported timer sent a late plan')
+f=fixture(true);f.remote.chapter_offset=1000;f.verify();f.advance(60)
+expect(f.writes==0 and f.sync.verified and not f.sync.dirty and not f.sync.interval.task,'same imported source was written again')
+f=fixture(true);f.verify();f.values.books.CB_SyntheticTimer.pending_upload_account=f.sync:_account_key()
+f.values.books.CB_SyntheticTimer.pending_upload_reason='upload_readback_unconfirmed';f.sync.interval:refresh()
+expect(not f.sync.interval.task,'unconfirmed imported position armed deadline')
 print(('progress_interval_spec: %d checks'):format(checks))

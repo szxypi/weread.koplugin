@@ -627,8 +627,8 @@ function ProgressSync:capture_local()
     }
 end
 
--- CB_ XHTML cloud units have not yet been correlated with the current
--- source model. Keep local reading usable without scheduling doomed uploads.
+-- Imported books use Web-only, source-bound positions and a separate timer
+-- qualification. TXT, missing source and uncertain writes stay local.
 local function cb_book(book_id) return type(book_id)=='string' and book_id:sub(1,3)=='CB_' end
 function ProgressSync:_unsupported_book(book_id,position,manual)
     book_id=tostring(book_id)
@@ -649,7 +649,14 @@ function ProgressSync:_unsupported_book(book_id,position,manual)
 end
 
 function ProgressSync:_mark_verified(book_id, reason, local_position, remote)
-    if cb_book(tostring(book_id)) then return self:_unsupported_book(book_id,local_position,false) end
+    if cb_book(tostring(book_id)) then
+        local allowed=reason=='cb_positions_match' or reason=='cb_upload_confirmed' or reason=='cb_interval_positions_match'
+        local chapters=self.get_chapters(self.get_book(book_id) or {})
+        if not allowed or not require('weread.lib.cb_sync_guard').expected(remote,tostring(book_id))
+            or self:_compare_source(local_position,remote,chapters)~='same' then
+            return self:_unsupported_book(book_id,local_position,false)
+        end
+    end
     self.current_book_id = tostring(book_id)
     self.checkpoint_account = self:_account_key()
     self.verified = true
@@ -961,7 +968,11 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
     local cb_manual=cb_book(book_id) and reason=='explicit_local_choice' and show_result==true
         and not close_token and not interval_cycle and not initial_remote and self.source_dispatch
         and require('weread.lib.cb_sync_guard').expected(self.remote_position,book_id)
-    if cb_book(book_id) and not cb_manual then
+    local cb_auto=cb_book(book_id) and reason=='interval' and interval_cycle and not close_token and not initial_remote
+        and self.verified and self.source_dispatch and self.interval:current(interval_cycle)
+        and require('weread.lib.cb_sync_guard').same(self.remote_position,interval_cycle.baseline,book_id)
+    local cb_authorized=cb_manual or cb_auto
+    if cb_book(book_id) and not cb_authorized then
         self:_unsupported_book(book_id,position,false)
         if show_result and self:_session_current(scope) then self.notify('upload_failed',{error='source_book_sync_unsupported'}) end
         return false
@@ -1074,6 +1085,16 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                 self.dirty = not unchanged or not clear_pending
                 self.last_uploaded_position = copy(position)
                 if type(patch.last_remote_position)=='table' then self.remote_position=copy(patch.last_remote_position) end
+                if cb_authorized then
+                    self:_mark_verified(book_id,'cb_upload_confirmed',position,self.remote_position)
+                    if not unchanged and live then
+                        -- A reader may turn the page while the request is in
+                        -- flight. The confirmed anchor is old, but the local
+                        -- resume point must remain the newer one.
+                        self.local_position=copy(live)
+                        self:_persist(book_id,{last_local_position=live})
+                    end
+                end
                 if not self.pulling and self.state ~= "awaiting_choice" then
                     self.state = self.verified and "verified" or "unverified"
                 end
@@ -1163,7 +1184,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             if close_token and self.prepare_closed then self.prepare_closed(close_token,copy(position),prepared)
             else
                 local intent=copy(position);intent.native_position_only=true
-                if cb_manual then intent.cb_explicit_sync=true end
+                if cb_authorized then intent.cb_guarded_sync=true end
                 local saved=self.get_book(book_id) or {}
                 intent.expected_remote=copy(initial_remote or self.remote_position or saved.last_remote_position)
                 if initial_remote then intent.initialize_cloud=true end
@@ -1263,7 +1284,7 @@ end
 -- Imported books use an explicit, one-shot choice. They do not grant the
 -- periodic reading-time or close-upload gates used for ordinary books.
 function ProgressSync:_resolve_cb(local_position,remote,context,options)
-    if not options.manual or not self.prepare_upload or not self.source_dispatch
+    if not self.prepare_upload or not self.source_dispatch
         or not require('weread.lib.cb_sync_guard').expected(remote,context.book_id) then
         return self:_unsupported_book(context.book_id,local_position,options.manual)
     end
@@ -1272,9 +1293,12 @@ function ProgressSync:_resolve_cb(local_position,remote,context,options)
     local pending=self.source_dispatch:pending(context.book_id)
         or saved.pending_upload_account==self:_account_key() and saved.pending_upload_position~=nil
     local comparison=self:_compare_source(local_position,remote,context.chapters)
-    if comparison=='same' and not pending and not options.force_choice then
-        self.state='unverified';self.notify('already_synced',{position=local_position});return
+    if comparison=='same' and not pending and not remote.conflict and not options.force_choice then
+        self.dirty=false;self:_mark_verified(context.book_id,'cb_positions_match',local_position,remote)
+        if options.manual then self.notify('already_synced',{position=local_position}) end
+        return
     end
+    if not options.manual then self.state='unverified';return end
     self.state='awaiting_choice'
     local scope,decided=self:_scope(),false
     local function current()
@@ -1452,11 +1476,11 @@ function ProgressSync:_pull(options)
             return false
         end
     end
-    if local_position and cb_book(local_position.book_id) and (not options.manual or not self.prepare_upload or not self.source_dispatch) then
+    if local_position and cb_book(local_position.book_id) and (not self.prepare_upload or not self.source_dispatch) then
         return self:_unsupported_book(local_position.book_id,local_position,options.manual)
     end
     if local_position and cb_book(local_position.book_id) and not self.settings:is_cookie_configured() then
-        self.notify('authentication_required',{});return false
+        if options.manual then self.notify('authentication_required',{}) end;return false
     end
     if not self.settings:is_api_configured()
         and not self.settings:is_cookie_configured() then

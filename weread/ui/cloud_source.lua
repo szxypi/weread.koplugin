@@ -116,7 +116,7 @@ function M.start(host,resume,options)
         M.cancel(host)
         if success then
             local verified=job.sync_choice and host.progress_sync and host.progress_sync.verified
-            host:showTransientInfo(id:sub(1,3)=='CB_' and _('Approximate cloud position opened. Cloud progress sync is not yet available for this book.')
+            host:showTransientInfo(id:sub(1,3)=='CB_' and _('Approximate cloud position opened. Sync again to compare positions.')
                 or verified and _('Cloud reading position opened and sync comparison saved.')
                 or _('Cloud reading position opened. Progress reporting is waiting for verification.'),3)
         elseif reason=='cloud_changed' then host:showInfo(_('Cloud reading chapter changed during download. Please try again.'))

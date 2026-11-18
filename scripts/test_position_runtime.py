@@ -84,6 +84,8 @@ def main():
     parser.add_argument('--cb-cloud-single', action='store_true')
     parser.add_argument('--cb-sync-noack', action='store_true')
     parser.add_argument('--cb-sync-cloud', action='store_true')
+    parser.add_argument('--cb-sync-timer', action='store_true')
+    parser.add_argument('--cb-sync-timer-unknown', action='store_true')
     parser.add_argument('--cb-cloud-gap', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
@@ -103,8 +105,8 @@ def main():
         parser.error('--cached-incomplete requires --cached-full')
     if args.cached_dual and not args.cached_full:
         parser.error('--cached-dual requires --cached-full')
-    if (args.cb_sync_noack or args.cb_sync_cloud) and args.probe!='cb-sync':parser.error('CB sync option requires cb-sync')
-    if args.cb_sync_noack and args.cb_sync_cloud:parser.error('select one CB sync outcome')
+    if (args.cb_sync_noack or args.cb_sync_cloud or args.cb_sync_timer or args.cb_sync_timer_unknown) and args.probe!='cb-sync':parser.error('CB sync option requires cb-sync')
+    if sum((args.cb_sync_noack,args.cb_sync_cloud,args.cb_sync_timer,args.cb_sync_timer_unknown))>1:parser.error('select one CB sync outcome')
     if (args.cb_cloud_single or args.cb_cloud_gap) and args.probe not in ('cb-cloud-view','cb-sync'):
         parser.error('imported cloud options require --probe cb-cloud-view')
     if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
@@ -146,6 +148,8 @@ def main():
                                         WEREAD_TEST_CB_CLOUD_SINGLE='1' if args.cb_cloud_single else '0',
                                         WEREAD_TEST_CB_SYNC_NOACK='1' if args.cb_sync_noack else '0',
                                         WEREAD_TEST_CB_SYNC_CLOUD='1' if args.cb_sync_cloud else '0',
+                                        WEREAD_TEST_CB_SYNC_TIMER='1' if args.cb_sync_timer or args.cb_sync_timer_unknown else '0',
+                                        WEREAD_TEST_CB_TIMER_UNKNOWN='1' if args.cb_sync_timer_unknown else '0',
                                         WEREAD_TEST_CB_CLOUD_TARGET=str(target_offset) if args.probe in ('cb-cloud-view','cb-sync') else '',
                                         WEREAD_TEST_CB_CLOUD_GAP='1' if args.cb_cloud_gap else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
@@ -174,7 +178,7 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_CB_CLOUD_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline imported cloud view reopen failed; inspect isolated runtime log'
-            if result.returncode == 0 and args.probe == 'cb-sync' and args.cb_sync_noack:
+            if result.returncode == 0 and args.probe == 'cb-sync' and (args.cb_sync_noack or args.cb_sync_timer_unknown):
                 server.shutdown();thread.join()
                 with (root / 'evidence/reopen.log').open('w') as out:
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
@@ -258,9 +262,11 @@ def main():
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                 assert value==dict(result='PASS',choice=True,changed_remote_stopped=True,explicit_upload=True,
                     native_point=True,pending_cleared=not args.cb_sync_noack,journal_cleared=not args.cb_sync_noack,
-                    automatic_disabled=True,single=args.cb_cloud_single,uncertain=args.cb_sync_noack)
-                assert server.request_totals[('/web/book/read','')]==2, 'imported sync sent an unexpected number of writes'
-                if args.cb_sync_noack:
+                    automatic_disabled=not (args.cb_sync_timer or args.cb_sync_timer_unknown),single=args.cb_cloud_single,uncertain=args.cb_sync_noack,
+                    timer_verified=args.cb_sync_timer or args.cb_sync_timer_unknown,timer_unknown=args.cb_sync_timer_unknown)
+                expected_writes=4 if args.cb_sync_timer_unknown else 3 if args.cb_sync_timer else 2
+                assert server.request_totals[('/web/book/read','')]==expected_writes, 'imported sync sent an unexpected number of writes'
+                if args.cb_sync_noack or args.cb_sync_timer_unknown:
                     reopened_raw=(root/'evidence/reopen.log').read_bytes();marker=b'\nWEREAD_CB_SYNC_REOPEN='
                     assert reopened_raw.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened_raw
                     reopened=json.loads(reopened_raw.split(marker,1)[1].splitlines()[0])

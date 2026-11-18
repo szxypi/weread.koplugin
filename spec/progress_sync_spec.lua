@@ -280,11 +280,30 @@ local function cb_manual_fixture()
         eq(plan.before_send(),true,'CB second write did not retain journal')
         f.uploads[#f.uploads+1]=position
         return true,{acknowledged=true,position_confirmed=true,remote={book_id=id,chapter_uid=position.chapter_uid,
-            chapter_idx=position.chapter_idx,chapter_offset=position.chapter_offset,percent=position.percent,
+            chapter_idx=position.chapter_idx,chapter_offset=position.chapter_offset,percent=position.percent,raw_percent=position.percent,updated_at=123,
             has_chapter_index=true,has_chapter_offset=true,source='web'}}
     end
     return f,remote
 end
+
+test('imported automatic comparison qualifies only an equal clean source point',function()
+    local f,raw=cb_manual_fixture();local id=f.source.book_id
+    raw.chapterOffset=f.source.chapter_offset
+    f.values.books[id].pending_upload_position=nil
+    f.values.books[id].pending_upload_reason=nil
+    f.values.books[id].pending_upload_account=nil
+    local local_position,_,context=f.sync:capture_local()
+    local remote=assert(f.sync:_fetch_remote(id,chapters))
+    f.sync:_resolve(local_position,remote,context,{manual=false})
+    eq(f.sync.verified,true,'equal imported source did not establish automatic baseline')
+    eq(f.sync.interval.task,nil,'clean imported position armed a deadline')
+    eq(f.sync:position_for_report(id),nil,'automatic comparison enabled reading-time reports')
+    f.sync:_clear_verified('test');raw.chapterOffset=raw.chapterOffset+1
+    remote=assert(f.sync:_fetch_remote(id,chapters));f.sync:_resolve(local_position,remote,context,{manual=false})
+    eq(f.sync.verified,false,'different imported source gained automatic authority')
+    eq(#f.choices,0,'automatic open presented a choice unexpectedly')
+    eq(f.prepares,0,'automatic open prepared an upload')
+end)
 
 test('manual CB sync requires explicit choice, guarded preparation and durable dispatch',function()
     local f=cb_manual_fixture();local id=f.source.book_id
@@ -295,16 +314,34 @@ test('manual CB sync requires explicit choice, guarded preparation and durable d
     eq(f.sync.verified,false,'comparison enabled automatic reports')
     f.choices[1].keep_local()
     eq(f.prepares,1,'explicit local choice did not prepare upload')
-    eq(f.intent.cb_explicit_sync,true,'CB explicit intent missing')
+    eq(f.intent.cb_guarded_sync,true,'CB guarded intent missing')
     eq(f.intent.expected_remote.chapter_offset,140,'chosen cloud point not pinned')
     local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
     f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
     eq(#f.uploads,1,'manual imported position did not reach sender')
     eq(f.values.books[id].pending_upload_position,nil,'confirmed position did not clear own pending state')
     eq(f.sync.source_dispatch:pending(id),false,'confirmed journal did not retire')
-    eq(f.sync.verified,false,'manual imported send enabled automatic reports')
+    eq(f.sync.verified,true,'confirmed imported position did not establish a baseline')
+    eq(f.sync:position_for_report(id),nil,'confirmed imported position enabled reading-time reporting')
     eq(f.sync.interval.task,nil,'manual imported send armed automatic upload')
     eq(f.notifications[#f.notifications].code,'upload_success','success notice missing')
+end)
+
+test('CB upload confirmation preserves a newer page reached during the send',function()
+    local f=cb_manual_fixture();local id=f.source.book_id;local send=f.sync.upload_position
+    f.sync.upload_position=function(...)
+        local accepted,outcome=send(...)
+        f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update()
+        return accepted,outcome
+    end
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    local sent_source={};for key,value in pairs(f.source) do sent_source[key]=value end
+    f.ready({position=pos,source_position=sent_source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(f.sync.verified,true,'confirmed old point lost its baseline')
+    eq(f.sync.dirty,true,'newer page was marked synchronized')
+    eq(f.values.books[id].last_local_position.source_position.chapter_offset,151,'confirmation overwrote newer local resume point')
+    eq(f.sync.source_local_anchor.chapter_offset,150,'confirmation changed the uploaded source anchor')
 end)
 
 test('CB progress comparison uses captured Web access instead of the numeric-only API',function()

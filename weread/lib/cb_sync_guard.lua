@@ -15,6 +15,12 @@ function M.expected(value,book)
         or not integer(value.updated_at,9007199254740991) then return nil end
     return {book_id=book,chapter_uid=uid,chapter_idx=value.chapter_idx,chapter_offset=value.chapter_offset,raw_percent=percent,updated_at=value.updated_at}
 end
+function M.same(first,second,book)
+    local a,b=M.expected(first,book),M.expected(second,book)
+    if not a or not b then return false end
+    for key,value in pairs(a) do if b[key]~=value then return false end end
+    return true
+end
 function M.matches(raw,expected)
     if type(expected)~='table' then return false end
     local value,reason,provided=Remote.project(raw,expected.book_id,'web')

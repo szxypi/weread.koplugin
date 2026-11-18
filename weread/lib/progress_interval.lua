@@ -2,6 +2,7 @@
 -- never catches up missed periods, wakes Wi-Fi, or replays an uncertain send.
 local Readback = require('weread.lib.progress_readback')
 local Source = require('weread.lib.position_source')
+local CBGuard = require('weread.lib.cb_sync_guard')
 local M = {}; M.__index = M
 local function copy(value)
     if type(value) ~= 'table' then return value end
@@ -47,6 +48,12 @@ function M:_eligible()
     -- A page turn briefly invalidates the source point. Keep the original
     -- deadline during capture, rather than postponing it on every page.
     point=point or sync.source_local_anchor
+    if sync.current_book_id:sub(1,3)=='CB_' then
+        local saved=sync.get_book(sync.current_book_id) or {}
+        if saved.pending_upload_account==sync:_account_key() and saved.pending_upload_reason=='upload_readback_unconfirmed'
+            or not CBGuard.expected(sync.remote_position,sync.current_book_id)
+            or type(point)~='table' or point.basis~='filtered_xhtml_utf16' then return false end
+    end
     return type(point)=='table' and point.book_id==sync.current_book_id
         and Source.is_coordinate_basis(point.basis) and point.upload_verified==false
 end
@@ -105,9 +112,14 @@ function M:_begin(minutes)
                 if not position then self:_failed(cycle);return end
                 if not remote.conflict and sync:_compare_source(position,remote,context.chapters)=='same' then
                     self.cycle=nil;sync.dirty=false;sync:_discard_pending_upload(context.book_id)
-                    sync:_mark_verified(context.book_id,'interval_positions_match',position,remote);return
+                    local verified_reason=context.book_id:sub(1,3)=='CB_' and 'cb_interval_positions_match' or 'interval_positions_match'
+                    sync:_mark_verified(context.book_id,verified_reason,position,remote);return
                 end
-                if not remote.conflict and Readback.matches_normalized(cycle.baseline,remote) then
+                local imported=context.book_id:sub(1,3)=='CB_'
+                local same_baseline
+                if imported then same_baseline=CBGuard.same(cycle.baseline,remote,context.book_id)
+                else same_baseline=Readback.matches_normalized(cycle.baseline,remote) end
+                if not remote.conflict and same_baseline then
                     sync.remote_position=copy(remote)
                     local dispatched=sync:_upload_snapshot(position,'interval',false,nil,cycle)
                     if not dispatched and not sync.uploading then self:finish(cycle) end
@@ -116,7 +128,7 @@ function M:_begin(minutes)
                 -- Another client changed the cloud since the last decision. The
                 -- timer cannot silently choose or navigate, even with ask=false.
                 self.cycle=nil;sync:_clear_verified('interval_remote_changed')
-                sync:_resolve(position,remote,context,{force_choice=true})
+                sync:_resolve(position,remote,context,{force_choice=true,manual=imported})
             end)
         end)
         if not ok then self:_failed(cycle) end
