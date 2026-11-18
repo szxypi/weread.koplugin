@@ -124,5 +124,18 @@ eq(journal:begin(account,result.selection,{protocol='native-historical-time-cst-
 record=assert(journal:begin(account,result.selection,{protocol='native-historical-time-cst-cb-v1',book_id='CB_Synthetic',request_hash=string.rep('d',64)}))
 eq(ledger:summary(account).in_flight,2);assert(journal:cancel_prepared(record));eq(ledger:summary(account).pending,2)
 eq(queue:select(account,'CB_invalid/',{allow_cb=true}),nil)
+-- Skipping one book is a read-only view filter and cannot starve another book.
+ledger,_,queue=fixture({{book_id='CB_Synthetic',start_time=100000,duration=2},
+                        {book_id='42',start_time=100010,duration=3}})
+local scope={historical=true,allow_cb=true}
+eq(assert(queue:select(account,nil,scope)).selection.book_id,'CB_Synthetic')
+scope.exclude_book_ids={CB_Synthetic=true}
+eq(assert(queue:select(account,nil,scope)).selection.book_id,'42')
+scope.exclude_book_ids['42']=true
+eq(assert(queue:select(account,nil,scope)).selection,false)
+eq(ledger:summary(account).pending,5)
+eq(queue:select(account,nil,{allow_cb=true,exclude_book_ids={['CB_Synthetic']=false}}),nil)
+eq(queue:select(account,nil,{allow_cb=true,exclude_book_ids={['CB_bad/']=true}}),nil)
+eq(queue:select(account,nil,{exclude_book_ids='invalid'}),nil)
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
 print('readtime_transfer_queue_spec: '..checks..' checks')

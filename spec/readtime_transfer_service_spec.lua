@@ -44,6 +44,9 @@ local interval=require('weread.lib.progress_interval'):new{sync=f.host.progress_
 expect(interval:_eligible()==false and f.posts==0,'another writer ran while the transfer held its lease')
 f.deliver();expect(f.result.kind=='confirmed' and f.posts==1 and f.ledger:summary(f.account).confirmed==2)
 expect(f.restarts==1 and f.refreshes==1 and not f.host._offline_time_transfer_lock and not f.service.job)
+f=fixture();f.options.observe_source=function() error('readtime_source/format') end
+expect(f.start());f.deliver()
+expect(f.result.kind=='unsupported_source' and f.posts==0 and f.ledger:summary(f.account).pending==2)
 -- Refuse an active writer, without abandoning its job, even before a claim.
 for _i,busy in ipairs({'report','preparation','sync','source','position'}) do
     f=fixture()

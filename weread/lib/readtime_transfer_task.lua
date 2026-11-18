@@ -154,7 +154,9 @@ function M.run(client,settings,selected,web,selection,references,journal,options
     if not ok then
         if out.attempted then out.kind='unconfirmed'
         else
-            out.kind=type(reason)=='string' and reason:find('/http_401',1,true) and 'login' or 'unavailable'
+            out.kind=type(reason)=='string' and reason:find('/http_401',1,true) and 'login'
+                or type(reason)=='string' and reason:find('readtime_source/format',1,true) and 'unsupported_source'
+                or 'unavailable'
             if record and journal:owns(record,'prepared') then journal:cancel_prepared(record) end
         end
     end

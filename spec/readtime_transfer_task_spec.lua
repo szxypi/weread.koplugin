@@ -91,6 +91,11 @@ end
 f=require('spec.helpers.readtime_transfer_fixture').new(nil,expect,roots,true)
 f.options.experimental_cb=false;result=f.run()
 expect(not result.attempted and f.posts==0 and f.ledger:summary(f.account).pending==2,'CB gate')
+f.options.experimental_cb=true;local original_observer=f.options.observe_source
+f.options.observe_source=function() error('readtime_source/format') end;result=f.run()
+expect(result.kind=='unsupported_source' and not result.attempted and f.posts==0
+    and f.ledger:summary(f.account).pending==2,'unsupported imported format')
+f.options.observe_source=original_observer
 f.options.experimental_cb=true;result=f.run()
 expect(result.kind=='confirmed' and result.attempted and f.posts==1 and f.ledger:summary(f.account).confirmed==2,'CB send')
 expect(f.body.books[1].bookId=='CB_Synthetic' and f.body.books[1].summary=='Synthetic complete summary')

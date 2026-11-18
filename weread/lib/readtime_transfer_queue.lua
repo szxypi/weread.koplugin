@@ -14,6 +14,12 @@ function M:select(account,book_id,options)
     options=options or {}
     local allow_cb=options.allow_cb==true
     if not C.account(account) or book_id~=nil and not (C.id(book_id) or allow_cb and C.cb_id(book_id)) then return nil,'invalid_selection' end
+    local excluded=options.exclude_book_ids or {};local excluded_count=0
+    if type(excluded)~='table' then return nil,'invalid_selection' end
+    for id,skip in pairs(excluded) do
+        excluded_count=excluded_count+1
+        if excluded_count>1000 or not C.book_id(id) or skip~=true then return nil,'invalid_selection' end
+    end
     local now=self.now()
     if not C.integer(now,1,4102444800) then return nil,'invalid_clock' end
     local selected={rows={},parts={},seconds=0};local report={scanned=0,unsupported=0,conflicting=0,covered=0,untracked=0,deferred=0}
@@ -36,7 +42,7 @@ function M:select(account,book_id,options)
                     or not C.integer(range[2],range[1]+1,row.start_time+row.duration) then return nil,'invalid_page' end
             end
             if not C.verified(row,now,allow_cb) then report.unsupported=report.unsupported+row.duration
-            elseif (not book_id or row.book_id==book_id) and same(row,selected) then
+            elseif not excluded[row.book_id] and (not book_id or row.book_id==book_id) and same(row,selected) then
                 candidates[#candidates+1]=row;blocked[row.id]=entry.blocked
             end
         end

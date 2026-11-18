@@ -135,6 +135,7 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi,seeded):
             or result.get('native_menu') is not True or result.get('dialog_correct') is not True or result.get('workers_reaped') is not True
             or result.get('background_service') is not (mode!='tamper_selection')
             or result.get('recovery_checked') is not (mode=='no_delta')
+            or result.get('skip_checked') is not (mode=='success')
             or type(result.get('source_reads')) is not int or result['source_reads']<(0 if mode=='tamper_selection' else 2 if mode in ('success','no_delta') else 1)
             or result.get('local_confirmed')!=(plan['seconds'] if mode=='success' else 0)):
         raise ValueError('cb_ui/result')

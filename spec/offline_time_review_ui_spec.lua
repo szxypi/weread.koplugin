@@ -53,6 +53,12 @@ host._offline_time_detail.buttons[1][1].callback();deliver();eq(host._offline_ti
 choose('Offline reading time');deliver();choose('Check saved time');deliver()
 eq(host._offline_time_detail.title:find('Local duplicate check: 600 s',1,true)~=nil,true)
 eq(C.digest(ledger:pending(account)),original)
+eq(host._offline_time_detail.buttons[3][1].text,'Skip this book for now')
+host._offline_time_detail.buttons[3][1].callback();deliver()
+eq(host._offline_time_detail.title:find('No locally verified time',1,true)~=nil,true)
+eq(C.digest(ledger:pending(account)),original)
+Review.show(host);deliver();choose('Check saved time');deliver()
+eq(host._offline_time_detail.title:find('Local duplicate check: 600 s',1,true)~=nil,true)
 -- Busy dismissal and all late results leave newer views untouched.
 host._offline_time_detail.buttons[1][1].callback();local old=#jobs
 host.busy_message.cancel();eq(host._offline_time_review,nil);deliver(old);eq(host._offline_time_menu,nil)
@@ -86,6 +92,22 @@ host.client.json_decode=function(_s,x) return Json.decode(x) end
 host.isNetworkConnected=function() return true end
 host.settings.get_book=function() return {cached_file='/synthetic/book.epub',chapters={{chapterUid=7,chapterIdx=0}}} end
 local dispatched
+-- The normal UI creates a service that supports verified imported-book batches.
+local saved_service_module=package.loaded['weread.lib.readtime_transfer_service']
+local service_options
+package.loaded['weread.lib.readtime_transfer_service']={new=function(_self,options)
+    service_options=options
+    return {start=function(_service,mode,scope,input,refs,guard,callback)
+        dispatched={mode=mode,scope=scope,input=input,refs=refs,guard=guard,callback=callback};return true
+    end,cancel=function() end}
+end}
+host.offline_time_transfer_service=nil
+Review.show(host);deliver();choose('Check saved time');deliver()
+host._offline_time_detail.buttons[2][1].callback()
+eq(service_options.task_options.experimental_cb,true);eq(dispatched.mode,'send')
+dispatched.callback({kind='unconfirmed'});Review.close(host)
+host.offline_time_transfer_service=nil
+package.loaded['weread.lib.readtime_transfer_service']=saved_service_module
 host.offline_time_transfer_service={start=function(_self,mode,scope,input,refs,guard,callback)
     dispatched={mode=mode,scope=scope,input=input,refs=refs,guard=guard,callback=callback};return true
 end,cancel=function() end}
@@ -95,6 +117,10 @@ selected.buttons[2][1].callback();eq(dispatched.mode,'send');eq(dispatched.scope
 eq(dispatched.guard(),true);eq(host.busy_message~=nil,true)
 dispatched.callback({kind='unconfirmed'});eq(host.busy_message,nil)
 eq(host._offline_time_detail.title,'Cloud accounting is not confirmed. The request is kept and will not be sent again.')
+Review.show(host);deliver();choose('Check saved time');deliver()
+host._offline_time_detail.buttons[2][1].callback();dispatched.callback({kind='unsupported_source'})
+eq(host._offline_time_detail.title,'This imported book format cannot transfer saved time yet. Its records are kept.')
+eq(C.digest(ledger:pending(account)),original)
 -- Large catalogs are checked in bounded workers before the transfer service.
 -- Cancelled or stale workers must not dispatch, nor close a newer view.
 local source=require('weread.lib.readtime_source');local old_scan=source.scan_page

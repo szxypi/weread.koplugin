@@ -129,7 +129,7 @@ local function render(host,context,kind,value,args)
     elseif kind=='detail' then
         local entry=value.entry;local row=entry.source
         local text=entry.title..'\n'..time_label(row)..'\n'..T(_('Duration: %1'),seconds(row.duration))
-            ..'\n'.._(STATES[entry.state])..'\n'.._(C.verified(row,os.time()) and 'Captured download source is available' or 'Download source needs verification')
+            ..'\n'.._(STATES[entry.state])..'\n'.._(C.verified(row,os.time(),true) and 'Captured download source is available' or 'Download source needs verification')
         if entry.state=='pending' then
             text=text..'\n'..T(_('Known covered time: %1'),seconds(value.coverage.covered))
                 ..'\n'..T(_('Time before coverage tracking: %1'),seconds(value.coverage.unverified))
@@ -141,7 +141,12 @@ local function render(host,context,kind,value,args)
         local chosen=value.selection
         local text=chosen and value.title..'\n'..T(_('Local duplicate check: %1'),seconds(chosen.seconds))
             ..'\n'..time_label(chosen.protocol_rows[1]) or _('No locally verified time is available in this check.')
-        local actions=chosen and {{text='Transfer this batch',callback=function() transfer(host,context,'send',chosen) end}} or nil
+        local actions=chosen and {
+            {text='Transfer this batch',callback=function() transfer(host,context,'send',chosen) end},
+            {text='Skip this book for now',callback=function()
+                context.excluded[chosen.book_id]=true;load(host,context,'selection',{})
+            end},
+        } or nil
         dialog(host,context,text..'\n\n'.._('Only the displayed historical batch is sent. Uncertain requests are kept and never resent.'),
             function() load(host,context,'summary',{}) end,actions)
     elseif kind=='transfer_record' then
@@ -178,7 +183,7 @@ transfer=function(host,context,mode,input)
         local journal=require('weread.lib.readtime_transfer_store'):new{ledger=host.offline_time.store,
             coverage=host.readtime_coverage or Coverage:new(host.settings.data_dir),codec=host.client}
         host.offline_time_transfer_service=require('weread.lib.readtime_transfer_service'):new{settings=host.settings,client=host.client,
-            scheduler=UI,journal=journal,acquire=function(book)
+            scheduler=UI,journal=journal,task_options={experimental_cb=true},acquire=function(book)
                 return require('weread.lib.readtime_transfer_lease').acquire(host,book,current)
             end}
     else
@@ -208,6 +213,7 @@ transfer=function(host,context,mode,input)
                 saved_confirmation='Cloud accounting is confirmed. Finish local bookkeeping from the review menu.',
                 completed='Local records updated. Original transfer evidence is kept.',
                 unconfirmed='Cloud accounting is not confirmed. The request is kept and will not be sent again.',
+                unsupported_source='This imported book format cannot transfer saved time yet. Its records are kept.',
                 unavailable='Could not complete this operation. Saved records are kept.',login='Log in again before checking saved time.'}
             dialog(host,context,_(labels[result.kind] or labels.unconfirmed),function() load(host,context,'summary',{}) end)
         end)
@@ -292,7 +298,8 @@ load=function(host,context,kind,args)
             assert(C.digest(entry.source)==C.digest(original),'changed');entry.title=title(host,entry.source.book_id)
             return {entry=entry,coverage=assert(coverage:preview_individual(context.account,{entry.source}))}
         end
-        local result=assert(Queue:new{ledger=ledger,coverage=coverage}:select(context.account,nil,{historical=true}))
+        local result=assert(Queue:new{ledger=ledger,coverage=coverage}:select(context.account,nil,
+            {historical=true,allow_cb=true,exclude_book_ids=context.excluded}))
         result.title=result.selection and title(host,result.selection.book_id) or nil;return result
     end,function(value)
         if not owns(host,context) or context.operation~=operation then
@@ -312,7 +319,7 @@ function M.show(host)
     local account=host.library_db:accountKey()
     if not C.account(account) then host:showInfo(_('Log in to associate offline reading time'));return end
     host.offline_time:update('status')
-    local context={account=account,epoch=host.discovery_epoch or 0,session=host._reader_session_gen,
+    local context={account=account,epoch=host.discovery_epoch or 0,session=host._reader_session_gen,excluded={},
         document=host.ui and host.ui.document,state=host.offline_time.state,error=host.offline_time.error,
         auth_checked=host.settings.get_auth_scope~=nil,
         auth=host.settings.get_auth_scope and host.settings:get_auth_scope()}

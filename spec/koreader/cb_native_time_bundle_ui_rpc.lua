@@ -1,4 +1,4 @@
--- Synthetic-only CB ReaderUI -> experimental time queue -> background RPC.
+-- Synthetic-only CB ReaderUI -> production time queue -> background RPC.
 -- All HTTP is blocked and task responses are synthetic in-memory fixtures.
 require('ffi').log=function() end
 require('setupkoenv')
@@ -144,8 +144,12 @@ transport.install(client,{grant=input.grant,book_id=input.book_id,chapter_uid=in
         if kind=='claim' and input.mode=='tamper_body' then value.body.books[1].summary='synthetic-change' end
         return rpc(kind,value)
     end})
-local service=require('weread.lib.readtime_transfer_service'):new{settings=settings,client=client,journal=journal,
-    credentials=credentials,scheduler=UI,task_options={experimental_cb=true,observe_source=function(observed_client,web,selection,refs,previous)
+local Service=require('weread.lib.readtime_transfer_service');local original_new=Service.new;local service
+local background=false;local task_results={}
+function Service.new(class,service_options)
+    assert(type(service_options.task_options)=='table' and service_options.task_options.experimental_cb==true,'synthetic_ui/production_service_options')
+    service_options.settings=settings;service_options.client=client;service_options.journal=journal;service_options.credentials=credentials
+    service_options.task_options.observe_source=function(observed_client,web,selection,refs,previous)
         assert(selection.file_id==input.file_id and #refs==1 and refs[1].file==arg[4])
         local db=sqlite.open(coverage.path);db:exec('INSERT INTO synthetic_source_calls DEFAULT VALUES');db:close()
         local Source=require('weread.lib.position_source');local Current=require('weread.lib.source_currentness')
@@ -159,11 +163,11 @@ local service=require('weread.lib.readtime_transfer_service'):new{settings=setti
                 options.verify_catalog(catalog)
                 return Current.project_cb(expected,catalog,{book_id=input.book_id,psvts='synthetic-session'},raw,catalog)
             end})
-    end,sleep=function() end},acquire=function(book)
-        return require('weread.lib.readtime_transfer_lease').acquire(host,book,function() return host._offline_time_review~=nil end)
-    end}
-local start=service.start;local background=false;local task_results={}
-function service:start(mode,scope,selection,refs,guard,callback)
+    end
+    service_options.task_options.sleep=function() end
+    service=original_new(class,service_options)
+    local start=service.start
+    function service:start(mode,scope,selection,refs,guard,callback)
     assert((mode=='send' or mode=='resolve' and input.mode=='no_delta') and scope==account)
     if mode=='send' then
         selected=selection
@@ -179,21 +183,28 @@ function service:start(mode,scope,selection,refs,guard,callback)
         assert(type(worker.pid)=='number' and worker.pid~=tonumber(require('ffi').C.getpid()))
         background=true
     end
-    return started,why
-end
-host.offline_time_transfer_service=service
--- The public UI gate stays closed in production; enable it only in this
--- synthetic process to exercise the experimental sender end to end.
-local Queue=require('weread.lib.readtime_transfer_queue');local choose=Queue.select
-function Queue:select(scope,book,options)
-    options=options or {};options.allow_cb=true;return choose(self,scope,book,options)
+        return started,why
+    end
+    return service
 end
 host:showOfflineTimeStatus();pump(function() return host._offline_time_menu~=nil end)
 local label=require('weread.lib.i18n').tr('Check saved time');local chosen
 for _i,item in ipairs(host._offline_time_menu.item_table) do if item.text==label then chosen=item;break end end
 assert(chosen,'synthetic_ui/menu');host._offline_time_menu:onMenuSelect(chosen)
 pump(function() return host._offline_time_detail~=nil end)
-local detail=host._offline_time_detail;assert(#detail.buttons==2 and detail.buttons[2][1].callback)
+local detail=host._offline_time_detail;assert(#detail.buttons==3 and detail.buttons[2][1].callback)
+local skip_checked=false
+if input.mode=='success' then
+    detail.buttons[3][1].callback()
+    pump(function() return host._offline_time_detail~=nil end)
+    assert(host._offline_time_detail.title:find(require('weread.lib.i18n').tr('No locally verified time is available in this check.'),1,true))
+    assert(host.offline_time_transfer_service==nil and assert(ledger:summary(account)).pending==input.seconds)
+    host:showOfflineTimeStatus();pump(function() return host._offline_time_menu~=nil end)
+    for _i,item in ipairs(host._offline_time_menu.item_table) do if item.text==label then chosen=item;break end end
+    host._offline_time_menu:onMenuSelect(chosen);pump(function() return host._offline_time_detail~=nil end)
+    detail=host._offline_time_detail;assert(#detail.buttons==3 and detail.buttons[2][1].callback)
+    skip_checked=true
+end
 detail.buttons[2][1].callback()
 pump(function() return host._offline_time_detail~=nil and service.job==nil end)
 local result_label=success and 'This batch is independently confirmed in cloud reading time.'
@@ -248,7 +259,8 @@ pump(function()
     return child<0 and ffi.errno()==10
 end)
 io.stdout:write('\nWEREAD_NATIVE_THOUGHT_'..input.token..'_RESULT='..json.encode({result='PASS',mode=input.mode,
-    native_menu=true,background_service=background,dialog_correct=true,workers_reaped=true,recovery_checked=recovery_checked,source_reads=source_reads,local_phase=phase,local_confirmed=summary.confirmed})..'\n');io.stdout:flush()
+    native_menu=true,background_service=background,dialog_correct=true,workers_reaped=true,recovery_checked=recovery_checked,
+    skip_checked=skip_checked,source_reads=source_reads,local_phase=phase,local_confirmed=summary.confirmed})..'\n');io.stdout:flush()
 
 end)
 if not worked then
