@@ -1159,7 +1159,7 @@ function ReadReport:_build_context(book_id, force, book)
             self.library_db:putChapters(book_id, chapters)
         end
     end
-    self:_merge_remote_progress(book_id, book)
+    if type(book_id)~='string' or book_id:sub(1,3)~='CB_' then self:_merge_remote_progress(book_id, book) end
 
     local selected
     for _i, chapter in ipairs(book.chapters or {}) do
@@ -1399,12 +1399,15 @@ function ReadReport:_upload_position(book_id, position, elapsed_seconds, plan, c
         outcome.error,outcome.error_kind='source_position_changed','position'
     end
     if ok and position_acknowledged(result, code) then
-        local receipt = {}
-        self._position_confirmation = { receipt = receipt, reads = 0, target = target, auth = self:_auth_fingerprint(),
-            cb_summary = cb_position and position.summary or nil }
-        local confirmed = select(2, self:confirm_position(receipt))
-        for key, value in pairs(confirmed) do outcome[key] = value end
-        if confirmed.accepted then outcome.error, outcome.error_kind = nil, nil end
+        outcome.acknowledged = true
+        if not cb_position or current() then
+            local receipt = {}
+            self._position_confirmation = { receipt = receipt, reads = 0, target = target, auth = self:_auth_fingerprint(),
+                cb_summary = cb_position and position.summary or nil }
+            local confirmed = select(2, self:confirm_position(receipt))
+            for key, value in pairs(confirmed) do outcome[key] = value end
+            if confirmed.accepted then outcome.error, outcome.error_kind = nil, nil end
+        end
     end
     if type(outcome.book) == "table" then
         local persist_ok, err = pcall(function()
@@ -1420,6 +1423,9 @@ end
 -- Imported progress has its own explicitly authorized, zero-time path. The
 -- regular timer and numeric upload paths cannot opt in by changing a field.
 function ReadReport:upload_position(book_id,position,elapsed_seconds,plan)
+    if type(plan)=='table' and plan.transport=='cb_web_position' and elapsed_seconds==0 then
+        return self:upload_cb_position(book_id,position,plan)
+    end
     return self:_upload_position(book_id,position,elapsed_seconds,plan,false)
 end
 function ReadReport:upload_cb_position(book_id,position,plan)

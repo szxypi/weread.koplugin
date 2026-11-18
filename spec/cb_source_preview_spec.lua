@@ -83,5 +83,27 @@ cookies.wr_skey='synthetic-cookie-value'
 clock=131;expect(not service:is_current_cb_preview(receipt,value),'expired receipt accepted');clock=100
 account='owner-2';expect(not service:is_current_cb_preview(receipt,value),'changed account accepted');account='owner-1'
 service:cancel_upload_preview();expect(not service:is_current_cb_preview(receipt,value),'cancelled receipt accepted')
+local saved_upload=Currentness.fetch_cb_upload
+Currentness.fetch_cb_upload=function(_client,expected,_selected,selected_remote)
+    expect(selected_remote and selected_remote.chapter_offset==25,'selected remote missing')
+    return {book_id=expected.book_id,chapter_uid=expected.chapter_uid,chapter_idx=expected.chapter_idx,
+        raw_sha256=expected.raw_sha256,raw_bytes=expected.raw_bytes,catalog_stamp=string.rep('a',64),source_current=true,upload_verified=false}
+end
+local remote={book_id=book.book_id,source='web',chapter_uid='11',chapter_idx=0,chapter_offset=25,raw_percent=37,
+    updated_at=123,has_chapter_index=true,has_chapter_offset=true}
+service:prepare_cb_current_upload_preview(remote,function(candidate,why,checked) value,reason,receipt=candidate,why,checked end)
+worker.callback({request_id=service.preview_job.request_id,candidate=prepared.candidate});worker.callback(worker.task())
+expect(value and receipt and service:is_current_cb_upload_preview(receipt,value),'guarded CB upload receipt missing')
+expect(service:cb_upload_preview_deadline(receipt,value)==130,'CB upload deadline invalid')
+expect(not service:is_current_cb_preview(receipt,value) and not service:is_current_upload_preview(receipt,value),
+    'guarded receipt escaped its dedicated CB path')
+local old_receipt,old_value=receipt,value
+service:prepare_cb_current_upload_preview(nil,function(candidate,why) expect(not candidate and why=='source_remote_changed') end)
+expect(not service:is_current_cb_upload_preview(old_receipt,old_value),'invalid remote retained old receipt')
+Currentness.fetch_cb_upload=function() error('source_currentness/remote_changed',0) end
+service:prepare_cb_current_upload_preview(remote,function(candidate,why) value,reason=candidate,why end)
+worker.callback({request_id=service.preview_job.request_id,candidate=prepared.candidate});worker.callback(worker.task())
+expect(not value and reason=='source_remote_changed','changed remote did not reach caller')
+Currentness.fetch_cb_upload=saved_upload
 Currentness.fetch_cb=old_fetch
 print(('cb_source_preview_spec: %d checks'):format(checks))

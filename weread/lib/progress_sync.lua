@@ -705,7 +705,7 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
         if position then position.summary=nil end
         return position,reason
     end
-    if self.settings:is_api_configured() then
+    if self.settings:is_api_configured() and not cb_book(tostring(book_id)) then
         local ok,result
         if access then ok,result=pcall(self.client.get_progress_snapshot,self.client,book_id,access.gateway,{classify_auth=true,fresh=true})
         else ok,result=pcall(self.client.get_progress,self.client,book_id) end
@@ -719,7 +719,9 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
     if not access_current() then return nil, "session_changed" end
     if self.settings:is_cookie_configured() then
         local ok,result,kind
-        if access then ok,result,kind=pcall(self.client.get_progress_snapshot,self.client,book_id,access.web,{classify_auth=true,fresh=true})
+        if access then
+            local fetch=cb_book(tostring(book_id)) and self.client.get_shelf_display_progress or self.client.get_progress_snapshot
+            ok,result,kind=pcall(fetch,self.client,book_id,access.web,{classify_auth=true,fresh=true})
         else ok,result=pcall(self.client.get_web_progress,self.client,book_id) end
         if not access_current() then return nil,'session_changed' end
         if access and ok and not result and kind=='web_expired' then return nil,'progress_web_expired',access end
@@ -841,10 +843,17 @@ end
 function ProgressSync:_apply_remote(remote, context, options)
     options = options or {}
     if cb_book(context.book_id) then
-        local point=self:capture_local()
-        if point and point.book_id==context.book_id then point=self:checkpoint_local('unsupported_cloud_jump') end
-        self:_unsupported_book(context.book_id,point,false)
-        return false,'source_book_sync_unsupported'
+        if options.cb_explicit_sync~=true or tostring(self.detect_book() or '')~=context.book_id then
+            local point=self:capture_local()
+            if point and point.book_id==context.book_id then point=self:checkpoint_local('unsupported_cloud_jump') end
+            self:_unsupported_book(context.book_id,point,false)
+            return false,'source_book_sync_unsupported'
+        end
+        self:checkpoint_local('cloud_navigation')
+        self:_clear_verified('cloud_navigation')
+        self.dirty=false
+        if self.apply_source_remote then return self.apply_source_remote(copy(remote),options) end
+        return false,'source_position_unavailable'
     end
     -- Park the latest movement before revoking writes. A rejected target or
     -- failed engine navigation or chapter download must not lose this checkpoint.
@@ -949,7 +958,10 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         pending_upload_reason = reason or "unspecified",
         pending_upload_account = scope.account,
     })
-    if cb_book(book_id) then
+    local cb_manual=cb_book(book_id) and reason=='explicit_local_choice' and show_result==true
+        and not close_token and not interval_cycle and not initial_remote and self.source_dispatch
+        and require('weread.lib.cb_sync_guard').expected(self.remote_position,book_id)
+    if cb_book(book_id) and not cb_manual then
         self:_unsupported_book(book_id,position,false)
         if show_result and self:_session_current(scope) then self.notify('upload_failed',{error='source_book_sync_unsupported'}) end
         return false
@@ -1151,6 +1163,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             if close_token and self.prepare_closed then self.prepare_closed(close_token,copy(position),prepared)
             else
                 local intent=copy(position);intent.native_position_only=true
+                if cb_manual then intent.cb_explicit_sync=true end
                 local saved=self.get_book(book_id) or {}
                 intent.expected_remote=copy(initial_remote or self.remote_position or saved.last_remote_position)
                 if initial_remote then intent.initialize_cloud=true end
@@ -1247,9 +1260,50 @@ function ProgressSync:_resolve_initial(local_position,remote,context,options)
         end})
 end
 
+-- Imported books use an explicit, one-shot choice. They do not grant the
+-- periodic reading-time or close-upload gates used for ordinary books.
+function ProgressSync:_resolve_cb(local_position,remote,context,options)
+    if not options.manual or not self.prepare_upload or not self.source_dispatch
+        or not require('weread.lib.cb_sync_guard').expected(remote,context.book_id) then
+        return self:_unsupported_book(context.book_id,local_position,options.manual)
+    end
+    self.local_position,self.remote_position=copy(local_position),copy(remote)
+    local saved=self.get_book(context.book_id) or {}
+    local pending=self.source_dispatch:pending(context.book_id)
+        or saved.pending_upload_account==self:_account_key() and saved.pending_upload_position~=nil
+    local comparison=self:_compare_source(local_position,remote,context.chapters)
+    if comparison=='same' and not pending and not options.force_choice then
+        self.state='unverified';self.notify('already_synced',{position=local_position});return
+    end
+    self.state='awaiting_choice'
+    local scope,decided=self:_scope(),false
+    local function current()
+        if decided or not self:_session_current(scope) or scope.navigation_generation~=self.navigation_generation then return false end
+        decided=true;return true
+    end
+    self.on_choice({book_title=context.book.title or context.book_id,local_position=copy(local_position),
+        remote_position=copy(remote),source_conflict=remote.conflict==true,
+        use_remote=function()
+            if not current() then return end
+            local ok,reason=self:_apply_remote(remote,context,{manual=true,cb_explicit_sync=true})
+            if not ok then self.state='error';self.notify('jump_failed',{error=reason}) end
+        end,
+        keep_local=function()
+            if not current() then return end
+            local latest,reason=self:capture_local()
+            if not latest or not ProgressReadback.same_intent(latest,local_position) then
+                self.state='unverified';self.notify('local_unavailable',{error=reason or 'source_position_unavailable'});return
+            end
+            if self.source_dispatch:pending(context.book_id) and not self.source_dispatch:resolve(context.book_id) then
+                self.state='unverified';self.notify('upload_failed',{error='upload_readback_unconfirmed'});return
+            end
+            self:_upload_snapshot(latest,'explicit_local_choice',true)
+        end})
+end
+
 function ProgressSync:_resolve(local_position, remote, context, options)
     options = options or {}
-    if cb_book(context.book_id) then return self:_unsupported_book(context.book_id,local_position,options.manual) end
+    if cb_book(context.book_id) then return self:_resolve_cb(local_position,remote,context,options) end
     self.local_position = copy(local_position)
     self.remote_position = copy(remote)
     local comparison = PositionMapper.compare(
@@ -1398,8 +1452,11 @@ function ProgressSync:_pull(options)
             return false
         end
     end
-    if local_position and cb_book(local_position.book_id) then
+    if local_position and cb_book(local_position.book_id) and (not options.manual or not self.prepare_upload or not self.source_dispatch) then
         return self:_unsupported_book(local_position.book_id,local_position,options.manual)
+    end
+    if local_position and cb_book(local_position.book_id) and not self.settings:is_cookie_configured() then
+        self.notify('authentication_required',{});return false
     end
     if not self.settings:is_api_configured()
         and not self.settings:is_cookie_configured() then
@@ -1685,7 +1742,7 @@ end
 function ProgressSync:prepare_close(source_position)
     self.interval:halt()
     local position = self:checkpoint_local("document_close", source_position)
-    if position and self.verified and self.dirty and not self.uploading and self.freeze_close
+    if position and not cb_book(position.book_id) and self.verified and self.dirty and not self.uploading and self.freeze_close
         and not (self.source_dispatch and self.source_dispatch:pending(position.book_id))
         and self:_config().upload_on_close == true then
         local intent=copy(position);intent.native_position_only=true
@@ -1801,6 +1858,7 @@ function ProgressSync:position_for_report(book_id)
         or is_mp_book(book_id) then
         return nil, nil, false
     end
+    if cb_book(tostring(book_id)) then return nil, "progress_unverified", true end
     if self.uploading then return nil, "progress_confirmation_pending", true end
     if self.interval.cycle then return nil,"progress_confirmation_pending",true end
     if self.source_dispatch and self.source_dispatch:pending(tostring(book_id)) then

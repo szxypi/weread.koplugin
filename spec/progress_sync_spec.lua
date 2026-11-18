@@ -237,7 +237,9 @@ test('stale CB authority cannot upload on close, qualify a report, or apply an o
     local f=cb_fixture();local id=f.source.book_id;local point=assert(f.sync:capture_local())
     eq(f.sync:_mark_verified(id,'stale_test',point,{}),false,'CB comparison qualified unsupported coordinates')
     local _,why=f.sync:position_for_report(id);eq(why,'progress_unverified','CB time report gained authority')
-    f.sync.verified=true;f.sync.dirty=true;f.sync:on_close_document()
+    f.sync.verified=true;f.sync.dirty=true
+    local _,stale_reason=f.sync:position_for_report(id);eq(stale_reason,'progress_unverified','stale CB flag enabled time reports')
+    f.sync:on_close_document()
     eq(f.prepares,0,'closing CB prepared unsupported write');eq(#f.uploads,0,'closing CB sent a legacy report')
     f=cb_fixture()
     local ok,reason=f.sync:_apply_remote({book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=170,percent=25},
@@ -259,6 +261,105 @@ test('a closed unsupported book cannot revoke a newer reader or copy its point i
     f.sync:_apply_remote({book_id=id},{book_id=id})
     eq(f.values.books[id].last_local_position.book_id,id,'old jump copied current point into a different book')
     eq(f.sync.current_book_id,'900001','old jump replaced current book')
+end)
+
+local function cb_manual_fixture()
+    local f=cb_fixture();local id=f.source.book_id
+    local remote={bookId=id,progress=25,chapterUid=22,chapterIdx=2,chapterOffset=140,updateTime=123}
+    f.client.get_web_progress=function() f.remote_reads=f.remote_reads+1;return {book=remote} end
+    f.client.get_progress=function() error('imported sync used gateway') end
+    local journal=require('weread.lib.source_dispatch'):new{settings=f.sync.settings,nonce=function() return string.rep('a',32) end}
+    f.sync.source_dispatch=journal
+    f.sync.prepare_upload=function(intent,done)
+        f.prepares=f.prepares+1;f.intent=intent;f.ready=done
+    end
+    f.sync.upload_position=function(_id,position,seconds,plan)
+        eq(seconds,0,'CB sync sent reading time')
+        eq(plan.transport,'cb_web_position','CB sender was not selected')
+        eq(plan.before_send(),true,'CB dispatch journal was not saved')
+        eq(plan.before_send(),true,'CB second write did not retain journal')
+        f.uploads[#f.uploads+1]=position
+        return true,{acknowledged=true,position_confirmed=true,remote={book_id=id,chapter_uid=position.chapter_uid,
+            chapter_idx=position.chapter_idx,chapter_offset=position.chapter_offset,percent=position.percent,
+            has_chapter_index=true,has_chapter_offset=true,source='web'}}
+    end
+    return f,remote
+end
+
+test('manual CB sync requires explicit choice, guarded preparation and durable dispatch',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    eq(f.sync:sync_now(),true,'manual imported sync did not read cloud');f.drain()
+    eq(f.remote_reads,1,'imported sync did not use one Web progress read')
+    eq(#f.choices,1,'different imported positions did not ask the reader')
+    eq(f.prepares,0,'comparison prepared upload before choice')
+    eq(f.sync.verified,false,'comparison enabled automatic reports')
+    f.choices[1].keep_local()
+    eq(f.prepares,1,'explicit local choice did not prepare upload')
+    eq(f.intent.cb_explicit_sync,true,'CB explicit intent missing')
+    eq(f.intent.expected_remote.chapter_offset,140,'chosen cloud point not pinned')
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(#f.uploads,1,'manual imported position did not reach sender')
+    eq(f.values.books[id].pending_upload_position,nil,'confirmed position did not clear own pending state')
+    eq(f.sync.source_dispatch:pending(id),false,'confirmed journal did not retire')
+    eq(f.sync.verified,false,'manual imported send enabled automatic reports')
+    eq(f.sync.interval.task,nil,'manual imported send armed automatic upload')
+    eq(f.notifications[#f.notifications].code,'upload_success','success notice missing')
+end)
+
+test('CB progress comparison uses captured Web access instead of the numeric-only API',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.values.account.user_vid='900000';f.values.cookies={wr_vid='900000',wr_skey='synthetic-session'}
+    local scope={vid='900000',epoch=1}
+    f.sync.settings.get_auth_scope=function() return scope end
+    f.sync.settings.auth_scope_matches=function(_self,value) return value==scope end
+    f.sync.recovery={}
+    local calls=0
+    f.client.get_progress_snapshot=function() error('numeric-only snapshot used for CB') end
+    f.client.get_shelf_display_progress=function(_self,book,access,flags)
+        calls=calls+1;eq(book,id);eq(access.kind,'web');eq(flags.fresh,true)
+        return {book={bookId=id,progress=25,chapterUid=22,chapterIdx=2,chapterOffset=140,updateTime=123}}
+    end
+    local remote,reason=f.sync:_fetch_remote(id,chapters,function() return true end)
+    eq(reason,nil);eq(calls,1);eq(remote.source,'web');eq(remote.chapter_offset,140);eq(remote.updated_at,123)
+end)
+
+test('uncertain CB send keeps its dispatch journal and cannot retry automatically',function()
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.sync.upload_position=function(_id,_position,_seconds,plan)
+        eq(plan.before_send(),true,'uncertain CB dispatch was not recorded')
+        f.uploads[#f.uploads+1]=true
+        return false,{acknowledged=false,position_confirmed=false,enter_attempted=true,report_attempted=false,
+            error='upload_write_unconfirmed',error_kind='unconfirmed'}
+    end
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    f.ready({position=pos,source_position=f.source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    eq(#f.uploads,1);eq(f.sync.source_dispatch:pending(id),true,'uncertain CB send lost its journal')
+    eq(f.values.books[id].pending_upload_reason,'upload_readback_unconfirmed','uncertain CB reason was lost')
+    eq(f.sync.verified,false);eq(f.sync.interval.task,nil,'uncertain CB send armed automatic retry')
+    f.sync:on_resume();f.drain();eq(#f.uploads,1,'resume retried uncertain CB send')
+end)
+
+test('CB choice cannot upload after page change or run automatically',function()
+    local f=cb_manual_fixture()
+    eq(f.sync:sync_now(),true);f.drain();eq(#f.choices,1)
+    f.source.chapter_offset=151;f.choices[1].keep_local()
+    eq(f.prepares,0,'stale local selection prepared upload')
+    eq(#f.uploads,0,'stale local selection wrote progress')
+    eq(f.sync:position_for_report(f.source.book_id),nil,'manual CB sync granted time-report authority')
+    eq(f.sync:_upload_snapshot(assert(f.sync:capture_local()),'interval',false),false,'automatic CB upload was enabled')
+end)
+
+test('CB cloud choice uses source navigation without granting write authority',function()
+    local f=cb_manual_fixture();local invoked=0
+    f.sync.apply_source_remote=function(remote,options)
+        invoked=invoked+1;eq(remote.chapter_offset,140);eq(options.cb_explicit_sync,true);return true
+    end
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].use_remote()
+    eq(invoked,1,'explicit cloud choice did not use native source navigation')
+    eq(f.prepares,0,'cloud choice prepared local write')
+    eq(f.sync.verified,false,'cloud choice granted reporting authority')
 end)
 
 local function first_fixture()

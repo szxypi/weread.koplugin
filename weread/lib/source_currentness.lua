@@ -172,6 +172,15 @@ local function fetch(client,expected_value,selected,format,options,cb)
         if id~=cookies.wr_vid or data.vid and data.userVid and Access.book_id(data.vid)~=Access.book_id(data.userVid) then fail('owner') end
     end
     account()
+    local cb_remote=options and options.cb_remote
+    local progress_read=0
+    local function progress()
+        progress_read=progress_read+1
+        local stamp=tostring(os.time()*1000+progress_read)
+        local data=request('https://weread.qq.com/web/book/getProgress?bookId='..Protocol.urlencode(expected.book_id)..'&_='..stamp,nil,65536,true)
+        if not require('weread.lib.cb_sync_guard').matches(data,cb_remote) then fail('remote_changed') end
+    end
+    if cb_remote then progress() end
     local url='https://weread.qq.com/web/book/chapterInfos'
     local body={bookIds={expected.book_id}}
     local before=request(url,body,4*1024*1024,true)
@@ -200,6 +209,7 @@ local function fetch(client,expected_value,selected,format,options,cb)
     if not decoded then fail('source_invalid') end
     local after=request(url,body,4*1024*1024,true)
     if options and options.verify_catalog then options.verify_catalog(after) end
+    if cb_remote then progress() end
     account()
     current()
     local result=project(expected,before,reader,raw,after,cb)
@@ -210,6 +220,19 @@ end
 -- numeric send/close paths cannot obtain a CB_ proof through their APIs.
 function M.fetch(client,value,selected,format,options) return fetch(client,value,selected,format,options,false) end
 function M.fetch_cb(client,value,selected) return fetch(client,value,selected,'web_xhtml',nil,true) end
+function M.fetch_cb_upload(client,value,selected,remote)
+    local expected=M.expected_cb(value)
+    local guarded=expected and require('weread.lib.cb_sync_guard').expected(remote,expected.book_id)
+    if not guarded then fail('expected') end
+    return fetch(client,value,selected,'web_xhtml',{cb_remote=guarded},true)
+end
+function M.run_cb_upload(client,value,selected,remote)
+    local ok,result=pcall(M.fetch_cb_upload,client,value,selected,remote)
+    if ok then return {check=result} end
+    if result=='source_currentness/web_expired' then return {error='source_web_expired'} end
+    if result=='source_currentness/remote_changed' then return {error='source_remote_changed'} end
+    return {error='source_currentness_unavailable'}
+end
 function M.run_cb(client,value,selected)
     local ok,result=pcall(M.fetch_cb,client,value,selected)
     if ok then return {check=result} end

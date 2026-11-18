@@ -63,7 +63,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--koreader", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source", "cb-cloud-view", "quick-search", "book-search", "cached-search", "home-local-recent"), default="precision",
+    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source", "cb-cloud-view", "cb-sync", "quick-search", "book-search", "cached-search", "home-local-recent"), default="precision",
                         help="fractional navigation (default), source/DOM mapping, live reader-state capture, or chapter handoff")
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
@@ -82,6 +82,8 @@ def main():
     parser.add_argument('--cached-dual', action='store_true')
     parser.add_argument('--cached-ignore-case', action='store_true')
     parser.add_argument('--cb-cloud-single', action='store_true')
+    parser.add_argument('--cb-sync-noack', action='store_true')
+    parser.add_argument('--cb-sync-cloud', action='store_true')
     parser.add_argument('--cb-cloud-gap', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
@@ -101,13 +103,15 @@ def main():
         parser.error('--cached-incomplete requires --cached-full')
     if args.cached_dual and not args.cached_full:
         parser.error('--cached-dual requires --cached-full')
-    if (args.cb_cloud_single or args.cb_cloud_gap) and args.probe!='cb-cloud-view':
+    if (args.cb_sync_noack or args.cb_sync_cloud) and args.probe!='cb-sync':parser.error('CB sync option requires cb-sync')
+    if args.cb_sync_noack and args.cb_sync_cloud:parser.error('select one CB sync outcome')
+    if (args.cb_cloud_single or args.cb_cloud_gap) and args.probe not in ('cb-cloud-view','cb-sync'):
         parser.error('imported cloud options require --probe cb-cloud-view')
     if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
         parser.error('current fallback requires a cached CB search fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     server = SearchMockServer(0,args.search_cb,args.search_current_fallback) if args.probe=='book-search' else MockServer(0)
-    if args.probe=='cb-cloud-view':
+    if args.probe in ('cb-cloud-view','cb-sync'):
         from verify_source_coordinates import FilteredSource
         server.cb_reading=True
         needle=('窗外的风穿过树梢，带来远处山谷的回声。' if args.cb_cloud_gap else '')+'这是第6章的第16段。我们沿着小路慢慢前行'
@@ -140,7 +144,9 @@ def main():
                                         WEREAD_TEST_CACHED_DUAL='1' if args.cached_dual else '0',
                                         WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
                                         WEREAD_TEST_CB_CLOUD_SINGLE='1' if args.cb_cloud_single else '0',
-                                        WEREAD_TEST_CB_CLOUD_TARGET=str(target_offset) if args.probe=='cb-cloud-view' else '',
+                                        WEREAD_TEST_CB_SYNC_NOACK='1' if args.cb_sync_noack else '0',
+                                        WEREAD_TEST_CB_SYNC_CLOUD='1' if args.cb_sync_cloud else '0',
+                                        WEREAD_TEST_CB_CLOUD_TARGET=str(target_offset) if args.probe in ('cb-cloud-view','cb-sync') else '',
                                         WEREAD_TEST_CB_CLOUD_GAP='1' if args.cb_cloud_gap else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
@@ -151,7 +157,7 @@ def main():
                 probe = {"precision": "position_precision_smoke.lua", "source-dom": "source_dom_smoke.lua",
                          "source-state": "source_position_smoke.lua", "navigation": "progress_navigation_smoke.lua",
                          "cloud-source": "cloud_source_smoke.lua", "quick-search": "quick_search_smoke.lua",
-                         "cb-cloud-view": "cb_cloud_view_smoke.lua",
+                         "cb-cloud-view": "cb_cloud_view_smoke.lua", "cb-sync": "cb_sync_ui_smoke.lua",
                          "book-search": "book_search_ui_smoke.lua", "cached-search": "cached_search_ui_smoke.lua",
                          "home-local-recent": "home_local_recent_smoke.lua"}[args.probe]
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / probe)],
@@ -168,6 +174,12 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_CB_CLOUD_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline imported cloud view reopen failed; inspect isolated runtime log'
+            if result.returncode == 0 and args.probe == 'cb-sync' and args.cb_sync_noack:
+                server.shutdown();thread.join()
+                with (root / 'evidence/reopen.log').open('w') as out:
+                    reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                        env=environment | {'WEREAD_TEST_CB_SYNC_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                assert reopened.returncode==0, 'offline imported sync reopen failed; inspect isolated runtime log'
             if result.returncode == 0 and args.probe == 'home-local-recent':
                 server.shutdown();thread.join()
                 with (root / 'evidence/reopen.log').open('w') as out:
@@ -233,6 +245,27 @@ def main():
                                        requests=0), 'native scroll reopen mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'local home made a mock request'
+            if args.probe == 'cb-sync' and args.cb_sync_cloud:
+                marker=b'\nWEREAD_CB_SYNC_CLOUD='
+                assert raw.count(marker)==1, 'missing imported cloud choice result'
+                value=json.loads(raw.split(marker,1)[1].splitlines()[0])
+                assert value==dict(result='PASS',choice=True,native_navigation=True,pending_preserved=True,
+                    automatic_disabled=True,single=args.cb_cloud_single)
+                assert server.request_totals[('/web/book/read','')]==0, 'cloud choice wrote imported progress'
+            if args.probe == 'cb-sync' and not args.cb_sync_cloud:
+                marker=b'\nWEREAD_CB_MANUAL_SYNC='
+                assert raw.count(marker)==1, 'missing imported manual sync result'
+                value=json.loads(raw.split(marker,1)[1].splitlines()[0])
+                assert value==dict(result='PASS',choice=True,changed_remote_stopped=True,explicit_upload=True,
+                    native_point=True,pending_cleared=not args.cb_sync_noack,journal_cleared=not args.cb_sync_noack,
+                    automatic_disabled=True,single=args.cb_cloud_single,uncertain=args.cb_sync_noack)
+                assert server.request_totals[('/web/book/read','')]==2, 'imported sync sent an unexpected number of writes'
+                if args.cb_sync_noack:
+                    reopened_raw=(root/'evidence/reopen.log').read_bytes();marker=b'\nWEREAD_CB_SYNC_REOPEN='
+                    assert reopened_raw.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened_raw
+                    reopened=json.loads(reopened_raw.split(marker,1)[1].splitlines()[0])
+                    assert reopened==dict(result='PASS',fresh_process=True,journal_preserved=True,pending_preserved=True,
+                                          automatic_disabled=True,requests=0), 'uncertain imported sync recovery mismatch'
             if args.probe == 'cb-cloud-view':
                 marker=b'\nWEREAD_CB_CLOUD_VIEW='
                 assert raw.count(marker)==1, 'missing imported cloud view result'

@@ -71,6 +71,7 @@ function Service:cancel_upload_preview()
     if job and job.recovery and self.recovery then self.recovery:cancel(job.recovery) end
     self.checked_previews=setmetatable({},{__mode='k'})
     self.checked_cb_previews=setmetatable({},{__mode='k'})
+    self.checked_cb_upload_previews=setmetatable({},{__mode='k'})
     self.checked_native_excerpts=setmetatable({},{__mode='k'})
     self.checked_native_previews=setmetatable({},{__mode='k'})
     if self.preview_worker then self.preview_worker:cancel() end
@@ -100,8 +101,13 @@ end
 
 -- Explicit, read-only freshness preparation. The opaque receipt stays in
 -- memory, expires after 30 seconds and never enables the upload adapter.
-function Service:_prepare_current_upload_preview(callback, recovered, cb)
+function Service:_prepare_current_upload_preview(callback, recovered, cb, remote)
     assert(type(callback)=='function')
+    if cb and remote~=nil then
+        remote=require('weread.lib.cb_sync_guard').expected(remote,self.get_book_id())
+        if not remote then self:cancel_upload_preview();callback(nil,'source_remote_changed');return false end
+        remote.source,remote.has_chapter_index,remote.has_chapter_offset='web',true,true
+    end
     if not self.is_online() then self:cancel_upload_preview();callback(nil,'offline');return false end
     if not self.client then self:cancel_upload_preview();callback(nil,'web_required');return false end
     return self:_prepare_upload_preview(function(candidate,reason)
@@ -121,12 +127,13 @@ function Service:_prepare_current_upload_preview(callback, recovered, cb)
         if not expected then callback(nil,'context_unavailable');return end
         self.sequence=self.sequence+1
         local job={scope=scope,point=clone(point),candidate=clone(candidate),access=selected,expected=expected,
-            started=self.now(),request_id=self.sequence,cb_preview=cb==true}
+            started=self.now(),request_id=self.sequence,cb_preview=cb==true,cb_upload=cb and remote~=nil or false}
         local token=self.preview_token
         self.preview_job=job
         local started=self.preview_worker:start(function()
             local result
-            if cb then result=Currentness.run_cb(self.client,expected,selected)
+            if cb and remote then result=Currentness.run_cb_upload(self.client,expected,selected,remote)
+            elseif cb then result=Currentness.run_cb(self.client,expected,selected)
             else result=Currentness.run(self.client,expected,selected) end
             result.request_id=job.request_id;return result
         end,function(result)
@@ -139,7 +146,7 @@ function Service:_prepare_current_upload_preview(callback, recovered, cb)
                     return self.preview_job==job and self.preview_token==token and self.is_online() and self:_preview_current(job,candidate)
                 end,function(fresh,why)
                     if self.preview_job~=job or self.preview_token~=token then return end
-                    if fresh then self:_prepare_current_upload_preview(callback,true,cb)
+                    if fresh then self:_prepare_current_upload_preview(callback,true,cb,remote)
                     else self:_auth_unavailable(callback,point.book_id) end
                 end)
                 if self.preview_job==job then
@@ -154,12 +161,16 @@ function Service:_prepare_current_upload_preview(callback, recovered, cb)
             if type(result)=='table' then
                 if cb then checked=Currentness.packet_cb(result.check,expected) else checked=Currentness.packet(result.check,expected) end
             end
+            if type(result)=='table' and result.request_id==job.request_id and result.error=='source_remote_changed' then
+                callback(nil,'source_remote_changed');return
+            end
             if type(result)~='table' or result.request_id~=job.request_id
                 or not checked or age<0 or age>30 then
                 callback(nil,'source_currentness_unavailable');return
             end
             local receipt={}
-            if cb then self.checked_cb_previews[receipt]=job else self.checked_previews[receipt]=job end
+            if job.cb_upload then self.checked_cb_upload_previews[receipt]=job
+            elseif cb then self.checked_cb_previews[receipt]=job else self.checked_previews[receipt]=job end
             callback(clone(candidate),nil,receipt)
         end)
         if not started and self.preview_job==job then self.preview_job=nil;callback(nil,'worker_unavailable') end
@@ -173,6 +184,10 @@ end
 function Service:prepare_cb_current_preview(callback,recovered)
     return self:_prepare_current_upload_preview(callback,recovered,true)
 end
+function Service:prepare_cb_current_upload_preview(remote,callback)
+    if remote==nil then self:cancel_upload_preview();callback(nil,'source_remote_changed');return false end
+    return self:_prepare_current_upload_preview(callback,false,true,remote)
+end
 function Service:is_current_upload_preview(receipt,candidate)
     local job=type(receipt)=='table' and self.checked_previews and self.checked_previews[receipt]
     if not job or not self.client or not self.is_online() or not Candidate.same(job.candidate,candidate) then return false end
@@ -184,6 +199,16 @@ function Service:is_current_cb_preview(receipt,candidate)
     if not job or not job.cb_preview or not self.client or not self.is_online() or not Candidate.same(job.candidate,candidate) then return false end
     local age=self.now()-job.started
     return age>=0 and age<=30 and Currentness.matches(self.client.settings,job.access) and self:_preview_current(job,candidate) or false
+end
+function Service:is_current_cb_upload_preview(receipt,candidate)
+    local job=type(receipt)=='table' and self.checked_cb_upload_previews and self.checked_cb_upload_previews[receipt]
+    if not job or not job.cb_upload or not self.client or not self.is_online() or not Candidate.same(job.candidate,candidate) then return false end
+    local age=self.now()-job.started
+    return age>=0 and age<=30 and Currentness.matches(self.client.settings,job.access) and self:_preview_current(job,candidate) or false
+end
+function Service:cb_upload_preview_deadline(receipt,candidate)
+    if not self:is_current_cb_upload_preview(receipt,candidate) then return nil end
+    return self.checked_cb_upload_previews[receipt].started+30
 end
 function Service:upload_preview_deadline(receipt,candidate)
     if not self:is_current_upload_preview(receipt,candidate) then return nil end

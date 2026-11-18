@@ -44,12 +44,15 @@ local function fixture()
         json_decode=function(_self,value) assert(value=='{reader}');return initial end,
         decode_http_json=function(_self,value)
             if value=='account' then return {vid=state.foreign and '900099' or '900000'} end
+            if value=='progress' then return {book={bookId=id,chapterUid=11,chapterIdx=0,chapterOffset=state.offset or 25,progress=37,updateTime=123}} end
             assert(value=='catalog');return catalog
         end}
     function client:request(options)
         state.requests[#state.requests+1]=options;local count=#state.requests
-        local text=({'account','catalog','window.__INITIAL_STATE__={reader};(function(){})();',
-            'part0','part1','part3','catalog','account'})[count]
+        local text=(state.upload and {'account','progress','catalog','window.__INITIAL_STATE__={reader};(function(){})();',
+            'part0','part1','part3','catalog','progress','account'} or {'account','catalog',
+            'window.__INITIAL_STATE__={reader};(function(){})();','part0','part1','part3','catalog','account'})[count]
+        if state.change_progress_at==count then state.offset=26 end
         options.sink(text);options.sink(nil)
         if state.changed_at==count then state.valid=false end
         return 1,state.fail_at==count and 401 or state.code,{}
@@ -75,4 +78,23 @@ expect(Check.run_cb(client,expected).error=='source_currentness_unavailable' and
 client,state=fixture()
 expect(Check.run(client,expected).error=='source_currentness_unavailable' and #state.requests==0,'numeric path accepted CB source')
 expect(not pcall(Check.fetch_cb,client,numeric) and #state.requests==0,'CB-only path accepted numeric source')
+local remote={book_id=id,source='web',chapter_uid='11',chapter_idx=0,chapter_offset=25,raw_percent=37,
+    updated_at=123,has_chapter_index=true,has_chapter_offset=true}
+client,state=fixture();state.upload=true
+result=Check.fetch_cb_upload(client,expected,nil,remote)
+expect(Check.packet_cb(result,expected) and #state.requests==10,'CB upload proof did not check progress twice')
+for _i,index in ipairs({2,9}) do
+    client,state=fixture();state.upload=true;state.change_progress_at=index
+    local result_=Check.run_cb_upload(client,expected,nil,remote)
+    expect(result_.error=='source_remote_changed' and #state.requests==index,'changed remote was not stopped')
+end
+for index=1,10 do
+    client,state=fixture();state.upload=true;state.fail_at=index
+    local result_=Check.run_cb_upload(client,expected,nil,remote)
+    expect(result_.error=='source_web_expired' and #state.requests==index,'CB upload expiry retried or misreported')
+end
+client,state=fixture();state.upload=true
+local foreign=copy(remote);foreign.book_id='CB_Other'
+expect(Check.run_cb_upload(client,expected,nil,foreign).error=='source_currentness_unavailable'
+    and #state.requests==0,'foreign selected remote triggered reads')
 print('cb_source_currentness_spec: '..checks..' checks')

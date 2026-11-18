@@ -19,7 +19,7 @@ local function fixture(mode)
     function client:report_read(payload,_referer,options)
         expect(options and options.sensitive==true,'private request lost sensitivity')
         posts[#posts+1]=clone(payload)
-        if mode=='after_enter' and #posts==1 then valid=false end
+        if mode=='after_enter' and #posts==1 or mode=='after_report' and #posts==2 then valid=false end
         if mode=='noack' then return {},200 end
         if mode=='error' then error('synthetic transport failure') end
         return {succ=1},200
@@ -50,12 +50,14 @@ end
 local reads,prepared,persisted,book=state()
 expect(reads==1 and prepared==2,'readback or dispatch gate count changed')
 expect(book.summary=='persisted original' and persisted.summary=='persisted original','private summary persisted')
-for _i,mode in ipairs({'after_context','after_enter','noack','error','summary','percent'}) do
+for _i,mode in ipairs({'after_context','after_enter','after_report','noack','error','summary','percent'}) do
     report,plan,posts,state=fixture(mode)
     ok,outcome=report:upload_cb_position(id,position,plan)
     reads=state()
     expect(not ok,'invalid/unknown operation accepted')
     expect(#posts==(mode=='after_context' and 0 or (mode=='after_enter' or mode=='noack' or mode=='error') and 1 or 2),'send repeated or wrong phase')
+    if mode=='after_report' then expect(outcome.acknowledged and reads==0 and outcome.error_kind=='unconfirmed',
+        'changed scope confirmed a sent CB position') end
     if mode=='summary' or mode=='percent' then
         expect(outcome.acknowledged and not outcome.position_confirmed and reads==1,'invalid readback confirmed')
         local receipt=outcome.confirmation
@@ -64,7 +66,8 @@ for _i,mode in ipairs({'after_context','after_enter','noack','error','summary','
     end
 end
 report,plan,posts=fixture('normal')
-expect(not report:upload_position(id,position,0,plan) and #posts==0,'regular path accepted imported book')
+local regular=clone(plan);regular.transport=nil
+expect(not report:upload_position(id,position,0,regular) and #posts==0,'regular path accepted imported book')
 local bad=clone(plan);bad.transport='other'
 expect(not report:upload_cb_position(id,position,bad) and #posts==0,'missing imported authority accepted')
 bad=clone(plan);bad.source_position.book_id='CB_Foreign'
@@ -73,6 +76,10 @@ bad=clone(plan);bad.source_position.chapter_offset=46
 expect(not report:upload_cb_position(id,position,bad) and #posts==0,'different source point accepted')
 bad=clone(plan);bad.before_send=nil
 expect(not report:upload_cb_position(id,position,bad) and #posts==0,'missing pre-dispatch check accepted')
+report,plan,posts=fixture('normal')
+expect(report:upload_position(id,position,0,plan) and #posts==2,'guarded CB transport was not routed')
+report,plan,posts=fixture('normal')
+expect(not report:upload_position(id,position,1,plan) and #posts==0,'nonzero elapsed time reached CB route')
 local fractional=clone(position);fractional.percent=42.5;plan.position=clone(fractional)
 expect(not report:upload_cb_position(id,fractional,plan) and #posts==0,'fractional CB position was dispatched')
 print(('cb_read_report_position_spec: %d checks'):format(checks))

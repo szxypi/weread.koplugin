@@ -55,7 +55,9 @@ function M:prepare(intent,callback)
         self:_finish(self.job,nil,'source_cancelled')
     end
     if type(intent)~='table' then callback(nil,'source_position_unavailable');return false end
-    if type(intent.book_id)=='string' and intent.book_id:sub(1,3)=='CB_' then
+    local imported=type(intent.book_id)=='string' and intent.book_id:sub(1,3)=='CB_'
+    if imported and (intent.cb_explicit_sync~=true
+        or not require('weread.lib.cb_sync_guard').expected(intent.expected_remote,intent.book_id)) then
         callback(nil,'source_book_sync_unsupported');return false
     end
     local point=intent.source_position
@@ -93,7 +95,7 @@ function M:prepare(intent,callback)
         end
         local pinned={};for _i,key in ipairs(fields) do pinned[key]=captured[key] end
         job.point=pinned
-        self.source:prepare_current_upload_preview(function(candidate,reason,receipt)
+        local function previewed(candidate,reason,receipt)
             if self.job~=job then return end
             if type(candidate)~='table' or candidate.book_id~=pinned.book_id or candidate.chapter_uid~=pinned.chapter_uid
                 or candidate.chapter_offset~=pinned.chapter_offset or candidate.basis~='filtered_xhtml_utf16' or candidate.upload_verified~=false then
@@ -103,9 +105,12 @@ function M:prepare(intent,callback)
             local function current()
                 if plan and (not Candidate.same(plan.position,expected_wire) or not same(plan.source_position,pinned)
                     or plan.deadline~=deadline) then return false end
-                return same(pinned,self.source:current()) and self.source:is_current_upload_preview(receipt,candidate)
+                if not same(pinned,self.source:current()) then return false end
+                if imported then return self.source:is_current_cb_upload_preview(receipt,candidate) end
+                return self.source:is_current_upload_preview(receipt,candidate)
             end
-            deadline=self.source:upload_preview_deadline(receipt,candidate)
+            if imported then deadline=self.source:cb_upload_preview_deadline(receipt,candidate)
+            else deadline=self.source:upload_preview_deadline(receipt,candidate) end
             if candidate.percent~=intent.percent or not current() or not deadline then
                 self:_finish(job,nil,'source_position_changed');return
             end
@@ -114,8 +119,11 @@ function M:prepare(intent,callback)
             expected_wire={};for key,value in pairs(wire) do expected_wire[key]=value end
             local origin={};for _i,key in ipairs(fields) do origin[key]=pinned[key] end
             plan={position=wire,is_current=current,deadline=deadline,basis=Source.coordinate_basis('web_xhtml'),source_position=origin}
+            if imported then plan.transport='cb_web_position' end
             self:_finish(job,plan)
-        end)
+        end
+        if imported then self.source:prepare_cb_current_upload_preview(intent.expected_remote,previewed)
+        else self.source:prepare_current_upload_preview(previewed) end
     end
     if provided then prepare_point(point)
     else

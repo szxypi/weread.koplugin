@@ -724,7 +724,7 @@ class MockServer(ThreadingHTTPServer):
                         result['book']['chapterOffset'] += 1
             return 200, result
         if path == "/web/book/read" and method == "POST":
-            book_id = next(b["bookId"] for b in BOOKS if weread_e(b["bookId"]) == data["b"])
+            book_id = next(b["bookId"] for b in readable_books if weread_e(b["bookId"]) == data["b"])
             uid = next(c["chapterUid"] for c in CHAPTERS if weread_e(c["chapterUid"]) == data["c"])
             with self.lock:
                 self.progress[book_id] = dict(chapterUid=uid, chapterIdx=data["ci"],

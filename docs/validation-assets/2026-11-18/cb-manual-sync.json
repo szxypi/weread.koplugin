@@ -1,0 +1,21 @@
+{
+  "result": "PARTIAL",
+  "manual_xhtml_sync_enabled": true,
+  "automatic_time_interval_close_upload_enabled": false,
+  "explicit_local_and_cloud_choices": true,
+  "source_and_remote_checked_before_send": true,
+  "real_account_books_examined_read_only": 6,
+  "real_account_eligible_books": 5,
+  "real_account_guarded_lua_matches": 5,
+  "real_account_writes_this_stage": 0,
+  "synthetic_native_screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_native_cache_modes": ["full_book", "single_chapter"],
+  "synthetic_local_choice_and_readback": true,
+  "synthetic_cloud_choice_and_local_intent_preserved": true,
+  "synthetic_changed_cloud_stops_send": true,
+  "synthetic_uncertain_result_keeps_journal": true,
+  "synthetic_fresh_offline_restart_does_not_retry": true,
+  "real_account_full_reader_sync_tested": false,
+  "physical_kindle_tested": false,
+  "private_data_in_report": false
+}

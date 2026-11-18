@@ -100,4 +100,23 @@ local previous_callbacks=#callbacks
 local unsupported=copy(intent);unsupported.book_id='CB_SyntheticOnly';unsupported.source_position.book_id=unsupported.book_id
 expect(not begin(unsupported) and reason=='source_book_sync_unsupported','CB upload masqueraded as temporary source failure')
 expect(#callbacks==previous_callbacks and not upload.job and not plan,'CB upload performed source preparation')
+local cb=copy(unsupported);cb.cb_explicit_sync=true
+cb.expected_remote={book_id=cb.book_id,source='web',chapter_uid='11',chapter_idx=0,chapter_offset=3999,
+    raw_percent=37,updated_at=1,has_chapter_index=true,has_chapter_offset=true}
+local cb_point=copy(point);cb_point.book_id=cb.book_id;cb.source_position=cb_point
+local cb_candidate=copy(candidate);cb_candidate.book_id=cb.book_id
+current=copy(cb_point)
+source.prepare_cb_current_upload_preview=function(_self,remote,callback)
+    expect(remote.chapter_offset==3999,'selected cloud position was lost');callbacks[#callbacks+1]=callback
+end
+source.is_current_cb_upload_preview=function() return valid end
+source.cb_upload_preview_deadline=function() return 130 end
+expect(begin(cb) and not plan,'CB source check did not start')
+finish(cb_candidate)
+expect(plan and plan.transport=='cb_web_position' and plan.is_current(),'CB upload plan missing')
+expect(plan.position.summary==candidate.summary and plan.source_position.book_id==cb.book_id,'CB wire source changed')
+valid=false;expect(not plan.is_current(),'CB stale receipt accepted');valid=true
+local cb_bad=copy(cb);cb_bad.expected_remote.chapter_offset=-1
+local prior=#callbacks
+expect(not begin(cb_bad) and #callbacks==prior and reason=='source_book_sync_unsupported','invalid CB remote dispatched reads')
 print(('source_upload_spec: %d checks'):format(checks))

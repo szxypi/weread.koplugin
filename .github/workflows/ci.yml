@@ -252,6 +252,7 @@ jobs:
           python3 scripts/test_source_upload_candidate.py
           python3 scripts/test_source_currentness.py
           python3 scripts/test_cb_source_currentness.py
+          python3 scripts/test_cb_guarded_currentness.py
           python3 scripts/test_owner_source_candidate.py
           python3 scripts/test_owner_native_excerpt.py
           python3 scripts/test_owner_shelf_membership.py
