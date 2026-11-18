@@ -347,14 +347,21 @@ test('CB upload confirmation preserves a newer page reached during the send',fun
     eq(f.sync.source_local_anchor.chapter_offset,150,'confirmation changed the uploaded source anchor')
 end)
 
-test('manual CB TXT sync journals its raw source and leaves time reporting disabled',function()
+test('manual CB TXT sync journals its raw source and retains guarded time eligibility',function()
     local f=cb_manual_fixture();local id=f.source.book_id;f.source.basis='raw_txt_utf16'
     f.sync:sync_now();f.drain();eq(#f.choices,1);f.choices[1].keep_local()
     eq(f.intent.cb_guarded_sync,true);eq(f.intent.expected_remote.chapter_offset,140)
     local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='raw\r\ntext'}
     f.ready({position=pos,source_position=f.source,basis='raw_txt_utf16',transport='cb_web_position',is_current=function() return true end})
     eq(#f.uploads,1);eq(f.sync.verified,true);eq(f.sync.source_dispatch:pending(id),false)
-    eq(f.sync:position_for_report(id),nil,'TXT position accidentally enabled reading-time reporting')
+    local eligible=f.sync:position_for_report(id)
+    eq(eligible and eligible.cb_guarded_sync,true,'confirmed TXT point lacked guarded time intent')
+    eq(eligible and eligible.expected_remote.chapter_offset,150,'TXT time intent lost the verified cloud position')
+    f.values.books[id].pending_upload_account=f.sync:_account_key()
+    f.values.books[id].pending_upload_reason='upload_readback_unconfirmed'
+    eq(f.sync:position_for_report(id),nil,'uncertain TXT upload enabled time reporting')
+    f.values.books[id].pending_upload_reason=nil;f.sync.checkpoint_account='different'
+    eq(f.sync:position_for_report(id),nil,'different account enabled TXT time reporting')
 end)
 
 test('CB reading time requires the same account, exact baseline and no uncertain write',function()

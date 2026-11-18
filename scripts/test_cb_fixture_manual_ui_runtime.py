@@ -20,12 +20,13 @@ def main():
     parser.add_argument('--timer',action='store_true')
     parser.add_argument('--close',action='store_true')
     parser.add_argument('--time',action='store_true')
+    parser.add_argument('--time-noack',action='store_true')
     parser.add_argument('--cloud',action='store_true')
     parser.add_argument('--dry',action='store_true')
     parser.add_argument('--format',choices=('epub','txt'),default='epub')
     args=parser.parse_args();root=args.run_dir.resolve();runtime=args.koreader.resolve()
+    if args.time_noack:args.time=True
     if sum((args.timer,args.close,args.time,args.cloud,args.dry))>1:parser.error('select one mode')
-    if args.format=='txt' and args.time:parser.error('TXT reading-time path is not enabled')
     server=MockServer(0);server.cb_reading=True;server.content_format=args.format
     source=chapter_txt(1) if args.format=='txt' else chapter_html(1)
     model=PlainSource(source) if args.format=='txt' else FilteredSource(source)
@@ -44,6 +45,7 @@ def main():
                      source=source,source_format='web_txt' if args.format=='txt' else 'web_xhtml',chapters=CHAPTERS,book_version=0,owner='900000',cookies=dict(wr_vid='900000',wr_skey='synthetic-cookie-session'))
         if args.cloud:payload['cloud']=True
         if args.dry:payload['armed']=False
+        if args.time_noack:payload['time_noack']=True
         if args.timer or args.close or args.time:
             timer_summary=model.excerpt(first)['text'] if args.format=='txt' else ''.join(c for c in model.anchor_at(first) if not c.isspace())[:20]
             payload.update(timer=args.timer,close=args.close,time=args.time,timer_summary=timer_summary)
@@ -65,6 +67,12 @@ def main():
                 expected=(dict(result='PASS',fresh_process=True,offline=True,pending_preserved=True,journal_cleared=True,requests=0)
                     if reopened else dict(result='PASS',cloud_choice=True,pending_preserved=True,upload_disabled=True,writes=0,denied=0))
                 if result!=expected:raise ValueError('cloud fixture rehearsal result')
+                continue
+            if args.time_noack:
+                expected=(dict(result='PASS',fresh_process=True,offline=True,journal_pending=True,requests=0) if reopened else
+                          dict(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,pending_cleared=False,
+                               journal_cleared=False,automatic_disabled=False,timer_verified=False,writes=3,denied=0,time_unconfirmed=True))
+                if result!=expected:raise ValueError('unconfirmed time fixture rehearsal result')
                 continue
             expected=(dict(result='PASS',fresh_process=True,offline=True,pending_cleared=True,journal_cleared=True,requests=0)
                 if reopened else dict(result='PASS',native_choice=True,actual_source=True,upload_confirmed=True,pending_cleared=True,

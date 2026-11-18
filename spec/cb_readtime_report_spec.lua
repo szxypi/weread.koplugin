@@ -56,6 +56,21 @@ for _,mode in ipairs({'normal','noack','transport','after_enter','expired','bad_
     else expect(#posts==1 and outcome.source_unconfirmed and reads()==0,'unknown CB time write was retried') end
     expect(not outcome.renew_attempted,'CB time attempted credential renewal')
 end
+local saved_summary=position.summary;position.summary='raw\r\nTXT synthetic summary'
+for _,mode in ipairs({'normal','noack','transport','after_enter','expired','bad_summary','overlap'}) do
+    local timed,posts,coverage,reads=fixture(mode)
+    local outcome=timed:_run_pipeline(id,{position=position,source_deadline=130,cb_source=true,elapsed_seconds=2})
+    if mode=='normal' then
+        expect(outcome.accepted and outcome.position_confirmed and #posts==2 and posts[2].rt==2
+            and posts[2].sm==position.summary and #coverage==1 and reads()==1,'raw TXT time lost its summary or confirmation')
+    elseif mode=='expired' then expect(#posts==0 and #coverage==0 and not outcome.accepted,'expired TXT proof sent')
+    elseif mode=='overlap' then expect(#posts==0 and #coverage==1 and outcome.deferred_until==130,'TXT overlap did not defer')
+    elseif mode=='after_enter' then expect(#posts==1 and outcome.source_unconfirmed,'changed TXT session continued after enter')
+    elseif mode=='bad_summary' then expect(#posts==2 and reads()==3 and outcome.source_unconfirmed,'wrong TXT summary confirmed')
+    else expect(#posts==1 and outcome.source_unconfirmed and reads()==0,'unknown TXT time write was retried') end
+    expect(not outcome.renew_attempted,'TXT time attempted credential renewal')
+end
+position.summary=saved_summary
 local report,posts=fixture('normal')
 expect(not report:_run_pipeline(id,{position=position,source_deadline=130}).accepted and #posts==0,'CB bypassed dedicated source gate')
 expect(not report:_run_pipeline(id,{position=position,cb_source=true}).accepted and #posts==0,'CB bypassed proof deadline')

@@ -57,7 +57,7 @@ function M:begin(book_id,position,source,kind)
     book_id=tostring(book_id)
     local target=Readback.expected(book_id,position)
     local account,epoch=self:_account()
-    local imported_txt=book_id:sub(1,3)=='CB_' and kind=='position' and type(source)=='table' and source.basis=='raw_txt_utf16'
+    local imported_txt=book_id:sub(1,3)=='CB_' and type(source)=='table' and source.basis=='raw_txt_utf16'
     if not target or not account or self:pending(book_id) or type(source)~='table'
         or source.book_id~=book_id or source.basis~='filtered_xhtml_utf16' and not imported_txt or source.upload_verified~=false
         or source.chapter_uid~=target.chapter_uid or source.chapter_offset~=target.chapter_offset

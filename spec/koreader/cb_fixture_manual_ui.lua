@@ -13,6 +13,8 @@ local ok,reason=pcall(function()
     local timed=input.timer==true
     local closing=input.close==true
     local reading_time=input.time==true
+    local time_noack=input.time_noack==true
+    assert(not time_noack or synthetic and reading_time)
     local cloud=input.cloud==true
     assert((timed and 1 or 0)+(closing and 1 or 0)+(reading_time and 1 or 0)+(cloud and 1 or 0)<=1)
     assert(not (timed or closing or reading_time) or type(input.timer_summary)=='string' and #input.timer_summary>0)
@@ -84,6 +86,11 @@ local ok,reason=pcall(function()
         assert(main:startBookReading(saved))
         wait(function() return Reader.instance and Reader.instance.weread and Reader.instance.weread._current_weread_book_id==input.book end)
         local plugin=Reader.instance.weread;local state=assert(plugin.settings:get_book(input.book))
+        if time_noack then
+            assert(plugin.source_dispatch:pending(input.book) and not plugin.progress_sync.verified
+                and counts[0]==0 and counts[1]==0 and counts[2]==0)
+            result={result='PASS',fresh_process=true,offline=true,journal_pending=true,requests=0};return
+        end
         if cloud then
             assert(state.pending_upload_position and state.pending_upload_position.source_position
                 and state.pending_upload_position.source_position.chapter_offset==input.next_offset
@@ -177,21 +184,33 @@ local ok,reason=pcall(function()
             plugin.settings:set('read_report',config_report)
             local report=plugin.read_report;assert(report:maybe_start('fixture_time'))
             UI:unschedule(report.task)
+            if time_noack then
+                local http,ltn12=require('socket.http'),require('ltn12');local body=client:json_encode({progress_confirmation='noack'});local output={}
+                local _,code=http.request{url=settings.mock_endpoint..'/__control',proxy=settings.mock_endpoint,method='POST',
+                    headers={['Content-Type']='application/json',['Content-Length']=tostring(#body)},source=ltn12.source.string(body),sink=ltn12.sink.table(output)}
+                assert(code==200)
+            end
             socket.sleep(10.05)
             report:_tick(report.generation,report.task)
-            wait(function() return report.count==1 and not report.job end)
+            wait(function() return not report.job and (time_noack and report.state=='error' or not time_noack and report.count==1) end)
+            if time_noack then assert(report.last_error_kind=='unconfirmed','unconfirmed time was not reported') end
             report:stop('fixture_time_done')
         end
         wait(function() return not timer.cycle and not sync.uploading end)
         saved=assert(plugin.settings:get_book(input.book))
-        assert(counts[1]==3 and counts[2]==0 and sync.verified==not closing and (closing or not sync.dirty) and not timer.task
-            and not saved.pending_upload_position and not plugin.source_dispatch:pending(input.book),'automatic fixture upload failed')
+        if time_noack then
+            assert(counts[1]==3 and counts[2]==0 and not sync.verified and plugin.source_dispatch:pending(input.book),
+                'unconfirmed time did not retain its journal')
+        else
+            assert(counts[1]==3 and counts[2]==0 and sync.verified==not closing and (closing or not sync.dirty) and not timer.task
+                and not saved.pending_upload_position and not plugin.source_dispatch:pending(input.book),'automatic fixture upload failed')
+        end
     end
     plugin:onFlushSettings();if not closing then reader:onClose(false) end
-    result={result='PASS',native_choice=true,actual_source=true,upload_confirmed=true,pending_cleared=true,
-        journal_cleared=true,automatic_disabled=not (timed or closing or reading_time),timer_verified=timed,writes=tonumber(counts[1]),denied=tonumber(counts[2])}
+    result={result='PASS',native_choice=true,actual_source=true,upload_confirmed=true,pending_cleared=not time_noack,
+        journal_cleared=not time_noack,automatic_disabled=not (timed or closing or reading_time),timer_verified=timed,writes=tonumber(counts[1]),denied=tonumber(counts[2])}
     if closing then result.close_verified=true end
-    if reading_time then result.time_verified=true end
+    if time_noack then result.time_unconfirmed=true elseif reading_time then result.time_verified=true end
 end)
 if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('cb_fixture_manual_ui%.lua:(%d+):')) or 0 end
 print('\nWEREAD_CB_FIXTURE_MANUAL_UI='..require('json').encode(result))

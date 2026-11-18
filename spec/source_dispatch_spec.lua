@@ -65,7 +65,12 @@ expect(not journal:finish(old_session,{acknowledged=true,position_confirmed=true
 expect(journal:resolve('900001'),'new session could not explicitly resolve old uncertainty')
 local imported=copy(point);imported.book_id='CB_Synthetic';imported.basis='raw_txt_utf16'
 local imported_wire=copy(wire);imported_wire.book_id=imported.book_id
-expect(not journal:begin(imported.book_id,imported_wire,imported,'time'),'raw TXT enabled reading-time dispatch')
+local raw_time=assert(journal:begin(imported.book_id,imported_wire,imported,'time'))
+expect(journal:owns(raw_time) and journal:pending(imported.book_id),'raw TXT time was not journaled')
+expect(journal:finish(raw_time,{enter_attempted=true,report_attempted=false}) and journal:pending(imported.book_id),
+    'uncertain raw TXT time lost its journal')
+expect(not journal:begin(imported.book_id,imported_wire,imported,'time'),'uncertain raw TXT time was sent again')
+expect(journal:resolve(imported.book_id),'explicit TXT time resolution failed')
 local raw=assert(journal:begin(imported.book_id,imported_wire,imported,'position'))
 expect(journal:owns(raw) and journal:pending(imported.book_id),'raw TXT position was not journaled')
 expect(journal:finish(raw,{enter_attempted=true,report_attempted=false}) and journal:pending(imported.book_id),

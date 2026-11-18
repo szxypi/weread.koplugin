@@ -1967,7 +1967,7 @@ function ProgressSync:position_for_report(book_id)
     end
     self.local_position = position
     if imported then
-        if not position.source_position or position.source_position.basis~='filtered_xhtml_utf16' then
+        if not position.source_position or not Source.is_coordinate_basis(position.source_position.basis) then
             return nil,'progress_unverified',true
         end
         local intent=copy(position);intent.cb_guarded_sync=true;intent.expected_remote=copy(self.remote_position)

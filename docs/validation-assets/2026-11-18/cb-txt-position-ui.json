@@ -13,5 +13,8 @@
   "cloud_view_checkpoint_pending_overwrite_fixed_and_retested": true,
   "real_account_native_ui_tested": false,
   "physical_device_tested": false,
-  "txt_reading_time_enabled": false
+  "txt_reading_time_enabled": true,
+  "txt_reading_time_synthetic_seconds_each_screen": 10,
+  "txt_reading_time_unknown_ack_preserved_each_screen": true,
+  "txt_reading_time_real_accounting_verified": false
 }
