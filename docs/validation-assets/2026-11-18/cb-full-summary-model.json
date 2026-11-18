@@ -1,0 +1,16 @@
+{
+  "result": "PARTIAL",
+  "books_read": 6,
+  "eligible_real_contexts": 2,
+  "full_summary_payloads_compared": 4,
+  "independent_python_lua_models_match": true,
+  "positions_unchanged": true,
+  "shelf_order_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_writes": 0,
+  "private_data_saved": false,
+  "module_grants_write_authority": false,
+  "production_cb_sync_enabled": false,
+  "existing_book_full_summary_write_verified": false,
+  "physical_kindle_tested": false
+}

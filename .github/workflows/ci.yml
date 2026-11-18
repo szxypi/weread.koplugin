@@ -159,6 +159,7 @@ jobs:
           python3 scripts/test_cloud_source_target.py
           python3 scripts/test_cb_official_viewport.py
           python3 scripts/test_cb_roundtrip_preflight.py
+          python3 scripts/test_cb_full_summary_payload.py
           python3 scripts/test_cb_fixture_position.py
           python3 scripts/test_cb_fixture_position_transport.py
           python3 scripts/test_cb_fixture_position_trial.py
