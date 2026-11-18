@@ -37,7 +37,8 @@ class ShelfComponentTests(unittest.TestCase):
             elif mode=='albums':changed['albums']['present']=False
             elif mode=='group':changed['groups'].pop('2')
             else:changed['groups']['2']['unexpectedMetadata']='synthetic'
-            delta=compare(old,make(changed))
+            stamp=make(changed);delta=compare(old,stamp)
+            if mode=='unknown':self.assertNotIn('unexpectedMetadata',repr(stamp))
             key={'members':'members_changed','flags':'flags_changed','albums':'albums_changed',
                  'group':'groups_added_or_removed','unknown':'other_group_fields_changed'}[mode]
             with self.subTest(mode=mode):self.assertTrue(delta[key])

@@ -27,7 +27,8 @@ def make(projection):
         for key,value in row.items():
             if not isinstance(key,str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',key):
                 return None
-            fields[key]=digest(['shelf-component-field-v1',value])
+            label=key if key in KNOWN else 'other_'+digest(['shelf-component-field-name-v1',key])
+            fields[label]=digest(['shelf-component-field-v1',value])
         groups[digest(['shelf-component-group-v1',identity])]=fields
     value=dict(protocol='shelf-components-v1',projection=projection_digest(projection),members=digest(projection['members']),
                flags=projection['flags'],albums=digest(projection['albums']),groups=groups)
@@ -42,7 +43,7 @@ def validate(value,expected):
         raise ValueError('shelf_components/record')
     for ident,fields in value['groups'].items():
         if (not isinstance(ident,str) or not HASH.fullmatch(ident) or not isinstance(fields,dict) or len(fields)>128
-                or any(not isinstance(key,str) or not re.fullmatch(r'[A-Za-z][A-Za-z0-9_]{0,63}',key)
+                or any(not isinstance(key,str) or not (key in KNOWN or re.fullmatch(r'other_[a-f0-9]{64}',key))
                        or not isinstance(mark,str) or not HASH.fullmatch(mark) for key,mark in fields.items())):
             raise ValueError('shelf_components/record')
     return value
