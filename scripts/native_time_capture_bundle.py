@@ -23,7 +23,10 @@ MAX_CHUNKS=(MAX_BYTES+CHUNK_BYTES-1)//CHUNK_BYTES
 
 
 class CaptureBundleStore:
-    def __init__(self, backend=None, *, chunks=None, lock=None):
+    def __init__(self, backend=None, *, chunks=None, lock=None, imported=False):
+        if type(imported) is not bool or imported and (backend is None or chunks is None or lock is None):
+            raise ValueError('capture_bundle/scope')
+        self.imported=imported
         self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
         self.chunks=chunks if chunks is not None else lambda index:MacKeychain(service=SERVICE+'.part-'+str(index),account=ACCOUNT)
         path=Path(tempfile.gettempdir())/('codex-native-time-capture-bundle-'+ACCOUNT+'.lock')
@@ -62,7 +65,7 @@ class CaptureBundleStore:
                 raise ValueError()
             bundle=json.loads(content)
             if not isinstance(bundle,dict) or set(bundle)!={'plan','evidence'}:raise ValueError()
-            validate_evidence(bundle['plan'],bundle['evidence'])
+            validate_evidence(bundle['plan'],bundle['evidence'],imported=self.imported)
             return bundle,Receipt(raw)
         except Exception:
             raise StoreError('capture_bundle/invalid') from None
@@ -71,7 +74,7 @@ class CaptureBundleStore:
         with self.lock():return self._read()
 
     def capture(self,plan,evidence):
-        validate_evidence(plan,evidence)
+        validate_evidence(plan,evidence,imported=self.imported)
         content=canonical({'plan':plan,'evidence':evidence})
         if not 0<len(content)<=MAX_BYTES:raise StoreError('capture_bundle/size')
         pieces=[content[i:i+CHUNK_BYTES] for i in range(0,len(content),CHUNK_BYTES)]

@@ -17,9 +17,9 @@ from run_persistent_ui_probe import extract_candidate, run_child
 FRAME=b'\nWEREAD_NATIVE_BUNDLE_INSPECT_RESULT='
 
 
-def validate_input(bundle,now):
+def validate_input(bundle,now,*,imported=False):
     if not isinstance(bundle,dict) or set(bundle)!={'plan','evidence'}:raise ValueError('bundle_inspect/input')
-    plan=bundle['plan'];validate_evidence(plan,bundle['evidence'])
+    plan=bundle['plan'];validate_evidence(plan,bundle['evidence'],imported=imported)
     if not plan['ended_at']<=now<plan['not_before']:raise ValueError('bundle_inspect/not_same_day')
     return bundle
 
@@ -27,6 +27,7 @@ def validate_input(bundle,now):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',required=True,type=Path);parser.add_argument('--candidate',required=True,type=Path)
+    parser.add_argument('--cb-reading',action='store_true')
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if (sys.platform!='linux' or not (runtime/'luajit').is_file()
             or not any(line.split()[1:3]==['/dev/shm','tmpfs'] for line in Path('/proc/mounts').read_text().splitlines())):
@@ -37,15 +38,17 @@ def main(argv=None):
     try:
         raw=sys.stdin.buffer.read(MAX_BYTES+1)
         if len(raw)>MAX_BYTES:raise ValueError('bundle_inspect/input')
-        bundle=validate_input(json.loads(raw),time.time());plan=bundle['plan']
+        bundle=validate_input(json.loads(raw),time.time(),imported=args.cb_reading);plan=bundle['plan']
         with tempfile.TemporaryDirectory(prefix='weread-bundle-inspect-',dir='/dev/shm') as directory:
             root=Path(directory);profile=root/'profile';plugins=profile/'plugins';plugins.mkdir(parents=True)
             extract_candidate(args.candidate,plugins)
-            epub,ledger=restore(bundle,root)
+            epub,ledger=restore(bundle,root,imported=args.cb_reading)
             private={key:value for key,value in plan.items() if key!='archive_base64'}
-            env=dict(os.environ,KO_HOME=str(profile),TZ='Asia/Shanghai',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8')
+            env=dict(os.environ,KO_HOME=str(profile),TZ='Asia/Shanghai',LD_LIBRARY_PATH=str(runtime/'libs'),
+                     EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8')
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/native_time_bundle_inspect.lua'
             command=[str(runtime/'luajit'),str(probe),str(plugins/'weread.koplugin'),str(ledger),str(epub)]
+            if args.cb_reading:command.append('cb')
             code,out,repaint=run_child(command,env,json.dumps(private,separators=(',',':')).encode(),runtime,timeout=60)
             if code or repaint or out.count(FRAME)!=1:raise ValueError('bundle_inspect/native')
             value=json.loads(out.split(FRAME)[1])

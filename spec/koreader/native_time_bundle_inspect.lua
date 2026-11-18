@@ -14,7 +14,8 @@ local Queue=require('weread.lib.readtime_transfer_queue')
 local Source=require('weread.lib.readtime_source')
 local Account=require('weread.lib.native_position_contract').account_key
 local plan=json.decode(assert(io.stdin:read('*a')))
-assert(type(plan)=='table' and C.id(plan.owner) and C.id(plan.book_id) and C.id(plan.chapter_uid))
+local cb=arg[4]=='cb';assert(arg[4]==nil or cb)
+assert(type(plan)=='table' and C.id(plan.owner) and (cb and C.cb_id(plan.book_id) or not cb and C.id(plan.book_id)) and C.id(plan.chapter_uid))
 assert(C.integer(plan.not_before,1,4102444800) and os.time()>=plan.ended_at and os.time()<plan.not_before)
 local account=assert(Account(plan.owner));local ledger=Ledger:new(arg[2]);local coverage=Coverage:new(arg[2])
 local tracked=assert(coverage:initialize());assert(tracked<=plan.start_time)
@@ -25,7 +26,7 @@ local source=Source.scan_page({cached_file=arg[3]},{{chapterUid=plan.chapter_uid
     {book_id=plan.book_id,file_id=plan.file_id,book_version=plan.book_version},nil,1)
 assert(source.kind=='found' and source.reference.file==arg[3] and source.reference.chapter_uid==plan.chapter_uid
     and source.reference.chapter_idx==plan.chapter_idx)
-local selected=assert(Queue:new{ledger=ledger,coverage=coverage}:select(account,nil,{historical=true}))
+local selected=assert(Queue:new{ledger=ledger,coverage=coverage}:select(account,nil,{historical=true,allow_cb=cb}))
 assert(selected.selection==false and selected.report.deferred==plan.seconds)
 local summary=assert(ledger:summary(account))
 assert(summary.pending==plan.seconds and summary.in_flight==0 and summary.unknown==0 and summary.confirmed==0)

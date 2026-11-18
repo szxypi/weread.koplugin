@@ -8,9 +8,9 @@ import sys
 from native_time_capture_evidence import account_key,validate_evidence
 
 
-def restore(bundle,root):
+def restore(bundle,root,*,imported=False):
     if not isinstance(bundle,dict) or set(bundle)!={'plan','evidence'}:raise ValueError('bundle_workspace/input')
-    plan=bundle['plan'];evidence=validate_evidence(plan,bundle['evidence'])
+    plan=bundle['plan'];evidence=validate_evidence(plan,bundle['evidence'],imported=imported)
     root=Path(root)
     try:
         if sys.platform!='linux' or root.is_symlink() or not root.resolve(strict=True).is_relative_to(Path('/dev/shm').resolve(strict=True)):

@@ -178,6 +178,9 @@ jobs:
           python3 scripts/test_cb_fixture_native_batch.py
           python3 scripts/test_cb_fixture_native_batch_cleanup.py
           python3 scripts/test_cb_fixture_native_batch_summary.py
+          python3 scripts/test_cb_native_time_capture.py
+          python3 scripts/test_verify_cb_native_time_capture.py
+          python3 scripts/test_verify_cb_native_capture_currentness.py
           python3 scripts/test_cb_existing_manual_ui.py
           python3 scripts/test_owner_cb_cloud_view_ui.py
           python3 scripts/test_owner_cb_cloud_live_ui.py

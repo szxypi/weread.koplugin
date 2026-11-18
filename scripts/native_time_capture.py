@@ -20,9 +20,13 @@ ROW_FIELDS={'id','book_id','start_time','duration','time_zone','book_version','f
 
 def hashed(v):return isinstance(v,str) and re.fullmatch('[a-f0-9]{64}',v) is not None
 
-def validate(p):
+def validate(p,*,imported=False):
+    if type(imported) is not bool:raise ValueError('native_capture/plan')
     if not isinstance(p,dict) or set(p)!=FIELDS or p['protocol']!=PROTOCOL or p['format'] not in ('web_txt','web_xhtml'):raise ValueError('native_capture/plan')
-    if (any(not isinstance(p[k],str) or not re.fullmatch('[1-9][0-9]{0,19}',p[k]) for k in ('owner','book_id','chapter_uid'))
+    if (any(not isinstance(p[k],str) or not re.fullmatch('[1-9][0-9]{0,19}',p[k]) for k in ('owner','chapter_uid'))
+            or not isinstance(p['book_id'],str)
+            or not re.fullmatch('CB_[A-Za-z0-9]{1,64}' if imported else '[1-9][0-9]{0,19}',p['book_id'])
+            or imported and p['format']!='web_xhtml'
             or any(not hashed(p[k]) for k in ('baseline_sha256','device_sha256','file_id','raw_sha256','archive_sha256'))
             or not integer(p['book_version'],1,2147483647) or not integer(p['chapter_idx'],0,1000000)
             or not integer(p['start_time'],1,4102358398) or not integer(p['ended_at'],p['start_time']+5,p['start_time']+12)

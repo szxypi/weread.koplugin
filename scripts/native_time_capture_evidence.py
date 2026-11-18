@@ -42,8 +42,8 @@ def database(value, expected):
         raise ValueError('capture_evidence/database') from None
 
 
-def validate_evidence(plan,evidence):
-    validate(plan)
+def validate_evidence(plan,evidence,*,imported=False):
+    validate(plan,imported=imported)
     if not isinstance(evidence,dict) or set(evidence)!=FIELDS or evidence['protocol']!=PROTOCOL:
         raise ValueError('capture_evidence/format')
     ledger=coverage=None

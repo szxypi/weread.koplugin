@@ -15,13 +15,13 @@ import verify_native_time_capture as task
 
 
 def sha(v):return hashlib.sha256(v).hexdigest()
-def capture(format="web_txt"):
+def capture(format="web_txt",book='900001'):
     raw=b'An original synthetic chapter for real statistics capture. '*30
     if format=='web_xhtml':raw=b'<html><body><p>'+raw+b'</p></body></html>'
     rendered=b'<html><body><p>Synthetic body</p></body></html>'
-    identity='schema=1\nbook_id=900001\nbook_version=7\nchapter_count=1\ntext_digest='+sha(rendered)+'\n'
+    identity='schema=1\nbook_id='+book+'\nbook_version=7\nchapter_count=1\ntext_digest='+sha(rendered)+'\n'
     file_id=sha(identity.encode());identity+='source_id='+file_id+'\n'
-    receipt='schema=1\nbook_id=900001\nchapter_uid=2\nformat='+format+'\nraw_bytes='+str(len(raw))+'\nraw_sha256='+sha(raw)+'\n'
+    receipt='schema=1\nbook_id='+book+'\nchapter_uid=2\nformat='+format+'\nraw_bytes='+str(len(raw))+'\nraw_sha256='+sha(raw)+'\n'
     meta=receipt+'capture_id='+sha(receipt.encode())+'\nbook_version=7\nfile_id='+file_id+'\nrender_path='+quote('OEBPS/text/chapter.xhtml',safe='')+'\nrender_sha256='+sha(rendered)+'\n'
     meta+='metadata_sha256='+sha(meta.encode())+'\n'
     out=io.BytesIO()
@@ -31,8 +31,8 @@ def capture(format="web_txt"):
         z.writestr('OEBPS/weread-position/raw-'+sha(raw)+'.txt',raw)
         z.writestr('OEBPS/text/chapter.xhtml',rendered)
     archive=out.getvalue();start=1794878000
-    row=dict(id=1,book_id='900001',start_time=start,duration=6,time_zone='+08:00',book_version=7,file_id=file_id,version_source='epub_snapshot')
-    return dict(protocol=PROTOCOL,owner='900000',format=format,baseline_sha256='c'*64,device_sha256='a'*64,book_id='900001',chapter_uid='2',chapter_idx=2,book_version=7,
+    row=dict(id=1,book_id=book,start_time=start,duration=6,time_zone='+08:00',book_version=7,file_id=file_id,version_source='epub_snapshot')
+    return dict(protocol=PROTOCOL,owner='900000',format=format,baseline_sha256='c'*64,device_sha256='a'*64,book_id=book,chapter_uid='2',chapter_idx=2,book_version=7,
         file_id=file_id,raw_sha256=sha(raw),rows=[row],start_time=start,ended_at=start+6,monotonic_elapsed_ms=6050,seconds=6,
         not_before=next_cst_day(start)+1,archive_base64=base64.b64encode(archive).decode(),archive_sha256=sha(archive))
 

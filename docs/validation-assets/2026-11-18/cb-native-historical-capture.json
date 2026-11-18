@@ -1,0 +1,40 @@
+{
+  "date": "2026-11-18",
+  "capture": {
+    "result": "CB_NATIVE_WINDOW_CAPTURED",
+    "phase": "complete",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_data_in_report": false,
+    "private_data_on_regular_disk": false,
+    "seconds": 6,
+    "rows": 1,
+    "source_and_positions_unchanged": true,
+    "independent_snapshot": true,
+    "sqlite_evidence_saved": true,
+    "profile_removed": true,
+    "not_before_utc": "2026-11-18T16:00:01Z"
+  },
+  "same_day_inspection": {
+    "result": "SAME_DAY_DEFERRED",
+    "seconds": 6,
+    "exact_rows": true,
+    "archive_verified": true,
+    "coverage_verified": true,
+    "pending_unchanged": true,
+    "profile_removed": true,
+    "saved_capture_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "historical_dispatch_performed": false,
+  "physical_kindle_tested": false,
+  "independent_currentness": {
+    "result": "CB_CAPTURE_CURRENT",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_data_in_report": false,
+    "source_version_positions_counts_and_shelves_unchanged": true,
+    "saved_capture_unchanged": true
+  }
+}

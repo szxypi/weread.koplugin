@@ -23,12 +23,12 @@ def snapshot(path,output):
     return base64.b64encode(raw).decode(),hashlib.sha256(raw).hexdigest()
 
 
-def take(profile,output,plan,*,mock=False):
+def take(profile,output,plan,*,mock=False,imported=False):
     directory=profile/('weread-mock' if mock else 'weread')
     if directory.is_symlink() or not directory.is_dir() or output.is_symlink() or not output.is_dir():
         raise ValueError('capture_snapshot/path')
     lb,lh=snapshot(directory/('offline-time-'+account_key(plan['owner'])+'.db'),output/'capture-ledger.db')
     cb,ch=snapshot(directory/'reading-time-coverage.db',output/'capture-coverage.db')
     evidence={'protocol':PROTOCOL,'ledger_base64':lb,'ledger_sha256':lh,'coverage_base64':cb,'coverage_sha256':ch}
-    validate_evidence(plan,evidence)
+    validate_evidence(plan,evidence,imported=imported)
     return evidence
