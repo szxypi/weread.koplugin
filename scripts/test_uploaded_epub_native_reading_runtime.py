@@ -26,7 +26,9 @@ class Opener:
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-short',action='store_true');parser.add_argument('--txt-single',action='store_true');parser.add_argument('--txt-empty-second',action='store_true');parser.add_argument('--txt-retry',action='store_true');args=parser.parse_args()
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--single-page',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-short',action='store_true');parser.add_argument('--txt-single',action='store_true');parser.add_argument('--txt-empty-second',action='store_true');parser.add_argument('--txt-retry',action='store_true');parser.add_argument('--txt-multipage-fixture',action='store_true');args=parser.parse_args()
+    if args.txt_multipage_fixture and (args.single_page or args.txt_single or args.txt_short or args.txt_empty_second or args.txt_retry):parser.error('--txt-multipage-fixture requires the independent fixture')
+    if args.txt_multipage_fixture:args.txt=True
     if args.txt_retry and (args.single_page or args.txt_single or args.txt_short or args.txt_empty_second):parser.error('--txt-retry requires the long TXT fixture')
     if args.txt_retry:args.txt=True
     if args.txt_empty_second:args.txt_single=True
@@ -38,7 +40,9 @@ def main():
         if args.txt:
             import mock_weread
             from verify_cb_txt_native_fixture import BODY,SHORT_BODY,SINGLE_BODY
-            server.content_format='txt';mock_weread.chapter_txt=lambda _uid:(SINGLE_BODY if args.txt_single else SHORT_BODY if args.txt_short else BODY).decode('utf-8')
+            if args.txt_multipage_fixture:
+                from verify_cb_txt_multipage_fixture import BODY as MULTIPAGE_BODY
+            server.content_format='txt';mock_weread.chapter_txt=lambda _uid:(MULTIPAGE_BODY if args.txt_multipage_fixture else SINGLE_BODY if args.txt_single else SHORT_BODY if args.txt_short else BODY).decode('utf-8')
             if args.txt_empty_second:
                 from urllib.parse import urlsplit
                 original=server.route

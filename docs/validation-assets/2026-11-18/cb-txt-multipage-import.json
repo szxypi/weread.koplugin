@@ -1,0 +1,30 @@
+{
+  "date": "2026-11-18",
+  "scope": "one independently uploaded synthetic multi-page TXT file",
+  "readonly_existing_cb_books_examined": 6,
+  "existing_web_txt_sources": 0,
+  "preflight": "READ_ONLY_PREVIEW",
+  "synthetic_native_reader": {"screens": [[600, 800, 167], [1264, 1680, 300]], "result": "PASS"},
+  "real_native_reader": {
+    "screen": [600, 800, 167],
+    "server_source_format": "web_xhtml",
+    "result": "PASS",
+    "page_turn_and_fresh_offline_reopen": true,
+    "cloud_position_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "second_screen_attempted": false
+  },
+  "txt_source_requirement": "UNVERIFIED",
+  "import_notification_posts": 1,
+  "fixture_removal_posts": 1,
+  "fixture_removal_independently_observed": true,
+  "new_one_shot_record": "restored and retained",
+  "previous_four_txt_trials_unchanged": true,
+  "old_group_guard_passed": true,
+  "historical_group_baseline_restored": "not established",
+  "expired_native_authorization": {"independent_http_401_reads": 2, "renewal_posts": 1, "same_owner_and_device": true, "keychain_readback_verified": true},
+  "historical_cb_capture": {"saved_capture_unchanged": true, "same_device": true, "current_snapshot_matches": true, "dispatch_unclaimed": true, "audit_empty": true, "historical_transfer_attempted": false},
+  "private_source_or_credentials_saved": false,
+  "physical_device_tested": false
+}
