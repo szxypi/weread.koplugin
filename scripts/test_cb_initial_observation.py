@@ -2,7 +2,7 @@ import unittest
 from copy import deepcopy
 
 from cb_cloud_position import observed
-from verify_cb_initial_observation import summarize
+from verify_cb_initial_observation import lua_projection, summarize
 
 
 BOOK = 'CB_TestFixture'
@@ -47,6 +47,14 @@ class InitialObservationTest(unittest.TestCase):
 
     def test_missing_channel_fails(self):
         with self.assertRaises(ValueError): summarize([{'native': []}])
+
+    def test_private_lua_projection_emits_only_presence(self):
+        raw = response(updateTime=123)
+        self.assertEqual(lua_projection({'book': raw}, BOOK),
+                         dict(recognized=True, index_present=True, summary_present=True, updated_present=True))
+        raw['chapterTitle'] = 'conflicting value'
+        self.assertEqual(lua_projection({'book': raw}, BOOK), dict(recognized=False))
+        self.assertNotIn(BOOK, repr(lua_projection({'book': raw}, BOOK)))
 
 
 if __name__ == '__main__': unittest.main()
