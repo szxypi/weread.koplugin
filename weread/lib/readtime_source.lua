@@ -111,16 +111,18 @@ function M.observe(client,selected,selection,references,previous,options)
         assert(chosen.format==previous.format and chosen.metadata_hash==previous.metadata_hash
             and C.digest(chosen.expected)==C.digest(previous.expected),'readtime_source/changed')
     end
-    assert(not cb or chosen.format=='web_xhtml','readtime_source/format')
+    assert(not cb or chosen.format=='web_xhtml' or chosen.format=='web_txt','readtime_source/format')
     local function verify_catalog(raw)
         assert(M.version(raw,selection.book_id)==selection.book_version,'readtime_source/version')
     end
     local proof
     if options.fetch then proof=options.fetch(client,chosen.expected,selected,chosen.format,{verify_catalog=verify_catalog},cb)
+    elseif cb and chosen.format=='web_txt' then proof=Current.fetch_cb_txt_versioned(client,chosen.expected,selected,verify_catalog)
     elseif cb then proof=Current.fetch_cb_versioned(client,chosen.expected,selected,verify_catalog)
     else proof=Current.fetch(client,chosen.expected,selected,chosen.format,{verify_catalog=verify_catalog}) end
     local checked
-    if cb then checked=Current.packet_cb(proof,chosen.expected)
+    if cb and chosen.format=='web_txt' then checked=Current.packet_cb_txt(proof,chosen.expected)
+    elseif cb then checked=Current.packet_cb(proof,chosen.expected)
     elseif chosen.format=='web_txt' then checked=Current.packet_txt(proof,chosen.expected)
     else checked=Current.packet(proof,chosen.expected) end
     assert(checked,'readtime_source/remote')

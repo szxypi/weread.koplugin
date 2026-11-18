@@ -120,6 +120,49 @@ expect(result.kind=='unconfirmed' and f.journal:pending(f.account).phase=='ackno
 record=f.journal:pending(f.account);f.applied=true;f.mode=nil;local cb_configs=f.configs
 result=Task.resolve(f.client,f.settings,f.native,f.web,record,{},f.journal,f.options)
 expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==cb_configs,'CB read-only resolution')
+-- Chain imported raw TXT archive proof into the actual historical task.
+local Source=require('weread.lib.position_source');local Identity=require('weread.lib.book_file_identity')
+local Crypto=require('weread.lib.crypto');local Current=require('weread.lib.source_currentness')
+local raw='Synthetic original TXT.\r\nSecond line.';local rendered='<html><body>Synthetic render</body></html>'
+local book={bookId='CB_Synthetic',bookVersion=7};local chapters={{chapterUid=7,chapterIdx=0}}
+local id_raw=Identity.encode(book,chapters,Identity.capture(book),Crypto.sha256_hex(raw),7)
+local id=assert(Identity.decode(id_raw));local captured=assert(Source.capture(book,chapters[1],raw,'web_txt'))
+local metadata=assert(Source.bind(captured,id,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(rendered)))
+local members={[Identity.PATH]=id_raw,[Source.meta_path('7')]=metadata,
+    [Source.raw_path(captured.raw_sha256)]=raw,['OEBPS/text/chapter.xhtml']=rendered}
+local refs={{file='/synthetic-txt.epub',chapter_uid='7',chapter_idx=0}}
+local function txt_fixture(mode)
+    local item=require('spec.helpers.readtime_transfer_fixture').new(mode,expect,roots,true,{file_id=id.file_id})
+    local options={read_archive=function(_file,wanted)
+        local out={} for key,maximum in pairs(wanted) do
+            local value=members[key]
+            if item.mode=='txt_source_changed' and item.posts>0 and key==Source.raw_path(captured.raw_sha256) then value='changed' end
+            if not value or #value>maximum then return nil end;out[key]=value
+        end
+        return out
+    end,fetch=function(_client,expected,_web,format,configuration,cb)
+        expect(cb and format=='web_txt')
+        local catalog={{bookId=book.bookId,book={bookVersion=item.mode=='txt_version' and 8 or 7},updated=chapters}}
+        configuration.verify_catalog(catalog);configuration.verify_catalog(catalog)
+        local proof=Current.project_cb(expected,catalog,{book_id=book.bookId,psvts='synthetic-session'},raw,catalog)
+        proof.basis='raw_txt_utf16';return proof
+    end}
+    item.options.observe_source=function(client,web,selection,_references,previous)
+        return require('weread.lib.readtime_source').observe(client,web,selection,refs,previous,options)
+    end
+    return item
+end
+f=txt_fixture();result=f.run()
+expect(result.kind=='confirmed' and f.posts==1 and f.ledger:summary(f.account).confirmed==2,'CB TXT historical send')
+expect(assert(f.journal:get(f.account,result.attempt)).metadata.source.format=='web_txt','CB TXT proof not retained')
+f=txt_fixture('txt_version');result=f.run()
+expect(result.kind=='unavailable' and not result.attempted and f.posts==0 and f.ledger:summary(f.account).pending==2,'CB TXT version')
+f=txt_fixture('txt_source_changed');result=f.run()
+expect(result.kind=='unconfirmed' and result.attempted and f.posts==1 and f.journal:pending(f.account)~=nil,'CB TXT changed source')
+result=f.run();expect(not result.attempted and f.posts==1,'CB TXT changed source replayed')
+f=txt_fixture('no_ack');result=f.run()
+expect(result.kind=='unconfirmed' and result.attempted and f.posts==1 and f.journal:pending(f.account)~=nil,'CB TXT no ACK')
+result=f.run();expect(not result.attempted and f.posts==1,'CB TXT no ACK replayed')
 Signing.time_zone=original_zone
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
 print('readtime_transfer_task_spec: '..n..' checks')

@@ -126,6 +126,51 @@ cb_members['OEBPS/text/chapter.xhtml']=rendered
 local cb_invalid=F.clone(cb_selection);cb_invalid.book_id='CB_invalid/'
 expect(M.scan_page({cached_full_book='/synthetic.epub'},chapters,cb_invalid,nil,1,cb_options).kind=='unavailable')
 expect(not pcall(M.observe,{},{},cb_invalid,cb_ref,nil,cb_options))
+-- Versioned imported TXT has a distinct typed source proof and still binds
+-- cached original/rendered bytes plus both catalog observations.
+local txt_raw='Synthetic raw TXT.\r\nA second line.'
+local txt_identity_raw=Identity.encode(cb_book,chapters,Identity.capture(cb_book),Crypto.sha256_hex(txt_raw),7)
+local txt_identity=assert(Identity.decode(txt_identity_raw))
+local txt_captured=assert(Source.capture(cb_book,chapters[1],txt_raw,'web_txt'))
+local txt_metadata=assert(Source.bind(txt_captured,txt_identity,'OEBPS/text/chapter.xhtml',Crypto.sha256_hex(rendered)))
+local txt_members={[Identity.PATH]=txt_identity_raw,[Source.meta_path('7')]=txt_metadata,
+    [Source.raw_path(txt_captured.raw_sha256)]=txt_raw,['OEBPS/text/chapter.xhtml']=rendered}
+local txt_selection={book_id='CB_Synthetic',book_version=7,file_id=txt_identity.file_id}
+local txt_options={read_archive=function(_file,wanted)
+    local out={} for key,maximum in pairs(wanted) do
+        local value=txt_members[key];if not value or #value>maximum then return nil end;out[key]=value
+    end
+    return out
+end}
+local txt_mode='normal';local txt_checks=0
+txt_options.fetch=function(_client,expected,_access,format,options,cb)
+    expect(cb and format=='web_txt');txt_checks=txt_checks+1
+    options.verify_catalog(cb_catalog)
+    local after=F.clone(cb_catalog)
+    if txt_mode=='version' then after[1].book.bookVersion=8 end
+    options.verify_catalog(after)
+    local proof=Current.project_cb(expected,cb_catalog,{book_id='CB_Synthetic',psvts='synthetic-session'},txt_raw,after)
+    if txt_mode~='wrong_basis' then proof.basis='raw_txt_utf16' end
+    if txt_mode=='swap' then txt_members['OEBPS/text/chapter.xhtml']='changed' end
+    return proof
+end
+local txt_proof=M.observe({},{},txt_selection,cb_ref,nil,txt_options)
+expect(txt_checks==1 and txt_proof.format=='web_txt' and txt_proof.raw==nil)
+expect(M.observe({},{},txt_selection,cb_ref,txt_proof,txt_options).catalog_stamp==txt_proof.catalog_stamp)
+local saved_fetch=Current.fetch_cb_txt_versioned;local injected_fetch=txt_options.fetch
+Current.fetch_cb_txt_versioned=function(client,expected,web,verify_catalog)
+    return injected_fetch(client,expected,web,'web_txt',{verify_catalog=verify_catalog},true)
+end
+txt_options.fetch=nil
+expect(M.observe({},{},txt_selection,cb_ref,txt_proof,txt_options).format=='web_txt','TXT used the wrong network proof')
+Current.fetch_cb_txt_versioned=saved_fetch;txt_options.fetch=injected_fetch
+for _i,mode in ipairs({'version','wrong_basis','swap'}) do
+    txt_mode=mode;expect(not pcall(M.observe,{},{},txt_selection,cb_ref,txt_proof,txt_options))
+    txt_members['OEBPS/text/chapter.xhtml']=rendered
+end
+txt_mode='normal';txt_members[Source.raw_path(txt_captured.raw_sha256)]='changed'
+expect(not pcall(M.observe,{},{},txt_selection,cb_ref,txt_proof,txt_options))
+txt_members[Source.raw_path(txt_captured.raw_sha256)]=txt_raw
 if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     local ffi=require('ffi');require('ffi/posix_h')
     local path=os.tmpname();local fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)
@@ -151,5 +196,15 @@ if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     expect(real_cb_proof.metadata_hash==Crypto.sha256_hex(cb_metadata))
     expect(M.observe({},{},cb_selection,cb_real_refs,real_cb_proof,cb_runtime_options).catalog_stamp==real_cb_proof.catalog_stamp)
     assert(os.remove(cb_path))
+    local txt_path=os.tmpname();local txt_fd=ffi.C.open(txt_path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(txt_fd>=0)
+    local txt_writer=require('weread.lib.epub_export_writer').new(txt_fd)
+    for name,value in pairs(txt_members) do txt_writer:add(name,value,#value,false) end
+    assert(txt_writer:close());assert(ffi.C.close(txt_fd)==0)
+    local txt_refs={{file=txt_path,chapter_uid='7',chapter_idx=0}}
+    local txt_runtime_options={fetch=txt_options.fetch}
+    local real_txt_proof=M.observe({},{},txt_selection,txt_refs,nil,txt_runtime_options)
+    expect(real_txt_proof.format=='web_txt' and real_txt_proof.metadata_hash==Crypto.sha256_hex(txt_metadata))
+    expect(M.observe({},{},txt_selection,txt_refs,real_txt_proof,txt_runtime_options).catalog_stamp==real_txt_proof.catalog_stamp)
+    assert(os.remove(txt_path))
 end
 print('readtime_source_spec: '..n..' checks')

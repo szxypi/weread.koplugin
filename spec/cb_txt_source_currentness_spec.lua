@@ -63,6 +63,19 @@ expect(not Check.packet_cb(proof,expected) and not Check.packet_txt(proof,expect
 for _i,options in ipairs(state.requests) do
     expect(options.sensitive and options.skip_cookie and options.persist_response_cookies==false,'TXT access was not frozen')
 end
+client,state=fixture();local versions=0
+proof=Check.fetch_cb_txt_versioned(client,expected,nil,function(value)
+    versions=versions+1;assert(value[1].book.bookVersion==3)
+end)
+expect(Check.packet_cb_txt(proof,expected) and versions==2 and #state.requests==8,'TXT catalog versions were not checked twice')
+for _i,stop in ipairs({1,2}) do
+    client,state=fixture();versions=0
+    expect(not pcall(Check.fetch_cb_txt_versioned,client,expected,nil,function()
+        versions=versions+1;if versions==stop then error('synthetic version mismatch') end
+    end) and #state.requests==(stop==1 and 2 or 7),'TXT version mismatch did not stop proof')
+end
+client,state=fixture()
+expect(not pcall(Check.fetch_cb_txt_versioned,client,expected,nil,nil) and #state.requests==0,'TXT missing version check accepted')
 for index=1,8 do
     client,state=fixture();state.fail_at=index
     local result=Check.run_cb_txt(client,expected)

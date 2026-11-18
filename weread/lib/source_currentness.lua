@@ -299,6 +299,12 @@ function M.fetch_cb_versioned(client,value,selected,verify_catalog)
     if type(verify_catalog)~='function' then fail('expected') end
     return fetch(client,value,selected,'web_xhtml',{verify_catalog=verify_catalog},true)
 end
+-- Raw TXT retains its own typed proof; callers still need an independent
+-- versioned position and accounting guard before sending any request.
+function M.fetch_cb_txt_versioned(client,value,selected,verify_catalog)
+    if type(verify_catalog)~='function' then fail('expected') end
+    return fetch(client,value,selected,'web_txt',{verify_catalog=verify_catalog,cb_txt_readonly=true},true)
+end
 local function fetch_cb_upload(client,value,selected,remote,format)
     local expected=M.expected_cb(value)
     local guarded=expected and require('weread.lib.cb_sync_guard').expected(remote,expected.book_id)

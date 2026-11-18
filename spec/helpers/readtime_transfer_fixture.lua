@@ -11,8 +11,10 @@ local Dates=require('weread.lib.read_stats');local A=require('weread.lib.readtim
 local F=require('spec.helpers.thought_edit_fixture');local Json=require('json')
 
 local M={}
-function M.new(mode,expect,roots,cb)
+function M.new(mode,expect,roots,cb,config)
+    config=config or {}
     local f={posts=0,reads=0,clock=1700007200,current=true,source_reads=0,mode=mode,book_id=cb and 'CB_Synthetic' or '42'}
+    f.file_id=config.file_id or string.rep('f',64)
     f.root=os.tmpname()..'-time-task';os.execute('mkdir -p '..string.format('%q',f.root));roots[#roots+1]=f.root
     local settings,credentials_store,state=F.access();f.settings,f.state=settings,state
     function settings:get(key,default) return key=='cookies' and {wr_vid='900000',wr_skey='synthetic-current-cookie'} or default end
@@ -22,7 +24,7 @@ function M.new(mode,expect,roots,cb)
     f.account=Account(grant.vid);local start=f.clock-86400;local day=A.day(start);local month=Dates.period_start('monthly',start)
     f.ledger=Ledger:new(f.root);f.coverage=Coverage:new(f.root,function() return start-100 end);assert(f.coverage:initialize())
     local window=assert(f.ledger:begin(f.account,{book_id=f.book_id,stats_book=1,start_time=start,time_zone='+08:00',book_version=7,
-        file_id=string.rep('f',64),version_source='epub_snapshot'}))
+        file_id=f.file_id,version_source='epub_snapshot'}))
     assert(f.ledger:collect(f.account,window,{{page='1',start_time=start,duration=2}},start+2,true))
     f.selection=assert(Queue:new{ledger=f.ledger,coverage=f.coverage,now=function() return f.clock end}:select(f.account,nil,{allow_cb=cb})).selection
     f.client={settings=settings,json_encode=function(_s,x) return Json.encode(x) end,json_decode=function(_s,x) return Json.decode(x) end}
@@ -79,7 +81,7 @@ function M.new(mode,expect,roots,cb)
     end
     f.options={account=f.account,experimental_cb=cb==true,is_current=function() return f.current end,now=function() return f.clock end,random=function() return 123 end,
         sleep=function(s) f.clock=f.clock+s end,observe_source=function(_client,_web,selection,_refs,previous)
-            f.source_reads=f.source_reads+1;expect(selection.file_id==string.rep('f',64))
+            f.source_reads=f.source_reads+1;expect(selection.file_id==f.file_id)
             if f.mode=='source_changed' and previous then error('source changed') end
             return {file_id=selection.file_id,raw_hash=string.rep('b',64)}
         end}
