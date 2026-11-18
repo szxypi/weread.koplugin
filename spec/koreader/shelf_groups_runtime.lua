@@ -245,6 +245,22 @@ if mode=='live' then
     selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
     assert(#plugin.shelf_view.books>0 and plugin.shelf_group_key=='__ungrouped__',
         'single ungrouped selection did not recover')
+    local system_archives={{archiveId='1',name='归档',bookIds={books[1].bookId,books[2].bookId}},
+                           {archiveId='2',name='Synthetic group',bookIds={books[2].bookId}}}
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,system_archives);plugin:showShelfView('books',nil,selected)
+    assert(plugin.shelf_group_key=='__ungrouped__' and #plugin.shelf_view.books==47,
+        'system archive incorrectly assigned ungrouped books')
+    for _,book in ipairs(plugin.shelf_view.books) do assert(book.bookId~=books[2].bookId,'user-group member in ungrouped') end
+    source=plugin.shelf_view;source:showSourceMenu('books');picker=assert(source._shelf_popup)
+    assert(picker.item_table[3].text=='归档');picker:onMenuSelect(picker.item_table[3])
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+    assert(plugin.shelf_group_key=='archive:1' and #plugin.shelf_view.books==2,'system archive is not selectable')
+    source=plugin.shelf_view;source:showSourceMenu('books');picker=assert(source._shelf_popup)
+    assert(picker.item_table[5].text==require('weread.lib.i18n').tr('Uncategorized'))
+    picker:onMenuSelect(picker.item_table[5]);pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+    assert(plugin.shelf_group_key=='__ungrouped__' and #plugin.shelf_view.books==47,
+        'native ungrouped selection lost system archive books')
+    selected=plugin.shelf_view;plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books',nil,selected)
     selected=plugin.shelf_view;selected.on_select_groups({'archive:1','archive:21'})
     pump(function() return plugin.shelf_view and plugin.shelf_view~=selected end)
     assert(#plugin.shelf_view.group_keys==2 and #plugin.shelf_view.books==21)

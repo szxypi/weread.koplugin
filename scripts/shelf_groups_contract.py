@@ -9,6 +9,7 @@ def project(shelf, unnamed='Unnamed group', ungrouped='Uncategorized'):
     for archive in shelf['archive']:
         label = archive['name'].strip(' ') or unnamed
         key = 'archive:' + archive['archiveId'] if archive.get('archiveId') else 'name:' + label
+        system_archive = archive.get('archiveId') == '1' and label == '归档'
         members = list(dict.fromkeys(identity for identity in archive['bookIds'] if identity in known))
         # Only explicitly public-account-only archives are omitted. An empty
         # user group stays selectable even if its old references are unavailable.
@@ -18,7 +19,8 @@ def project(shelf, unnamed='Unnamed group', ungrouped='Uncategorized'):
             raise ValueError('ambiguous_group_identity')
         keys.add(key)
         groups.append(dict(key=key,label=label,members=members))
-        assigned.update(members)
+        if not system_archive:
+            assigned.update(members)
     remaining = [identity for identity in regular if identity not in assigned]
     if groups and remaining:
         groups.append(dict(key='__ungrouped__',label=ungrouped,members=remaining))

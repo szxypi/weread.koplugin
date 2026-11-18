@@ -15,6 +15,12 @@ local function group_key(archive, label)
 end
 
 function Groups.list(archives, books, unnamed_label, ungrouped_label)
+    local system_identity_count = 0
+    for _, archive in ipairs(type(archives) == "table" and archives or {}) do
+        if type(archive) == "table" and tostring(archive.archiveId or archive.archive_id or archive.id) == "1" then
+            system_identity_count = system_identity_count + 1
+        end
+    end
     local by_id = {}
     for _, book in ipairs(type(books) == "table" and books or {}) do
         local id = book.book_id or book.bookId
@@ -27,6 +33,12 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
         local archive = type(source_archive) == "table" and source_archive or {}
         local ids = type(archive.bookIds) == "table" and archive.bookIds or {}
         local label = text(archive.name, unnamed_label or "Unnamed group")
+        -- The client may expose a system archive as a carrier for otherwise
+        -- ungrouped books. Keep it selectable, but do not treat its members
+        -- alone as assigned to a user group. Both identity and label must
+        -- match; an ordinary group named "归档" remains an ordinary group.
+        local identity = archive.archiveId or archive.archive_id or archive.id
+        local system_archive = system_identity_count == 1 and tostring(identity) == "1" and label == "归档"
         local members, seen = {}, {}
         local mp_only = #ids > 0
         for _, id in ipairs(ids) do
@@ -36,7 +48,7 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
             if book and not seen[id] then
                 members[#members + 1] = book
                 seen[id] = true
-                grouped[id] = true
+                if not system_archive then grouped[id] = true end
             end
         end
         -- Public-account archives contain no regular books. The original

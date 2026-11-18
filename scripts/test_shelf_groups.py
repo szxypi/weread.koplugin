@@ -28,6 +28,16 @@ def group_stage(mode='live'):
 
 
 class GroupTests(unittest.TestCase):
+    def test_system_archive_keeps_entry_and_does_not_assign_books(self):
+        source=shelf();source['archive']=[dict(archiveId=1,name='归档',bookIds=['1','2']),
+                                          dict(archiveId=2,name='Other',bookIds=['2'])]
+        groups=project(source)
+        self.assertEqual(groups[0]['members'],['1','2'])
+        self.assertEqual(groups[-1]['members'],['1','3','4'])
+        for archive in (dict(archiveId=1,name='Other',bookIds=['1']),dict(archiveId=2,name='归档',bookIds=['1'])):
+            source['archive']=[archive]
+            self.assertEqual(project(source)[-1]['members'],['2','3','4'])
+
     def test_empty_group_list_does_not_claim_multiple_selection(self):
         coverage=dict.fromkeys(COUNTS,0);coverage.update(dict.fromkeys(FLAGS,True));coverage['multi_groups_verified']=False
         coverage['selector_views']=1

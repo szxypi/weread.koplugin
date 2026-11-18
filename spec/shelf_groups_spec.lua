@@ -57,6 +57,27 @@ local unavailable = Groups.list({
 expect(#unavailable==3 and #unavailable[1].books==0 and #unavailable[2].books==0
     and unavailable[3].key=='__ungrouped__','unavailable regular references hid user groups')
 
+local system=Groups.list({
+    {archiveId=1,name='归档',bookIds={'one','two'}},
+    {archiveId=2,name='Other',bookIds={'two'}},
+},books,'Unnamed group','Uncategorized')
+expect(#system==3 and #system[1].books==2 and system[1].key=='archive:1',
+    'system archive stopped being selectable')
+expect(system[3].key=='__ungrouped__' and #system[3].books==2
+    and system[3].books[1]==books[1] and system[3].books[2]==books[3],
+    'system archive hid ungrouped books or included a user-group member')
+for _,archive in ipairs({{archiveId=1,name='Other',bookIds={'one'}},
+                          {archiveId=2,name='归档',bookIds={'one'}}}) do
+    local ordinary=Groups.list({archive},books)
+    expect(#ordinary==2 and #ordinary[2].books==2 and ordinary[2].books[1]==books[2],
+        'ordinary archive was mistaken for the system carrier')
+end
+local ambiguous_system=Groups.list({{archiveId=1,name='归档',bookIds={'one'}},
+                                    {archiveId=1,name='Other',bookIds={'two'}}},books)
+expect(not Groups.unique(ambiguous_system,'archive:1') and #ambiguous_system[3].books==1
+    and ambiguous_system[3].books[1]==books[3],
+    'duplicate system identity incorrectly classified ambiguous members as ungrouped')
+
 local overlap=Groups.list({
     {archiveId=1,name='A',bookIds={'two','one'}},
     {archiveId=2,name='B',bookIds={'three','two'}},
