@@ -15,7 +15,8 @@
     "600x800_full_book": true,
     "1072x1448_single_chapter": true,
     "upload_disabled": true,
-    "offline_reopen": true
+    "offline_reopen": true,
+    "1264x1680_ko2_single_chapter": true
   },
   "physical_device_tested": false
 }
