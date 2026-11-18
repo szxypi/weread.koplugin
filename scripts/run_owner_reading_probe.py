@@ -53,8 +53,16 @@ def main(argv=None):
     parser.add_argument('--cb-mock-port',type=int,help='Synthetic CB reading fixture only')
     parser.add_argument('--missing-resume',action='store_true')
     parser.add_argument('--resume-warning',action='store_true')
+    parser.add_argument('--off-shelf-home',action='store_true')
+    parser.add_argument('--off-shelf-mock-port',type=int)
     parser.add_argument('--resume-mock-port',type=int,help='Synthetic missing-resume fixture only')
     args = parser.parse_args(argv)
+    if args.off_shelf_home and (args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
+            or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
+            or args.selection_thought_preview or args.missing_resume or args.mock_port is not None or args.cb_mock_port is not None):
+        parser.error('--off-shelf-home requires the ordinary standalone reading fixture')
+    if args.off_shelf_mock_port is not None and (not args.off_shelf_home or not 1<=args.off_shelf_mock_port<=65535):
+        parser.error('--off-shelf-mock-port requires off-shelf home mode and a valid loopback port')
     if args.resume_warning and not args.missing_resume:parser.error('--resume-warning requires --missing-resume')
     if args.missing_resume and (args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
             or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
@@ -87,6 +95,17 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        if args.off_shelf_home != (payload.get('off_shelf_home') is True):raise ValueError('input_limit')
+        if payload.get('off_shelf_mock_port')!=args.off_shelf_mock_port:raise ValueError('input_limit')
+        if args.off_shelf_mock_port is not None and (payload.get('vid')!='900000' or payload.get('book_id')!='900001'
+                or payload.get('cookies')!={'wr_vid':'900000','wr_skey':'mock_key'}):raise ValueError('input_limit')
+        if args.off_shelf_home:
+            row=payload.get('off_shelf_row')
+            if (not isinstance(row,dict) or set(row)!={'bookId','title','author'} or row['bookId']!=payload.get('book_id')
+                    or not isinstance(row['title'],str) or not 0<len(row['title'].encode())<=1024
+                    or not isinstance(row['author'],str) or len(row['author'].encode())>1024
+                    or payload['book_id'] in payload.get('shelf_ids',[]) or 'full_manifest' in payload):
+                raise ValueError('input_limit')
         if (not (payload.get('missing_resume_probe') is None or payload.get('missing_resume_probe') is True)
                 or args.missing_resume != (payload.get('missing_resume_probe') is True)
                 or payload.get('resume_mock_port')!=args.resume_mock_port):
@@ -207,7 +226,8 @@ def main(argv=None):
                                    **({'cb_reading': True,'cb_full_book':args.cb_full_book} if cb_reading else {}),
                                    **({'single_page': True} if args.cb_single_page else {}),
                                    **({'missing_resume': True} if args.missing_resume else {}),
-                                   **({'resume_warning': True} if args.resume_warning else {}))
+                                   **({'resume_warning': True} if args.resume_warning else {}),
+                                   **({'off_shelf_home': True} if args.off_shelf_home else {}))
                 cookies = envelope['cookies']
                 if args.progress_preview or args.progress_roundtrip: progress_private = envelope['progress_private']
                 if args.source_upload_preview or args.native_source_excerpt: candidate_private.append(envelope['candidate_private'])

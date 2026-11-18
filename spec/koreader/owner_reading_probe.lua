@@ -97,6 +97,16 @@ local ok,reason=pcall(function()
     local diagnostic_pacing=input.diagnostic_read_pacing==true
     local missing_resume=input.missing_resume_probe==true
     local resume_warning=input.resume_warning_probe==true
+    local off_shelf_home=input.off_shelf_home==true
+    assert(input.off_shelf_home==nil or off_shelf_home and not cb_reading and not input.full_manifest
+        and not missing_resume and not input.annotations and not input.progress_preview and not input.progress_roundtrip
+        and not input.source_upload_preview and not input.selection_preview)
+    if off_shelf_home then
+        assert(type(input.off_shelf_row)=='table' and input.off_shelf_row.bookId==input.book_id
+            and type(input.off_shelf_row.title)=='string' and #input.off_shelf_row.title>0 and #input.off_shelf_row.title<=1024
+            and type(input.off_shelf_row.author)=='string' and #input.off_shelf_row.author<=1024)
+        report.home_recent_verified=false
+    end
     assert(input.resume_warning_probe==nil or resume_warning and missing_resume)
     if resume_warning and mode=='live' then report.resume_warning_verified=false end
     assert(input.missing_resume_probe==nil or missing_resume and not cb_reading and not input.full_manifest
@@ -154,7 +164,10 @@ local ok,reason=pcall(function()
     local Settings=require('weread.lib.settings');local new_settings=Settings.new
     function Settings:new()
         local value=new_settings(self);assert(not value.mock_endpoint)
-        if input.resume_mock_port then
+        if input.off_shelf_mock_port then
+            assert(off_shelf_home and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key')
+            value.mock_endpoint='http://127.0.0.1:'..input.off_shelf_mock_port
+        elseif input.resume_mock_port then
             assert(missing_resume and input.vid=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key')
             value.mock_endpoint='http://127.0.0.1:'..input.resume_mock_port
         elseif input.cb_mock_port then
@@ -294,6 +307,7 @@ local ok,reason=pcall(function()
     for uid in pairs(chapter_ids) do content_chapters[Protocol.e(uid)]=Protocol.reader_url(input.book_id,uid) end
     local progress_urls={}
     for _i,id in ipairs(input.shelf_ids) do progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id]=true end
+    if off_shelf_home then progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..input.book_id]=true end
     local URL=require('socket.url')
     local function resource(url)
         if type(url)~='string' or #url>8192 or url:find('[%z%c%s]') then return false end
@@ -655,27 +669,46 @@ local ok,reason=pcall(function()
     report.shelf_books=#books
     local target
     for _i,book in ipairs(books) do if tostring(book.bookId)==input.book_id then target=book end end
-    assert(target)
-    plugin:showHome()
-    -- The source sample need not be in the six most recent Home rows; use the
-    -- normal shelf selection callback with the actual file-backed shelf row.
-    plugin:closeWeReadUI();plugin:showBookshelf()
-    local view=assert(plugin.shelf_view);assert(type(view.on_select)=='function')
-    local index
-    for position,book in ipairs(view.books) do if tostring(book.bookId)==input.book_id then index=position end end
-    assert(index and view.paged)
-    local page=math.floor((index-1)/view.page_size)+1
-    if page~=view.page then plugin:showShelfView('books',nil,nil,{page=page});view=assert(plugin.shelf_view) end
-    local visible
-    for _i,book in ipairs(view:getVisibleBooks()) do if tostring(book.bookId)==input.book_id then visible=book end end
-    assert(visible);UI:forceRePaint();target=visible
-    view.on_select(target,'books');report.plugin_selection=true
+    local function select_recent_home()
+        plugin:closeWeReadUI();plugin:showHome()
+        local view=assert(plugin.shelf_view);local selected
+        for _i,row in ipairs(view.books) do
+            if tostring(row.bookId or row.book_id)==input.book_id then assert(not selected);selected=row end
+        end
+        assert(selected and selected._cached,'off-shelf recent book missing from home')
+        assert(#assert(plugin.library_db:getShelf())==input.shelf_books,'home changed the shelf snapshot')
+        view.on_select(selected,'books');return selected
+    end
+    if off_shelf_home then
+        assert(not target,'off-shelf target unexpectedly in cloud shelf')
+        for _i,id in ipairs(input.shelf_ids) do assert(id~=input.book_id) end
+        if mode=='reopen' then select_recent_home();report.home_recent_verified=true
+        else plugin:showBookRecord(input.off_shelf_row,{verified_metadata=true}) end
+        report.plugin_selection=true
+    else
+        assert(target)
+        plugin:showHome()
+        -- The source sample need not be in the six most recent Home rows; use the
+        -- normal shelf selection callback with the actual file-backed shelf row.
+        plugin:closeWeReadUI();plugin:showBookshelf()
+        local view=assert(plugin.shelf_view);assert(type(view.on_select)=='function')
+        local index
+        for position,book in ipairs(view.books) do if tostring(book.bookId)==input.book_id then index=position end end
+        assert(index and view.paged)
+        local page=math.floor((index-1)/view.page_size)+1
+        if page~=view.page then plugin:showShelfView('books',nil,nil,{page=page});view=assert(plugin.shelf_view) end
+        local visible
+        for _i,book in ipairs(view:getVisibleBooks()) do if tostring(book.bookId)==input.book_id then visible=book end end
+        assert(visible);UI:forceRePaint();target=visible
+        view.on_select(target,'books');report.plugin_selection=true
+    end
     report.phase='detail'
-    pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
-    local detail=assert(plugin._book_detail_view)
     local fallback_uid=input.chapter_uid=='99999999999999999999' and '99999999999999999998' or '99999999999999999999'
     local fallback_path=home..'/synthetic-resume-fallback.epub'
     local fallback_marker='Synthetic fallback; never a real book.\n'
+    if not (off_shelf_home and mode=='reopen') then
+    pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    local detail=assert(plugin._book_detail_view)
     if missing_resume and mode=='live' then
         local file=assert(io.open(fallback_path,'wb'));assert(file:write(fallback_marker));assert(file:close())
         local saved=plugin.settings:get('books',{});local selected=assert(saved[input.book_id])
@@ -712,6 +745,7 @@ local ok,reason=pcall(function()
         if pressed then break end
     end
     assert(pressed)
+    end
     if mode=='live' then assert((full or plugin.book_reading_context) and not Reader.instance) end
     report.phase='prepare'
     pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document end)
@@ -866,6 +900,17 @@ local ok,reason=pcall(function()
     while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
     plugin:closeWeReadUI();plugin:onFlushSettings();if not close_trial_mode then reader:onClose(false) end;reader=nil
     plugin.settings:flush();G_reader_settings:flush();report.position_checkpoint=true
+    if off_shelf_home and mode=='live' then
+        local file=assert(io.open(checkpoint_path,'rb'));local checkpoint=json.decode(file:read('*a'));file:close()
+        plugin=host;select_recent_home()
+        pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document
+            and Reader.instance.document.file==checkpoint.file
+            and Reader.instance.document:isXPointerInCurrentPage(checkpoint.xpointer) end)
+        reader=Reader.instance;plugin=reader.weread
+        while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
+        plugin:closeWeReadUI();plugin:onFlushSettings();reader:onClose(false);reader=nil;plugin.settings:flush()
+        report.home_recent_verified=true
+    end
     pump(function() return not plugin.shelf_cover_job and not plugin.shelf_cover_pending
         and not plugin.book_reading_context and not plugin.downloader._active_job
         and not host.shelf_cover_job and not host.shelf_cover_pending

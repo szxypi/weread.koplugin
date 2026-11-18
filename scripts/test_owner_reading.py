@@ -47,6 +47,24 @@ def frame(value):
 
 
 class OwnerReadingTests(unittest.TestCase):
+    def test_off_shelf_home_requires_both_live_and_offline_evidence(self):
+        value=envelope()
+        for part in value['report']['stages']:part['home_recent_verified']=True
+        probe.decode_envelope(frame(value),OWNER,off_shelf_home=True)
+        for index in (0,1):
+            bad=deepcopy(value);bad['report']['stages'][index]['home_recent_verified']=False
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,off_shelf_home=True)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(value),OWNER)
+        with self.assertRaises(ValueError):probe.validate_stage(stage(),'live',off_shelf_home=True,cb_reading=True)
+
+    def test_off_shelf_home_runner_rejects_other_modes(self):
+        from run_owner_reading_probe import main
+        common=['--koreader','/synthetic','--candidate','/synthetic.zip']
+        for args in (['--off-shelf-home','--cb-reading'],['--off-shelf-home','--missing-resume'],
+                     ['--off-shelf-home','--progress-roundtrip'],['--off-shelf-mock-port','1234'],
+                     ['--off-shelf-home','--off-shelf-mock-port','0']):
+            with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(common+args)
+
     def test_missing_resume_requires_proof_in_both_stages(self):
         value=envelope()
         for part in value['report']['stages']:part['missing_resume_verified']=True
