@@ -191,6 +191,68 @@ expect(result.kind=='unconfirmed' and record.phase=='acknowledged','zero-version
 f.applied=true;f.mode=nil;local zero_configs=f.configs
 result=Task.resolve(f.client,f.settings,f.native,f.web,record,{},f.journal,f.options)
 expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==zero_configs,'zero-version read-only resolution')
+local function multi_txt_fixture(mode)
+    local multi={{chapterUid=7,chapterIdx=0},{chapterUid=8,chapterIdx=3}}
+    local book={bookId='CB_Synthetic',bookVersion=0}
+    local root=Identity.encode(book,multi,Identity.capture(book),Crypto.sha256_hex('synthetic multi book'),0)
+    local id=assert(Identity.decode(root));local members={[Identity.PATH]=root};local names={}
+    for i,chapter in ipairs(multi) do
+        local text='Synthetic multi source '..i;local html='<p>'..text..'</p>'
+        local path=string.format('OEBPS/text/chapter-%03d.xhtml',i)
+        local source=assert(Source.capture(book,chapter,text,'web_txt'))
+        local meta=assert(Source.bind(source,id,path,Crypto.sha256_hex(html)))
+        local name=Source.meta_path(tostring(chapter.chapterUid));names[i]=name
+        members[name],members[Source.path_meta_path(path)]=meta,meta
+        members[Source.raw_path(source.raw_sha256)],members[path]=text,html
+    end
+    local item=require('spec.helpers.readtime_transfer_fixture').new(mode,expect,roots,true,
+        {file_id=id.file_id,book_version=0,version_source='epub_unknown'})
+    local options={read_archive=function(_file,wanted)
+        local out={}
+        for key,maximum in pairs(wanted) do
+            local value=members[key]
+            if item.mode=='multi_after' and item.posts>0 and key=='OEBPS/text/chapter-002.xhtml' then value='changed' end
+            if not value or #value>maximum then return nil end;out[key]=value
+        end
+        return out
+    end,list_metadata=function()
+        return {{name=names[1],metadata=members[names[1]]},{name=names[2],metadata=members[names[2]]}}
+    end,fetch=function(_client,expected,_web,format,configuration,cb)
+        expect(cb and format=='web_txt')
+        local catalog={{bookId=book.bookId,book={bookId=book.bookId},updated=multi}}
+        if item.mode=='multi_version' then catalog[1].book.version=0 end
+        configuration.verify_catalog(catalog);configuration.verify_catalog(catalog)
+        local text='Synthetic multi source '..(expected.chapter_uid=='7' and 1 or 2)
+        if item.mode=='multi_source' and expected.chapter_uid=='8' then text='different' end
+        local proof=Current.project_cb(expected,catalog,{book_id=book.bookId,psvts='synthetic-session'},text,catalog)
+        proof.basis='raw_txt_utf16';return proof
+    end}
+    local reader=require('weread.lib.readtime_source')
+    local book_refs=assert(reader.references({cached_full_book='/synthetic-multi.epub'},multi,
+        {book_id=book.bookId,book_version=0,file_id=id.file_id}))
+    item.options.observe_source=function(client,web,selection,_references,previous)
+        return reader.observe(client,web,selection,book_refs,previous,options)
+    end
+    return item
+end
+f=multi_txt_fixture();result=f.run()
+expect(result.kind=='confirmed' and f.posts==1 and f.body.books[1].bookVersion==0,'multi TXT historical send')
+record=assert(f.journal:get(f.account,result.attempt))
+expect(record.metadata.source.chapter_count==2 and record.metadata.source.entries==nil,'multi TXT compact proof')
+for _i,mode in ipairs({'multi_source','multi_version'}) do
+    f=multi_txt_fixture(mode);result=f.run()
+    expect(not result.attempted and f.posts==0,'multi TXT must reject '..mode)
+end
+for _i,mode in ipairs({'multi_after','no_ack'}) do
+    f=multi_txt_fixture(mode);result=f.run()
+    expect(result.kind=='unconfirmed' and result.attempted and f.posts==1,'multi TXT must retain '..mode)
+    result=f.run();expect(not result.attempted and f.posts==1,'multi TXT unknown replayed')
+end
+f=multi_txt_fixture('no_delta');result=f.run();record=f.journal:pending(f.account)
+expect(result.kind=='unconfirmed' and record.phase=='acknowledged','multi TXT ACK saved')
+f.applied=true;f.mode=nil;local multi_configs=f.configs
+result=Task.resolve(f.client,f.settings,f.native,f.web,record,{},f.journal,f.options)
+expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==multi_configs,'multi TXT read-only resolution')
 Signing.time_zone=original_zone
 for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
 print('readtime_transfer_task_spec: '..n..' checks')

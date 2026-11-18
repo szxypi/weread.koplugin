@@ -73,6 +73,21 @@ for _i,change in ipairs({'view','auth','deadline'}) do
     f.service.job.poll();expect(f.result.kind=='cancelled' and not f.service.job and not f.gate.active)
     expect(not f.restarts and not f.refreshes and not f.host._offline_time_transfer_lock and f.posts==0,change)
 end
+-- A complete imported TXT needs two source passes over every chapter. Give
+-- its worker a bounded chapter-aware deadline while keeping cancellation live.
+f=fixture()
+local multi_input={book_id='CB_Synthetic',book_version=0}
+local multi_refs={{file='/synthetic.epub',chapter_uid='7',chapter_idx=0,chapters={{chapterUid='7',chapterIdx=0},{chapterUid='8',chapterIdx=1}}}}
+expect(f.service:start('send',f.account,multi_input,multi_refs,f.guard,function(value) f.result=value end))
+expect(f.service.job.deadline==130)
+f.clock=f.clock+71;expect(f.service:_current(f.service.job),'multi-chapter worker timed out at single-chapter deadline')
+f.clock=f.clock+60;f.service.job.poll()
+expect(f.result.kind=='cancelled' and not f.service.job and not f.gate.active and f.posts==0,'multi-chapter deadline did not cancel')
+f=fixture();local many={}
+for i=1,10000 do many[i]={chapterUid=tostring(i),chapterIdx=i} end
+multi_refs[1].chapters=many
+expect(f.service:start('send',f.account,multi_input,multi_refs,f.guard,function(value) f.result=value end))
+expect(f.service.job.deadline==3600 and f.service:cancel(),'large scope deadline must be bounded')
 -- If the worker died after a dispatch, cancellation keeps the sealed intent.
 f=fixture('lost');expect(f.start());f.deliver()
 expect(f.result.kind=='unconfirmed' and f.journal:pending(f.account).phase=='claimed' and f.posts==1)

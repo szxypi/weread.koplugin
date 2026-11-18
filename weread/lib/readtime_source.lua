@@ -9,22 +9,41 @@ local Candidate=require('weread.lib.source_upload_candidate')
 local Index=Candidate.chapter_index
 local Crypto=require('weread.lib.crypto')
 local M={}
-function M.references(book,chapters)
+local function chapter_scope(chapters,selection)
+    if type(selection)~='table' or not C.cb_id(selection.book_id) or selection.book_version~=0
+        or not C.array(chapters,2,10000) then return nil end
+    local indexes=Candidate.chapter_indices(chapters)
+    if not indexes then return nil end
+    local scope={}
+    for i,chapter in ipairs(chapters) do
+        local uid=tostring(chapter.chapterUid or chapter.chapterId or chapter.chapter_uid or '')
+        local index=indexes[uid]
+        if not C.id(uid) or not C.integer(index,0,1000000) then return nil end
+        scope[i]={chapterUid=uid,chapterIdx=index}
+    end
+    return scope
+end
+function M.references(book,chapters,selection)
     if type(book)~='table' or type(chapters)~='table' then return nil end
     local refs,seen={},{}
-    local function add(path,uid)
+    local scope=chapter_scope(chapters,selection)
+    local function add(path,uid,full)
         uid=tostring(uid or '')
         local idx=Index(chapters,uid)
-        if type(path)=='string' and #path>0 and #path<=4096 and not path:find('%z') and idx~=nil and not seen[path] then
-            seen[path]=true;refs[#refs+1]={file=path,chapter_uid=uid,chapter_idx=idx}
+        if type(path)=='string' and #path>0 and #path<=4096 and not path:find('%z') and idx~=nil then
+            if not seen[path] then
+                refs[#refs+1]={file=path,chapter_uid=uid,chapter_idx=idx};seen[path]=#refs
+            end
+            if full and scope then refs[seen[path]].chapters=scope end
         end
     end
+    local first=chapters[1];local first_uid=first and (first.chapterUid or first.chapterId or first.chapter_uid)
+    if scope then add(book.cached_full_book,first_uid,true);add(book.cached_file,first_uid,true) end
     for _i,chapter in ipairs(chapters) do
         local uid=tostring(chapter.chapterUid or chapter.chapterId or '')
         add(book.cached_chapters and book.cached_chapters[uid],uid)
     end
-    local first=chapters[1];local uid=first and (first.chapterUid or first.chapterId)
-    add(book.cached_full_book,uid);add(book.cached_file,uid)
+    add(book.cached_full_book,first_uid,true);add(book.cached_file,first_uid,true)
     if #refs==0 or #refs>128 then return nil end
     return refs
 end
@@ -113,9 +132,12 @@ function M.scan_page(book,chapters,selection,previous,cursor,options)
             or position>2 and type(book.cached_chapters)=='table' and book.cached_chapters[uid]
         if type(path)=='string' and path~='' and #path<=4096 and not path:find('%z') and idx~=nil then
             local ref={file=path,chapter_uid=uid,chapter_idx=idx}
-            if (not previous or type(previous)=='table' and type(previous.ref)=='table' and C.digest(ref)==C.digest(previous.ref))
-                and local_source(selection,ref,options.read_archive or Archive.read) then
-                return {kind='found',reference=ref}
+            if not previous or type(previous)=='table' and type(previous.ref)=='table' and C.digest(ref)==C.digest(previous.ref) then
+                if local_source(selection,ref,options.read_archive or Archive.read) then return {kind='found',reference=ref} end
+                local scope=position<=2 and chapter_scope(chapters,selection)
+                if scope and require('weread.lib.readtime_source_bundle').inspect(selection,path,scope,options) then
+                    ref.chapters=scope;return {kind='found',reference=ref}
+                end
             end
         end
     end
@@ -129,7 +151,26 @@ function M.observe(client,selected,selection,references,previous,options)
     local chosen
     for _i,ref in ipairs(references) do
         assert(type(ref)=='table' and type(ref.file)=='string' and C.id(ref.chapter_uid) and C.integer(ref.chapter_idx,0,1000000),'readtime_source/reference')
-        if not previous or C.digest(ref)==C.digest(previous.ref) then chosen=local_source(selection,ref,read) end
+        local plain={file=ref.file,chapter_uid=ref.chapter_uid,chapter_idx=ref.chapter_idx}
+        if not previous or C.digest(plain)==C.digest(previous.ref) then
+            chosen=local_source(selection,plain,read)
+            if not chosen and selection.book_version==0 and C.array(ref.chapters,2,10000) then
+                local bundle=require('weread.lib.readtime_source_bundle')
+                if bundle.inspect(selection,ref.file,ref.chapters,options) then
+                    local old
+                    if previous then old={};for key,value in pairs(previous) do if key~='ref' then old[key]=value end end end
+                    local bundle_options={read_archive=options.read_archive,list_metadata=options.list_metadata}
+                    if options.fetch then
+                        bundle_options.fetch=function(c,e,w,check)
+                            return options.fetch(c,e,w,'web_txt',{verify_catalog=check},true)
+                        end
+                    end
+                    local result=bundle.verify(client,selected,selection,ref.file,ref.chapters,old,bundle_options)
+                    result.ref=plain
+                    return result
+                end
+            end
+        end
         if chosen then break end
     end
     assert(chosen,'readtime_source/archive')

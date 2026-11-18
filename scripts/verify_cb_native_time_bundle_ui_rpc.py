@@ -109,6 +109,7 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi,seeded):
     expected_events={
         'zero_selection':[],
         'zero_send':[],
+        'zero_multi':[],
         'success':[('selection',True),('claim',True),('ack',True)],
         'dry_run':[('selection',True),('claim',False)],
         'tamper_selection':[('selection',False)],
@@ -129,17 +130,17 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi,seeded):
         'invalid_ack':[('selection',True),('claim',True),('ack',False)],
         'http_201':[('selection',True),('claim',True),('ack',False)],
     }[mode]
-    no_gate={'zero_selection','zero_send','dry_run','tamper_selection','tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows',
+    no_gate={'zero_selection','zero_send','zero_multi','dry_run','tamper_selection','tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows',
              'tamper_native_counts','tamper_native_months','tamper_native_shelf','tamper_native_source','tamper_native_catalog'}
     wanted='none' if mode in no_gate else 'acknowledged' if mode in ('success','no_delta') else 'claimed'
-    local_phase='claimed' if mode in no_gate-{'tamper_selection','zero_selection','zero_send'} else 'none' if mode in ('success','tamper_selection','zero_selection','zero_send') else wanted
+    local_phase='claimed' if mode in no_gate-{'tamper_selection','zero_selection','zero_send','zero_multi'} else 'none' if mode in ('success','tamper_selection','zero_selection','zero_send','zero_multi') else wanted
     if (events!=expected_events or phase!=wanted or result.get('mode')!=mode or result.get('local_phase')!=local_phase
             or result.get('native_menu') is not True or result.get('dialog_correct') is not True or result.get('workers_reaped') is not True
             or result.get('background_service') is not (mode not in ('tamper_selection','zero_selection'))
             or result.get('recovery_checked') is not (mode=='no_delta')
             or result.get('skip_checked') is not (mode in ('success','zero_selection'))
-            or type(result.get('source_reads')) is not int or result['source_reads']<(0 if mode in ('tamper_selection','zero_selection') else 2 if mode in ('success','zero_send','no_delta') else 1)
-            or result.get('local_confirmed')!=(plan['seconds'] if mode in ('success','zero_send') else 0)):
+            or type(result.get('source_reads')) is not int or result['source_reads']<(0 if mode in ('tamper_selection','zero_selection') else 2 if mode in ('success','zero_send','zero_multi','no_delta') else 1)
+            or result.get('local_confirmed')!=(plan['seconds'] if mode in ('success','zero_send','zero_multi') else 0)):
         raise ValueError('cb_ui/result')
     stored,_=audit.read()
     if (stored is not None)!=(phase!='none'):raise ValueError('cb_ui/audit')
@@ -170,7 +171,7 @@ def main(argv=None):
             enable_subreaper()
             with tempfile.TemporaryDirectory(prefix='weread-cb-ui-rpc-',dir='/dev/shm') as directory:
                 root=Path(directory);bundle,_,_,_,_,_=fixture();seeded=seed(runtime,source,root,bundle['plan'])
-                modes=('success','zero_selection','zero_send','dry_run','tamper_selection','tamper_body','tamper_native_point','tamper_native_web',
+                modes=('success','zero_selection','zero_send','zero_multi','dry_run','tamper_selection','tamper_body','tamper_native_point','tamper_native_web',
                        'tamper_native_rows','tamper_native_counts','tamper_native_months','tamper_native_shelf',
                        'tamper_native_source','tamper_native_catalog','lost_reply','no_ack','kill_worker','no_delta','duplicate','invalid_ack','http_201')
                 for mode in modes:scenario(runtime,source,candidate,root,mode,args.width,args.height,args.dpi,seeded)

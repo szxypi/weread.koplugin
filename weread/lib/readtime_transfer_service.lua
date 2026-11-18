@@ -6,6 +6,18 @@ local Account=require('weread.lib.native_position_contract').account_key
 local Task=require('weread.lib.readtime_transfer_task')
 local M={};M.__index=M
 local function checked(fn) local ok,v=pcall(fn);return ok and v==true end
+local function deadline(mode,input,references)
+    local selection=mode=='send' and input or mode=='resolve' and input.metadata
+    if type(selection)~='table' or not C.cb_id(selection.book_id) or selection.book_version~=0
+        or not C.array(references,1,128) then return 70 end
+    local count=0
+    for _i,ref in ipairs(references) do
+        if type(ref)=='table' and C.array(ref.chapters,2,10000) then count=math.max(count,#ref.chapters) end
+    end
+    -- Each chapter requires an independent source check before and after the
+    -- write. The view remains cancellable and the deadline remains bounded.
+    return count>1 and math.min(3600,70+30*count) or 70
+end
 function M:new(options)
     return setmetatable({settings=assert(options.settings),client=assert(options.client),journal=assert(options.journal),
         scheduler=assert(options.scheduler),worker=options.worker,credentials=options.credentials,acquire=assert(options.acquire),
@@ -14,7 +26,7 @@ function M:new(options)
 end
 function M:_current(job)
     local age=self.now()-job.started
-    return self.job==job and age>=0 and age<=70 and checked(job.guard)
+    return self.job==job and age>=0 and age<=job.deadline and checked(job.guard)
         and (not job.native or Native.matches(self.settings,job.native) and Web.matches(self.settings,job.web))
 end
 function M:_release(job,resume)
@@ -55,7 +67,8 @@ function M:start(mode,account,input,references,guard,callback)
     local made,gate=pcall(self.guard_factory);if not made or not gate then return false,'unavailable' end
     local acquired,release,why=pcall(self.acquire,input.book_id or input.metadata and input.metadata.book_id)
     if not acquired or type(release)~='function' then gate:close();return false,why or 'busy' end
-    local job={native=native,web=web,guard=guard,gate=gate,release=release,started=self.now()};self.job=job
+    local job={native=native,web=web,guard=guard,gate=gate,release=release,started=self.now(),
+        deadline=deadline(mode,input,references)};self.job=job
     job.poll=function()
         if self.job~=job then return end
         if not self:_current(job) then

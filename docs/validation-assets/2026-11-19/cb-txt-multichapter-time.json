@@ -1,0 +1,21 @@
+{
+  "result": "SYNTHETIC_MULTI_CHAPTER_ZERO_TXT_VERIFIED",
+  "runtime": "KOReader 2026.07 Linux ARM64",
+  "screen_scenarios": {
+    "600x800": 22,
+    "1264x1680": 22
+  },
+  "native_menu_and_background": true,
+  "two_chapter_synthetic_transfer": true,
+  "real_archive_and_sqlite": true,
+  "synthetic_127_chapter_paged_scope": true,
+  "all_chapters_source_checked": true,
+  "changed_source_and_catalog_rejected": true,
+  "unknown_result_not_replayed": true,
+  "acknowledged_read_only_recovery": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "real_historical_accounting_verified": false,
+  "real_multi_chapter_account_verified": false,
+  "kindle_device_verified": false
+}

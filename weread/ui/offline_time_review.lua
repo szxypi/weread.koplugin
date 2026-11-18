@@ -195,13 +195,14 @@ transfer=function(host,context,mode,input)
         end
     end
     local references,book,chapters
+    local selection=mode=='send' and input or input.metadata
     if online then
         local id=input.book_id or input.metadata.book_id
         book=host.settings:get_book(id)
         chapters=book and book.chapters
         if type(chapters)~='table' or #chapters==0 then chapters=host.library_db:getChapters(id) end
         if type(chapters)~='table' or #chapters<=126 then
-            references=require('weread.lib.readtime_source').references(book,chapters)
+            references=require('weread.lib.readtime_source').references(book,chapters,selection)
             if not references then host:showInfo(_('Download source needs verification'));load(host,context,'summary',{});return end
         end
     end
@@ -230,7 +231,6 @@ transfer=function(host,context,mode,input)
     end
     if not online or references then start(references);return end
     local operation={};context.operation=operation
-    local selection=mode=='send' and input or input.metadata
     local previous=mode=='resolve' and input.metadata.source or nil
     local worker=host.offline_time_review_worker
     local scan
