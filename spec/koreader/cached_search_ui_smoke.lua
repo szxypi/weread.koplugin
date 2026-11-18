@@ -7,6 +7,7 @@ local full=os.getenv('WEREAD_TEST_CACHED_FULL')=='1'
 local incomplete=os.getenv('WEREAD_TEST_CACHED_INCOMPLETE')=='1'
 local dual=os.getenv('WEREAD_TEST_CACHED_DUAL')=='1'
 local ignore_case=os.getenv('WEREAD_TEST_CACHED_IGNORE_CASE')=='1'
+local restore_catalog=os.getenv('WEREAD_TEST_CACHED_RESTORE_CATALOG')=='1'
 local target_uid=incomplete and '1' or '2'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local book_id=imported and 'CB_SyntheticCached' or '900001'
@@ -133,7 +134,23 @@ local ffi=require('ffi')
 pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
 local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
 local requests=ffi.cast('int *',memory);requests[0]=0
-function Client:request() requests[0]=requests[0]+1;error('offline cached search attempted a network request') end
+local request=Client.request
+function Client:request(options)
+    requests[0]=requests[0]+1
+    if restore_catalog then
+        local Protocol=require('weread.lib.protocol')
+        if options.method=='GET' and options.url==Protocol.reader_url(book_id) and not options.body then
+            return request(self,options)
+        end
+        if options.method=='POST' and options.url=='https://weread.qq.com/web/book/chapterInfos' then
+            local body=self:json_decode(options.body)
+            if type(body)=='table' and type(body.bookIds)=='table' and #body.bookIds==1 and body.bookIds[1]==book_id then
+                return request(self,options)
+            end
+        end
+    end
+    error('offline cached search attempted an unexpected network request')
+end
 local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
 local socket=require('socket')
 local reader=require('apps/reader/readerui'):new{dimen=Device.screen:getSize(),
@@ -147,7 +164,7 @@ local function wait(predicate)
     end
 end
 local plugin=assert(reader.weread)
-plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
+plugin.isNetworkOnline=function() return restore_catalog end;plugin.isNetworkConnected=plugin.isNetworkOnline
 assert(plugin:showEndOfBookDialog(book_id))
 local quick=assert(UI:getTopmostVisibleWidget());local button
 for _i,row in ipairs(quick.buttons) do for _j,item in ipairs(row) do
@@ -170,6 +187,29 @@ owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return owner.finished and not owner.job end)
 local count=incomplete and 1 or 2
 assert(#owner.value==count and owner.checked==count and owner.missing==(no_catalog and 0 or 1))
+if restore_catalog then
+    local function action(label)
+        for _i,item in ipairs(owner.menu.item_table) do if item.text==require('weread.lib.i18n').tr(label) then return item end end
+        error('catalog restore action missing: '..label)
+    end
+    local original_reader=Content.ensure_reader_state
+    Content.ensure_reader_state=function(...) socket.sleep(.8);return original_reader(...) end
+    owner.menu:onMenuSelect(action('Fetch chapter list for this search'))
+    wait(function() return owner.catalog_worker and owner.catalog_worker.job end)
+    local cancelled=owner.catalog_worker.job.pid;plugin.busy_message:onTapClose()
+    wait(function() return require('ffi/util').isSubProcessDone(cancelled) end)
+    assert(not owner.job and owner.catalog_missing and requests[0]==0,'cancelled catalog request sent network traffic')
+    Content.ensure_reader_state=original_reader
+    owner.menu:onMenuSelect(action('Fetch chapter list for this search'))
+    wait(function() return owner.finished and not owner.job and not owner.catalog_missing and owner.total==6 end)
+    assert(owner.missing==4 and #owner.value==2 and requests[0]==2 and action('Download full book and search again'))
+    local saved=assert(plugin.settings:get_book(book_id))
+    assert(saved.pending_upload_position.chapter_offset==19 and saved.pending_upload_reason=='synthetic_pending')
+    assert(plugin.library_db:getChapters(book_id) and Content.load_catalog_cache(plugin.client,plugin.settings,saved))
+    print('\nWEREAD_CACHED_CATALOG_RESTORE='..require('json').encode({result='PASS',catalog_restored=true,
+        rescan=true,cancel_safe=true,missing=4,pending_preserved=true}))
+    os.exit(0)
+end
 if full then
     assert(owner.discovered and owner.discovery_incomplete==incomplete and owner.queue[count].uid==target_uid)
     if incomplete then assert(owner.menu.item_table[#owner.menu.item_table].text==

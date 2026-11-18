@@ -95,6 +95,7 @@ def main():
     parser.add_argument('--cached-incomplete', action='store_true')
     parser.add_argument('--cached-dual', action='store_true')
     parser.add_argument('--cached-ignore-case', action='store_true')
+    parser.add_argument('--cached-restore-catalog', action='store_true')
     parser.add_argument('--cb-cloud-single', action='store_true')
     parser.add_argument('--cb-sync-noack', action='store_true')
     parser.add_argument('--cb-sync-cloud', action='store_true')
@@ -120,8 +121,10 @@ def main():
     if args.search_local_restart and not args.search_local_interrupt:
         parser.error('local restart fixture requires local interruption')
     if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete or args.cached_dual
-            or args.cached_ignore_case) and args.probe!='cached-search':
+            or args.cached_ignore_case or args.cached_restore_catalog) and args.probe!='cached-search':
         parser.error('cached search options require --probe cached-search')
+    if args.cached_restore_catalog and (not args.cached_no_catalog or args.cached_signed_out or args.cached_full or args.search_cb):
+        parser.error('catalog restore fixture requires signed-in ordinary cached search without a catalog')
     if args.cached_full and not args.cached_no_catalog:
         parser.error('--cached-full requires --cached-no-catalog')
     if args.cached_incomplete and not args.cached_full:
@@ -171,6 +174,7 @@ def main():
                                         WEREAD_TEST_CACHED_INCOMPLETE='1' if args.cached_incomplete else '0',
                                         WEREAD_TEST_CACHED_DUAL='1' if args.cached_dual else '0',
                                         WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
+                                        WEREAD_TEST_CACHED_RESTORE_CATALOG='1' if args.cached_restore_catalog else '0',
                                         WEREAD_TEST_CB_CLOUD_SINGLE='1' if args.cb_cloud_single else '0',
                                         WEREAD_TEST_CB_SYNC_NOACK='1' if args.cb_sync_noack else '0',
                                         WEREAD_TEST_CB_SYNC_CLOUD='1' if args.cb_sync_cloud else '0',
@@ -235,7 +239,7 @@ def main():
                         checked=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                             env=environment | {flag:'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                     assert checked.returncode==0, 'offline account ownership check failed; inspect isolated runtime log'
-            if result.returncode == 0 and args.probe == 'cached-search' and args.cached_no_catalog:
+            if result.returncode == 0 and args.probe == 'cached-search' and args.cached_no_catalog and not args.cached_restore_catalog:
                 server.shutdown();thread.join()
                 with (root / 'evidence/reopen.log').open('w') as out:
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
@@ -321,6 +325,15 @@ def main():
                 value=json.loads(reopened_raw.split(marker,1)[1].splitlines()[0])
                 assert value==dict(result='PASS',fresh_process=True,offline=True,pending_preserved=True,
                                    upload_disabled=True,requests=0), 'offline imported cloud reopen mismatch'
+            if args.probe == 'cached-search' and args.cached_restore_catalog:
+                marker=b'\nWEREAD_CACHED_CATALOG_RESTORE='
+                assert raw.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in raw
+                value=json.loads(raw.split(marker,1)[1].splitlines()[0])
+                assert value==dict(result='PASS',catalog_restored=True,rescan=True,cancel_safe=True,
+                                   missing=4,pending_preserved=True), 'cached catalog restoration mismatch'
+                assert server.request_totals[('/web/book/chapterInfos','')]==1, 'unexpected catalog request count'
+                assert all(event['method']!='POST' or event['path']=='/web/book/chapterInfos' for event in server.events), 'unexpected modifying request'
+                print('PASS: '+str(log));return
             if args.probe == 'cached-search':
                 marker=b'\nWEREAD_CACHED_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing cached search result'

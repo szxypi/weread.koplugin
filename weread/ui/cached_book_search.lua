@@ -24,6 +24,7 @@ local function stop(host,owner)
     local job=owner.job;owner.job=nil
     if owner.task then UI:unschedule(owner.task);owner.task=nil end
     if owner.worker then owner.worker:cancel() end
+    if owner.catalog_worker then owner.catalog_worker:cancel() end
     if job and job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
 local function stop_download(host,owner)
@@ -76,7 +77,7 @@ local function queue(book,chapters,file,full)
     return result,missing,#chapters,catalog_missing
 end
 
-local render,start,download_missing
+local render,start,download_missing,fetch_catalog
 render=function(host,owner)
     if not current(host,owner) or not owner.menu then return end
     Popup.redraw(owner.menu,function()
@@ -111,6 +112,13 @@ render=function(host,owner)
             owner.checked,owner.total,owner.missing),select_enabled=false}
         if owner.unresolved>0 then
             items[#items+1]={text=_('Some matches could not be located safely and were omitted.'),select_enabled=false}
+        end
+        if owner.finished and owner.catalog_missing and not owner.job and not owner.download then
+            items[#items+1]={text=_('Fetch chapter list for this search'),callback=function()
+                if current(host,owner) and not owner.job and not owner.navigation and not owner.download then
+                    fetch_catalog(host,owner)
+                end
+            end}
         end
         if owner.catalog_missing then
             items[#items+1]={text=_(owner.discovered and 'Chapter list unavailable; only indexed downloads were searched.'
@@ -220,6 +228,61 @@ start=function(host,owner)
         if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
     end
     step();return true
+end
+
+fetch_catalog=function(host,owner)
+    if not current(host,owner) or not owner.catalog_missing or owner.job or owner.navigation or owner.download then return end
+    if not host:isNetworkOnline() then host:showOffline(_('Loading chapter list...'));return end
+    if not host:requireLogin(true,false) or not current(host,owner) then return end
+    local WorkerSettings=require('weread.lib.worker_settings')
+    local fingerprint=WorkerSettings.fingerprint(host.settings)
+    local made,worker=pcall(function()
+        return owner.catalog_worker or require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=8*1024*1024}
+    end)
+    if not made or not worker then host:showInfo(_("Could not load this book's chapter list."));return end
+    owner.catalog_worker=worker
+    local job={};owner.job=job
+    host:showBusy(_('Loading chapter list...'),function()
+        if owner.job==job then stop(host,owner);render(host,owner) end
+    end)
+    job.busy=host.busy_message
+    local called,started=pcall(worker.start,worker,function()
+        local Content=require('weread.lib.content')
+        local auth=WorkerSettings.capture(host.settings)
+        local book=host.settings:get_book(owner.id) or {book_id=owner.id}
+        local copy={book_id=owner.id,title=book.title,author=book.author,reader_url=book.reader_url}
+        Content.ensure_reader_state(host.client,copy)
+        return {book_id=owner.id,chapters=Reading.catalog(Content.fetch_catalog(host.client,copy)),auth=auth()}
+    end,function(result)
+        if owner.job~=job then return end
+        if not current(host,owner) or WorkerSettings.fingerprint(host.settings)~=fingerprint then M.cancel(host);return end
+        local chapters=type(result)=='table' and result.book_id==owner.id and Reading.catalog(result.chapters)
+        if not chapters or #chapters>10000 or result.auth and not WorkerSettings.merge(host.settings,fingerprint,result.auth) then
+            stop(host,owner);render(host,owner);host:showInfo(_("Could not load this book's chapter list."));return
+        end
+        if not current(host,owner) then M.cancel(host);return end
+        local book=host.settings:get_book(owner.id)
+        local entries,missing,total
+        if type(book)=='table' then entries,missing,total=queue(book,chapters,owner.file,owner.full) end
+        local saved=entries and pcall(function()
+            local Content=require('weread.lib.content')
+            assert(host.library_db:putChapters(owner.id,chapters))
+            assert(Content.save_catalog_cache(host.client,host.settings,book,chapters))
+        end)
+        if not current(host,owner) then M.cancel(host);return end
+        if not saved then
+            stop(host,owner);render(host,owner);host:showInfo(_("Could not load this book's chapter list."));return
+        end
+        stop(host,owner)
+        owner.catalog,owner.catalog_missing,owner.discovery_pending=chapters,false,false
+        owner.discovery_incomplete,owner.discovered=false,false
+        owner.queue,owner.missing,owner.total=entries,missing,total
+        owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
+        owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
+        for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
+        render(host,owner);start(host,owner)
+    end)
+    if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_("Could not load this book's chapter list.")) end
 end
 
 -- Do not replace an EPUB which KOReader currently has open, including aliases.

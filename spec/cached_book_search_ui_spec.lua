@@ -20,7 +20,12 @@ package.preload['weread.ui.shelf_popup']=function() return {redraw=function(_men
     show=function(menu,dialog) menu._shelf_popup=dialog;UI:show(dialog);return true end} end
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) return options end} end
 local output_path='/new-full.epub'
-package.preload['weread.lib.content']=function() return {book_epub_path=function() return output_path end} end
+local catalog_rows,catalog_writes,catalog_save_ok=nil,0,true
+package.preload['weread.lib.content']=function() return {book_epub_path=function() return output_path end,
+    ensure_reader_state=function() end,fetch_catalog=function() return catalog_rows end,
+    save_catalog_cache=function() catalog_writes=catalog_writes+1;return catalog_save_ok end} end
+package.preload['weread.lib.worker_settings']=function() return {fingerprint=function() return 'fingerprint' end,
+    capture=function() return function() return nil end end,merge=function() return true end} end
 package.preload['libs/libkoreader-lfs']=function()
     local missing=function() return nil,'missing',2 end
     return {attributes=missing,symlinkattributes=missing}
@@ -61,8 +66,10 @@ local book={book_id='CB_Synthetic',cached_chapters={['1']='/one.epub',['2']='/tw
 local host={ui={document={file='/one.epub'}},_reader_session_gen=1,client={},
     settings={get_auth_scope=function() return scope end,auth_scope_matches=function(_self,value) return value==scope end,
         get=function(_self,key,default) if key=='auth_epoch' then return epoch end;return default end,
-        get_book=function() return book end},library_db={accountKey=function() return account end}}
+        get_book=function() return book end},library_db={accountKey=function() return account end,
+            putChapters=function() return true end}}
 function host:cancelBookSearch() Cached.cancel(self) end
+function host:requireLogin() return true end
 function host:showBusy(_message,cancel) self.busy_message={cancel=cancel} end
 function host:closeBusy() self.busy_message=nil end
 function host:showInfo(value) self.info=value end
@@ -160,6 +167,34 @@ expect(owner.finished and owner.menu.items[#owner.menu.items].text=='Chapter lis
 owner.menu.items[1].callback()
 expect(navigations==2 and owner.navigation.row.chapterUid==1,
     'a mapped downloaded result without a catalog did not start guarded local navigation')
+Cached.cancel(host)
+scope={vid='123',epoch=1};account='account';catalog_rows=chapters
+local function no_catalog_complete()
+    local missing_catalog=open(nil,true);worker:complete();local next_task=scheduled;scheduled=nil;next_task()
+    worker:complete();next_task=scheduled;scheduled=nil;next_task();return missing_catalog
+end
+local function fetch_button(value)
+    for _,item in ipairs(value.menu.items) do if item.text=='Fetch chapter list for this search' then return item end end
+end
+owner=no_catalog_complete();local fetch=assert(fetch_button(owner));fetch.callback()
+expect(owner.job and owner.catalog_missing,'catalog fetch did not start in background')
+worker:complete()
+expect(owner.job and not owner.catalog_missing and owner.total==3 and owner.missing==1
+    and owner.keyword=='needle' and owner.ignore_ascii_case and catalog_writes==1,'catalog fetch did not restart the same search')
+worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
+expect(owner.finished and #owner.value==2 and owner.missing==1 and download_button(owner),
+    'refreshed catalog lost unavailable chapters or the download option')
+Cached.cancel(host)
+
+owner=no_catalog_complete();fetch=assert(fetch_button(owner));fetch.callback();old=worker
+host.busy_message.cancel();old:complete()
+expect(owner.catalog_missing and catalog_writes==1 and not owner.job,'cancelled catalog fetch saved or restarted')
+Cached.cancel(host)
+owner=no_catalog_complete();fetch=assert(fetch_button(owner));fetch.callback();account='other';worker:complete();account='account'
+expect(not host._cached_book_search_owner and catalog_writes==1,'catalog fetch survived an account change')
+owner=no_catalog_complete();fetch=assert(fetch_button(owner));catalog_save_ok=false;fetch.callback();worker:complete();catalog_save_ok=true
+expect(owner.catalog_missing and owner.finished and #owner.value==2 and catalog_writes==2,
+    'catalog save failure replaced existing search results')
 Cached.cancel(host)
 local discovery_count=0
 require('weread.lib.cached_book_search').discover=function()

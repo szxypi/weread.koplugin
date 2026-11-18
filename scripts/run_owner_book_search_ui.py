@@ -82,7 +82,16 @@ def main(argv=None):
                 if child.returncode or len(out)>8*1024*1024 or out.count(FRAME)!=1 or b'[WeRead] forceRePaint failed:' in out+err:
                     raise ValueError('owner_search/native')
                 value=json.loads(out.split(FRAME,1)[1].splitlines()[0])
-                if payload.get('full_download_search') is True:
+                if payload.get('cached_catalog_restore') is True:
+                    flags=('cached_catalog_restore','cancel_without_network','pending_preserved','workers_reaped','credential_audit')
+                    keys={'result',*flags,'chapters','missing','denied_requests','reader_gets','catalog_posts'}
+                    if (not isinstance(value,dict) or set(value)!=keys or value['result']!='PASS'
+                            or any(value[k] is not True for k in flags) or value['chapters']!=len(payload['chapters'])
+                            or value['missing']!=value['chapters']-1 or value['denied_requests']!=0
+                            or value['reader_gets']!=1 or value['catalog_posts']!=1):
+                        raise ValueError('owner_search/cached_catalog')
+                    report.update(result='PASS',ui=value);continue_validation=False
+                elif payload.get('full_download_search') is True:
                     flags=('full_download_search','cancel_without_download','current_file_preserved','source_verified','navigation_verified',
                            'workers_reaped','credential_audit')
                     keys={'result',*flags,'chapters','checked','denied_requests','download_gets','catalog_posts','content_posts'}

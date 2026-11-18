@@ -722,6 +722,7 @@ local zh = {
     ["Could not locate this downloaded search result. The cached chapter may have changed."] = "无法定位已下载内容中的搜索结果，缓存章节可能已变化。",
     ["Search downloaded chapters"] = "搜索已下载章节",
     ["Download full book and search again"] = "下载全书并重新搜索",
+    ["Fetch chapter list for this search"] = "联网获取章节目录",
     ["Download all %1 chapters, then search the downloaded book again?"] = "下载全部 %1 章后，重新搜索已下载内容吗？",
     ["Cannot replace the book currently open in the reader."] = "无法替换阅读器中正在打开的书籍。",
     ["Could not download this book."] = "无法下载这本书。",
