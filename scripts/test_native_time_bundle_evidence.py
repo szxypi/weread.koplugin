@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock,patch
 
 from native_time_bundle_audit_store import AuditStore
-from native_time_bundle_evidence import PreflightEvidence
+from native_time_bundle_evidence import FreshShelfEvidence,PreflightEvidence
 from native_time_bundle_preparation import SigningInputs,read_evidenced_signing_inputs
 from native_time_bundle_selection import expected
 from native_time_bundle_supervisor import EvidenceSupervisor
@@ -37,7 +37,50 @@ def evidence_fixture():
     return bundle,grant,before,report,now,evidence
 
 
+def fresh_fixture():
+    bundle,grant,before,report,now,_evidence=evidence_fixture()
+    del report['both_positions_source_counts_and_original_shelf_exact']
+    report.update(result='CAPTURE_FRESH_SHELF_READONLY_VERIFIED',
+                  captured_native_shelf_positions_source_counts_exact=True,
+                  fresh_native_and_web_shelf_stable=True,
+                  previous_native_group_baseline_matches=False,
+                  previous_web_group_baseline_matches=False)
+    pairs=synthetic_pairs(synthetic_catalog(bundle['plan']))
+    shelves=('a'*64,'b'*64)
+    evidence=FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves)
+    return bundle,grant,before,report,now,pairs,shelves,evidence
+
+
 class EvidenceTests(unittest.TestCase):
+    def test_fresh_evidence_is_private_copied_and_cannot_authorize_dispatch(self):
+        bundle,grant,before,report,now,_pairs,shelves,evidence=fresh_fixture()
+        self.assertEqual(repr(evidence),'<FreshShelfEvidence private>')
+        public,snapshot,months,stamp,actual=evidence.for_bundle(bundle,grant)
+        self.assertEqual((public,snapshot,months,actual),(report,before['snapshot'],before['months'],shelves))
+        public.clear();snapshot['counts']['readingTime']+=1;months.clear()
+        self.assertEqual(evidence.for_bundle(bundle,grant),(report,before['snapshot'],before['months'],stamp,shelves))
+        keeper=gate(now);store=Mock();audit=AuditStore(Backend(),clock=lambda:now)
+        with self.assertRaisesRegex(ValueError,'bundle_supervisor/evidence'):
+            EvidenceSupervisor(keeper,store,bundle,grant,'synthetic-guest','synthetic-config',
+                               lambda:True,audit_store=audit,evidence=evidence)
+        self.assertEqual(keeper.read(),(None,None));store.assert_not_called()
+
+    def test_fresh_evidence_rejects_changes_and_incomplete_observations(self):
+        for mode in ('bundle','grant','report','previous','snapshot','months','catalog','shelves','internal'):
+            bundle,grant,before,report,_now,pairs,shelves,evidence=fresh_fixture()
+            if mode=='bundle':bundle['plan']['seconds']+=1
+            elif mode=='grant':grant['accessToken']='other-synthetic-token'
+            elif mode=='report':report['fresh_native_and_web_shelf_stable']=False
+            elif mode=='previous':report['previous_native_group_baseline_matches']=None
+            elif mode=='snapshot':before['snapshot']['counts']['ttsTime']+=1
+            elif mode=='months':before['months']={}
+            elif mode=='catalog':pairs[1][1][0]['updated'][0]['chapterIdx']+=1
+            elif mode=='shelves':shelves=('a'*64,'invalid')
+            else:evidence._value[1]['snapshot']['counts']['ttsTime']+=1
+            with self.subTest(mode=mode),self.assertRaises(ValueError):
+                if mode in ('bundle','grant','internal'):evidence.for_bundle(bundle,grant)
+                else:FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves)
+
     def test_reader_keeps_full_before_and_after_catalog_responses_in_memory(self):
         bundle,_grant,_before,_report,_now,_evidence=evidence_fixture();record=synthetic_catalog(bundle['plan'])
         before={'data':[deepcopy(record),deepcopy(record)]};after={'data':[deepcopy(record)]}

@@ -52,11 +52,24 @@ def without_fixture(source, target):
 
 
 def check_group(result, original):
-    if (result.get('phase') != 'create_claimed' or result.get('dispatched') is not True
+    if (not isinstance(result,dict) or not isinstance(original,dict)
+            or result.get('phase') != 'create_claimed' or result.get('dispatched') is not True
             or any(result.get(k) is not True for k in ('native_fixture_present', 'web_fixture_present'))
             or any(result.get(k) is not False for k in ('native_group_present', 'web_group_present'))
             or any(original.get(k) is not True for k in
                    ('native_original_state_unchanged', 'web_original_state_unchanged', 'old_group_absent'))):
+        raise ValueError('native_cross_day/group')
+
+
+def check_group_fresh(result, original):
+    """Check the old trial's identity and absence without claiming its old shelf is unchanged."""
+    if (not isinstance(result,dict) or not isinstance(original,dict)
+            or result.get('phase') != 'create_claimed' or result.get('dispatched') is not True
+            or any(result.get(k) is not True for k in ('native_fixture_present', 'web_fixture_present'))
+            or any(result.get(k) is not False for k in ('native_group_present', 'web_group_present'))
+            or original.get('old_group_absent') is not True
+            or any(type(original.get(k)) is not bool for k in
+                   ('native_original_state_unchanged', 'web_original_state_unchanged'))):
         raise ValueError('native_cross_day/group')
 
 
@@ -92,8 +105,9 @@ class FilteredNative(Native):
 
 def run(saved, grant, store, current, web, api_factory=FilteredNative,
         statistics_factory=StatisticsProbe, clock=time.time, sleep=time.sleep, baseline_includes_fixture=False,
-        private_evidence=False):
-    if type(baseline_includes_fixture) is not bool or type(private_evidence) is not bool:
+        private_evidence=False, fresh_shelf=False):
+    if (type(baseline_includes_fixture) is not bool or type(private_evidence) is not bool
+            or type(fresh_shelf) is not bool or fresh_shelf and not baseline_includes_fixture):
         raise ValueError('native_cross_day/fixture_mode')
     if private_evidence and not baseline_includes_fixture:raise ValueError('native_cross_day/fixture_mode')
     state, token = store.read()
@@ -115,10 +129,28 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
         return {'native': native.shelf(), 'web': web.request('shelf', WEB+'/web/shelf/sync')}
     guard = Guard(old, Binding(), grant, current, read_pair)
     readonly = NonemptyBinding()
+    fresh_projection,prior_matches = None,None
     def check_groups():
+        nonlocal fresh_projection,prior_matches
         result = inspect(groups, fixture, grant, current, read_pair, readonly)
         original = inspect_original(old, groups, fixture, grant, current, read_pair, guard.check, readonly)
-        check_group(result, original)
+        if not fresh_shelf:
+            check_group(result, original)
+            return
+        check_group_fresh(result, original)
+        observations=[]
+        for _ in range(2):
+            pair=read_pair()
+            if not isinstance(pair,dict) or set(pair)!={'native','web'}:raise ValueError('native_cross_day/shelf')
+            # Both channels must retain precisely one ungrouped fixture; never
+            # remove it or infer that the earlier unobserved operation failed.
+            for key in ('native','web'):without_fixture(pair[key],upload['target'])
+            observations.append(tuple(digest(project(pair[key])) for key in ('native','web')))
+        matches=(original['native_original_state_unchanged'],original['web_original_state_unchanged'])
+        if observations[0]!=observations[1] or fresh_projection is not None and observations[1]!=fresh_projection \
+                or prior_matches is not None and matches!=prior_matches:
+            raise ValueError('native_cross_day/shelf_changed')
+        fresh_projection,prior_matches=observations[1],matches
     check_groups()
     web.verify_account()
     web.prepare()
@@ -182,7 +214,19 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
             'completed_at': completed_at,
             'account_data_posts': 0, 'authentication_posts': 0,
             'historical_accounting_verified': False, 'dispatch_capability': False}
+    if fresh_shelf:
+        # This is a new read-only baseline, not evidence that the older group
+        # trial's shelf was restored and not an authorization to dispatch.
+        report.pop('both_positions_source_counts_and_original_shelf_exact')
+        report.update(result='CAPTURE_FRESH_SHELF_READONLY_VERIFIED',
+            captured_native_shelf_positions_source_counts_exact=True,
+            fresh_native_and_web_shelf_stable=True,
+            previous_native_group_baseline_matches=prior_matches[0],
+            previous_web_group_baseline_matches=prior_matches[1])
     if private_evidence:
+        if fresh_shelf:
+            from native_time_bundle_evidence import FreshShelfEvidence
+            return FreshShelfEvidence(state,grant,report,sample,observations[-1],catalog_pairs,fresh_projection)
         from native_time_bundle_evidence import PreflightEvidence
         return PreflightEvidence(state,grant,report,sample,observations[-1],catalog_pairs)
     return report
@@ -192,8 +236,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--bundle', action='store_true')
+    parser.add_argument('--fresh-shelf', action='store_true', help='read-only bundle audit with a new stable shelf baseline')
     args = parser.parse_args(argv)
     if args.bundle and not args.saved_session:parser.error('bundle inspection requires saved session')
+    if args.fresh_shelf and not (args.saved_session and args.bundle):parser.error('fresh shelf inspection requires a saved bundle')
     result = {'result':'OFFLINE_ONLY', 'account_data_posts':0, 'authentication_posts':0,
               'historical_accounting_verified':False, 'dispatch_capability':False}
     saved = grant = web = None
@@ -212,7 +258,7 @@ def main(argv=None):
                 from native_time_capture_bundle import CaptureBundleStore
                 capture=CaptureBundleStore()
             else:capture=NativeCaptureStore()
-            result = run(saved, grant, capture, current, web, baseline_includes_fixture=args.bundle)
+            result = run(saved, grant, capture, current, web, baseline_includes_fixture=args.bundle,fresh_shelf=args.fresh_shelf)
             result['web_rotation_saved'] = save_refreshed_web_session(session, saved, web)
     except (Exception, KeyboardInterrupt) as error:
         result['result'] = 'NOT_READY' if isinstance(error, ValueError) and str(error) == 'native_cross_day/not_ready' else 'UNVERIFIED'

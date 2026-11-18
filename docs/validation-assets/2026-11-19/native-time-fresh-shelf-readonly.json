@@ -1,0 +1,18 @@
+{
+  "result": "CAPTURE_FRESH_SHELF_READONLY_VERIFIED",
+  "captured_seconds": 6,
+  "capture_baseline_and_fixture_bound": true,
+  "captured_native_shelf_positions_source_counts_exact": true,
+  "current_native_and_web_shelves_stable": true,
+  "old_native_shelf_baseline_matches": false,
+  "old_web_shelf_baseline_matches": false,
+  "old_trial_target_groups_absent": true,
+  "private_evidence_and_catalog_bound": true,
+  "existing_dispatch_supervisor_rejects_evidence_type": true,
+  "statistics_periods": 1,
+  "account_data_writes": 0,
+  "authentication_requests_during_preflight": 0,
+  "separate_prior_authorization_renewals": 1,
+  "historical_accounting_verified": false,
+  "old_trials_modified": false
+}
