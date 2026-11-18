@@ -15,6 +15,7 @@ local accented=canonical_case=='source' and ('E'..string.char(204,129)..'clair')
 assert(not txt_source or unicode_case)
 assert(not unicode_case or ignore_case)
 local restore_catalog=os.getenv('WEREAD_TEST_CACHED_RESTORE_CATALOG')=='1'
+local limit_test=os.getenv('WEREAD_TEST_CACHED_LIMIT')=='1'
 local target_uid=incomplete and '1' or '2'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local book_id=imported and 'CB_SyntheticCached' or '900001'
@@ -32,8 +33,31 @@ package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
 local Content=require('weread.lib.content')
 local Source=require('weread.lib.position_source')
 local Identity=require('weread.lib.book_file_identity')
-local settings=require('weread.lib.settings'):new()
+local Settings=require('weread.lib.settings')
+local settings=Settings:new()
 assert(settings.mock_endpoint and settings.data_dir:match('/weread%-mock$'))
+if signed_out then
+    -- Mock settings inject a synthetic login on each construction. Preserve
+    -- the explicit logout across reader and process reopening without changing
+    -- the auth epoch when another settings instance is created.
+    local function clear_mock_login(instance)
+        instance.store:saveSetting('api_key','')
+        instance.store:saveSetting('cookies',{})
+        instance.store:saveSetting('account',{})
+        instance.store:flush()
+    end
+    if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_STALE')=='1' then
+        clear_mock_login(settings)
+    else
+        settings:reset_account()
+    end
+    local original_new=Settings.new
+    function Settings:new(...)
+        local instance=original_new(self,...)
+        clear_mock_login(instance)
+        return instance
+    end
+end
 if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_STALE')=='1' then
     local stale=os.getenv('WEREAD_TEST_CACHED_STALE')=='1'
     local persisted=assert(settings:get_book(book_id))
@@ -75,6 +99,8 @@ if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_
         while not (Reader.instance and Reader.instance.document and Reader.instance.document.file==previous) do
             UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01);assert(socket.gettime()<deadline,'fallback timed out')
         end
+        if signed_out then assert(not Reader.instance.weread.settings:get_auth_scope()
+            and not Reader.instance.weread.library_db:accountKey(), 'fallback reader was not signed out') end
         local saved=assert(Reader.instance.weread.settings:get_book(book_id))
         assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_reason=='synthetic_pending')
         assert(requests[0]==0,'offline fallback attempted a network request')
@@ -86,6 +112,8 @@ if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01);assert(socket.gettime()<deadline,'bookshelf reopen timed out')
     end
     local reader=Reader.instance
+    if signed_out then assert(not reader.weread.settings:get_auth_scope()
+        and not reader.weread.library_db:accountKey(), 'new-process reader was not signed out') end
     assert(reader.document:isXPointerInCurrentPage(xpointer),'reopened chapter lost its saved page')
     assert(reader.weread.progress_sync.file_resume.local_only and not reader.weread.progress_sync.verified)
     local saved=assert(reader.weread.settings:get_book(book_id))
@@ -189,21 +217,7 @@ local function wait(predicate)
 end
 local plugin=assert(reader.weread)
 if signed_out then
-    plugin.settings:reset_account()
     assert(not plugin.settings:get_auth_scope() and not plugin.library_db:accountKey(), 'mock session was not signed out')
-    -- The isolated mock environment injects a synthetic login for every new
-    -- settings instance. Keep the explicit logout across reader reopening so
-    -- this test exercises the same stable auth epoch as a real signed-out user.
-    local Settings=require('weread.lib.settings')
-    local original_new=Settings.new
-    function Settings:new(...)
-        local instance=original_new(self,...)
-        instance.store:saveSetting('api_key','')
-        instance.store:saveSetting('cookies',{})
-        instance.store:saveSetting('account',{})
-        instance.store:flush()
-        return instance
-    end
 end
 plugin.isNetworkOnline=function() return restore_catalog end;plugin.isNetworkConnected=plugin.isNetworkOnline
 assert(plugin:showEndOfBookDialog(book_id))
@@ -217,6 +231,7 @@ local Search=require('weread.lib.cached_book_search');local original=Search.scan
 if full then Search.discover=function(...) socket.sleep(.8);return original_discover(...) end
 else Search.scan=function(...) socket.sleep(.8);return original(...) end end
 local owner=plugin._cached_book_search_owner
+if limit_test then require('weread.ui.cached_book_search').MAX_RESULTS=2 end
 if ignore_case then UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-options.png') end
 if unicode_case then
     assert(Search.unicode_casefold_available())
@@ -233,9 +248,26 @@ local pid=owner.worker.job.pid;assert(plugin.busy_message);plugin.busy_message:o
 wait(function() return require('ffi/util').isSubProcessDone(pid) end)
 assert(not owner.job and #owner.value==0);Search.scan=original;Search.discover=original_discover
 owner.menu:onMenuSelect(owner.menu.item_table[1])
-wait(function() return owner.finished and not owner.job end)
+wait(function() return (owner.finished or limit_test and owner.limit) and not owner.job end)
 local count=incomplete and 1 or 2
 assert(#owner.value==count and owner.checked==count and owner.missing==(no_catalog and 0 or 1))
+if limit_test then
+    local _=require('weread.lib.i18n').tr
+    assert(owner.limit and not owner.finished and owner.menu.item_table[1].text==
+        _('Downloaded search result limit reached; results may be incomplete.'))
+    local action,index
+    for i,item in ipairs(owner.menu.item_table) do
+        if item.text==_('Download full book and search again') then action,index=item,i end
+    end
+    assert(action and index<4,'download action was hidden behind search results')
+    plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
+    owner.menu:onMenuSelect(action);assert(owner.download and owner.download.confirm)
+    owner.download.confirm.cancel_callback()
+    assert(owner.limit and #owner.value==2 and not owner.download and requests[0]==0)
+    print('\nWEREAD_CACHED_SEARCH_LIMIT='..require('json').encode({result='PASS',warning_first=true,
+        download_available=true,cancel_preserved=true,network_requests=0}))
+    os.exit(0)
+end
 if unicode_case then for _i,hit in ipairs(owner.value) do
     assert(hit.context:find(canonical_case~='' and accented or 'Straße',1,true))
 end end
@@ -264,12 +296,20 @@ if restore_catalog then
 end
 if full then
     assert(owner.discovered and owner.discovery_incomplete==incomplete and owner.queue[count].uid==target_uid)
-    if incomplete then assert(owner.menu.item_table[#owner.menu.item_table].text==
-        require('weread.lib.i18n').tr('Some chapters in the downloaded book could not be indexed.')) end
+    if incomplete then
+        local found=false
+        for _i,item in ipairs(owner.menu.item_table) do
+            if item.text==require('weread.lib.i18n').tr('Some chapters in the downloaded book could not be indexed.') then found=true end
+        end
+        assert(found)
+    end
 end
 UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-results.png')
 local expected=owner.value[count].offset
-owner.menu:onMenuSelect(owner.menu.item_table[count])
+local target=owner.value[count];local selected
+local label=owner.titles[target.chapter_uid]..' · '..target.context
+for _i,item in ipairs(owner.menu.item_table) do if item.text==label then selected=item end end
+assert(selected,'cached search result missing');owner.menu:onMenuSelect(selected)
 wait(function()
     local instance=require('apps/reader/readerui').instance
     if instance and instance.weread then reader=instance;plugin=instance.weread end

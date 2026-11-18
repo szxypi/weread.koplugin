@@ -105,6 +105,7 @@ def main():
     parser.add_argument('--cached-txt-source', action='store_true')
     parser.add_argument('--cached-canonical-case', choices=('source','query'))
     parser.add_argument('--cached-restore-catalog', action='store_true')
+    parser.add_argument('--cached-limit', action='store_true')
     parser.add_argument('--cb-cloud-single', action='store_true')
     parser.add_argument('--cb-sync-noack', action='store_true')
     parser.add_argument('--cb-sync-cloud', action='store_true')
@@ -134,10 +135,12 @@ def main():
     if args.search_local_restart and not args.search_local_interrupt:
         parser.error('local restart fixture requires local interruption')
     if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete or args.cached_dual
-            or args.cached_ignore_case or args.cached_restore_catalog) and args.probe!='cached-search':
+            or args.cached_ignore_case or args.cached_restore_catalog or args.cached_limit) and args.probe!='cached-search':
         parser.error('cached search options require --probe cached-search')
     if args.cached_restore_catalog and (not args.cached_no_catalog or args.cached_signed_out or args.cached_full or args.search_cb):
         parser.error('catalog restore fixture requires signed-in ordinary cached search without a catalog')
+    if args.cached_limit and (args.cached_no_catalog or args.cached_signed_out or args.cached_ignore_case):
+        parser.error('limited search fixture requires a signed-in cached book and catalog')
     if args.cached_full and not args.cached_no_catalog:
         parser.error('--cached-full requires --cached-no-catalog')
     if args.cached_incomplete and not args.cached_full:
@@ -204,6 +207,7 @@ def main():
                                         WEREAD_TEST_CACHED_TXT_SOURCE='1' if args.cached_txt_source else '0',
                                         WEREAD_TEST_CACHED_CANONICAL_CASE=args.cached_canonical_case or '',
                                         WEREAD_TEST_CACHED_RESTORE_CATALOG='1' if args.cached_restore_catalog else '0',
+                                        WEREAD_TEST_CACHED_LIMIT='1' if args.cached_limit else '0',
                                         WEREAD_TEST_CB_CLOUD_SINGLE='1' if args.cb_cloud_single else '0',
                                         WEREAD_TEST_CB_SYNC_NOACK='1' if args.cb_sync_noack else '0',
                                         WEREAD_TEST_CB_SYNC_CLOUD='1' if args.cb_sync_cloud else '0',
@@ -364,6 +368,14 @@ def main():
                 assert all(event['method']!='POST' or event['path']=='/web/book/chapterInfos' for event in server.events), 'unexpected modifying request'
                 print('PASS: '+str(log));return
             if args.probe == 'cached-search':
+                if args.cached_limit:
+                    marker=b'\nWEREAD_CACHED_SEARCH_LIMIT='
+                    assert raw.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in raw
+                    value=json.loads(raw.split(marker,1)[1].splitlines()[0])
+                    assert value==dict(result='PASS',warning_first=True,download_available=True,
+                                       cancel_preserved=True,network_requests=0), 'limited cached search mismatch'
+                    assert not server.events, 'limited cached search made a mock request'
+                    print('PASS: '+str(log));return
                 marker=b'\nWEREAD_CACHED_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing cached search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])

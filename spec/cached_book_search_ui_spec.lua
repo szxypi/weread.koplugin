@@ -94,12 +94,21 @@ local function open(rows,ignore_case)
     input.input='needle';(ignore_case and input.buttons[2][1] or input.buttons[1][2]).callback()
     return assert(host._cached_book_search_owner)
 end
+local function find_item(menu,text)
+    for _i,row in ipairs(menu.items) do if row.text==text then return row end end
+end
+local function hit_item(owner,index)
+    local hit=owner.value[index]
+    return assert(find_item(owner.menu,owner.titles[hit.chapter_uid]..' · '..hit.context))
+end
 local owner=open(chapters)
 expect(owner.job and owner.total==3 and owner.missing==1,'offline search did not begin with partial coverage')
 worker:complete();expect(#owner.value==1 and owner.checked==1 and scheduled and last_case==false,'first downloaded chapter did not advance')
 local task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
 expect(owner.finished and #owner.value==2 and owner.checked==2 and owner.missing==1,'second chapter or coverage was lost')
-owner.menu.items[2].callback()
+expect(owner.menu.items[1].text=='Downloaded search: 2 of 3 chapters checked; 1 unavailable.'
+    and owner.menu.items[2].text=='Download full book and search again','missing coverage or action was hidden after results')
+hit_item(owner,2).callback()
 expect(navigations==1 and owner.navigation.row.chapterUid==2,'cached result did not start guarded navigation')
 Cached.cancel(host)
 
@@ -125,6 +134,12 @@ local function download_button(partial)
         if item.text=='Download full book and search again' then return item end
     end
 end
+Cached.MAX_RESULTS=1
+owner=open(chapters);worker:complete()
+expect(owner.limit and not owner.finished and owner.menu.items[1].text==
+    'Downloaded search result limit reached; results may be incomplete.'
+    and download_button(owner)~=nil,'limited search hid its warning or download action')
+Cached.cancel(host);Cached.MAX_RESULTS=1000
 owner=finish_partial();local action=assert(download_button(owner));action.callback()
 local confirm=assert(owner.download.confirm);confirm.cancel_callback()
 expect(downloads==0 and not owner.download,'cancelled download changed search')
@@ -168,9 +183,9 @@ expect(not host._cached_book_search_owner,'changed account retained a late scan'
 scope=nil;account=nil;owner=open(nil)
 expect(owner.catalog_missing and owner.total==2 and owner.job,'signed-out offline mapped search was unavailable')
 worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
-expect(owner.finished and owner.menu.items[#owner.menu.items].text=='Chapter list unavailable; only mapped downloads were searched.',
+expect(owner.finished and find_item(owner.menu,'Chapter list unavailable; only mapped downloads were searched.'),
     'missing catalog coverage was not disclosed')
-owner.menu.items[1].callback()
+hit_item(owner,1).callback()
 expect(navigations==2 and owner.navigation.row.chapterUid==1,
     'a mapped downloaded result without a catalog did not start guarded local navigation')
 Cached.cancel(host)
@@ -182,6 +197,14 @@ end
 local function fetch_button(value)
     for _,item in ipairs(value.menu.items) do if item.text=='Fetch chapter list for this search' then return item end end
 end
+Cached.MAX_RESULTS=1
+owner=open(nil,true);worker:complete()
+local limited_fetch=assert(fetch_button(owner))
+expect(owner.limit and not owner.finished and owner.menu.items[1].text==
+    'Downloaded search result limit reached; results may be incomplete.',
+    'limited search without catalog hid its warning or catalog recovery')
+limited_fetch.callback();expect(owner.job~=nil,'limited search could not fetch its catalog')
+host.busy_message.cancel();Cached.cancel(host);Cached.MAX_RESULTS=1000
 owner=no_catalog_complete();local fetch=assert(fetch_button(owner));fetch.callback()
 expect(owner.job and owner.catalog_missing,'catalog fetch did not start in background')
 worker:complete()
@@ -218,14 +241,14 @@ expect(owner.discovered and owner.total==2 and owner.queue[1].uid=='2' and owner
     'full-book index did not add the downloaded chapters in order')
 task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task();worker:complete()
 task=scheduled;scheduled=nil;task()
-expect(owner.finished and #owner.value==2 and owner.menu.items[#owner.menu.items].text==
-    'Chapter list unavailable; only indexed downloads were searched.','discovered full-book results were incomplete or undisclosed')
+expect(owner.finished and #owner.value==2 and find_item(owner.menu,
+    'Chapter list unavailable; only indexed downloads were searched.'),'discovered full-book results were incomplete or undisclosed')
 Cached.cancel(host)
 require('weread.lib.cached_book_search').discover=function()
     return {entries={{uid='2',index=1}},incomplete=true}
 end
 owner=open(nil);worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
-expect(owner.finished and owner.discovery_incomplete and owner.menu.items[#owner.menu.items].text==
-    'Some chapters in the downloaded book could not be indexed.','partial full-book index was presented as complete')
+expect(owner.finished and owner.discovery_incomplete and find_item(owner.menu,
+    'Some chapters in the downloaded book could not be indexed.'),'partial full-book index was presented as complete')
 Cached.cancel(host)
 print(('cached_book_search_ui_spec: %d checks'):format(checks))

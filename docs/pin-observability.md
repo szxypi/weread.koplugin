@@ -27,3 +27,7 @@
 python3 scripts/test_pin_observability.py
 python3 scripts/verify_pin_observability.py --saved-session
 ```
+
+## 后续接口线索
+
+[weread-omni 的实现](https://github.com/teng-lin/weread-omni/blob/fe8609071af33b013c7d2e34a70976fec906dc0c/src/api/resources/shelf.ts)将置顶操作映射到移动端 `POST /shelf/top`，通过 `isDel` 区分置顶与取消，并附带书籍、专辑和分组列表。该项目源码只提供请求构造线索，不能证明当前账号的认证方式、原值或服务端回读语义；本次未调用该接口，生产置顶修改仍未接入。

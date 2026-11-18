@@ -88,6 +88,38 @@ render=function(host,owner)
                 if current(host,owner) and not owner.job and not owner.navigation and not owner.download then start(host,owner) end
             end}
         end
+        -- Keep incomplete coverage and recovery visible even when the result
+        -- list spans many pages or the search reached its result limit.
+        local incomplete=owner.missing>0 or owner.catalog_missing or owner.discovery_incomplete or owner.limit or owner.unresolved>0
+        if owner.limit then items[#items+1]={text=_('Downloaded search result limit reached; results may be incomplete.'),select_enabled=false} end
+        if incomplete then
+            items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
+                owner.checked,owner.total,owner.missing),select_enabled=false}
+        end
+        if owner.unresolved>0 then
+            items[#items+1]={text=_('Some matches could not be located safely and were omitted.'),select_enabled=false}
+        end
+        if owner.catalog_missing then
+            items[#items+1]={text=_(owner.discovered and 'Chapter list unavailable; only indexed downloads were searched.'
+                or 'Chapter list unavailable; only mapped downloads were searched.'),select_enabled=false}
+        end
+        if owner.discovery_incomplete then
+            items[#items+1]={text=_('Some chapters in the downloaded book could not be indexed.'),select_enabled=false}
+        end
+        if (owner.finished or owner.limit) and owner.missing>0 and owner.catalog and not owner.download then
+            items[#items+1]={text=_('Download full book and search again'),callback=function()
+                if current(host,owner) and not owner.job and not owner.navigation and not owner.download then
+                    download_missing(host,owner)
+                end
+            end}
+        end
+        if (owner.finished or owner.limit) and owner.catalog_missing and not owner.job and not owner.download then
+            items[#items+1]={text=_('Fetch chapter list for this search'),callback=function()
+                if current(host,owner) and not owner.job and not owner.navigation and not owner.download then
+                    fetch_catalog(host,owner)
+                end
+            end}
+        end
         for _i,hit in ipairs(owner.value) do
             local row=Target.row(owner.id,owner.keyword,hit)
             items[#items+1]={text=(owner.titles[hit.chapter_uid] or _('Chapter unavailable'))..' · '..hit.context,
@@ -100,32 +132,9 @@ render=function(host,owner)
         if owner.finished and #owner.value==0 then
             items[#items+1]={text=_('No locatable matches in downloaded chapters.'),select_enabled=false}
         end
-        if owner.finished and owner.missing>0 and owner.catalog and not owner.download then
-            items[#items+1]={text=_('Download full book and search again'),callback=function()
-                if current(host,owner) and not owner.job and not owner.navigation and not owner.download then
-                    download_missing(host,owner)
-                end
-            end}
-        end
-        if owner.limit then items[#items+1]={text=_('Downloaded search result limit reached; results may be incomplete.'),select_enabled=false} end
-        items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
-            owner.checked,owner.total,owner.missing),select_enabled=false}
-        if owner.unresolved>0 then
-            items[#items+1]={text=_('Some matches could not be located safely and were omitted.'),select_enabled=false}
-        end
-        if owner.finished and owner.catalog_missing and not owner.job and not owner.download then
-            items[#items+1]={text=_('Fetch chapter list for this search'),callback=function()
-                if current(host,owner) and not owner.job and not owner.navigation and not owner.download then
-                    fetch_catalog(host,owner)
-                end
-            end}
-        end
-        if owner.catalog_missing then
-            items[#items+1]={text=_(owner.discovered and 'Chapter list unavailable; only indexed downloads were searched.'
-                or 'Chapter list unavailable; only mapped downloads were searched.'),select_enabled=false}
-        end
-        if owner.discovery_incomplete then
-            items[#items+1]={text=_('Some chapters in the downloaded book could not be indexed.'),select_enabled=false}
+        if not incomplete then
+            items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
+                owner.checked,owner.total,owner.missing),select_enabled=false}
         end
         owner.menu:switchItemTable(nil,items)
     end)
