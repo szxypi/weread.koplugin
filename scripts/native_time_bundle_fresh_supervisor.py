@@ -55,9 +55,9 @@ class FreshNativeBoundSupervisor(NativeBoundSupervisor):
             raise ValueError('fresh_supervisor/evidence_changed')
 
     def _check_native(self):
-        body,selection,record,source_path=self._native_input
+        body,selection,record,source_path,archive=self._native_input
         now,_zone=self.gate._wall_clock()
-        validate_record(self.bundle,self.grant,_NativeEvidence(self.evidence),selection,body,record,source_path,now)
+        validate_record(self.bundle,self.grant,_NativeEvidence(self.evidence),selection,body,record,source_path,now,archive=archive)
 
     def _check_fresh_audit(self,phase,gate_receipt):
         packet,receipt,state,current=self.audit_store.inspect(self.bundle,self.grant,self.gate)

@@ -60,7 +60,7 @@ def archive_details(plan,source_path):
         if fd is not None:os.close(fd)
 
 
-def validate_record(bundle,grant,evidence,selection,body,record,source_path,now):
+def validate_record(bundle,grant,evidence,selection,body,record,source_path,now,*,archive=None):
     _report,snapshot,months=evidence.for_bundle(bundle,grant);p=bundle['plan']
     validate_selection(bundle,selection)
     if (not isinstance(record,dict) or set(record)!={'attempt','account','phase','metadata','rows','request_hash','created'}
@@ -78,7 +78,9 @@ def validate_record(bundle,grant,evidence,selection,body,record,source_path,now)
                                   {k:v for k,v in original.items() if k!='id'}) for actual,original in zip(rows,wanted))):
         raise ValueError('native_record/rows')
     metadata=record['metadata'];source=metadata.get('source') if isinstance(metadata,dict) else None
-    meta_hash,raw_bytes=archive_details(p,source_path)
+    if not isinstance(source_path,(str,Path)) or not Path(source_path).is_absolute() or '\0' in str(source_path):
+        raise ValueError('native_record/archive')
+    meta_hash,raw_bytes=archive_details(p,source_path) if archive is None else archive_details_bytes(p,archive)
     expected_source={'expected':{'book_id':p['book_id'],'chapter_uid':p['chapter_uid'],'chapter_idx':p['chapter_idx'],
                                  'raw_sha256':p['raw_sha256'],'raw_bytes':raw_bytes},
                      'format':p['format'],'metadata_hash':meta_hash,

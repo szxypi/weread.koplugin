@@ -1,0 +1,25 @@
+{
+  "synthetic": {
+    "runtime": "official KOReader 2026.07.1 Linux ARM64",
+    "scenarios": 11,
+    "result": "PASS",
+    "host_rehearsal_dispatch_readback": true,
+    "independent_readbacks_per_success": 3,
+    "synthetic_account_writes": 4,
+    "real_account_writes": 0,
+    "dry_approval_override_blocked": true,
+    "archive_rechecked_after_claim": true,
+    "missing_receipt_and_interrupted_claim_not_replayed": true,
+    "shelf_and_trial_identity": "synthetic"
+  },
+  "real_account_rehearsal": {
+    "result": "NATIVE_FRESH_DRY_RUN_VERIFIED",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "dispatch_may_have_occurred": false,
+    "capture_and_journals_unchanged": true,
+    "profile_removed": true,
+    "real_accounting_verified": false
+  },
+  "physical_kindle_tested": false
+}

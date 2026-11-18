@@ -158,25 +158,25 @@ class NativeBoundSupervisor(EvidenceSupervisor):
     """Check the native worker's persisted baseline before releasing a claim."""
     def _check_native(self):
         from native_time_bundle_native_record import validate_record
-        body,selection,record,source_path=self._native_input
+        body,selection,record,source_path,archive=self._native_input
         now,_zone=self.gate._wall_clock()
-        validate_record(self.bundle,self.grant,self.evidence,selection,body,record,source_path,now)
+        validate_record(self.bundle,self.grant,self.evidence,selection,body,record,source_path,now,archive=archive)
 
-    def claim(self,body,selection,record,source_path):
+    def claim(self,body,selection,record,source_path,*,archive=None):
         if getattr(self,'_native_input',None) is not None:raise ValueError('bundle_supervisor/native_state')
-        self._native_input=deepcopy((body,selection,record,str(source_path)))
+        self._native_input=deepcopy((body,selection,record,str(source_path),archive))
         try:
             self._check_native()
             return super().claim(self._native_input[0],self._native_input[1])
         finally:self._native_input=None
 
-    def preview(self,body,selection,record,source_path):
+    def preview(self,body,selection,record,source_path,*,archive=None):
         """Validate a native request without reserving or releasing permission."""
         if self.phase!='selected' or getattr(self,'_native_input',None) is not None:
             raise ValueError('bundle_supervisor/state')
-        self._native_input=deepcopy((body,selection,record,str(source_path)))
+        self._native_input=deepcopy((body,selection,record,str(source_path),archive))
         try:
-            body,selection,_record,_path=self._native_input
+            body,selection,_record,_path,_archive=self._native_input
             if not self._fresh() or not self._recent() or self.gate.read()!=(None,None):
                 raise ValueError('bundle_supervisor/stale')
             validate_selection(self.bundle,selection)

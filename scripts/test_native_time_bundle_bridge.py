@@ -30,6 +30,21 @@ def setup(armed=False):
 
 
 class BridgeTests(unittest.TestCase):
+    def test_remote_archive_is_bound_before_any_reservation(self):
+        for mode in ('match','missing','invalid_base64','changed_archive','unexpected_local'):
+            folder,keeper,audit,guard,_bridge,selection,claim=setup(True);self.addCleanup(folder.cleanup)
+            path=Path(folder.name)/'source.epub';encoded=base64.b64encode(path.read_bytes()).decode();path.unlink()
+            bridge=NativeTimeBridge(guard,path,armed=True,remote=mode!='unexpected_local')
+            self.assertTrue(bridge.handle(selection))
+            if mode!='missing':claim['archive_base64']='%%%' if mode=='invalid_base64' else base64.b64encode(b'changed').decode() if mode=='changed_archive' else encoded
+            with self.subTest(mode=mode):
+                if mode=='match':
+                    self.assertTrue(bridge.handle(claim));self.assertEqual(keeper.read()[0]['phase'],'claimed')
+                    self.assertEqual(audit.read()[0]['phase'],'baseline')
+                else:
+                    with self.assertRaises(ValueError):bridge.handle(claim)
+                    self.assertEqual(keeper.read(),(None,None));self.assertEqual(audit.read(),(None,None))
+
     def test_requires_bound_guard_and_explicit_boolean_mode(self):
         folder,keeper,_audit,guard,_bridge,_selection,_claim=setup();self.addCleanup(folder.cleanup)
         for bad_guard,armed in ((Mock(),True),(guard,1),(guard,None)):
