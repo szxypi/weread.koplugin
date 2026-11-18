@@ -14,6 +14,8 @@ return function(reader,plugin,pump,evidence,check_candidate)
     pump(function() return plugin.source_position:current()~=nil end)
     local reference=assert(Dom.open(doc,'900001','22'))
     local point=assert(reference.map:locate('第22章第8段：阅读状态必须来自当前文档，后台任务不能覆盖新的页面。'))
+    -- Choose a character inside the paragraph, not its opening page boundary.
+    point.co=point.co+12
     local expected=assert(reference:locate(point.co))
     local snapshot=assert(Source.document_metadata(doc,'900001','22'))
     local target={book_id='900001',chapter_uid='22',chapter_offset=point.co,basis=Source.coordinate_basis(snapshot.record.format),upload_verified=false}
@@ -105,6 +107,14 @@ return function(reader,plugin,pump,evidence,check_candidate)
     assert(not plugin.source_position:current().retained_source_target,'cancelled target revived old source position')
     -- Cancel after real native backward walking has started, not merely while
     -- the child prepares bytes or the native index is being opened.
+    -- Disable only the optional page shortcut here so the cancellation test
+    -- necessarily observes a long real CRE character walk on every layout.
+    local open_prepared=Dom.open_prepared
+    Dom.open_prepared=function(...)
+        local index,why=open_prepared(...)
+        if index then index._page_checkpoint=function() return nil end end
+        return index,why
+    end
     local previous_char=doc.getPrevVisibleChar
     local walk_steps=0
     doc.getPrevVisibleChar=function(self,xp) walk_steps=walk_steps+1;return previous_char(self,xp) end
@@ -112,7 +122,7 @@ return function(reader,plugin,pump,evidence,check_candidate)
     assert(plugin:openSourcePosition(target,function() native_callback=true end))
     pump(function() return plugin.source_navigation.state=='locating' and walk_steps>=128 end,35)
     reader.rolling:onGotoPage(2)
-    doc.getPrevVisibleChar=previous_char
+    doc.getPrevVisibleChar=previous_char;Dom.open_prepared=open_prepared
     pump(function() return plugin.source_position:current()~=nil end)
     assert(not native_callback and not plugin.source_navigation.job,'cancelled native walk navigated or committed')
     reader:handleEvent(Event:new('SetViewMode','page'))

@@ -349,6 +349,16 @@ class TxtReadingPreflight(TxtProbe):
     def __init__(self):
         super().__init__()
         self.baseline, self.shards = None, {}
+        self.display_ids = []
+
+    def request(self,stage,url,body=None,**kwargs):
+        value=super().request(stage,url,body,**kwargs)
+        if stage=='shelf':
+            from verify_cb_progress import cb_id
+            rows=value.get('books') if isinstance(value,dict) else None
+            if not isinstance(rows,list) or len(rows)>5000:raise PreflightError('shelf_invalid')
+            self.display_ids=list(dict.fromkeys(row['bookId'] for row in rows if isinstance(row,dict) and cb_id(row.get('bookId'))))
+        return value
 
     def choose_chapter(self, chapters):
         self.baseline = reading_position(self.request('progress_before', BASE + '/web/book/getProgress?bookId=' + self.book_id),
@@ -381,7 +391,7 @@ class TxtReadingPreflight(TxtProbe):
             raise PreflightError('reading_no_text_sample')
         from txt_coordinates import PlainSource
         return dict(book_id=self.book_id, chapter_uid=self.chapter, source_text=source,
-                    shelf_ids=self.shelf_ids, shelf_books=self.shelf_count, source_format='web_txt',
+                    shelf_ids=list(dict.fromkeys(self.shelf_ids+self.display_ids)), shelf_books=self.shelf_count, source_format='web_txt',
                     source_raw_sha256=hashlib.sha256(sample['plain'].encode()).hexdigest(),
                     source_sample_offset=PlainSource(sample['plain']).locate(source)[0])
 

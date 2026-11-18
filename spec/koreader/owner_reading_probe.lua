@@ -426,17 +426,22 @@ local ok,reason=pcall(function()
         if options.method=='GET' and not options.body then
             if options.url=='https://weread.qq.com/web/shelf/sync' then return 1 end
             if progress_urls[options.url] then return 2 end
-            if (input.progress_roundtrip or input.native_source_excerpt or missing_resume) and options.sensitive == true then
+            if options.sensitive == true then
                 local id, stamp=options.url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=([1-9]%d*)&_=(%d+)$')
-                if missing_resume and not id then
+                if not id then
                     id,stamp=options.url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=(CB_[A-Za-z0-9]+)&_=(%d+)$')
                 end
-                if id==input.book_id and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 then return 2 end
-                if (input.native_source_excerpt or missing_resume) and id and progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id]
-                    and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000
-                    and options.diagnostic_api=='shelf_progress' and options.skip_cookie==true
-                    and options.persist_response_cookies==false and h.Cookie==Cookie.to_header(cookies)
-                    and h.Referer==Protocol.reader_url(id) then return 2 end
+                if id and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 then
+                    if (input.progress_roundtrip or input.native_source_excerpt or missing_resume)
+                        and id==input.book_id and (missing_resume or id:match('^[1-9]%d*$')) then return 2 end
+                    -- Normal shelf rendering may fetch a display-only progress
+                    -- value. Admit only a captured shelf member and the exact
+                    -- non-persisting read contract; no account write is added.
+                    if progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id]
+                        and options.diagnostic_api=='shelf_progress' and options.skip_cookie==true
+                        and options.persist_response_cookies==false and h.Cookie==Cookie.to_header(cookies)
+                        and h.Referer==Protocol.reader_url(id) then return 2 end
+                end
             end
             if options.url==root_url or chapter_urls[options.url] then return 3 end
             if (input.source_upload_preview or input.native_source_excerpt or selection_case) and options.url=='https://weread.qq.com/api/userInfo?userVid='..input.vid
@@ -478,6 +483,30 @@ local ok,reason=pcall(function()
         assert(not classify(test,{url=url,method='POST',headers={},body='{}'}))
     end
     assert(not classify(test,{url=root_url,method='GET',headers={Cookie='invalid'}}))
+    do
+        local shelf_id
+        for _i,id in ipairs(input.shelf_ids) do
+            if id:match('^[1-9]%d*$') or id:match('^CB_[A-Za-z0-9]+$') then shelf_id=id;break end
+        end
+        if shelf_id then
+            local check={url='https://weread.qq.com/web/book/getProgress?bookId='..shelf_id..'&_='..tostring(os.time()*1000),
+                method='GET',sensitive=true,skip_cookie=true,persist_response_cookies=false,diagnostic_api='shelf_progress',
+                headers={Cookie=Cookie.to_header(input.cookies),Referer=Protocol.reader_url(shelf_id)}}
+            assert((classify(test,check)==2)==(mode=='live'))
+            check.diagnostic_api='other';assert(not classify(test,check));check.diagnostic_api='shelf_progress'
+            check.headers.Cookie='invalid';assert(not classify(test,check));check.headers.Cookie=Cookie.to_header(input.cookies)
+            check.headers.Referer='https://weread.qq.com/';assert(not classify(test,check));check.headers.Referer=Protocol.reader_url(shelf_id)
+            check.url='https://weread.qq.com/web/book/getProgress?bookId='..shelf_id..'&_=1';assert(not classify(test,check))
+            local foreign
+            for i=1,5001 do
+                local id=tostring(i)
+                if not progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id] then foreign=id;break end
+            end
+            assert(foreign)
+            check.url='https://weread.qq.com/web/book/getProgress?bookId='..foreign..'&_='..tostring(os.time()*1000)
+            check.headers.Referer=Protocol.reader_url(foreign);assert(not classify(test,check))
+        end
+    end
     if missing_resume then
         local other_id
         for _i,id in ipairs(input.shelf_ids) do if id~=input.book_id then other_id=id;break end end

@@ -20,6 +20,7 @@ def main():
     parser.add_argument('--height',type=int,default=800)
     parser.add_argument('--dpi',type=int,default=167)
     parser.add_argument('--reader',action='store_true',help='exercise actual reader menus, persistence and reload')
+    parser.add_argument('--txt-layout',action='store_true',help='exercise TXT whitespace in the actual CRE engine')
     parser.add_argument('--fetch',action='store_true',help='exercise existing-translation download and offline copy opening')
     parser.add_argument('--fetch-book',action='store_true',help='exercise full-book existing translations and offline chapter navigation')
     parser.add_argument('--annotations',action='store_true',help='exercise annotation copying into the full-book translation')
@@ -31,6 +32,7 @@ def main():
     if min(args.width,args.height,args.dpi)<=0: parser.error('screen dimensions and DPI must be positive')
     root,runtime=args.run_dir.resolve(),args.koreader.resolve()
     server=MockServer(0)
+    if args.txt_layout and (args.fetch or args.fetch_book or args.reader or args.annotations or args.cross_chapter or args.transient or args.hash_storage or args.dir_storage):parser.error('--txt-layout is a separate synthetic scenario')
     if args.fetch and args.fetch_book: parser.error('choose one fetch mode')
     if args.annotations and not args.fetch_book: parser.error('--annotations requires --fetch-book')
     if args.cross_chapter and not args.annotations: parser.error('--cross-chapter requires --annotations')
@@ -79,7 +81,7 @@ def main():
         log=root/'evidence/runtime.log'
         try:
             with log.open('w') as out:
-                probe='translation_fetch_book_smoke.lua' if args.fetch_book else 'translation_fetch_smoke.lua' if args.fetch else 'translation_reader_smoke.lua' if args.reader else 'translation_display_smoke.lua'
+                probe='txt_layout_smoke.lua' if args.txt_layout else 'translation_fetch_book_smoke.lua' if args.fetch_book else 'translation_fetch_smoke.lua' if args.fetch else 'translation_reader_smoke.lua' if args.reader else 'translation_display_smoke.lua'
                 result=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],
                     cwd=runtime,env=env,stdout=out,stderr=subprocess.STDOUT,timeout=120)
             if (args.fetch or args.fetch_book) and result.returncode==0:

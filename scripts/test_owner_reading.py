@@ -46,6 +46,18 @@ def frame(value):
     return probe.FRAME + json.dumps(value).encode() + b'\n'
 
 
+class TxtShelfDisplayScopeTests(unittest.TestCase):
+    def test_only_observed_valid_personal_books_join_txt_display_scope(self):
+        preflight=probe.TxtReadingPreflight()
+        shelf={'books':[{'bookId':'CB_valid01'},{'bookId':'CB_valid01'},
+                        {'bookId':'CB_bad/foreign'},{'bookId':'41'},{}]}
+        with patch.object(probe.TxtProbe,'request',return_value=shelf):
+            self.assertIs(preflight.request('shelf','synthetic'),shelf)
+        self.assertEqual(preflight.display_ids,['CB_valid01'])
+        with patch.object(probe.TxtProbe,'request',return_value={'books':None}):
+            with self.assertRaises(probe.PreflightError):preflight.request('shelf','synthetic')
+
+
 class SyntheticTxtRetryBoundsTests(unittest.TestCase):
     def test_retry_bounds_are_explicit_and_cb_scoped(self):
         value=stage()

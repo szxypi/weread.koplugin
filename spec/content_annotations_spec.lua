@@ -75,9 +75,9 @@ expect(css:find("wr%-star") == nil,
     "annotation CSS still included obsolete thought star styles")
 
 local xhtml = Content.txt_to_xhtml("first & <tag>\r\n\r\nsecond")
-expect(xhtml:find("<p>first &amp; &lt;tag&gt;</p>", 1, true),
+expect(xhtml:find('<p class="wr-txt-line">first &amp; &lt;tag&gt;</p>', 1, true),
     "plain text was not XML-escaped")
-expect(xhtml:find("<p>second</p>", 1, true),
+expect(xhtml:find('<p class="wr-txt-line">second</p>', 1, true),
     "plain text paragraph conversion lost content")
 
 local rewritten = Content.rewrite_image_sources(

@@ -1702,14 +1702,34 @@ end
 function Content.txt_to_xhtml(text)
     text = text:gsub("\r\n", "\n"):gsub("\r", "\n")
     local parts = {}
-    for line in (text .. "\n"):gmatch("(.-)\n") do
-        line = line:match("^(.-)%s*$") or ""
-        if line ~= "" then
-            table.insert(parts, "<p>" .. xml_escape(line) .. "</p>")
+    -- Preserve leading/trailing whitespace and empty lines; HTML's default
+    -- whitespace collapsing otherwise loses indentation and paragraph gaps.
+    -- A non-breaking space keeps a blank paragraph visible in CRE.
+    if text ~= "" then
+        if text:sub(-1) ~= "\n" then text = text .. "\n" end
+        for line in text:gmatch("(.-)\n") do
+            -- CRE's HTML parser collapses whitespace before applying CSS.
+            -- Encode indentation and repeated spaces explicitly, keeping a
+            -- regular break opportunity within long runs and between words.
+            local body = xml_escape(line:gsub("\t", "    "))
+            body = body:gsub("()( +)", function(at, spaces)
+                local leading = at == 1 or at == 4 and body:sub(1, 3) == "\239\187\191"
+                local trailing = at + #spaces - 1 == #body
+                if #spaces == 1 and not leading and not trailing then return spaces end
+                local groups, rest = math.floor(#spaces / 8), #spaces % 8
+                local encoded = (string.rep("&#160;", 7) .. " "):rep(groups)
+                if rest > 0 and not leading and not trailing then
+                    return encoded .. string.rep("&#160;", rest - 1) .. " "
+                end
+                return encoded .. string.rep("&#160;", rest)
+            end)
+            if line:match("^%s*$") then body = body .. "&#160;" end
+            table.insert(parts, '<p class="wr-txt-line">' .. body .. '</p>')
         end
     end
     return '<?xml version="1.0" encoding="utf-8"?>\n'
-        .. '<html xmlns="http://www.w3.org/1999/xhtml"><head><title></title></head>\n'
+        .. '<html xmlns="http://www.w3.org/1999/xhtml"><head><title></title>'
+        .. '<style type="text/css">.wr-txt-line { white-space: pre-wrap; }</style></head>\n'
         .. '<body>\n' .. table.concat(parts, "\n") .. '\n</body></html>'
 end
 
