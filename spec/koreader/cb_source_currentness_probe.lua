@@ -37,7 +37,16 @@ local json=require('json');local calls=0;local ok,result=pcall(function()
         calls=calls+1;return request(self,options)
     end
     local Check=require('weread.lib.source_currentness')
-    local proof=Check.fetch_cb(client,input.expected)
+    local proof
+    if input.book_version~=nil then
+        assert(type(input.book_version)=='number' and input.book_version%1==0 and input.book_version>0)
+        local observed=0
+        proof=Check.fetch_cb_versioned(client,input.expected,nil,function(catalog_data)
+            assert(require('weread.lib.readtime_source').version(catalog_data,input.expected.book_id)==input.book_version)
+            observed=observed+1
+        end)
+        assert(observed==2)
+    else proof=Check.fetch_cb(client,input.expected) end
     assert(Check.packet_cb(proof,input.expected) and not Check.packet(proof,input.expected)
         and Check.run(client,input.expected).error=='source_currentness_unavailable')
     return {matched=true,requests=calls,upload_disabled=proof.upload_verified==false,numeric_gate_preserved=true}
