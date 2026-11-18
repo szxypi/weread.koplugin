@@ -31,5 +31,15 @@
   "real_account_native_ui_scoped_reads_per_scenario": 6,
   "real_account_native_ui_denied_requests": 0,
   "real_account_native_ui_credentials_not_persisted": true,
-  "real_account_native_ui_target_pre_cached": true
+  "real_account_native_ui_target_pre_cached": true,
+  "real_account_missing_target_scenarios": 2,
+  "real_account_missing_target_cancel_without_download": true,
+  "real_account_missing_target_download_confirmed": true,
+  "real_account_missing_target_source_matched": true,
+  "real_account_missing_target_catalog_pre_cached": true,
+  "real_account_missing_target_cloud_reads_per_scenario": 18,
+  "real_account_missing_target_download_gets_per_scenario": 2,
+  "real_account_missing_target_download_read_posts_per_scenario": 4,
+  "real_account_missing_target_fresh_offline_reopen": true,
+  "real_account_missing_target_credentials_not_persisted": true
 }
