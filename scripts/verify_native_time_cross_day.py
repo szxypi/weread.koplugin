@@ -226,7 +226,9 @@ def run(saved, grant, store, current, web, api_factory=FilteredNative,
     if private_evidence:
         if fresh_shelf:
             from native_time_bundle_evidence import FreshShelfEvidence
-            return FreshShelfEvidence(state,grant,report,sample,observations[-1],catalog_pairs,fresh_projection)
+            from native_time_bundle_trial_scope import from_journals
+            trial=from_journals(state,upload,upload_token,group,group_token,old_state,old_token)
+            return FreshShelfEvidence(state,grant,report,sample,observations[-1],catalog_pairs,fresh_projection,trial)
         from native_time_bundle_evidence import PreflightEvidence
         return PreflightEvidence(state,grant,report,sample,observations[-1],catalog_pairs)
     return report

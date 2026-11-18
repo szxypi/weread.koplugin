@@ -6,7 +6,7 @@ from cloud_group_contract import project
 from native_time_bundle_evidence import FreshShelfEvidence
 from native_time_bundle_fresh_shelf import compare
 from test_cloud_group_nonempty_contract import TARGET,source
-from test_native_time_bundle_evidence import fresh_fixture
+from test_native_time_bundle_evidence import fresh_fixture,synthetic_scope
 from txt_full_summary import digest
 
 
@@ -17,7 +17,7 @@ def example():
     # Keep different full channel projections to ensure comparison is per channel.
     web['books'][0]['bookId']='900008'
     shelves=(digest(project(native)),digest(project(web)))
-    evidence=FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves)
+    evidence=FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves,synthetic_scope(bundle))
     group=dict(phase='create_claimed',dispatched=True,native_fixture_present=True,web_fixture_present=True,
                native_group_present=False,web_group_present=False)
     original=dict(native_original_state_unchanged=False,web_original_state_unchanged=False,old_group_absent=True)
@@ -28,14 +28,15 @@ def example():
 class FreshShelfTests(unittest.TestCase):
     def test_two_exact_independent_observations_are_read_only(self):
         bundle,grant,evidence,observations=example()
-        result=compare(evidence,bundle,grant,TARGET,observations)
+        result=compare(evidence,bundle,grant,synthetic_scope(bundle),observations)
         self.assertEqual(result,dict(result='FRESH_SHELF_MATCH',compared_observations=2,
                                      historical_accounting_verified=False,dispatch_capability=False))
 
     def test_any_changed_or_missing_state_rejects_comparison(self):
         for mode in ('one','extra','channel','swapped','removed_fixture','grouped_fixture',
-                     'old_flag','old_group','new_group','identity','evidence'):
+                     'old_flag','old_group','new_group','identity','evidence','trial'):
             bundle,grant,evidence,observations=example()
+            scope=synthetic_scope(bundle)
             if mode=='one':observations.pop()
             elif mode=='extra':observations[0]['unexpected']=True
             elif mode=='channel':observations[1]['web']['books'][0]['bookId']='900009'
@@ -46,9 +47,10 @@ class FreshShelfTests(unittest.TestCase):
             elif mode=='old_group':observations[0]['original']['old_group_absent']=False
             elif mode=='new_group':observations[1]['group']['web_group_present']=True
             elif mode=='identity':grant['accessToken']='different-synthetic-token'
-            else:evidence._value=(*evidence._value[:3],('a'*64,'b'*64))
+            elif mode=='evidence':evidence._value=(*evidence._value[:3],('a'*64,'b'*64),evidence._value[4])
+            else:scope['old_sha256']='c'*64
             with self.subTest(mode=mode),self.assertRaises(ValueError):
-                compare(evidence,bundle,grant,TARGET,observations)
+                compare(evidence,bundle,grant,scope,observations)
 
 
 if __name__=='__main__':unittest.main()

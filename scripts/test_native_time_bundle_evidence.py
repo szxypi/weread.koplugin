@@ -9,8 +9,11 @@ from native_time_bundle_evidence import FreshShelfEvidence,PreflightEvidence
 from native_time_bundle_preparation import SigningInputs,read_evidenced_signing_inputs
 from native_time_bundle_selection import expected
 from native_time_bundle_supervisor import EvidenceSupervisor
+from native_time_bundle_trial_scope import from_journals
+from annotation_experiment_model import canonical
+from personal_upload_trial import Receipt as UploadReceipt,hash_value
 from secure_highlight_trial import Receipt
-from test_cloud_group_nonempty_contract import TARGET
+from test_cloud_group_nonempty_contract import TARGET,source
 from test_native_time_bundle_accounting import example
 from test_native_time_bundle_gate import fixture,gate
 from test_native_time_bundle_supervisor import observed
@@ -27,6 +30,17 @@ def synthetic_catalog(plan):
 
 def synthetic_pairs(record):
     return [[[deepcopy(record)],[deepcopy(record)]],[[deepcopy(record)],[deepcopy(record)]]]
+
+
+def synthetic_trial(bundle):
+    owner=bundle['plan']['owner'];upload=dict(phase='imported',target=TARGET,plan={'owner':owner},attempt='a'*32)
+    group=dict(owner=owner,target=TARGET,upload_attempt=upload['attempt'],upload_plan_hash=hash_value(upload['plan']),
+               phase='create_claimed',dispatched=True)
+    old=dict(owner=owner,phase='closed_unverified')
+    return upload,UploadReceipt(canonical(upload)),group,canonical(group),old,canonical(old)
+
+
+def synthetic_scope(bundle):return from_journals(bundle,*synthetic_trial(bundle))
 
 
 def evidence_fixture():
@@ -47,18 +61,48 @@ def fresh_fixture():
                   previous_web_group_baseline_matches=False)
     pairs=synthetic_pairs(synthetic_catalog(bundle['plan']))
     shelves=('a'*64,'b'*64)
-    evidence=FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves)
+    evidence=FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves,synthetic_scope(bundle))
     return bundle,grant,before,report,now,pairs,shelves,evidence
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_fresh_scoped_preflight_binds_the_actual_journal_receipts(self):
+        bundle,grant,before,_report,now,_evidence=evidence_fixture();plan=bundle['plan']
+        upload,upload_token,group,group_token,old,old_token=synthetic_trial(bundle)
+        saved={'vid':plan['owner']};store=Mock();store.read.return_value=(bundle,Receipt(b'synthetic-capture'))
+        groups,olds=Mock(),Mock();groups.read.return_value=(group,group_token);olds.read.return_value=(old,old_token)
+        result=dict(phase='create_claimed',dispatched=True,native_fixture_present=True,web_fixture_present=True,
+                    native_group_present=False,web_group_present=False)
+        original=dict(native_original_state_unchanged=False,web_original_state_unchanged=False,old_group_absent=True)
+        shelf=source();shelf['archive'][0]['bookIds'].remove(TARGET)
+        web=Mock();web.book_id=plan['book_id'];web.chapter=plan['chapter_uid'];web.request.return_value=shelf
+        web.inspect.return_value={'cloud_position_stable':True,'catalog_stable':True}
+        web._time_catalog_pair=synthetic_pairs(synthetic_catalog(plan))[0]
+        native=Mock();native.shelf.return_value=shelf
+        stats=[before['months'][key] for key in sorted(before['months'],key=int)]*2
+        with ExitStack() as stack:
+            for name,value in [('UploadJournal',Mock()),('GroupJournal',groups),('OldJournal',olds),('TargetReceipt',Mock()),
+                               ('ScopedNative',native),('Guard',Mock()),('Binding',Mock()),('NonemptyBinding',Mock())]:
+                stack.enter_context(patch.object(preflight,name,return_value=value))
+            stack.enter_context(patch.object(preflight,'binding',return_value=(upload,upload_token)))
+            stack.enter_context(patch.object(preflight,'inspect',return_value=result))
+            stack.enter_context(patch.object(preflight,'inspect_original',return_value=original))
+            stack.enter_context(patch.object(preflight,'xhtml_snapshot',return_value=deepcopy(before['snapshot'])))
+            stack.enter_context(patch.object(preflight,'project_statistics',side_effect=stats))
+            evidence=preflight.run(saved,grant,store,lambda:True,web,api_factory=Mock,statistics_factory=Mock,
+                clock=lambda:now,sleep=lambda _:None,baseline_includes_fixture=True,fresh_shelf=True,private_evidence=True)
+        report,_snapshot,_months,_stamp,_shelves,scope=evidence.for_bundle(bundle,grant)
+        self.assertEqual(scope,synthetic_scope(bundle))
+        self.assertFalse(report['previous_native_group_baseline_matches'])
+        self.assertFalse(report['previous_web_group_baseline_matches'])
+
     def test_fresh_evidence_is_private_copied_and_cannot_authorize_dispatch(self):
         bundle,grant,before,report,now,_pairs,shelves,evidence=fresh_fixture()
         self.assertEqual(repr(evidence),'<FreshShelfEvidence private>')
-        public,snapshot,months,stamp,actual=evidence.for_bundle(bundle,grant)
+        public,snapshot,months,stamp,actual,scope=evidence.for_bundle(bundle,grant)
         self.assertEqual((public,snapshot,months,actual),(report,before['snapshot'],before['months'],shelves))
         public.clear();snapshot['counts']['readingTime']+=1;months.clear()
-        self.assertEqual(evidence.for_bundle(bundle,grant),(report,before['snapshot'],before['months'],stamp,shelves))
+        self.assertEqual(evidence.for_bundle(bundle,grant),(report,before['snapshot'],before['months'],stamp,shelves,scope))
         keeper=gate(now);store=Mock();audit=AuditStore(Backend(),clock=lambda:now)
         with self.assertRaisesRegex(ValueError,'bundle_supervisor/evidence'):
             EvidenceSupervisor(keeper,store,bundle,grant,'synthetic-guest','synthetic-config',
@@ -79,7 +123,7 @@ class EvidenceTests(unittest.TestCase):
             else:evidence._value[1]['snapshot']['counts']['ttsTime']+=1
             with self.subTest(mode=mode),self.assertRaises(ValueError):
                 if mode in ('bundle','grant','internal'):evidence.for_bundle(bundle,grant)
-                else:FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves)
+                else:FreshShelfEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves,synthetic_scope(bundle))
 
     def test_reader_keeps_full_before_and_after_catalog_responses_in_memory(self):
         bundle,_grant,_before,_report,_now,_evidence=evidence_fixture();record=synthetic_catalog(bundle['plan'])

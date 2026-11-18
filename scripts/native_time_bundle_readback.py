@@ -21,7 +21,7 @@ from synthetic_format_trial import TargetReceipt
 from verify_eink_login import BASE,NativeProbe
 from verify_native_statistics import StatisticsProbe,project as project_statistics
 from verify_native_time_capture import XhtmlSource,xhtml_snapshot
-from verify_native_time_cross_day import FilteredNative,check_capture,check_group
+from verify_native_time_cross_day import FilteredNative,check_capture,check_group,check_group_fresh
 from verify_web_source_progress import BASE as WEB
 
 
@@ -99,7 +99,11 @@ def run(*,saved,grant,store,gate,audit,current,web,clock=time.time,sleep=time.sl
     bundle,capture_receipt=store.read()
     if not bundle or capture_receipt is None or current() is not True:raise ValueError('bundle_readback/capture')
     plan=bundle['plan'];check_capture(plan,saved,grant,clock())
+    from native_time_bundle_fresh_audit import FreshAuditStore
+    fresh_audit=isinstance(audit,FreshAuditStore)
     original,audit_receipt,state,gate_receipt=audit.inspect(bundle,grant,gate)
+    packet=original if fresh_audit else None
+    if fresh_audit:original=packet['baseline']
     if state['phase']!='acknowledged':raise ValueError('bundle_readback/no_ack')
     dispatched=state['claimed_at'];last_clock=dispatched
     def fresh():
@@ -126,10 +130,15 @@ def run(*,saved,grant,store,gate,audit,current,web,clock=time.time,sleep=time.sl
         if not state_current():raise ValueError('bundle_readback/changed')
         return value
     old_guard=Guard(old,Binding(),grant,state_current,read_pair);readonly=NonemptyBinding()
+    shelf_observations=[]
     def check_groups():
         first=inspect(groups,fixture,grant,state_current,read_pair,readonly)
         second=inspect_original(old,groups,fixture,grant,state_current,read_pair,old_guard.check,readonly)
-        check_group(first,second)
+        if fresh_audit:
+            check_group_fresh(first,second)
+            pair=read_pair()
+            shelf_observations.append(dict(native=pair['native'],web=pair['web'],group=first,original=second))
+        else:check_group(first,second)
     check_clock();check_groups();web.verify_account();web.prepare()
     if web.book_id!=plan['book_id'] or web.chapter!=plan['chapter_uid']:raise ValueError('bundle_readback/source')
     native=native_factory(grant,plan,upload['target'],state_current,clock)
@@ -151,6 +160,7 @@ def run(*,saved,grant,store,gate,audit,current,web,clock=time.time,sleep=time.sl
                 or catalog_stamp is not None and catalogs[0][1]!=catalog_stamp):
             raise ValueError('bundle_readback/catalog')
         catalog_stamp=catalogs[0][1]
+        if fresh_audit and catalog_stamp!=packet['catalog_stamp']:raise ValueError('bundle_readback/catalog')
         if not integer(native.server_at,plan['not_before'],4102444800):raise ValueError('bundle_readback/server_clock')
         months={}
         for month in sorted(original['months'],key=int):
@@ -162,7 +172,11 @@ def run(*,saved,grant,store,gate,audit,current,web,clock=time.time,sleep=time.sl
     if native.steps!=9 or stats.steps!=3*len(original['months']):raise ValueError('bundle_readback/incomplete')
     check_groups();web.verify_account();check_clock()
     if not state_current():raise ValueError('bundle_readback/changed')
-    result=audit.check_acknowledged(bundle,grant,gate,samples)
+    if fresh_audit:
+        from native_time_bundle_trial_scope import from_journals
+        trial=from_journals(bundle,upload,upload_token,group,group_token,old_state,old_token)
+        result=audit.check_acknowledged(bundle,grant,gate,samples,trial,shelf_observations)
+    else:result=audit.check_acknowledged(bundle,grant,gate,samples)
     if not state_current():raise ValueError('bundle_readback/changed')
     return dict(result='READBACK_MATCH',independent_samples=result['independent_samples'],
                 other_state_exact=result['other_counters_positions_source_shelf_exact'],

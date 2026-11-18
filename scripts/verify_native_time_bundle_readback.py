@@ -6,6 +6,7 @@ import re
 import resource
 
 from native_time_bundle_audit_store import AuditStore
+from native_time_bundle_fresh_audit import FreshAuditStore
 from native_time_bundle_gate import DispatchGate
 from native_time_bundle_readback import run
 from native_time_capture_bundle import CaptureBundleStore
@@ -17,7 +18,9 @@ from verify_native_time_capture import XhtmlSource
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--fresh-shelf',action='store_true',help='inspect the separately sealed fresh-shelf audit')
     args=parser.parse_args(argv)
+    if args.fresh_shelf and not args.saved_session:parser.error('fresh-shelf inspection requires a saved session')
     result={'result':'OFFLINE_ONLY','account_data_posts':0,'authentication_posts':0,'real_accounting_verified':False}
     saved=grant=web=None
     try:
@@ -27,7 +30,8 @@ def main(argv=None):
             if state is None or state['phase']!='acknowledged':
                 result['result']='NOT_READY'
             else:
-                store=CaptureBundleStore();audit=AuditStore();session=SessionStore();native=NativeSessionStore()
+                store=CaptureBundleStore();audit=FreshAuditStore() if args.fresh_shelf else AuditStore()
+                session=SessionStore();native=NativeSessionStore()
                 saved=session.load();grant=native.load(saved['vid'])
                 web=XhtmlSource();web.vid=saved['vid']
                 for key,value in saved['cookies'].items():web.set_cookie(key,value)

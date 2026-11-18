@@ -20,6 +20,28 @@ def catalog_stamp(bundle,catalog_pairs):
     return results[0][1]
 
 
+def validate_fresh_report(bundle,report,months,shelf_digests,trial_scope):
+    import re
+    from native_time_bundle_trial_scope import validate
+    flags=('exact_capture_and_fixture_bound','fixture_in_captured_baseline',
+           'captured_native_shelf_positions_source_counts_exact','fresh_native_and_web_shelf_stable',
+           'two_statistics_reads_stable','server_clock_after_boundary')
+    previous=('previous_native_group_baseline_matches','previous_web_group_baseline_matches')
+    fields=set(flags)|set(previous)|{'result','seconds','observed_months','completed_at','account_data_posts',
+                                     'authentication_posts','historical_accounting_verified','dispatch_capability'}
+    if (not isinstance(report,dict) or set(report)!=fields or report['result']!='CAPTURE_FRESH_SHELF_READONLY_VERIFIED'
+            or any(report[key] is not True for key in flags) or any(type(report[key]) is not bool for key in previous)
+            or type(report['seconds']) is not int or report['seconds']!=bundle['plan']['seconds']
+            or not integer(report['completed_at'],bundle['plan']['not_before'],4102444800)
+            or not isinstance(months,dict) or type(report['observed_months']) is not int or report['observed_months']!=len(months)
+            or any(type(report[key]) is not int or report[key]!=0 for key in ('account_data_posts','authentication_posts'))
+            or report['historical_accounting_verified'] is not False or report['dispatch_capability'] is not False
+            or not isinstance(shelf_digests,(tuple,list)) or len(shelf_digests)!=2
+            or any(not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value) for value in shelf_digests)):
+        raise ValueError('bundle_evidence/fresh_report')
+    validate(bundle,trial_scope)
+
+
 class PreflightEvidence:
     """Bind a sanitized report to the exact private preflight observations.
 
@@ -66,26 +88,11 @@ class FreshShelfEvidence:
     This is deliberately not PreflightEvidence: the existing dispatch
     supervisor cannot accept it as proof that the old group baseline matched.
     """
-    def __init__(self,bundle,grant,report,snapshot,months,catalog_pairs,shelf_digests):
-        import re
-        flags=('exact_capture_and_fixture_bound','fixture_in_captured_baseline',
-               'captured_native_shelf_positions_source_counts_exact','fresh_native_and_web_shelf_stable',
-               'two_statistics_reads_stable','server_clock_after_boundary')
-        previous=('previous_native_group_baseline_matches','previous_web_group_baseline_matches')
-        fields=set(flags)|set(previous)|{'result','seconds','observed_months','completed_at','account_data_posts',
-                                         'authentication_posts','historical_accounting_verified','dispatch_capability'}
-        if (not isinstance(report,dict) or set(report)!=fields or report['result']!='CAPTURE_FRESH_SHELF_READONLY_VERIFIED'
-                or any(report[key] is not True for key in flags) or any(type(report[key]) is not bool for key in previous)
-                or type(report['seconds']) is not int or report['seconds']!=bundle['plan']['seconds']
-                or not integer(report['completed_at'],bundle['plan']['not_before'],4102444800)
-                or type(report['observed_months']) is not int or report['observed_months']!=len(months)
-                or any(type(report[key]) is not int or report[key]!=0 for key in ('account_data_posts','authentication_posts'))
-                or report['historical_accounting_verified'] is not False or report['dispatch_capability'] is not False
-                or not isinstance(shelf_digests,tuple) or len(shelf_digests)!=2
-                or any(not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value) for value in shelf_digests)):
-            raise ValueError('bundle_evidence/fresh_report')
+    def __init__(self,bundle,grant,report,snapshot,months,catalog_pairs,shelf_digests,trial_scope):
+        if not isinstance(shelf_digests,tuple):raise ValueError('bundle_evidence/fresh_report')
+        validate_fresh_report(bundle,report,months,shelf_digests,trial_scope)
         original=baseline(bundle,grant,snapshot,months,report['completed_at'])
-        self._value=deepcopy((report,original,catalog_stamp(bundle,catalog_pairs),shelf_digests))
+        self._value=deepcopy((report,original,catalog_stamp(bundle,catalog_pairs),shelf_digests,trial_scope))
         self._bundle_hash=digest(bundle);self._grant_hash=digest(grant);self._value_hash=digest(self._value)
 
     def __repr__(self):return '<FreshShelfEvidence private>'
@@ -93,7 +100,8 @@ class FreshShelfEvidence:
     def for_bundle(self,bundle,grant):
         if (digest(bundle)!=self._bundle_hash or digest(grant)!=self._grant_hash
                 or digest(self._value)!=self._value_hash):raise ValueError('bundle_evidence/changed')
-        report,original,stamp,shelves=deepcopy(self._value)
+        report,original,stamp,shelves,trial_scope=deepcopy(self._value)
+        validate_fresh_report(bundle,report,original['months'],shelves,trial_scope)
         if baseline(bundle,grant,original['snapshot'],original['months'],report['completed_at'])!=original:
             raise ValueError('bundle_evidence/changed')
-        return report,original['snapshot'],original['months'],stamp,shelves
+        return report,original['snapshot'],original['months'],stamp,shelves,trial_scope

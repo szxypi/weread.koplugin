@@ -186,8 +186,13 @@ local label=require('weread.lib.i18n').tr('Check saved time');local chosen
 for _i,item in ipairs(host._offline_time_menu.item_table) do if item.text==label then chosen=item;break end end
 assert(chosen,'synthetic_ui/menu');host._offline_time_menu:onMenuSelect(chosen)
 pump(function() return host._offline_time_detail~=nil end)
-local detail=host._offline_time_detail;assert(#detail.buttons==2 and detail.buttons[2][1].callback)
-detail.buttons[2][1].callback()
+local detail=host._offline_time_detail;local transfer_button
+local transfer_label=require('weread.lib.i18n').tr('Transfer this batch')
+for _i,row in ipairs(detail.buttons) do for _j,button in ipairs(row) do
+    if button.text==transfer_label then assert(not transfer_button);transfer_button=button end
+end end
+assert(transfer_button and type(transfer_button.callback)=='function','synthetic_ui/transfer_button')
+transfer_button.callback()
 pump(function() return host._offline_time_detail~=nil and service.job==nil end)
 local result_label=success and 'This batch is independently confirmed in cloud reading time.'
     or input.mode=='tamper_selection' and 'Could not complete this operation. Saved records are kept.'

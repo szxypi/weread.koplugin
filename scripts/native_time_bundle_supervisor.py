@@ -30,6 +30,17 @@ class Supervisor:
         now,_zone=self.gate._wall_clock()
         return self.preflight_at is not None and 0<=now-self.preflight_at<30
 
+    def _valid_observed(self,observed,now):
+        flags=('exact_capture_and_fixture_bound','fixture_in_captured_baseline',
+               'both_positions_source_counts_and_original_shelf_exact','two_statistics_reads_stable','server_clock_after_boundary')
+        return (isinstance(observed,dict) and observed.get('result')=='CROSS_DAY_READONLY_VERIFIED'
+                and all(observed.get(k) is True for k in flags) and type(observed.get('seconds')) is int
+                and observed['seconds']==self.bundle['plan']['seconds']
+                and integer(observed.get('completed_at'),self.bundle['plan']['not_before'],4102444800)
+                and 0<=now-observed['completed_at']<30
+                and all(type(observed.get(k)) is int and observed[k]==0 for k in ('account_data_posts','authentication_posts'))
+                and observed.get('historical_accounting_verified') is False and observed.get('dispatch_capability') is False)
+
     def prepare(self):
         if self.phase!='initial' or self.gate.read()!=(None,None) or self.current() is not True:
             raise ValueError('bundle_supervisor/state')
@@ -37,17 +48,8 @@ class Supervisor:
         if captured is None or digest(captured)!=self.bundle_hash or self.capture_receipt is None:
             raise ValueError('bundle_supervisor/capture')
         observed=self.preflight()
-        flags=('exact_capture_and_fixture_bound','fixture_in_captured_baseline',
-               'both_positions_source_counts_and_original_shelf_exact','two_statistics_reads_stable','server_clock_after_boundary')
         now,_zone=self.gate._wall_clock()
-        if (not isinstance(observed,dict) or observed.get('result')!='CROSS_DAY_READONLY_VERIFIED'
-                or any(observed.get(k) is not True for k in flags) or type(observed.get('seconds')) is not int
-                or observed['seconds']!=self.bundle['plan']['seconds']
-                or not integer(observed.get('completed_at'),self.bundle['plan']['not_before'],4102444800)
-                or not 0<=now-observed['completed_at']<30
-                or any(type(observed.get(k)) is not int or observed[k]!=0 for k in ('account_data_posts','authentication_posts'))
-                or observed.get('historical_accounting_verified') is not False or observed.get('dispatch_capability') is not False
-                or not self._fresh() or self.gate.read()!=(None,None)):
+        if not self._valid_observed(observed,now) or not self._fresh() or self.gate.read()!=(None,None):
             raise ValueError('bundle_supervisor/preflight')
         self.preflight_at=observed['completed_at'];self.phase='prepared'
 

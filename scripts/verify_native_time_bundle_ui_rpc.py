@@ -62,7 +62,7 @@ def seed_evidence(runtime,source,root):
     return evidence
 
 
-def scenario(runtime,source,candidate,root,mode,width,height,dpi,evidence):
+def scenario(runtime,source,candidate,root,mode,width,height,dpi,evidence,fresh_shelf=False):
     captured,grant,before,_samples,_now=example();p=captured['plan']
     captured['evidence']=deepcopy(evidence)
     if (p['owner'],p['book_id'],grant['accessToken'],grant['refreshToken'])!=('900000','900001','mock-native-access','mock-native-refresh'):
@@ -83,12 +83,28 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi,evidence):
             before['snapshot'][key]['chapterTitle']={'present':True,'value':'合成章节'}
     before['snapshot']['shelf']=state_hash({'books':[{'bookId':p['book_id'],'secret':0,'finishReading':0}],'archive':[]})
     p['baseline_sha256']=captured_digest(before['snapshot'])
-    audit=AuditStore(FileBackend(folder/'audit'),lambda:project_lock(folder/'audit.lock'),clock=time.time)
     preflight=observed(completed_at=int(time.time()));preflight['observed_months']=len(before['months'])
     catalog=synthetic_catalog(p)
-    evidence=PreflightEvidence(captured,grant,preflight,before['snapshot'],before['months'],synthetic_pairs(catalog))
-    guard=NativeBoundSupervisor(gate,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,
-        audit_store=audit,evidence=evidence);guard.prepare()
+    if fresh_shelf:
+        from native_time_bundle_evidence import FreshShelfEvidence
+        from native_time_bundle_fresh_audit import FreshAuditStore
+        from native_time_bundle_fresh_supervisor import FreshNativeBoundSupervisor
+        from test_native_time_bundle_evidence import synthetic_scope
+        preflight.pop('both_positions_source_counts_and_original_shelf_exact')
+        preflight.update(result='CAPTURE_FRESH_SHELF_READONLY_VERIFIED',captured_native_shelf_positions_source_counts_exact=True,
+                         fresh_native_and_web_shelf_stable=True,previous_native_group_baseline_matches=False,
+                         previous_web_group_baseline_matches=False)
+        trial=synthetic_scope(captured)
+        evidence=FreshShelfEvidence(captured,grant,preflight,before['snapshot'],before['months'],synthetic_pairs(catalog),('a'*64,'b'*64),trial)
+        audit=FreshAuditStore(FileBackend(folder/'audit'),lambda:project_lock(folder/'audit.lock'),clock=time.time)
+        guard=FreshNativeBoundSupervisor(gate,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,
+            audit_store=audit,evidence=evidence,trial_reader=lambda:trial)
+    else:
+        audit=AuditStore(FileBackend(folder/'audit'),lambda:project_lock(folder/'audit.lock'),clock=time.time)
+        evidence=PreflightEvidence(captured,grant,preflight,before['snapshot'],before['months'],synthetic_pairs(catalog))
+        guard=NativeBoundSupervisor(gate,Capture(captured),captured,grant,'synthetic-guest','synthetic-config',lambda:True,
+            audit_store=audit,evidence=evidence)
+    guard.prepare()
     bridge=NativeTimeBridge(guard,epub,armed=mode!='dry_run')
     token=secrets.token_hex(16);payload={k:v for k,v in p.items() if k!='archive_base64'}
     payload.update(grant=grant,guest='synthetic-guest',config='synthetic-config',mode=mode,token=token,months=before['months'])
@@ -125,6 +141,7 @@ def scenario(runtime,source,candidate,root,mode,width,height,dpi,evidence):
         raise ValueError('synthetic_ui/audit')
     if audit_state:
         saved,_,audit_gate,_=audit.inspect(captured,grant,gate)
+        if fresh_shelf:saved=saved['baseline']
         if saved['snapshot']!=before['snapshot'] or saved['months']!=before['months'] or audit_gate['phase']!=phase:
             raise ValueError('synthetic_ui/audit')
     expected_events={
@@ -173,6 +190,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',type=Path);parser.add_argument('--source',type=Path);parser.add_argument('--candidate',type=Path)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
+    parser.add_argument('--fresh-shelf',action='store_true',help='exercise the distinct fresh-shelf supervisor')
     args=parser.parse_args(argv)
     if any((args.koreader,args.source,args.candidate)) and not all((args.koreader,args.source,args.candidate)):
         parser.error('runtime, source and candidate required together')
@@ -189,13 +207,14 @@ def main(argv=None):
                 root=Path(directory)
                 evidence=seed_evidence(runtime,source,root)
                 for mode in ('success','optional_text','dry_run','tamper_selection','tamper_body','tamper_native_point','tamper_native_web','tamper_native_rows','tamper_native_counts','tamper_native_months','tamper_native_shelf','tamper_native_source','tamper_native_catalog','lost_reply','no_ack','kill_worker','no_delta','duplicate','invalid_ack','http_201'):
-                    scenario(runtime,source,candidate,root,mode,args.width,args.height,args.dpi,evidence)
+                    scenario(runtime,source,candidate,root,mode,args.width,args.height,args.dpi,evidence,args.fresh_shelf)
                 report.update(result='SYNTHETIC_NATIVE_UI_RPC_VERIFIED',native_menu=True,background_service=True,correct_dialogs=True,workers_reaped=True,archive_verified=True,
                               durable_claim_before_reply=True,modified_selection_blocked=True,modified_body_blocked=True,
                               lost_and_duplicate_not_replayed=True,no_ack_and_worker_death_not_replayed=True,ack_readonly_recovery_not_replayed=True,
                               baseline_sealed_before_claim=True,preflight_evidence_bound=True,native_baseline_mismatch_blocked=True,catalog_stamp_mismatch_blocked=True,optional_text_parity=True,
                               dry_run_without_claim=True,invalid_http_receipt_blocked=True,native_http_guard_enforced=True,
                               exact_sqlite_bundle_restored=True,scenarios=20)
+                if args.fresh_shelf:report['fresh_shelf_supervisor']=True
     except Exception as error:
         report.update(result='UNVERIFIED',synthetic_failure_mode=mode,synthetic_failure_type=type(error).__name__)
         if isinstance(error,ValueError) and str(error).startswith('synthetic_ui/child_'):

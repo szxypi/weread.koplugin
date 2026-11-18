@@ -87,3 +87,26 @@ def read_evidenced_signing_inputs(*,bundle,receipt,grant,store,gate,current,evid
                                current=current,preflight=report,probe=probe,clock=clock)
     if digest(evidence.for_bundle(bundle,grant))!=before:raise ValueError('bundle_preparation/evidence_changed')
     return inputs
+
+
+def read_fresh_evidenced_signing_inputs(*,bundle,receipt,grant,store,gate,current,evidence,trial_reader,probe,clock=time.time):
+    """Read signing inputs only for the exact fresh capture and trial journals."""
+    from native_time_bundle_evidence import FreshShelfEvidence
+    from annotation_experiment_model import digest
+    if isinstance(getattr(store,'backend',None),MacKeychain) and store.backend.service==CAPTURE_SERVICE and clock is not time.time:
+        raise ValueError('bundle_preparation/clock_override')
+    if (not isinstance(evidence,FreshShelfEvidence) or not callable(clock) or not callable(current)
+            or not callable(trial_reader)):
+        raise ValueError('bundle_preparation/evidence')
+    value=evidence.for_bundle(bundle,grant);report=value[0];trial=value[5];before=digest(value)
+    def fresh():
+        return (receipt is not None and current() is True and store.read()==(bundle,receipt)
+                and gate.read()==(None,None) and trial_reader()==trial)
+    now=int(clock());binding(bundle,grant,now)
+    if not fresh() or not 0<=now-report['completed_at']<30:raise ValueError('bundle_preparation/stale')
+    inputs=probe.read()
+    final=int(clock());binding(bundle,grant,final)
+    if (not isinstance(inputs,SigningInputs) or not fresh() or not 0<=final-report['completed_at']<30
+            or digest(evidence.for_bundle(bundle,grant))!=before):
+        raise ValueError('bundle_preparation/stale')
+    return inputs
