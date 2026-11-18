@@ -15,7 +15,7 @@ local ok,reason=pcall(function()
     local raw=assert(io.stdin:read(65537));assert(#raw<=65536)
     local input=json.decode(raw)
     assert(type(input)=='table' and type(input.owner)=='string' and input.owner:match('^[1-9]%d*$') and #input.owner<=20
-        and type(input.cookies)=='table' and input.cookies.wr_vid==input.owner and type(input.cookies.wr_skey)=='string'
+        and type(input.cookies)=='table' and input.cookies.wr_vid == input.owner and type(input.cookies.wr_skey)=='string'
         and type(input.expected_name)=='string' and #input.expected_name>0 and #input.expected_name<=512)
     local mock=os.getenv('WEREAD_PROFILE_MOCK')
     assert((input.mock_port~=nil)==(mock~=nil))

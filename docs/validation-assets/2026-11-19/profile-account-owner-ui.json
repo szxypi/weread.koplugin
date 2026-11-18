@@ -17,6 +17,7 @@
   "authorization_posts": 0,
   "credential_rotation_saved": false,
   "mock_first_runs": "offline glyph check ran before initial paint and stopped; corrected and both simulated sizes passed",
+  "initial_ci_scan": "a source-code comparison matched the cookie detector; spacing corrected, no credential value present",
   "real_account_full_statistics_concurrency_verified": false,
   "physical_kindle_verified": false
 }
