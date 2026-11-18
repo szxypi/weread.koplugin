@@ -1,0 +1,20 @@
+{
+  "result": "SYNTHETIC_ONLINE_RESULTS_LOCAL_SEARCH_VERIFIED",
+  "runtime": "KOReader 2026.07 Linux ARM64",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "book_types": [
+    "ordinary",
+    "imported"
+  ],
+  "local_action_visible_before_results": true,
+  "keyword_preserved": true,
+  "online_empty_ordinary_book": true,
+  "empty_online_local_results": 2,
+  "local_search_network_requests": 0,
+  "pagination_navigation_renewal_and_offline_regression": true,
+  "real_service_empty_result_verified": false,
+  "kindle_device_verified": false
+}

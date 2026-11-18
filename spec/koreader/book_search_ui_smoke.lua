@@ -8,6 +8,7 @@ local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
 local no_login_fallback=os.getenv('WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK')=='1'
+local empty_local=os.getenv('WEREAD_TEST_SEARCH_EMPTY_LOCAL')=='1'
 local local_download=os.getenv('WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD')=='1'
 local local_interrupt=os.getenv('WEREAD_TEST_SEARCH_LOCAL_INTERRUPT')=='1'
 local local_restart=os.getenv('WEREAD_TEST_SEARCH_LOCAL_RESTART')=='1'
@@ -102,6 +103,28 @@ if no_login_fallback then
     plugin:cancelBookSearch()
     print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',signed_out_entry=true,
         offline_results=2,network_requests=0}))
+    os.exit(0)
+end
+if empty_local then
+    assert(require('weread.ui.book_search').open(plugin,book_id,chapters))
+    local owner=assert(plugin._book_search_owner)
+    owner.input:setInputText('amberneedle');owner.input.buttons[1][2].callback()
+    wait(function() return owner.state and owner.state.finished and not owner.job end)
+    assert(#owner.value==0)
+    local action
+    for _i,item in ipairs(owner.menu.item_table) do
+        if item.text==require('weread.lib.i18n').tr('Search downloaded chapters') then action=item end
+    end
+    assert(action,'empty online results have no local search action')
+    local before=tonumber(network[0]);owner.menu:onMenuSelect(action)
+    wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+    local cached=assert(plugin._cached_book_search_owner)
+    assert(not plugin._book_search_owner and cached.input:getInputText()=='amberneedle')
+    cached.input.buttons[1][2].callback();wait(function() return cached.finished and not cached.job end)
+    assert(#cached.value==2 and tonumber(network[0])==before,'local search missed results or used network')
+    plugin:cancelBookSearch()
+    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',empty_online=true,
+        local_results=2,local_network_requests=0}))
     os.exit(0)
 end
 if offline_fallback then
@@ -201,7 +224,7 @@ if current_fallback then
     wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
     assert(#owner.value==1 and owner.value[1].chapter_uid=='2' and owner.state.finished)
     local expected=assert(require('weread.lib.book_search_target').project(bodies['2'],book_id,owner.value[1]))
-    owner.menu:onMenuSelect(owner.menu.item_table[1])
+    owner.menu:onMenuSelect(owner.menu.item_table[2])
     wait(function()
         local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
         return not owner.navigation and plugin.source_navigation and plugin.source_navigation.state=='ready'
@@ -296,12 +319,14 @@ if imported then
         print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(result))
         os.exit(0)
     end
-    if not missing and not renewal_test then
+end
+if not missing and not renewal_test then
         local local_action
         for _i,item in ipairs(owner.menu.item_table) do
             if item.text==require('weread.lib.i18n').tr('Search downloaded chapters') then local_action=item end
         end
-        assert(local_action,'imported online results have no local search action')
+        assert(local_action and owner.menu.item_table[2]==local_action,
+            'online results have no local search action before the hits')
         local network_before=tonumber(network[0]);owner.menu:onMenuSelect(local_action)
         wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
         local cached=plugin._cached_book_search_owner
@@ -314,7 +339,6 @@ if imported then
         owner=assert(plugin._book_search_owner);owner.input:setInputText('amberneedle');owner.input.buttons[1][2].callback()
         wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
         assert(#owner.value==1,'online search did not reopen after downloaded search')
-    end
 end
 if renewal_test then
     assert(not owner.recovery and count('/web/login/renewal')==1 and count('/web/book/search_v2')==2)
@@ -345,14 +369,14 @@ assert(owner.state.finished and #owner.value==2 and owner.value[2].chapter_uid==
 UI:forceRePaint();Device.screen:shot(evidence..'/book-search-results.png')
 local expected=assert(require('weread.lib.book_search_target').project(bodies['2'],book_id,owner.value[2]))
 local before_navigation=tonumber(network[0])
-owner.menu:onMenuSelect(owner.menu.item_table[2])
+owner.menu:onMenuSelect(owner.menu.item_table[3])
 if missing then
     wait(function() return owner.navigation and owner.navigation.confirm end)
     assert(tonumber(network[0])==before_navigation,'lookup requested network before download confirmation')
     local confirmation=owner.navigation.confirm
     assert(confirmation.text==require('weread.lib.i18n').tr('No matching downloaded chapter. Download it and locate this search result?'))
     confirmation.cancel_callback();assert(not owner.navigation and tonumber(network[0])==before_navigation)
-    owner.menu:onMenuSelect(owner.menu.item_table[2])
+    owner.menu:onMenuSelect(owner.menu.item_table[3])
     wait(function() return owner.navigation and owner.navigation.confirm end)
     assert(tonumber(network[0])==before_navigation,'cancelled confirmation started a download')
     owner.navigation.confirm.ok_callback()

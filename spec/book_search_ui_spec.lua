@@ -137,17 +137,32 @@ cached_calls=0;access.web=web_access
 local owner=open_and_submit()
 expect(owner.state.pages==0 and owner.job~=nil,'first page did not start asynchronously')
 active_worker:complete()
-expect(owner.state.pages==1 and #owner.value==1 and #owner.menu.items==2,
+expect(owner.state.pages==1 and #owner.value==1 and #owner.menu.items==3,
     'first page did not populate native results and next-page action')
-expect(owner.menu.items[2].text:find('term',1,true)~=nil,'a long excerpt hid the search term')
+expect(owner.menu.items[3].text:find('term',1,true)~=nil,'a long excerpt hid the search term')
+local successful_local=owner.menu.items[2]
+expect(successful_local.text=='Search downloaded chapters','ordinary results did not offer downloaded search')
+successful_local.callback()
+expect(cached_calls==1 and cached_request.id=='100' and cached_request.keyword=='term' and #owner.value==1,
+    'local search lost the query or changed the online results')
+cached_calls=0
 owner.menu.items[1].callback();expect(owner.state.pages==1 and owner.job~=nil,'pagination changed state before its worker returned')
+successful_local.callback();expect(cached_calls==0,'local search started while pagination was active')
 active_worker:complete()
-expect(owner.state.pages==2 and owner.state.finished and #owner.value==2 and #owner.menu.items==2,
+expect(owner.state.pages==2 and owner.state.finished and #owner.value==2 and #owner.menu.items==3,
     'second page did not append results and remove the next-page action')
-owner.menu.items[1].callback()
+owner.menu.items[2].callback()
 expect(navigation_calls==1 and owner.navigation.row.bookId=='100','search result did not start verified navigation')
 Search.cancel(host)
 expect(not host._book_search_owner and not owner.navigation,'closing search did not cancel navigation')
+successful_local.callback();expect(cached_calls==0,'closed search started downloaded search')
+
+fetch_mode='empty';owner=open_and_submit();active_worker:complete()
+expect(owner.state.finished and #owner.value==0 and owner.menu.items[1].text=='No matching text found.'
+    and owner.menu.items[2].text=='Search downloaded chapters', 'empty ordinary results lacked local search')
+owner.menu.items[2].callback();expect(cached_calls==1 and cached_request.keyword=='term',
+    'empty ordinary result did not pass its query to local search')
+cached_calls=0;Search.cancel(host);fetch_mode='ok'
 
 owner=open_and_submit();local old=active_worker;host.ui.document={file='/other.epub'};old:complete()
 expect(not host._book_search_owner and #owner.value==0,'late response opened after switching documents')
@@ -188,7 +203,7 @@ active_worker:complete()
 expect(owner.state.pages==1 and #owner.value==1,'renewed first page did not display once')
 fetch_mode='expired';owner.menu.items[1].callback();active_worker:complete();renewal=pending_renewal
 expect(owner.recovery and owner.state.pages==1 and #owner.value==1,'renewal discarded previous pages')
-local nav_before=navigation_calls;owner.menu.items[2].callback()
+local nav_before=navigation_calls;owner.menu.items[3].callback()
 expect(navigation_calls==nav_before and not owner.navigation,'result navigation ran during renewal')
 fetch_mode='ok';renewal.callback(true);active_worker:complete()
 expect(owner.state.pages==2 and #owner.value==2,'renewed later page repeated or lost results')

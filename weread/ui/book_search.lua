@@ -81,16 +81,6 @@ render=function(host,owner)
                 if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation then fetch_page(host,owner) end
             end}
         end
-        for _i,hit in ipairs(owner.value) do
-            local row=Target.row(owner.id,hit)
-            local title=owner.titles[hit.chapter_uid] or _('Chapter unavailable')
-            local context=preview(hit.context,hit.text)
-            items[#items+1]={text=title..' · '..context,select_enabled=row~=nil,callback=function()
-                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation and row then
-                    Navigation.start(host,owner,row,current)
-                end
-            end}
-        end
         local cached_added=false
         local function cached_option()
             if cached_added then return end
@@ -101,13 +91,23 @@ render=function(host,owner)
                 if not opened and current(host,owner) then host:showInfo(_('Could not search downloaded chapters.')) end
             end}
         end
-        -- The server's imported-book index can omit real matches. Offer the
-        -- local source-index search alongside both partial and empty results.
-        if owner.cb_book and owner.state and owner.state.pages>0 and #owner.value>0 then cached_option() end
+        -- Local source-index search can find matches omitted by the online
+        -- index, including for ordinary books and partially loaded results.
+        if owner.state and owner.state.pages>0 and (#owner.value>0 or not owner.state.finished) then cached_option() end
+        for _i,hit in ipairs(owner.value) do
+            local row=Target.row(owner.id,hit)
+            local title=owner.titles[hit.chapter_uid] or _('Chapter unavailable')
+            local context=preview(hit.context,hit.text)
+            items[#items+1]={text=title..' · '..context,select_enabled=row~=nil,callback=function()
+                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation and row then
+                    Navigation.start(host,owner,row,current)
+                end
+            end}
+        end
         if #owner.value==0 and owner.state and owner.state.finished then
             items[#items+1]={text=_(owner.cb_book and 'No matches returned. Search may be incomplete for this book.'
                 or 'No matching text found.'),select_enabled=false}
-            if owner.cb_book then cached_option() end
+            cached_option()
         elseif owner.cb_book and #owner.value>0 then
             items[#items+1]={text=_('Search results may be incomplete for this book.'),select_enabled=false}
         end
