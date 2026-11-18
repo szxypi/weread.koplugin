@@ -16,15 +16,16 @@ class CurrentnessTests(unittest.TestCase):
         session.assert_not_called();self.assertEqual(json.loads(out.getvalue())['result'],'OFFLINE_ONLY')
 
     def test_exact_baseline_and_saved_capture_are_required(self):
-        for mode in ('success','position_changed','capture_changed','wrong_owner','device_changed'):
+        for mode in ('success','position_changed','capture_changed','wrong_owner','device_changed','chapter_mismatch'):
             with self.subTest(mode=mode):self.run_case(mode)
 
     def run_case(self,mode):
         plan,proof,_,_,_=fixture();owner=plan['owner'];book=plan['book_id']
         credentials=dict(vid=owner,deviceId='synthetic-device',accessToken='synthetic-access')
         plan['device_sha256']=digest(credentials['deviceId'])
-        baseline=dict(source=plan['raw_sha256'],version=plan['book_version'],point='synthetic-point')
+        baseline=dict(source=plan['raw_sha256'],version=plan['book_version'],native={'chapter_idx':plan['chapter_idx']},point='synthetic-point')
         plan['baseline_sha256']=digest(baseline)
+        if mode=='chapter_mismatch':plan['chapter_idx']+=1
         captured=dict(plan=plan,evidence=proof);receipt=Receipt(b'synthetic')
         bundle=Mock();bundle.read.side_effect=[(captured,receipt),(captured,None) if mode=='capture_changed' else (captured,receipt)]
         session=Mock();session.load.return_value=dict(vid='900001' if mode=='wrong_owner' else owner,
@@ -43,6 +44,7 @@ class CurrentnessTests(unittest.TestCase):
              patch.object(task,'save_refreshed_web_session',return_value=False):
             result=task.run(session,native,bundle)
         self.assertEqual(result['result'],'CB_CAPTURE_CURRENT' if mode=='success' else 'UNVERIFIED')
+        if mode=='success':self.assertTrue(result['chapter_index_verified'])
         self.assertEqual(result['account_data_posts'],0);self.assertNotIn(book,json.dumps(result));self.assertNotIn('fixture-secret-cookie',json.dumps(result))
 
 

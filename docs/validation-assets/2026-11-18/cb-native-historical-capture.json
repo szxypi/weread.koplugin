@@ -43,5 +43,21 @@
     "capture_unchanged": true,
     "account_data_posts": 0,
     "authentication_posts": 0
+  },
+  "post_expiry_renewal": {
+    "native_401_independently_verified": true,
+    "authentication_posts": 1,
+    "account_data_posts": 0,
+    "same_owner_verified": true,
+    "renewed_credential_readback": true
+  },
+  "post_renewal_currentness": {
+    "result": "CB_CAPTURE_CURRENT",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_data_in_report": false,
+    "source_version_positions_counts_and_shelves_unchanged": true,
+    "saved_capture_unchanged": true,
+    "chapter_index_verified": true
   }
 }

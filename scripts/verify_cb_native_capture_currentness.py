@@ -26,11 +26,12 @@ def run(session,native_store,bundle):
         sample=web.inspect(plan['book_id']);web.verify_account()
         observed=snapshot(web,sample,Native(grant,plan['book_id']),grant)
         if (digest(observed)!=plan['baseline_sha256'] or observed['source']!=plan['raw_sha256']
-                or observed['version']!=plan['book_version'] or sample['chapter_uid']!=plan['chapter_uid']):
+                or observed['version']!=plan['book_version'] or sample['chapter_uid']!=plan['chapter_uid']
+                or observed['native']['chapter_idx']!=plan['chapter_idx']):
             raise ValueError('cb_capture_current/changed')
         if bundle.read()!=(captured,receipt) or native_store.load(saved['vid'])!=grant:raise ValueError('cb_capture_current/changed')
         result.update(result='CB_CAPTURE_CURRENT',source_version_positions_counts_and_shelves_unchanged=True,
-                      saved_capture_unchanged=True)
+                      saved_capture_unchanged=True,chapter_index_verified=True)
     except Exception:pass
     finally:
         if web:
