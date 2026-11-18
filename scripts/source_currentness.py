@@ -29,7 +29,11 @@ def version(value):
     raise ValueError('source_catalog')
 
 
-def catalog(payload,book,uid):
+def catalog(payload,book,uid,*,imported=False):
+    if type(imported) is not bool:raise ValueError('source_catalog')
+    if imported:
+        from verify_cb_progress import cb_id
+        if cb_id(book)!=book:raise ValueError('source_catalog')
     def success(value):
         if not isinstance(value,dict):return
         for key in ('errcode','errCode'):
@@ -54,7 +58,8 @@ def catalog(payload,book,uid):
     index=chapter_index(rows,uid)
     row=next(r for r in rows if str(r.get('chapterUid',r.get('chapterId',r.get('chapter_uid'))))==uid)
     nested=record.get('book')
-    if nested is not None and (not isinstance(nested,dict) or 'bookId' in nested and identifier(nested['bookId'])!=book):
+    nested_id=(cb_id(nested['bookId']) if imported else identifier(nested['bookId'])) if isinstance(nested,dict) and 'bookId' in nested else None
+    if nested is not None and (not isinstance(nested,dict) or 'bookId' in nested and nested_id!=book):
         raise ValueError('source_catalog')
     pieces=[book,uid,str(index)]
     for node in (record,nested or {},row):

@@ -111,7 +111,7 @@ function client:request(options)
         applied=input.mode~='no_delta';value={succ=input.mode=='invalid_ack' and 0 or 1}
     elseif options.url:find('/book/info?',1,true) then value={bookId=input.book_id,bookVersion=input.book_version}
     elseif options.url:find('/book/getProgress?',1,true) then value=progress()
-    elseif options.url:find('/shelf/sync',1,true) then value={books={{bookId=input.book_id,secret=0,finishReading=0}},archive={}}
+    elseif options.url:find('/shelf/sync',1,true) then value={books={{bookId=input.book_id,secret=0,finishReading=0}},archive=json.decode('[]')}
     elseif options.url:find('/readdata/detail?',1,true) then
         local month=assert(tonumber(options.url:match('baseTime=(%d+)$')))
         value=assert(json.decode(json.encode(input.months[tostring(month)])))

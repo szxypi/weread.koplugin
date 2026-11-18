@@ -27,9 +27,9 @@ def _encode(value,depth=0):
 def native_digest(value):return hashlib.sha256(_encode(value)).hexdigest()
 
 
-def expected(bundle):
+def expected(bundle,*,imported=False):
     if not isinstance(bundle,dict) or set(bundle)!={'plan','evidence'}:raise ValueError('bundle_selection/bundle')
-    p=bundle['plan'];validate_evidence(p,bundle['evidence'])
+    p=bundle['plan'];validate_evidence(p,bundle['evidence'],imported=imported)
     rows=deepcopy(p['rows'])
     parts=[dict(row_id=r['id'],start_time=r['start_time'],duration=r['duration']) for r in rows]
     protocol=[{k:r[k] for k in ('start_time','duration','time_zone','book_version')} for r in rows]
@@ -38,6 +38,6 @@ def expected(bundle):
                 rows_hash=native_digest(rows),parts_hash=native_digest(parts))
 
 
-def validate_selection(bundle,selection):
-    if not equivalent(expected(bundle),selection):raise ValueError('bundle_selection/mismatch')
+def validate_selection(bundle,selection,*,imported=False):
+    if not equivalent(expected(bundle,imported=imported),selection):raise ValueError('bundle_selection/mismatch')
     return selection

@@ -18,7 +18,8 @@ local function fixture(options)
         request.sink(reply);request.sink(nil)
         return options.mismatch and self:json_encode({succ=1}) or nil,options.code or 200,{}
     end
-    local guard=Guard.install(client,{grant=grant,book_id='900001',chapter_uid='11',cookies=cookies,months={1698796800},now=function() return 1700000000 end,
+    local guard=Guard.install(client,{grant=grant,book_id=options.book or (options.imported and 'CB_Synthetic' or '900001'),imported=options.imported,
+        chapter_uid='11',cookies=cookies,months={1698796800},now=function() return 1700000000 end,
         current=function() return state.current end,selection=function() return {synthetic=true} end,
         record=function() return {phase='claimed',synthetic=true} end,rpc=function(kind,value)
             state.events[#state.events+1]={kind=kind,value=value}
@@ -36,6 +37,22 @@ local function fixture(options)
             persist_response_cookies=false,sensitive=true,sink=function() return 1 end}
     end
     return client,guard,state,native,web,grant,cookies
+end
+
+do
+    expect(not pcall(fixture,{book='CB_Synthetic'}))
+    expect(not pcall(fixture,{book='900001',imported=true}))
+    expect(not pcall(fixture,{book='CB_bad/',imported=true}))
+    expect(not pcall(fixture,{imported='yes'}))
+    local client,guard,state,native,web=fixture({imported=true})
+    local read=native('https://i.weread.qq.com/book/info?bookId=CB_Synthetic','GET','native_time_metadata')
+    local progress=web('https://weread.qq.com/web/book/getProgress?bookId=CB_Synthetic&_=1700000000000','GET',nil,'shelf_progress')
+    expect(select(2,client:request(read))==200 and select(2,client:request(progress))==200)
+    local wrong=native('https://i.weread.qq.com/book/info?bookId=CB_Other','GET','native_time_metadata')
+    expect(not pcall(client.request,client,wrong) and state.calls==2 and not guard.write_attempted)
+    local write=native('https://i.weread.qq.com/book/batchUploadProgress','POST','native_time_write',client:json_encode({books={}}))
+    expect(select(2,client:request(write))==200 and guard.acknowledged and state.calls==3)
+    expect(not pcall(client.request,client,write) and state.calls==3)
 end
 
 do

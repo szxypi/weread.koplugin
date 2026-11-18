@@ -5,7 +5,8 @@ local function deny() error('synthetic_seed/network_disabled') end
 package.loaded['socket.http']={request=deny};package.loaded['ssl.https']={request=deny}
 local root,folder=assert(arg[1]),assert(arg[2]);package.path=root..'/?.lua;'..package.path
 local plan=json.decode(assert(io.stdin:read('*a')))
-assert(plan.owner=='900000' and plan.book_id=='900001' and plan.chapter_uid=='2')
+local cb=arg[3]=='cb';assert(arg[3]==nil or cb)
+assert(plan.owner=='900000' and plan.book_id==(cb and 'CB_Synthetic' or '900001') and plan.chapter_uid=='2')
 local C=require('weread.lib.readtime_transfer_contract')
 local Ledger=require('weread.lib.offline_time_store');local Coverage=require('weread.lib.readtime_coverage')
 local account=require('weread.lib.native_position_contract').account_key(plan.owner)

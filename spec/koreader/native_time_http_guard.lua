@@ -35,9 +35,13 @@ local OPTION_KEYS={url=true,method=true,body=true,headers=true,skip_cookie=true,
     sensitive=true,diagnostic_api=true,timeout=true,sink=true}
 
 function M.install(client,config)
+    local imported=type(config)=='table' and config.imported==true
+    local book_valid=type(config)=='table' and (imported and Contract.cb_id(config.book_id)
+        or not imported and Position.id(config.book_id) and Position.id(config.book_id)==config.book_id)
     if type(client)~='table' or type(client.request)~='function' or type(client.json_decode)~='function'
-        or type(config)~='table' or not Position.credentials(config.grant) or not Position.id(config.book_id)
-        or not Position.id(config.chapter_uid) or config.book_id~=Position.id(config.book_id)
+        or type(config)~='table' or config.imported~=nil and type(config.imported)~='boolean'
+        or not Position.credentials(config.grant) or not book_valid
+        or not Position.id(config.chapter_uid)
         or config.chapter_uid~=Position.id(config.chapter_uid) or type(config.cookies)~='table'
         or config.cookies.wr_vid~=config.grant.vid or type(config.cookies.wr_skey)~='string'
         or type(config.current)~='function' or type(config.rpc)~='function' or type(config.record)~='function'
@@ -57,7 +61,8 @@ function M.install(client,config)
     if count<1 or count>2 or count~=#config.months then fail('config') end
     local function binding()
         return Contract.digest({vid=config.grant.vid,accessToken=config.grant.accessToken,refreshToken=config.grant.refreshToken,
-            deviceId=config.grant.deviceId,cookies=config.cookies,book_id=config.book_id,chapter_uid=config.chapter_uid,months=config.months})
+            deviceId=config.grant.deviceId,cookies=config.cookies,book_id=config.book_id,chapter_uid=config.chapter_uid,months=config.months,
+            imported=config.imported==true})
     end
     local bound=binding()
     local original=client.request

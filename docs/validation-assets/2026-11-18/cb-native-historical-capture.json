@@ -59,5 +59,34 @@
     "source_version_positions_counts_and_shelves_unchanged": true,
     "saved_capture_unchanged": true,
     "chapter_index_verified": true
+  },
+  "synthetic_native_ui": {
+    "600x800": {
+      "result": "SYNTHETIC_CB_NATIVE_UI_RPC_VERIFIED",
+      "synthetic_only": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "profile_removed": true,
+      "scenarios": 19,
+      "native_menu": true,
+      "background_service": true,
+      "original_summary_preserved": true,
+      "baseline_sealed_before_claim": true,
+      "unknown_not_replayed": true
+    },
+    "1264x1680": {
+      "result": "SYNTHETIC_CB_NATIVE_UI_RPC_VERIFIED",
+      "synthetic_only": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "profile_removed": true,
+      "scenarios": 19,
+      "native_menu": true,
+      "background_service": true,
+      "original_summary_preserved": true,
+      "baseline_sealed_before_claim": true,
+      "unknown_not_replayed": true
+    },
+    "physical_kindle_tested": false
   }
 }
