@@ -13,7 +13,7 @@ local function copy(value)
 end
 local id='CB_SyntheticFirst'
 local creds={vid='900000',deviceId='eink334691225'..string.rep('1',19),accessToken='synthetic-access',refreshToken='synthetic-refresh'}
-local web_access={web={cookies={wr_vid=creds.vid}}}
+local web_access={web={cookies={wr_vid = creds.vid}}}
 local native_access={credentials=creds,scope={vid=creds.vid,epoch=1}}
 local old_capture,old_matches,old_native,old_new=Access.capture,Access.matches_cb_initial_access,Native.capture,Auth.new
 local valid=true
