@@ -41,6 +41,8 @@
     "current_native_core_matches_captured_baseline": true,
     "consecutive_samples_stable": true,
     "bounded_hypotheses_tested": 2282,
+    "empty_field_presence_combinations_tested": 2097152,
+    "empty_field_presence_combination_matched": false,
     "preflight_native_projection_reconstructed": false,
     "account_data_posts": 0,
     "authentication_posts": 0
