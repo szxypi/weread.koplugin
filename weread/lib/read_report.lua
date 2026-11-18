@@ -1241,7 +1241,7 @@ function ReadReport:build_payload(book_id, elapsed_seconds, book, position)
     }
 end
 
-function ReadReport:_send(book_id, book, position, elapsed_seconds, attempt)
+function ReadReport:_send(book_id, book, position, elapsed_seconds, attempt, cb_position)
     local function dispatch_current()
         if attempt and attempt.before_dispatch and attempt.before_dispatch()~=true then error('upload_source_changed',0) end
     end
@@ -1253,26 +1253,36 @@ function ReadReport:_send(book_id, book, position, elapsed_seconds, attempt)
         book.read_session_id = self.session_id
         book.read_session_entered_at = nil
     end
-    local enter_payload
-    if not book.read_session_entered_at then
-        enter_payload = WeRead.make_enter_read_payload{
-            book_id = book_id,
-            chapter_uid = book.chapter_uid,
-            chapter_idx = tonumber(book.chapter_idx) or 0,
-            chapter_offset = tonumber(book.chapter_offset) or 0,
-            progress = tonumber(book.progress) or 0,
-            summary = book.summary or "",
-            app_id = book.app_id or WeRead.web_app_id(),
-            psvts = book.psvts,
-            pclts = book.pclts,
-        }
+    local enter_payload, payload
+    if cb_position then
+        if not attempt or elapsed_seconds ~= 0 then error('cb_position_invalid',0) end
+        local build=require('weread.lib.cb_position_payload').build
+        local options={book_id=book_id,chapter_uid=book.chapter_uid,chapter_idx=tonumber(book.chapter_idx),
+            chapter_offset=tonumber(book.chapter_offset),progress=tonumber(book.progress),summary=book.summary,
+            psvts=book.psvts,pclts=book.pclts,token=book.token}
+        if not book.read_session_entered_at then enter_payload=build('enter',options) end
+        payload=build('position',options)
+    else
+        if not book.read_session_entered_at then
+            enter_payload = WeRead.make_enter_read_payload{
+                book_id = book_id,
+                chapter_uid = book.chapter_uid,
+                chapter_idx = tonumber(book.chapter_idx) or 0,
+                chapter_offset = tonumber(book.chapter_offset) or 0,
+                progress = tonumber(book.progress) or 0,
+                summary = book.summary or "",
+                app_id = book.app_id or WeRead.web_app_id(),
+                psvts = book.psvts,
+                pclts = book.pclts,
+            }
+        end
+        payload = self:build_payload(
+            book_id,
+            elapsed_seconds == nil and self:_interval() or elapsed_seconds,
+            book,
+            position
+        )
     end
-    local payload = self:build_payload(
-        book_id,
-        elapsed_seconds == nil and self:_interval() or elapsed_seconds,
-        book,
-        position
-    )
     if self.coverage and (tonumber(payload.rt) or 0) > 0 then
         -- Web requests authenticate with Cookie, which may differ from the
         -- gateway/UI account. Missing VID conservatively covers every account.
@@ -1321,6 +1331,12 @@ function ReadReport:confirm_position(receipt)
     local checked, remote
     if ok and state.auth == self:_auth_fingerprint() then checked, remote = ProgressReadback.check(data, state.target) end
     outcome.confirmation_reads = state.reads
+    if checked and checked.matches and state.cb_summary ~= nil then
+        local node = RemoteProgress.node(data,state.target.book_id)
+        if not node or node.summary ~= state.cb_summary or not remote or remote.raw_percent ~= state.target.percent then
+            checked = nil
+        end
+    end
     if checked and checked.matches then
         self._position_confirmation = nil
         outcome.accepted, outcome.position_confirmed, outcome.remote = true, true, remote
@@ -1334,10 +1350,26 @@ function ReadReport:confirm_position(receipt)
     return false, outcome
 end
 
-function ReadReport:upload_position(book_id, position, elapsed_seconds, plan)
+function ReadReport:_upload_position(book_id, position, elapsed_seconds, plan, cb_position)
     if self.offline_time_transfer then return false,{error="read_report_busy",error_kind="busy"} end
     if self.job then
         return false, { error = "read_report_busy", error_kind = "busy" }
+    end
+    local imported = type(book_id)=='string' and book_id:sub(1,3)=='CB_'
+    if imported ~= (cb_position == true) then
+        return false, { error = "upload_position_invalid", error_kind = "position" }
+    end
+    if cb_position then
+        local Access=require('weread.lib.read_access')
+        local Native=require('weread.lib.native_position_protocol')
+        local source=type(plan)=='table' and plan.source_position
+        if Access.display_book_id(book_id)~=book_id or type(position)~='table' or not Native.summary(position.summary)
+            or type(plan)~='table' or plan.transport~='cb_web_position' or type(plan.before_send)~='function'
+            or type(source)~='table' or source.book_id~=book_id or source.chapter_uid~=position.chapter_uid
+            or source.chapter_offset~=position.chapter_offset or source.basis~='filtered_xhtml_utf16'
+            or source.upload_verified~=false then
+            return false, { error = "upload_position_invalid", error_kind = "position" }
+        end
     end
     local target, reason = ProgressReadback.expected(book_id, position)
     if not target or elapsed_seconds ~= nil and elapsed_seconds ~= 0 then
@@ -1358,7 +1390,7 @@ function ReadReport:upload_position(book_id, position, elapsed_seconds, plan)
     local attempt = {before_dispatch=function()
         return current() and (not plan or not plan.before_send or plan.before_send()==true) and current()
     end}
-    local ok, result, code = pcall(self._send, self, tostring(book_id), book, position, 0, attempt)
+    local ok, result, code = pcall(self._send, self, tostring(book_id), book, position, 0, attempt, cb_position)
     if plan then book.summary=original_summary end
     local outcome = { accepted = false, acknowledged = false, position_confirmed = false,
         error = "upload_write_unconfirmed", error_kind = "unconfirmed", enter_attempted = attempt.enter_attempted == true,
@@ -1368,7 +1400,8 @@ function ReadReport:upload_position(book_id, position, elapsed_seconds, plan)
     end
     if ok and position_acknowledged(result, code) then
         local receipt = {}
-        self._position_confirmation = { receipt = receipt, reads = 0, target = target, auth = self:_auth_fingerprint() }
+        self._position_confirmation = { receipt = receipt, reads = 0, target = target, auth = self:_auth_fingerprint(),
+            cb_summary = cb_position and position.summary or nil }
         local confirmed = select(2, self:confirm_position(receipt))
         for key, value in pairs(confirmed) do outcome[key] = value end
         if confirmed.accepted then outcome.error, outcome.error_kind = nil, nil end
@@ -1382,6 +1415,15 @@ function ReadReport:upload_position(book_id, position, elapsed_seconds, plan)
         end
     end
     return outcome.accepted == true, outcome
+end
+
+-- Imported progress has its own explicitly authorized, zero-time path. The
+-- regular timer and numeric upload paths cannot opt in by changing a field.
+function ReadReport:upload_position(book_id,position,elapsed_seconds,plan)
+    return self:_upload_position(book_id,position,elapsed_seconds,plan,false)
+end
+function ReadReport:upload_cb_position(book_id,position,plan)
+    return self:_upload_position(book_id,position,0,plan,true)
 end
 
 return ReadReport
