@@ -29,7 +29,7 @@ class FreshShelfTests(unittest.TestCase):
     def test_two_exact_independent_observations_are_read_only(self):
         bundle,grant,evidence,observations=example()
         result=compare(evidence,bundle,grant,TARGET,observations)
-        self.assertEqual(result,dict(result='FRESH_SHELF_MATCH',independent_samples=2,
+        self.assertEqual(result,dict(result='FRESH_SHELF_MATCH',compared_observations=2,
                                      historical_accounting_verified=False,dispatch_capability=False))
 
     def test_any_changed_or_missing_state_rejects_comparison(self):

@@ -26,5 +26,5 @@ def compare(evidence,bundle,grant,target,observations):
         for index,key in enumerate(('native','web')):
             without_fixture(row[key],target)
             if digest(project(row[key]))!=expected[index]:raise ValueError('fresh_shelf/changed')
-    return {'result':'FRESH_SHELF_MATCH','independent_samples':2,
+    return {'result':'FRESH_SHELF_MATCH','compared_observations':2,
             'historical_accounting_verified':False,'dispatch_capability':False}
