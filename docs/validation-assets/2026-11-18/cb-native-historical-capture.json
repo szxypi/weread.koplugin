@@ -88,5 +88,26 @@
       "unknown_not_replayed": true
     },
     "physical_kindle_tested": false
+  },
+  "early_preflight": {
+    "result": "EARLY_PREFLIGHT_DEFERRED",
+    "capture_unchanged": true,
+    "dispatch_and_audit_empty": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0
+  },
+  "early_preflight_cli": {
+    "result": "NOT_YET_HISTORICAL",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_data_in_report": false
+  },
+  "synthetic_preflight": {
+    "result": "SYNTHETIC_CB_PREFLIGHT_VERIFIED",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "two_stable_snapshots": true,
+    "two_stable_statistics": true,
+    "gate_and_audit_unchanged": true
   }
 }

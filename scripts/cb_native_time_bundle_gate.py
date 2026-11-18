@@ -14,6 +14,7 @@ from secure_weread_session import ACCOUNT,MacKeychain,StoreError
 from txt_full_summary import digest as captured_digest
 from verify_eink_renewal import validate_credentials
 from verify_native_position_lua import equivalent
+from web_shelf_contract import identity
 
 SERVICE='org.codex.weread.cb-native-historical-dispatch-v1'
 PROTOCOL='cb-native-historical-one-shot-v1'
@@ -38,7 +39,7 @@ def binding(bundle,grant,snapshot,now):
     keys={'chapter_uid','chapter_idx','chapter_offset','raw_percent','summary','chapterTitle'}
     if any(not isinstance(point,dict) or set(point)!=keys for point in (native,web)):raise ValueError('cb_bundle/position')
     for point in (native,web):
-        if (point['chapter_uid']!=plan['chapter_uid'] or not integer(point['chapter_idx'],0,1000000)
+        if (identity(point['chapter_uid'])!=plan['chapter_uid'] or not integer(point['chapter_idx'],0,1000000)
                 or not integer(point['chapter_offset'],0,2147483647) or type(point['raw_percent']) not in (int,float)
                 or not math.isfinite(point['raw_percent']) or not 0<=point['raw_percent']<=100):raise ValueError('cb_bundle/position')
         for field in ('summary','chapterTitle'):
@@ -46,7 +47,8 @@ def binding(bundle,grant,snapshot,now):
             if (not isinstance(value,dict) or set(value) not in ({'present'},{'present','value'}) or type(value['present']) is not bool
                     or value['present']!=('value' in value) or value['present'] and (not isinstance(value['value'],str)
                     or len(value['value'].encode())>16384 or '\0' in value['value'])):raise ValueError('cb_bundle/position')
-    if any(native[key]!=web[key] for key in ('chapter_uid','chapter_idx','chapter_offset','raw_percent','summary')):
+    if (identity(native['chapter_uid'])!=identity(web['chapter_uid'])
+            or any(native[key]!=web[key] for key in ('chapter_idx','chapter_offset','raw_percent','summary'))):
         raise ValueError('cb_bundle/position')
     if native['chapter_idx']!=plan['chapter_idx'] or not native['summary']['present']:raise ValueError('cb_bundle/summary')
     summary=native['summary']['value']

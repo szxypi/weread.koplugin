@@ -15,9 +15,10 @@ import verify_native_time_capture as task
 
 
 def sha(v):return hashlib.sha256(v).hexdigest()
-def capture(format="web_txt",book='900001'):
+def capture(format="web_txt",book='900001',raw_override=None):
     raw=b'An original synthetic chapter for real statistics capture. '*30
     if format=='web_xhtml':raw=b'<html><body><p>'+raw+b'</p></body></html>'
+    if raw_override is not None:raw=raw_override
     rendered=b'<html><body><p>Synthetic body</p></body></html>'
     identity='schema=1\nbook_id='+book+'\nbook_version=7\nchapter_count=1\ntext_digest='+sha(rendered)+'\n'
     file_id=sha(identity.encode());identity+='source_id='+file_id+'\n'

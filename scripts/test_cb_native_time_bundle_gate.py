@@ -82,6 +82,16 @@ class ImportedBundleGateTests(unittest.TestCase):
             updated=deepcopy(bundle);updated['plan']['baseline_sha256']=digest(changed)
             with self.subTest(summary=text[:5]),self.assertRaises(ValueError):binding(updated,grant,changed,now)
         with self.assertRaises(ValueError):verify_request(bundle,grant,snapshot,body,'synthetic-guest','synthetic-config',now+30,'+08:00')
+    def test_native_numeric_and_web_string_chapter_ids_are_canonicalized(self):
+        bundle,grant,snapshot,body,now=example()
+        snapshot['native']['chapter_uid']=int(bundle['plan']['chapter_uid'])
+        bundle['plan']['baseline_sha256']=digest(snapshot)
+        self.assertTrue(binding(bundle,grant,snapshot,now))
+        self.assertTrue(verify_request(bundle,grant,snapshot,body,'synthetic-guest','synthetic-config',now,'+08:00'))
+        for invalid in (True,0,2**53,'02','CB_Chapter'):
+            changed=deepcopy(snapshot);changed['native']['chapter_uid']=invalid
+            revised=deepcopy(bundle);revised['plan']['baseline_sha256']=digest(changed)
+            with self.subTest(uid=invalid),self.assertRaises(ValueError):binding(revised,grant,changed,now)
     def test_competing_claim_and_ambiguous_storage_never_replay(self):
         bundle,grant,snapshot,body,now=example();lock=threading.Lock();task=self.gate(now,lock=lambda:lock)
         receipt=task.reserve(bundle,grant,snapshot);barrier=threading.Barrier(2);results=[]
