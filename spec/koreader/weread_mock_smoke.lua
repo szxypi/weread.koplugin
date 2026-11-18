@@ -116,6 +116,9 @@ local function request_count(route_path, api)
 end
 local writes_before = request_count("/web/book/read")
 local fixture_dir = debug.getinfo(1, "S").source:match("^@(.*/)")
+if os.getenv('WEREAD_TEST_PROFILE_NAME')=='1' then
+    dofile(fixture_dir..'profile_account_smoke.lua')(plugin,request_count,fastforward_ui_events)
+end
 local source_probe = dofile(fixture_dir .. "position_source_smoke.lua")
 source_probe.reader(reader, fastforward_ui_events, home .. "/../evidence")
 dofile(fixture_dir .. "native_authorization_smoke.lua")(plugin, request_count, fastforward_ui_events, home)

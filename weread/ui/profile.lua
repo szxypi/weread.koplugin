@@ -2,6 +2,7 @@ local Data = require("weread.lib.profile")
 local Source = require("weread.lib.statistics_source")
 local Recovery = require("weread.lib.native_read_recovery")
 local Request = require("weread.ui.statistics_request")
+local AccountName = require("weread.lib.profile_account")
 local PluginUtil = require("weread.lib.plugin_util")
 local UIManager = require("ui/uimanager")
 local _ = PluginUtil.tr
@@ -14,6 +15,10 @@ function M:cancelProfileRefresh()
         if self.profile_worker then self.profile_worker:cancel() end
         Recovery.cancel(self, request)
     end
+    if self.profile_name_request then
+        self.profile_name_request = nil
+        if self.profile_name_worker then self.profile_name_worker:cancel() end
+    end
 end
 
 function M:showProfile()
@@ -21,11 +26,15 @@ function M:showProfile()
         self:closeWeReadUI()
     end
     local account = self.settings:get("account", {})
+    local scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local cached_name = self.library_db:getProfileState("account_name")
+    local name = type(cached_name)=="table" and scope and cached_name.epoch==scope.epoch
+        and AccountName.valid_name(cached_name.name) and cached_name.name or account.name
     local snapshot = self.library_db:getProfileState("statistics")
     local goal = self.library_db:getProfileState("goal") or {}
     local data = Data.build(snapshot, goal.minutes)
     data.account_name = not self.library_db:accountKey() and _("Not logged in")
-        or type(account.name) == "string" and account.name ~= "" and account.name or _("Unknown account")
+        or AccountName.valid_name(name) and name or _("Unknown account")
     data.navigation = self:discoveryNavigation("profile")
     data.cached = data.has_data and (not self:isNetworkOnline() or not data.fetched_at or os.time() - data.fetched_at >= Data.TTL
         or os.time() < data.fetched_at)
@@ -36,7 +45,7 @@ function M:showProfile()
     end
     local view
     view = require("weread.ui.read_stats_view").show(data, {
-        on_refresh = function() self:refreshProfile(false) end,
+        on_refresh = function() self:refreshProfileName() self:refreshProfile(false) end,
         on_goal = function() self:showReadingGoal() end,
         on_statistics = function() self:cancelProfileRefresh() self:showReadStats() end,
         on_close = function()
@@ -49,6 +58,38 @@ function M:showProfile()
     self._profile_view = view
     if not data.has_data or data.cached then self:refreshProfile(true) end
     return view
+end
+
+-- Refreshing the displayed identity is independent of statistics access and
+-- never rewrites the login session or stores a worker's response credentials.
+function M:refreshProfileName()
+    if self.profile_name_request or not self:isNetworkOnline() then return end
+    local account,epoch=self.library_db:accountKey(),self.discovery_epoch or 0
+    local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local access=AccountName.capture(self.settings)
+    if not account or not scope or not access or not access.web then return end
+    if not self.profile_name_worker then
+        local ok,worker=pcall(function() return require('weread.lib.memory_worker'):new{scheduler=UIManager,codec=self.client} end)
+        if not ok then return end
+        self.profile_name_worker=worker
+    end
+    local marker={};self.profile_name_request=marker
+    local function current()
+        local now=self.settings:get_auth_scope()
+        return self.profile_name_request==marker and self.library_db:accountKey()==account
+            and (self.discovery_epoch or 0)==epoch and now and now.vid==scope.vid and now.epoch==scope.epoch
+            and AccountName.matches(self.settings,access)
+    end
+    local ok,started=pcall(self.profile_name_worker.start,self.profile_name_worker,function()
+        return {name=AccountName.fetch(self.client,access)}
+    end,function(result)
+        if not current() then if self.profile_name_request==marker then self.profile_name_request=nil end;return end
+        self.profile_name_request=nil
+        if type(result)~='table' or not AccountName.valid_name(result.name) then return end
+        if not self.library_db:putProfileState('account_name',{name=result.name,epoch=scope.epoch}) then return end
+        if self._profile_view and not self._profile_goal_dialog then self:showProfile() end
+    end)
+    if not ok or not started then self.profile_name_request=nil end
 end
 
 function M:refreshProfile(automatic)
