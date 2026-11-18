@@ -7,6 +7,9 @@ local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local local_download=os.getenv('WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD')=='1'
+local local_interrupt=os.getenv('WEREAD_TEST_SEARCH_LOCAL_INTERRUPT')=='1'
+local local_restart=os.getenv('WEREAD_TEST_SEARCH_LOCAL_RESTART')=='1'
+local reopened=os.getenv('WEREAD_TEST_SEARCH_REOPEN')=='1'
 local book_id=imported and 'CB_SyntheticResume' or '900001'
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
@@ -29,6 +32,16 @@ settings:update_auth({account={user_vid='900000',name='Synthetic'},
 local chapters={{chapterUid='1',chapterIdx=1,title='合成第一章',wordCount=1000},
     {chapterUid='2',chapterIdx=2,title='合成第二章',wordCount=1000}}
 local book={book_id=book_id,bookId=book_id,bookVersion=7,title='合成书内搜索',chapters=chapters,cached_chapters={}}
+if local_interrupt then
+    local account=require('weread.lib.crypto').sha256_hex('weread-library:900000'):sub(1,20)
+    if reopened then
+        local prior=assert(settings:get_book(book_id))
+        assert(prior.pending_upload_reason=='synthetic_pending' and prior.pending_upload_position.chapter_offset==19,
+            'pending position was not retained across restart')
+    end
+    book.pending_upload_position={book_id=book_id,chapter_uid='1',chapter_offset=19,percent=12}
+    book.pending_upload_reason='synthetic_pending';book.pending_upload_account=account
+end
 local bodies,sources={},{ }
 for _i,chapter in ipairs(chapters) do
     local uid=chapter.chapterUid
@@ -154,8 +167,45 @@ if imported then
         assert(not cached.download and tonumber(network[0])==before,'cancelled full download started network activity')
         cached.menu:onMenuSelect(action(cached.menu,'Download full book and search again'))
         confirm=assert(cached.download.confirm);confirm.ok_callback()
+        if local_interrupt and not reopened then
+            wait(function() return plugin.downloader._active_job and plugin.downloader._active_job.completed_count>=1 end)
+            local first_job=assert(plugin.downloader._active_job)
+            plugin:cancelBookSearch()
+            wait(function() return not plugin.downloader._active_job end)
+            assert(first_job.cancelled and not plugin._cached_book_search_owner and reader.document.file==book.cached_file,
+                'closing search did not stop its download')
+            local saved=assert(plugin.settings:get_book(book_id))
+            assert(saved.pending_upload_reason=='synthetic_pending' and saved.pending_upload_position.chapter_offset==19,
+                'cancelling the download changed the pending position')
+            if local_restart then
+                print('\nWEREAD_SEARCH_DOWNLOAD_PAUSED='..require('json').encode({result='PASS',checkpoint=true}))
+                os.exit(0)
+            end
+            assert(require('weread.ui.cached_book_search').open(plugin,book_id,chapters,'amberneedle'))
+            cached=assert(plugin._cached_book_search_owner);cached.input.buttons[1][2].callback()
+            wait(function() return cached.finished and not cached.job end)
+            assert(cached.missing==1 and #cached.value==1)
+            cached.menu:onMenuSelect(action(cached.menu,'Download full book and search again'))
+            confirm=assert(cached.download.confirm);confirm.ok_callback()
+            wait(function()
+                local job=plugin.downloader._active_job
+                return job and job~=first_job and job.completed_count>=1 and job.index>=2
+            end)
+            assert(plugin.downloader._active_job~=first_job and plugin.downloader._active_job.index>=2,
+                'resumed download did not restore completed chapters')
+        elseif local_restart and reopened then
+            wait(function()
+                local job=plugin.downloader._active_job
+                return job and job.completed_count>=1 and job.index>=2
+            end)
+        end
         wait(function() return cached.finished and not cached.job and not cached.download and cached.checked==2 end)
         assert(#cached.value==2 and cached.missing==0 and tonumber(network[0])>before,'full download did not fill search coverage')
+        if local_interrupt then
+            local saved=assert(plugin.settings:get_book(book_id))
+            assert(saved.pending_upload_reason=='synthetic_pending' and saved.pending_upload_position.chapter_offset==19,
+                'resuming the download changed the pending position')
+        end
         assert(reader.document.file==book.cached_file,'download replaced the current reader document')
         local expected=cached.value[2].offset;cached.menu:onMenuSelect(cached.menu.item_table[2])
         wait(function()
@@ -167,8 +217,10 @@ if imported then
         end)
         assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
         assert(not plugin.progress_sync.verified and not plugin.read_report.job)
-        print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',local_download_search=true,
-            unavailable_before=1,results=2,cancel_safe=true,current_file_preserved=true,navigation_verified=true}))
+        local result={result='PASS',local_download_search=true,unavailable_before=1,results=2,
+            cancel_safe=true,current_file_preserved=true,navigation_verified=true}
+        if local_interrupt then result.interrupted_resume_verified=true end
+        print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(result))
         os.exit(0)
     end
     if not missing and not renewal_test then

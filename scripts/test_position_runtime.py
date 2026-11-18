@@ -87,6 +87,8 @@ def main():
     parser.add_argument('--search-cb', action='store_true')
     parser.add_argument('--search-current-fallback', action='store_true')
     parser.add_argument('--search-local-download', action='store_true')
+    parser.add_argument('--search-local-interrupt', action='store_true')
+    parser.add_argument('--search-local-restart', action='store_true')
     parser.add_argument('--cached-signed-out', action='store_true')
     parser.add_argument('--cached-no-catalog', action='store_true')
     parser.add_argument('--cached-full', action='store_true')
@@ -113,6 +115,10 @@ def main():
     if args.search_local_download and (args.probe!='book-search' or not args.search_cb or not args.search_missing
                                        or args.search_renewal or args.search_current_fallback or args.search_catalog_missing):
         parser.error('local download fixture requires imported book search with a missing chapter')
+    if args.search_local_interrupt and not args.search_local_download:
+        parser.error('local interruption fixture requires local download')
+    if args.search_local_restart and not args.search_local_interrupt:
+        parser.error('local restart fixture requires local interruption')
     if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete or args.cached_dual
             or args.cached_ignore_case) and args.probe!='cached-search':
         parser.error('cached search options require --probe cached-search')
@@ -157,6 +163,8 @@ def main():
                                         WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
                                         WEREAD_TEST_SEARCH_CURRENT_FALLBACK='1' if args.search_current_fallback else '0',
                                         WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD='1' if args.search_local_download else '0',
+                                        WEREAD_TEST_SEARCH_LOCAL_INTERRUPT='1' if args.search_local_interrupt else '0',
+                                        WEREAD_TEST_SEARCH_LOCAL_RESTART='1' if args.search_local_restart else '0',
                                         WEREAD_TEST_CACHED_SIGNED_OUT='1' if args.cached_signed_out else '0',
                                         WEREAD_TEST_CACHED_NO_CATALOG='1' if args.cached_no_catalog else '0',
                                         WEREAD_TEST_CACHED_FULL='1' if args.cached_full else '0',
@@ -186,6 +194,12 @@ def main():
                          "home-local-recent": "home_local_recent_smoke.lua"}[args.probe]
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / probe)],
                                         cwd=runtime, env=environment, stdout=out, stderr=subprocess.STDOUT, timeout=120)
+            if result.returncode == 0 and args.search_local_restart:
+                initial=log.read_bytes();marker=b'\nWEREAD_SEARCH_DOWNLOAD_PAUSED='
+                assert initial.count(marker)==1 and json.loads(initial.split(marker,1)[1].splitlines()[0])=={'result':'PASS','checkpoint':True}
+                with (root/'evidence/reopen.log').open('w') as out:
+                    result=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                        env=environment | {'WEREAD_TEST_SEARCH_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
             if result.returncode == 0 and args.probe == 'quick-search':
                 server.shutdown();thread.join()
                 with (root / 'evidence/reopen.log').open('w') as out:
@@ -338,6 +352,7 @@ def main():
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'native search made a mock request'
             if args.probe == 'book-search':
+                if args.search_local_restart:raw=(root/'evidence/reopen.log').read_bytes()
                 marker=b'\nWEREAD_BOOK_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing online book search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
@@ -346,15 +361,21 @@ def main():
                 if args.search_local_download:
                     expected=dict(result='PASS',local_download_search=True,unavailable_before=1,results=2,
                                   cancel_safe=True,current_file_preserved=True,navigation_verified=True)
+                    if args.search_local_interrupt:expected['interrupted_resume_verified']=True
                 if args.search_renewal:expected['renewal_scenarios']=True
                 if args.search_cb and not args.search_local_download:expected['imported_search']=True
                 if args.search_current_fallback:expected['current_fallback']=True
                 assert value==expected, 'online search result mismatch'
-                search_requests=1 if args.search_local_download else 7 if args.search_renewal else 2
+                search_requests=(2 if args.search_local_restart else 1) if args.search_local_download else 7 if args.search_renewal else 2
                 if args.search_cb and not args.search_missing and not args.search_renewal and not args.search_current_fallback:
                     search_requests+=1 # reopen the online results after the offline handoff
                 assert server.request_totals[('/web/book/search_v2','')]==search_requests, 'unexpected search request count'
                 assert server.request_totals[('/web/login/renewal','')]==(2 if args.search_renewal else 0), 'unexpected renewal count'
+                if args.search_local_interrupt:
+                    from fetch_weread_epub import weread_e
+                    first_reads=[event for event in server.events if event['path']=='/web/book/chapter/e_0'
+                                 and event.get('encoded_chapter')==weread_e(1) and event['status']==200]
+                    assert len(first_reads)==1, 'resuming download requested the completed chapter again'
                 for event in server.events:
                     if event['method']=='POST':
                         assert (args.search_renewal and event['path'] in {'/__control','/web/login/renewal'}
