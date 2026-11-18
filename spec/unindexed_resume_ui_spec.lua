@@ -102,5 +102,27 @@ expect(M.start(host,book,hint,{'/chapter.epub','/full.epub'}),'multiple-cache ve
 worker:complete()
 expect(host.opened=='/full.epub','matching full-book identity was hidden by a different chapter cache')
 M.cancel(host);valid_path=nil
+-- A cloud view is scoped to imported books, and remains usable with a catalog.
+local imported='CB_SyntheticResume'
+local imported_point={book_id=imported,chapter_uid='2',file_id=identity,raw_sha256=raw_hash,
+    basis='filtered_xhtml_utf16',upload_verified=false}
+local cloud_hint=assert(Hint.make(imported_point,imported,owner,epoch))
+book={book_id=imported,cached_chapters={['2']='/chapter.epub'},cb_cloud_view_resume=cloud_hint}
+host.opened=nil;catalog_available=true
+expect(M.start(host,book,cloud_hint,{'/chapter.epub'},{cloud_view=true}),'cloud view verification did not start')
+worker:complete()
+expect(host.opened=='/chapter.epub','catalog blocked the verified cloud view')
+host.opened=nil
+expect(M.start(host,book,cloud_hint,{'/chapter.epub'},{cloud_view=true}),'changed cloud hint verification did not start')
+old=worker;book.cb_cloud_view_resume.raw_sha256=string.rep('f',64);old:complete()
+book.cb_cloud_view_resume.raw_sha256=raw_hash
+expect(not host.opened and not host._unindexed_resume_job,'changed cloud hint retained stale work')
+expect(M.start(host,book,cloud_hint,{'/chapter.epub'},{cloud_view=true}),'changed cloud account verification did not start')
+old=worker;account=string.rep('d',20);old:complete();account=owner
+expect(not host.opened and not host._unindexed_resume_job,'foreign account opened cloud view')
+expect(M.start(host,book,cloud_hint,{'/chapter.epub'},{cloud_view=true}),'changed cloud file verification did not start')
+cached_valid=false;worker:complete();cached_valid=true
+expect(UI.top and UI.top.ok_callback and not host.opened,'changed cloud file skipped fallback confirmation')
+M.cancel(host);catalog_available=false
 Source.document_metadata=original_metadata
 print(('unindexed_resume_ui_spec: %d checks'):format(checks))

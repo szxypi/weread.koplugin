@@ -16,6 +16,7 @@ local reading_fields = {
     home_recent_account = true,
     native_location_claims = true,
     unindexed_resume = true,
+    cb_cloud_view_resume = true,
     last_pull_at = true,
     last_remote_position = true,
     last_sync_error = true,

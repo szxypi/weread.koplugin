@@ -1987,11 +1987,16 @@ end
 function M:openBookForReading(book, quiet, options)
     local full_path = self:getFullBookCachePath(book)
     local book_id = book.book_id or book.bookId
-    local hint=book.unindexed_resume
+    local cloud_hint=type(book_id)=='string' and book_id:sub(1,3)=='CB_' and book.cb_cloud_view_resume
+    local hint=cloud_hint or book.unindexed_resume
     local account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
     if account==nil and self.progress_sync and self.progress_sync._account_key then account=self.progress_sync:_account_key() end
+    local Hint=require('weread.lib.unindexed_resume')
+    if cloud_hint and (not self.settings or not Hint.valid(cloud_hint,tostring(book_id),account,self.settings:get('auth_epoch',0))) then
+        cloud_hint=nil;hint=book.unindexed_resume
+    end
     local hint_valid=not (options and options.skip_unindexed_resume) and hint and self.settings
-        and require('weread.lib.unindexed_resume').valid(hint,tostring(book_id),account,self.settings:get('auth_epoch',0))
+        and Hint.valid(hint,tostring(book_id),account,self.settings:get('auth_epoch',0))
     if hint_valid then
         local chapters=book.chapters
         if type(chapters)~='table' or #chapters==0 then
@@ -2000,7 +2005,7 @@ function M:openBookForReading(book, quiet, options)
         if type(chapters)~='table' or #chapters==0 then
             chapters=Content.load_catalog_cache(self.client,self.settings,book)
         end
-        if type(chapters)~='table' or #chapters==0 then
+        if cloud_hint or type(chapters)~='table' or #chapters==0 then
             local mapped=type(book.cached_chapters)=='table' and (book.cached_chapters[hint.chapter_uid]
                 or book.cached_chapters[tonumber(hint.chapter_uid)])
             local paths={}
@@ -2008,7 +2013,7 @@ function M:openBookForReading(book, quiet, options)
             if full_path~=mapped and file_exists(full_path) then paths[#paths+1]=full_path end
             if #paths>0 then
                 if options and options.check_only then return true end
-                if require('weread.ui.unindexed_resume').start(self,book,hint,paths) then return true end
+                if require('weread.ui.unindexed_resume').start(self,book,hint,paths,{cloud_view=cloud_hint~=nil}) then return true end
                 self:showInfo(_('Could not verify the saved chapter. Search downloaded chapters again or choose another chapter.'))
                 return true
             end

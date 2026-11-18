@@ -25,7 +25,7 @@ function M.legacy(metadata,state,fields,scope)
         if pending[key] then allowed=claimed(pending_owner,scope)
         elseif local_position[key] then allowed=claimed(last_owner,scope)
         elseif home[key] then allowed=claimed(home_owner,scope)
-        elseif key=='unindexed_resume' then
+        elseif key=='unindexed_resume' or key=='cb_cloud_view_resume' then
             allowed=type(value)=='table' and claimed(value.owner,scope)
         elseif key=='source_dispatch' then
             -- An unidentifiable dispatch remains a blocking uncertainty, not

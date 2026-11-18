@@ -32,7 +32,7 @@ local function same(first,last)
     return first.chapter_uid==last.chapter_uid and first.chapter_offset==last.chapter_offset and first.percent==last.percent
 end
 local function check_reader(id,first,reader)
-    if type(reader)~='table' or type(reader.bookInfo)~='table' or Access.book_id(reader.bookInfo.bookId)~=id
+    if type(reader)~='table' or type(reader.bookInfo)~='table' or Access.display_book_id(reader.bookInfo.bookId)~=id
         or type(reader.currentChapter)~='table' or Access.book_id(reader.currentChapter.chapterUid)~=first.chapter_uid
         or not same(first,position(reader.progress,id)) then fail('reader_mismatch') end
 end
@@ -40,13 +40,15 @@ end
 function M.project(id,before,reader,raw,after,format)
     format=format or 'web_xhtml'
     if format~='web_xhtml' and format~='web_txt' then fail('source_invalid') end
-    id=Access.book_id(id)
+    id=Access.display_book_id(id)
     if not id then fail('invalid_book') end
+    local imported=id:sub(1,3)=='CB_'
+    if imported and format~='web_xhtml' then fail('source_invalid') end
     local first,last=position(before,id),position(after,id)
     if not same(first,last) then fail('target_changed') end
     check_reader(id,first,reader)
     if type(raw)~='string' or #raw<1 or #raw>Source.MAX_BYTES then fail('source_invalid') end
-    local map=Coordinates.build(raw,{format=format})
+    local map=Coordinates.build(raw,{format=format,allow_multiple_bodies=imported})
     local anchor=map and map:anchor(first.chapter_offset)
     local reverse=anchor and map:locate_point(anchor.text,anchor.point_offset)
     if not reverse or reverse.co~=first.chapter_offset then fail('target_unavailable') end
@@ -78,7 +80,7 @@ local function transport(client,id,selected)
 end
 
 function M.fetch(client,id,selected)
-    id=Access.book_id(id)
+    id=Access.display_book_id(id)
     selected=selected or M.capture(client.settings)
     if not id or not selected or not selected.web then fail('web_required') end
     local request,current=transport(client,id,selected)
@@ -113,14 +115,15 @@ function M.fetch(client,id,selected)
 end
 
 function M.remote(value)
-    if type(value)~='table' or not Access.book_id(value.book_id) or not Access.book_id(value.chapter_uid)
+    if type(value)~='table' or not Access.display_book_id(value.book_id) or not Access.book_id(value.chapter_uid)
         or not number(value.chapter_offset,Source.MAX_BYTES*8) or value.chapter_offset%1~=0
         or not number(value.percent,100) or type(value.raw_sha256)~='string' or #value.raw_sha256~=64
         or not value.raw_sha256:match('^[0-9a-f]+$') or not number(value.raw_bytes,Source.MAX_BYTES) or value.raw_bytes<1
-        or value.raw_bytes%1~=0 or not Source.is_coordinate_basis(value.basis) or value.upload_verified~=false then return nil end
+        or value.raw_bytes%1~=0 or not Source.is_coordinate_basis(value.basis) or value.upload_verified~=false
+        or type(value.book_id)=='string' and value.book_id:sub(1,3)=='CB_' and value.basis~='filtered_xhtml_utf16' then return nil end
     local out={}
     for _,key in ipairs({'book_id','chapter_uid','chapter_offset','percent','raw_sha256','raw_bytes','basis','upload_verified'}) do out[key]=value[key] end
-    out.book_id,out.chapter_uid=Access.book_id(value.book_id),Access.book_id(value.chapter_uid)
+    out.book_id,out.chapter_uid=Access.display_book_id(value.book_id),Access.book_id(value.chapter_uid)
     return out
 end
 
@@ -206,6 +209,7 @@ function M.bind(input,remote,read_archive)
         if type(input)~='table' or type(input.identity)~='table' or type(remote)~='table'
             or remote.book_id~=input.book_id or not Access.book_id(remote.chapter_uid)
             or not Source.is_coordinate_basis(remote.basis) or remote.upload_verified~=false
+            or type(remote.book_id)=='string' and remote.book_id:sub(1,3)=='CB_' and remote.basis~='filtered_xhtml_utf16'
             or not number(remote.chapter_offset,Source.MAX_BYTES*8) or remote.chapter_offset%1~=0 then return {error='target_invalid'} end
         local Archive=require('weread.lib.source_archive')
         local Identity=require('weread.lib.book_file_identity')

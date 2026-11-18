@@ -251,6 +251,18 @@ function ProgressSync:accept_cloud_source_target(position,sync_choice,checked_re
     for _,key in ipairs({'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path'}) do
         if held[key]~=position[key] then return false end
     end
+    if position.book_id:sub(1,3)=='CB_' then
+        -- Viewing a provisional cloud target never grants upload authority or
+        -- discards the user's previously captured local intent.
+        if position.basis~='filtered_xhtml_utf16' then return false end
+        local hint=require('weread.lib.unindexed_resume').make(position,position.book_id,
+            self:_account_key(),self.settings:get('auth_epoch',0))
+        if not hint then return false end
+        self:_persist(position.book_id,{cb_cloud_view_resume=hint})
+        self:_clear_verified('cloud_source_selected')
+        self.dirty,self.state=false,'unverified'
+        return true
+    end
     local selected
     if position.basis=='raw_txt_utf16' then
         local remote=require('weread.lib.source_cloud').remote(checked_remote)
@@ -347,6 +359,14 @@ function ProgressSync:_persist(book_id, patch)
         if type(saved)=='table' and require('weread.lib.unindexed_resume').valid(saved.unindexed_resume,
             book_id,self:_account_key(),self.settings:get('auth_epoch',0)) then
             patch=copy(patch);patch.unindexed_resume=false
+        end
+    end
+    if type(patch.last_local_position)=='table' and patch.cb_cloud_view_resume==nil then
+        local saved=self.get_book(book_id)
+        local hint=type(saved)=='table' and saved.cb_cloud_view_resume
+        if require('weread.lib.unindexed_resume').valid(hint,book_id,self:_account_key(),self.settings:get('auth_epoch',0))
+            and tostring(patch.last_local_position.chapter_uid or '')~=hint.chapter_uid then
+            patch=copy(patch);patch.cb_cloud_view_resume=false
         end
     end
     if self.settings.patch_reading_state then

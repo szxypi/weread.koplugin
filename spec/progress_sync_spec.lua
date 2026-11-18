@@ -2171,6 +2171,30 @@ test('read-only source navigation and normal sync choices keep separate reportin
     eq(f.sync.local_position.source_position.upload_verified,false,'sync choice flipped source metadata upload flag')
 end)
 
+test('imported cloud viewing preserves pending local intent and never verifies upload',function()
+    local id='CB_SyntheticReading'
+    local f=fixture({}, {book_id=id})
+    local point={book_id=id,chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64)}
+    f.sync.current_source_target=function() return point end
+    f.sync.prepare_upload=function() error('viewing dispatched an upload') end
+    local original={book_id=id,chapter_uid='11',chapter_offset=20,percent=3}
+    f.values.books[id].pending_upload_position=original
+    f.values.books[id].pending_upload_reason='synthetic_pending'
+    f.sync.verified=true
+    eq(f.sync:accept_cloud_source_target(point,true),true,'imported read-only cloud target rejected')
+    eq(f.sync.verified,false,'imported viewing granted upload permission')
+    eq(f.values.books[id].pending_upload_position,original,'imported viewing discarded local intent')
+    eq(f.values.books[id].pending_upload_reason,'synthetic_pending','imported viewing changed pending reason')
+    local hint=assert(f.values.books[id].cb_cloud_view_resume)
+    eq(hint.chapter_uid,'22','cloud view did not remember the viewed chapter')
+    f.sync:_persist(id,{last_local_position={book_id=id,chapter_uid='22'}})
+    eq(f.values.books[id].cb_cloud_view_resume.chapter_uid,'22','same-chapter position erased the cloud view')
+    f.sync:_persist(id,{last_local_position={book_id=id,chapter_uid='23'}})
+    eq(f.values.books[id].cb_cloud_view_resume,nil,'new chapter kept a stale cloud view')
+    eq(f.values.books[id].pending_upload_position.chapter_uid,'11','local checkpoint discarded prior pending intent')
+end)
+
 test('closed source plan survives document generation but releases on terminal confirmation',function()
     local source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
         file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}

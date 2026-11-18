@@ -167,8 +167,19 @@ local txt_target={};for key,value in pairs(target) do txt_target[key]=value end
 txt_target.basis='raw_txt_utf16'
 expect(Cloud.remote(txt_target) and not Cloud.bind(input,txt_target,archive).position,'TXT basis matched an XHTML archive')
 local cb_target=copy(target);cb_target.book_id='CB_SyntheticReading'
-expect(not Cloud.remote(cb_target) and not pcall(Cloud.project,cb_target.book_id,before,reader,raw,before),
-    'local CB reading expanded unverified cloud coordinates')
+local cb_before=copy(before);cb_before.book.bookId=cb_target.book_id
+local cb_reader=copy(reader);cb_reader.bookInfo.bookId=cb_target.book_id;cb_reader.progress=cb_before
+local cb_projected=Cloud.project(cb_target.book_id,cb_before,cb_reader,raw,cb_before)
+expect(Cloud.remote(cb_projected) and cb_projected.upload_verified==false and cb_projected.chapter_offset==21,
+    'read-only imported XHTML position was not projected')
+local multi=raw..raw:gsub('Cloud original target','Entirely distinct other passage')
+expect(Cloud.project(cb_target.book_id,cb_before,cb_reader,multi,cb_before).upload_verified==false,
+    'read-only imported multi-body source was rejected')
+local cb_txt=copy(cb_projected);cb_txt.basis='raw_txt_utf16'
+expect(not Cloud.remote(cb_txt) and not pcall(Cloud.project,cb_target.book_id,cb_before,cb_reader,raw,cb_before,'web_txt'),
+    'unverified imported TXT position was accepted')
+local other=copy(cb_before);other.book.bookId='CB_Other'
+expect(not pcall(Cloud.project,cb_target.book_id,other,cb_reader,raw,other),'foreign imported book was accepted')
 expect(not pcall(Cloud.project,id,before,reader,raw..raw,before),
     'local concatenated-body support expanded the default cloud coordinate model')
 print(('source_cloud_spec: %d checks'):format(checks))

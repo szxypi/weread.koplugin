@@ -81,6 +81,7 @@ expect(metadata_only.progress == nil and metadata_only.pending_upload_account ==
 expect(BookStore.is_reading_field("pending_upload_position") and BookStore.is_reading_field("source_dispatch")
     and BookStore.is_reading_field('native_location_claims')
     and BookStore.is_reading_field('unindexed_resume')
+    and BookStore.is_reading_field('cb_cloud_view_resume')
     and not BookStore.is_reading_field("title") and not BookStore.is_reading_field("cache_dir"),
     "metadata/checkpoint ownership is inconsistent")
 expect(loaded.title == "Fixture book" and loaded.author == "Fixture author",

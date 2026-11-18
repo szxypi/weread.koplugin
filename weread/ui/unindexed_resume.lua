@@ -32,9 +32,11 @@ function M.cancel(host)
     if confirm then UI:close(confirm) end
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
-function M.start(host,book,hint,paths)
+function M.start(host,book,hint,paths,options)
     M.cancel(host)
     local id=tostring(book.book_id or book.bookId or '')
+    local cloud=type(options)=='table' and options.cloud_view==true and id:sub(1,3)=='CB_'
+    local field=cloud and 'cb_cloud_view_resume' or 'unindexed_resume'
     local owner=account(host);local auth_epoch=epoch(host)
     if not Hint.valid(hint,id,owner,auth_epoch) or type(paths)~='table' or #paths<1 or #paths>2 then return false end
     local candidates={}
@@ -62,8 +64,8 @@ function M.start(host,book,hint,paths)
             and (latest.cached_chapters[hint.chapter_uid] or latest.cached_chapters[tonumber(hint.chapter_uid)])
         local full=type(latest)=='table' and host.getFullBookCachePath and host:getFullBookCachePath(latest)
         for _i,path in ipairs(candidates) do if path~=mapped and path~=full then return false end end
-        return latest and Hint.valid(latest.unindexed_resume,id,owner,auth_epoch)
-            and same(latest.unindexed_resume,hint) and no_catalog(host,latest)
+        return latest and Hint.valid(latest[field],id,owner,auth_epoch)
+            and same(latest[field],hint) and (cloud or no_catalog(host,latest))
     end
     local ok,worker=pcall(function()
         return require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=65536}

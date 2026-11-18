@@ -63,7 +63,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--koreader", type=Path, required=True)
     parser.add_argument("--run-dir", type=Path, required=True)
-    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source", "quick-search", "book-search", "cached-search", "home-local-recent"), default="precision",
+    parser.add_argument("--probe", choices=("precision", "source-dom", "source-state", "navigation", "cloud-source", "cb-cloud-view", "quick-search", "book-search", "cached-search", "home-local-recent"), default="precision",
                         help="fractional navigation (default), source/DOM mapping, live reader-state capture, or chapter handoff")
     parser.add_argument("--width", type=int, default=600)
     parser.add_argument("--height", type=int, default=800)
@@ -81,6 +81,7 @@ def main():
     parser.add_argument('--cached-incomplete', action='store_true')
     parser.add_argument('--cached-dual', action='store_true')
     parser.add_argument('--cached-ignore-case', action='store_true')
+    parser.add_argument('--cb-cloud-single', action='store_true')
     args = parser.parse_args()
     if min(args.width, args.height, args.dpi) <= 0:
         parser.error("screen dimensions and DPI must be positive")
@@ -99,10 +100,17 @@ def main():
         parser.error('--cached-incomplete requires --cached-full')
     if args.cached_dual and not args.cached_full:
         parser.error('--cached-dual requires --cached-full')
+    if args.cb_cloud_single and args.probe!='cb-cloud-view':
+        parser.error('--cb-cloud-single requires --probe cb-cloud-view')
     if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
         parser.error('current fallback requires a cached CB search fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     server = SearchMockServer(0,args.search_cb,args.search_current_fallback) if args.probe=='book-search' else MockServer(0)
+    if args.probe=='cb-cloud-view':
+        from verify_source_coordinates import FilteredSource
+        server.cb_reading=True
+        offset=FilteredSource(chapter_html(6)).locate('这是第6章的第16段。我们沿着小路慢慢前行')[0]
+        server.progress['CB_SyntheticResume']=dict(chapterUid=6,chapterIdx=6,chapterOffset=offset,progress=83,summary='Synthetic cloud target')
     if args.probe == 'cloud-source':
         from verify_source_coordinates import FilteredSource
         offset=FilteredSource(chapter_html(6)).locate('这是第6章的第16段。我们沿着小路慢慢前行')[0]
@@ -128,6 +136,7 @@ def main():
                                         WEREAD_TEST_CACHED_INCOMPLETE='1' if args.cached_incomplete else '0',
                                         WEREAD_TEST_CACHED_DUAL='1' if args.cached_dual else '0',
                                         WEREAD_TEST_CACHED_IGNORE_CASE='1' if args.cached_ignore_case else '0',
+                                        WEREAD_TEST_CB_CLOUD_SINGLE='1' if args.cb_cloud_single else '0',
                                         EMULATE_READER="1", EMULATE_READER_W=str(args.width),
                                         EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
                                         EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8")
@@ -137,6 +146,7 @@ def main():
                 probe = {"precision": "position_precision_smoke.lua", "source-dom": "source_dom_smoke.lua",
                          "source-state": "source_position_smoke.lua", "navigation": "progress_navigation_smoke.lua",
                          "cloud-source": "cloud_source_smoke.lua", "quick-search": "quick_search_smoke.lua",
+                         "cb-cloud-view": "cb_cloud_view_smoke.lua",
                          "book-search": "book_search_ui_smoke.lua", "cached-search": "cached_search_ui_smoke.lua",
                          "home-local-recent": "home_local_recent_smoke.lua"}[args.probe]
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / probe)],
@@ -147,6 +157,12 @@ def main():
                     reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
                         env=environment | {'WEREAD_TEST_QUICK_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
                 assert reopened.returncode==0, 'offline search reopen failed; inspect isolated runtime log'
+            if result.returncode == 0 and args.probe == 'cb-cloud-view':
+                server.shutdown();thread.join()
+                with (root / 'evidence/reopen.log').open('w') as out:
+                    reopened=subprocess.run(['./luajit',str(REPO/'spec/koreader'/probe)],cwd=runtime,
+                        env=environment | {'WEREAD_TEST_CB_CLOUD_REOPEN':'1'},stdout=out,stderr=subprocess.STDOUT,timeout=120)
+                assert reopened.returncode==0, 'offline imported cloud view reopen failed; inspect isolated runtime log'
             if result.returncode == 0 and args.probe == 'home-local-recent':
                 server.shutdown();thread.join()
                 with (root / 'evidence/reopen.log').open('w') as out:
@@ -212,6 +228,18 @@ def main():
                                        requests=0), 'native scroll reopen mismatch'
                 request_log=root/'evidence/requests.jsonl'
                 assert not request_log.exists() or not request_log.read_bytes(), 'local home made a mock request'
+            if args.probe == 'cb-cloud-view':
+                marker=b'\nWEREAD_CB_CLOUD_VIEW='
+                assert raw.count(marker)==1, 'missing imported cloud view result'
+                value=json.loads(raw.split(marker,1)[1].splitlines()[0])
+                assert value==dict(result='PASS',native_navigation=True,pending_preserved=True,upload_disabled=True,
+                                   local_reopen=True,download_confirmed=args.cb_cloud_single), 'imported cloud view mismatch'
+                assert server.request_totals[('/web/book/read','')]==0, 'read-only view sent reading progress'
+                reopened_raw=(root/'evidence/reopen.log').read_bytes();marker=b'\nWEREAD_CB_CLOUD_REOPEN='
+                assert reopened_raw.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened_raw
+                value=json.loads(reopened_raw.split(marker,1)[1].splitlines()[0])
+                assert value==dict(result='PASS',fresh_process=True,offline=True,pending_preserved=True,
+                                   upload_disabled=True,requests=0), 'offline imported cloud reopen mismatch'
             if args.probe == 'cached-search':
                 marker=b'\nWEREAD_CACHED_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing cached search result'

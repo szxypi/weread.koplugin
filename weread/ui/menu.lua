@@ -252,7 +252,7 @@ function M:getMainMenuItems()
                     end),
                 }
                 reader_items[#reader_items + 1] = {
-                    text = _("Open cloud reading position precisely"),
+                    text = _(tostring(book_id):sub(1,3)=='CB_' and 'Try opening cloud position (read-only)' or 'Open cloud reading position precisely'),
                     callback = self:safeCallback(_("Open cloud reading position precisely"), function()
                         self:showCloudSourcePosition()
                     end),

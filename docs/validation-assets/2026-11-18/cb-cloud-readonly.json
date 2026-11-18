@@ -1,0 +1,21 @@
+{
+  "result": "PARTIAL",
+  "real_imported_books_examined": 5,
+  "exact_source_anchor_seen_in_official_viewport": 3,
+  "following_source_anchor_seen_in_official_viewport": 1,
+  "no_unique_nearby_anchor": 1,
+  "distant_controls_matched": 0,
+  "real_native_lua_read_projection_verified": 3,
+  "cloud_position_and_shelf_unchanged": true,
+  "account_data_writes": 0,
+  "browser_modifying_requests_blocked": true,
+  "private_text_and_images_saved": false,
+  "synthetic_native_dimensions": ["600x800", "1264x1680"],
+  "synthetic_full_and_single_chapter": true,
+  "synthetic_offline_fresh_process_reopen": true,
+  "pending_position_preserved": true,
+  "upload_enabled": false,
+  "exact_cloud_coordinate_and_write_semantics_verified": false,
+  "real_account_native_ui_tested": false,
+  "physical_kindle_tested": false
+}
