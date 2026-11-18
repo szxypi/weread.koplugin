@@ -87,6 +87,7 @@ function M:showDiscoveryPage(tab, books, options)
         end,
     })
     self.shelf_view = view
+    view._discovery_tab = tab
     scope = Scope.capture(self, view)
     view._discovery_current = current
     view._prepare_detail_return = function()
@@ -155,15 +156,24 @@ function M:refreshHome()
     end })
 end
 
-function M:showDiscoverySearch()
+function M:showDiscoverySearch(initial_keyword)
     local InputDialog = require("ui/widget/inputdialog")
     local owner = self.shelf_view
     if not owner or owner._shelf_closed then return end
     local current = Scope.capture(self, owner)
+    if not current() then return end
+    local state=self.discovery_state
+    local account=self.library_db and self.library_db:accountKey()
+    if initial_keyword==nil and account and owner._discovery_tab=='store' and state and state.kind=='search'
+        and state.account==account then initial_keyword=state.keyword end
+    if type(initial_keyword)~='string' or #initial_keyword>4096 or initial_keyword:find('[%z%c]')
+        or require('weread.lib.protocol').utf8_substr(initial_keyword,#initial_keyword+1)~=initial_keyword then
+        initial_keyword=''
+    end
     local dialog
     local function valid() return current() and Popup.current(owner, dialog) end
     dialog = InputDialog:new{
-        title = _("Search WeRead"), input = "", input_type = "text",
+        title = _("Search WeRead"), input = initial_keyword, input_type = "text",
         buttons = {{
             { text = _("Cancel"), id = "close", callback = function() if valid() then Popup.close(owner) end end },
             { text = _("Search"), is_enter_default = true, callback = function()

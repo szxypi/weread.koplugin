@@ -22,7 +22,7 @@ Model.fetch=function(_client,_selected,keyword) fetches=fetches+1;return {keywor
 local Suggestions=require('weread.ui.search_suggestions')
 local owner={};local input={value='term'};owner._shelf_popup=input
 function input:getInputText() return self.value end
-local account='account';local info,menu,opened,online=nil,nil,nil,true
+local account='account';local info,menu,opened,edited,online=nil,nil,nil,nil,true;local edit_calls=0
 local worker={start=function(self,task,callback) self.task=task;self.callback=callback;return true end,
     cancel=function() cancelled=cancelled+1 end}
 local host={shelf_view=owner,discovery_epoch=0,library_db={accountKey=function() return account end},
@@ -31,13 +31,24 @@ local host={shelf_view=owner,discovery_epoch=0,library_db={accountKey=function()
     showBusy=function(self,_message,cancel) self.busy_message={cancel=cancel} end,
     closeBusy=function(self) self.busy_message=nil end,showInfo=function(_self,text) info=text end,
     showList=function(_self,title,rows) menu={title=title,item_table=rows};return menu end,
-    loadDiscoveryBatch=function(_self,kind,keyword,cursor) opened={kind,keyword,cursor} end}
+    loadDiscoveryBatch=function(_self,kind,keyword,cursor) opened={kind,keyword,cursor} end,
+    showDiscoverySearch=function(_self,keyword) edited=keyword;edit_calls=edit_calls+1 end}
 expect(Suggestions.open(host,input) and host.search_suggestions_job,'request not started')
 worker.callback(worker.task())
-expect(menu and owner._shelf_popup==menu and #menu.item_table==2 and menu.item_table[1].text=='term one',
+expect(menu and owner._shelf_popup==menu and #menu.item_table==4 and menu.item_table[3].text=='term one',
     'suggestions menu missing')
-menu.item_table[2].callback()
+menu.item_table[4].callback()
 expect(opened and opened[1]=='search' and opened[2]=='term two' and opened[3]==0,'selection did not search')
+owner._shelf_popup=input;expect(Suggestions.open(host,input));worker.callback({ok=true,words={'choice'}})
+menu.item_table[1].callback()
+expect(opened[1]=='search' and opened[2]=='term','original search text was lost')
+owner._shelf_popup=input;expect(Suggestions.open(host,input));worker.callback({ok=true,words={'choice'}})
+menu.item_table[2].callback()
+expect(edited=='term','editing did not recover the entered search text')
+owner._shelf_popup=input;expect(Suggestions.open(host,input));worker.callback({ok=true,words={'choice'}})
+local stale_edit=menu.item_table[2].callback;account='other';stale_edit()
+expect(edited=='term' and edit_calls==1 and owner._shelf_popup==menu,'old edit action crossed accounts')
+account='account';require('weread.ui.shelf_popup').close(owner)
 owner._shelf_popup=input;input.value='term';expect(Suggestions.open(host,input));local late=worker.callback
 input.value='changed';late({ok=true,words={'stale'}})
 expect(not host.search_suggestions_job and not host._discovery_menu,'edited query accepted stale result')

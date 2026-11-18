@@ -37,7 +37,7 @@ def main(argv=None):
         result=json.loads(child.stdout);stage=result.get('stage') or {}
         report['ui_stage']={key:stage[key] for key in ('phase','failed_line','suggestions','books','expected_books','keyword_matches','requests','forbidden','screenshots')
                             if key in stage and (type(stage[key]) in (int,bool) or key=='phase' and stage[key] in ('init','search','complete'))}
-        required=('native_host','menu_matches','search_matches','workers_reaped','credential_audit')
+        required=('native_host','menu_matches','search_matches','query_restored','workers_reaped','credential_audit')
         stage_fields={'result','phase','suggestions','books','expected_books','keyword_matches','requests','forbidden','screenshots',*required}
         if (not isinstance(result,dict) or set(result)!={'result','tmpfs_profile','profile_removed','stage','reason'}
                 or not isinstance(stage,dict) or set(stage)!=stage_fields or result['reason']!='none'

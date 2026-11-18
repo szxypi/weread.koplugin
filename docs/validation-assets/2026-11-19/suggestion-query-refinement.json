@@ -1,0 +1,21 @@
+{
+  "result": "NATIVE_SEARCH_REFINEMENT_VERIFIED",
+  "runtime": "KOReader 2026.07 Linux ARM64",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "simulated_edit_and_search_original": true,
+  "current_account_query_restored": true,
+  "stale_account_action_blocked": true,
+  "real_owner_ui_query_restore": true,
+  "real_suggestion_samples": 8,
+  "real_suggestion_samples_without_matches": 2,
+  "sampled_response_arrays_valid": true,
+  "sampled_word_validation_failures": 0,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "screenshots": 0,
+  "kindle_device_verified": false,
+  "offline_saved_search_query_restored_across_restart": true
+}

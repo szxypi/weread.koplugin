@@ -33,7 +33,7 @@ class OwnerSuggestionTest(unittest.TestCase):
         return status,json.loads(text)
 
     def valid_stage(self):
-        return dict(result='PASS',phase='complete',native_host=True,menu_matches=True,search_matches=True,
+        return dict(result='PASS',phase='complete',native_host=True,menu_matches=True,search_matches=True,query_restored=True,
                     workers_reaped=True,credential_audit=True,suggestions=1,books=1,expected_books=1,keyword_matches=True,
                     requests=2,forbidden=0,screenshots=0)
 

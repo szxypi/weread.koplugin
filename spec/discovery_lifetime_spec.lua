@@ -74,6 +74,32 @@ local dialog=assert(view._shelf_popup);dialog.input=' words '
 local submit=dialog.buttons[1][2].callback
 plugin:closeWeReadUI();dialog.getInputText=function() error('closed input accessed') end
 submit();expect(state.calls==0,'closed search dispatched a query')
+plugin,state=host();view=state.open('store')
+plugin.discovery_state={kind='search',keyword='existing query',account='account-a'}
+plugin:showDiscoverySearch();dialog=assert(view._shelf_popup)
+expect(dialog.input=='existing query','store search did not preserve the current query')
+require('weread.ui.shelf_popup').close(view)
+plugin.discovery_state.account='other';plugin:showDiscoverySearch();dialog=assert(view._shelf_popup)
+expect(dialog.input=='','foreign account query was displayed')
+require('weread.ui.shelf_popup').close(view)
+plugin:showDiscoverySearch('explicit query');dialog=assert(view._shelf_popup)
+expect(dialog.input=='explicit query','editing a suggestion lost its original query')
+plugin.loadDiscoveryBatch=function(_self,kind,keyword,cursor)
+    expect(kind=='search' and keyword=='edited query' and cursor==0,'edited query was not submitted')
+    state.calls=state.calls+1
+end
+dialog.input='edited query';dialog.buttons[1][2].callback()
+expect(state.calls==1 and not view._shelf_popup,'edited search did not close and submit')
+plugin:showDiscoverySearch('bad\nquery');dialog=assert(view._shelf_popup)
+expect(dialog.input=='','invalid prefilled query was displayed')
+plugin,state=host();view=state.open('home')
+plugin.discovery_state={kind='search',keyword='store query',account='account-a'}
+plugin:showDiscoverySearch();dialog=assert(view._shelf_popup)
+expect(dialog.input=='','home search inherited a store query')
+plugin,state=host();view=state.open('store')
+plugin.discovery_state={kind='search',keyword='private query',account='account-a'};state.disk=false
+plugin:showDiscoverySearch()
+expect(not view._shelf_popup,'stale login exposed a stored search term')
 plugin,state=host();view=state.open();view.callbacks.on_search()
 local first=assert(view._shelf_popup);local old=first.buttons[1][2].callback
 view.callbacks.on_search();dialog=assert(view._shelf_popup);old()

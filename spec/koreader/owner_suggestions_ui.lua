@@ -4,7 +4,7 @@ require('setupkoenv')
 local ffi=require('ffi');require('ffi/posix_h')
 local json=require('json')
 local report={result='UNVERIFIED',phase='init',suggestions=0,books=0,requests=0,forbidden=0,
-    native_host=false,menu_matches=false,search_matches=false,workers_reaped=false,credential_audit=false,screenshots=0}
+    native_host=false,menu_matches=false,search_matches=false,query_restored=false,workers_reaped=false,credential_audit=false,screenshots=0}
 local descriptors={};local plugin,memory,counters
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'))
@@ -96,10 +96,10 @@ local ok,reason=pcall(function()
     plugin:showBookstore();local view=assert(plugin.shelf_view);view.on_search()
     local dialog=assert(view._shelf_popup);dialog:setInputText(input.keyword);dialog.buttons[2][1].callback()
     wait(function() return plugin._discovery_menu~=nil or not plugin.search_suggestions_job end)
-    local menu=assert(plugin._discovery_menu);assert(#menu.item_table==#words)
-    for index,word in ipairs(words) do assert(menu.item_table[index].text==word) end
+    local menu=assert(plugin._discovery_menu);assert(#menu.item_table==#words+2)
+    for index,word in ipairs(words) do assert(menu.item_table[index+2].text==word) end
     UI:forceRePaint();report.menu_matches=true;report.suggestions=#words
-    menu:onMenuSelect(menu.item_table[1])
+    menu:onMenuSelect(menu.item_table[3])
     wait(function() return not plugin.discovery_loading and plugin.discovery_state and plugin.discovery_state.kind=='search' end)
     local state=assert(plugin.discovery_state)
     report.phase='search';report.keyword_matches=state.keyword==words[1]
@@ -110,6 +110,9 @@ local ok,reason=pcall(function()
         for _,key in ipairs({'bookId','title','author','cover','category'}) do assert(state.books[index][key]==row[key]) end
     end
     assert(#plugin.shelf_view.books==#state.books);UI:forceRePaint();report.search_matches=true;report.books=#state.books
+    plugin.shelf_view.on_search();local restored=assert(plugin.shelf_view._shelf_popup)
+    assert(restored:getInputText()==words[1]);report.query_restored=true
+    require('weread.ui.shelf_popup').close(plugin.shelf_view)
     plugin:closeWeReadUI();plugin.settings:flush();G_reader_settings:flush()
     for _,worker in ipairs(pids) do assert(worker.runner.done(worker.pid)) end
     assert(not plugin.search_suggestions_job and not plugin.discovery_request_context);report.workers_reaped=true

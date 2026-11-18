@@ -72,7 +72,18 @@ function M.open(host,input)
         if #words==0 then host:showInfo(_('No search suggestions found.'));return end
         local menu
         local function active() return scope() and host._discovery_menu==menu and Popup.current(owner,menu) end
-        local items={}
+        local items={
+            {text=_('Search entered text'),callback=function()
+                if not active() then return end
+                host._discovery_menu=nil;Popup.close(owner)
+                host:loadDiscoveryBatch('search',keyword,0)
+            end},
+            {text=_('Edit search text'),callback=function()
+                if not active() then return end
+                host._discovery_menu=nil;Popup.close(owner)
+                host:showDiscoverySearch(keyword)
+            end},
+        }
         for _,word in ipairs(words) do
             items[#items+1]={text=word,callback=function()
                 if not active() then return end

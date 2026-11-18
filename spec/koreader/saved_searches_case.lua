@@ -40,6 +40,9 @@ return function(host,mode,pump,evidence)
     assert(host.discovery_state.cached and host.discovery_state.keyword=='合成搜索乙'
         and #host.shelf_view.books==1 and host.shelf_view.books[1].bookId=='SYN-BETA',
         'saved search did not reopen the offline result')
+    view=assert(host.shelf_view);view.on_search();dialog=assert(view._shelf_popup)
+    assert(dialog:getInputText()=='合成搜索乙','offline saved search did not restore its query')
+    dialog.buttons[1][1].callback()
     host:closeWeReadUI();host.discovery_state=nil
     if per_page==nil then G_reader_settings:delSetting('items_per_page') else G_reader_settings:saveSetting('items_per_page',per_page) end
     return true
