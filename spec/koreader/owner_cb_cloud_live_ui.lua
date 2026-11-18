@@ -16,7 +16,7 @@ local ok,reason=pcall(function()
     local synthetic=os.getenv('WEREAD_OWNER_SYNTHETIC')=='1'
     if reopening or synthetic then assert(dofile(fixtures..'offline_network_guard.lua')()) end
     Device.screen.shot=function() error('screenshots_disabled',0) end
-    assert(type(input.cookies)=='table' and type(input.owner)=='string' and input.cookies.wr_vid==input.owner)
+    assert(type(input.cookies)=='table' and type(input.owner)=='string' and input.cookies.wr_vid == input.owner)
     local ffi=require('ffi');pcall(ffi.cdef,'int memfd_create(const char *, unsigned int); void *mmap(void *, unsigned long, int, int, int, long); int getpid(void);')
     local fd=tonumber(ffi.C.memfd_create('weread-cb-cloud-auth',1));assert(fd>=0)
     local auth={auth_schema_version=1,auth_epoch=1,account={user_vid=input.owner,name=''},cookies=input.cookies,api_key=''}
