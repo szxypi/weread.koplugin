@@ -1,0 +1,33 @@
+{
+  "native_authorization": {
+    "previous_search_http_status": 401,
+    "independent_shelf_http_status": 401,
+    "independent_koreader_statistics_http_status": 401,
+    "renewal_posts": 1,
+    "same_owner_and_shelf_verified": true,
+    "renewed_grant_readback_verified": true
+  },
+  "native_import_search": {
+    "books": 4,
+    "one_source_derived_query_per_book": true,
+    "search_gets": 4,
+    "accepted_responses": 4,
+    "empty_result_arrays": 4,
+    "position_catalog_and_shelf_unchanged_per_book": true,
+    "account_data_writes": 0,
+    "authentication_posts_during_search": 0,
+    "private_data_saved": false
+  },
+  "followup_inspection": {
+    "empty_group_present": false,
+    "nonempty_group_present": false,
+    "fixture_present_in_both_channels": true,
+    "empty_trial_other_state_matches_baseline": false,
+    "nonempty_trial_original_state_matches_baseline": false,
+    "baseline_change_cause_known": false,
+    "group_or_shelf_writes": 0,
+    "saved_cb_time_capture_current": true,
+    "saved_cb_time_capture_unchanged": true,
+    "no_group_replay_or_cleanup": true
+  }
+}
