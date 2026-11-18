@@ -10,6 +10,12 @@ local function book(chapters)
     for _,chapter in ipairs(chapters) do out.blocks=out.blocks+chapter.blocks end
     return out
 end
+for _,body in ipairs({'', '  <p> &nbsp; &#160; </p>', '<style>p { color: red }</style><script>text()</script>'}) do
+    expect(not analyze(body).has_body_content,'empty body was mistaken for chapter content')
+end
+for _,body in ipairs({'<p>Original</p>','<img src="image.png"/>','<svg></svg>','<math></math>'}) do
+    expect(analyze(body).has_body_content,'text or visual chapter content was rejected')
+end
 local a=analyze('<p id="pair">Original</p><p id="pair" class="wr-translation">译文</p>')
 expect(a.blocks==1 and #a.pairs==1 and a.pairs[1].kind=='id','matching ID siblings not paired')
 local b=analyze('<p>Original <em>text</em></p> \n <p class="wr-translation">译文</p>',2)

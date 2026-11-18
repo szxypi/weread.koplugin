@@ -209,7 +209,7 @@ function M.run_book(client,settings,input,output,progress)
         source_bytes=source_bytes+#raw
         if source_bytes>M.MAX_BOOK_SOURCE then fail('source_limit') end
         local profile=Model.analyze(document(raw),uid,index)
-        if not profile then fail('content') end
+        if not profile or not profile.has_body_content then fail('content') end
         block_counts[index]=profile.blocks
         blocks=blocks+profile.blocks
         if profile.blocks>0 then translated=translated+1 end

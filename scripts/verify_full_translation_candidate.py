@@ -68,9 +68,10 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-offset', type=int, choices=range(0, 19), default=0)
+    parser.add_argument('--query', choices=PUBLIC_QUERIES, help='search a single fixed public title')
     parser.add_argument('--shelf', action='store_true')
     args = parser.parse_args(argv)
-    if args.shelf and args.book_offset: parser.error('--book-offset is for public discovery only')
+    if args.shelf and (args.book_offset or args.query): parser.error('query and book offset are for public discovery only')
     report = dict(result='OFFLINE_ONLY', public_queries=0, books_checked=0, candidates=0, book_offset=args.book_offset,
                   source='shelf' if args.shelf else 'public', account_data_writes=0, authentication_posts=0, private_data_saved=False)
     if not args.saved_session:
@@ -99,6 +100,7 @@ def main(argv=None):
                     yield None, index, dict(book_id=book, info=info, source=raw, expected=catalog(raw,book,info))
             else:
                 for query_index, query in enumerate(PUBLIC_QUERIES, 1):
+                    if args.query and query != args.query: continue
                     probe = Native(public_query=query)
                     report['public_queries'] += 1
                     try:

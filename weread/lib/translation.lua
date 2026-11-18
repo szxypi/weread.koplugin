@@ -70,7 +70,7 @@ local function tag_end(html, start_at)
     end
 end
 
-local function notice_text(stack, value)
+local function notice_text(stack, value, result)
     value=unescape(value):gsub("\r\n","\n"):gsub("\r","\n")
     local node=stack[#stack]
     if node and node.dom_parts and value~="" then
@@ -78,8 +78,11 @@ local function notice_text(stack, value)
         if type(last)=="table" then last.text=last.text..value
         else node.dom_parts[#node.dom_parts+1]={text=value} end
     end
-    local text=value:gsub(utf8_char(160), " "):gsub("%s+", "")
+    local text=value:gsub("&nbsp;", " "):gsub(utf8_char(160), " "):gsub("%s+", "")
     if text=="" then return end
+    if node and node.in_body and node.name~="script" and node.name~="style" then
+        result.has_body_content=true
+    end
     if node and node.last_child then node.gap_after_child=true end
     local font=node and node.font_rem or false
     for _, ancestor in ipairs(stack) do
@@ -131,7 +134,7 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions)
     if type(fragment_index)~="number" or fragment_index<1 or fragment_index>20000 or fragment_index%1~=0 then return nil,"fragment_identity" end
     local lower=html:lower()
     local nodes=0
-    local out = {blocks=0, pairs={}, typography={}, tags={}, recoveries=0,
+    local out = {blocks=0, pairs={}, typography={}, tags={}, recoveries=0, has_body_content=false,
         relations={same_tag=0,source_id=0,translation_id=0,same_id=0,previous_missing=0},
         chapter_uid=tostring(chapter_uid or ""), fragment_index=fragment_index or 1}
     if collect_positions then out.original_nodes={} end
@@ -140,7 +143,7 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions)
     while true do
         local start_at = html:find("<", cursor, true)
         if not start_at then break end
-        notice_text(stack, html:sub(cursor, start_at-1))
+        notice_text(stack, html:sub(cursor, start_at-1), out)
         local finish
         if html:sub(start_at, start_at+3) == "<!--" then
             finish = html:find("-->", start_at+4, true)
@@ -149,7 +152,7 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions)
         elseif html:sub(start_at, start_at+8) == "<![CDATA[" then
             finish = html:find("]]>", start_at+9, true)
             if not finish then return nil, "unterminated_cdata" end
-            notice_text(stack, html:sub(start_at+9, finish-1))
+            notice_text(stack, html:sub(start_at+9, finish-1), out)
             cursor = finish + 3
         else
             finish = tag_end(html, start_at)
@@ -198,6 +201,9 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions)
                     local is_body = name == "body"
                     local in_body = is_body or (parent and parent.in_body) or false
                     local node = {name=name, parent=parent, in_body=in_body, counts={}}
+                    if in_body and (name=="img" or name=="svg" or name=="math" or name=="audio" or name=="video") then
+                        out.has_body_content=true
+                    end
                     -- Keep original illustrations, formulae and link controls.
                     if name=="img" or name=="svg" or name=="math" or name=="audio" or name=="video" or name=="table" or name=="a" then
                         for _,ancestor in ipairs(stack) do ancestor.preserve_content=true end
@@ -268,7 +274,7 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions)
                         -- chapter tags. A '<' in them cannot break the body scan.
                         local raw_start,raw_finish=lower:find("</"..name.."%s*>",finish+1)
                         if not raw_finish then return nil,"unterminated_raw_text tag="..name end
-                        notice_text({node},html:sub(finish+1,raw_start-1))
+                        notice_text({node},html:sub(finish+1,raw_start-1),out)
                         finish=raw_finish
                         finish_node(node)
                     elseif not self_closing then stack[#stack+1] = node

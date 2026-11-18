@@ -27,7 +27,9 @@ PLATFORM='wechat_wx-2001-android-100-weread'
 PUBLIC_QUERY='Pride and Prejudice'
 PUBLIC_QUERIES=(PUBLIC_QUERY,'Moby Dick','The Wonderful Wizard of Oz','The Time Machine','The Moonstone','The War of the Worlds',
     'Little Women','Treasure Island','The Invisible Man','A Tale of Two Cities',
-    'The Call of the Wild','The Secret Garden','Frankenstein')
+    'The Call of the Wild','The Secret Garden','Frankenstein',
+    'The Metamorphosis','The Adventures of Sherlock Holmes','The Picture of Dorian Gray',
+    'The Jungle Book','The Legend of Sleepy Hollow','The Happy Prince')
 
 
 class TranslationError(ValueError): pass

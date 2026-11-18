@@ -45,6 +45,16 @@ class FullTranslationCandidateTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()) as output:self.assertEqual(main([]),0)
         self.assertEqual(json.loads(output.getvalue())['result'],'OFFLINE_ONLY')
 
+    def test_single_query_selection_is_validated_offline(self):
+        with patch('verify_full_translation_candidate.SessionStore', side_effect=AssertionError('opened')):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(['--query','The Metamorphosis']),0)
+        self.assertEqual(json.loads(output.getvalue())['result'],'OFFLINE_ONLY')
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(['--query','unapproved query'])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            main(['--shelf','--query','The Metamorphosis'])
+
     def test_shelf_selection_is_bounded_numeric_and_identity_checked(self):
         rows=[dict(bookId=str(i+1),title='A Synthetic English Book') for i in range(35)]
         rows += [dict(bookId='CB_synthetic',title='A Synthetic English Book'),
@@ -60,12 +70,15 @@ class FullTranslationCandidateTests(unittest.TestCase):
 
     def test_live_reports_only_bounded_nonprivate_fields(self):
         saved=dict(vid='1',cookies={'wr_vid':'1'}); grant=dict(vid='1',accessToken='private')
+        queries=[]
         class Session:
             def load(self): return copy.deepcopy(saved)
         class Store:
             def load(self,_owner): return copy.deepcopy(grant)
         class Probe:
-            def __init__(self,**_kwargs): self.samples=[]
+            def __init__(self,**kwargs):
+                self.samples=[]
+                if 'public_query' in kwargs: queries.append(kwargs['public_query'])
             def request(self,*_args,**_kwargs): return {'synthetic':'private'}
             def inspect(self,*_args,**_kwargs): self.samples=[sample()]
         class Web:
@@ -78,9 +91,12 @@ class FullTranslationCandidateTests(unittest.TestCase):
              patch('verify_full_translation_candidate.Native',Probe),patch('verify_full_translation_candidate.Web',Web),\
              patch('verify_full_translation_candidate.state_hash',return_value='private_hash'),\
              patch('verify_full_translation_candidate.save_refreshed_web_session'):
-            with contextlib.redirect_stdout(io.StringIO()) as output:self.assertEqual(main(['--saved-session']),0)
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(['--saved-session','--query','The Happy Prince']),0)
         result=json.loads(output.getvalue())
         self.assertEqual(result['result'],'FULL_TRANSLATION_DISCOVERY_CHECKED')
+        self.assertEqual(queries,['The Happy Prince'])
+        self.assertEqual(result['public_queries'],1)
         self.assertTrue(result['translated_chapter_confirmed'])
         self.assertNotIn('900001',output.getvalue())
         self.assertNotIn('private_hash',output.getvalue())

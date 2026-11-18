@@ -300,6 +300,29 @@ pump(function() return not plugin.translation_fetch_job end)
 assert(saw_failure and not require('libs/libkoreader-lfs').attributes(partial),'failed chapter left a staged book')
 assert(bytes(path)==original and bytes(copy)==accepted and reader.doc_settings:readSetting('weread_translation_copies').__full.path==copy,
     'failed full-book download changed original or accepted copy')
+local fetch_chapter=Content.fetch_chapter_xhtml
+core.run_book=function(...)
+    Content.fetch_chapter_xhtml=function(client,conf,book,item)
+        local raw,source=fetch_chapter(client,conf,book,item)
+        if tonumber(item.chapterUid)==3 then
+            raw='<html><body><p> &nbsp; </p><style>p { color: red }</style></body></html>'
+            source=assert(Source.capture(book,item,raw,'web_xhtml'))
+        end
+        return raw,source
+    end
+    local ok,reason=pcall(run,...)
+    assert(not ok and reason=='translation_fetch/content','empty third chapter was accepted')
+    return {ok=false,empty_chapter_rejected=true}
+end
+local saw_empty=false
+worker.start=function(self,task,callback) return start(self,task,function(value)
+    saw_empty=type(value)=='table' and value.empty_chapter_rejected==true;callback(value)
+end) end
+clean();assert(Fetch.start(plugin,true));partial=plugin.translation_fetch_job.output.path
+pump(function() return not plugin.translation_fetch_job end)
+assert(saw_empty and not require('libs/libkoreader-lfs').attributes(partial),'empty chapter left a staged book')
+assert(bytes(path)==original and bytes(copy)==accepted and reader.doc_settings:readSetting('weread_translation_copies').__full.path==copy,
+    'empty chapter replaced original or accepted copy')
 if transient then
     for _,test in ipairs({{code=503,reads=4},{code=401,reads=3},{code=429,reads=3}}) do
         core.run_book=function(client,...)
