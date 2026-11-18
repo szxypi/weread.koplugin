@@ -77,7 +77,10 @@ local function fixture()
         book_metadata_worker={start=function(_self,task,cb) job={task=task,cb=cb};return true end,
             cancel=function() cancels=cancels+1 end}}
     return host,function() return job,books,shown,saves,flushed,errors,qr,cancels end,
-        function(value) owner=value.owner or owner; if value.online~=nil then online=value.online end end
+        function(value)
+            if value.signed_out then owner=nil elseif value.owner~=nil then owner=value.owner end
+            if value.online~=nil then online=value.online end
+        end
 end
 local host,state=fixture()
 local original_view={}
@@ -126,6 +129,15 @@ host,state=fixture();valid=false
 UI.refresh(host,{book_id="900001"},nil,{automatic=true})
 local _,_,_,_,_,_,qr_count=state()
 expect(qr_count==1,"unverified account did not request login")
+host,state,alter=fixture();alter{signed_out=true};valid=false
+expect(not UI.refresh(host,{book_id="900001",title="Public title"},nil,{automatic=true}),
+    "guest metadata unexpectedly started")
+local _,_,guest_book,_,_,_,guest_qr=state()
+expect(guest_book and guest_book.title=="Public title" and guest_qr==0,
+    "automatic public detail did not preserve book or asked guest to sign in")
+UI.refresh(host,guest_book,nil,{})
+local _,_,_,_,_,_,manual_qr=state()
+expect(manual_qr==1,"explicit guest metadata refresh did not ask for login")
 host,state=fixture()
 host.library_db.putBook=function() return false end
 UI.refresh(host,{book_id="900001"},nil,{automatic=true})

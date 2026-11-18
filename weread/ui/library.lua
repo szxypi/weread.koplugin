@@ -1218,7 +1218,9 @@ function M:showBookMenu(book)
     end
     add_row(_("Publisher"), book.publisher,
         _("Publication date"), BookReviews.format_date(book.publishTime))
-    local category = format_field(_("Category"), book.categoryName)
+    local category_name = book.categoryName
+    if category_name == nil or category_name == "" then category_name = book.category end
+    local category = format_field(_("Category"), category_name)
     if category then metadata[#metadata + 1] = { text = category } end
     local words = format_field(_("Word count"), word_count)
     if words then metadata[#metadata + 1] = { text = words } end

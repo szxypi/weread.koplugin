@@ -32,7 +32,13 @@ function M.refresh(host, book, old_view, options)
         return false
     end
     if not access then
-        if options.automatic then host:showBookMenu(book) end
+        if options.automatic then
+            host:showBookMenu(book)
+            -- Public search and categories can be browsed before signing in.
+            -- Keep the supplied book fields visible without interrupting that
+            -- browsing; an explicit refresh still asks for authentication.
+            if not (host.library_db and host.library_db:accountKey()) then return false end
+        end
         host:showTransientInfo(_("Please scan the QR code to log in first."), 2)
         UIManager:scheduleIn(0.2, function() host.qr_login:start() end)
         return false

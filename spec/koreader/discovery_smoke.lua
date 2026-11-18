@@ -181,6 +181,10 @@ assert(plugin.discovery_state.cursor==0 and #plugin.discovery_state.books==20
     and #plugin.discovery_state.history==0)
 plugin:closeWeReadUI()
 plugin.discovery_state = nil
+dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'public_guest_smoke.lua')(plugin,flush_tasks,function(name)
+    UIManager:forceRePaint()
+    Screen:shot(evidence..'/'..name..'.png')
+end)
 -- Real subprocess, actual account-scoped SQLite and local-over-cloud display.
 plugin.requireLogin = require_login
 local fetch_covers = plugin.fetchVisibleShelfCovers
