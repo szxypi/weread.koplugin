@@ -1,0 +1,21 @@
+{
+  "result": "CB_SOURCE_CURRENTNESS_VERIFIED",
+  "books_examined": 6,
+  "eligible_explicit_catalog_index": 5,
+  "independent_lua_matches": 5,
+  "scoped_reads_per_eligible_book": 8,
+  "account_data_writes": 0,
+  "authentication_writes": 0,
+  "positions_unchanged": true,
+  "shelf_order_unchanged": true,
+  "private_data_in_report": false,
+  "upload_authority_granted": false,
+  "early_runtime_initialization_failures_before_requests": 2,
+  "synthetic_native_ui": {
+    "600x800_full_book": true,
+    "1072x1448_single_chapter": true,
+    "upload_disabled": true,
+    "offline_reopen": true
+  },
+  "physical_device_tested": false
+}

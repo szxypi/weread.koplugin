@@ -106,6 +106,16 @@ local reference=assert(Dom.open(document,id,6));local target=assert(reference:lo
 assert(document:isXPointerInCurrentPage(target.xpointer),'imported cloud target was not visible')
 local source=assert(plugin.source_position:current())
 assert(source.chapter_uid=='6' and source.chapter_offset==target_offset and not source.upload_verified)
+plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=function() return true end
+local preview_done,preview,receipt,preview_error=false,nil,nil,nil
+assert(plugin.source_position:prepare_cb_current_preview(function(candidate,why,checked)
+    preview_done,preview,preview_error,receipt=true,candidate,why,checked
+end))
+wait(function() return preview_done end)
+assert(preview and receipt and not preview_error,'imported source preview failed: '..tostring(preview_error))
+assert(plugin.source_position:is_current_cb_preview(receipt,preview),'imported source preview expired')
+assert(not plugin.source_position:is_current_upload_preview(receipt,preview)
+    and not plugin.source_position:upload_preview_deadline(receipt,preview),'imported preview enabled uploading')
 local saved=assert(plugin.settings:get_book(id))
 assert(saved.pending_upload_position.chapter_uid=='1' and saved.pending_upload_reason=='synthetic_pending')
 assert(not plugin.progress_sync.verified,'read-only viewing enabled uploading')
@@ -123,5 +133,5 @@ assert(not plugin.progress_sync.verified,'reopening granted upload authority')
 local output=assert(io.open(assert(os.getenv('WEREAD_EVIDENCE'))..'/cb-cloud-view-xpointer.txt','w'))
 output:write(xpointer);output:close();reader:onClose(false)
 print('\nWEREAD_CB_CLOUD_VIEW='..client:json_encode({result='PASS',native_navigation=true,pending_preserved=true,
-    upload_disabled=true,local_reopen=true,download_confirmed=single,approximate=approximate}))
+    upload_disabled=true,local_reopen=true,download_confirmed=single,approximate=approximate,source_preview=true}))
 os.exit(0)

@@ -1,5 +1,6 @@
 -- A transient upload candidate, never a grant to send or persist source text.
 local Dom = require('weread.lib.source_dom')
+local Access = require('weread.lib.read_access')
 local M = {}
 local function identifier(value)
     if type(value)=='number' and value%1==0 then value=tostring(value) end
@@ -66,9 +67,10 @@ function M.chapter_index(chapters,uid)
     end
     return count==1 and selected or nil
 end
-function M.project(position,summary,chapters,percent)
+local function project(position,summary,chapters,percent,cb)
+    local book=type(position)=='table' and (cb and Access.display_book_id(position.book_id) or identifier(position.book_id))
     if type(position)~='table' or position.basis~='filtered_xhtml_utf16' or position.upload_verified~=false
-        or not identifier(position.book_id) or not identifier(position.chapter_uid)
+        or not book or cb and book:sub(1,3)~='CB_' or not identifier(position.chapter_uid)
         or type(position.chapter_offset)~='number' or position.chapter_offset%1~=0
         or position.chapter_offset<0 or position.chapter_offset>2147483647
         or type(percent)~='number' or percent%1~=0 or percent<0 or percent>100
@@ -80,10 +82,13 @@ function M.project(position,summary,chapters,percent)
     local uid=identifier(position.chapter_uid)
     local index=M.chapter_index(chapters,uid)
     if index==nil then return nil,'candidate_catalog' end
-    return {book_id=identifier(position.book_id),chapter_uid=uid,chapter_idx=index,
+    return {book_id=book,chapter_uid=uid,chapter_idx=index,
         chapter_offset=position.chapter_offset,percent=percent,summary=summary,
         basis='filtered_xhtml_utf16',upload_verified=false}
 end
+function M.project(position,summary,chapters,percent) return project(position,summary,chapters,percent,false) end
+-- Read-only imported candidate; it does not grant dispatch authority.
+function M.project_cb(position,summary,chapters,percent) return project(position,summary,chapters,percent,true) end
 function M.same(first,second)
     if type(first)~='table' or type(second)~='table' then return false end
     for key,value in pairs(first) do if second[key]~=value then return false end end

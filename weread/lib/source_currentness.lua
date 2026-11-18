@@ -16,14 +16,18 @@ local function nullable(value)
     if type(json)=='table' and (value==json.null or type(json.util)=='table' and value==json.util.null) then return nil end
     return value
 end
-function M.expected(value)
+local function normalize_expected(value,cb)
     if type(value)~='table' then return nil end
     local count=0;for _key in pairs(value) do count=count+1 end
-    if count~=5 or Access.book_id(value.book_id)~=value.book_id or Access.book_id(value.chapter_uid)~=value.chapter_uid
+    local book=cb and Access.display_book_id(value.book_id) or Access.book_id(value.book_id)
+    if count~=5 or book~=value.book_id or cb and (type(book)~='string' or book:sub(1,3)~='CB_')
+        or Access.book_id(value.chapter_uid)~=value.chapter_uid
         or not integer(value.chapter_idx,1000000) or not hash(value.raw_sha256)
         or not integer(value.raw_bytes,2*1024*1024) or value.raw_bytes<1 then return nil end
     local out={};for _i,key in ipairs(fields) do out[key]=value[key] end;return out
 end
+function M.expected(value) return normalize_expected(value,false) end
+function M.expected_cb(value) return normalize_expected(value,true) end
 local function version(value)
     value=nullable(value)
     if value==nil then return '' end
@@ -42,7 +46,9 @@ local function success(value)
     local succ=nullable(value.succ)
     if succ~=nil and succ~=true and succ~=1 and succ~='1' then fail('catalog') end
 end
-function M.catalog(payload,book,uid)
+local function catalog(payload,book,uid,cb)
+    if cb and (type(book)~='string' or book:sub(1,3)~='CB_' or Access.display_book_id(book)~=book) then fail('catalog') end
+    local function book_id(value) return cb and Access.display_book_id(value) or Access.book_id(value) end
     if type(payload)~='table' then fail('catalog') end
     success(payload)
     local records=payload.data
@@ -56,13 +62,13 @@ function M.catalog(payload,book,uid)
         if type(row)=='table' then
             local nested=nullable(row.book)
             local id=row.bookId or type(nested)=='table' and nested.bookId
-            if Access.book_id(id)==book then selected,count=row,count+1 end
+            if book_id(id)==book then selected,count=row,count+1 end
         end
     end
     if count~=1 then fail('catalog') end
     success(selected)
     local nested=nullable(selected.book)
-    if nested~=nil and (type(nested)~='table' or nested.bookId~=nil and Access.book_id(nested.bookId)~=book) then fail('catalog') end
+    if nested~=nil and (type(nested)~='table' or nested.bookId~=nil and book_id(nested.bookId)~=book) then fail('catalog') end
     local rows=nullable(selected.updated)
     if rows==nil then rows=nullable(selected.chapterInfos) end
     if rows==nil then rows=nullable(selected.chapters) end
@@ -76,10 +82,14 @@ function M.catalog(payload,book,uid)
     end
     return index,Crypto.sha256_hex(table.concat(pieces,'\0'))
 end
-function M.project(expected,before,reader,raw,after)
-    expected=M.expected(expected);if not expected then fail('expected') end
-    local first,stamp=M.catalog(before,expected.book_id,expected.chapter_uid)
-    local last,later=M.catalog(after,expected.book_id,expected.chapter_uid)
+function M.catalog(payload,book,uid) return catalog(payload,book,uid,false) end
+function M.catalog_cb(payload,book,uid) return catalog(payload,book,uid,true) end
+local function project(expected_value,before,reader,raw,after,cb)
+    local expected
+    if cb then expected=M.expected_cb(expected_value) else expected=M.expected(expected_value) end
+    if not expected then fail('expected') end
+    local first,stamp=catalog(before,expected.book_id,expected.chapter_uid,cb)
+    local last,later=catalog(after,expected.book_id,expected.chapter_uid,cb)
     if first~=last or stamp~=later or first~=expected.chapter_idx then fail('catalog_changed') end
     if type(reader)~='table' or reader.book_id~=expected.book_id or type(reader.psvts)~='string'
         or #reader.psvts<1 or #reader.psvts>4096 or reader.psvts:find('[^!-~]') then fail('reader') end
@@ -88,8 +98,11 @@ function M.project(expected,before,reader,raw,after)
     expected.catalog_stamp,expected.source_current,expected.upload_verified=stamp,true,false
     return expected
 end
-function M.packet(value,expected)
-    expected=M.expected(expected)
+function M.project(expected_value,before,reader,raw,after) return project(expected_value,before,reader,raw,after,false) end
+function M.project_cb(expected_value,before,reader,raw,after) return project(expected_value,before,reader,raw,after,true) end
+local function packet(value,expected_value,cb)
+    local expected
+    if cb then expected=M.expected_cb(expected_value) else expected=M.expected(expected_value) end
     if type(value)~='table' or not expected or not hash(value.catalog_stamp)
         or value.source_current~=true or value.upload_verified~=false then return nil end
     local count=0;for _key in pairs(value) do count=count+1 end
@@ -98,6 +111,8 @@ function M.packet(value,expected)
     expected.catalog_stamp,expected.source_current,expected.upload_verified=value.catalog_stamp,true,false
     return expected
 end
+function M.packet(value,expected_value) return packet(value,expected_value,false) end
+function M.packet_cb(value,expected_value) return packet(value,expected_value,true) end
 function M.txt_marker(client,raw,book,uid)
     if type(raw)~='string' or #raw>65536 then fail('txt_marker') end
     local ok,value=pcall(client.json_decode,client,raw)
@@ -119,10 +134,12 @@ function M.packet_txt(value,expected)
     if checked then checked.basis='raw_txt_utf16' end
     return checked
 end
-function M.fetch(client,expected,selected,format,options)
+local function fetch(client,expected_value,selected,format,options,cb)
     format=format or 'web_xhtml'
     if format~='web_xhtml' and format~='web_txt' then fail('format') end
-    expected=M.expected(expected);if not expected then fail('expected') end
+    local expected
+    if cb then expected=M.expected_cb(expected_value) else expected=M.expected(expected_value) end
+    if not expected or cb and format~='web_xhtml' then fail('expected') end
     selected=selected or M.capture(client.settings)
     local cookies=selected and selected.web and selected.web.cookies
     if not cookies or not Access.book_id(cookies.wr_vid) then fail('web_required') end
@@ -159,7 +176,7 @@ function M.fetch(client,expected,selected,format,options)
     local body={bookIds={expected.book_id}}
     local before=request(url,body,4*1024*1024,true)
     if options and options.verify_catalog then options.verify_catalog(before) end
-    local index=M.catalog(before,expected.book_id,expected.chapter_uid)
+    local index=catalog(before,expected.book_id,expected.chapter_uid,cb)
     if index~=expected.chapter_idx then fail('catalog_changed') end
     local html=request(referer,nil,4*1024*1024,false)
     local parsed,reader=pcall(Reader.project,{book_id=expected.book_id},html,function(text) return client:json_decode(text) end)
@@ -185,9 +202,18 @@ function M.fetch(client,expected,selected,format,options)
     if options and options.verify_catalog then options.verify_catalog(after) end
     account()
     current()
-    local result=M.project(expected,before,reader,raw,after)
+    local result=project(expected,before,reader,raw,after,cb)
     if format=='web_txt' then result.basis='raw_txt_utf16' end
     return result
+end
+-- CB_ source checking remains an explicit read-only entry point. The existing
+-- numeric send/close paths cannot obtain a CB_ proof through their APIs.
+function M.fetch(client,value,selected,format,options) return fetch(client,value,selected,format,options,false) end
+function M.fetch_cb(client,value,selected) return fetch(client,value,selected,'web_xhtml',nil,true) end
+function M.run_cb(client,value,selected)
+    local ok,result=pcall(M.fetch_cb,client,value,selected)
+    if ok then return {check=result} end
+    return {error=result=='source_currentness/web_expired' and 'source_web_expired' or 'source_currentness_unavailable'}
 end
 -- Only a confirmed HTTP status may ask the parent to recover credentials.
 -- Body errors, redirects, worker failures and other statuses stay generic.

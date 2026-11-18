@@ -238,7 +238,7 @@ def main():
                 assert raw.count(marker)==1, 'missing imported cloud view result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                 assert value==dict(result='PASS',native_navigation=True,pending_preserved=True,upload_disabled=True,
-                                   local_reopen=True,download_confirmed=args.cb_cloud_single,approximate=args.cb_cloud_gap), 'imported cloud view mismatch'
+                                   local_reopen=True,download_confirmed=args.cb_cloud_single,approximate=args.cb_cloud_gap,source_preview=True), 'imported cloud view mismatch'
                 assert server.request_totals[('/web/book/read','')]==0, 'read-only view sent reading progress'
                 reopened_raw=(root/'evidence/reopen.log').read_bytes();marker=b'\nWEREAD_CB_CLOUD_REOPEN='
                 assert reopened_raw.count(marker)==1 and b'[WeRead] forceRePaint failed:' not in reopened_raw

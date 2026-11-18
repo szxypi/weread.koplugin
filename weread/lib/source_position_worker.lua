@@ -140,7 +140,7 @@ function M.prepare_target(input, read_archive)
     return ok and result or {error='position_unavailable'}
 end
 
-function M.prepare_upload(input,read_archive)
+local function prepare_upload(input,read_archive,cb)
     local ok,result=pcall(function()
         local prepared,target=target_source(input,read_archive)
         if not target then return prepared end
@@ -151,12 +151,17 @@ function M.prepare_upload(input,read_archive)
         for char in anchor.text:gmatch('[%z\1-\127\194-\244][\128-\191]*') do chars[#chars+1]=char end
         for index=anchor.point_offset+1,math.min(#chars,anchor.point_offset+20) do summary[#summary+1]=chars[index] end
         local point=position(prepared,target.chapter_offset)
-        local candidate,why=require('weread.lib.source_upload_candidate').project(point,table.concat(summary),input.chapters,input.percent)
+        local Candidate=require('weread.lib.source_upload_candidate')
+        local projector=cb and Candidate.project_cb or Candidate.project
+        local candidate,why=projector(point,table.concat(summary),input.chapters,input.percent)
         if not candidate then return {error=why} end
         return {request_id=input.request_id,position=point,candidate=candidate}
     end)
     return ok and result or {error='position_unavailable'}
 end
+
+function M.prepare_upload(input,read_archive) return prepare_upload(input,read_archive,false) end
+function M.prepare_cb_preview(input,read_archive) return prepare_upload(input,read_archive,true) end
 
 -- No API, percent extrapolation or upload permission. The caller must still
 -- bind a live reader point and independently validate any future cloud plan.
