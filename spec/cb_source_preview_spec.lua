@@ -104,6 +104,37 @@ Currentness.fetch_cb_upload=function() error('source_currentness/remote_changed'
 service:prepare_cb_current_upload_preview(remote,function(candidate,why) value,reason=candidate,why end)
 worker.callback({request_id=service.preview_job.request_id,candidate=prepared.candidate});worker.callback(worker.task())
 expect(not value and reason=='source_remote_changed','changed remote did not reach caller')
+local Native=require('weread.lib.native_read_access')
+local native_capture,native_matches,first_fetch=Native.capture,Currentness.matches_cb_initial_access,Currentness.fetch_cb_initial
+local native_available=true;local native={scope=auth}
+Native.capture=function() return native_available and native or nil end
+Currentness.matches_cb_initial_access=function(_settings,_selected,chosen) return native_available and chosen==native end
+Currentness.fetch_cb_initial=function(_client,expected,_selected,initial,chosen)
+    expect(initial.kind=='cb_no_chapter' and initial.book_id==book.book_id and chosen==native,'first-state binding lost')
+    return {book_id=expected.book_id,chapter_uid=expected.chapter_uid,chapter_idx=expected.chapter_idx,
+        raw_sha256=expected.raw_sha256,raw_bytes=expected.raw_bytes,catalog_stamp=string.rep('a',64),source_current=true,upload_verified=false}
+end
+local initial=assert(require('weread.lib.cb_initial_state').from({book={bookId=book.book_id,chapterUid=0,chapterOffset=0,progress=0}},book.book_id))
+value,receipt,reason=nil,nil,nil
+service:prepare_cb_initial_upload_preview(initial,function(candidate,why,checked) value,reason,receipt=candidate,why,checked end)
+worker.callback({request_id=service.preview_job.request_id,candidate=prepared.candidate});worker.callback(worker.task())
+expect(value and receipt and not reason and service:is_current_cb_initial_preview(receipt,value),'first-position source proof missing')
+expect(service:cb_initial_preview_deadline(receipt,value)==130,'first-position proof deadline invalid')
+expect(not service:is_current_cb_upload_preview(receipt,value) and not service:is_current_cb_preview(receipt,value)
+    and not service:is_current_upload_preview(receipt,value),'first-position receipt escaped its own scope')
+native_available=false
+expect(not service:is_current_cb_initial_preview(receipt,value),'stale native credentials retained first-position proof')
+native_available=true
+service:prepare_cb_initial_upload_preview(nil,function(candidate,why) expect(not candidate and why=='source_remote_changed') end)
+expect(not service:is_current_cb_initial_preview(receipt,value),'invalid first state retained old receipt')
+local foreign_initial=copy(initial);foreign_initial.book_id='CB_Other'
+service:prepare_cb_initial_upload_preview(foreign_initial,function(candidate,why) expect(not candidate and why=='source_remote_changed') end)
+native_available=false
+service:prepare_cb_initial_upload_preview(initial,function(candidate,why) value,reason=candidate,why end)
+worker.callback({request_id=service.preview_job.request_id,candidate=prepared.candidate})
+expect(not value and reason=='source_native_authentication_unavailable','missing native access not reported')
+native_available=true
+Native.capture,Currentness.matches_cb_initial_access,Currentness.fetch_cb_initial=native_capture,native_matches,first_fetch
 Currentness.fetch_cb_upload=saved_upload
 Currentness.fetch_cb=old_fetch
 print(('cb_source_preview_spec: %d checks'):format(checks))

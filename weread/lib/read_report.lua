@@ -1347,11 +1347,34 @@ function ReadReport:confirm_position(receipt)
     local state = self._position_confirmation
     local outcome = { accepted = false, acknowledged = true, position_confirmed = false,
         error_kind = "confirmation_pending", error = "upload_readback_unconfirmed", confirmation = receipt }
+    if state and state.cb_initial then outcome.enter_attempted,outcome.report_attempted=true,false end
     if not state or state.receipt ~= receipt or state.reads >= 3 or state.auth ~= self:_auth_fingerprint() then
         outcome.error_kind, outcome.error = "unconfirmed", "upload_readback_unavailable"
         return false, outcome
     end
     state.reads = state.reads + 1
+    if state.cb_initial then
+        local Initial=require('weread.lib.cb_initial_progress')
+        if not Initial.current(self.settings,state.cb_initial.access,state.cb_initial.current) then
+            self._position_confirmation=nil
+            outcome.error_kind,outcome.error,outcome.confirmation='unconfirmed','upload_readback_unavailable',nil
+            return false,outcome
+        end
+        local remote=Initial.target(self.client,self.settings,state.cb_initial.access,state.target,
+            state.cb_summary,state.cb_initial.current)
+        outcome.confirmation_reads=state.reads
+        if remote then
+            self._position_confirmation=nil
+            outcome.accepted,outcome.position_confirmed,outcome.remote=true,true,remote
+            outcome.error,outcome.error_kind,outcome.confirmation=nil,nil,nil
+            return true,outcome
+        end
+        if state.reads==3 then
+            self._position_confirmation=nil
+            outcome.error_kind,outcome.confirmation='unconfirmed',nil
+        end
+        return false,outcome
+    end
     local ok, data = pcall(self.client.get_web_progress, self.client, state.target.book_id, { sensitive = true })
     local checked, remote
     if ok and state.auth == self:_auth_fingerprint() then checked, remote = ProgressReadback.check(data, state.target) end
@@ -1445,9 +1468,80 @@ function ReadReport:_upload_position(book_id, position, elapsed_seconds, plan, c
     return outcome.accepted == true, outcome
 end
 
+-- First imported-book position is deliberately a single enter request. A
+-- missing acknowledgement or inconclusive two-channel readback is retained
+-- as an uncertain dispatch and never followed by an automatic second POST.
+function ReadReport:_upload_cb_initial(book_id,position,plan)
+    if self.offline_time_transfer or self.job then return false,{error='read_report_busy',error_kind='busy'} end
+    local Access=require('weread.lib.read_access')
+    local State=require('weread.lib.cb_initial_state')
+    local Initial=require('weread.lib.cb_initial_progress')
+    local Candidate=require('weread.lib.source_upload_candidate')
+    local Native=require('weread.lib.native_position_protocol')
+    local source=type(plan)=='table' and plan.source_position
+    local target=ProgressReadback.expected(book_id,position)
+    if type(book_id)~='string' or book_id:sub(1,3)~='CB_' or Access.display_book_id(book_id)~=book_id
+        or not target or not Access.book_id(target.chapter_uid) or type(position.percent)~='number' or position.percent%1~=0
+        or not Native.summary(position.summary) or type(plan)~='table' or plan.transport~='cb_web_initial'
+        or not State.none(plan.initial_remote) or plan.initial_remote.book_id~=book_id
+        or type(plan.before_send)~='function' or type(plan.is_current)~='function'
+        or type(source)~='table' or source.book_id~=book_id or source.chapter_uid~=position.chapter_uid
+        or source.chapter_offset~=position.chapter_offset or source.basis~='filtered_xhtml_utf16'
+        or source.upload_verified~=false then return false,{error='upload_position_invalid',error_kind='position'} end
+    local function current()
+        return plan.transport=='cb_web_initial' and Candidate.same(plan.position,position)
+            and State.none(plan.initial_remote) and plan.initial_remote.book_id==book_id and plan.is_current()==true
+    end
+    if not current() then return false,{error='source_position_changed',error_kind='position'} end
+    self._position_confirmation=nil
+    local context_ok,book=pcall(self.ensure_context,self,book_id,false)
+    if not context_ok then return false,{error='upload_context_unavailable',error_kind='context'} end
+    local original_summary=book.summary
+    local snapshot={};for key,value in pairs(book) do snapshot[key]=value end;book=snapshot
+    apply_position(book,position)
+    if book.pclts==nil or book.pclts=='' or tonumber(book.pclts)==0 then book.pclts=WeRead.e(self.now()) end
+    local access=Initial.capture(self.settings)
+    if not access or not Initial.current(self.settings,access,current) then
+        return false,{error='source_native_authentication_unavailable',error_kind='position'}
+    end
+    local attempt={enter_attempted=false,report_attempted=false}
+    local ok,result,code=pcall(function()
+        local before=Initial.before(self.client,self.settings,access,plan.initial_remote,current)
+        local again=Initial.before(self.client,self.settings,access,plan.initial_remote,current)
+        assert(before and again and State.equal(before,again),'cb_initial/baseline')
+        local payload=require('weread.lib.cb_position_payload').build('enter',{
+            book_id=book_id,chapter_uid=book.chapter_uid,chapter_idx=tonumber(book.chapter_idx),
+            chapter_offset=tonumber(book.chapter_offset),progress=tonumber(book.progress),summary=book.summary,
+            psvts=book.psvts,pclts=book.pclts,token=book.token})
+        assert(Initial.current(self.settings,access,current) and plan.before_send()==true
+            and Initial.current(self.settings,access,current),'cb_initial/stale')
+        attempt.enter_attempted=true
+        return self.client:report_read(payload,book.reader_url or WeRead.reader_url(book_id),{sensitive=true})
+    end)
+    local outcome={accepted=false,acknowledged=false,position_confirmed=false,error='upload_write_unconfirmed',
+        error_kind='unconfirmed',enter_attempted=attempt.enter_attempted,report_attempted=false}
+    if not attempt.enter_attempted then outcome.error,outcome.error_kind='source_position_changed','position' end
+    if ok and position_acknowledged(result,code) then
+        outcome.acknowledged=true
+        book.read_session_entered_at=self.now();book.read_session_id=self.session_id
+        local receipt={}
+        self._position_confirmation={receipt=receipt,reads=0,target=target,auth=self:_auth_fingerprint(),
+            cb_summary=position.summary,cb_initial={access=access,current=current}}
+        local confirmed=select(2,self:confirm_position(receipt))
+        for key,value in pairs(confirmed) do outcome[key]=value end
+    end
+    book.summary=original_summary
+    outcome.book=self:_context_snapshot(book)
+    if type(outcome.book)=='table' then pcall(self._persist_context,self,book_id,outcome.book) end
+    return outcome.accepted==true,outcome
+end
+
 -- Imported progress has its own explicitly authorized, zero-time path. The
 -- regular timer and numeric upload paths cannot opt in by changing a field.
 function ReadReport:upload_position(book_id,position,elapsed_seconds,plan)
+    if type(plan)=='table' and plan.transport=='cb_web_initial' and elapsed_seconds==0 then
+        return self:_upload_cb_initial(book_id,position,plan)
+    end
     if type(plan)=='table' and plan.transport=='cb_web_position' and elapsed_seconds==0 then
         return self:upload_cb_position(book_id,position,plan)
     end

@@ -41,18 +41,29 @@ local function fixture()
         get=function(_self,key,default) return key=='cookies' and {wr_vid='900000',wr_skey='synthetic-current-cookie'} or default end}
     local initial={reader={bookInfo={bookId=id},psvts=reader.psvts,currentChapter={chapterUid=11},progress={chapterUid=11}}}
     local client={settings=settings,json_encode=function() return 'encoded-read-body' end,
-        json_decode=function(_self,value) assert(value=='{reader}');return initial end,
+        json_decode=function(_self,value)
+            if value=='native-progress' then
+                return {book={bookId=id,chapterUid=0,chapterIdx=0,chapterOffset=state.native_offset or 0,progress=0,
+                    summary='',updateTime=1,readingTime=state.native_time or 0,recordReadingTime=0,ttsTime=0}}
+            end
+            assert(value=='{reader}');return initial
+        end,
         decode_http_json=function(_self,value)
             if value=='account' then return {vid=state.foreign and '900099' or '900000'} end
+            if value=='initial-progress' then return {book={bookId=id,chapterUid=0,chapterIdx=0,chapterOffset=state.offset or 0,
+                progress=0,summary='',updateTime=1}} end
             if value=='progress' then return {book={bookId=id,chapterUid=11,chapterIdx=0,chapterOffset=state.offset or 25,progress=37,updateTime=123}} end
             assert(value=='catalog');return catalog
         end}
     function client:request(options)
         state.requests[#state.requests+1]=options;local count=#state.requests
-        local text=(state.upload and {'account','progress','catalog','window.__INITIAL_STATE__={reader};(function(){})();',
+        local text=(state.first and {'account','initial-progress','native-progress','catalog','window.__INITIAL_STATE__={reader};(function(){})();',
+            'part0','part1','part3','catalog','native-progress','initial-progress','account'}
+            or state.upload and {'account','progress','catalog','window.__INITIAL_STATE__={reader};(function(){})();',
             'part0','part1','part3','catalog','progress','account'} or {'account','catalog',
             'window.__INITIAL_STATE__={reader};(function(){})();','part0','part1','part3','catalog','account'})[count]
         if state.change_progress_at==count then state.offset=26 end
+        if state.change_native_at==count then state.native_offset=1 end
         options.sink(text);options.sink(nil)
         if state.changed_at==count then state.valid=false end
         return 1,state.fail_at==count and 401 or state.code,{}
@@ -111,4 +122,45 @@ client,state=fixture();state.upload=true
 local foreign=copy(remote);foreign.book_id='CB_Other'
 expect(Check.run_cb_upload(client,expected,nil,foreign).error=='source_currentness_unavailable'
     and #state.requests==0,'foreign selected remote triggered reads')
+local initial=assert(require('weread.lib.cb_initial_state').from(
+    {book={bookId=id,chapterUid=0,chapterIdx=0,chapterOffset=0,progress=0,summary='',updateTime=1}},id))
+local credentials={vid='900000',deviceId='eink334691225'..string.rep('1',19),accessToken='synthetic-access',refreshToken='synthetic-refresh'}
+local function first_fixture()
+    local c,s=fixture();s.first=true
+    local store={read=function() return credentials,1,nil,s.native_pending end}
+    local selected=assert(require('weread.lib.native_read_access').capture(c.settings,store))
+    return c,s,selected
+end
+local selected
+client,state,selected=first_fixture()
+result=Check.fetch_cb_initial(client,expected,nil,initial,selected)
+expect(Check.packet_cb(result,expected) and #state.requests==12,'first source proof did not check both channels twice')
+for _i,index in ipairs({2,11}) do
+    client,state,selected=first_fixture();state.change_progress_at=index
+    result=Check.run_cb_initial(client,expected,nil,initial,selected)
+    expect(result.error=='source_remote_changed' and #state.requests==index,'changed Web initial state was not stopped')
+end
+for _i,index in ipairs({3,10}) do
+    client,state,selected=first_fixture();state.change_native_at=index
+    result=Check.run_cb_initial(client,expected,nil,initial,selected)
+    expect(result.error=='source_remote_changed' and #state.requests==index,'changed native initial state was not stopped')
+end
+client,state,selected=first_fixture();state.native_time=1
+expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_remote_changed' and #state.requests==3,
+    'existing native time permitted first-position proof')
+client,state,selected=first_fixture();state.native_pending=true
+expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_currentness_unavailable' and #state.requests==0,
+    'pending native renewal permitted first-position proof')
+client,state,selected=first_fixture();selected.credentials=copy(selected.credentials);selected.credentials.accessToken='different-token'
+expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_currentness_unavailable' and #state.requests==0,
+    'altered native credentials permitted first-position proof')
+client,state,selected=first_fixture();state.fail_at=3
+expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_native_expired' and #state.requests==3,
+    'native 401 was not isolated from Web renewal')
+client,state,selected=first_fixture();state.fail_at=2
+expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_web_expired' and #state.requests==2,
+    'Web 401 was not retained')
+client,state,selected=first_fixture();local wrong=copy(initial);wrong.book_id='CB_Other'
+expect(Check.run_cb_initial(client,expected,nil,wrong,selected).error=='source_currentness_unavailable' and #state.requests==0,
+    'foreign initial state triggered reads')
 print('cb_source_currentness_spec: '..checks..' checks')

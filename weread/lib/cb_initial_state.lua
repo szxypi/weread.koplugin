@@ -57,4 +57,11 @@ function M.matches(raw,expected)
     return M.none(expected) and M.equal(M.from(raw,expected.book_id),expected) or false
 end
 
+function M.expected_remote(value,book)
+    if type(value)~='table' or value.source~='web' or value.book_id~=book
+        or not M.none(value.no_chapter) or value.no_chapter.book_id~=book then return nil end
+    local out={};for key,item in pairs(value.no_chapter) do out[key]=item end
+    return out
+end
+
 return M

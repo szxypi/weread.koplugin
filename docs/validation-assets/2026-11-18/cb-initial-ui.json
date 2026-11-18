@@ -1,0 +1,17 @@
+{
+  "result": "SYNTHETIC_NATIVE_UI_VERIFIED",
+  "screens": [[600, 800], [1264, 1680]],
+  "cases_per_screen": ["normal", "delayed", "noack", "noack_unapplied", "changed", "native_time", "no_native", "save_failed", "verify_save_failed"],
+  "manual_cancel_checked": true,
+  "normal_and_delayed_first_requests_each": 1,
+  "noack_first_requests_each": 1,
+  "changed_time_and_missing_auth_first_requests_each": 0,
+  "failed_save_first_requests_each": 1,
+  "offline_reopen_checked_for_sent_cases": true,
+  "unknown_outcome_not_replayed": true,
+  "unapplied_unknown_manual_check_does_not_offer_retry": true,
+  "prior_cb_manual_sync_regression_screens": 2,
+  "early_save_failure_runs_unverified_before_fix": true,
+  "real_account_ui_write_verified": false,
+  "physical_device_verified": false
+}

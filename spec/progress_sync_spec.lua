@@ -477,6 +477,107 @@ test('CB cloud choice uses source navigation without granting write authority',f
     eq(f.sync.verified,false,'cloud choice granted reporting authority')
 end)
 
+local function cb_first_fixture(mode)
+    local f=cb_manual_fixture();local id=f.source.book_id
+    f.client.get_web_progress=function()
+        f.remote_reads=f.remote_reads+1
+        return {book={bookId=id,progress=0,chapterUid=0,chapterIdx=0,chapterOffset=0,summary='',updateTime=1}}
+    end
+    f.sync.upload_position=function(_id,position,seconds,plan)
+        eq(seconds,0,'CB first sync sent reading time')
+        eq(plan.transport,'cb_web_initial','CB first sender was not selected')
+        eq(plan.before_send(),true,'CB first dispatch was not saved')
+        f.uploads[#f.uploads+1]=position
+        if mode=='unknown' then
+            return false,{acknowledged=false,position_confirmed=false,enter_attempted=true,report_attempted=false,error_kind='unconfirmed'}
+        end
+        if mode=='delayed' then
+            f.delayed_position=position
+            return false,{acknowledged=true,position_confirmed=false,enter_attempted=true,report_attempted=false,
+                error_kind='confirmation_pending',confirmation={}}
+        end
+        return true,{acknowledged=true,position_confirmed=true,enter_attempted=true,report_attempted=false,
+            remote={book_id=id,chapter_uid=position.chapter_uid,chapter_idx=position.chapter_idx,
+                chapter_offset=position.chapter_offset,percent=position.percent,raw_percent=position.percent,updated_at=2,
+                has_chapter_index=true,has_chapter_offset=true,source='web'}}
+    end
+    f.sync.confirm_position=function()
+        local position=f.delayed_position
+        return true,{acknowledged=true,position_confirmed=true,enter_attempted=true,report_attempted=false,
+            remote={book_id=id,chapter_uid=position.chapter_uid,chapter_idx=position.chapter_idx,
+                chapter_offset=position.chapter_offset,percent=position.percent,raw_percent=position.percent,updated_at=2,
+                has_chapter_index=true,has_chapter_offset=true,source='web'}}
+    end
+    function f:ready_first()
+        local position={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=self.intent.percent,summary='synthetic source'}
+        self.ready({position=position,source_position=self.source,basis='filtered_xhtml_utf16',transport='cb_web_initial',
+            initial_remote=self.intent.expected_remote.no_chapter,is_current=function() return true end})
+    end
+    return f
+end
+
+test('CB first sync requires explicit choice and confirms before granting automatic access',function()
+    local f=cb_first_fixture();local id=f.source.book_id
+    f.sync:_pull({manual=false});f.drain()
+    eq(#f.choices,0,'automatic open offered first sync');eq(f.sync.verified,false,'automatic open gained authority')
+    f.sync:sync_now();f.drain();local choice=assert(f.choices[1])
+    eq(choice.initialize_cloud,true,'CB first sync choice missing');eq(choice.use_remote,nil,'zero chapter offered navigation')
+    eq(f.prepares,0,'first sync prepared before user choice');choice.initialize()
+    eq(f.intent.initialize_cloud,true,'CB first intent missing');eq(f.intent.cb_guarded_sync,true,'CB guard missing')
+    eq(f.intent.expected_remote.no_chapter.kind,'cb_no_chapter','CB no-chapter observation lost')
+    eq(f.sync.verified,false,'first preparation granted authority');f:ready_first()
+    eq(#f.uploads,1,'first CB request missing')
+    eq(f.sync.source_dispatch:pending(id),false,'confirmed CB first request retained journal')
+    eq(f.values.books[id].pending_upload_position,nil,'confirmed CB first request retained local intent')
+    eq(f.sync.verified,true,'confirmed CB first point did not grant authority')
+    eq(f.notifications[#f.notifications].code,'upload_success','CB first success not shown')
+end)
+
+test('CB first sync accepts delayed dual readback without sending again',function()
+    local f=cb_first_fixture('delayed');local id=f.source.book_id
+    f.sync:sync_now();f.drain();f.choices[1].initialize();f:ready_first()
+    eq(#f.uploads,1,'first request missing');eq(f.sync.source_dispatch:pending(id),true,'pending confirmation lost its journal')
+    f.drain()
+    eq(#f.uploads,1,'delayed confirmation resent first request')
+    eq(f.sync.source_dispatch:pending(id),false,'delayed confirmed request retained journal')
+    eq(f.sync.verified,true,'delayed confirmed request remained unverified')
+end)
+
+test('CB first sync cancellation, unknown receipt and local save failure do not replay',function()
+    local f=cb_first_fixture();f.sync:sync_now();f.drain();f.choices[1].keep_local()
+    eq(f.prepares,0,'cancel prepared first upload');eq(#f.uploads,0,'cancel sent first upload')
+    f=cb_first_fixture('unknown');local id=f.source.book_id
+    f.sync:sync_now();f.drain();f.choices[1].initialize();f:ready_first()
+    eq(f.sync.source_dispatch:pending(id),true,'unknown first send lost its journal')
+    eq(f.sync.verified,false,'unknown first send granted authority')
+    local count=#f.uploads;f.sync:prepare_close();f.drain();eq(#f.uploads,count,'unknown first send replayed on close')
+    local choices=#f.choices;f.sync:sync_now();f.drain()
+    eq(#f.choices,choices,'unknown first send offered another first write')
+    eq(f.notifications[#f.notifications].code,'upload_unconfirmed','unknown first send did not explain the pending result')
+    eq(#f.uploads,count,'manual check replayed unknown first request')
+    f=cb_first_fixture();id=f.source.book_id
+    f.sync:sync_now();f.drain();f.choices[1].initialize()
+    local original=f.sync._persist
+    f.sync._persist=function(self,book,patch)
+        if patch.last_uploaded_position then error('synthetic storage failure') end
+        return original(self,book,patch)
+    end
+    eq(pcall(function() f:ready_first() end),true,'CB local save failure escaped the UI')
+    eq(f.sync.source_dispatch:pending(id),true,'local save failure lost first dispatch journal')
+    eq(f.sync.verified,false,'local save failure granted authority')
+    eq(f.notifications[#f.notifications].code,'upload_initial_save_failed','local save failure notice missing')
+    f=cb_first_fixture();id=f.source.book_id
+    f.sync:sync_now();f.drain();f.choices[1].initialize()
+    original=f.sync._persist
+    f.sync._persist=function(self,book,patch)
+        if patch.verified_source=='cb_upload_confirmed' then error('synthetic verified save failure') end
+        return original(self,book,patch)
+    end
+    eq(pcall(function() f:ready_first() end),true,'CB verified save failure escaped the UI')
+    eq(f.sync.source_dispatch:pending(id),true,'verified save failure lost first dispatch journal')
+    eq(f.sync.verified,false,'verified save failure granted authority')
+end)
+
 local function first_fixture()
     local source={book_id='41',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
         file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}

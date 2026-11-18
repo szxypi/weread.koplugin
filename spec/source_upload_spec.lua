@@ -120,4 +120,22 @@ valid=false;expect(not plan.is_current(),'CB stale receipt accepted');valid=true
 local cb_bad=copy(cb);cb_bad.expected_remote.chapter_offset=-1
 local prior=#callbacks
 expect(not begin(cb_bad) and #callbacks==prior and reason=='source_book_sync_unsupported','invalid CB remote dispatched reads')
+local cb_first=copy(cb);cb_first.initialize_cloud=true
+cb_first.expected_remote={book_id=cb.book_id,source='web',no_chapter=assert(require('weread.lib.cb_initial_state').from(
+    {book={bookId=cb.book_id,chapterUid=0,chapterOffset=0,progress=0}},cb.book_id))}
+source.prepare_cb_initial_upload_preview=function(_self,remote,callback)
+    expect(remote.kind=='cb_no_chapter' and remote.book_id==cb.book_id,'explicit no-chapter state was lost')
+    callbacks[#callbacks+1]=callback
+end
+source.is_current_cb_initial_preview=function() return valid end
+source.cb_initial_preview_deadline=function() return 130 end
+expect(begin(cb_first) and not plan,'CB first-position source check did not start')
+finish(cb_candidate)
+expect(plan and plan.transport=='cb_web_initial' and plan.is_current(),'CB first-position plan missing')
+expect(plan.initial_remote.kind=='cb_no_chapter' and plan.initial_remote~=cb_first.expected_remote.no_chapter,'first state was not isolated')
+plan.initial_remote.book_id='CB_Other';expect(not plan.is_current(),'altered first-state plan retained authority')
+local bad_first=copy(cb_first);bad_first.expected_remote.no_chapter.book_id='CB_Other';prior=#callbacks
+expect(not begin(bad_first) and #callbacks==prior and reason=='source_book_sync_unsupported','foreign first state dispatched reads')
+bad_first=copy(cb_first);bad_first.cb_guarded_sync=false
+expect(not begin(bad_first) and #callbacks==prior,'first source request bypassed explicit guard')
 print(('source_upload_spec: %d checks'):format(checks))

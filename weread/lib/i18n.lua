@@ -973,6 +973,7 @@ local zh = {
     ["WeRead has no chapter position for this book yet. Your local reading position is kept. First-time cloud sync is not available yet."] = "微信读书尚未提供本书的章节位置。已保留本机阅读进度，暂不支持这类书籍的首次云端同步。",
     ["A complete cloud chapter position could not be verified. Your local reading position is kept."] = "未能核对完整的云端章节位置，已保留本机阅读进度。",
     ["Progress upload failed:\n%1"] = "进度上传失败：\n%1",
+    ["WeRead confirmed the position, but it could not be saved locally. The pending sync record is kept. Check storage, then sync again to review the cloud position."] = "微信读书已确认位置，但本机结果未能保存。已保留待核同步记录，请检查存储后再次同步以核对云端位置。",
     ["WeRead confirmed the upload, but the local result could not be saved. The confirmed record is kept. Check storage, then sync again to review it."] = "微信读书已确认上传，但本机结果未能保存。已保留确认记录，请检查存储后再次同步以核对。",
     ["The cloud position matches, but the local result could not be saved. Check storage, then sync again."] = "云端位置已核对一致，但本机结果未能保存。请检查存储后再次同步。",
     ["Cloud position sync is not available for this file format yet. Your local position is kept."] = "此文件格式暂不支持云端位置同步，已保留本机位置。",

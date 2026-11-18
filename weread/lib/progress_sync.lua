@@ -734,7 +734,10 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
         if access and ok and not result and kind=='web_expired' then return nil,'progress_web_expired',access end
         if ok then
             web, web_error = normalize(result,"web")
-            if web_error=='progress_no_chapter' then web_none=CloudState.from(result,book_id) end
+            if web_error=='progress_no_chapter' then
+                web_none=cb_book(tostring(book_id)) and require('weread.lib.cb_initial_state').from(result,book_id)
+                    or CloudState.from(result,book_id)
+            end
         else
             web_error = access and 'progress_unavailable' or tostring(result)
         end
@@ -951,8 +954,11 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
     local book_id = tostring(position.book_id or self.current_book_id or "")
     if book_id == "" then return false end
     if self.source_dispatch and self.source_dispatch:pending(book_id) then return false end
-    if initial_remote and (reason~='explicit_first_sync' or close_token or interval_cycle or not self.prepare_upload
-        or initial_remote.source~='web' or initial_remote.book_id~=book_id or not CloudState.none(initial_remote.no_chapter)
+    local cb_first=cb_book(book_id) and initial_remote
+        and require('weread.lib.cb_initial_state').expected_remote(initial_remote,book_id)~=nil
+    if initial_remote and (reason~='explicit_first_sync' or not show_result or close_token or interval_cycle or not self.prepare_upload
+        or initial_remote.source~='web' or initial_remote.book_id~=book_id
+        or not cb_first and not CloudState.none(initial_remote.no_chapter)
         or initial_remote.no_chapter.book_id~=book_id) then return false end
     initial_remote=copy(initial_remote)
     position = copy(position)
@@ -974,7 +980,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
     local cb_close=cb_book(book_id) and reason=='document_close' and close_token and not interval_cycle and not initial_remote
         and self.verified and self.source_dispatch and self.prepare_closed
         and require('weread.lib.cb_sync_guard').expected(self.remote_position,book_id)
-    local cb_authorized=cb_manual or cb_auto or cb_close
+    cb_first=cb_first and self.source_dispatch~=nil
+    local cb_authorized=cb_first or cb_manual or cb_auto or cb_close
     if cb_book(book_id) and not cb_authorized then
         self:_unsupported_book(book_id,position,false)
         if show_result and self:_session_current(scope) then self.notify('upload_failed',{error='source_book_sync_unsupported'}) end
@@ -1026,7 +1033,10 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             return
         end
         self.upload_job, self.uploading = nil, false
-        local owned=not job.dispatch or self.source_dispatch:finish(job.dispatch,type(outcome)=='table' and outcome or nil)
+        local defer_first=cb_first and job.dispatch and not (type(outcome)=='table'
+            and outcome.enter_attempted==false and outcome.report_attempted==false)
+        local owned=not job.dispatch or defer_first and self.source_dispatch:owns(job.dispatch)
+            or not defer_first and self.source_dispatch:finish(job.dispatch,type(outcome)=='table' and outcome or nil)
         if job.plan and job.plan.release then job.plan.release() end
         if not owned then
             if self:_session_current(scope) then self.verified,self.dirty,self.state=false,true,'unverified' end
@@ -1036,8 +1046,10 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
         local confirmed = ok and accepted and type(outcome) == "table" and outcome.position_confirmed == true
             and (outcome.acknowledged == true or job.plan and job.plan.transport=='native_position'
                 and outcome.read_only_confirmation==true and outcome.report_attempted==false)
-            and (not initial_remote or outcome.acknowledged==true and outcome.report_attempted==true
-                and job.plan and job.plan.transport=='native_position')
+            and (not initial_remote or outcome.acknowledged==true and job.plan
+                and (outcome.report_attempted==true and job.plan.transport=='native_position'
+                    or cb_first and outcome.enter_attempted==true and outcome.report_attempted==false
+                        and job.plan.transport=='cb_web_initial'))
         if confirmed then
             local book = self.get_book(book_id) or {}
             local clear_pending = book.pending_upload_account == scope.account
@@ -1063,7 +1075,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             if initial_remote then
                 patch.verified_at,patch.verified_source=self.now(),'first_sync_confirmed'
             end
-            if job.plan and job.plan.transport=='native_position' then
+            if job.plan and (job.plan.transport=='native_position' or cb_first) then
                 local saved=pcall(self._persist,self,book_id,patch)
                 if not saved then
                     -- Keep the native verified receipt: the sender accepts it
@@ -1072,7 +1084,9 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                     self.interval:halt()
                     self.verified,self.verified_at,self.verified_reason=false,nil,'local_save_failed'
                     self.dirty,self.state=true,'error'
-                    pcall(self.notify,'upload_local_save_failed',{acknowledged=outcome.acknowledged==true})
+                    pcall(self.notify,cb_first and 'upload_initial_save_failed' or 'upload_local_save_failed',
+                        {acknowledged=outcome.acknowledged==true})
+                    if cb_first then return end
                     error('native_position/local_save_failed',0)
                 end
             else self:_persist(book_id, patch) end
@@ -1089,7 +1103,15 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                 self.last_uploaded_position = copy(position)
                 if type(patch.last_remote_position)=='table' then self.remote_position=copy(patch.last_remote_position) end
                 if cb_authorized then
-                    self:_mark_verified(book_id,'cb_upload_confirmed',position,self.remote_position)
+                    if cb_first then
+                        local marked=pcall(self._mark_verified,self,book_id,'cb_upload_confirmed',position,self.remote_position)
+                        if not marked or not self.verified then
+                            self.interval:halt();self.verified,self.verified_at,self.verified_reason=false,nil,'local_save_failed'
+                            self.dirty,self.state=true,'error'
+                            if show_result then pcall(self.notify,'upload_initial_save_failed',{acknowledged=true}) end
+                            return
+                        end
+                    else self:_mark_verified(book_id,'cb_upload_confirmed',position,self.remote_position) end
                     if not unchanged and live then
                         -- A reader may turn the page while the request is in
                         -- flight. The confirmed anchor is old, but the local
@@ -1101,6 +1123,12 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                 if not self.pulling and self.state ~= "awaiting_choice" then
                     self.state = self.verified and "verified" or "unverified"
                 end
+            end
+            if defer_first and not self.source_dispatch:finish(job.dispatch,outcome) then
+                self.verified,self.dirty,self.state=false,true,'unverified'
+                self.interval:halt()
+                if show_result and active then self.notify('upload_failed',{error='upload_readback_unconfirmed'}) end
+                return
             end
             log("info", "upload accepted:",
                 "book=", book_id,
@@ -1165,7 +1193,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                     position.source_position=copy(plan.source_position)
                     if own then self:_persist(book_id,{pending_upload_position=position,last_local_position=position}) end
                 end
-                if initial_remote and plan.transport~='native_position' then
+                if initial_remote and plan.transport~=(cb_first and 'cb_web_initial' or 'native_position') then
                     if plan.release then plan.release() end
                     finish(true,false,{error='source_position_changed',error_kind='position'});return
                 end
@@ -1258,7 +1286,13 @@ function ProgressSync:_resolve_initial(local_position,remote,context,options)
     self.state='unverified'
     if not options.manual then return end
     local source=local_position.source_position
-    if not self.prepare_upload or type(source)~='table' or source.basis~='raw_txt_utf16' then
+    local cb_initial=cb_book(context.book_id) and require('weread.lib.cb_initial_state').expected_remote(remote,context.book_id)
+    if cb_initial and self.source_dispatch and self.source_dispatch:pending(context.book_id) then
+        self.notify('upload_unconfirmed',{error='upload_readback_unconfirmed'});return
+    end
+    if not self.prepare_upload or type(source)~='table'
+        or cb_initial and (source.basis~='filtered_xhtml_utf16' or not self.source_dispatch)
+        or not cb_initial and source.basis~='raw_txt_utf16' then
         self.notify('pull_failed',{error='progress_no_chapter'});return
     end
     self.state='awaiting_choice'
@@ -1567,7 +1601,7 @@ function ProgressSync:_pull(options)
                     last_pull_at = self.now(),
                     last_sync_error = false,
                 })
-                if CloudState.none(remote.no_chapter) then
+                if CloudState.none(remote.no_chapter) or require('weread.lib.cb_initial_state').none(remote.no_chapter) then
                     self:_resolve_initial(local_position,remote,context,options)
                 else self:_resolve(local_position, remote, context, options) end
             end)

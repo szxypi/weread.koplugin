@@ -134,6 +134,22 @@ function M.packet_txt(value,expected)
     if checked then checked.basis='raw_txt_utf16' end
     return checked
 end
+local function initial_native_current(settings,selected,owner)
+    if not selected or selected.renewal_pending or not selected.scope or selected.scope.vid~=owner then return false end
+    local current=require('weread.lib.native_read_access').capture(settings,selected.store)
+    if not current or current.renewal_pending or current.fingerprint~=selected.fingerprint
+        or current.scope.vid~=selected.scope.vid or current.scope.epoch~=selected.scope.epoch
+        or current.revision~=selected.revision then return false end
+    for _i,key in ipairs({'vid','deviceId','accessToken','refreshToken'}) do
+        if current.credentials[key]~=selected.credentials[key] then return false end
+    end
+    return true
+end
+function M.matches_cb_initial_access(settings,selected,native_selected)
+    local cookies=selected and selected.web and selected.web.cookies
+    return cookies~=nil and M.matches(settings,selected)
+        and initial_native_current(settings,native_selected,cookies.wr_vid) or false
+end
 local function fetch(client,expected_value,selected,format,options,cb)
     format=format or 'web_xhtml'
     if format~='web_xhtml' and format~='web_txt' then fail('format') end
@@ -173,14 +189,46 @@ local function fetch(client,expected_value,selected,format,options,cb)
     end
     account()
     local cb_remote=options and options.cb_remote
+    local cb_initial=options and options.cb_initial
+    local native_selected=options and options.native_selected
+    if cb_remote and cb_initial then fail('expected') end
     local progress_read=0
     local function progress()
         progress_read=progress_read+1
         local stamp=tostring(os.time()*1000+progress_read)
         local data=request('https://weread.qq.com/web/book/getProgress?bookId='..Protocol.urlencode(expected.book_id)..'&_='..stamp,nil,65536,true)
-        if not require('weread.lib.cb_sync_guard').matches(data,cb_remote) then fail('remote_changed') end
+        local matches=cb_initial and require('weread.lib.cb_initial_state').matches(data,cb_initial)
+            or cb_remote and require('weread.lib.cb_sync_guard').matches(data,cb_remote)
+        if not matches then fail('remote_changed') end
     end
-    if cb_remote then progress() end
+    local native_before
+    local function native_progress()
+        local State=require('weread.lib.cb_initial_state')
+        local P=require('weread.lib.native_position_protocol')
+        local Remote=require('weread.lib.remote_progress')
+        local function active()
+            return M.matches(client.settings,selected) and initial_native_current(client.settings,native_selected,cookies.wr_vid)
+        end
+        if not active() then fail('session_changed') end
+        local auth=require('weread.lib.native_authorization'):new(client,{expected_vid=cookies.wr_vid,is_current=active})
+        local ok,data=pcall(auth._request,auth,'position_progress',
+            'https://i.weread.qq.com/book/getProgress?bookId='..Protocol.urlencode(expected.book_id),nil,native_selected.credentials)
+        auth:cancel()
+        if not ok then
+            if data=='native_auth/position_progress/http_401' then fail('native_expired') end
+            fail('native_unavailable')
+        end
+        local point=State.from(data,expected.book_id)
+        local node=Remote.node(data,expected.book_id)
+        local valid,counts=pcall(P.counts,node)
+        if not point or not valid or counts.readingTime~=0 or counts.recordReadingTime~=0 or counts.ttsTime~=0 then
+            fail('remote_changed')
+        end
+        if native_before and not State.equal(native_before,point) then fail('remote_changed') end
+        native_before=point
+    end
+    if cb_remote or cb_initial then progress() end
+    if cb_initial then native_progress() end
     local url='https://weread.qq.com/web/book/chapterInfos'
     local body={bookIds={expected.book_id}}
     local before=request(url,body,4*1024*1024,true)
@@ -209,7 +257,8 @@ local function fetch(client,expected_value,selected,format,options,cb)
     if not decoded then fail('source_invalid') end
     local after=request(url,body,4*1024*1024,true)
     if options and options.verify_catalog then options.verify_catalog(after) end
-    if cb_remote then progress() end
+    if cb_initial then native_progress() end
+    if cb_remote or cb_initial then progress() end
     account()
     current()
     local result=project(expected,before,reader,raw,after,cb)
@@ -231,6 +280,29 @@ function M.fetch_cb_upload(client,value,selected,remote)
     local guarded=expected and require('weread.lib.cb_sync_guard').expected(remote,expected.book_id)
     if not guarded then fail('expected') end
     return fetch(client,value,selected,'web_xhtml',{cb_remote=guarded},true)
+end
+-- A separate read-only preparation for first position. Both account channels
+-- must still show an explicitly unstarted book; native counters must be zero.
+-- The resulting source packet alone never grants permission to send.
+function M.fetch_cb_initial(client,value,selected,initial,native_selected)
+    local expected=M.expected_cb(value)
+    local State=require('weread.lib.cb_initial_state')
+    local P=require('weread.lib.native_position_protocol')
+    if not expected or not State.none(initial) or initial.book_id~=expected.book_id
+        or not native_selected or native_selected.renewal_pending or not P.credentials(native_selected.credentials)
+        or not native_selected.scope then fail('expected') end
+    selected=selected or M.capture(client.settings)
+    if not selected or not selected.web or not selected.web.cookies
+        or not initial_native_current(client.settings,native_selected,selected.web.cookies.wr_vid) then fail('expected') end
+    return fetch(client,value,selected,'web_xhtml',{cb_initial=initial,native_selected=native_selected},true)
+end
+function M.run_cb_initial(client,value,selected,initial,native_selected)
+    local ok,result=pcall(M.fetch_cb_initial,client,value,selected,initial,native_selected)
+    if ok then return {check=result} end
+    if result=='source_currentness/web_expired' then return {error='source_web_expired'} end
+    if result=='source_currentness/native_expired' then return {error='source_native_expired'} end
+    if result=='source_currentness/remote_changed' then return {error='source_remote_changed'} end
+    return {error='source_currentness_unavailable'}
 end
 function M.run_cb_upload(client,value,selected,remote)
     local ok,result=pcall(M.fetch_cb_upload,client,value,selected,remote)

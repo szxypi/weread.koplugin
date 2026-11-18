@@ -51,6 +51,8 @@ function ProgressSyncDialog.notify(code, data)
     if code == "upload_success" then
         text = T(_("Progress uploaded to WeRead: %1%"),
             percent(data.position))
+    elseif code == "upload_initial_save_failed" then
+        text=_("WeRead confirmed the position, but it could not be saved locally. The pending sync record is kept. Check storage, then sync again to review the cloud position.")
     elseif code == "upload_local_save_failed" then
         text=data.acknowledged and _("WeRead confirmed the upload, but the local result could not be saved. The confirmed record is kept. Check storage, then sync again to review it.")
             or _("The cloud position matches, but the local result could not be saved. Check storage, then sync again.")
