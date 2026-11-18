@@ -142,6 +142,32 @@ f = fixture("native"); result = f.fetch({ skip_native = true })
 expect(result._shelf_source == "native", "native-only policy cannot be bypassed by fallback options")
 
 local jar = {wr_vid="123",wr_skey="synthetic-web-access"}
+-- The gateway must not publish a malformed or partial book/group list merely
+-- because its outer JSON values are arrays. A valid Web snapshot is still a
+-- usable fallback; without one, leave the previous shelf untouched.
+for _, invalid in ipairs({
+    {books={{bookId='1',title='One'},{bookId='1',title='Duplicate'}},archive={}},
+    {books={{bookId='',title='Missing ID'}},archive={}},
+    {books={{bookId='1'}},archive={}},
+    {books={{bookId='1',title='One'}},archive={{archiveId=2,name='Bad',bookIds='invalid'}}},
+    {books={{bookId='1',title='One'}},archive={{archiveId=2,name='Bad',bookIds={false}}}},
+}) do
+    f=fixture('gateway')
+    f.client.get_gateway_shelf=function() return invalid,200,{} end
+    ok,err=pcall(f.fetch)
+    expect(not ok and err=='shelf_source/invalid_snapshot','malformed gateway data was accepted')
+    f.change{cookies=jar}
+    result=f.fetch()
+    expect(result._shelf_source=='web' and result._gateway_fallback and result.books[1].bookId=='123',
+        'malformed gateway data did not fall back to the Web shelf')
+end
+f=fixture('gateway')
+local gateway_book={bookId='1',title='One',readerLink='https://example.invalid/reader',bookVersion=42}
+f.client.get_gateway_shelf=function() return {books={gateway_book},archive=nil,mp={bookId='MP_WXS_1'}},200,{} end
+result=f.fetch()
+expect(result.books[1]==gateway_book and result.books[1].readerLink==gateway_book.readerLink
+    and result.books[1].bookVersion==42 and result.archive==nil and result.mp.bookId=='MP_WXS_1',
+    'gateway validation discarded original metadata or changed incomplete-group semantics')
 f=fixture();f.change{present=false,api_key="",cookies=jar}
 expect(Source.ready(f.settings,f.store),"verified Web account without key cannot read shelf")
 result=f.fetch()

@@ -176,8 +176,12 @@ function M.fetch(client, options)
         attempted_gateway = true
         local ok, result, code, headers = pcall(client.get_gateway_shelf, client)
         if not current(true) then fail("session_changed") end
-        if ok and type(result) == "table" and require('weread.lib.shelf_wire').valid(client,result)
-            and array(result.books) and (result.archive == nil or array(result.archive)) then
+        -- Validate members and groups as well as the outer arrays before the
+        -- gateway result can replace a complete local shelf. Keep the original
+        -- result: gateway-only fields are used by other parts of the plugin.
+        local valid = ok and type(result) == "table" and require('weread.lib.shelf_wire').valid(client,result)
+            and pcall(M.normalize, result, "gateway")
+        if valid then
             result._shelf_source, result._native_fallback = "gateway", fallback
             result._native_revision = selected.credentials and selected.revision or nil
             return result, code, headers
