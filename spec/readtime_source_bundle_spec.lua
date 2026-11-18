@@ -9,7 +9,8 @@ local F=require('spec.helpers.thought_edit_fixture')
 local n=0
 local function expect(value,message) n=n+1;assert(value,message or ('check '..n)) end
 local book={bookId='CB_Synthetic',bookVersion=0}
-local chapters={{chapterUid=7,chapterIdx=0},{chapterUid=8,chapterIdx=4},{chapterUid=9,chapterIdx=8}}
+local chapters={{chapterUid=7,chapterIdx=0,wordCount=100},{chapterUid=8,chapterIdx=4,wordCount=100},
+    {chapterUid=9,chapterIdx=8,wordCount=100}}
 local root=Identity.encode(book,chapters,Identity.capture(book),Crypto.sha256_hex('synthetic book'),0)
 local identity=assert(Identity.decode(root))
 local selection={book_id=book.bookId,book_version=0,file_id=identity.file_id}
@@ -109,6 +110,24 @@ local proof=M.verify({}, {},selection,'/synthetic.epub',chapters,nil,remote)
 expect(proof.chapter_count==3 and proof.inventory_hash==result.inventory_hash and state.calls==3)
 expect(proof.entries==nil and proof.format=='web_txt' and #proof.catalog_stamp==64)
 expect(M.verify({}, {},selection,'/synthetic.epub',chapters,proof,remote).inventory_hash==proof.inventory_hash)
+-- Full downloads contain only readable chapters, whereas the Web catalog and
+-- older library records can also contain a cover and an empty section header.
+state,remote=remote_fixture()
+local cover={chapterUid=5,chapterIdx=15,wordCount=100,title='封面'}
+local section={chapterUid=6,chapterIdx=16,wordCount=0,title='Synthetic section'}
+local full_catalog={cover,chapters[1],section,chapters[2],chapters[3]}
+state.catalog[1].updated=full_catalog
+local filtered=M.verify({}, {},selection,'/synthetic.epub',chapters,nil,remote)
+expect(filtered.chapter_count==3,'non-readable catalog rows blocked the archive')
+local with_extra=M.verify({}, {},selection,'/synthetic.epub',full_catalog,nil,remote)
+expect(with_extra.inventory_hash==filtered.inventory_hash,'older full catalog lost archive chapters')
+local base_fetch=remote.fetch;local fetch_count=0
+remote.fetch=function(...)
+    fetch_count=fetch_count+1
+    if fetch_count==2 then state.catalog[1].updated[1].chapterIdx=17 end
+    return base_fetch(...)
+end
+expect(not pcall(M.verify,{}, {},selection,'/synthetic.epub',chapters,nil,remote),'changed cover metadata was ignored')
 for _i,mode in ipairs({'changed_source','changed_catalog','missing_check','changed_archive'}) do
     state,remote=remote_fixture();state[mode]=true
     expect(not pcall(M.verify,{}, {},selection,'/synthetic.epub',chapters,nil,remote),'changed remote bundle accepted')
@@ -116,7 +135,7 @@ end
 for _i,change in ipairs({
     function(c) c[1].book.version=0 end,
     function(c) table.remove(c[1].updated) end,
-    function(c) c[1].updated[4]={chapterUid=10,chapterIdx=9} end,
+    function(c) c[1].updated[4]={chapterUid=10,chapterIdx=9,wordCount=100} end,
     function(c) c[1].updated[2],c[1].updated[3]=c[1].updated[3],c[1].updated[2] end,
 }) do
     state,remote=remote_fixture();change(state.catalog)
@@ -141,10 +160,26 @@ expect(Reader.scan_page(book_ref,chapters,selection,nil,1,remote).reference.chap
 expect(Reader.scan_page(book_ref,chapters,selection,observed,1,remote).reference.chapters~=nil)
 state.changed_source=true
 expect(not pcall(Reader.observe,{}, {},selection,refs,observed,remote),'changed multi-chapter source accepted')
+state,remote=remote_fixture();state.catalog[1].updated=full_catalog
+fetch=remote.fetch
+remote.fetch=function(client,expected,web,format,callbacks,cb)
+    assert(format=='web_txt' and cb);return fetch(client,expected,web,callbacks.verify_catalog)
+end
+local full_refs=assert(Reader.references(book_ref,full_catalog,selection))
+local full_observed=Reader.observe({}, {},selection,full_refs,nil,remote)
+expect(full_observed.chapter_count==3 and full_observed.ref.chapter_uid=='7',
+    'full catalog did not bind the first actual archive chapter')
+expect(Reader.scan_page(book_ref,full_catalog,selection,full_observed,1,remote).kind=='found',
+    'full catalog could not recover the previous proof')
+local filtered_refs=assert(Reader.references(book_ref,chapters,selection))
+expect(Reader.observe({}, {},selection,filtered_refs,full_observed,remote).inventory_hash==full_observed.inventory_hash,
+    'filtered catalog could not resolve the previous full-catalog proof')
+expect(Reader.scan_page(book_ref,chapters,selection,full_observed,1,remote).kind=='found',
+    'filtered catalog could not discover the previous full-catalog proof')
 -- The UI switches to background paging above 126 chapters. Its returned
 -- reference must still carry the complete scope into the transfer worker.
 local large_chapters={}
-for i=1,127 do large_chapters[i]={chapterUid=i+100,chapterIdx=i-1} end
+for i=1,127 do large_chapters[i]={chapterUid=i+100,chapterIdx=i-1,wordCount=100} end
 local large_root=Identity.encode(book,large_chapters,Identity.capture(book),Crypto.sha256_hex('large synthetic book'),0)
 local large_id=assert(Identity.decode(large_root));local large_members={[Identity.PATH]=large_root};local large_list={}
 for i,chapter in ipairs(large_chapters) do

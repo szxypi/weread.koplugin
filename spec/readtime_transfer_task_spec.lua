@@ -192,7 +192,7 @@ f.applied=true;f.mode=nil;local zero_configs=f.configs
 result=Task.resolve(f.client,f.settings,f.native,f.web,record,{},f.journal,f.options)
 expect(result.kind=='confirmed' and not result.attempted and f.posts==1 and f.configs==zero_configs,'zero-version read-only resolution')
 local function multi_txt_fixture(mode)
-    local multi={{chapterUid=7,chapterIdx=0},{chapterUid=8,chapterIdx=3}}
+    local multi={{chapterUid=7,chapterIdx=0,wordCount=100},{chapterUid=8,chapterIdx=3,wordCount=100}}
     local book={bookId='CB_Synthetic',bookVersion=0}
     local root=Identity.encode(book,multi,Identity.capture(book),Crypto.sha256_hex('synthetic multi book'),0)
     local id=assert(Identity.decode(root));local members={[Identity.PATH]=root};local names={}

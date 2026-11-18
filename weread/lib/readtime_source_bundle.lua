@@ -33,16 +33,22 @@ function M.inspect(selection,file,chapters,options)
         local raw=root and root[Identity.PATH]
         local identity=Identity.decode(raw)
         if not identity or identity.book_id~=selection.book_id or identity.book_version~=0
-            or identity.file_id~=selection.file_id or identity.chapter_count~=#chapters
+            or identity.file_id~=selection.file_id or identity.chapter_count<2 or identity.chapter_count>#chapters
             or not Identity.has_text_digest(raw) then return nil end
         local listed=list(file)
         local discovered=Search.discover({book=selection.book_id,file=file},read,function() return listed end)
         if type(discovered)~='table' or discovered.error or discovered.incomplete
-            or not C.array(discovered.entries,#chapters,#chapters) then return nil end
-        local entries,seen_index={},{}
+            or not C.array(discovered.entries,identity.chapter_count,identity.chapter_count) then return nil end
+        local entries,seen_index,cursor={}, {},1
         for i,item in ipairs(discovered.entries) do
-            local chapter=chapters[i]
-            local uid=tostring(chapter.chapterUid or chapter.chapterId or chapter.chapter_uid or '')
+            while cursor<=#chapters do
+                local chapter=chapters[cursor]
+                local candidate=tostring(chapter.chapterUid or chapter.chapterId or chapter.chapter_uid or '')
+                if candidate==item.uid then break end
+                cursor=cursor+1
+            end
+            if cursor>#chapters then return nil end
+            local uid=item.uid
             local idx=indexes[uid]
             if item.index~=i or item.uid~=uid or not C.id(uid) or not C.integer(idx,0,1000000)
                 or seen_index[idx] then return nil end
@@ -50,9 +56,10 @@ function M.inspect(selection,file,chapters,options)
             local snapshot=Search.snapshot(file,selection.book_id,uid,read)
             local info=snapshot and snapshot.record
             if not snapshot or snapshot.identity.file_id~=selection.file_id or snapshot.identity.book_version~=0
-                or snapshot.identity.chapter_count~=#chapters or not info or info.format~='web_txt' then return nil end
+                or snapshot.identity.chapter_count~=identity.chapter_count or not info or info.format~='web_txt' then return nil end
             entries[i]={book_id=selection.book_id,chapter_uid=uid,chapter_idx=idx,
                 raw_sha256=info.raw_sha256,raw_bytes=info.raw_bytes,metadata_hash=snapshot.metadata_hash}
+            cursor=cursor+1
         end
         -- Detect replacement or metadata-list changes while the chapters were read.
         local last=read(file,{[Identity.PATH]=Identity.MAX_BYTES})
@@ -84,8 +91,10 @@ function M.verify(client,web,selection,file,chapters,previous,options)
                     or type(nested)=='table' and nested.bookId==selection.book_id) then selected=row end
         end
         local remote=selected and (selected.updated or selected.chapterInfos or selected.chapters)
-        assert(C.array(remote,#inventory.entries,#inventory.entries),'readtime_bundle/catalog')
-        for i,row in ipairs(remote) do
+        assert(C.array(remote,1,10000),'readtime_bundle/catalog')
+        local readable=require('weread.lib.content').readable_chapters(remote)
+        assert(C.array(readable,#inventory.entries,#inventory.entries),'readtime_bundle/catalog')
+        for i,row in ipairs(readable) do
             local uid=type(row)=='table' and tostring(row.chapterUid or row.chapterId or row.chapter_uid or '')
             assert(uid==inventory.entries[i].chapter_uid,'readtime_bundle/catalog')
         end
@@ -94,10 +103,14 @@ function M.verify(client,web,selection,file,chapters,previous,options)
         for _i,node in ipairs({selected,type(selected.book)=='table' and selected.book or {}}) do
             for _j,key in ipairs({'bookVersion','version','contentVersion'}) do parts[#parts+1]=version(node[key]) end
         end
-        for i,entry in ipairs(inventory.entries) do
+        for _i,entry in ipairs(inventory.entries) do
             assert(indexes[entry.chapter_uid]==entry.chapter_idx,'readtime_bundle/catalog')
-            parts[#parts+1]=entry.chapter_uid;parts[#parts+1]=entry.chapter_idx
-            for _j,key in ipairs({'bookVersion','version','contentVersion'}) do parts[#parts+1]=version(remote[i][key]) end
+        end
+        for _i,row in ipairs(remote) do
+            local uid=tostring(row.chapterUid or row.chapterId or row.chapter_uid or '')
+            local eligible=tonumber(row.wordCount or 0)>0 and tostring(row.title or '')~='封面'
+            parts[#parts+1]=uid;parts[#parts+1]=indexes[uid] or '';parts[#parts+1]=eligible
+            for _j,key in ipairs({'bookVersion','version','contentVersion'}) do parts[#parts+1]=version(row[key]) end
         end
         local candidate=C.digest(parts)
         assert(not stamp or stamp==candidate,'readtime_bundle/catalog_changed')

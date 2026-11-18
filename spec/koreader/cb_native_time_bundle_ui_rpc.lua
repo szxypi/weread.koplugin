@@ -10,15 +10,22 @@ local input=json.decode(assert(io.stdin:read(tonumber(length))))
 assert(input.owner=='900000' and input.book_id=='CB_Synthetic' and input.grant.vid=='900000'
     and input.grant.accessToken=='mock-native-access' and input.grant.refreshToken=='mock-native-refresh'
     and input.guest=='synthetic-guest' and input.config=='synthetic-config')
-assert(input.mode=='success' or input.mode=='zero_selection' or input.mode=='zero_send' or input.mode=='zero_multi' or input.mode=='optional_text' or input.mode=='dry_run' or input.mode=='invalid_ack' or input.mode=='http_201' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source' or input.mode=='tamper_native_catalog')
+assert(input.mode=='success' or input.mode=='zero_selection' or input.mode=='zero_send' or input.mode=='zero_multi' or input.mode=='zero_multi_cover' or input.mode=='optional_text' or input.mode=='dry_run' or input.mode=='invalid_ack' or input.mode=='http_201' or input.mode=='tamper_selection' or input.mode=='tamper_body' or input.mode=='lost_reply' or input.mode=='duplicate' or input.mode=='no_ack' or input.mode=='kill_worker' or input.mode=='no_delta' or input.mode=='tamper_native_point' or input.mode=='tamper_native_web' or input.mode=='tamper_native_rows' or input.mode=='tamper_native_counts' or input.mode=='tamper_native_months' or input.mode=='tamper_native_shelf' or input.mode=='tamper_native_source' or input.mode=='tamper_native_catalog')
 assert(type(input.token)=='string' and #input.token==32 and input.token:match('^[a-f0-9]+$'))
 assert(type(arg[1])=='string' and type(arg[2])=='string' and type(arg[3])=='string' and type(arg[4])=='string')
 local worked,reason=pcall(function()
 local home=assert(os.getenv('KO_HOME'));package.path=home..'/plugins/weread.koplugin/?.lua;'..arg[1]..'/?.lua;'..package.path
 local source_path=arg[4]
-local zero_send=input.mode=='zero_send' or input.mode=='zero_multi'
-local chapters={{chapterUid=input.chapter_uid,chapterIdx=input.chapter_idx}}
-if input.mode=='zero_multi' then chapters[2]={chapterUid=tostring(tonumber(input.chapter_uid)+1),chapterIdx=input.chapter_idx+1} end
+local zero_multi=input.mode=='zero_multi' or input.mode=='zero_multi_cover'
+local zero_send=input.mode=='zero_send' or zero_multi
+local archive_chapters={{chapterUid=input.chapter_uid,chapterIdx=input.chapter_idx,wordCount=100}}
+if zero_multi then archive_chapters[2]={chapterUid=tostring(tonumber(input.chapter_uid)+1),chapterIdx=input.chapter_idx+1,wordCount=100} end
+local chapters=archive_chapters
+if input.mode=='zero_multi_cover' then
+    chapters={{chapterUid=tostring(tonumber(input.chapter_uid)+2),chapterIdx=input.chapter_idx+2,wordCount=100,title='封面'},
+        archive_chapters[1],{chapterUid=tostring(tonumber(input.chapter_uid)+3),chapterIdx=input.chapter_idx+3,wordCount=0,title='Synthetic section'},
+        archive_chapters[2]}
+end
 local function rpc(kind,extra)
     if zero_send then
         if kind=='selection' then assert(extra.selection.book_id==input.book_id and extra.selection.book_version==0)
@@ -81,22 +88,22 @@ end
 if zero_send then
     local ffi=require('ffi');local Crypto=require('weread.lib.crypto')
     local Identity=require('weread.lib.book_file_identity');local Source=require('weread.lib.position_source')
-    local book={bookId=input.book_id,bookVersion=0};local chapter=chapters[1]
+    local book={bookId=input.book_id,bookVersion=0};local chapter=archive_chapters[1]
     local raw='Synthetic zero version TXT.\r\nSecond line.';local rendered='<html><body>Synthetic TXT</body></html>'
-    local identity_raw=Identity.encode(book,chapters,Identity.capture(book),Crypto.sha256_hex(rendered),0)
+    local identity_raw=Identity.encode(book,archive_chapters,Identity.capture(book),Crypto.sha256_hex(rendered),0)
     local identity=assert(Identity.decode(identity_raw));local source=assert(Source.capture(book,chapter,raw,'web_txt'))
-    local first_path=input.mode=='zero_multi' and 'OEBPS/text/chapter-001.xhtml' or 'OEBPS/text/chapter.xhtml'
+    local first_path=zero_multi and 'OEBPS/text/chapter-001.xhtml' or 'OEBPS/text/chapter.xhtml'
     local metadata=assert(Source.bind(source,identity,first_path,Crypto.sha256_hex(rendered)))
     local path=home..'/zero-txt.epub';local fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_CREAT+ffi.C.O_TRUNC,384);assert(fd>=0)
     local writer=require('weread.lib.epub_export_writer').new(fd)
     local members={[Identity.PATH]=identity_raw,[Source.meta_path(input.chapter_uid)]=metadata,
         [Source.path_meta_path(first_path)]=metadata,[Source.raw_path(source.raw_sha256)]=raw,[first_path]=rendered}
-    if input.mode=='zero_multi' then
+    if zero_multi then
         local other_raw='Synthetic second TXT chapter.';local other_rendered='<p>Synthetic second TXT chapter.</p>'
-        local other=assert(Source.capture(book,chapters[2],other_raw,'web_txt'))
+        local other=assert(Source.capture(book,archive_chapters[2],other_raw,'web_txt'))
         local other_path='OEBPS/text/chapter-002.xhtml'
         local other_meta=assert(Source.bind(other,identity,other_path,Crypto.sha256_hex(other_rendered)))
-        members[Source.meta_path(chapters[2].chapterUid)],members[Source.path_meta_path(other_path)]=other_meta,other_meta
+        members[Source.meta_path(archive_chapters[2].chapterUid)],members[Source.path_meta_path(other_path)]=other_meta,other_meta
         members[Source.raw_path(other.raw_sha256)],members[other_path]=other_raw,other_rendered
     end
     for name,value in pairs(members) do writer:add(name,value,#value,false) end
