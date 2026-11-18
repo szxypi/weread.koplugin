@@ -154,5 +154,16 @@
     "account_data_posts": 0,
     "authentication_posts": 0,
     "ambiguous_claims_not_replayed": true
+  },
+  "synthetic_guarded_native_task": {
+    "result": "SYNTHETIC_CB_GUARDED_TASK_VERIFIED",
+    "scenarios": 5,
+    "real_account_posts": 0,
+    "synthetic_posts": 2,
+    "source_reads_guarded": true,
+    "independent_readbacks": 3,
+    "no_automatic_replay": true,
+    "real_dispatch_connected": false,
+    "physical_kindle_tested": false
   }
 }
