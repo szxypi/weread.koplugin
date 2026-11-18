@@ -67,7 +67,9 @@ class SourceRead(CbReadingProbe):
 
 
 def run(saved, session, native_store, grant, journal, intent, *, apply=False,
-        upload_factory=UploadProbe, uploader=upload_run, sleeper=None):
+        upload_factory=UploadProbe, uploader=upload_run, sleeper=None,
+        source_format='web_xhtml', source_marker=TEXT, position_planner=position_plan,
+        upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=None):
     import time
     sleep = sleeper or time.sleep
     report = dict(result='UNVERIFIED', phase='preflight', position_writes=0,
@@ -103,13 +105,13 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         web = connect(SourceRead, target)
         try:
             sample = web.inspect(target); web.verify_account()
-            if (sample['book_id'] != target or sample['source_format'] != 'web_xhtml' or TEXT not in sample['source']
+            if (sample['book_id'] != target or sample['source_format'] != source_format or source_marker not in sample['source']
                     or set(web.last_checks) != {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
                     or not all(web.last_checks.values())): return False
             current['sample'] = sample
             current['source_hash'] = sample['source_raw_sha256']
             current['source_versions'] = web.catalog_versions
-            current['target_plan'] = position_plan(target, sample)
+            current['target_plan'] = position_planner(target, sample)
             persist(web); return True
         finally: web.samples.clear(); web.close()
 
@@ -117,13 +119,16 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         if not current['sample'] or not current['target_plan'] or shelf(target) != current['web_shelf']:
             return False
         owner = current['saved']['vid']
-        if not owned(upload, receipt, target, owner, grant, same_grant): return False
+        def owned_fixture():
+            return (owned(upload, receipt, target, owner, grant, same_grant)
+                    and (fixture_authorized is None or fixture_authorized(upload, receipt, target, owner)))
+        if not owned_fixture(): return False
         state, _ = upload.read(); attempt = state['attempt']; sample = current['sample']; plan = current['target_plan']
         bound = hashlib.sha256((current['source_hash'] + ':' + str(plan['first'])).encode()).hexdigest()
         reservation = intent.reserve(owner, target, attempt, bound)
         initial_receipt = canonical(reservation).encode()
         def authority(value=None):
-            return (owned(upload, receipt, target, owner, grant, same_grant)
+            return (owned_fixture()
                     and intent.verify(reservation, initial_receipt if value is None else value))
         def claim(stage): return intent.claim(reservation, stage)
         native = NativeRead(grant, target)
@@ -132,7 +137,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
             for key, value in current['saved']['cookies'].items(): web.set_cookie(key, value)
             web.verify_account()
             def read_pair():
-                if not owned(upload, receipt, target, owner, grant, same_grant): raise ValueError('cb_first/owner')
+                if not owned_fixture(): raise ValueError('cb_first/owner')
                 n = native.request('first_progress', NATIVE + '/book/getProgress?' + urlencode(dict(bookId=target)), credentials=grant)
                 w = web.request('progress_after', WEB + '/web/book/getProgress?bookId=' + target)
                 return {channel: observed(raw, target, sample['chapters'], channel)
@@ -169,7 +174,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         report['account_data_writes_known'] = (report['position_writes'] + result.get('cos_put_attempts', 0)
                                                + result.get('notify_posts', 0) + result.get('cleanup_posts', 0))
         if result.get('result') == 'READ_ONLY_PREVIEW': report['result'] = 'READ_ONLY_PREVIEW'
-        elif (result.get('result') == 'EPUB_IMPORT_AND_SOURCE_VERIFIED' and current['position']
+        elif (result.get('result') == upload_success and current['position']
               and current['position']['result'] == 'PASS' and shelf() == before):
             report.update(result='CB_INITIAL_FIXTURE_VERIFIED', position=current['position'], web_shelf_restored=True)
     except Exception:

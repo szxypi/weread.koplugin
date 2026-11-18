@@ -15,8 +15,11 @@ import verify_cb_initial_fixture_trial as task
 
 
 class Backend:
-    def __init__(self, fail=None, changed_source=False, changed_versions=False):
+    def __init__(self, fail=None, changed_source=False, changed_versions=False, txt=False):
         self.book, self.sample = fixture(); self.sample['source_raw_sha256'] = 'f' * 64
+        if txt:
+            from verify_cb_txt_fixture import MARKER
+            self.sample.update(source_format='web_txt', source=MARKER + '\nA second synthetic line.')
         self.owner = '900000'; self.imported = False; self.fail = fail; self.sent = []
         self.current = dict(bookId=self.book, chapterUid=0, chapterIdx=0, chapterOffset=0,
                             progress=0, summary='', readingTime=0, recordReadingTime=0, ttsTime=0)
@@ -27,8 +30,8 @@ class Backend:
     def read(self): return (self.state, self.receipt) if self.imported else (None, None)
 
 
-def run_case(fail=None, apply=True, changed_source=False, changed_versions=False):
-    backend = Backend(fail, changed_source, changed_versions); grant = {'vid': backend.owner}
+def run_case(fail=None, apply=True, changed_source=False, changed_versions=False, txt=False, fixture_authorized=None):
+    backend = Backend(fail, changed_source, changed_versions, txt); grant = {'vid': backend.owner}
     saved = dict(vid=backend.owner, cookies={'wr_vid': backend.owner, 'wr_skey': 'synthetic'})
     intent = Intent(backend=MemoryBackend())
 
@@ -82,15 +85,21 @@ def run_case(fail=None, apply=True, changed_source=False, changed_versions=False
         assert source(backend.book)
         backend.cleanup = cleanup_gate(backend, backend.receipt, backend.state['plan'], backend.book)
         if backend.cleanup: backend.imported = False
-        return dict(result='EPUB_IMPORT_AND_SOURCE_VERIFIED' if backend.cleanup else 'UNVERIFIED',
+        return dict(result=('TXT_IMPORT_AND_SOURCE_VERIFIED' if txt else 'EPUB_IMPORT_AND_SOURCE_VERIFIED') if backend.cleanup else 'UNVERIFIED',
                     phase='restored' if backend.cleanup else 'imported', cos_put_attempts=1,
                     notify_posts=1, cleanup_posts=int(backend.cleanup))
 
     with patch.object(task, 'WebSourceProbe', Web), patch.object(task, 'SourceRead', Source), \
          patch.object(task, 'NativeRead', Native), patch.object(task, 'ScopedProbe', Sender), \
          patch.object(task, 'save_refreshed_web_session', return_value=False):
+        options = {}
+        if txt:
+            from cb_txt_initial_fixture_plan import plan
+            from verify_cb_txt_fixture import MARKER
+            options = dict(source_format='web_txt', source_marker=MARKER, position_planner=plan,
+                           upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=fixture_authorized)
         result = task.run(saved, None, NativeStore(), grant, backend, intent, apply=apply,
-                          upload_factory=lambda *_: None, uploader=uploader, sleeper=lambda _: None)
+                          upload_factory=lambda *_: None, uploader=uploader, sleeper=lambda _: None, **options)
     return result, backend, intent
 
 
@@ -131,6 +140,22 @@ class TrialTest(unittest.TestCase):
         self.assertEqual(result['result'], 'UNVERIFIED')
         self.assertEqual(backend.sent, ['enter', 'same'])
         self.assertTrue(backend.imported and not backend.cleanup)
+
+    def test_txt_scope_accepts_only_current_fixture_authority(self):
+        result, backend, _intent = run_case(txt=True, fixture_authorized=lambda *_: True)
+        self.assertEqual(result['result'], 'CB_INITIAL_FIXTURE_VERIFIED')
+        self.assertEqual(backend.sent, ['enter', 'same'])
+        self.assertTrue(backend.cleanup)
+        result, backend, intent = run_case(txt=True, fixture_authorized=lambda *_: False)
+        self.assertEqual(result['result'], 'UNVERIFIED')
+        self.assertFalse(backend.sent or backend.cleanup or intent.backend.load())
+
+    def test_txt_receipt_change_after_first_write_prevents_next_write_and_cleanup(self):
+        result, backend, intent = run_case(txt=True, fixture_authorized=lambda upload, *_: not upload.sent)
+        self.assertEqual(result['result'], 'UNVERIFIED')
+        self.assertEqual(backend.sent, ['enter'])
+        self.assertTrue(backend.imported and not backend.cleanup)
+        self.assertIsNotNone(intent.backend.load())
 
 
 if __name__ == '__main__': unittest.main()
