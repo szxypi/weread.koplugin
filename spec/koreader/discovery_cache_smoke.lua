@@ -17,6 +17,11 @@ local function state(kind,cursor)
         source_kind='native',source_revision='private-revision',session_id='private-session',cookies='private-cookie'}
 end
 local first=state();first._cache_generation=assert(store:write(first));expect(#first._cache_generation==32)
+first.books[1]._public_info={intro='Public excerpt',publisher='Public publisher',newRating=860,newRatingCount=12,token='secret'}
+first._cache_generation=assert(store:write(first))
+local public_info=assert(store:read(first,0).books[1]._public_info)
+expect(public_info.intro=='Public excerpt' and public_info.publisher=='Public publisher'
+    and public_info.newRating==860 and public_info.newRatingCount==12 and not public_info.token)
 local next_page=state('search',20);next_page._cache_generation=assert(store:write(next_page,first,true))
 expect(store:read(first,20).history[1]==0 and store:read(first,0).has_more)
 expect(store:read().cursor==20 and store:read().cached)

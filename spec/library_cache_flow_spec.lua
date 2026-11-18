@@ -24,7 +24,7 @@ package.preload["weread.lib.logger"] = function()
     return { info = function() end, warn = function() end, err = function() end }
 end
 package.preload["weread.lib.protocol"] = function()
-    return { is_mp_book = function() return false end }
+    return { is_mp_book = function() return false end,utf8_substr=dofile('weread/lib/protocol.lua').utf8_substr }
 end
 package.preload["weread.lib.plugin_util"] = function()
     return {
@@ -121,6 +121,27 @@ db_detail = { book_id = "42", title = "Cached", detail_updated_at = 123 }
 host:showBookRecord({ bookId = "42", title = "Shelf title" })
 expect(shown_book and not auto_refresh,
     "cached detail unexpectedly triggered an automatic refresh")
+
+db_detail,auto_refresh,shown_book=nil,nil,nil
+host:showBookRecord({bookId='45',title='Public book',_public_info={intro='Public excerpt',
+    publisher='Public publisher',newRating=860,newRatingCount=12,token='secret'}})
+expect(auto_refresh and auto_refresh.intro=='Public excerpt' and auto_refresh.publisher=='Public publisher'
+    and auto_refresh.newRating==860 and auto_refresh.newRatingCount==12 and not auto_refresh._public_info
+    and not auto_refresh.token,'public metadata was not safely applied to a new record')
+expect(not books['45'].intro and not books['45'].publisher and not books['45']._public_info
+    and not written_book.intro,'public excerpt was saved as verified book metadata')
+db_detail=written_book;auto_refresh=nil
+host:showBookRecord({bookId='45',title='Public book'})
+expect(auto_refresh~=nil,'a previous public excerpt suppressed full metadata refresh')
+books['46']={book_id='46',intro='Full existing introduction',publisher='Verified publisher',
+    newRating=900,newRatingCount=99,progress=75}
+db_detail={book_id='46',detail_updated_at=123}
+host:showBookRecord({bookId='46',title='Public',_public_info={intro='Shorter excerpt',publisher='Other',
+    newRating=500,newRatingCount=1}})
+expect(shown_book and shown_book.intro=='Full existing introduction' and shown_book.publisher=='Verified publisher'
+    and shown_book.newRating==900 and shown_book.newRatingCount==99 and shown_book.progress==75,
+    'public excerpt overwrote richer saved details or reading state')
+db_detail=nil
 
 local callback_chapters
 host:loadChapters({ book_id = "42", title = "Catalog" }, function(chapters)

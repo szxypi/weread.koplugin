@@ -115,6 +115,12 @@ local ok,reason=pcall(function()
         assert(state.kind=='category' and state.category_id==sample.entry.id and state.rank==sample.entry.rank
             and state.cursor==sample.cursor and state.source_kind=='public' and not state.account)
         assert((state.cached==true)==(mode=='reopen'))
+        if mock and #state.books>0 then
+            local details=assert(state.books[1]._public_info)
+            assert(details.intro=='自写合成内容，用于 KOReader 集成测试。'
+                and details.publisher=='合成出版社' and details.newRating==860 and details.newRatingCount==12,
+                'public catalogue details did not survive online/offline projection')
+        end
         local view={role=sample.role,cursor=state.cursor,books=json.decode('[]'),next_cursor=state.next_cursor,has_more=state.has_more,cached=state.cached==true}
         for _book_index,book in ipairs(state.books) do
             local row={};for _field_index,key in ipairs({'bookId','title','author','cover','category','searchIdx'}) do row[key]=book[key] end
@@ -173,6 +179,17 @@ local ok,reason=pcall(function()
         wait(function() return plugin.discovery_state and plugin.discovery_state.category_id==sample.entry.id and plugin.discovery_state.cursor==sample.cursor end)
         verify(sample)
         if mode=='reopen' and sample.cursor>0 then press('Previous batch');wait(function() return plugin.discovery_state.cursor==0 end);verify(input.samples[index-1]) end
+    end
+    if mock and mode=='reopen' then
+        local book=assert(plugin.discovery_state.books[1])
+        assert(plugin.shelf_view._item_rows[1]).callback()
+        local detail=assert(plugin._book_detail_view)
+        assert(detail.data.title==book.title and detail.data.intro==book._public_info.intro,
+            'offline cached catalogue did not show the public introduction')
+        local saved=assert(plugin.settings:get_book(book.bookId))
+        assert(not saved.intro and not saved._public_info,
+            'public excerpt was persisted as full book metadata')
+        UI:forceRePaint()
     end
     report.all_pages_verified,report.stale_picker_rejected=true,true
     local cache=require('weread.lib.public_discovery_cache'):new(plugin.settings,plugin.client)

@@ -38,12 +38,16 @@ end
 local f=fixture()
 local public_client={get_public_book_search=function(_self,keyword,cursor)
     expect(keyword=='term' and cursor==0,'public search input changed')
-    return {books={{bookInfo={bookId='900001',title='Public'},searchIdx=1},
+    return {books={{bookInfo={bookId='900001',title='Public',intro='Public intro',publisher='Public publisher',
+        newRating=860,newRatingCount=12,token='private'},searchIdx=1},
         {bookInfo={bookId='unsupported',title='Unsupported'},searchIdx=2}},hasMore=1}
 end}
 local public=Source.fetch(public_client,{kind='search',keyword='term',cursor=0,source_kind='public'})
 expect(public.source_kind=='public' and public.source_revision=='public' and #public.books==1
     and public.next_cursor==2 and public.has_more,'public search failed supported IDs or pagination')
+expect(public.books[1]._public_info.intro=='Public intro' and public.books[1]._public_info.publisher=='Public publisher'
+    and public.books[1]._public_info.newRating==860 and not public.books[1]._public_info.token,
+    'public search did not safely project available book details')
 local selected=f.capture()
 local result=Source.fetch(f.client,{kind="search",keyword="三体 &",cursor=0},selected)
 expect(result.source_kind=="native" and result.next_cursor==20 and #result.books==1,"native root books projection")

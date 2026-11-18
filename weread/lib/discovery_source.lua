@@ -51,7 +51,9 @@ end
 function M.fetch(client, request, selected, options)
     options = options or {}
     if request.kind=='search' and request.source_kind=='public' then
-        local value=M.project(client,'search',client:get_public_book_search(request.keyword,request.cursor),request.cursor)
+        local raw=client:get_public_book_search(request.keyword,request.cursor)
+        local value=M.project(client,'search',raw,request.cursor)
+        require('weread.lib.public_book_info').attach(value,raw)
         local supported={};local AccessId=require('weread.lib.read_access')
         for _,book in ipairs(value.books) do
             if AccessId.display_book_id(book.bookId) then supported[#supported+1]=book end
@@ -61,7 +63,9 @@ function M.fetch(client, request, selected, options)
         return value
     end
     if request.kind=="category" then
-        local value=M.project(client,"category",client:get_category_books(request.category_id,request.cursor,request.rank),request.cursor)
+        local raw=client:get_category_books(request.category_id,request.cursor,request.rank)
+        local value=M.project(client,"category",raw,request.cursor)
+        require('weread.lib.public_book_info').attach(value,raw)
         value.source_kind,value.source_revision="public","public"
         return value
     end

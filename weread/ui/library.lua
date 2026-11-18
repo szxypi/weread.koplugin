@@ -1121,7 +1121,8 @@ function M:showBookRecord(book, options)
         if saved[key] == nil and not BookStore.is_reading_field(key) then saved[key] = value end
     end
     for key, value in pairs(book) do
-        if value ~= nil and key ~= "_cached" and not BookStore.is_reading_field(key) then saved[key] = value end
+        if value ~= nil and key ~= "_cached" and key ~= "_public_info"
+            and not BookStore.is_reading_field(key) then saved[key] = value end
     end
     saved.book_id = book_id
     saved._library_account_key = account_key
@@ -1132,6 +1133,19 @@ function M:showBookRecord(book, options)
     if self.library_db then self.library_db:putBook(saved) end
     if type(saved.chapters) ~= "table" and self.library_db then
         saved.chapters = self.library_db:getChapters(book_id)
+    end
+    -- The bounded public excerpt is a display fallback, not full metadata.
+    -- Keep it out of the book record so it cannot suppress a later refresh.
+    local public_info=require('weread.lib.public_book_info').project(book._public_info)
+    if public_info then
+        local display={};for key,value in pairs(saved) do display[key]=value end
+        for _,key in ipairs({'intro','publisher','translator'}) do
+            if (display[key]==nil or display[key]=='') and public_info[key]~=nil then display[key]=public_info[key] end
+        end
+        if display.newRating==nil and display.newRatingCount==nil then
+            display.newRating,display.newRatingCount=public_info.newRating,public_info.newRatingCount
+        end
+        saved=display
     end
     if not has_book_details(cached) and not (options and options.verified_metadata) then
         self:refreshBookRecord(saved, nil, { automatic = true })

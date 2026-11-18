@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "screens": [
+    {"width": 600, "height": 800, "live_search_first": 20, "live_search_second": 20},
+    {"width": 1264, "height": 1680, "live_search_first": 20, "live_search_second": 20}
+  ],
+  "native_public_introduction_display": true,
+  "live_public_gets_per_screen": 3,
+  "live_other_requests": 0,
+  "live_credentials_used": false,
+  "live_screenshots": 0,
+  "live_profile_removed": true,
+  "synthetic_public_detail_fields": ["intro", "publisher", "newRating", "newRatingCount"],
+  "synthetic_new_process_offline_category_detail": true,
+  "unit_public_excerpt_does_not_replace_saved_detail": true,
+  "synthetic_public_excerpt_not_saved_as_full_detail": true,
+  "physical_device_tested": false
+}

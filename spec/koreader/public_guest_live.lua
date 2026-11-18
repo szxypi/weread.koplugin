@@ -4,7 +4,7 @@ require('setupkoenv')
 local ffi=require('ffi');require('ffi/posix_h')
 local json=require('json')
 local report={result='UNVERIFIED',phase='init',requests=0,first=0,second=0,
-    guest=false,native_host=false,detail=false,manual_login=false,forbidden=0}
+    guest=false,native_host=false,detail=false,public_intro=false,manual_login=false,forbidden=0}
 local ok=pcall(function()
     local home=assert(os.getenv('KO_HOME'))
     assert(home:match('^/dev/shm/weread%-public%-[%w_]+/profile$'))
@@ -77,6 +77,9 @@ local ok=pcall(function()
     wait(function() return plugin._book_detail_view~=nil end)
     local detail=assert(plugin._book_detail_view)
     assert(detail.data.title==book.title and scans==0 and not plugin.book_metadata_context)
+    assert(book._public_info and type(book._public_info.intro)=='string'
+        and detail.data.intro==book._public_info.intro)
+    report.public_intro=true
     UI:forceRePaint();report.detail=true
     detail._refresh_button.callback()
     wait(function() return scans==1 end);report.manual_login=true

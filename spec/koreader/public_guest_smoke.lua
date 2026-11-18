@@ -25,8 +25,17 @@ return function(plugin,flush,paint)
     local detail=assert(plugin._book_detail_view)
     assert(detail.data.title==first.title and detail.data.author_line==first.author and scans==0,
         'guest detail did not display public fields without login')
-    assert(detail.data.metadata[1] and detail.data.metadata[1].text
-        and detail.data.metadata[1].text:find(first.category,1,true),'guest category not shown')
+    assert(detail.data.intro==first._public_info.intro and detail.data.intro~='',
+        'guest detail did not show public introduction')
+    local category,publisher,rating=false,false,false
+    for _,row in ipairs(detail.data.metadata) do
+        for _,text in pairs(row) do
+            category=category or text:find(first.category,1,true)~=nil
+            publisher=publisher or text:find('合成出版社',1,true)~=nil
+            rating=rating or text:find('8.6',1,true)~=nil
+        end
+    end
+    assert(category and publisher and rating,'public category, publisher or rating not shown')
     assert(not plugin.book_metadata_context,'guest detail started authorized metadata fetch')
     paint('store-public-guest-detail')
     detail._refresh_button.callback()

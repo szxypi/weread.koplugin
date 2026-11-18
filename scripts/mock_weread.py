@@ -680,7 +680,8 @@ class MockServer(ThreadingHTTPServer):
             keyword = query["keyword"][0]
             candidates = [b for b in BOOKS if keyword in b["title"] or keyword in b["author"]]
             batch = candidates[start:start + 20]
-            return 200, dict(books=[dict(bookInfo=b,searchIdx=start+i+1) for i,b in enumerate(batch)],
+            return 200, dict(books=[dict(bookInfo=dict(b,publisher="合成出版社",newRating=860,newRatingCount=12),
+                searchIdx=start+i+1) for i,b in enumerate(batch)],
                 hasMore=start+len(batch)<len(candidates))
         if path == "/web/categories" and method == "GET":
             return 200, CATEGORIES
@@ -693,7 +694,8 @@ class MockServer(ThreadingHTTPServer):
             start = max(0, int(query.get("maxIndex", ["0"])[0]))
             candidates = BOOKS[:15] if cid == "100001" else BOOKS
             batch = candidates[start:start + 20]
-            return 200, dict(books=[dict(bookInfo=b, searchIdx=start + i + 1) for i, b in enumerate(batch)],
+            return 200, dict(books=[dict(bookInfo=dict(b,publisher="合成出版社",newRating=860,newRatingCount=12),
+                searchIdx=start + i + 1) for i, b in enumerate(batch)],
                              hasMore=int(start + len(batch) < len(candidates)))
         if path.startswith("/web/reader/") and method == "GET":
             encoded = path.rsplit("/", 1)[1].split("k")

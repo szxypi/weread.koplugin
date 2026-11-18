@@ -14,13 +14,13 @@ FRAME=b'\nWEREAD_PUBLIC_GUEST='
 
 
 def valid_stage(stage,code,repaint):
-    expected={'result','phase','requests','first','second','guest','native_host','detail','manual_login','forbidden'}
+    expected={'result','phase','requests','first','second','guest','native_host','detail','public_intro','manual_login','forbidden'}
     return (isinstance(stage,dict) and set(stage)==expected and code==0 and repaint is False
             and stage['result']=='PASS' and stage['phase']=='complete'
             and type(stage['requests']) is int and stage['requests']==3
             and type(stage['forbidden']) is int and stage['forbidden']==0
             and all(type(stage[k]) is int and 1<=stage[k]<=100 for k in ('first','second'))
-            and all(stage[k] is True for k in ('guest','native_host','detail','manual_login')))
+            and all(stage[k] is True for k in ('guest','native_host','detail','public_intro','manual_login')))
 
 
 def main():
