@@ -211,6 +211,49 @@ end
 local large_proof=Reader.observe({}, {},large_selection,{page.reference},nil,large_options)
 expect(large_proof.chapter_count==127 and remote_calls==127 and large_proof.ref.chapters==nil,
     'paged transfer did not verify every chapter')
+-- The offline search UI can only navigate 32-bit chapter IDs. Source
+-- verification uses string IDs and must not inherit that UI limitation.
+-- Two adjacent values above 2^53 also expose accidental numeric conversion.
+local long_chapters={
+    {chapterUid='2147483648',chapterIdx=0,wordCount=100},
+    {chapterUid='9007199254740992',chapterIdx=1,wordCount=100},
+    {chapterUid='9007199254740993',chapterIdx=2,wordCount=100},
+    {chapterUid='99999999999999999999',chapterIdx=3,wordCount=100},
+}
+local long_root=Identity.encode(book,long_chapters,Identity.capture(book),Crypto.sha256_hex('long ids'),0)
+local long_identity=assert(Identity.decode(long_root));local long_members={[Identity.PATH]=long_root};local long_list={}
+for i,chapter in ipairs(long_chapters) do
+    local raw='Synthetic long chapter '..i;local path=string.format('OEBPS/text/chapter-%03d.xhtml',i)
+    local capture=assert(Source.capture(book,chapter,raw,'web_txt'))
+    local meta=assert(Source.bind(capture,long_identity,path,Crypto.sha256_hex(raw)))
+    local name=Source.meta_path(chapter.chapterUid)
+    long_members[name],long_members[Source.path_meta_path(path)]=meta,meta
+    long_members[Source.raw_path(capture.raw_sha256)],long_members[path]=raw,raw
+    long_list[i]={name=name,metadata=meta}
+end
+local long_selection={book_id=book.bookId,book_version=0,file_id=long_identity.file_id}
+local long_options={read_archive=function(_file,wanted)
+    local out={};for name,limit in pairs(wanted) do
+        local value=long_members[name];if not value or #value>limit then return nil end;out[name]=value
+    end;return out
+end,list_metadata=function() return long_list end}
+local long_catalog={{bookId=book.bookId,book={bookId=book.bookId},updated=long_chapters}}
+local long_calls=0
+long_options.fetch=function(_client,expected,_web,format,callbacks,cb)
+    assert(format=='web_txt' and cb);long_calls=long_calls+1
+    expect(expected.chapter_uid==long_chapters[long_calls].chapterUid,'chapter ID lost precision')
+    callbacks.verify_catalog(long_catalog);callbacks.verify_catalog(long_catalog)
+    local value=Current.project_cb(expected,long_catalog,{book_id=book.bookId,psvts='synthetic-session'},
+        'Synthetic long chapter '..long_calls,long_catalog)
+    value.basis='raw_txt_utf16';return value
+end
+local long_page=Reader.scan_page({cached_full_book='/long.epub'},long_chapters,long_selection,nil,1,long_options)
+expect(long_page.kind=='found' and #long_page.reference.chapters==4,'long IDs prevented bundle discovery')
+local long_proof=Reader.observe({}, {},long_selection,{long_page.reference},nil,long_options)
+expect(long_proof.chapter_count==4 and long_calls==4,'long IDs prevented source verification')
+local found_for_search=require('weread.lib.cached_book_search').discover({book=book.bookId,file='/long.epub'},
+    long_options.read_archive,long_options.list_metadata)
+expect(found_for_search.incomplete and #found_for_search.entries==0,'search navigation limit changed')
 if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     local ffi=require('ffi');require('ffi/posix_h')
     local path=os.tmpname();local fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)
@@ -219,6 +262,19 @@ if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     assert(writer:close());assert(ffi.C.close(fd)==0)
     local real=assert(M.inspect(selection,path,chapters))
     expect(real.inventory_hash==result.inventory_hash and #real.entries==3,'real archive inventory differed')
+    assert(os.remove(path))
+    path=os.tmpname();fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)
+    writer=require('weread.lib.epub_export_writer').new(fd)
+    for name,value in pairs(long_members) do writer:add(name,value,#value,false) end
+    assert(writer:close());assert(ffi.C.close(fd)==0)
+    local real_long=assert(M.inspect(long_selection,path,long_chapters))
+    expect(#real_long.entries==4 and real_long.entries[3].chapter_uid=='9007199254740993',
+        'real archive lost the precise long chapter ID')
+    local real_page=Reader.scan_page({cached_full_book=path},long_chapters,long_selection,nil,1)
+    expect(real_page.kind=='found','real archive with long IDs could not be discovered')
+    long_calls=0
+    local real_proof=Reader.observe({}, {},long_selection,{real_page.reference},nil,{fetch=long_options.fetch})
+    expect(real_proof.chapter_count==4 and long_calls==4,'real archive did not verify every long ID')
     assert(os.remove(path))
 end
 print('readtime_source_bundle_spec: '..n..' checks')

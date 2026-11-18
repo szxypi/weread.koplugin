@@ -155,6 +155,48 @@ return function(reader,flush_tasks,fixture_dir)
     expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2 and not f.journal:pending(f.account),
         'large scan result did not reach the transfer task exactly once')
     reports[#reports+1]='large_scope_worker_result'
+    -- Use a real whole-book EPUB and paged background scan with long chapter
+    -- IDs; only the remote source and transfer endpoints are synthetic.
+    local long_chapters={{chapterUid='7',chapterIdx=0,wordCount=100}}
+    for i=2,127 do
+        long_chapters[i]={chapterUid='9'..string.format('%019d',i),chapterIdx=i-1,wordCount=100}
+    end
+    local long_book={bookId='CB_Synthetic',bookVersion=0}
+    local long_raw='Synthetic imported TXT chapter.'
+    local long_root=Identity.encode(long_book,long_chapters,Identity.capture(long_book),Crypto.sha256_hex(long_raw),0)
+    local long_identity=assert(Identity.decode(long_root))
+    f=setup(nil,true,{file_id=long_identity.file_id,book_version=0,version_source='epub_unknown'})
+    local long_file=f.root..'/long-ids.epub'
+    fd=ffi.C.open(long_file,ffi.C.O_WRONLY+ffi.C.O_CREAT+ffi.C.O_TRUNC,420);assert(fd>=0)
+    writer=require('weread.lib.epub_export_writer').new(fd)
+    writer:add(Identity.PATH,long_root,#long_root,false)
+    local captured_long=assert(Source.capture(long_book,long_chapters[1],long_raw,'web_txt'))
+    writer:add(Source.raw_path(captured_long.raw_sha256),long_raw,#long_raw,false)
+    for i,chapter_info in ipairs(long_chapters) do
+        local path=string.format('OEBPS/text/chapter-%03d.xhtml',i)
+        local capture=assert(Source.capture(long_book,chapter_info,long_raw,'web_txt'))
+        local meta=assert(Source.bind(capture,long_identity,path,Crypto.sha256_hex(long_raw)))
+        writer:add(Source.meta_path(chapter_info.chapterUid),meta,#meta,false)
+        writer:add(Source.path_meta_path(path),meta,#meta,false)
+        writer:add(path,long_raw,#long_raw,false)
+    end
+    assert(writer:close());assert(ffi.C.close(fd)==0)
+    host.settings.get_book=function(settings,id)
+        if id==f.book_id then return {cached_full_book=long_file,chapters=long_chapters} end
+        return original.get_book(settings,id)
+    end
+    f.options.observe_source=function(client,web,selection,refs,previous)
+        local catalog={{bookId=long_book.bookId,book={bookId=long_book.bookId},updated=long_chapters}}
+        return source.observe(client,web,selection,refs,previous,{fetch=function(_client,expected,_web,_format,options)
+            options.verify_catalog(catalog);options.verify_catalog(catalog)
+            local proof=Current.project_cb(expected,catalog,{book_id=long_book.bookId,psvts='synthetic-session'},long_raw,catalog)
+            proof.basis='raw_txt_utf16';return proof
+        end})
+    end
+    select_batch();button('Transfer this batch');detail()
+    expect(f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2 and not f.journal:pending(f.account),
+        'long chapter IDs blocked real archive verification or transfer')
+    reports[#reports+1]='long_chapter_ids_real_archive'
     -- A later GET-only inspection settles the saved ACK without another POST.
     f=setup('no_delta');select_batch();button('Transfer this batch');detail();saved=assert(f.journal:pending(f.account))
     expect(saved.phase=='acknowledged' and f.posts_count()==1);local metadata=C.digest(saved.metadata)

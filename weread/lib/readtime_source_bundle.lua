@@ -36,7 +36,8 @@ function M.inspect(selection,file,chapters,options)
             or identity.file_id~=selection.file_id or identity.chapter_count<2 or identity.chapter_count>#chapters
             or not Identity.has_text_digest(raw) then return nil end
         local listed=list(file)
-        local discovered=Search.discover({book=selection.book_id,file=file},read,function() return listed end)
+        local discovery={book=selection.book_id,file=file,allow_large_chapter_ids=true}
+        local discovered=Search.discover(discovery,read,function() return listed end)
         if type(discovered)~='table' or discovered.error or discovered.incomplete
             or not C.array(discovered.entries,identity.chapter_count,identity.chapter_count) then return nil end
         local entries,seen_index,cursor={}, {},1
@@ -64,7 +65,7 @@ function M.inspect(selection,file,chapters,options)
         -- Detect replacement or metadata-list changes while the chapters were read.
         local last=read(file,{[Identity.PATH]=Identity.MAX_BYTES})
         local relisted=list(file)
-        local after=Search.discover({book=selection.book_id,file=file},read,function() return relisted end)
+        local after=Search.discover(discovery,read,function() return relisted end)
         if not last or last[Identity.PATH]~=raw or type(after)~='table' or after.error or after.incomplete
             or C.digest(relisted)~=C.digest(listed) or C.digest(after.entries)~=C.digest(discovered.entries) then return nil end
         return {file=file,book_id=selection.book_id,file_id=selection.file_id,book_version=0,
