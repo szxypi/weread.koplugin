@@ -6,6 +6,7 @@ local catalog_missing=os.getenv('WEREAD_TEST_SEARCH_CATALOG_MISSING')=='1'
 local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
+local local_download=os.getenv('WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD')=='1'
 local book_id=imported and 'CB_SyntheticResume' or '900001'
 G_defaults=require('luadefaults'):open()
 G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
@@ -135,6 +136,31 @@ wait(function() return owner.state and owner.state.pages==1 and not owner.job en
 assert(#owner.value==1 and owner.value[1].source_verified==false)
 if imported then
     assert(owner.menu.item_table[#owner.menu.item_table].text==require('weread.lib.i18n').tr('Search results may be incomplete for this book.'))
+    if local_download then
+        local function action(menu,label)
+            for _i,item in ipairs(menu.item_table) do
+                if item.text==require('weread.lib.i18n').tr(label) then return item end
+            end
+            error('search action missing: '..label)
+        end
+        local before=tonumber(network[0]);owner.menu:onMenuSelect(action(owner.menu,'Search downloaded chapters'))
+        wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+        local cached=plugin._cached_book_search_owner
+        assert(cached.input:getInputText()=='amberneedle');cached.input.buttons[1][2].callback()
+        wait(function() return cached.finished and not cached.job end)
+        assert(#cached.value==1 and cached.missing==1 and tonumber(network[0])==before)
+        cached.menu:onMenuSelect(action(cached.menu,'Download full book and search again'))
+        local confirm=assert(cached.download.confirm);confirm.cancel_callback()
+        assert(not cached.download and tonumber(network[0])==before,'cancelled full download started network activity')
+        cached.menu:onMenuSelect(action(cached.menu,'Download full book and search again'))
+        confirm=assert(cached.download.confirm);confirm.ok_callback()
+        wait(function() return cached.finished and not cached.job and not cached.download and cached.checked==2 end)
+        assert(#cached.value==2 and cached.missing==0 and tonumber(network[0])>before,'full download did not fill search coverage')
+        assert(reader.document.file==book.cached_file,'download replaced the current reader document')
+        print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',local_download_search=true,
+            unavailable_before=1,results=2,cancel_safe=true,current_file_preserved=true}))
+        os.exit(0)
+    end
     if not missing and not renewal_test then
         local local_action
         for _i,item in ipairs(owner.menu.item_table) do

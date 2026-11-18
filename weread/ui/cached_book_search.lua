@@ -26,11 +26,19 @@ local function stop(host,owner)
     if owner.worker then owner.worker:cancel() end
     if job and job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
+local function stop_download(host,owner)
+    local download=owner.download;owner.download=nil
+    if not download then return end
+    if download.confirm and owner.menu then Popup.close(owner.menu) end
+    if download.complete and host.downloader then
+        pcall(host.downloader.cancelRequest,host.downloader,download.complete,'search_closed')
+    end
+end
 function M.cancel(host)
     local owner=host._cached_book_search_owner
     if not owner then return end
     host._cached_book_search_owner=nil;owner.closed=true
-    stop(host,owner);Navigation.cancel(host,owner)
+    stop(host,owner);stop_download(host,owner);Navigation.cancel(host,owner)
     local input,menu=owner.input,owner.menu;owner.input=nil;owner.menu=nil
     if input then UI:close(input) end
     if menu then menu._shelf_closed=true;Popup.close(menu);UI:close(menu) end
@@ -68,28 +76,35 @@ local function queue(book,chapters,file,full)
     return result,missing,#chapters,catalog_missing
 end
 
-local render,start
+local render,start,download_missing
 render=function(host,owner)
     if not current(host,owner) or not owner.menu then return end
     Popup.redraw(owner.menu,function()
         if not current(host,owner) then return end
         local items={}
-        if not owner.finished and not owner.job and not owner.limit then
+        if not owner.finished and not owner.job and not owner.limit and not owner.download then
             items[#items+1]={text=_('Continue searching downloaded chapters'),callback=function()
-                if current(host,owner) and not owner.job and not owner.navigation then start(host,owner) end
+                if current(host,owner) and not owner.job and not owner.navigation and not owner.download then start(host,owner) end
             end}
         end
         for _i,hit in ipairs(owner.value) do
             local row=Target.row(owner.id,owner.keyword,hit)
             items[#items+1]={text=(owner.titles[hit.chapter_uid] or _('Chapter unavailable'))..' · '..hit.context,
                 select_enabled=row~=nil,callback=function()
-                    if current(host,owner) and not owner.job and not owner.navigation and row then
+                    if current(host,owner) and not owner.job and not owner.navigation and not owner.download and row then
                         Navigation.start(host,owner,row,current)
                     end
                 end}
         end
         if owner.finished and #owner.value==0 then
             items[#items+1]={text=_('No locatable matches in downloaded chapters.'),select_enabled=false}
+        end
+        if owner.finished and owner.missing>0 and owner.catalog and not owner.download then
+            items[#items+1]={text=_('Download full book and search again'),callback=function()
+                if current(host,owner) and not owner.job and not owner.navigation and not owner.download then
+                    download_missing(host,owner)
+                end
+            end}
         end
         if owner.limit then items[#items+1]={text=_('Downloaded search result limit reached; results may be incomplete.'),select_enabled=false} end
         items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
@@ -109,7 +124,7 @@ render=function(host,owner)
 end
 
 start=function(host,owner)
-    if not current(host,owner) or owner.job or owner.navigation or owner.finished or owner.limit then return false end
+    if not current(host,owner) or owner.job or owner.navigation or owner.download or owner.finished or owner.limit then return false end
     local ok,worker=pcall(function()
         return owner.worker or require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=1024*1024}
     end)
@@ -207,6 +222,83 @@ start=function(host,owner)
     step();return true
 end
 
+-- Do not replace an EPUB which KOReader currently has open, including aliases.
+local function safe_destination(path,opened)
+    if type(path)~='string' or type(opened)~='string' or path==opened then return false end
+    local ok,result=pcall(function()
+        local lfs=require('libs/libkoreader-lfs')
+        local entry,_,entry_errno=lfs.symlinkattributes(path)
+        if not entry and entry_errno~=2 then return false end
+        if entry and entry.mode=='link' then return false end
+        local target,_,errno=lfs.attributes(path)
+        if not target then return errno==2 end
+        local active=lfs.attributes(opened)
+        if not active or target.dev==nil or target.ino==nil or active.dev==nil or active.ino==nil then return false end
+        return target.dev~=active.dev or target.ino~=active.ino
+    end)
+    return ok and result==true
+end
+
+download_missing=function(host,owner)
+    if not current(host,owner) or not owner.catalog or owner.download then return end
+    if not host:isNetworkOnline() then host:showOffline(_('Download full book'));return end
+    local download={};owner.download=download
+    local confirm
+    confirm=require('ui/widget/confirmbox'):new{
+        text=T(_('Download all %1 chapters, then search the downloaded book again?'),tostring(#owner.catalog)),
+        ok_text=_('Download'),cancel_text=_('Cancel'),keep_dialog_open=true,
+        cancel_callback=function()
+            if owner.download~=download then return end
+            download.confirm=nil;owner.download=nil;Popup.close(owner.menu);render(host,owner)
+        end,
+        ok_callback=function()
+            if owner.download~=download or not current(host,owner) or download.confirm~=confirm then return end
+            download.confirm=nil;Popup.close(owner.menu)
+            if not host:isNetworkOnline() then owner.download=nil;host:showOffline(_('Download full book'));render(host,owner);return end
+            local book=host.settings:get_book(owner.id)
+            local ok,path=pcall(function() return require('weread.lib.content').book_epub_path(host.settings,book,'full') end)
+            if type(book)~='table' or not ok or not safe_destination(path,owner.file) then
+                owner.download=nil;host:showInfo(_('Cannot replace the book currently open in the reader.'));render(host,owner);return
+            end
+            download.complete=function(success,saved_path)
+                if owner.download~=download then return end
+                if not success or saved_path~=path or not current(host,owner) then owner.download=nil;render(host,owner);return end
+                local task
+                task=function()
+                    if owner.task~=task then return end
+                    owner.task=nil
+                    if owner.download~=download or not current(host,owner) then return end
+                    owner.download=nil
+                    local latest=host.settings:get_book(owner.id)
+                    local entries,missing,total
+                    if type(latest)=='table' then entries,missing,total=queue(latest,owner.catalog,path,path) end
+                    if not entries then host:showInfo(_('Could not search downloaded chapters.'));return end
+                    owner.queue,owner.missing,owner.total=entries,missing,total
+                    owner.full=path;owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
+                    owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
+                    for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
+                    render(host,owner);start(host,owner)
+                end
+                owner.task=task;UI:scheduleIn(.1,task)
+            end
+            if not host.downloader or type(host.downloader.start)~='function' then
+                owner.download=nil;host:showInfo(_('Could not download this book.'));render(host,owner);return
+            end
+            local called,accepted=pcall(host.downloader.start,host.downloader,book,owner.catalog,'full',{
+                offer_read=false,silent_completion=true,on_complete=download.complete})
+            if owner.download==download and (not called or not accepted) then
+                owner.download=nil;host:showInfo(_('Could not download this book.'));render(host,owner)
+            end
+        end,
+    }
+    confirm.onCloseWidget=function()
+        if owner.download==download and download.confirm==confirm then
+            download.confirm=nil;owner.download=nil;render(host,owner)
+        end
+    end
+    download.confirm=confirm;Popup.show(owner.menu,confirm);render(host,owner)
+end
+
 function M.open(host,id,chapters,initial_keyword)
     if type(id)~='string' or not Access.display_book_id(id) then return false end
     if initial_keyword~=nil and (type(initial_keyword)~='string' or #initial_keyword>160
@@ -226,7 +318,7 @@ function M.open(host,id,chapters,initial_keyword)
     if host.cancelBookSearch then host:cancelBookSearch() else M.cancel(host) end
     local owner={id=id,scope=scope,auth_epoch=host.settings:get('auth_epoch',0),account=host.library_db:accountKey(),
         document=document,file=document.file,session=host._reader_session_gen or 0,local_search=true,search_results=true,
-        queue=entries,missing=missing,total=total,catalog_missing=catalog_missing,
+        queue=entries,missing=missing,total=total,catalog_missing=catalog_missing,catalog=Reading.catalog(chapters),
         full=full,discovery_pending=catalog_missing and type(full)=='string' and full~='',
         checked=0,index=1,from=1,unresolved=0,value={},titles={}}
     for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end

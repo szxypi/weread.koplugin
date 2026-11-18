@@ -157,6 +157,12 @@ local function filename_safe(value)
     return value
 end
 
+function Content.book_epub_path(settings, book, suffix)
+    local book_id = book.book_id or book.bookId
+    local dir = Content.book_resolved_dir(settings, book_id, book)
+    return dir .. "/" .. filename_safe((book.title or "WeRead") .. " - " .. (suffix or "book")) .. ".epub"
+end
+
 local function item_id(prefix, value)
     return prefix .. basename_safe(value):gsub("%.", "_")
 end
@@ -1088,7 +1094,7 @@ function Content.save_book_epub(settings, book, chapters, chapter_bodies, suffix
     os.execute("mkdir -p " .. string.format("%q", dir))
     book.cache_dir = dir
     local book_title = book.title or "WeRead"
-    local path = dir .. "/" .. filename_safe(book_title .. " - " .. (suffix or "book")) .. ".epub"
+    local path = Content.book_epub_path(settings, book, suffix)
     local author = book.author or "WeRead"
     local description_meta = ""
     local description = xml_escape(book.intro)

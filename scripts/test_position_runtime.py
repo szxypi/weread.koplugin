@@ -86,6 +86,7 @@ def main():
     parser.add_argument('--search-renewal', action='store_true')
     parser.add_argument('--search-cb', action='store_true')
     parser.add_argument('--search-current-fallback', action='store_true')
+    parser.add_argument('--search-local-download', action='store_true')
     parser.add_argument('--cached-signed-out', action='store_true')
     parser.add_argument('--cached-no-catalog', action='store_true')
     parser.add_argument('--cached-full', action='store_true')
@@ -109,6 +110,9 @@ def main():
         parser.error('--search-scope chapter requires --probe quick-search')
     if (args.search_missing or args.search_catalog_missing or args.search_renewal or args.search_current_fallback) and args.probe!='book-search' or args.search_cb and args.probe not in ('book-search','cached-search'):
         parser.error('search fixture options require --probe book-search')
+    if args.search_local_download and (args.probe!='book-search' or not args.search_cb or not args.search_missing
+                                       or args.search_renewal or args.search_current_fallback or args.search_catalog_missing):
+        parser.error('local download fixture requires imported book search with a missing chapter')
     if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete or args.cached_dual
             or args.cached_ignore_case) and args.probe!='cached-search':
         parser.error('cached search options require --probe cached-search')
@@ -152,6 +156,7 @@ def main():
                                         WEREAD_TEST_SEARCH_RENEWAL='1' if args.search_renewal else '0',
                                         WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
                                         WEREAD_TEST_SEARCH_CURRENT_FALLBACK='1' if args.search_current_fallback else '0',
+                                        WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD='1' if args.search_local_download else '0',
                                         WEREAD_TEST_CACHED_SIGNED_OUT='1' if args.cached_signed_out else '0',
                                         WEREAD_TEST_CACHED_NO_CATALOG='1' if args.cached_no_catalog else '0',
                                         WEREAD_TEST_CACHED_FULL='1' if args.cached_full else '0',
@@ -338,11 +343,14 @@ def main():
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
                 expected=dict(result='PASS',pages=2,results=1 if args.search_current_fallback else 2,verified_navigation=True,network_worker=True,
                               downloaded=args.search_missing,catalog_downloaded=args.search_catalog_missing)
+                if args.search_local_download:
+                    expected=dict(result='PASS',local_download_search=True,unavailable_before=1,results=2,
+                                  cancel_safe=True,current_file_preserved=True)
                 if args.search_renewal:expected['renewal_scenarios']=True
-                if args.search_cb:expected['imported_search']=True
+                if args.search_cb and not args.search_local_download:expected['imported_search']=True
                 if args.search_current_fallback:expected['current_fallback']=True
                 assert value==expected, 'online search result mismatch'
-                search_requests=7 if args.search_renewal else 2
+                search_requests=1 if args.search_local_download else 7 if args.search_renewal else 2
                 if args.search_cb and not args.search_missing and not args.search_renewal and not args.search_current_fallback:
                     search_requests+=1 # reopen the online results after the offline handoff
                 assert server.request_totals[('/web/book/search_v2','')]==search_requests, 'unexpected search request count'

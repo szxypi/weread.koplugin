@@ -15,7 +15,16 @@ package.preload['ffi/util']=function() return {template=function(text,...)
     local values={...};return (text:gsub('%%(%d+)',function(index) return tostring(values[tonumber(index)]) end))
 end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
-package.preload['weread.ui.shelf_popup']=function() return {redraw=function(_menu,callback) callback() end,close=function() end} end
+package.preload['weread.ui.shelf_popup']=function() return {redraw=function(_menu,callback) callback() end,
+    close=function(menu) if menu then menu._shelf_popup=nil end end,
+    show=function(menu,dialog) menu._shelf_popup=dialog;UI:show(dialog);return true end} end
+package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) return options end} end
+local output_path='/new-full.epub'
+package.preload['weread.lib.content']=function() return {book_epub_path=function() return output_path end} end
+package.preload['libs/libkoreader-lfs']=function()
+    local missing=function() return nil,'missing',2 end
+    return {attributes=missing,symlinkattributes=missing}
+end
 package.preload['weread.ui.book_reading']=function() return {catalog=function(rows) return rows end} end
 package.preload['weread.lib.source_dom']=function() return {normalize=function(value)
     return type(value)=='string' and value:gsub('%s','') or nil
@@ -86,6 +95,55 @@ expect(last_case==true and owner.ignore_ascii_case and #owner.value==1,'case-ins
 host.busy_message.cancel();owner.menu.items[1].callback();worker:complete()
 expect(last_case==true and #owner.value==2,'case-insensitive mode was lost on resume')
 Cached.cancel(host)
+
+-- A user may fill missing coverage, keeping the query and case mode. The
+-- active EPUB is never replaced and old callbacks cannot restart a search.
+local downloads,cancelled,options=0,0,nil
+host.downloader={start=function(_self,_book,rows,suffix,values)
+    downloads=downloads+1;options=values;assert(#rows==3 and suffix=='full');return true
+end,cancelRequest=function(_self,complete) assert(complete==options.on_complete);cancelled=cancelled+1 end}
+host.isNetworkOnline=function() return true end
+local function finish_partial()
+    local partial=open(chapters,true);worker:complete();local next_task=scheduled;scheduled=nil;next_task()
+    worker:complete();next_task=scheduled;scheduled=nil;next_task();return partial
+end
+local function download_button(partial)
+    for _,item in ipairs(partial.menu.items) do
+        if item.text=='Download full book and search again' then return item end
+    end
+end
+owner=finish_partial();local action=assert(download_button(owner));action.callback()
+local confirm=assert(owner.download.confirm);confirm.cancel_callback()
+expect(downloads==0 and not owner.download,'cancelled download changed search')
+action=assert(download_button(owner));action.callback();confirm=assert(owner.download.confirm);confirm:onCloseWidget()
+expect(not owner.download,'dismissed confirmation blocked the search')
+action=assert(download_button(owner));action.callback();confirm=assert(owner.download.confirm)
+output_path=host.ui.document.file;confirm.ok_callback();output_path='/new-full.epub'
+expect(downloads==0 and not owner.download and host.info=='Cannot replace the book currently open in the reader.',
+    'active EPUB was allowed as download destination')
+local fs=require('libs/libkoreader-lfs');local old_attrs,old_link=fs.attributes,fs.symlinkattributes
+fs.symlinkattributes=function() return {mode='file'} end
+fs.attributes=function() return {dev=1,ino=2} end
+action=assert(download_button(owner));action.callback();confirm=assert(owner.download.confirm);confirm.ok_callback()
+expect(downloads==0 and not owner.download,'hard link to active EPUB was allowed as destination')
+fs.symlinkattributes=function() return {mode='link'} end
+action=assert(download_button(owner));action.callback();confirm=assert(owner.download.confirm);confirm.ok_callback()
+expect(downloads==0 and not owner.download,'symbolic-link destination was allowed')
+fs.attributes,fs.symlinkattributes=old_attrs,old_link
+action=assert(download_button(owner));action.callback();confirm=assert(owner.download.confirm);confirm.ok_callback()
+expect(downloads==1 and owner.download and options.offer_read==false,'full download did not start')
+book.cached_full_book=output_path;options.on_complete(true,output_path)
+task=scheduled;scheduled=nil;task()
+expect(owner.job and owner.keyword=='needle' and owner.ignore_ascii_case and owner.total==3 and owner.missing==0,
+    'completed download did not restart the same search over all chapters')
+worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=scheduled;scheduled=nil;task()
+worker:complete();task=scheduled;scheduled=nil;task()
+expect(owner.finished and #owner.value==3 and last_case==true,'full-book search missed chapters or case mode')
+Cached.cancel(host);book.cached_full_book=nil
+
+owner=finish_partial();action=assert(download_button(owner));action.callback();confirm=assert(owner.download.confirm)
+confirm.ok_callback();local late=options.on_complete;Cached.cancel(host);late(true,output_path)
+expect(cancelled==1 and not host._cached_book_search_owner and not scheduled,'closed search kept a download callback')
 
 owner=open(chapters);local old=worker;host.busy_message.cancel()
 expect(not owner.job and old.cancelled and not owner.finished,'stopping scan did not retain resumable state')
