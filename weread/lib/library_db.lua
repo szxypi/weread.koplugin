@@ -135,6 +135,17 @@ function LibraryDB:open()
     return db
 end
 
+-- Catalog lookups must not try to initialize or change the journal mode.
+-- An existing database can be readable while another connection prevents a
+-- WAL migration; treating that as a missing catalog breaks reader recovery.
+function LibraryDB:openRead()
+    local path = self:databasePath()
+    local SQ3 = path and getSQ3()
+    if not SQ3 then return nil end
+    local ok, db = pcall(SQ3.open, path, "ro")
+    return ok and db or nil
+end
+
 function LibraryDB:cacheShelf(books, archives)
     local snapshot = ShelfSnapshot.metadata(books, os.time())
     if not snapshot then return false end
@@ -475,7 +486,7 @@ end
 
 function LibraryDB:getChapters(book_id)
     if not book_id then return nil end
-    local db = self:open()
+    local db = self:openRead()
     if not db then return nil end
     local chapters = {}
     local stmt
