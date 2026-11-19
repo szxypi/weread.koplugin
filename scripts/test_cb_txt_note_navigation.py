@@ -27,6 +27,18 @@ class NavigationTests(unittest.TestCase):
         invalid=deepcopy(fake.current);invalid['marks']['updated'][target['id']]['markText']='different'
         with self.assertRaises(ValueError):verify.payload('900000',source,body,target,invalid)
 
+    def test_official_utf16_payload_has_independent_range_and_source_checks(self):
+        source,baseline,_,_=sample()
+        plan,body=trial.prepare('900000',source['book_id'],'a'*32,source,1,baseline,range_unit='utf16')
+        self.assertEqual(body['range'],'48-110')
+        fake=Fake(baseline,body);fake.send('create_pending',body,None)
+        row=fake.current['marks']['updated']['new-synthetic-highlight'];target=dict(id=row['bookmarkId'],sha256=digest(row))
+        value=verify.payload('900000',source,body,target,fake.current,unit='utf16')
+        self.assertEqual(value['chapters'][0]['targets'][0]['chapter_offset'],48)
+        with self.assertRaises(ValueError):verify.payload('900000',source,body,target,fake.current,unit='scalar')
+        with self.assertRaises(ValueError):trial.prepare('900000',source['book_id'],'a'*32,source,1,baseline,range_unit='other')
+        self.assertNotIn(trial.TEXT,str(plan))
+
     def test_callback_runs_after_confirmation_and_unexpected_state_prevents_delete(self):
         _,baseline,plan,body=sample();fake=Fake(baseline,body);intent=trial.Intent(Backend());called=[]
         def callback(value,target,read):
@@ -42,31 +54,36 @@ class NavigationTests(unittest.TestCase):
         self.assertEqual(fake.sent,['create_pending'])
 
     def test_runner_wires_real_readback_to_both_screen_checks(self):
-        source,baseline,_,_=sample();intent=trial.Intent(Backend());screens=[];fake_holder=[]
-        def highlight_runner(*_args,**kwargs):
-            plan,body=kwargs['prepare_fn']('900000',source['book_id'],'a'*32,source,1,baseline)
-            fake=Fake(baseline,body);fake_holder.append(fake)
-            kwargs['execute_fn'](plan,body,baseline,intent,fake.owned,fake.read,fake.send)
-            return dict(result=kwargs['result_label'],annotation_posts=len(fake.sent))
-        def fixture_run(*_args,**kwargs):return kwargs['runner']()
-        def ui(command,data,width,height,dpi):
-            self.assertEqual(command,['native']);self.assertEqual(data['chapters'][0]['rows'][0]['markText'],trial.TEXT)
-            screens.append((width,height,dpi));return dict(width=width,height=height)
-        with patch.object(verify.fixture,'run',side_effect=fixture_run):
-            report=verify.run({},None,None,{},None,None,intent,['native'],apply=True,ui=ui,highlight_runner=highlight_runner)
-        self.assertEqual(report['result'],'CB_TXT_NOTE_NAVIGATION_VERIFIED');self.assertEqual(screens,list(verify.SCREENS))
-        self.assertEqual(fake_holder[0].sent,['create_pending','delete_pending'])
-        self.assertNotIn(trial.TEXT,json.dumps(report));self.assertNotIn(source['book_id'],json.dumps(report))
+        for unit in ('scalar','utf16'):
+            source,baseline,_,_=sample();intent=trial.Intent(Backend());screens=[];fake_holder=[]
+            def highlight_runner(*_args,**kwargs):
+                plan,body=kwargs['prepare_fn']('900000',source['book_id'],'a'*32,source,1,baseline)
+                self.assertEqual(body['range'],'47-109' if unit=='scalar' else '48-110')
+                fake=Fake(baseline,body);fake_holder.append(fake)
+                kwargs['execute_fn'](plan,body,baseline,intent,fake.owned,fake.read,fake.send)
+                return dict(result=kwargs['result_label'],annotation_posts=len(fake.sent))
+            def fixture_run(*_args,**kwargs):return kwargs['runner']()
+            def ui(command,data,width,height,dpi):
+                self.assertEqual(command,['native']);self.assertEqual(data['chapters'][0]['rows'][0]['markText'],trial.TEXT)
+                screens.append((width,height,dpi));return dict(width=width,height=height)
+            with self.subTest(unit=unit),patch.object(verify.fixture,'run',side_effect=fixture_run):
+                report=verify.run({},None,None,{},None,None,intent,['native'],apply=True,ui=ui,highlight_runner=highlight_runner,unit=unit)
+                self.assertEqual(report['result'],'CB_TXT_NOTE_NAVIGATION_VERIFIED');self.assertEqual(screens,list(verify.SCREENS))
+                self.assertEqual(fake_holder[0].sent,['create_pending','delete_pending'])
+                self.assertNotIn(trial.TEXT,json.dumps(report));self.assertNotIn(source['book_id'],json.dumps(report))
 
 
 def main():
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--native-command',nargs=argparse.REMAINDER)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--utf16',action='store_true');parser.add_argument('--native-command',nargs=argparse.REMAINDER)
     args=parser.parse_args();suite=unittest.defaultTestLoader.loadTestsFromTestCase(NavigationTests)
     if not unittest.TextTestRunner().run(suite).wasSuccessful():return 1
     if args.native_command:
-        source,baseline,plan,body=sample();fake=Fake(baseline,body);fake.send('create_pending',body,None)
+        source,baseline,plan,body=sample()
+        if args.utf16:
+            plan,body=trial.prepare('900000',source['book_id'],'a'*32,source,1,baseline,range_unit='utf16')
+        fake=Fake(baseline,body);fake.send('create_pending',body,None)
         row=fake.current['marks']['updated']['new-synthetic-highlight'];target=dict(id=row['bookmarkId'],sha256=digest(row))
-        data=verify.payload('900000',source,body,target,fake.current)
+        data=verify.payload('900000',source,body,target,fake.current,unit='utf16' if args.utf16 else 'scalar')
         results=[verify.native_ui(args.native_command,data,*screen) for screen in verify.SCREENS]
         print(json.dumps(dict(result='PASS',native_ui=results,network_requests=0)))
     return 0

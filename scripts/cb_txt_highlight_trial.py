@@ -45,7 +45,7 @@ class Intent(HighlightTrialStore):
     def validate_plan(self,value):return validate_plan(value)
 
 
-def prepare(owner,book,attempt,sample,version,baseline):
+def prepare(owner,book,attempt,sample,version,baseline,*,range_unit='scalar'):
     if (not isinstance(owner,str) or not re.fullmatch('[1-9][0-9]{0,19}',owner)
             or not cb_id(book) or not isinstance(sample,dict) or sample.get('book_id')!=book
             or sample.get('source_format')!='web_txt' or not isinstance(sample.get('source'),str)
@@ -60,9 +60,12 @@ def prepare(owner,book,attempt,sample,version,baseline):
             or source.index('😀')>=source.index(TEXT) or not isinstance(sample.get('chapters'),list)
             or sum(str(row.get('chapterUid'))==chapter for row in sample['chapters'] if isinstance(row,dict))!=1):
         raise ValueError('cb_txt_highlight/source')
-    start=source.index(TEXT);end=start+len(TEXT)
-    if len(source[:start].encode('utf-16-le'))//2==start or source[start:end]!=TEXT:
+    scalar_start=source.index(TEXT);scalar_end=scalar_start+len(TEXT)
+    utf16_start=len(source[:scalar_start].encode('utf-16-le'))//2
+    if range_unit not in ('scalar','utf16') or utf16_start==scalar_start or source[scalar_start:scalar_end]!=TEXT:
         raise ValueError('cb_txt_highlight/source')
+    start=scalar_start if range_unit=='scalar' else utf16_start
+    end=scalar_end if range_unit=='scalar' else utf16_start+len(TEXT.encode('utf-16-le'))//2
     sha=hashlib.sha256(raw.encode('utf-8')).hexdigest()
     if sample.get('source_raw_sha256')!=sha:raise ValueError('cb_txt_highlight/source')
     body=dict(bookId=book,chapterUid=int(chapter),bookVersion=version,type=1,style=1,colorStyle=0,

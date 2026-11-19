@@ -25,16 +25,18 @@ from verify_cb_txt_fixture import Receipt
 SCREENS=((600,800,167),(1264,1680,300))
 
 
-def stores():
-    def backend(part):return MacKeychain(service='org.codex.weread.cb-txt-note-navigation-'+part+'-v1',account=ACCOUNT)
+def stores(unit='scalar'):
+    if unit not in ('scalar','utf16'):raise ValueError('txt_navigation/unit')
+    scope='cb-txt-note-navigation' if unit=='scalar' else 'cb-txt-utf16-note-navigation'
+    def backend(part):return MacKeychain(service='org.codex.weread.'+scope+'-'+part+'-v1',account=ACCOUNT)
     def lock(part):
-        path=Path(tempfile.gettempdir())/('codex-cb-txt-note-navigation-'+part+'-'+ACCOUNT+'.lock')
+        path=Path(tempfile.gettempdir())/('codex-'+scope+'-'+part+'-'+ACCOUNT+'.lock')
         return lambda:project_lock(path)
     return (Journal(backend=backend('upload'),lock=lock('upload'),validator=fixture.validate_plan),
             Receipt(backend=backend('receipt')),trial.Intent(backend=backend('intent'),lock=lock('intent')))
 
 
-def payload(owner,sample,body,target,current):
+def payload(owner,sample,body,target,current,*,unit='scalar'):
     if (not isinstance(sample,dict) or sample.get('source_format')!='web_txt'
             or sample.get('book_id')!=body.get('bookId') or str(body.get('chapterUid'))!=sample.get('chapter_uid')):
         raise ValueError('txt_navigation/scope')
@@ -45,8 +47,11 @@ def payload(owner,sample,body,target,current):
         raise ValueError('txt_navigation/mark')
     raw_bytes=raw.encode('utf-8');sha=hashlib.sha256(raw_bytes).hexdigest()
     first=raw.index(trial.TEXT);bom=1 if raw.startswith('\ufeff') else 0
-    if (sha!=sample.get('source_raw_sha256') or body['range']!=f'{first-bom}-{first-bom+len(trial.TEXT)}'
-            or len(raw[:first].encode('utf-16-le'))//2==first-bom):
+    utf16_first=len(raw[:first].encode('utf-16-le'))//2-bom
+    range_first=first-bom if unit=='scalar' else utf16_first
+    range_last=range_first+(len(trial.TEXT) if unit=='scalar' else len(trial.TEXT.encode('utf-16-le'))//2)
+    if (unit not in ('scalar','utf16') or sha!=sample.get('source_raw_sha256')
+            or body['range']!=f'{range_first}-{range_last}' or utf16_first==first-bom):
         raise ValueError('txt_navigation/source')
     chapters=current['marks'].get('chapters')
     if not isinstance(chapters,dict):raise ValueError('txt_navigation/chapters')
@@ -57,18 +62,19 @@ def payload(owner,sample,body,target,current):
 
 
 def run(saved,session,native,grant,journal,receipt,intent,command,*,apply=False,uploader=None,ui=native_ui,
-        highlight_runner=run_highlight):
-    if not isinstance(command,list) or not command or any(not isinstance(x,str) or not x for x in command):
+        highlight_runner=run_highlight,unit='scalar'):
+    if (unit not in ('scalar','utf16') or not isinstance(command,list) or not command
+            or any(not isinstance(x,str) or not x for x in command)):
         raise ValueError('txt_navigation/command')
     captured={};observations=[]
     def prepare(owner,book,attempt,sample,version,baseline):
-        result=trial.prepare(owner,book,attempt,sample,version,baseline)
+        result=trial.prepare(owner,book,attempt,sample,version,baseline,range_unit=unit)
         captured.update(owner=owner,sample=sample)
         return result
     def execute(plan,body,baseline,intent_arg,owned,read,send):
         def on_created(_body,target,reader):
             if _body!=body or not owned():raise ValueError('txt_navigation/ownership')
-            data=payload(captured['owner'],captured['sample'],body,target,reader())
+            data=payload(captured['owner'],captured['sample'],body,target,reader(),unit=unit)
             for width,height,dpi in SCREENS:
                 observations.append(ui(command,data,width,height,dpi))
         return trial.execute(plan,body,baseline,intent_arg,owned,read,send,on_created=on_created)
@@ -90,6 +96,7 @@ def run(saved,session,native,grant,journal,receipt,intent,command,*,apply=False,
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true');parser.add_argument('--apply',action='store_true')
+    parser.add_argument('--utf16',action='store_true',help='use official observed UTF-16 ranges')
     parser.add_argument('--native-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     if args.apply and not args.saved_session:parser.error('apply requires saved session')
     if args.saved_session and not args.native_command:parser.error('native command required')
@@ -98,7 +105,8 @@ def main(argv=None):
     resource.setrlimit(resource.RLIMIT_CORE,(0,0));saved=grant=None
     try:
         session=SessionStore();saved=session.load();native=NativeSessionStore();grant=native.load(saved['vid'])
-        report=run(saved,session,native,grant,*stores(),args.native_command,apply=args.apply)
+        unit='utf16' if args.utf16 else 'scalar'
+        report=run(saved,session,native,grant,*stores(unit),args.native_command,apply=args.apply,unit=unit)
     except Exception:
         report=dict(result='UNVERIFIED',phase='setup')
     finally:
