@@ -7,6 +7,7 @@ local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local second_uid=os.getenv('WEREAD_TEST_SEARCH_LARGE_UID')=='1' and '9007199254740993' or '2'
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
+local fallback_merge=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_MERGE')=='1'
 local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
 local no_login_fallback=os.getenv('WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK')=='1'
 local empty_local=os.getenv('WEREAD_TEST_SEARCH_EMPTY_LOCAL')=='1'
@@ -54,6 +55,7 @@ local bodies,sources={},{ }
 for _i,chapter in ipairs(chapters) do
     local uid=chapter.chapterUid
     bodies[uid]='<html><body><p>chapter '..uid..' '..string.rep('ordinary synthetic text ',80)..'amberneedle</p></body></html>'
+    if fallback_merge and uid=='2' then bodies[uid]=bodies[uid]:gsub('amberneedle</p>','amberneedle more synthetic words amberneedle</p>') end
     sources[uid]=assert(Source.capture(book,chapter,bodies[uid],'web_xhtml'))
     if not missing or uid=='1' then
         book.cached_chapters[uid]=Content.save_book_epub(settings,book,{chapter},bodies,'search-'..uid,{},nil,nil,Identity.capture(book),sources)
@@ -257,7 +259,8 @@ else
 end
 if current_fallback then
     wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
-    assert(#owner.value==1 and owner.value[1].chapter_uid==second_uid and owner.state.finished)
+    assert(#owner.value==(fallback_merge and 2 or 1) and owner.value[1].chapter_uid==second_uid and owner.state.finished)
+    if fallback_merge then assert(owner.value[1].start<owner.value[2].start and owner.state.hit_count==2) end
     local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[1]))
     owner.menu:onMenuSelect(owner.menu.item_table[2])
     wait(function()
@@ -267,9 +270,11 @@ if current_fallback then
     end)
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(not plugin.progress_sync.verified and not plugin.read_report.job)
-    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',pages=2,results=1,
+    local result={result='PASS',pages=2,results=fallback_merge and 2 or 1,
         verified_navigation=true,network_worker=true,downloaded=false,catalog_downloaded=catalog_missing,
-        imported_search=true,current_fallback=true}))
+        imported_search=true,current_fallback=true}
+    if fallback_merge then result.merged=true end
+    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(result))
     os.exit(0)
 end
 wait(function() return owner.state and owner.state.pages==1 and not owner.job end)

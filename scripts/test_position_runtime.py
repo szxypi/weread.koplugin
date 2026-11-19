@@ -18,16 +18,18 @@ def synthetic_search_source(uid):
 
 
 class SearchMockServer(MockServer):
-    def __init__(self,port,cb=False,current_fallback=False,empty=False,large_uid=False):
+    def __init__(self,port,cb=False,current_fallback=False,empty=False,large_uid=False,merge=False):
         super().__init__(port)
         self.cb_reading=cb
         self.current_fallback=current_fallback
+        self.merge=merge
         self.empty=empty
         self.search_book='CB_SyntheticResume' if cb else '900001'
         self.second_uid='9007199254740993' if large_uid else 2
 
     def chapter_source(self,uid,revision=None):
-        return synthetic_search_source(uid)
+        source=synthetic_search_source(uid)
+        return source.replace('amberneedle</p>','amberneedle more synthetic words amberneedle</p>') if self.merge and str(uid)=='2' else source
 
     def route(self,method,target,data):
         url=urlsplit(target)
@@ -45,6 +47,14 @@ class SearchMockServer(MockServer):
                 return 200,dict(scrollDownHasMore=0,results=[])
             if self.current_fallback:
                 if query['posBegin']!=['0'] or query['posEnd']!=['0']:raise ValueError('invalid fallback cursor')
+                if self.merge:
+                    source=self.chapter_source(2);first=source.index('amberneedle');last=source.rindex('amberneedle')
+                    def row(start):
+                        return dict(chapterUid=2,posBegin=start,posEnd=start+11,text='synthetic context amberneedle',
+                                    matchWords=[dict(posBegin=start,posEnd=start+11,word='amberneedle')])
+                    if query['chapterUid']==['1']:return 200,dict(scrollDownHasMore=0,results=[row(last)])
+                    if query['chapterUid']==['2']:return 200,dict(scrollDownHasMore=0,results=[row(first),row(last)])
+                    raise ValueError('invalid fallback chapter')
                 if query['chapterUid']==['1']:return 200,dict(scrollDownHasMore=0,results=[])
                 if query['chapterUid']==['2']:
                     start=synthetic_search_source(2).index('amberneedle')
@@ -91,6 +101,7 @@ def main():
     parser.add_argument('--search-cb', action='store_true')
     parser.add_argument('--search-large-uid', action='store_true')
     parser.add_argument('--search-current-fallback', action='store_true')
+    parser.add_argument('--search-fallback-merge', action='store_true')
     parser.add_argument('--search-offline-fallback', action='store_true')
     parser.add_argument('--search-no-login-fallback', action='store_true')
     parser.add_argument('--search-empty-local', action='store_true')
@@ -162,6 +173,8 @@ def main():
         parser.error('imported cloud options require --probe cb-cloud-view')
     if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
         parser.error('current fallback requires a cached CB search fixture')
+    if args.search_fallback_merge and not args.search_current_fallback:
+        parser.error('merged fallback requires the current fallback fixture')
     if args.search_large_uid and (args.probe!='book-search' or not args.search_cb or args.search_missing
                                   or args.search_catalog_missing or args.search_renewal or args.search_current_fallback
                                   or args.search_local_download or args.search_offline_fallback or args.search_no_login_fallback):
@@ -177,7 +190,7 @@ def main():
                                     or args.search_offline_fallback or args.search_no_login_fallback):
         parser.error('empty-result local search requires the ordinary complete cached fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
-    server = SearchMockServer(0,args.search_cb,args.search_current_fallback,args.search_empty_local,args.search_large_uid) if args.probe=='book-search' else TimeMockServer(0) if args.cb_sync_time else MockServer(0)
+    server = SearchMockServer(0,args.search_cb,args.search_current_fallback,args.search_empty_local,args.search_large_uid,args.search_fallback_merge) if args.probe=='book-search' else TimeMockServer(0) if args.cb_sync_time else MockServer(0)
     if args.probe in ('cb-cloud-view','cb-sync'):
         from verify_source_coordinates import FilteredSource
         server.cb_reading=True
@@ -205,6 +218,7 @@ def main():
                                         WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
                                         WEREAD_TEST_SEARCH_LARGE_UID='1' if args.search_large_uid else '0',
                                         WEREAD_TEST_SEARCH_CURRENT_FALLBACK='1' if args.search_current_fallback else '0',
+                                        WEREAD_TEST_SEARCH_FALLBACK_MERGE='1' if args.search_fallback_merge else '0',
                                         WEREAD_TEST_SEARCH_OFFLINE_FALLBACK='1' if args.search_offline_fallback else '0',
                                         WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK='1' if args.search_no_login_fallback else '0',
                                         WEREAD_TEST_SEARCH_EMPTY_LOCAL='1' if args.search_empty_local else '0',
@@ -427,7 +441,7 @@ def main():
                 marker=b'\nWEREAD_BOOK_SEARCH_UI='
                 assert raw.count(marker)==1, 'missing online book search result'
                 value=json.loads(raw.split(marker,1)[1].splitlines()[0])
-                expected=dict(result='PASS',pages=2,results=1 if args.search_current_fallback else 2,verified_navigation=True,network_worker=True,
+                expected=dict(result='PASS',pages=2,results=1 if args.search_current_fallback and not args.search_fallback_merge else 2,verified_navigation=True,network_worker=True,
                               downloaded=args.search_missing,catalog_downloaded=args.search_catalog_missing)
                 if args.search_local_download:
                     expected=dict(result='PASS',local_download_search=True,unavailable_before=1,results=2,
@@ -436,6 +450,7 @@ def main():
                 if args.search_renewal:expected['renewal_scenarios']=True
                 if args.search_cb and not args.search_local_download:expected['imported_search']=True
                 if args.search_current_fallback:expected['current_fallback']=True
+                if args.search_fallback_merge:expected['merged']=True
                 if args.search_cancel_resume:expected['cancel_resume']=True
                 if args.search_offline_fallback:
                     expected=dict(result='PASS',offline_entry=True,disconnect_fallback=True,

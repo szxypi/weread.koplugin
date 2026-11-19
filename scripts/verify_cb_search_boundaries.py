@@ -65,6 +65,7 @@ def segment_queries(raw):
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--native-ui',action='store_true');parser.add_argument('--container',default='weread-validation')
+    parser.add_argument('--nonempty',action='store_true',help='choose a matched first-page sample for native deduplication')
     parser.add_argument('--runtime',default='/validation/runtime/lib/koreader');parser.add_argument('--source',default='/source')
     parser.add_argument('--candidate',default='/validation/cb-fallback-600-v5/candidate.zip')
     args=parser.parse_args(argv);resource.setrlimit(resource.RLIMIT_CORE,(0,0))
@@ -118,9 +119,11 @@ def main(argv=None):
                         if row['http_status'] in (401,429) or event.get('api_code') is not None:restricted=True
                     attempts.append(row)
                     pair[role]=row
+                first_usable=(pair.get('first',{}).get('rows',0)>0 and pair['first']['target_matches_source']
+                              if args.nonempty else pair.get('first',{}).get('rows')==0)
                 if (candidate is None and 'current' in pair and 'first' in pair
                         and pair['current']['response_valid'] and pair['current']['target_matches_source']
-                        and pair['first']['response_valid'] and pair['first']['rows']==0 and not pair['first']['more']):
+                        and pair['first']['response_valid'] and first_usable and not pair['first']['more']):
                     candidate=(sample,keyword,expected)
             after=baseline_position(web.request('search_progress_after',pos_url),web.book_id)
             later,later_chapters=readable_chapters(web.request('search_catalog_after',BASE+'/web/book/chapterInfos',{'bookIds':[web.book_id]}),web.book_id)
@@ -169,6 +172,9 @@ def main(argv=None):
     except Exception as exc:
         report['phase']=phase
         if str(exc) in {'baseline_changed','search_scope','search_repeated','http_rejected','api_rejected'}:report['reason']=str(exc)
+        if str(exc) in {'owner_ui/runner','owner_ui/report','owner_ui/native_search','owner_ui/native_navigate',
+                        'owner_ui/navigation_confirm','owner_ui/navigation_working','owner_ui/navigation_inactive',
+                        'owner_ui/navigation_locate_failed','owner_ui/navigation_bind_failed'}:report['reason']=str(exc)
     finally:
         web.close()
         if saved:saved.clear()

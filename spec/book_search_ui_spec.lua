@@ -39,9 +39,12 @@ local fetch_mode='ok';local fetches=0
 package.preload['weread.lib.book_search']=function() return {
     new=function(book,keyword,chapters,first)
         local uid=first or tostring(chapters[1].chapterUid)
-        local present=false;for _i,row in ipairs(chapters) do if tostring(row.chapterUid)==uid then present=true end end
+        local present,order=false,{};for i,row in ipairs(chapters) do
+            local id=tostring(row.chapterUid);order[id]=i;if id==uid then present=true end
+        end
         if not present then return nil end
-        return {book=book,keyword=keyword,pages=0,finished=false,chapters=chapters,cursor={chapter=uid}}
+        return {book=book,keyword=keyword,pages=0,finished=false,chapters=chapters,cursor={chapter=uid},
+            order=order,seen={},hit_count=0}
     end,
     fetch=function(_client,state)
         fetches=fetches+1
@@ -54,8 +57,26 @@ package.preload['weread.lib.book_search']=function() return {
         if fetch_mode=='fallback' and state.cursor.chapter=='1' then
             state.pages=state.pages+1;state.finished=true;return {hits={},finished=true}
         end
+        if fetch_mode=='merge' then
+            local candidates
+            if state.cursor.chapter=='1' then
+                candidates={{chapter_uid='2',start=30,finish=34}};state.finished=true
+            elseif state.pages==1 then
+                candidates={{chapter_uid='2',start=10,finish=14},{chapter_uid='2',start=30,finish=34}}
+                state.finished=false
+            else candidates={{chapter_uid='2',start=40,finish=44}};state.finished=true end
+            local hits={}
+            for _i,hit in ipairs(candidates) do
+                local key=hit.chapter_uid..':'..hit.start..':'..hit.finish
+                if not state.seen[key] then
+                    state.seen[key]=true;state.hit_count=state.hit_count+1
+                    hit.text='term';hit.context='term context';hit.source_verified=false;hits[#hits+1]=hit
+                end
+            end
+            state.pages=state.pages+1;return {hits=hits,finished=state.finished}
+        end
         state.pages=state.pages+1;state.finished=state.pages==2
-        return {hits={{chapter_uid=fetch_mode=='fallback' and state.cursor.chapter or '1',text='term',
+        return {hits={{chapter_uid=fetch_mode=='fallback' and state.cursor.chapter or '1',start=1,finish=5,text='term',
             context=string.rep('long prefix ',20)..'term context',source_verified=false}},finished=state.finished}
     end,
 } end
@@ -344,6 +365,27 @@ cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback
 before=fetches;active_worker:complete()
 expect(fetches==before+1 and not cb_owner.fallback_attempted and #cb_owner.value==1,
     'nonempty first-chapter search triggered an unnecessary fallback')
+Search.cancel(host)
+fetch_mode='merge';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'nonempty fallback did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+before=fetches;active_worker:complete()
+expect(cb_owner.fallback_attempted and cb_owner.job and #cb_owner.value==1 and cb_owner.state.hit_count==1,
+    'nonempty completed results did not start the current-chapter query')
+active_worker:complete()
+expect(fetches==before+2 and #cb_owner.value==2 and cb_owner.value[1].start==10 and cb_owner.value[2].start==30
+    and cb_owner.state.hit_count==2 and not cb_owner.state.finished,
+    'current-chapter results were not merged in order or duplicate ranges were repeated')
+cb_owner.menu.items[1].callback();active_worker:complete()
+expect(fetches==before+3 and cb_owner.state.finished and #cb_owner.value==3 and cb_owner.value[3].start==40,
+    'supplemental pagination lost or repeated earlier results')
+Search.cancel(host)
+expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'failed supplemental search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();fetch_mode='fail';active_worker:complete()
+expect(#cb_owner.value==1 and cb_owner.value[1].start==30 and cb_owner.state.pages==1
+    and cb_owner.menu.items[1].text=='Load more results','failed supplemental request discarded first results or retry')
+fetch_mode='merge';cb_owner.menu.items[1].callback();active_worker:complete()
+expect(#cb_owner.value==2 and cb_owner.value[1].start==10,'supplemental retry lost results')
 Search.cancel(host)
 fetch_mode='fallback';expect(Search.open(host,'CB_Synthetic',two_chapters,'99'),'unknown-chapter search did not open')
 cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)

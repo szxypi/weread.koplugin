@@ -1,0 +1,24 @@
+{
+  "result": "PASS",
+  "synthetic_native_ui": {
+    "sizes": ["600x800", "1264x1680"],
+    "nonempty_first_page": true,
+    "supplemental_new_match": true,
+    "duplicate_removed": true,
+    "source_order_and_navigation_verified": true
+  },
+  "owner_readonly": {
+    "books": 5,
+    "search_gets_per_run": 20,
+    "empty_first_page_regression": true,
+    "nonempty_first_page_deduplication": true,
+    "native_ui_sizes": ["600x800", "1264x1680"],
+    "cached_and_missing_catalog": true,
+    "catalog_source_position_and_shelf_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "screenshots": 0
+  },
+  "first_owner_attempt": "unverified: native UI stopped before verification; probe list index omitted the downloaded-search action",
+  "remaining": "nonempty first-page supplemental new match on real service and physical Kindle"
+}

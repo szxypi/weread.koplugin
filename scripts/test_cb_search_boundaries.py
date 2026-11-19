@@ -11,7 +11,7 @@ import verify_cb_search_boundaries as task
 
 class CBBoundarySearchTests(unittest.TestCase):
     def test_default_is_offline(self):
-        for args in ([],['--native-ui']):
+        for args in ([],['--native-ui'],['--native-ui','--nonempty']):
             output=io.StringIO()
             with patch.object(task,'SessionStore',side_effect=AssertionError('credentials')):
                 with patch.object(task,'BoundaryProbe',side_effect=AssertionError('network')):

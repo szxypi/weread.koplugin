@@ -210,9 +210,22 @@ fetch_page=function(host,owner,recovered)
         end
         owner.state=value.state
         for _i,hit in ipairs(value.page.hits) do owner.value[#owner.value+1]=hit end
-        if owner.cb_book and #owner.value==0 and owner.state.finished and owner.state.pages<128 and owner.fallback_state then
+        if owner.fallback_attempted and #value.page.hits>0 then
+            -- The second starting point can return matches before earlier
+            -- results. Keep the combined list in book and source order.
+            local order=owner.state.order
+            table.sort(owner.value,function(a,b)
+                if order[a.chapter_uid]~=order[b.chapter_uid] then return order[a.chapter_uid]<order[b.chapter_uid] end
+                if a.start~=b.start then return a.start<b.start end
+                return a.finish<b.finish
+            end)
+        end
+        if owner.cb_book and owner.state.finished and owner.state.pages<128 and owner.fallback_state then
             local fallback=owner.fallback_state;owner.fallback_state=nil
             fallback.pages=owner.state.pages
+            -- Both queries share one bounded result set. The worker suppresses
+            -- ranges already shown by the first starting point.
+            fallback.seen=owner.state.seen;fallback.hit_count=owner.state.hit_count
             owner.state=fallback;owner.fallback_attempted=true
             render(host,owner);fetch_page(host,owner);return
         end

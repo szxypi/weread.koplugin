@@ -331,7 +331,9 @@ local ok,result=pcall(function()
         source_opened=true
         return open_source(self,...)
     end
-    local prefix=not owner.state.finished and owner.state.pages<128 and 1 or 0
+    -- Loaded results expose the downloaded-chapter search action before the
+    -- hits, in addition to an optional load-more action.
+    local prefix=1+(not owner.state.finished and owner.state.pages<128 and 1 or 0)
     local item=assert(owner.menu.item_table[index+prefix]);phase='navigate';owner.menu:onMenuSelect(item)
     local cancelled=false
     if missing then
