@@ -275,7 +275,13 @@ function Downloader:isPrefetching(book, chapter)
         and tostring(target_uid or "") == tostring(chapter_uid or "")
 end
 
-function Downloader:promotePrefetch(book, chapter)
+local function promotion_current(job)
+    if not job or type(job.promotion_current)~='function' then return job~=nil end
+    local ok,current=pcall(job.promotion_current)
+    return ok and current==true
+end
+
+function Downloader:promotePrefetch(book, chapter, is_current)
     local job = self:getActivePrefetch()
     local target = job and job.chapters and job.chapters[1]
     local job_book_id = job and job.book and (job.book.book_id or job.book.bookId)
@@ -288,13 +294,17 @@ function Downloader:promotePrefetch(book, chapter)
     end
     job.open_on_complete = true
     job.promoted = true
+    job.promotion_current = is_current
     self:_ensureProgressDialog(job)
     return true
 end
 
 function Downloader:isPromotedPrefetch(book, chapter)
-    return self:isPrefetching(book, chapter)
-        and self._active_job.promoted == true
+    local job=self._active_job
+    if self:isPrefetching(book, chapter) and job.promoted==true and promotion_current(job) then
+        return true,job.promotion_current
+    end
+    return false
 end
 
 -- Revoke a caller's queued or active foreground request without touching others.
@@ -406,6 +416,9 @@ function Downloader:_applyPrefetchResult(dl, result)
     if type(result) ~= "table" or result.ok ~= true
         or type(result.value) ~= "table" or not file_exists(result.value.path) then
         local reason = type(result) == "table" and result.error or "worker_no_result"
+        if type(reason)=='string' and (reason=='book_reading/web_expired' or reason:match('^book_reading/web_expired[\r\n]')) then
+            reason='web_expired'
+        elseif rate_limited(reason) then reason='rate_limited' end
         self:_notifyCompletion(dl, false, reason)
         self:_finishJob(dl)
         return
@@ -443,7 +456,7 @@ function Downloader:_applyPrefetchResult(dl, result)
         "chapter_uid=", uid, "path=", value.path)
     self:_notifyCompletion(dl, true, value.path)
     self:_finishJob(dl)
-    if dl.open_on_complete then self.open_file(value.path,dl.book) end
+    if dl.open_on_complete and promotion_current(dl) then self.open_file(value.path,dl.book) end
 end
 
 function Downloader:_startPrefetchWorker(dl)

@@ -226,6 +226,30 @@ expect(deferred._active_job.standby_guard == true,
 expect(#deferred_worker.starts == 1,
     "deferred prefetch performs work in the subprocess runner")
 
+local temp_path=os.tmpname()
+local temp_file=assert(io.open(temp_path,'wb'));temp_file:write('synthetic');temp_file:close()
+for _,valid in ipairs({true,false}) do
+    local opened,completed=0,0
+    local test_book={book_id='a'}
+    local instance=Downloader:new{settings=fake_settings(),refresh_shelf=function() end,
+        open_file=function() opened=opened+1 end}
+    local job={book=test_book,chapters={chapter_2},prefetch=true,promoted=true,open_on_complete=true,
+        promotion_current=function() return valid end,on_complete=function(ok) if ok then completed=completed+1 end end}
+    instance._active_job=job
+    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,chapter_uid='2'}})
+    expect(completed==1 and opened==(valid and 1 or 0) and test_book.cached_chapters['2']==temp_path,
+        'late promoted prefetch did not cache safely or opened a stale selection')
+end
+os.remove(temp_path)
+for _,case in ipairs({{'book_reading/web_expired\nstack traceback:','web_expired'},
+    {'download_read/rate_limited\nstack traceback:','rate_limited'}}) do
+    local reason
+    local instance=Downloader:new{settings=fake_settings()}
+    local job={book=book_a,chapters={chapter_2},prefetch=true,on_complete=function(_,value) reason=value end}
+    instance._active_job=job;instance:_applyPrefetchResult(job,{ok=false,error=case[1]})
+    expect(reason==case[2] and not instance._active_job,'prefetch failed to normalize a known HTTP condition')
+end
+
 print(string.format(
     "downloader_prefetch_spec: %d checks, %d failure(s)", checks, failures))
 os.exit(failures == 0 and 0 or 1)

@@ -4,6 +4,7 @@ package.path = "./?.lua;" .. package.path
 
 local existing = {}
 local logs = {}
+local scheduled = {}
 package.preload["weread.lib.content"] = function()
     return {
         catalog_cache_path = function() return "/cache/catalog.json" end,
@@ -24,7 +25,7 @@ package.preload["weread.lib.protocol"] = function()
     return { is_mp_book = function(book_id) return book_id == "mp-book" end }
 end
 package.preload["ui/uimanager"] = function()
-    return { scheduleIn = function() end }
+    return { scheduleIn = function(_self,_delay,callback) scheduled[#scheduled+1]=callback end }
 end
 package.preload["weread.lib.plugin_util"] = function()
     return {
@@ -144,6 +145,25 @@ expect(starts[1].options.start_delay == 0.1,
 starts[1].options.on_start()
 starts[1].options.on_complete(false, "network error")
 expect(#notices == 1, "notification setting silences all prefetch notices")
+
+local retry_valid=true
+local retried,information=0,nil
+host.downloadChapterAndRead=function() retried=retried+1 end
+host.showInfo=function(_,text) information=text end
+downloader.isPromotedPrefetch=function() return true,function() return retry_valid end end
+starts={};scheduled={};host:maybePrefetchNextChapter('book')
+starts[1].options.on_complete(false,'network error')
+expect(#scheduled==1,'promoted prefetch did not schedule its fallback confirmation')
+retry_valid=false;table.remove(scheduled,1)()
+expect(retried==0,'stale promoted prefetch opened a delayed download confirmation')
+retry_valid=true;starts={};scheduled={};host:maybePrefetchNextChapter('book')
+starts[1].options.on_complete(false,'network error');table.remove(scheduled,1)()
+expect(retried==1,'current promoted prefetch lost its fallback confirmation')
+starts={};scheduled={};host:maybePrefetchNextChapter('book')
+starts[1].options.on_complete(false,'rate_limited')
+expect(#scheduled==0 and information and information:find('limiting requests',1,true),
+    'promoted rate-limited prefetch reopened download or hid the failure')
+downloader.isPromotedPrefetch=function() return false end
 
 local legacy_single = {
     cached_file = "/cache/one.epub",

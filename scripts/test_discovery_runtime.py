@@ -58,6 +58,7 @@ def main():
     parser.add_argument('--download-auth-renewal',choices=('reader','chapter','repeat401'),help='Renew an expired full-book download once')
     parser.add_argument('--catalog-auth-recovery',choices=('reader','catalog','repeat401','limited','refresh'),help='Renew an expired catalog before full download')
     parser.add_argument('--manual-auth-recovery',choices=('single','single-reader','single-repeat','selected'),help='Renew an expired selected chapter download')
+    parser.add_argument('--prefetch-condition',choices=('expired','promoted-expired','promoted-recovery','promoted-success','rate','stale'),help='Check background chapter failure and selection ownership')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
     parser.add_argument('--process-loss', choices=('before-state-commit','before-dispatch','after-apply','before-readback'),
@@ -115,6 +116,9 @@ def main():
         parser.error('--catalog-auth-recovery requires --cached-resume and excludes other download failure fixtures')
     if args.manual_auth_recovery and (not args.cached_resume or args.download_auth_expiry or args.download_rate_limit or args.download_auth_renewal or args.catalog_auth_recovery):
         parser.error('--manual-auth-recovery requires --cached-resume and excludes other download failure fixtures')
+    if args.prefetch_condition and (not args.cached_resume or any((args.download_auth_expiry,args.download_rate_limit,
+            args.download_auth_renewal,args.catalog_auth_recovery,args.manual_auth_recovery,args.cb_resume))):
+        parser.error('--prefetch-condition requires the ordinary cached resume fixture')
     if args.content_format!='epub' and not args.cached_resume:
         parser.error('--content-format txt requires --cached-resume')
     if args.resume_handoff and not args.cached_resume:
@@ -170,6 +174,7 @@ def main():
     if args.download_auth_renewal:environment['WEREAD_TEST_DOWNLOAD_AUTH_RENEWAL']=args.download_auth_renewal
     if args.catalog_auth_recovery:environment['WEREAD_TEST_CATALOG_AUTH_RECOVERY']=args.catalog_auth_recovery
     if args.manual_auth_recovery:environment['WEREAD_TEST_MANUAL_AUTH_RECOVERY']=args.manual_auth_recovery
+    if args.prefetch_condition:environment['WEREAD_TEST_PREFETCH_CONDITION']=args.prefetch_condition
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
     if args.resume_handoff:
         environment['WEREAD_TEST_RESUME_HANDOFF']='1'
@@ -234,7 +239,7 @@ def main():
             else:
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
                                         cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
-                                        timeout=240 if args.cache_cleanup or args.download_rate_limit or args.download_auth_expiry or args.download_auth_renewal or args.catalog_auth_recovery or args.manual_auth_recovery else 120)
+                                        timeout=240 if args.cache_cleanup or args.download_rate_limit or args.download_auth_expiry or args.download_auth_renewal or args.catalog_auth_recovery or args.manual_auth_recovery or args.prefetch_condition else 120)
             if args.cached_resume_numeric_keys and result.returncode==0:
                 log.flush(); raw=(root/'evidence/runtime.log').read_bytes(); marker=b'\nWEREAD_NUMERIC_CACHE_RESUME='
                 assert raw.count(marker)==1, 'numeric-cache resume fixture did not run'

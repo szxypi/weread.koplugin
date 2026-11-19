@@ -167,6 +167,11 @@ if cb_edit then
 end
 if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
+if os.getenv('WEREAD_TEST_PREFETCH_CONDITION') then
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    local _,updated=dofile(fixtures..'prefetch_condition_case.lua')(reader,current,book(current),id,evidence)
+    current=updated
+end
 local manual_kind=os.getenv('WEREAD_TEST_MANUAL_AUTH_RECOVERY')
 local manual_case
 if manual_kind then

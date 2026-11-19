@@ -94,5 +94,19 @@ local ok,err=pcall(Worker.run,settings,{}, {book_id="book"},{chapterUid="2"},con
 assert(not ok and tostring(err):find("download_read/rate_limited",1,true) and tries==1 and sleeps==0,
     "prefetch retried a rate-limited chapter")
 assert(calls[#calls]=="cleanup", "rate-limited prefetch did not clean its workspace")
+tries,sleeps=0,0
+content.fetch_single_chapter_source=function() tries=tries+1;error('book_reading/web_expired',0) end
+ok,err=pcall(Worker.run,settings,{}, {book_id='book'},{chapterUid='2'},context)
+assert(not ok and tostring(err):find('book_reading/web_expired',1,true) and tries==1 and sleeps==0,
+    'prefetch retried a chapter after login expired')
+assert(calls[#calls]=='cleanup','expired prefetch did not clean its workspace')
+local request_count=0
+content.ensure_reader_state=function(scoped,book)
+    scoped:request{method='GET',url=require('weread.lib.protocol').reader_url(book.book_id)}
+end
+local expired_client={request=function() request_count=request_count+1;return nil,401,{} end}
+ok,err=pcall(Worker.run,settings,expired_client,{book_id='book'},{chapterUid='2'},context)
+assert(not ok and tostring(err):find('book_reading/web_expired',1,true) and request_count==1,
+    'prefetch reader request did not classify a definite 401')
 
 print("chapter_prefetch_worker_spec: isolated settings and complete pipeline passed")

@@ -2240,11 +2240,33 @@ end
 
 -- Open a chapter, preferring its cached file and falling back to a download.
 function M:openChapter(book, chapter, on_downloaded)
+    local intent={};self._chapter_open_intent=intent
+    local document=self.ui and self.ui.document
+    local session=self._reader_session_gen
+    local view=self._chapter_list_view
+    local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local sync=self.progress_sync
+    local navigation=sync and sync.navigation_generation
+    local Context=require('weread.lib.source_context')
+    local location=document and Context.location(document,self.ui.view and self.ui.view.view_mode)
+    local book_id=tostring(book.book_id or book.bookId or '')
     local chapter_uid = chapter.chapterUid or chapter.chapterId
+    local chapter_id=tostring(chapter_uid or '')
+    local function current()
+        if self._chapter_open_intent~=intent or (self.ui and self.ui.document)~=document
+            or self._reader_session_gen~=session or self.progress_sync~=sync
+            or sync and sync.navigation_generation~=navigation
+            or view and (self._chapter_list_view~=view or view._catalog_closed)
+            or tostring(book.book_id or book.bookId or '')~=book_id
+            or tostring(chapter.chapterUid or chapter.chapterId or '')~=chapter_id then return false end
+        if scope and not self.settings:auth_scope_matches(scope) then return false end
+        if document and not Context.same_location(location,Context.location(document,self.ui.view and self.ui.view.view_mode)) then return false end
+        return true
+    end
     local cached = book.cached_chapters and book.cached_chapters[tostring(chapter_uid)]
     if cached and file_exists(cached) then
         self:openFile(cached,nil,book)
-    elseif self.downloader:promotePrefetch(book, chapter) then
+    elseif self.downloader:promotePrefetch(book, chapter, current) then
         -- The downloader promotes the background task to a visible progress
         -- dialog and opens the chapter as soon as the same task completes.
         return

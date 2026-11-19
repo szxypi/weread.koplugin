@@ -1,0 +1,166 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "scenario": "expired",
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "10ed439c459a05e2ff2274fcc68f58f7d6d6b8f181b299416663fc16f9f8761b"
+    },
+    {
+      "scenario": "expired",
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "c1a37f4443ffa05f6f5a6f66d1ceb00e484b541cf6e8646e2c2bfead509e2538"
+    },
+    {
+      "scenario": "promoted-expired",
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "2d7fa47241077b13cc8002837057b6187c96c4f3e314d692364455a0be995323"
+    },
+    {
+      "scenario": "promoted-expired",
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "a390e68b02917b60a6a8f0b984c51743109835b0dcc067d726dbca9f14128650"
+    },
+    {
+      "scenario": "rate",
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "10ed439c459a05e2ff2274fcc68f58f7d6d6b8f181b299416663fc16f9f8761b"
+    },
+    {
+      "scenario": "rate",
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "f2036ff7e75d18b433380430719158d5e6edfcb37aa339ec17e7f06110aa734b"
+    },
+    {
+      "scenario": "stale",
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "2d7fa47241077b13cc8002837057b6187c96c4f3e314d692364455a0be995323"
+    },
+    {
+      "scenario": "stale",
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "a390e68b02917b60a6a8f0b984c51743109835b0dcc067d726dbca9f14128650"
+    },
+    {
+      "scenario": "promoted-recovery",
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "8a0985e44a968fc51baf00a71a0c607418b121f747b2a1d8dc86be10144ce090"
+    },
+    {
+      "scenario": "promoted-recovery",
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "c059f07758f0c5367b7623a7e3ecbf0da71bf299fbe612077b189df4a16c89a4"
+    },
+    {
+      "scenario": "promoted-success",
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "a4049ec6f47ac577ed9e75d6bb2805fd91a11bdaa914c8e0560fd8bb67a73a88"
+    },
+    {
+      "scenario": "promoted-success",
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "043b8ff5698a59f82cd048acc67a686c7d0377626d00a3ad496a4d5f5373cc8b"
+    },
+    {
+      "scenario": "expired",
+      "screen": "600x800/167 DPI",
+      "format": "txt",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "f88126565cf629f23db84b3b6091eb8f31c043c0813895f4cee886dc4aa83260"
+    },
+    {
+      "scenario": "promoted-success",
+      "screen": "1264x1680/300 DPI",
+      "format": "txt",
+      "result": "PASS",
+      "background_chapter_requests": 1,
+      "background_renewals": 0,
+      "foreground_renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "f88126565cf629f23db84b3b6091eb8f31c043c0813895f4cee886dc4aa83260"
+    }
+  ],
+  "initial_promoted_success_attempt": {
+    "result": "FAIL",
+    "reason": "fixture assumed the book record always embeds its cached catalog; used the already-cached chapter identity instead"
+  },
+  "physical_kindle_tested": false
+}

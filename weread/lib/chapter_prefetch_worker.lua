@@ -14,6 +14,7 @@ function M.run(settings, client, book, chapter, context)
     local auth_result = WorkerSettings.capture(settings)
     local workspace
     local ok, result = xpcall(function()
+        client = require('weread.lib.book_reading_client').wrap(client, book, chapter)
         context.emit { stage = "reader" }
         Content.ensure_reader_state(client, book)
         local source_identity = FileIdentity.capture(book)
@@ -34,7 +35,9 @@ function M.run(settings, client, book, chapter, context)
             FileIdentity.check(source_identity, book)
             if fetched then xhtml, position_source = value, source; break end
             if type(value) == "string" and (value == "download_read/rate_limited"
-                or value:match("^download_read/rate_limited[\r\n]")) then error(value, 0) end
+                or value:match("^download_read/rate_limited[\r\n]")
+                or value == "book_reading/web_expired"
+                or value:match("^book_reading/web_expired[\r\n]")) then error(value, 0) end
             if attempt == 3 then error(value, 0) end
             context.sleep(0.8 * attempt)
         end

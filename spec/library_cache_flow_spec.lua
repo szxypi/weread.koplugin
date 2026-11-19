@@ -464,4 +464,25 @@ Library.confirmAndDownloadChapters(host,confirmed_book,{{chapterUid=1}},'chapter
 stale_confirmation=last_dialog;confirmed_book.book_id='43';stale_confirmation.ok_callback()
 expect(recovery_calls==1,'stale confirmation downloaded a different book')
 package.loaded['weread.ui.download_recovery']=previous_recovery
+local old_context=package.loaded['weread.lib.source_context']
+package.loaded['weread.lib.source_context']={location=function(document) return {page=document.page} end,
+    same_location=function(a,b) return a and b and a.page==b.page end}
+local promoted
+host.downloader={promotePrefetch=function(_,_,_,guard) promoted=guard;return true end}
+host.ui={document={file='/current.epub',page=1},view={view_mode='page'}}
+host._reader_session_gen=1;host.progress_sync={navigation_generation=1};host._chapter_list_view={}
+local epoch=1
+host.settings.get_auth_scope=function() return {vid='42',epoch=epoch} end
+host.settings.auth_scope_matches=function(_,scope) return scope.epoch==epoch end
+local selected_book={book_id='42'};local selected_chapter={chapterUid=2}
+host:openChapter(selected_book,selected_chapter)
+local first_intent=assert(promoted);expect(first_intent(),'current promoted chapter lost its guard')
+host.ui.document.page=2;expect(not first_intent(),'page change retained old promoted chapter');host.ui.document.page=1
+host.progress_sync.navigation_generation=2;expect(not first_intent(),'new navigation retained old promoted chapter');host.progress_sync.navigation_generation=1
+epoch=2;expect(not first_intent(),'account change retained old promoted chapter');epoch=1
+host._chapter_list_view._catalog_closed=true;expect(not first_intent(),'closed chapter list retained old promoted chapter');host._chapter_list_view._catalog_closed=false
+selected_chapter.chapterUid=3;expect(not first_intent(),'changed selected chapter retained old promotion');selected_chapter.chapterUid=2
+host:openChapter(selected_book,selected_chapter)
+expect(not first_intent() and promoted(),'later chapter selection did not supersede old promotion')
+package.loaded['weread.lib.source_context']=old_context
 print(("library_cache_flow_spec: %d checks"):format(checks))

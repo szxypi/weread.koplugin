@@ -430,7 +430,7 @@ function M:maybePrefetchNextChapter(book_id)
                 self:showPrefetchNotice(T(_("Next chapter prefetched: %1"), title))
                 return
             end
-            local retry_requested = self.downloader:isPromotedPrefetch(
+            local retry_requested, retry_current = self.downloader:isPromotedPrefetch(
                 book, next_chapter)
             if value == "cancelled" or value == "document_closed"
                 or value == "replaced" or value == "manual_download"
@@ -444,7 +444,13 @@ function M:maybePrefetchNextChapter(book_id)
                     "reason=", tostring(value))
                 return
             end
+            if value == 'rate_limited' and retry_requested then
+                self:showInfo(_('WeRead is limiting requests. Download stopped. Please try again later.'))
+                return
+            end
             local reason = value == "offline" and _("Network is not connected")
+                or value == 'web_expired' and _('WeRead login expired. Please sign in again and retry.')
+                or value == 'rate_limited' and _('WeRead is limiting requests. Please try again later.')
                 or value == "low_memory" and _("Not enough free memory; prefetch skipped")
                 or value == "worker_unavailable" and _("Background prefetch is unavailable")
                 or value == "worker_timeout" and _("Background prefetch timed out")
@@ -461,7 +467,8 @@ function M:maybePrefetchNextChapter(book_id)
                 local retry_delay = retry_cache.show_prefetch_notifications == false
                     and 0.1 or 1.1
                 UIManager:scheduleIn(retry_delay, function()
-                    if self.ui.document and self.ui.document.file == source_file then
+                    if self.ui.document and self.ui.document.file == source_file
+                        and (not retry_current or retry_current()) then
                         self:downloadChapterAndRead(book, next_chapter)
                     end
                 end)
