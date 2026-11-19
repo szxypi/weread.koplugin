@@ -20,7 +20,7 @@ package.loaded['weread.lib.web_authorization']={capture=function() return {
     scope={vid='900000',epoch=state.epoch}} end}
 local Recovery=require('weread.ui.download_recovery')
 local chapters={{chapterUid='1',title='One',wordCount=100},{chapterUid='2',title='Two',wordCount=100}}
-local function fixture(version,kind,owner,guard)
+local function fixture(version,kind,owner,guard,on_auth)
     tasks,request,renewals,cancels={},nil,0,0
     state={epoch=1,owner='owner',starts=0,stops=0,info=0,completed=0}
     local cookies={wr_vid='900000',wr_skey='synthetic-only'}
@@ -47,6 +47,7 @@ local function fixture(version,kind,owner,guard)
     elseif kind=='selected' then targets=chapters;suffix='chapters';options.separate_chapters=true end
     if owner then options.recovery_owner=owner end
     if guard then options.recovery_current=guard end
+    if on_auth then options.on_recovery_auth_updated=on_auth end
     assert(Recovery.start(host,book,targets,suffix,options))
     return host,book,cookies
 end
@@ -170,4 +171,20 @@ state.worker.complete({book_id='900001',chapters=chapters,version=0})
 state.job.options.on_complete(false,'web_expired');table.remove(tasks,1)()
 assert(renewals==1 and state.info==1 and state.message:find('retry the download',1,true),
     'second single-chapter 401 did not stop with the right notice')
+local adopted=0
+host,_,cookies=fixture(0,'single',nil,nil,function() adopted=adopted+1;return true end)
+local prior=fingerprint(host.settings);cookies.wr_skey='updated-by-download'
+state.job.options.on_reading_auth_updated(prior,fingerprint(host.settings))
+assert(adopted==1,'verified download cookie update was not reported')
+expire();verify(cookies)
+assert(adopted==2,'verified renewal was not reported')
+state.worker.complete({book_id='900001',chapters=chapters,version=0})
+assert(state.starts==2,'adopting verified credentials did not resume the download')
+Recovery.cancel(host)
+host,_,cookies=fixture(0,'single',nil,nil,function() return false end)
+expire()
+local receipt=request;request=nil;cookies.wr_skey='renewed-synthetic'
+receipt.callback(true,{revision=string.rep('a',64)})
+assert(not host._full_download_recovery and not state.worker and state.starts==1,
+    'rejected credential adoption continued recovery')
 print('download_recovery_spec: scoped manual-download renewal passed')

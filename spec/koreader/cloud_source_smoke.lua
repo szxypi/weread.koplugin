@@ -232,12 +232,50 @@ while socket.gettime()<cancel_deadline do UIManager:handleInput();socket.sleep(0
 assert(document.file==single and not plugin.cloud_source_incoming,'cancelled download reopened a book')
 control{match='',times=0,delay=0}
 
+local cancelled_renewal=os.getenv('WEREAD_TEST_CLOUD_RENEWAL_CANCEL')=='1'
+if cancelled_renewal then
+    local before_cancel=count('/web/login/renewal')
+    assert(plugin:showCloudSourcePosition())
+    pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
+    control{match='/web/book/chapter/e_0',times=1,status=401,web_renewal_mode='rotate'}
+    plugin.cloud_source_request.confirm.ok_callback()
+    pump(function() return plugin._full_download_recovery and plugin._full_download_recovery.schedule end)
+    control{match='/web/login/renewal',times=0,delay=1}
+    pump(function() return plugin._full_download_recovery and plugin._full_download_recovery.request end)
+    plugin:cancelCloudSourcePosition()
+    assert(not plugin.cloud_source_request and not plugin._full_download_recovery and not plugin.downloader._active_job,
+        'cancelling cloud navigation retained its renewal or download')
+    -- The mock server may finish recording an already received request after
+    -- the worker is cancelled; wait past its artificial response delay.
+    local renewal_deadline=socket.gettime()+1.6
+    while socket.gettime()<renewal_deadline do UIManager:handleInput();socket.sleep(0.01) end
+    assert(document.file==single and not plugin.cloud_source_incoming,'cancelled renewal opened the target chapter')
+    assert(count('/web/login/renewal')-before_cancel<=1,'cancelled renewal was repeated')
+    control{match='',times=0,delay=0}
+end
+
 assert(plugin:showCloudSourcePosition())
 pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.confirm end)
 previous_reader=reader
 local reads_before_download=count('/web/book/getProgress')
+local renewal=count('/web/login/renewal')
+local recovery=os.getenv('WEREAD_TEST_CLOUD_DOWNLOAD_RENEWAL')=='1'
+if recovery then
+    -- Mock Settings:new resets synthetic credentials on every ReaderUI open.
+    -- Carry the current mock session across the switch as production does.
+    local original_new=Settings.new
+    Settings.new=function(class,...)
+        local current=plugin.settings:get('cookies')
+        local configured_key=plugin.settings:get('api_key','')
+        local fresh=original_new(class,...)
+        fresh:set('cookies',current);fresh:set('api_key',configured_key);fresh:flush()
+        return fresh
+    end
+    control{match='/web/book/chapter/e_0',times=1,status=401,web_renewal_mode='rotate'}
+end
 plugin.cloud_source_request.confirm.ok_callback()
 adopt_target(previous_reader)
+assert(count('/web/login/renewal')==renewal+(recovery and 1 or 0),'cloud target download renewal count changed')
 assert(document.file~=single and not plugin.downloader._active_job,'downloaded chapter was not opened after cleanup')
 assert(count('/web/book/getProgress')==reads_before_download+2,'download was not reverified with one fresh stable cloud snapshot')
 local downloaded=document.file
@@ -267,6 +305,7 @@ local report={result='PASS',synthetic_only=true,source_target_visible=true,cross
     offline_no_request=true,rate_no_retry=true,dismiss_cancelled=true,suspend_cancelled=true,account_cancelled=true,
     navigator_cancelled=true,reader_reopen_cancelled=true,old_queued_upload_cancelled=true,report_gate_not_granted=true,
     cached_full_handoff=true,cached_chapter_handoff=true,startup_pull_superseded=true,download_declined=true,
-    owned_download_cancelled=true,download_reverified=true,downloaded_source_target_visible=true,changed_source_no_guess=true,reading_writes=0}
+    owned_download_cancelled=true,download_reverified=true,downloaded_source_target_visible=true,changed_source_no_guess=true,
+    expired_download_recovered=recovery,renewal_cancelled=cancelled_renewal,reading_writes=0}
 local file=assert(io.open(evidence..'/cloud-source.json','w'));file:write(client:json_encode(report));file:close()
 print('PASS: cloud GET/Reader/3 read shards/GET -> same-source EPUB -> native cross-chapter target/retention; offline/429/cancel/suspend/account/cached full/cached chapter/confirmed download/cancel; no reading writes')

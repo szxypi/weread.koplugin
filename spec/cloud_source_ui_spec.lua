@@ -1,5 +1,6 @@
 package.path='./?.lua;'..package.path
 local login_tasks={}
+local recovery_cancelled
 local dialogs={}
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) dialogs[#dialogs+1]=options;return options end} end
 package.preload['ffi/util']=function() return {template=function(text,value) return (text:gsub('%%1',value)) end} end
@@ -14,6 +15,10 @@ package.preload['weread.lib.source_context']=function() return {
 } end
 package.preload['weread.lib.book_file_identity']=function() return {read_document=function(document) return {file_id=document.identity} end} end
 package.preload['weread.lib.position_source']=function() return {document_metadata=function() return {metadata='bound-metadata'} end} end
+package.preload['weread.ui.download_recovery']=function() return {
+    start=function(host,book,chapters,suffix,options) return host.downloader:start(book,chapters,suffix,options) end,
+    cancel=function(_host,_leave,owner) recovery_cancelled=owner end,
+} end
 local captures=0
 package.preload['weread.lib.source_cloud']=function() return {
     capture=function(settings) return settings.access end,
@@ -163,8 +168,27 @@ end,cancelJob=function(_self,job) cancelled=job end}
 prompt.ok_callback()
 expect(f.host.cloud_source_request.download==owned and download_options.single_chapter
     and download_options.silent_completion and download_options.offer_read==false,'download ownership/options were lost')
+expect(download_options.recovery_owner==f.host.cloud_source_request and download_options.recovery_current(),
+    'cloud target did not own its recovery')
+f.host.settings.access={web={}}
+expect(not require('weread.lib.source_cloud').matches(f.host.settings,f.host.cloud_source_request.access)
+    and download_options.on_recovery_auth_updated() and download_options.recovery_current(),
+    'verified recovery did not adopt the refreshed read access')
+f.doc.page=2
+expect(not download_options.on_recovery_auth_updated() and not download_options.recovery_current(),
+    'stale cloud intent adopted a refreshed session')
 Request.cancel(f.host);completion(true,'/download.epub')
 expect(cancelled==owned and #login_tasks==0 and #f.jobs==1,'cancelled download scheduled late reopen')
+f=fixture();prompt=need_chapter(f);recovery_cancelled=nil
+f.host.downloader={start=function(self,_book,_rows,_suffix,options)
+    completion=options.on_complete;self._active_job={};return true
+end,cancelJob=function() end}
+prompt.ok_callback()
+local recovering=f.host.cloud_source_request
+recovering.download=nil -- the previous worker has ended while renewal is pending
+Request.cancel(f.host)
+expect(recovery_cancelled==recovering and not f.host.cloud_source_request,
+    'closing the cloud request did not cancel its pending renewal')
 f=fixture();prompt=need_chapter(f)
 f.host.downloader={start=function(self,_book,_rows,_suffix,options)
     completion=options.on_complete;self._active_job={};return true

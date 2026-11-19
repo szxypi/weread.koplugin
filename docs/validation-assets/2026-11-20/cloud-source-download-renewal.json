@@ -1,0 +1,50 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "cloud_reread": true,
+      "source_position_visible": true,
+      "reading_writes": 0,
+      "package_sha256": "9a3964c29a83791fe3150d739beef8bb8bfa3ed2883f39f650bc45fa8a365a60"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "cloud_reread": true,
+      "source_position_visible": true,
+      "reading_writes": 0,
+      "package_sha256": "1e65360734f1a56575efc6e9a67a9a6dd5caa62b5a964bd17e7ac1359163d89c"
+    }
+  ],
+  "early_attempts": {
+    "result": "FAIL",
+    "reason": "mock settings reset credentials on ReaderUI switch; isolated fixture was updated to preserve the current mock session"
+  },
+  "cancellation_during_renewal": [
+    {
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "reading_writes": 0,
+      "package_sha256": "55edf955caf913a5254c0af3b6717c1c5912da99d7b8354091f77516db023852"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "reading_writes": 0,
+      "package_sha256": "268cdeff77bd31c69b5fd1fed489553150e8da1e8dfe149db2ca684d9db0822b"
+    }
+  ],
+  "physical_kindle_tested": false,
+  "initial_cancellation_attempt": {
+    "result": "FAIL",
+    "reason": "request count read before mock server finished recording an already received delayed request; rechecked after the delay"
+  }
+}

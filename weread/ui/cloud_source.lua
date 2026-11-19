@@ -10,10 +10,11 @@ local M={}
 local function location(host,document)
     return Context.location(document,host.ui and host.ui.view and host.ui.view.view_mode)
 end
-local function current(host,job,allow_movement)
+local function current(host,job,allow_movement,ignore_access)
     if host.cloud_source_request~=job or not host.ui or host.ui.document~=job.document
         or job.document.file~=job.file or host._reader_session_gen~=job.session
-        or tostring(host:detectWeReadBook() or '')~=job.book_id or not Cloud.matches(host.settings,job.access) then return false end
+        or tostring(host:detectWeReadBook() or '')~=job.book_id
+        or not ignore_access and not Cloud.matches(host.settings,job.access) then return false end
     if host.progress_sync and not job.dispatching and host.progress_sync.navigation_generation~=job.navigation_generation then return false end
     local now=os.time()
     if now<job.started or now-job.started>(job.downloading and 1800 or 120)
@@ -34,7 +35,10 @@ function M.cancel(host)
     if host.cloud_source_worker then host.cloud_source_worker:cancel() end
     if job.task then UIManager:unschedule(job.task) end
     if job.confirm then UIManager:close(job.confirm) end
-    if job.download and host.downloader then host.downloader:cancelJob(job.download,'cancelled') end
+    if job.downloading and host.downloader then
+        require('weread.ui.download_recovery').cancel(host,false,job)
+        if job.download then host.downloader:cancelJob(job.download,'cancelled') end
+    end
     if job.navigation and host.source_navigation and host.source_navigation.job==job.navigation then host.source_navigation:cancel() end
     close_busy(host,job)
     if host.source_position then host.source_position:resume('cloud_source') end
@@ -167,8 +171,17 @@ function M.start(host,resume,options)
                 job.started,job.downloading=os.time(),true
                 local saved=host.settings.get_book and host.settings:get_book(id) or {book_id=id,title=''}
                 saved=saved or {book_id=id,title=''}
-                local ok,started=pcall(downloader.start,downloader,saved,{result.chapter},'chapter',{
+                local ok,started=pcall(require('weread.ui.download_recovery').start,host,saved,{result.chapter},'chapter',{
                     single_chapter=true,silent_completion=true,offer_read=false,
+                    recovery_owner=job,
+                    recovery_current=function() return current(host,job,false,true) end,
+                    on_recovery_auth_updated=function()
+                        if not current(host,job,false,true) then return false end
+                        local fresh=Cloud.capture(host.settings)
+                        if not fresh or not fresh.web then return false end
+                        job.access=fresh
+                        return true
+                    end,
                     on_complete=function(success,path)
                         if not current(host,job) then if host.cloud_source_request==job then M.cancel(host) end return end
                         job.download=nil
@@ -182,7 +195,7 @@ function M.start(host,resume,options)
                             job.downloading,job.started=false,os.time()
                             busy()
                             run(function()
-                                local fresh=Cloud.fetch(host.client,id,access)
+                                local fresh=Cloud.fetch(host.client,id,job.access)
                                 if fresh.chapter_uid~=result.remote.chapter_uid then return {error='cloud_changed',request_id=job.sequence} end
                                 local bound=Cloud.bind_file(path,fresh,job.sequence)
                                 bound.remote=fresh;bound.request_id=job.sequence
@@ -241,7 +254,7 @@ function M.start(host,resume,options)
     busy()
     return run(function()
         if resume then return Cloud.bind(input,remote) end
-        return Cloud.resolve(host.client,input,Cloud.fetch(host.client,id,access),access)
+        return Cloud.resolve(host.client,input,Cloud.fetch(host.client,id,job.access),job.access)
     end)
 end
 return M

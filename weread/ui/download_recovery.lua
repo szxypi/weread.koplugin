@@ -94,6 +94,13 @@ function M.start(host,book,chapters,suffix,options)
         if valid and type(options.on_complete)=='function' then pcall(options.on_complete,ok,value) end
         if valid and message then host:showInfo(_(message)) end
     end
+    local function adopt_auth()
+        if not options.on_recovery_auth_updated then return true end
+        local ok,accepted=pcall(options.on_recovery_auth_updated)
+        if ok and accepted==true and current() then return true end
+        M.cancel(host)
+        return false
+    end
     local launch,recover
     local download_book=book
     local expired_message=full and 'WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume.'
@@ -136,7 +143,9 @@ function M.start(host,book,chapters,suffix,options)
             if result.auth and not WorkerSettings.merge(host.settings,ctx.fingerprint,result.auth) then
                 finish(false,'session_changed');return
             end
+            local changed=WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint
             ctx.fingerprint=WorkerSettings.fingerprint(host.settings)
+            if changed and not adopt_auth() then return end
             if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
             ctx.busy=nil
             -- Unknown old versions do not authorize reuse under a newly known
@@ -172,6 +181,7 @@ function M.start(host,book,chapters,suffix,options)
                 or fresh.scope.vid~=ctx.scope.vid or fresh.scope.epoch~=ctx.scope.epoch
                 or not Source.web_access(host.settings) then M.cancel(host);return end
             ctx.fingerprint=WorkerSettings.fingerprint(host.settings)
+            if not adopt_auth() then return end
             if not host._full_download_recovery_worker then
                 local made,worker=pcall(function() return require('weread.lib.memory_worker'):new{
                     scheduler=UIManager,codec=host.client,max_bytes=4*1024*1024} end)
@@ -197,7 +207,10 @@ function M.start(host,book,chapters,suffix,options)
         local copy={};for key,value in pairs(options) do copy[key]=value end
         copy.full_auth_recovery=full;copy.manual_auth_recovery=not full;copy.on_complete=ctx.complete
         copy.on_reading_auth_updated=function(before,after)
-            if current() and ctx.fingerprint==before and Source.web_access(host.settings) then ctx.fingerprint=after end
+            if current() and ctx.fingerprint==before and Source.web_access(host.settings) then
+                ctx.fingerprint=after
+                adopt_auth()
+            end
         end
         local ok,started=pcall(host.downloader.start,host.downloader,download_book,targets,suffix,copy)
         if not ok or not started then finish(false,'unavailable') end

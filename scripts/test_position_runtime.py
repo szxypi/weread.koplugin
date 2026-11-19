@@ -116,6 +116,8 @@ def main():
     parser.add_argument('--search-missing', action='store_true')
     parser.add_argument('--search-catalog-missing', action='store_true')
     parser.add_argument('--search-renewal', action='store_true')
+    parser.add_argument('--cloud-download-renewal', action='store_true', help='Expire the confirmed cloud target chapter download')
+    parser.add_argument('--cloud-renewal-cancel', action='store_true', help='Cancel while cloud target download renewal is pending')
     parser.add_argument('--search-cb', action='store_true')
     parser.add_argument('--search-large-uid', action='store_true')
     parser.add_argument('--search-current-fallback', action='store_true')
@@ -150,6 +152,10 @@ def main():
     parser.add_argument('--cb-sync-time', choices=('confirmed','changed','unknown'), default='')
     parser.add_argument('--cb-cloud-gap', action='store_true')
     args = parser.parse_args()
+    if (args.cloud_download_renewal or args.cloud_renewal_cancel) and args.probe!='cloud-source':
+        parser.error('cloud download renewal options require --probe cloud-source')
+    if args.cloud_download_renewal and args.cloud_renewal_cancel:
+        parser.error('select one cloud download renewal scenario')
     if (args.search_cancel_only or args.search_cancel_resume) and (args.probe!='book-search' or args.search_missing or args.search_renewal
             or args.search_current_fallback or args.search_offline_fallback or args.search_no_login_fallback
             or args.search_empty_local or args.search_local_download or args.search_cancel_only and args.search_cancel_resume):
@@ -232,6 +238,8 @@ def main():
         environment = os.environ | dict(KO_HOME=str(root / "profile"), WEREAD_EVIDENCE=str(root / "evidence"),
                                         XDG_RUNTIME_DIR=str(root / "xdg"),
                                         WEREAD_TEST_SOURCE_FORMAT=args.source_format,
+                                        WEREAD_TEST_CLOUD_DOWNLOAD_RENEWAL='1' if args.cloud_download_renewal else '0',
+                                        WEREAD_TEST_CLOUD_RENEWAL_CANCEL='1' if args.cloud_renewal_cancel else '0',
                                         WEREAD_TEST_SEARCH_SCOPE=args.search_scope,
                                         WEREAD_TEST_SEARCH_MISSING='1' if args.search_missing else '0',
                                         WEREAD_TEST_SEARCH_CATALOG_MISSING='1' if args.search_catalog_missing else '0',
