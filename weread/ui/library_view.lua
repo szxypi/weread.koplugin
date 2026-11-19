@@ -394,6 +394,7 @@ local ShelfRow = InputContainer:extend{
     width = nil,
     font_size = 22,
     callback = nil,
+    hold_callback = nil,
     show_parent = nil,
 }
 
@@ -434,9 +435,14 @@ function ShelfRow:init()
             GestureRange:new{ ges = "tap", range = self.dimen },
         },
     }
+    if self.hold_callback then
+        self.ges_events.HoldShelfRow = { GestureRange:new{ ges = "hold", range = self.dimen } }
+        self.ges_events.HoldReleaseShelfRow = { GestureRange:new{ ges = "hold_release", range = self.dimen } }
+    end
 end
 
 function ShelfRow:onTapShelfRow()
+    if self._hold_handled then self._hold_handled = false; return true end
     if not self.callback then return true end
     self.frame.invert = true
     UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
@@ -446,6 +452,19 @@ function ShelfRow:onTapShelfRow()
     UIManager:setDirty(nil, "fast", self.frame.dimen)
     self.callback()
     return true
+end
+
+function ShelfRow:onHoldShelfRow()
+    if not self.hold_callback then return false end
+    self._hold_handled = true
+    self.hold_callback()
+    UIManager:nextTick(function() self._hold_handled = false end)
+    return true
+end
+
+function ShelfRow:onHoldReleaseShelfRow()
+    self._hold_handled = false
+    return self.hold_callback ~= nil
 end
 
 function ShelfRow:onFocus()
@@ -467,6 +486,7 @@ local CoverCell = InputContainer:extend{
     contain_cover = false,
     cached = false,
     callback = nil,
+    hold_callback = nil,
     show_parent = nil,
 }
 
@@ -677,11 +697,29 @@ function CoverCell:init()
             GestureRange:new{ ges = "tap", range = self.dimen },
         },
     }
+    if self.hold_callback then
+        self.ges_events.HoldCoverCell = { GestureRange:new{ ges = "hold", range = self.dimen } }
+        self.ges_events.HoldReleaseCoverCell = { GestureRange:new{ ges = "hold_release", range = self.dimen } }
+    end
 end
 
 function CoverCell:onTapCoverCell()
+    if self._hold_handled then self._hold_handled = false; return true end
     if self.callback then self.callback() end
     return true
+end
+
+function CoverCell:onHoldCoverCell()
+    if not self.hold_callback then return false end
+    self._hold_handled = true
+    self.hold_callback()
+    UIManager:nextTick(function() self._hold_handled = false end)
+    return true
+end
+
+function CoverCell:onHoldReleaseCoverCell()
+    self._hold_handled = false
+    return self.hold_callback ~= nil
 end
 
 function CoverCell:onFocus()
@@ -720,6 +758,7 @@ local LibraryView = FocusManager:extend{
     on_imported_mp_links = nil,
     on_manage_mp_accounts = nil,
     on_select = nil,
+    on_hold = nil,
     paged = false,
     page = 1,
     page_size = 10,
@@ -1197,6 +1236,9 @@ function LibraryView:content()
                 callback = function()
                     if self.on_select then self.on_select(book, self.mode) end
                 end,
+                hold_callback = self.on_hold and self.mode == "books" and function()
+                    self.on_hold(book, self.mode)
+                end or nil,
             }
             self._item_rows[#self._item_rows + 1] = cover_cell
             grid_row[#grid_row + 1] = cover_cell
@@ -1213,6 +1255,9 @@ function LibraryView:content()
                 callback = function()
                     if self.on_select then self.on_select(book, self.mode) end
                 end,
+                hold_callback = self.on_hold and self.mode == "books" and function()
+                    self.on_hold(book, self.mode)
+                end or nil,
             }
             self._item_rows[#self._item_rows + 1] = shelf_row
             self._focus_item_rows[#self._focus_item_rows + 1] = { shelf_row }
@@ -1509,6 +1554,7 @@ function M.show(data, callbacks)
         on_imported_mp_links = callbacks.on_imported_mp_links,
         on_manage_mp_accounts = callbacks.on_manage_mp_accounts,
         on_select = callbacks.on_select,
+        on_hold = callbacks.on_hold,
         on_page_changed = callbacks.on_page_changed,
         on_visible_changed = callbacks.on_visible_changed,
     }

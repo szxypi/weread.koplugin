@@ -919,6 +919,9 @@ function M:showShelfView(mode, keyword, old_view, options)
                 self:showBookRecord(book)
             end
         end,
+        on_hold = not options.on_select and function(book)
+            if current() then require('weread.ui.book_quick_actions').open(self, view, book, current) end
+        end or nil,
         on_page_changed = function(new_page)
             if not current() then return end
             self.shelf_view_pages[mode] = new_page

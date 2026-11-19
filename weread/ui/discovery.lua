@@ -83,6 +83,9 @@ function M:showDiscoveryPage(tab, books, options)
                 self:startBookReading(stored)
             else self:showBookRecord(book) end
         end),
+        on_hold = Scope.guard(current, function(book)
+            require('weread.ui.book_quick_actions').open(self, view, book, current)
+        end),
         on_page_changed = redraw,
         on_close = function()
             if self.shelf_view == view then

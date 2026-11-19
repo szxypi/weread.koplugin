@@ -134,6 +134,12 @@ function M.show(host,id)
             end
             if on_close then return on_close(instance,...) end
         end
+        -- A status opened from a shelf cell remains owned by that shelf.
+        -- Background cover/status redraws wait until this menu is dismissed.
+        local parent=host.shelf_view
+        if parent and not host._book_detail_view and not parent._shelf_closed then
+            require('weread.ui.shelf_popup').show(parent,menu,function() end)
+        end
     end
     return menu~=nil
 end

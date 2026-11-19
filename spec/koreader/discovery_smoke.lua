@@ -88,6 +88,24 @@ local function flush_tasks()
         socket.sleep(0.01)
     end
 end
+local function held_book(action)
+    UIManager:forceRePaint()
+    local owner=assert(plugin.shelf_view)
+    local cell=assert(owner._item_rows[1])
+    local rect=cell.dimen
+    local event=require('ui/event')
+    local pos=require('ui/geometry'):new{x=rect.x+math.floor(rect.w/2),y=rect.y+math.floor(rect.h/2)}
+    assert(cell:handleEvent(event:new('Gesture',{ges='hold',pos=pos})), 'book hold was not handled')
+    local dialog=assert(owner._shelf_popup, 'book hold did not open a native menu')
+    assert(cell:handleEvent(event:new('Gesture',{ges='hold_release',pos=pos})), 'book hold release was not handled')
+    local button
+    for _,row in ipairs(dialog.buttons) do for _,item in ipairs(row) do
+        if item.text==require('weread.lib.plugin_util').tr(action) then button=item end
+    end end
+    assert(button, 'book menu missing '..action)
+    button.callback();flush_tasks()
+    return owner
+end
 local function press(view, label)
     for _, button in ipairs(view._action_buttons) do
         if button.text == require("weread.lib.plugin_util").tr(label) then
@@ -138,6 +156,12 @@ assert(plugin.discovery_state and plugin.discovery_state.kind=='category'
     and #plugin.discovery_state.books==20 and not plugin.discovery_state.account,
     'initial native store did not display the guest public chart')
 paint('store-initial-public-chart')
+local original_read=plugin.startBookReading
+local opened
+plugin.startBookReading=function(_self,book) opened=book end
+local store_owner=held_book('Read now')
+assert(opened==store_owner.books[1] and not store_owner._shelf_popup, 'store hold did not read the selected book')
+plugin.startBookReading=original_read
 press(plugin.shelf_view,'Next batch');flush_tasks()
 assert(plugin.discovery_state.cursor==20 and #plugin.discovery_state.books==6,
     'initial public chart did not paginate')
@@ -268,6 +292,18 @@ local preserved = plugin.settings:get("books", {})[seed_id]
 assert(preserved.progress == 83 and preserved.chapter_uid == 99 and preserved.pending_upload_position.percent == 83,
     "display refresh changed the reader's sync position")
 paint("shelf-progress")
+local shelf_owner=held_book('Shelf status')
+local status=assert(plugin._shelf_state_menu, 'book hold did not open shelf status')
+assert(shelf_owner._shelf_popup==status, 'shelf did not own the status menu')
+local redraws=0
+require('weread.ui.shelf_popup').redraw(shelf_owner,function() redraws=redraws+1 end)
+assert(redraws==0, 'background redraw displaced the status menu')
+assert(require('weread.ui.shelf_state').show(plugin,seed_id))
+status=assert(plugin._shelf_state_menu)
+assert(shelf_owner._shelf_popup==status, 'replacement status menu lost its shelf owner')
+flush_tasks();assert(redraws==0, 'replacement status menu failed to defer redraw')
+UIManager:close(status);flush_tasks()
+assert(redraws==1 and not shelf_owner._shelf_popup, 'closing status did not release deferred redraw')
 plugin.shelf_view.on_page_changed(2)
 wait_progress()
 local next_id = plugin.shelf_view.books[plugin.shelf_view.page_size + 1].bookId
@@ -277,6 +313,8 @@ plugin.isNetworkOnline = function() return false end
 plugin.shelf_view.on_display_change("view_mode", "list")
 assert(plugin.shelf_view:itemStatus(plugin.shelf_view.books[1]):find("83%%"), "offline list lost pending progress")
 paint("shelf-progress-list")
+local list_owner=held_book('Cancel')
+assert(not list_owner._shelf_popup, 'list hold cancel left its menu open')
 plugin.isNetworkOnline = function() return true end
 plugin.shelf_view.on_display_change("paginated", false)
 wait_progress()
@@ -388,6 +426,8 @@ plugin.library_db:cacheShelf(books, response.archive)
 plugin:showHome()
 assert(plugin.shelf_view.books[1]._shelf_progress == 83, "home lost account-bound pending progress")
 paint("home-recent")
+local home_owner=held_book('Cancel')
+assert(not home_owner._shelf_popup, 'home cover hold cancel left its menu open')
 assert(plugin.shelf_view.settings_button and plugin._home_status_task, "home controls/status timer missing")
 plugin:onSuspend()
 assert(plugin._home_status_task == nil, "suspend retained the status timer")
@@ -422,6 +462,8 @@ editor:onMenuSelect(item(editor, "List view"))
 assert(plugin.settings:get("home").view_mode == "list" and not plugin.shelf_view.cover_mode, "home list setting did not apply")
 plugin._home_controls_menu:onCloseAllMenus()
 paint("home-list-layout")
+home_owner=held_book('Cancel')
+assert(not home_owner._shelf_popup, 'home list hold cancel left its menu open')
 for _i = 1, 3 do
     plugin:showHomeLayoutSettings()
     editor = plugin._home_controls_menu
