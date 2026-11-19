@@ -25,13 +25,16 @@ end
 function M.open(host, parent, book, review, detail, parent_current)
     M.cancel(host)
     local book_id, review_id = book.book_id or book.bookId, review.review_id
+    if type(book_id) == 'number' and book_id >= 1 and book_id <= 9007199254740991 and book_id % 1 == 0 then
+        book_id = string.format('%.0f', book_id)
+    end
     if not require('weread.lib.native_book_reviews').book_id(book_id) or not Data.review_id(review_id)
         or type(parent_current) ~= 'function' or not parent_current() or parent.detail ~= detail then return false end
     local owner = {parent = parent, detail = detail}
     host._native_review_replies_owner = owner
     local function current_view()
         return host._native_review_replies_owner == owner and not owner.closed and parent_current()
-            and host._native_reviews_owner == parent and parent.detail == detail
+            and parent.detail == detail
     end
     local function current()
         return current_view() and (owner.context and owner.context.renewing

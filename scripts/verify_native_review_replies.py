@@ -46,6 +46,7 @@ class ScopedProbe(NativeProbe):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
+    parser.add_argument('--skill-synthetic', action='store_true')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if not args.saved_session and not args.lua_command:
@@ -104,10 +105,13 @@ def main():
             raise ValueError('lua_failed')
         result = json.loads(child.stdout.split(marker)[1])
         report.update(lua=result, python_requests=len(probe.report['stages']))
-        if result.get('result') != 'PASS' or result.get('phase') != 'complete' or result.get('requests') != 5 \
+        expected_requests = 2 if args.skill_synthetic else 5
+        if result.get('result') != 'PASS' or result.get('phase') != 'complete' or result.get('requests') != expected_requests \
                 or result.get('painted') is not True or result.get('heartbeat') is not True:
             raise ValueError('comparison_failed')
-        report['result'] = 'NATIVE_REPLIES_UI_VERIFIED'
+        if args.skill_synthetic and result.get('synthetic_gateway_calls') != 3:
+            raise ValueError('synthetic_gateway_calls_invalid')
+        report['result'] = 'SYNTHETIC_SKILL_NATIVE_REPLIES_UI_VERIFIED' if args.skill_synthetic else 'NATIVE_REPLIES_UI_VERIFIED'
     except Exception as exc:
         report.update(reason=type(exc).__name__, python_requests=len(probe.report['stages']),
                       stages=[{'stage': s.get('stage'), 'status': s.get('status')} for s in probe.report['stages']])
@@ -115,7 +119,7 @@ def main():
         if credentials:
             credentials.clear()
     print(json.dumps(report, ensure_ascii=False))
-    return 0 if report['result'] == 'NATIVE_REPLIES_UI_VERIFIED' else 1
+    return 0 if report['result'] in ('NATIVE_REPLIES_UI_VERIFIED', 'SYNTHETIC_SKILL_NATIVE_REPLIES_UI_VERIFIED') else 1
 
 
 if __name__ == '__main__':

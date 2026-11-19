@@ -1,90 +1,39 @@
-package.path = "./?.lua;" .. package.path
-local shown, pending, requests, errors = {}, nil, {}, 0
+package.path = './?.lua;' .. package.path
 local function empty() return {} end
-for _, name in ipairs({ "weread.lib.book_store", "ui/widget/confirmbox", "weread.lib.content",
-    "weread.lib.shelf_groups", "weread.lib.shelf_flags", "weread.lib.shelf_search",
-    "weread.lib.shelf_time", "weread.lib.volatile_shelf", "ui/widget/inputdialog",
-    "ui/widget/textviewer", "weread.lib.protocol", "weread.lib.read_access" }) do
-    package.preload[name] = empty
+for _, name in ipairs({'weread.lib.book_store', 'ui/widget/confirmbox', 'weread.lib.content',
+    'weread.lib.shelf_groups', 'weread.lib.shelf_flags', 'weread.lib.shelf_search', 'weread.lib.shelf_time',
+    'weread.lib.volatile_shelf', 'ui/widget/inputdialog', 'ui/widget/textviewer',
+    'weread.lib.protocol', 'weread.lib.read_access', 'weread.ui.book_reviews_view'}) do package.preload[name] = empty end
+package.preload['weread.lib.logger'] = function() return {err = function() end} end
+package.preload['weread.lib.plugin_util'] = function()
+    return {tr = function(v) return v end, T = function(v) return v end, log_error = tostring, display_error = tostring}
 end
-package.preload["weread.lib.logger"] = function() return { err = function() end } end
-package.preload["weread.lib.plugin_util"] = function()
-    return { tr = function(x) return x end, T = function(x) return x end,
-        log_error = tostring, display_error = tostring }
+package.preload['ui/uimanager'] = empty
+local native_opens, gateway_opens, native_cancels, gateway_cancels = 0, 0, 0, 0
+local native_selected, gateway_selected = {native = {}}, {api_key = 'synthetic'}
+package.preload['weread.lib.native_book_reviews_source'] = function() return {capture = function() return native_selected end} end
+package.preload['weread.lib.gateway_book_reviews_source'] = function() return {capture = function() return gateway_selected end} end
+package.preload['weread.ui.native_book_reviews'] = function()
+    return {cancel = function() native_cancels = native_cancels + 1 end,
+        open = function(_, book, selected) assert(book.book_id == '42' and selected == native_selected); native_opens = native_opens + 1; return true end}
 end
-package.preload["ui/uimanager"] = function()
-    return { close = function(_, view) view._review_closed = true end }
+package.preload['weread.ui.gateway_book_reviews'] = function()
+    return {cancel = function() gateway_cancels = gateway_cancels + 1 end,
+        open = function(_, book, selected) assert(book.book_id == '42' and selected == gateway_selected); gateway_opens = gateway_opens + 1; return true end}
 end
-package.preload["weread.ui.book_reviews_view"] = function()
-    return { show = function(data, callbacks)
-        local view = { data = data, callbacks = callbacks }
-        shown[#shown + 1] = view
-        return view
-    end }
-end
-local Library = require("weread.ui.library")
-local pages = {
-    { reviewsHasMore = 1, synckey = 12, reviews = {
-        { idx = 4, review = { reviewId = "a", content = "one", star = 100 } },
-    } },
-    { reviewsHasMore = 1, synckey = 13, reviews = {
-        { idx = 7, review = { reviewId = "b", content = "two", star = 60 } },
-    } },
-}
-local host = {
-    requireLogin = function() return true end,
-    showBusy = function() end,
-    closeBusy = function() end,
-    showInfo = function() errors = errors + 1 end,
-    runOnlineTask = function(_, _, callback) pending = callback return true end,
-    client = { get_book_reviews = function(_, book, mode, count, cursor, sync)
-        requests[#requests + 1] = { book, mode, count, cursor, sync }
-        local page = table.remove(pages, 1)
-        if page == false then error("temporary failure") end
-        return page
-    end },
-}
-for k, v in pairs(Library) do if host[k] == nil then host[k] = v end end
-host:showBookReviews({ book_id = "42", title = "Book" })
-assert(#shown == 0 and pending)
-pending(); pending = nil
-assert(#shown == 1 and requests[1][2] == 1 and requests[1][4] == nil)
-assert(shown[1].data.result.items[1].rating == 5)
-shown[1].callbacks.on_load_more()
-assert(pending)
-pending(); pending = nil
-assert(#shown == 2 and shown[1]._review_closed)
-assert(requests[2][4] == 4 and requests[2][5] == 12)
-assert(#shown[2].data.result.items == 2 and shown[2].data.result.has_more)
--- Switching tabs uses an independent first-page request, then cached results.
-pages[1] = { reviewsHasMore = 0, reviews = {} }
-shown[2].callbacks.on_switch("latest")
-pending(); pending = nil
-assert(requests[3][2] == 3 and requests[3][4] == nil)
-shown[3].callbacks.on_switch("recommended")
-assert(#requests == 3 and #shown[4].data.result.items == 2)
--- A failed request retains the current page and does not cache the failure.
-pages[1] = false
-shown[4].callbacks.on_load_more()
-pending(); pending = nil
-assert(errors == 1 and not shown[4]._review_closed)
--- Closing the view while a request is pending must not reopen it.
-pages[1] = { reviewsHasMore = 0, reviews = {} }
-shown[4].callbacks.on_load_more()
-shown[4]._review_closed = true
-pending()
-assert(#shown == 4 and errors == 1)
-local opened, cancelled = 0, 0
-package.loaded['weread.lib.native_book_reviews_source'] = {capture = function() return {native = {}} end}
-package.loaded['weread.ui.native_book_reviews'] = {
-    cancel = function() cancelled = cancelled + 1 end,
-    open = function(_, book, access) assert(book.book_id == '42' and access.native); opened = opened + 1; return true end,
-}
-host.settings = {is_api_configured = function() return false end}
-assert(host:showBookReviews({book_id = '42'}) and opened == 1 and cancelled == 1,
-    'keyless native authorization did not open native reviews')
-host.settings.is_api_configured = function() return true end
-pages[1] = {reviewsHasMore = 0, reviews = {}}
-host:showBookReviews({book_id = '42'}); pending()
-assert(opened == 1 and requests[#requests][2] == 1, 'Skill route did not preserve recommended reviews')
-print("book_reviews_pagination_spec: paging, tab cache, failure and close passed")
+local Library = require('weread.ui.library')
+local configured, allowed, info = false, true, nil
+local host = {settings = {is_api_configured = function() return configured end},
+    requireLogin = function() return allowed end, showInfo = function(_, message) info = message end}
+for key, value in pairs(Library) do if host[key] == nil then host[key] = value end end
+local book = {book_id = '42'}
+assert(host:showBookReviews(book) and native_opens == 1 and gateway_opens == 0, 'native route lost')
+configured = true
+assert(host:showBookReviews(book) and gateway_opens == 1 and native_cancels > 0, 'Skill route lost')
+configured = false; native_selected = nil; allowed = false
+assert(not host:showBookReviews(book) and gateway_opens == 1, 'missing authorization opened a list')
+configured = true; allowed = true; gateway_selected = nil
+assert(not host:showBookReviews(book) and info == 'Book review authorization changed. Please sign in again.',
+    'inconsistent authorization was silently used')
+assert(gateway_cancels > 0, 'old Skill owner was not cancelled')
+print('book_reviews_pagination_spec: owner-bound native and Skill routing passed')

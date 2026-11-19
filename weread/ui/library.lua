@@ -1,7 +1,6 @@
 -- Bookshelf, book, chapter, public-account, and search UI flows.
 local BookReviews = require("weread.lib.book_reviews")
 local BookStore = require("weread.lib.book_store")
-local BookReviewsView = require("weread.ui.book_reviews_view")
 local ConfirmBox = require("ui/widget/confirmbox")
 local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
@@ -153,6 +152,8 @@ end
 function M:closeWeReadUI()
     local reviews = package.loaded['weread.ui.native_book_reviews']
     if reviews then reviews.cancel(self) end
+    local gateway_reviews = package.loaded['weread.ui.gateway_book_reviews']
+    if gateway_reviews then gateway_reviews.cancel(self) end
     local notebooks=package.loaded['weread.ui.notebook_catalog']
     if notebooks then notebooks.cancel(self) end
     local saved_searches=package.loaded['weread.ui.saved_searches']
@@ -1394,6 +1395,8 @@ function M:showBookMenu(book)
             if self._book_detail_view == view then
                 local reviews = package.loaded['weread.ui.native_book_reviews']
                 if reviews then reviews.cancel(self) end
+                local gateway_reviews = package.loaded['weread.ui.gateway_book_reviews']
+                if gateway_reviews then gateway_reviews.cancel(self) end
                 if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
                 if self.cancelShelfState then self:cancelShelfState() end
                 self:cancelBookMetadata()
@@ -1456,86 +1459,23 @@ end
 function M:showBookReviews(book)
     local native_ui = package.loaded['weread.ui.native_book_reviews']
     if native_ui then native_ui.cancel(self) end
+    local gateway_ui = package.loaded['weread.ui.gateway_book_reviews']
+    if gateway_ui then gateway_ui.cancel(self) end
     if self.settings and self.settings.is_api_configured and not self.settings:is_api_configured() then
         local selected = require('weread.lib.native_book_reviews_source').capture(self.settings)
         if selected and selected.native then
             return require('weread.ui.native_book_reviews').open(self, book, selected)
         end
     end
-    if not self:requireLogin(false, true) then
-        return
+    if not self:requireLogin(false, true) then return false end
+    local selected = require('weread.lib.gateway_book_reviews_source').capture(self.settings)
+    if not selected or not selected.api_key then
+        self:showInfo(_('Book review authorization changed. Please sign in again.'))
+        return false
     end
-    local book_id = book.book_id or book.bookId
-    local session = {
-        cache = {},
-    }
-
-    local loadReviews
-    loadReviews = function(mode, old_view, more)
-        if session.loading then return end
-        if more and (not session.cache[mode] or not session.cache[mode].has_more) then return end
-        local function showResult(result)
-            local offset, focus_row
-            if more and old_view and old_view._review_scroll and old_view._review_scroll.getScrolledOffset then
-                offset = old_view._review_scroll:getScrolledOffset()
-                focus_row = #old_view.result.items + 2
-            end
-            if old_view then
-                UIManager:close(old_view)
-            end
-            local view
-            view = BookReviewsView.show({
-                book_title = book.title or _("Untitled"),
-                mode = mode,
-                result = result,
-                scroll_offset = offset,
-                focus_row = focus_row,
-            }, {
-                on_switch = function(new_mode)
-                    loadReviews(new_mode, view)
-                end,
-                on_select = function(review, selected_mode)
-                    self:showBookReviewDetail(book, review, selected_mode)
-                end,
-                on_load_more = function()
-                    loadReviews(mode, view, true)
-                end,
-            })
-        end
-
-        if session.cache[mode] and not more then
-            showResult(session.cache[mode])
-            return
-        end
-        self:showBusy(_("Loading book reviews..."))
-        session.loading = true
-        local scheduled = self:runOnlineTask(_("Book reviews"), function()
-            local ok, result = pcall(function()
-                local list_type = mode == "latest" and 3 or 1
-                local previous = more and session.cache[mode] or nil
-                return BookReviews.append_page(previous,
-                    self.client:get_book_reviews(book_id, list_type, 20,
-                        previous and previous.max_idx, previous and previous.synckey)
-                )
-            end)
-            session.loading = false
-            self:closeBusy()
-            if old_view and old_view._review_closed then return end
-            if not ok then
-                logger.err("load book reviews failed:", log_error(result))
-                self:showInfo(T(_("%1 failed:\n%2"), _("Book reviews"), display_error(result)))
-                return
-            end
-            session.cache[mode] = result
-            showResult(result)
-        end)
-        if not scheduled then
-            session.loading = false
-            self:closeBusy()
-        end
-    end
-
-    loadReviews("recommended", nil)
+    local opened = require('weread.ui.gateway_book_reviews').open(self, book, selected)
+    if not opened then self:showInfo(_('Could not load book reviews. Please try again.')) end
+    return opened
 end
 
 function M:showShelfTabs()

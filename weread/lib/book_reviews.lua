@@ -133,11 +133,15 @@ function BookReviews.append_page(previous, data)
     if page.has_more then
         assert(cursor and cursor > 0 and cursor == math.floor(cursor)
             and sync and sync >= 0 and sync == math.floor(sync), "invalid review cursor")
-        assert(not previous or not previous.seen_cursors[cursor], "repeated review cursor")
+        if previous then
+            for _i, seen in ipairs(previous.seen_cursors or {}) do
+                assert(cursor ~= seen, "repeated review cursor")
+            end
+        end
     end
     local items, seen_cursors, seen_ids = {}, {}, {}
     if previous then
-        for key in pairs(previous.seen_cursors) do seen_cursors[key] = true end
+        for _i, seen in ipairs(previous.seen_cursors or {}) do seen_cursors[#seen_cursors + 1] = seen end
         for _i, item in ipairs(previous.items) do
             items[#items + 1] = item
             if item.review_id then seen_ids[tostring(item.review_id)] = true end
@@ -150,7 +154,7 @@ function BookReviews.append_page(previous, data)
             if id then seen_ids[id] = true end
         end
     end
-    if cursor then seen_cursors[cursor] = true end
+    if cursor then seen_cursors[#seen_cursors + 1] = cursor end
     page.items = items
     page.seen_cursors = seen_cursors
     page.max_idx = cursor

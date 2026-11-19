@@ -857,6 +857,33 @@ function Client:get_book_reviews(book_id, review_list_type, count, max_idx, sync
     })
 end
 
+-- Captured Skill key, bounded response and no cookie persistence. The worker
+-- caller projects the response before returning it to the UI process.
+function Client:get_gateway_book_reviews(book_id, list_type, max_idx, synckey, api_key)
+    local function integer(value)
+        return type(value) == 'number' and value >= 0 and value <= 9007199254740991 and value % 1 == 0
+    end
+    assert(type(book_id) == 'string' and #book_id > 0 and #book_id <= 256 and not book_id:find('[%z%c]')
+        and (list_type == 1 or list_type == 3) and (max_idx == nil or integer(max_idx))
+        and (synckey == nil or integer(synckey)) and type(api_key) == 'string' and #api_key > 0
+        and #api_key <= 4096 and not api_key:find('[%z%c%s]'), 'book_reviews/invalid_query')
+    local payload = {api_name = '/review/list', skill_version = WeRead.SKILL_VERSION,
+        bookId = book_id, reviewListType = list_type, count = 20, maxIdx = max_idx, synckey = synckey}
+    local chunks, bytes, exceeded = {}, 0, false
+    local ok, _, code, headers = pcall(self.request, self, {url = 'https://i.weread.qq.com/api/agent/gateway',
+        method = 'POST', body = self:json_encode(payload), skip_cookie = true, persist_response_cookies = false,
+        sensitive = true, diagnostic_api = 'book_reviews', timeout = {8, 15},
+        headers = {Authorization = 'Bearer ' .. api_key, ['Content-Type'] = 'application/json'},
+        sink = function(chunk)
+            if not chunk then return 1 end
+            bytes = bytes + #chunk
+            if bytes > 4 * 1024 * 1024 then exceeded = true; return nil, 'book_reviews_limit' end
+            chunks[#chunks + 1] = chunk; return 1
+        end})
+    if not ok or exceeded or tonumber(code) ~= 200 then error('book_reviews/gateway_unavailable', 0) end
+    return self:decode_http_json(table.concat(chunks), {sensitive = true, api_name = 'book_reviews', code = code, headers = headers})
+end
+
 function Client:get_progress(book_id)
     return self:gateway("/book/getprogress", { bookId = book_id })
 end

@@ -172,6 +172,12 @@ function BookReviewsView:buildContent()
             face = Font:getFace("cfont", 16),
             max_width = self.content_width,
         })
+    elseif self.result and self.result.limited then
+        table.insert(content, VerticalSpan:new{ width = Size.padding.large })
+        table.insert(content, TextWidget:new{
+            text = _("Review limit reached; more reviews may be available."),
+            face = Font:getFace("cfont", 16), max_width = self.content_width,
+        })
     end
     return content
 end

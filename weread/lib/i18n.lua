@@ -1380,6 +1380,7 @@ local zh = {
     ["Loading review replies..."] = "正在加载书评回复…",
     ["Could not load review replies. Please try again."] = "无法加载书评回复，请稍后重试。",
     ["Review replies changed. Close and open them again."] = "回复已更新，请关闭后重新打开。",
+    ["Book review authorization changed. Please sign in again."] = "书评授权已变化，请重新登录。",
     ["Loading book info..."] = "正在加载书籍信息...",
     ["Book info"] = "书籍信息",
     ["Clear book cache"] = "清除本书缓存",

@@ -658,6 +658,20 @@ expect(encoded_display.api_name=="/book/similar" and encoded_display.bookId=="90
     and encoded_display.count==20 and encoded_display.sessionId=="synthetic-session","gateway discovery payload")
 expect(discovery_request.headers.Authorization=="Bearer captured-discovery-key" and discovery_request.headers.Cookie==nil
     and #merged_cookies==cookie_count,"gateway discovery isolates credentials and ignores Set-Cookie")
+responses[#responses+1]={code=200,body="discovery",headers={["set-cookie"]="ignored=value"}}
+client:get_gateway_book_reviews('900001',3,20,123,'captured-review-key')
+local gateway_review_request=requests[#requests]
+expect(encoded_display.api_name=='/review/list' and encoded_display.bookId=='900001'
+    and encoded_display.reviewListType==3 and encoded_display.count==20 and encoded_display.maxIdx==20
+    and encoded_display.synckey==123 and gateway_review_request.headers.Authorization=='Bearer captured-review-key'
+    and gateway_review_request.headers.Cookie==nil and #merged_cookies==cookie_count, 'gateway review transport changed')
+for _,bad in ipairs({{code=401,body='private-review'},{code=429,body='private-review'},
+    {code=200,body=string.rep('x',4*1024*1024+1)},{raise='private-review-transport'}}) do
+    responses[#responses+1]=bad
+    ok,err=pcall(client.get_gateway_book_reviews,client,'900001',1,nil,nil,'captured-review-key')
+    expect(not ok and not tostring(err):find('private-',1,true), 'gateway review failure leaked response')
+end
+expect(not table.concat(logs,'\n'):find('private-review',1,true), 'gateway review logged private response')
 for _,response in ipairs({{code=302,body="private-discovery"},{code=401,body="private-discovery"},
     {code=429,body="private-discovery"},{code=200,body=string.rep("x",4*1024*1024+1)},
     {code=200,body="broken"},{raise="private-discovery-transport"}}) do
