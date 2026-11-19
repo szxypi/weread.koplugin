@@ -192,23 +192,27 @@ local ok,reason=pcall(function()
         end
         report.phase='offline-mark';queue_offline();expect(state().posts==8);reconnect(9,true)
         report.phase='offline-unmark';queue_offline();expect(state().posts==9);reconnect(10,false)
+        report.phase='offline-already-applied';queue_offline()
+        change(function(v) v.shelf.books[1].finishReading=1 end)
+        reconnect(10,true)
+        report.phase='offline-unmark-after-noop';queue_offline();reconnect(11,false)
         report.phase='offline-interrupted';queue_offline();fault('delayed')
         plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
-        wait(function() return state().posts==11 end)
+        wait(function() return state().posts==12 end)
         plugin.isNetworkConnected=function() return false end;plugin:onNetworkDisconnected()
         expect(queue:get('41').phase=='dispatching' and journal:read().phase=='pending')
         fault('normal')
     else
         report.phase='offline-reopen-no-retry'
         local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
-        expect(state().posts==11 and queue:get('41').phase=='dispatching' and journal:read().phase=='pending')
+        expect(state().posts==12 and queue:get('41').phase=='dispatching' and journal:read().phase=='pending')
         plugin:onNetworkConnected();local until_=socket.gettime()+.5;while socket.gettime()<until_ do tick() end
-        expect(state().posts==11 and queue:get('41').phase=='dispatching')
-        accept();expect(state().posts==11 and journal:read().phase=='idle');saved(true)
+        expect(state().posts==12 and queue:get('41').phase=='dispatching')
+        accept();expect(state().posts==12 and journal:read().phase=='idle');saved(true)
         report.phase='offline-review';expect(require('weread.ui.finish_offline').open(plugin,'41'))
         local dialog=assert(plugin._finish_offline_dialog)
         expect(dialog.text==tr('This offline change may have been sent. Remove its local record without retrying? Check the current cloud status separately; a delayed change may still appear.'))
-        dialog.ok_callback();expect(not queue:get('41') and state().posts==11)
+        dialog.ok_callback();expect(not queue:get('41') and state().posts==12)
     end
     plugin:closeWeReadUI();for _i,worker in ipairs(workers) do wait(function() return worker.runner.done(worker.pid) end) end
     report.workers_reaped=true;local value=state();report.requests,report.posts,report.forbidden=value.requests,value.posts,value.forbidden
