@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from cb_txt_highlight_trial import BODY, TEXT
-from cb_txt_official_selection import DRAW_HOOK, FIND_POINTS, verify_capture
+from cb_txt_official_selection import CaptureError, DRAW_HOOK, FIND_POINTS, verify_capture
 from personal_upload_trial import Journal
 from test_personal_upload_trial import FakeProbe
 from test_secure_native_session import Backend, credentials
@@ -39,6 +39,10 @@ class OfficialSelectionTests(unittest.TestCase):
                   dict(row,markText='not base64!'),dict(row,type=True),dict(row,markText=base64.b64encode(b'other').decode())]
         for value in variants:
             with self.subTest(value=value),self.assertRaises(ValueError):verify_capture(sample,value)
+        with self.assertRaises(CaptureError) as failure:verify_capture(sample,dict(row,range=f'{start+1}-{end+1}'))
+        self.assertTrue(failure.exception.checks['utf16_range_matches'])
+        self.assertFalse(failure.exception.checks['scalar_range_matches'])
+        self.assertTrue(failure.exception.checks['quote_inside_fixture'])
         changed=deepcopy(sample);changed['source']=changed['source'].replace('😀','x')
         with self.assertRaises(ValueError):verify_capture(changed,row)
         changed=deepcopy(sample);changed['source']+=TEXT

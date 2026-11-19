@@ -14,7 +14,7 @@ import tempfile
 import time
 
 from cb_txt_highlight_trial import BODY, TEXT
-from cb_txt_official_selection import observe
+from cb_txt_official_selection import CaptureError, observe
 from personal_upload_trial import Journal
 from secure_native_session import NativeSessionStore, project_lock
 from secure_weread_session import ACCOUNT, MacKeychain, SessionStore
@@ -28,8 +28,8 @@ from verify_translation_preflight import save_refreshed_web_session
 
 
 def stores():
-    def backend(part):return MacKeychain(service='org.codex.weread.cb-txt-official-selection-'+part+'-v1',account=ACCOUNT)
-    path=Path(tempfile.gettempdir())/('codex-cb-txt-official-selection-upload-'+ACCOUNT+'.lock')
+    def backend(part):return MacKeychain(service='org.codex.weread.cb-txt-official-selection-'+part+'-v2',account=ACCOUNT)
+    path=Path(tempfile.gettempdir())/('codex-cb-txt-official-selection-upload-v2-'+ACCOUNT+'.lock')
     return Journal(backend=backend('upload'),lock=lambda:project_lock(path),validator=validate_plan),Receipt(backend=backend('receipt'))
 
 
@@ -83,6 +83,7 @@ def run(saved,session,native,grant,journal,receipt,*,apply=False,upload_fn=uploa
                    'official_txt/scope','official_txt/selection','official_txt/range',
                    'official_txt/observation','official_txt/source_changed'}
             observation.update(result='UNVERIFIED',reason=str(error) if str(error) in known else 'official_txt/unavailable')
+            if isinstance(error,CaptureError):observation['diagnostic']=error.checks
             raise
         finally:first.clear()
     try:

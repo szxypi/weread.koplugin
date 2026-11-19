@@ -51,6 +51,12 @@ FIND_POINTS = r'''anchor => {
 }'''
 
 
+class CaptureError(ValueError):
+    def __init__(self,reason,checks):
+        super().__init__(reason)
+        self.checks=checks
+
+
 def verify_capture(sample,row):
     if not isinstance(sample,dict) or not isinstance(row,dict):raise ValueError('official_txt/scope')
     book=sample.get('book_id');uid=sample.get('chapter_uid');raw=sample.get('source')
@@ -64,10 +70,19 @@ def verify_capture(sample,row):
     try:quote=base64.b64decode(row['markText'],validate=True).decode('utf-8')
     except (ValueError,UnicodeError):raise ValueError('official_txt/selection') from None
     source=raw.removeprefix('\ufeff');first,last=map(int,match.groups())
-    if (not 0<=first<last<=len(source) or not 3<=len(quote)<=len(TEXT) or source[first:last]!=quote
-            or quote not in TEXT or source.count(quote)!=1
-            or len(source[:first].encode('utf-16-le'))//2==first):
-        raise ValueError('official_txt/range')
+    valid=0<=first<last<=len(source)
+    checks=dict(range_in_bounds=valid,quote_length_valid=3<=len(quote)<=len(TEXT),
+                scalar_range_matches=valid and source[first:last]==quote,
+                quote_inside_fixture=bool(quote) and quote in TEXT,quote_unique=bool(quote) and source.count(quote)==1,
+                non_bmp_before_range=valid and len(source[:first].encode('utf-16-le'))//2!=first,
+                utf16_range_matches=False)
+    try:
+        raw_utf16=source.encode('utf-16-le')
+        checks['utf16_range_matches']=bool(quote) and raw_utf16[first*2:last*2].decode('utf-16-le')==quote
+    except UnicodeError:pass
+    if not all(checks[key] for key in ('range_in_bounds','quote_length_valid','scalar_range_matches',
+                                        'quote_inside_fixture','quote_unique','non_bmp_before_range')):
+        raise CaptureError('official_txt/range',checks)
     return dict(result='PASS',same_book_and_chapter=True,exact_quote_and_range=True,
                 selected_from_fixture=True,non_bmp_before_selection=True,attempted_write_blocked=True)
 
