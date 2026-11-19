@@ -21,6 +21,18 @@ SHARDS=frozenset('/web/book/chapter/'+kind+'_'+str(index)
 OCR=Path(__file__).resolve().with_name('compare_visible_anchor.swift')
 
 
+def allowed_bookmark_read(method,url,body,book):
+    """One explicitly scoped Web bookmark-list GET; never grants a write."""
+    if method!='GET' or body is not None or not cb_id(book):return False
+    try:
+        u=urlsplit(url)
+        if (u.scheme!='https' or u.hostname!='weread.qq.com' or u.username or u.password
+                or u.port not in (None,443) or u.path!='/web/book/bookmarklist' or u.fragment):return False
+        query=parse_qs(u.query,keep_blank_values=True)
+        return query in ({'bookId':[book]},{'bookId':[book],'syncKey':['0']})
+    except (TypeError,ValueError):return False
+
+
 def compare_visible(image,anchors):
     """Perform local OCR through a private pipe and return no recognized text."""
     if (not isinstance(image,bytes) or not 1<=len(image)<=10_000_000 or not isinstance(anchors,list)

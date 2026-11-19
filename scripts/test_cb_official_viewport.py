@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-from cb_official_viewport import allowed,compare_visible,observe
+from cb_official_viewport import allowed,allowed_bookmark_read,compare_visible,observe
 from fetch_weread_epub import reader_url_for,weread_e
 import verify_cb_official_viewport as verify
 
@@ -39,6 +39,17 @@ class ViewportScopeTest(unittest.TestCase):
                 (self.book,{'bad'},{'wr_vid':'1'},0),(self.book,{'1'},{'unknown':'x'},0),
                 (self.book,{'1'},{'wr_vid':'1'},-1)]:
             with self.assertRaises(ValueError):observe(book,chapters,cookies,offset)
+
+    def test_bookmark_read_is_scoped_and_never_allows_a_write(self):
+        base='https://weread.qq.com/web/book/bookmarklist?bookId=CB_Synthetic'
+        self.assertTrue(allowed_bookmark_read('GET',base,None,self.book))
+        self.assertTrue(allowed_bookmark_read('GET',base+'&syncKey=0',None,self.book))
+        for method,url,body,book in [('POST',base,'{}',self.book),('GET',base,'{}',self.book),
+                ('GET',base+'&syncKey=1',None,self.book),('GET',base+'&bookId=CB_Other',None,self.book),
+                ('GET',base+'&extra=1',None,self.book),('GET',base+'#fragment',None,self.book),
+                ('GET',base.replace('weread.qq.com','attacker.invalid'),None,self.book),
+                ('GET',base.replace('https:','http:'),None,self.book),('GET',base,None,'CB_Other')]:
+            with self.subTest(url=url):self.assertFalse(allowed_bookmark_read(method,url,body,book))
 
     def test_offline_default_does_not_read_credentials_or_launch_browser(self):
         with patch.object(verify,'SessionStore') as store,patch.object(verify,'observe') as browser,redirect_stdout(io.StringIO()) as output:
