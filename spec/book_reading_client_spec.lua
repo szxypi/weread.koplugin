@@ -32,6 +32,9 @@ for _,suffix in ipairs({'e_0','e_1','e_2','e_3','t_0','t_1'}) do
 end
 decoded={b=Protocol.e('900001'),c=Protocol.e('3')}
 check({url='https://weread.qq.com/web/book/chapter/e_0',body='{}'},false)
+local second=Model.wrap(client,book,{chapterId='3'})
+local second_ok,second_error=pcall(second.request,second,{url='https://weread.qq.com/web/book/chapter/e_0',body='{}'})
+assert(not second_ok and second_error=='book_reading/web_expired','current chapterId was not scoped')
 check({url='https://weread.qq.com/web/book/read',body='{}'},false)
 check({url='https://weread.qq.com/web/book/chapter/e_0',body=string.rep('x',16385)},false)
 for _,status in ipairs({200,403,429,500}) do code=status;check({url=Protocol.reader_url(book.book_id)},false) end

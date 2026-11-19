@@ -212,6 +212,24 @@ end
 Content.fetch_single_chapter_source=original_fetch
 
 Content.fetch_single_chapter_source=function() error('book_reading/web_expired',0) end
+for _, resumable in ipairs({true,false}) do
+    local count, notified, released, cleaned = #scheduled, 0, 0, 0
+    local old_cleanup = downloader._cleanupWorkspace
+    downloader._cleanupWorkspace = function(_, job) cleaned=cleaned+1;job.workspace=nil end
+    local expired={book={book_id='book'},chapters={{chapterUid=30},{chapterUid=31}},index=1,total=2,
+        failed={},selected={},completed={},resumable=resumable,workspace={sentinel=true},state={},
+        detect_expired_login=true,standby_guard=true,operation_lease={release=function() released=released+1 end},
+        progress_dialog={setTitle=function() end,reportProgress=function() end,close=function() end},
+        on_complete=function(ok,reason) notified=notified+1;expect(not ok and reason=='web_expired','wrong expiry result') end}
+    downloader._active_job=expired;downloader:_beginStandby();downloader:_step(expired)
+    expect(#scheduled==count and expired.index==1 and #expired.failed==0,'expired batch retried or skipped ahead')
+    expect(notified==1 and released==1 and not downloader._active_job and downloader._standby_ref==0,
+        'expired download failed to release resources')
+    expect(resumable and expired.workspace and cleaned==0 or not resumable and not expired.workspace and cleaned==1,
+        'expired download retained the wrong workspace')
+    expect(messages[#messages]:find('login expired',1,true),'expiry notice missing')
+    downloader._cleanupWorkspace=old_cleanup
+end
 local auth_count,auth_notice=#scheduled,0
 local auth_limited={book={book_id='book'},chapters={{chapterUid=30}},index=1,total=1,
     failed={},selected={},state={},reading_auth_recovery=true,standby_guard=true,
@@ -251,7 +269,7 @@ end
 local chapters = { { chapterUid = 1 }, { chapterUid = 2 } }
 local function start_selected()
     painted = false
-    return downloader:start({ title = "Book" }, chapters, "chapters", {
+    return downloader:start({ book_id = "900001", title = "Book" }, chapters, "chapters", {
         separate_chapters = true,
     })
 end
@@ -283,13 +301,23 @@ expect(downloader._standby_ref == 0, "preparation failure leaked standby guard")
 Content.ensure_reader_state = function() error("download_read/rate_limited",0) end
 local init_reason
 painted=false
-expect(downloader:start({title="Book"},chapters,"full",{on_complete=function(ok,reason)
+expect(downloader:start({book_id="900001",title="Book"},chapters,"full",{on_complete=function(ok,reason)
     expect(not ok, "rate-limited initialization was reported as successful");init_reason=reason
 end}), "rate-limit initialization did not start")
 pending_init()
 expect(init_reason=="rate_limited" and not dialog.visible and downloader._active_job==nil
     and downloader._standby_ref==0 and messages[#messages]:find("limiting requests",1,true),
     "rate-limited initialization leaked its job or exposed an internal error")
+
+Content.ensure_reader_state = function() error('book_reading/web_expired',0) end
+init_reason=nil;painted=false
+expect(downloader:start({book_id='900001',title='Book'},chapters,'full',{on_complete=function(ok,reason)
+    expect(not ok,'expired initialization was reported as successful');init_reason=reason
+end}),'expired initialization did not start')
+pending_init()
+expect(init_reason=='web_expired' and not dialog.visible and not downloader._active_job
+    and downloader._standby_ref==0 and messages[#messages]:find('login expired',1,true),
+    'expired initialization leaked its job or exposed an internal error')
 
 downloader.run_online_task = function()
     expect(painted and dialog.visible, "offline check ran before repaint")

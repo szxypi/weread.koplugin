@@ -491,8 +491,8 @@ end
 function Downloader:_runInterruptible(dl, task)
     if dl.cancelled then return nil end
     local function scoped_client()
-        if dl.reading_auth_recovery then
-            return require('weread.lib.book_reading_client').wrap(self.client,dl.book,dl.chapters[1])
+        if dl.detect_expired_login or dl.reading_auth_recovery then
+            return require('weread.lib.book_reading_client').wrap(self.client,dl.book,dl.chapters[dl.index or 1])
         end
         return self.client
     end
@@ -503,7 +503,7 @@ function Downloader:_runInterruptible(dl, task)
         end
     end
     if not dl.trapper then
-        if not dl.reading_auth_recovery then return task(self.client) end
+        if not dl.detect_expired_login and not dl.reading_auth_recovery then return task(self.client) end
         local before=WorkerSettings.fingerprint(self.settings)
         local ok,value=pcall(task,scoped_client())
         updated(before)
@@ -527,7 +527,7 @@ function Downloader:_runInterruptible(dl, task)
     if dl.cancelled then return nil end
     if not completed then error("could not start download worker") end
     if not result then error("download worker returned no result") end
-    if result.auth and (result.ok or not dl.reading_auth_recovery) then
+    if result.auth and (result.ok or not (dl.detect_expired_login or dl.reading_auth_recovery)) then
         local merged=WorkerSettings.merge(self.settings,fingerprint,result.auth)
         if merged then updated(fingerprint) end
     end
@@ -678,6 +678,7 @@ function Downloader:start(book, chapters, suffix, options)
         started_at = time.now(),
         auth_fingerprint = WorkerSettings.fingerprint(self.settings),
         reading_auth_recovery = options.reading_auth_recovery == true and options.single_chapter == true,
+        detect_expired_login = options.prefetch ~= true,
         on_reading_auth_updated = options.on_reading_auth_updated,
     }
     self._active_job = dl
@@ -756,15 +757,17 @@ function Downloader:start(book, chapters, suffix, options)
                 dl.progress_dialog:close()
                 dl.progress_dialog = nil
             end
-            local expired = dl.reading_auth_recovery and type(err_init)=='string'
+            local expired = dl.detect_expired_login and type(err_init)=='string'
                 and (err_init=='book_reading/web_expired' or err_init:match('^book_reading/web_expired[\r\n]'))
             if type(options.on_complete) == "function" then
                 pcall(options.on_complete, false, expired and "web_expired" or rate_limited(err_init) and "rate_limited" or err_init)
             end
             dl.completion_notified = true
             self:_finishJob(dl)
-            if not dl.prefetch and not expired then
-                if rate_limited(err_init) then
+            if not dl.prefetch and not (expired and dl.reading_auth_recovery) then
+                if expired then
+                    self.show_info(_("WeRead login expired. Please sign in again and retry the download."))
+                elseif rate_limited(err_init) then
                     self.show_info(_("WeRead is limiting requests. Download stopped. Please try again later."))
                 else
                     self.show_info(T(_("Download failed:\n%1"), display_error(err_init)))
@@ -878,11 +881,21 @@ function Downloader:_rateLimit(dl)
 end
 
 function Downloader:_retryChapterSource(dl, err)
-    if dl.reading_auth_recovery and type(err)=='string' and
+    if (dl.detect_expired_login or dl.reading_auth_recovery) and type(err)=='string' and
         (err=='book_reading/web_expired' or err:match('^book_reading/web_expired[\r\n]')) then
-        self:_releaseStandby(dl);self:_cleanupWorkspace(dl)
-        if dl.progress_dialog then dl.progress_dialog:close();dl.progress_dialog=nil end
-        self:_notifyCompletion(dl,false,'web_expired');self:_finishJob(dl);return false
+        if dl.resumable then
+            self:_preserveWorkspace(dl,'web_expired')
+        else
+            self:_releaseStandby(dl);self:_cleanupWorkspace(dl)
+            if dl.progress_dialog then dl.progress_dialog:close();dl.progress_dialog=nil end
+            self:_notifyCompletion(dl,false,'web_expired');self:_finishJob(dl)
+        end
+        if not dl.reading_auth_recovery then
+            self.show_info(_(dl.resumable
+                and 'WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume.'
+                or 'WeRead login expired. Please sign in again and retry the download.'))
+        end
+        return false
     end
     if rate_limited(err) then self:_rateLimit(dl);return false end
     local chapter = dl.chapters[dl.index]
