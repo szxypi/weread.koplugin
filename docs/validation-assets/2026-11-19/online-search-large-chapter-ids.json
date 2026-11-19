@@ -1,0 +1,19 @@
+{
+  "synthetic_online_search": {
+    "chapter_uid": "9007199254740993",
+    "screens": ["600x800", "1264x1680"],
+    "two_page_search": true,
+    "downloaded_search_handoff": true,
+    "exact_source_navigation": true,
+    "reading_progress_posts": 0,
+    "authentication_posts": 0
+  },
+  "unit_coverage": {
+    "adjacent_large_string_identifiers_stay_distinct": true,
+    "imprecise_numeric_identifier_rejected": true,
+    "wrong_source_or_chapter_rejected": true,
+    "cloud_mark_scope_unchanged": true
+  },
+  "real_large_identifier_response_tested": false,
+  "physical_kindle_tested": false
+}

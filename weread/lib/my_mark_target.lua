@@ -5,6 +5,7 @@ local Coordinates=require('weread.lib.source_coordinates')
 local Raw=require('weread.lib.annotation_source')
 local Dom=require('weread.lib.source_dom')
 local Data=require('weread.lib.my_cloud_marks')
+local Access=require('weread.lib.read_access')
 local Crypto=require('weread.lib.crypto')
 local Protocol=require('weread.lib.protocol')
 local M={}
@@ -23,16 +24,24 @@ local function count(value)
 end
 -- Cheap menu eligibility only. Parsing, quotation verification and source
 -- conversion remain in the independent worker, including for very long text.
-function M.can_locate(row)
-    if type(row)~='table' or row.type~=1 or not integer(row.chapterUid,2147483647) or row.chapterUid==0
+local function chapter_id(row,search)
+    if type(row)~='table' then return nil end
+    local value=row.chapterUid
+    if integer(value,2147483647) and value>0 then return tostring(value) end
+    if search and type(value)=='string' then return Data.id(value) end
+end
+local function can_locate(row,search)
+    if type(row)~='table' or row.type~=1 or not chapter_id(row,search)
         or type(row.markText)~='string' or row.markText=='' or #row.markText>131072 or type(row.range)~='string' then return false end
     local first,last=row.range:match('^(%d+)%-(%d+)$')
     return first~=nil and #first<=10 and #last<=10 and tonumber(first)<tonumber(last) and tonumber(last)<=2147483647
 end
-local function project(raw,book,chapter,row)
+function M.can_locate(row) return can_locate(row,false) end
+function M.can_locate_search(row) return can_locate(row,true) end
+local function project(raw,book,chapter,row,search)
     local ok,value=pcall(function()
         if not Data.display_id(book) or not Data.id(chapter) or type(row)~='table' or row.type~=1
-            or not integer(row.chapterUid,2147483647) or tostring(row.chapterUid)~=chapter
+            or chapter_id(row,search)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book then fail('scope') end
         local quote=row.markText
         if type(quote)~='string' or #quote>131072 or quote:find('[%z\1-\8\11-\31\127]') then fail('quote') end
@@ -81,16 +90,16 @@ local function project(raw,book,chapter,row)
     if ok then return value end
     return nil,type(value)=='string' and value:match('^my_mark_target/[a-z_]+$') and value or 'my_mark_target/unavailable'
 end
-function M.project(raw,book,chapter,row) return project(raw,book,chapter,row) end
-function M.project_search(raw,book,chapter,row) return project(raw,book,chapter,row) end
+function M.project(raw,book,chapter,row) return project(raw,book,chapter,row,false) end
+function M.project_search(raw,book,chapter,row) return project(raw,book,chapter,row,true) end
 -- Independent worker-only archive reads. No raw text or path from the mark
 -- becomes a filename; candidates come from the reader and this book's cache.
 local function bind_file(file,book,row,request_id,read_archive,projection,search)
     local ok,value=pcall(function()
         if type(file)~='string' or file=='' or #file>4096 or file:find('[%z%c]')
             or not Data.display_id(book)
-            or type(row)~='table' or not integer(row.chapterUid,2147483647) then fail('scope') end
-        local uid=tostring(row.chapterUid)
+            or type(row)~='table' or not chapter_id(row,search) then fail('scope') end
+        local uid=chapter_id(row,search)
         local Source=require('weread.lib.position_source')
         local Identity=require('weread.lib.book_file_identity')
         local read=read_archive or require('weread.lib.source_archive').read
@@ -130,7 +139,7 @@ local function resolve(book,current_file,row,request_id,read_archive,projection,
     if not id or not uid then return {error='my_mark_target/scope',request_id=request_id} end
     local seen={}
     local reason='my_mark_target/source_unavailable'
-    for _i,file in ipairs({current_file or false,book.cached_chapters and book.cached_chapters[uid] or false,
+    for _i,file in ipairs({current_file or false,Access.cached_chapter(book.cached_chapters,uid) or false,
         book.cached_full_book or false,book.cached_file or false}) do
         if type(file)=='string' and not seen[file] then
             seen[file]=true

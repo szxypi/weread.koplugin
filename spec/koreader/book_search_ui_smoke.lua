@@ -5,6 +5,7 @@ local missing=os.getenv('WEREAD_TEST_SEARCH_MISSING')=='1'
 local catalog_missing=os.getenv('WEREAD_TEST_SEARCH_CATALOG_MISSING')=='1'
 local renewal_test=os.getenv('WEREAD_TEST_SEARCH_RENEWAL')=='1'
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
+local second_uid=os.getenv('WEREAD_TEST_SEARCH_LARGE_UID')=='1' and '9007199254740993' or '2'
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
 local no_login_fallback=os.getenv('WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK')=='1'
@@ -35,7 +36,7 @@ if not no_login_fallback then
         cookies={wr_vid='900000',wr_skey='synthetic-search-session'}},{replace_cookies=true})
 end
 local chapters={{chapterUid='1',chapterIdx=1,title='合成第一章',wordCount=1000},
-    {chapterUid='2',chapterIdx=2,title='合成第二章',wordCount=1000}}
+    {chapterUid=second_uid,chapterIdx=2,title='合成第二章',wordCount=1000}}
 local book={book_id=book_id,bookId=book_id,bookVersion=7,title='合成书内搜索',chapters=chapters,cached_chapters={}}
 if local_interrupt then
     local account=require('weread.lib.crypto').sha256_hex('weread-library:900000'):sub(1,20)
@@ -56,7 +57,7 @@ for _i,chapter in ipairs(chapters) do
         book.cached_chapters[uid]=Content.save_book_epub(settings,book,{chapter},bodies,'search-'..uid,{},nil,nil,Identity.capture(book),sources)
     end
 end
-book.cached_file=book.cached_chapters[current_fallback and '2' or '1']
+book.cached_file=book.cached_chapters[current_fallback and second_uid or '1']
 if catalog_missing then book.chapters=nil end
 settings:set('books',{[book_id]=book})
 settings:set('sync',{pull_on_open=false,upload_on_close=false})
@@ -222,13 +223,13 @@ end
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 if current_fallback then
     wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
-    assert(#owner.value==1 and owner.value[1].chapter_uid=='2' and owner.state.finished)
-    local expected=assert(require('weread.lib.book_search_target').project(bodies['2'],book_id,owner.value[1]))
+    assert(#owner.value==1 and owner.value[1].chapter_uid==second_uid and owner.state.finished)
+    local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[1]))
     owner.menu:onMenuSelect(owner.menu.item_table[2])
     wait(function()
         local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
         return not owner.navigation and plugin.source_navigation and plugin.source_navigation.state=='ready'
-            and held and held.chapter_uid=='2' and held.chapter_offset==expected.chapter_offset
+            and held and held.chapter_uid==second_uid and held.chapter_offset==expected.chapter_offset
     end)
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(not plugin.progress_sync.verified and not plugin.read_report.job)
@@ -309,7 +310,7 @@ if imported then
             if instance and instance.weread then reader=instance;plugin=instance.weread end
             local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
             return plugin.source_navigation and plugin.source_navigation.state=='ready'
-                and held and held.chapter_uid=='2' and held.chapter_offset==expected
+                and held and held.chapter_uid==second_uid and held.chapter_offset==expected
         end)
         assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
         assert(not plugin.progress_sync.verified and not plugin.read_report.job)
@@ -365,9 +366,9 @@ local worker_used=owner.worker~=nil
 assert(owner.menu.item_table[1].text==require('weread.lib.i18n').tr('Load more results'))
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return owner.state.pages==2 and not owner.job end)
-assert(owner.state.finished and #owner.value==2 and owner.value[2].chapter_uid=='2')
+assert(owner.state.finished and #owner.value==2 and owner.value[2].chapter_uid==second_uid)
 UI:forceRePaint();Device.screen:shot(evidence..'/book-search-results.png')
-local expected=assert(require('weread.lib.book_search_target').project(bodies['2'],book_id,owner.value[2]))
+local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[2]))
 local before_navigation=tonumber(network[0])
 owner.menu:onMenuSelect(owner.menu.item_table[3])
 if missing then
@@ -385,9 +386,9 @@ wait(function()
     local instance=require('apps/reader/readerui').instance
     if instance and instance.weread then reader=instance;plugin=instance.weread end
     local held=reader and plugin.progress_sync and plugin.progress_sync:current_source_target()
-    return reader and reader.document and (missing or reader.document.file==book.cached_chapters['2'])
+    return reader and reader.document and (missing or reader.document.file==book.cached_chapters[second_uid])
         and plugin.source_navigation and plugin.source_navigation.state=='ready'
-        and held and held.chapter_uid=='2' and held.chapter_offset==expected.chapter_offset
+        and held and held.chapter_uid==second_uid and held.chapter_offset==expected.chapter_offset
 end)
 assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
 assert(not plugin.progress_sync.verified and not plugin.read_report.job)

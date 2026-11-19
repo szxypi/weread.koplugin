@@ -51,6 +51,13 @@ local empty=fresh();page=assert(Search.accept(empty,{scrollDownHasMore=0}))
 expect(page.finished and #page.hits==0,'empty completed result was not retained')
 local imported=assert(Search.new('CB_personal','测试',chapters))
 expect(Search.url(imported):find('bookId=CB_personal',1,true)~=nil,'imported book search lost its identity')
+local long_chapters={{chapterUid='9007199254740992'},{chapterUid='9007199254740993'}}
+local long=assert(Search.new('CB_personal','测试',long_chapters))
+local long_page=assert(Search.accept(long,{scrollDownHasMore=0,results={row('9007199254740993',1,5,2,4)}}))
+expect(long_page.hits[1].chapter_uid=='9007199254740993','large search result lost its identity')
+local imprecise=assert(Search.new('CB_personal','测试',long_chapters))
+expect(not Search.accept(imprecise,{scrollDownHasMore=0,results={row(9007199254740992,1,5,2,4)}}),
+    'an imprecise numeric chapter identifier was accepted')
 expect(not Search.new('CB_bad/path','测试',chapters) and not Search.new('CB_','测试',chapters)
     and not Search.new('MP_WXS_123','测试',chapters) and not Search.new('123',' ',chapters)
     and not Search.new('123','bad\nquery',chapters) and not Search.new('123','\255',chapters),

@@ -18,12 +18,13 @@ def synthetic_search_source(uid):
 
 
 class SearchMockServer(MockServer):
-    def __init__(self,port,cb=False,current_fallback=False,empty=False):
+    def __init__(self,port,cb=False,current_fallback=False,empty=False,large_uid=False):
         super().__init__(port)
         self.cb_reading=cb
         self.current_fallback=current_fallback
         self.empty=empty
         self.search_book='CB_SyntheticResume' if cb else '900001'
+        self.second_uid='9007199254740993' if large_uid else 2
 
     def chapter_source(self,uid,revision=None):
         return synthetic_search_source(uid)
@@ -54,7 +55,7 @@ class SearchMockServer(MockServer):
             if query['chapterUid']==['1'] and query['posBegin']==['0'] and query['posEnd']==['0']:
                 uid,more=1,1
             elif query['chapterUid']==['1'] and query['posBegin']==[str(first)] and query['posEnd']==[str(first+11)]:
-                uid,more=2,0
+                uid,more=self.second_uid,0
             else:raise ValueError('invalid synthetic search cursor')
             start=synthetic_search_source(uid).index('amberneedle')
             return 200,dict(scrollDownHasMore=more,results=[dict(chapterUid=uid,posBegin=start,posEnd=start+11,
@@ -88,6 +89,7 @@ def main():
     parser.add_argument('--search-catalog-missing', action='store_true')
     parser.add_argument('--search-renewal', action='store_true')
     parser.add_argument('--search-cb', action='store_true')
+    parser.add_argument('--search-large-uid', action='store_true')
     parser.add_argument('--search-current-fallback', action='store_true')
     parser.add_argument('--search-offline-fallback', action='store_true')
     parser.add_argument('--search-no-login-fallback', action='store_true')
@@ -154,6 +156,10 @@ def main():
         parser.error('imported cloud options require --probe cb-cloud-view')
     if args.search_current_fallback and (not args.search_cb or args.search_missing or args.search_renewal):
         parser.error('current fallback requires a cached CB search fixture')
+    if args.search_large_uid and (args.probe!='book-search' or not args.search_cb or args.search_missing
+                                  or args.search_catalog_missing or args.search_renewal or args.search_current_fallback
+                                  or args.search_local_download or args.search_offline_fallback or args.search_no_login_fallback):
+        parser.error('large chapter search requires a complete imported-book fixture')
     if args.search_offline_fallback and (args.search_missing or args.search_catalog_missing or args.search_renewal
                                          or args.search_current_fallback or args.search_local_download or args.search_no_login_fallback):
         parser.error('offline fallback requires the complete cached search fixture')
@@ -165,7 +171,7 @@ def main():
                                     or args.search_offline_fallback or args.search_no_login_fallback):
         parser.error('empty-result local search requires the ordinary complete cached fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
-    server = SearchMockServer(0,args.search_cb,args.search_current_fallback,args.search_empty_local) if args.probe=='book-search' else TimeMockServer(0) if args.cb_sync_time else MockServer(0)
+    server = SearchMockServer(0,args.search_cb,args.search_current_fallback,args.search_empty_local,args.search_large_uid) if args.probe=='book-search' else TimeMockServer(0) if args.cb_sync_time else MockServer(0)
     if args.probe in ('cb-cloud-view','cb-sync'):
         from verify_source_coordinates import FilteredSource
         server.cb_reading=True
@@ -191,6 +197,7 @@ def main():
                                         WEREAD_TEST_SEARCH_CATALOG_MISSING='1' if args.search_catalog_missing else '0',
                                         WEREAD_TEST_SEARCH_RENEWAL='1' if args.search_renewal else '0',
                                         WEREAD_TEST_SEARCH_CB='1' if args.search_cb else '0',
+                                        WEREAD_TEST_SEARCH_LARGE_UID='1' if args.search_large_uid else '0',
                                         WEREAD_TEST_SEARCH_CURRENT_FALLBACK='1' if args.search_current_fallback else '0',
                                         WEREAD_TEST_SEARCH_OFFLINE_FALLBACK='1' if args.search_offline_fallback else '0',
                                         WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK='1' if args.search_no_login_fallback else '0',
@@ -437,6 +444,7 @@ def main():
                 if args.search_empty_local:search_requests=1
                 assert server.request_totals[('/web/book/search_v2','')]==search_requests, 'unexpected search request count'
                 assert server.request_totals[('/web/login/renewal','')]==(2 if args.search_renewal else 0), 'unexpected renewal count'
+                assert server.request_totals[('/web/book/read','')]==0, 'search navigation wrote reading progress'
                 if args.search_local_interrupt:
                     from fetch_weread_epub import weread_e
                     first_reads=[event for event in server.events if event['path']=='/web/book/chapter/e_0'
