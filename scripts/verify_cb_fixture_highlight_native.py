@@ -99,7 +99,8 @@ def run_ui(command,payload,plan,body,baseline,intent,authority,read,*,armed=Fals
 
 
 def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
-        uploader=upload_run,upload_factory=UploadProbe,observer_factory=Observer,source_factory=CbReadingProbe,ui_runner=run_ui):
+        uploader=upload_run,upload_factory=UploadProbe,observer_factory=Observer,source_factory=CbReadingProbe,ui_runner=run_ui,
+        prepare_fn=prepare,native_writes=2,result_label='CB_NATIVE_HIGHLIGHT_VERIFIED',final_check=None):
     report=dict(result='UNVERIFIED',phase='preflight',native_writes_allocated=0,authentication_posts=0,
                 fixture_only=True,existing_book_writes=0,private_values_in_report=False)
     current={'saved':saved,'sample':None,'observer':None,'ui':None}
@@ -125,10 +126,12 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         if not authority():return False
         if sample is None:return True
         state,_=upload.read();observer=observer_factory(target,grant,authority,intent);current['observer']=observer
+        stage='observe'
         try:
             baseline=observer.observe(grant);version=observer.version(grant)
             if version==0 or observer.version(grant)!=version:raise ValueError('cb_native_highlight/version')
-            plan,body=prepare(owner,target,state['attempt'],sample,version,baseline)
+            stage='prepare'
+            plan,body=prepare_fn(owner,target,state['attempt'],sample,version,baseline)
             row={'type':1,'chapterUid':body['chapterUid'],'range':body['range'],'markText':body['markText']}
             span=span_project(sample['source'],target,sample['chapter_uid'],row)
             chapters=[dict(row) for row in sample['chapters']]
@@ -138,18 +141,27 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
                 chapters=chapters,cookies=current['saved']['cookies'],native=grant,owner=owner,book_version=version,
                 body=body,first=span['first'],last=span['last'])
             read=lambda:observer.observe(grant)
+            stage='dry'
             dry=ui_runner(command,payload,plan,body,baseline,intent,authority,read,armed=False)
             if dry['result']!='DRY_RUN' or not authority() or read()!=baseline:return False
             report['dry_run_blocked']=True
-            report['native_writes_allocated']=2
+            report['native_writes_allocated']=native_writes
+            stage='native'
             current['ui']=ui_runner(command,payload,plan,body,baseline,intent,authority,read,armed=True)
-            if current['ui']['result']!='PASS' or read()!=baseline:return False
+            after_marks=read()
+            if current['ui']['result']!='PASS' or not (final_check(baseline,after_marks,body) if final_check else after_marks==baseline):return False
             old=sample;current['sample']=None
             if not source(target):return False
             after=current['sample']
             return bool(authority() and after['source_raw_sha256']==old['source_raw_sha256']
                 and after['chapter_uid']==old['chapter_uid'] and after['chapters']==old['chapters'] and after['baseline']==old['baseline'])
-        except Exception:
+        except Exception as error:
+            report['validation_stage']=stage
+            detail=getattr(error,'stage',None)
+            if (isinstance(detail,dict) and set(detail)=={'result','phase','failure_line'}
+                    and detail['result'] in ('PASS','UNVERIFIED','DRY_RUN')
+                    and detail['phase'] in ('decode','prepare','create','style0','style2','delete','reopen')
+                    and type(detail['failure_line']) is int and 0<=detail['failure_line']<=1000):report['native_stage']=detail
             return bool(report['native_writes_allocated']==0 and intent.read()[0] is None and authority())
     try:
         if journal.read()[0] is not None or intent.read()[0] is not None:raise ValueError('cb_native_highlight/consumed')
@@ -158,7 +170,7 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         report['upload']=result;report['phase']=result.get('phase','unknown')
         if result.get('result')=='READ_ONLY_PREVIEW':report['result']='READ_ONLY_PREVIEW'
         elif result.get('result')=='EPUB_IMPORT_AND_SOURCE_VERIFIED' and current['ui'] and current['ui']['result']=='PASS':
-            report.update(result='CB_NATIVE_HIGHLIGHT_VERIFIED',native_writes=2,independent_readbacks=2,
+            report.update(result=result_label,native_writes=native_writes,independent_readbacks=native_writes,
                           fresh_offline=True,fixture_removed=True,original_records_restored=True,no_replay=True)
     except Exception:report['result']='UNVERIFIED'
     finally:

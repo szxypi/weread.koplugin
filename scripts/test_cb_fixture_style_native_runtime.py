@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Actual KOReader imported-highlight styles against loopback only."""
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -99,7 +100,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader', type=Path, required=True); parser.add_argument('--run-dir', type=Path, required=True)
     parser.add_argument('--width', type=int, default=600); parser.add_argument('--height', type=int, default=800)
-    parser.add_argument('--dpi', type=int, default=167); parser.add_argument('--case', choices=('normal', 'no-0', 'no-2'), default='normal')
+    parser.add_argument('--dpi', type=int, default=167); parser.add_argument('--case', choices=('normal', 'no-0', 'no-2', 'orchestrated'), default='normal')
+    parser.add_argument('--production', action='store_true')
     args = parser.parse_args(); root = args.run_dir.resolve(); root.mkdir(parents=True, exist_ok=False)
     candidate = root / 'candidate.zip'; subprocess.run(['bash', 'scripts/package_release.sh', str(candidate)], check=True, capture_output=True)
     profiles = set(Path('/dev/shm').glob('weread-cb-highlight-*'))
@@ -117,24 +119,63 @@ def main():
         os.environ.update(WEREAD_FIXTURE_SYNTHETIC='1', WEREAD_FIXTURE_MOCK_PORT=str(server.server_port))
         command = ['python3', 'scripts/run_cb_fixture_highlight_ui.py', '--koreader', str(args.koreader), '--candidate', str(candidate),
                    '--width', str(args.width), '--height', str(args.height), '--dpi', str(args.dpi)]
+        if args.case == 'orchestrated':
+            from unittest.mock import patch
+            from verify_cb_fixture_style_native import run
+            receipt = object()
+            class Journal:
+                imported = False
+                def read(self):
+                    return (dict(phase='imported', target=CB_READING_ID, attempt='a'*32, plan={'owner':'900000'}), receipt) if self.imported else (None, None)
+            class NativeStore:
+                def load(self, _owner): return grant
+            class Source:
+                def __init__(self): self.samples=[]; self.last_checks=dict(catalog_unchanged=True, versions_unchanged=True, position_unchanged=True)
+                def set_cookie(self, *_args): pass
+                def verify_account(self): pass
+                def close(self): pass
+                def inspect(self, book):
+                    assert book == CB_READING_ID
+                    return dict(deepcopy(sample), baseline={'chapter':'0', 'offset':0, 'percent':0})
+            journal = Journal()
+            def uploader(_probe, _journal, _grant, _check, source, *, apply, cleanup_gate):
+                assert apply; journal.imported=True; assert source(CB_READING_ID)
+                cleaned=cleanup_gate(journal, receipt, {}, CB_READING_ID)
+                if cleaned: journal.imported=False
+                return {'result':'EPUB_IMPORT_AND_SOURCE_VERIFIED' if cleaned else 'UNVERIFIED', 'phase':'restored' if cleaned else 'imported'}
+            with patch('verify_cb_fixture_highlight_native.save_refreshed_web_session', return_value=False):
+                result=run(dict(vid='900000',cookies={'wr_vid':'900000','wr_skey':'mock_key'}),None,NativeStore(),grant,journal,intent,
+                           command,apply=True,uploader=uploader,upload_factory=lambda *_:None,source_factory=Source,
+                           observer_factory=lambda book,creds,authority,store:Observer(book,creds,authority,store,opener=Opener(server)))
+            assert result['result']=='CB_NATIVE_STYLE_VERIFIED' and result['native_writes']==4 and not journal.imported
+            assert server.highlight_posts==4 and intent.read()==(None,None)
+            print(json.dumps(dict(result='PASS',case=args.case,width=args.width,height=args.height,mock_writes=4,no_replay=True)))
+            return
         read = lambda: observer.observe(grant)
-        dry = run_ui(command, payload, plan, body, baseline, intent, read, armed=False)
+        def invoke(armed):
+            if args.production:
+                from verify_cb_fixture_style_native import run_ui as production_run
+                return production_run(command, payload, plan, body, baseline, intent, lambda: True, read, armed=armed)
+            return run_ui(command, payload, plan, body, baseline, intent, read, armed=armed)
+        dry = invoke(False)
         assert dry['result'] == 'DRY_RUN' and server.highlight_posts == 0
         if args.case == 'normal':
-            live = run_ui(command, payload, plan, body, baseline, intent, read, armed=True)
+            live = invoke(True)
             assert live['result'] == 'PASS' and server.highlight_posts == 4 and not server.selection_marks
             assert intent.read() == (None, None)
         else:
-            try: run_ui(command, payload, plan, body, baseline, intent, read, armed=True)
+            try: invoke(True)
             except Unconfirmed as error:
                 assert error.report.get('stage') == dict(result='UNCONFIRMED', phase='style' + args.case[-1],
                                                          retained_pending=True, no_retry=True)
+            except ValueError:
+                if not args.production: raise
             else: raise AssertionError('unconfirmed update accepted')
             state, _ = intent.read()
             assert state and state['phase'] == ('straight_pending' if args.case == 'no-0' else 'wave_pending')
             assert server.highlight_posts == (2 if args.case == 'no-0' else 3)
             before = server.highlight_posts
-            try: run_ui(command, payload, plan, body, baseline, intent, read, armed=True)
+            try: invoke(True)
             except ValueError: pass
             else: raise AssertionError('pending write replayed')
             assert server.highlight_posts == before

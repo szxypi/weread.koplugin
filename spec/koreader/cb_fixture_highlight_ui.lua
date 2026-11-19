@@ -15,7 +15,7 @@ local ok,reason=pcall(function()
     local reopen=os.getenv('WEREAD_CB_HIGHLIGHT_REOPEN')=='1'
     local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
     local styles=input.styles==true
-    assert((input.styles==nil or type(input.styles)=='boolean') and (not styles or synthetic))
+    assert(input.styles==nil or type(input.styles)=='boolean')
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
     require('gettext').changeLang('zh_CN')
@@ -170,8 +170,8 @@ local ok,reason=pcall(function()
             result.phase='style'..style;item.callback();tap('change_highlight_style')
             UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_'..style)):onTapSelectButton()
             submit()
-            if journal:read().phase=='pending' then
-                assert(synthetic and gate:read().phase=='style'..style..'_pending' and counts[1]==step+1)
+            if synthetic and journal:read().phase=='pending' then
+                assert(gate:read().phase=='style'..style..'_pending' and counts[1]==step+1)
                 item.callback();tap('change_highlight_style')
                 UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_'..style)):onTapSelectButton()
                 wait(function() return not owner.mark_editor end)
