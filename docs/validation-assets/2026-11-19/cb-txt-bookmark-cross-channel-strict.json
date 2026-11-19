@@ -1,0 +1,22 @@
+{
+  "result": "CB_TXT_BOOKMARK_STRICT_CROSS_CHANNEL_VERIFIED",
+  "sample": "new self-authored imported TXT bookmark after a non-BMP character",
+  "screen": "1264x1680@300",
+  "dry_run_blocked": true,
+  "native_bookmark_create_navigate_delete": true,
+  "native_bookmark_writes": 2,
+  "independent_native_readbacks": 2,
+  "web_readbacks": 2,
+  "web_record_type_chapter_range_and_preview_match": true,
+  "complete_web_bookmark_chapter_and_removed_fields_stable": true,
+  "response_clock_excluded": true,
+  "offline_reopen_after_deletion": true,
+  "fixture_removed_and_independently_confirmed": true,
+  "original_observed_state_restored": true,
+  "prior_trial_scope_unchanged": true,
+  "authentication_posts": 0,
+  "existing_book_writes": 0,
+  "private_values_in_report": false,
+  "official_saved_bookmark_display_verified": false,
+  "limitations": ["one synthetic TXT bookmark after one non-BMP character", "Web response metadata outside the compared bookmark, chapter and removed fields is not claimed stable", "official reader display not checked", "physical Kindle not tested"]
+}
