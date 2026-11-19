@@ -282,6 +282,16 @@ function Auth:read_book_reviews(credentials, book_id, count)
         .. '&listType=3&listMode=1&synckey=0&count=' .. count .. '&maxIdx=0&tips=1', nil, credentials)
 end
 
+function Auth:read_review_replies(credentials, review_id, count)
+    local Data = require('weread.lib.native_review_replies')
+    if not Data.review_id(review_id) or type(count) ~= 'number' or count < 2
+        or count > Data.MAX_ITEMS + 1 or count % 1 ~= 0 then fail('review_replies', 'invalid_query') end
+    if type(credentials) ~= 'table' or not vid(credentials.vid) or not text(credentials.accessToken, 8192)
+        or self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail('review_replies', 'invalid_credentials') end
+    return self:_request('review_replies', BASE .. '/review/single?reviewId=' .. Protocol.urlencode(review_id)
+        .. '&commentsCount=' .. count .. '&commentsDirection=0&likesCount=0&synckey=0', nil, credentials)
+end
+
 -- Payloads and readback semantics verified by the user-authorized Python
 -- create/edit/delete roundtrip. No renewal or write replay exists here.
 function Auth:write_my_thought(credentials,operation,body,on_dispatch)

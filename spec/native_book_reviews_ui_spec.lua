@@ -2,6 +2,7 @@ package.path = './?.lua;' .. package.path
 local pending, started, views, failures, cancellations, closes = {}, {}, {}, 0, 0, 0
 local access_valid, source_error = true, nil
 local allow_recovery, recovery_callback = false, nil
+local reply_opens, reply_cancels = 0, 0
 local selected = {native = {scope = {vid = '123'}, revision = 1}}
 local source = {capture = function() return selected end, matches = function(_, value) return access_valid and value == selected end}
 source.fetch = function(_, book, limit, previous, value)
@@ -23,6 +24,9 @@ package.preload['weread.lib.native_read_recovery'] = function()
         end}
 end
 package.preload['weread.lib.plugin_util'] = function() return {tr = function(v) return v end} end
+package.preload['weread.ui.native_review_replies'] = function()
+    return {open = function() reply_opens = reply_opens + 1 end, cancel = function() reply_cancels = reply_cancels + 1 end}
+end
 package.preload['ui/uimanager'] = function()
     return {close = function(_, view) closes = closes + 1; view.callbacks.on_close() end}
 end
@@ -44,7 +48,9 @@ local host = {library_db = {accountKey = function() return account end}, setting
     closeBusy = function(self) self.busy_message = nil end,
     showInfo = function(self, message) info = info + 1; self.last_info = message end,
     runOnlineTask = function(_, _, callback) pending[#pending + 1] = callback; return true end,
-    showBookReviewDetail = function(self, _, review) self.selected_review = review end}
+    showBookReviewDetail = function(self, _, review, _, options)
+        self.selected_review = review; return {options = options}
+    end}
 local function schedule() table.remove(pending, 1)() end
 local function tick()
     local job = table.remove(started, 1); job.callback(job.task())
@@ -56,6 +62,10 @@ expect(#pending == 1 and #started == 0, 'request did not wait for scheduler')
 schedule(); expect(#started == 1 and #views == 0, 'network did not run in worker')
 tick(); expect(#views == 1 and views[1].data.latest_only and not host.busy_message, 'latest reviews not shown')
 views[1].callbacks.on_select(views[1].data.result.items[1]); expect(host.selected_review.review_id == 'r1', 'selection failed')
+local detail = host._native_reviews_owner.detail
+detail.options.on_replies(); expect(reply_opens == 1, 'review detail did not open replies')
+detail.options.on_close(); expect(reply_cancels == 1 and not host._native_reviews_owner.detail, 'detail did not close replies')
+detail.options.on_replies(); expect(reply_opens == 1, 'closed detail reopened replies')
 views[1].callbacks.on_load_more(); schedule(); tick()
 expect(#views == 2 and closes == 1 and #views[2].data.result.items == 40 and not views[2].data.result.has_more,
     'more reviews did not preserve first page')

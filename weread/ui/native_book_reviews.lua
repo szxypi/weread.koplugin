@@ -11,9 +11,13 @@ function M.cancel(host)
     host._native_reviews_owner = nil
     if not owner then return end
     owner.closed = true
+    local replies = package.loaded['weread.ui.native_review_replies']
+    if replies then replies.cancel(host) end
     if owner.worker then owner.worker:cancel() end
     if owner.context then Recovery.cancel(host, owner.context) end
     if owner.busy and host.busy_message == owner.busy then host:closeBusy() end
+    local detail = owner.detail; owner.detail = nil
+    if detail then UI:close(detail) end
     local view = owner.view; owner.view = nil
     if view then UI:close(view) end
 end
@@ -60,7 +64,25 @@ function M.open(host, book, selected)
         local view
         view = require('weread.ui.book_reviews_view').show({ book_title = book.title,
             mode = 'latest', result = page, latest_only = true, scroll_offset = offset, focus_row = focus_row }, {
-            on_select = function(review) if current_view() then host:showBookReviewDetail(book, review, 'latest') end end,
+            on_select = function(review)
+                if not current_view() or owner.context or owner.detail then return end
+                local detail
+                detail = host:showBookReviewDetail(book, review, 'latest', {
+                    on_replies = function()
+                        if current_view() and owner.detail == detail then
+                            require('weread.ui.native_review_replies').open(host, owner, book, review, detail, current_view)
+                        end
+                    end,
+                    on_close = function()
+                        if owner.detail == detail then
+                            local replies = package.loaded['weread.ui.native_review_replies']
+                            if replies then replies.cancel(host) end
+                            owner.detail = nil
+                        end
+                    end,
+                })
+                owner.detail = detail
+            end,
             on_load_more = function()
                 if current_view() and not owner.context and page.has_more then
                     fetch(math.min(Data.MAX_ITEMS, page.limit + Data.PAGE_SIZE), page.ids)

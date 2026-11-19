@@ -44,6 +44,11 @@ local BookReviewsView = FocusManager:extend{
     latest_only = false,
     scroll_offset = nil,
     focus_row = nil,
+    title_text = nil,
+    tab_text = nil,
+    empty_text = nil,
+    incomplete_text = nil,
+    limited_text = nil,
 }
 
 function BookReviewsView:buildTabBar()
@@ -54,7 +59,7 @@ function BookReviewsView:buildTabBar()
     for index, tab in ipairs(tabs) do
         local active = tab.mode == self.mode
         local button = Button:new{
-            text = _(tab.text),
+            text = _(self.latest_only and self.tab_text or tab.text),
             width = index == #tabs
                 and self.screen_w - first_width * (#tabs - 1)
                 or first_width,
@@ -117,7 +122,7 @@ function BookReviewsView:buildContent()
     if #items == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
         table.insert(content, TextWidget:new{
-            text = _("No reviews."),
+            text = _(self.empty_text or "No reviews."),
             face = Font:getFace("cfont", 18),
             max_width = self.content_width,
         })
@@ -162,8 +167,8 @@ function BookReviewsView:buildContent()
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
         table.insert(content, TextWidget:new{
             text = self.result and self.result.limited
-                and _("Review limit reached; more reviews may be available.")
-                or _("Some reviews may be unavailable."),
+                and _(self.limited_text or "Review limit reached; more reviews may be available.")
+                or _(self.incomplete_text or "Some reviews may be unavailable."),
             face = Font:getFace("cfont", 16),
             max_width = self.content_width,
         })
@@ -186,7 +191,7 @@ function BookReviewsView:init()
 
     self.title_bar = TitleBar:new{
         width = self.screen_w,
-        title = T("%1 · %2", _("Book reviews"), self.book_title or _("Untitled")),
+        title = T("%1 · %2", _(self.title_text or "Book reviews"), self.book_title or _("Untitled")),
         title_multilines = true,
         align = "center",
         with_bottom_line = true,
@@ -262,6 +267,11 @@ function M.show(data, callbacks)
         latest_only = data.latest_only == true,
         scroll_offset = data.scroll_offset,
         focus_row = data.focus_row,
+        title_text = data.title_text,
+        tab_text = data.tab_text,
+        empty_text = data.empty_text,
+        incomplete_text = data.incomplete_text,
+        limited_text = data.limited_text,
     }
     UIManager:show(view)
     return view

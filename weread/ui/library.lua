@@ -1414,7 +1414,8 @@ function M:showBookMenu(book)
     return view
 end
 
-function M:showBookReviewDetail(book, review, mode)
+function M:showBookReviewDetail(book, review, mode, options)
+    options = options or {}
     local author = review.author ~= "" and review.author or _("Anonymous")
     local metadata = {}
     if review.rating > 0 then
@@ -1439,12 +1440,17 @@ function M:showBookReviewDetail(book, review, mode)
     text[#text + 1] = ""
     text[#text + 1] = review.content ~= "" and review.content or _("No review content.")
 
-    UIManager:show(TextViewer:new{
+    local viewer = TextViewer:new{
         title = mode == "latest" and _("Latest review") or _("Recommended review"),
         text = table.concat(text, "\n"),
         text_type = "general",
         auto_para_direction = true,
-    })
+        buttons_table = options.on_replies and {{{text = _("View replies"), callback = options.on_replies}}} or nil,
+        add_default_buttons = options.on_replies and true or nil,
+        close_callback = options.on_close,
+    }
+    UIManager:show(viewer)
+    return viewer
 end
 
 function M:showBookReviews(book)
