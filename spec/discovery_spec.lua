@@ -28,6 +28,11 @@ expect(#Data.page("similar", { booksimilar = { books = {} } }, 0).books == 0, "e
 local books = { { bookId = "a", readUpdateTime = 10 }, { bookId = "b", readUpdateTime = 20 }, { bookId = "c" } }
 expect(Data.recent(books)[1].bookId == "b" and books[1].bookId == "a", "recent sort mutated shelf order")
 expect(#Data.recent(books) == 2, "unread books included in recent reading")
+local broken_recent=Data.recent({{bookId='good',readUpdateTime='20'},
+    {bookId='bad',readUpdateTime=253402300800}},
+    {['900008']={book_id='900008',recent_read_at=253402300800,recent_read_account='a'}},'a')
+expect(#broken_recent==1 and broken_recent[1].bookId=='good',
+    'out-of-range cloud or local timestamps polluted recent reading')
 local saved_reading = { c = { recent_read_at = 30, recent_read_account = "a" } }
 expect(Data.recent(books, saved_reading, "a")[1].bookId == "c", "offline reading missing from home")
 expect(#Data.recent(books, saved_reading, "b") == 2, "local reading leaked across accounts")

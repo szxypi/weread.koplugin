@@ -341,6 +341,17 @@ expect(cover_view._item_rows[1]._has_private_badge == true
 expect(cover_view._item_rows[1]._pinned_badge~=nil and cover_view._item_rows[2]._pinned_badge==nil,'cover pinned badge did not follow explicit state')
 local status=cover_view:itemStatus(books[1])
 expect(status:find('Pinned',1,true) and status:find('Private',1,true) and status:find('Done',1,true),'list status omitted pin/private/completion labels')
+local valid_date=os.date('%Y-%m-%d',1700000000)
+expect(cover_view:itemStatus({readUpdateTime='1700000000'})==valid_date,'numeric string date was lost')
+for _,value in ipairs({'bad',true,{},-1,math.huge,0/0,253402300800}) do
+    expect(cover_view:itemStatus({readUpdateTime=value})=='','invalid cached date broke list status')
+end
+expect(cover_view:itemStatus({readUpdateTime='bad',_shelf_progress=27})=='27%',
+    'invalid date hid a verified reading percentage')
+local original_date=os.date
+rawset(os,'date',function() error('date unavailable') end)
+expect(cover_view:itemStatus({readUpdateTime=1700000000})=='','unsupported device date broke list status')
+rawset(os,'date',original_date)
 
 -- Plain Widget wrappers must release their owned content on CloseWidget,
 -- without consuming the event before sibling cards can be closed.

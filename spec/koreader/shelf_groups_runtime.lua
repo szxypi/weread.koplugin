@@ -139,6 +139,25 @@ shelf_options.sort_order='name_desc';plugin.settings:set('shelf',shelf_options)
 plugin:showShelfView('books',nil,tied_view,{page=1});tied_view=plugin.shelf_view
 for index,book in ipairs(expected) do assert(tied_view.books[index]==book,'equal title changed shelf order') end
 UI:forceRePaint()
+-- Old or malformed cached timestamps must not stop list rendering or promote
+-- an out-of-range value to the top of the shelf.
+local dated={
+    {bookId='SYN-DATE-BAD',title='无效日期',readUpdateTime='bad'},
+    {bookId='SYN-DATE-VALID',title='有效日期',readUpdateTime='1700000000'},
+    {bookId='SYN-DATE-BOOL',title='错误类型',readUpdateTime=true},
+    {bookId='SYN-DATE-LARGE',title='超大日期',readUpdateTime=253402300800},
+}
+assert(plugin.library_db:cacheShelf(dated,{}))
+local dated_cached=assert(plugin.library_db:getShelf())
+assert(#dated_cached==4 and dated_cached[2].readUpdateTime=='1700000000')
+local time_options=plugin.settings:get('shelf');time_options.view_mode='list';time_options.sort_order='time_desc'
+plugin.settings:set('shelf',time_options);plugin:applyShelfSnapshot(dated_cached,{})
+plugin:showShelfView('books');local time_view=assert(plugin.shelf_view)
+assert(time_view.books[1].bookId=='SYN-DATE-VALID')
+assert(time_view:itemStatus(time_view.books[1])==os.date('%Y-%m-%d',1700000000))
+for index=2,4 do assert(time_view:itemStatus(time_view.books[index])=='') end
+UI:forceRePaint()
+assert(plugin.library_db:cacheShelf(books,archives))
 reset();local view=plugin.shelf_view;view:showOptions();local old=assert(view._shelf_popup)
 local old_choice=old.buttons[1][1].callback
 view:showSourceMenu();local replacement=assert(view._shelf_popup)
@@ -273,7 +292,7 @@ if mode=='live' then
 end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
-report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.home_refresh_cases=home_refresh_cases
+report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
 report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

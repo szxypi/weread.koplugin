@@ -2,6 +2,7 @@
 -- Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only; see NOTICE.
 local M = { PAGE_SIZE = 20, CACHE_TTL = 15 * 60 }
 local Access = require('weread.lib.read_access')
+local ShelfTime = require('weread.lib.shelf_time')
 
 local function number(value)
     local n = tonumber(value)
@@ -13,8 +14,8 @@ local function text(value)
 end
 
 local function recent_event(book)
-    if book.home_recent_account~=nil then return book.home_recent_account,number(book.home_recent_at) end
-    return book.recent_read_account,number(book.recent_read_at)
+    if book.home_recent_account~=nil then return book.home_recent_account,ShelfTime.value(book.home_recent_at) end
+    return book.recent_read_account,ShelfTime.value(book.recent_read_at)
 end
 
 function M.book(row)
@@ -126,7 +127,7 @@ function M.recent(books, saved, account, limit)
                 and (local_book.book_id==nil or text(local_book.book_id)==id)
                 and (local_book.bookId==nil or text(local_book.bookId)==id)
             local local_time=owned and (event_time or 0) or 0
-            local recent_time=math.max(number(book.readUpdateTime) or 0,local_time)
+            local recent_time=math.max(ShelfTime.value(book.readUpdateTime) or 0,local_time)
             if recent_time>0 then
                 local copy={};for key,value in pairs(book) do copy[key]=value end
                 copy._recent_time=recent_time;result[#result+1]=copy

@@ -29,6 +29,7 @@ local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
 local ShelfFlags = require("weread.lib.shelf_flags")
 local ShelfGroups = require("weread.lib.shelf_groups")
+local ShelfTime = require("weread.lib.shelf_time")
 local CoverLayout = require("weread.lib.cover_layout")
 local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
@@ -1092,13 +1093,13 @@ end
 
 function LibraryView:itemStatus(book)
     if self.mode == "public_account" then return book.author or "" end
-    local status = ""
+    local status
     if is_finished(book) then
         status = _("Done")
     elseif type(book._shelf_progress) == "number" then
         status = tostring(book._shelf_progress) .. "%"
-    elseif book.readUpdateTime and book.readUpdateTime > 0 then
-        status = os.date("%Y-%m-%d", book.readUpdateTime)
+    else
+        status = ShelfTime.date(book.readUpdateTime) or ""
     end
     local parts={}
     if ShelfFlags.display(book,'pinned')==true then parts[#parts+1]=_('Pinned') end

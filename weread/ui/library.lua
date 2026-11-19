@@ -7,6 +7,7 @@ local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfFlags = require("weread.lib.shelf_flags")
 local ShelfSearch = require("weread.lib.shelf_search")
+local ShelfTime = require("weread.lib.shelf_time")
 local VolatileShelf = require("weread.lib.volatile_shelf")
 local InputDialog = require("ui/widget/inputdialog")
 local logger = require("weread.lib.logger")
@@ -1006,8 +1007,7 @@ sortBooks = function(books, sort_order)
     for i, book in ipairs(books) do
         local value
         if by_time then
-            value = tonumber(book.readUpdateTime)
-            if not value or value ~= value or value == math.huge or value == -math.huge then value = 0 end
+            value = ShelfTime.value(book.readUpdateTime) or 0
         else
             value = type(book.title) == "string" and book.title or ""
         end
@@ -1047,10 +1047,8 @@ function M:showShelfPage()
                 local right_text
                 if ShelfFlags.display(book,'finished')==true then
                     right_text = _("Done")
-                elseif book.readUpdateTime and book.readUpdateTime > 0 then
-                    right_text = os.date("%Y-%m-%d", book.readUpdateTime)
                 else
-                    right_text = ""
+                    right_text = ShelfTime.date(book.readUpdateTime) or ""
                 end
                 local labels={}
                 if ShelfFlags.display(book,'pinned')==true then labels[#labels+1]=_('Pinned') end

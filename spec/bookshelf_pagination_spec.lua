@@ -634,14 +634,22 @@ local mixed={
     {bookId='a',title='A',readUpdateTime=40}, {bookId='b',title='B',readUpdateTime=10},
     {bookId='c',title='C',readUpdateTime=40}, {bookId='d',title='D'},
     {bookId='e',title='E',readUpdateTime='12'}, {bookId='f',title='F',readUpdateTime='bad'},
-    {bookId='g',title='G',readUpdateTime=math.huge},
+    {bookId='g',title='G',readUpdateTime=math.huge}, {bookId='h',title='H',readUpdateTime=253402300800},
 }
 host.shelf_regular=mixed
-for _,case in ipairs({{'time_desc',{'a','c','e','b','d','f','g'}},
-                      {'time_asc',{'d','f','g','b','e','a','c'}}}) do
+for _,case in ipairs({{'time_desc',{'a','c','e','b','d','f','g','h'}},
+                      {'time_asc',{'d','f','g','h','b','e','a','c'}}}) do
     shelf_settings.sort_order=case[1];host:showShelfView('books')
     for index,id in ipairs(case[2]) do
         expect(shown[#shown].data.books[index].bookId==id,'mixed time sort changed ordering or rejected an old value')
     end
 end
+local legacy_items
+host.shelf_books=mixed;host.shelfToolbarItems=function() return {} end
+host.showList=function(_self,_title,items) legacy_items=items;return {} end
+shelf_settings.sort_order='time_desc';host:showShelfPage()
+expect(#legacy_items==8 and legacy_items[3].text=='E'
+    and legacy_items[3].mandatory==os.date('%Y-%m-%d',12),
+    'legacy shelf failed to render a numeric-string timestamp')
+for index=5,8 do expect(legacy_items[index].mandatory=='','legacy shelf displayed an invalid date') end
 print(("bookshelf_pagination_spec: %d checks"):format(checks))
