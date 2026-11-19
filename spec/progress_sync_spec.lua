@@ -350,6 +350,31 @@ test('CB upload confirmation preserves a newer page reached during the send',fun
     eq(f.sync.source_local_anchor.chapter_offset,150,'confirmation changed the uploaded source anchor')
 end)
 
+test('CB confirmation retains a newer native page at the same cloud coordinate',function()
+    local f=cb_manual_fixture();local id=f.source.book_id;local send=f.sync.upload_position
+    f.document.page=2500;f.document.getPageCount=function() return 10000 end
+    f.document.getXPointer=function(self) return '/body/p.'..self.page end
+    f.document.getCurrentPos=function(self) return self.page-1 end
+    f.document.getDocumentRenderingHash=function() return 12345 end
+    f.document.info={doc_height=10000};f.sync.get_viewport_height=function() return 800 end
+    f.sync.upload_position=function(...)
+        local accepted,outcome=send(...)
+        f.document.page=2501;f.sync:on_page_update()
+        return accepted,outcome
+    end
+    eq(f.sync:sync_now(),true);f.drain();f.choices[1].keep_local()
+    local pos={book_id=id,chapter_uid='22',chapter_idx=2,chapter_offset=150,percent=f.intent.percent,summary='synthetic source'}
+    local sent_source={};for key,value in pairs(f.source) do sent_source[key]=value end
+    f.ready({position=pos,source_position=sent_source,basis='filtered_xhtml_utf16',transport='cb_web_position',is_current=function() return true end})
+    local saved=f.values.books[id]
+    eq(saved.last_local_position.fraction,0.2501,'newer native location was not saved')
+    eq(saved.pending_upload_position and saved.pending_upload_position.fraction,0.2501,'newer native location is not pending')
+    eq(saved.last_local_position.source_view.view.xpointer,'/body/p.2501','newer source-bound viewport was not saved')
+    eq(f.sync.local_position.fraction,0.2501,'verification restored the old native location')
+    eq(f.sync.dirty,true,'newer native location was treated as synchronized')
+    eq(f.sync.source_local_anchor.chapter_offset,150,'confirmed source anchor changed')
+end)
+
 test('manual CB TXT sync journals its raw source and retains guarded time eligibility',function()
     local f=cb_manual_fixture();local id=f.source.book_id;f.source.basis='raw_txt_utf16'
     f.sync:sync_now();f.drain();eq(#f.choices,1);f.choices[1].keep_local()
@@ -1398,6 +1423,72 @@ test("upload acknowledgement durably checkpoints movement during the request", f
     eq(saved.pending_upload_account, f.sync:_account_key(), "pending page belongs to the current account")
     eq(acknowledged.pending_upload_position.percent, 75, "acknowledgement and new pending page are committed together")
     eq(f.sync.dirty, true, "new local page remains dirty")
+end)
+
+test("upload acknowledgement keeps a newer page with the same rounded cloud coordinate", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.document.page = 2500
+    f.document.getPageCount = function() return 10000 end
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page = 2501
+    f.sync:on_page_update()
+    local newer = assert(f.sync:capture_local())
+    eq(require('weread.lib.progress_readback').same_wire_position(first,newer),true,'fixture cloud coordinates differ')
+    callbacks[1]()
+    local saved = f.values.books.book
+    eq(saved.last_local_position.fraction, 0.2501, "new page local fraction was not saved")
+    eq(saved.pending_upload_position and saved.pending_upload_position.fraction, 0.2501, "new page was not kept pending")
+    eq(f.sync.local_position.fraction, 0.2501, "new in-memory page was replaced")
+    eq(f.sync.dirty, true, "new page was treated as synchronized")
+end)
+
+test("reflow that keeps the original text visible does not invent movement", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.document.page, f.document.pages = 25, 100
+    f.document.getPageCount = function(self) return self.pages end
+    f.document.getXPointer = function() return 'same-visible-text' end
+    f.document.isXPointerInCurrentPage = function() return true end
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page, f.document.pages = 50, 200
+    f.sync:on_page_update()
+    callbacks[1]()
+    eq(f.values.books.book.pending_upload_position,nil,'reflow invented a pending upload')
+    eq(f.sync.dirty,false,'reflow marked the unchanged text dirty')
+end)
+
+test("reflow with the original text no longer visible keeps the new page pending", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.document.page, f.document.pages = 25, 100
+    f.document.getPageCount = function(self) return self.pages end
+    f.document.getXPointer = function(self) return self.page == 25 and 'old-text' or 'different-text' end
+    f.document.isXPointerInCurrentPage = function() return false end
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page, f.document.pages = 50, 200
+    f.sync:on_page_update()
+    callbacks[1]()
+    eq(f.values.books.book.pending_upload_position~=nil,true,'movement during reflow was dropped')
+    eq(f.sync.dirty,true,'movement during reflow was marked synchronized')
 end)
 
 test("upload acknowledgement does not replace another pending intent", function()

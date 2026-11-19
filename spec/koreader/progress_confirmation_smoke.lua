@@ -90,6 +90,55 @@ return function(reader, plugin, pump, shot, clean_popups)
     assert(reopened.pending_upload_account == plugin.progress_sync:_account_key()
         and plugin.progress_sync.dirty, "newer page lost its pending owner or dirty state")
     cases[#cases + 1] = { mode = "movement_during_confirmation", report_posts = 1, result = "PASS" }
+    -- Exercise the actual native viewport and SQLite with a deliberately
+    -- rounded synthetic coordinate and a no-network confirmation callback.
+    local original = assert(plugin.settings:get_book(book_id))
+    local state_fields = { "last_local_position", "last_local_account", "pending_upload_position",
+        "pending_upload_reason", "pending_upload_account", "last_uploaded_position", "last_upload_at",
+        "last_sync_error", "last_remote_position", "unindexed_resume", "cb_cloud_view_resume" }
+    local restore = {}
+    for _i, field in ipairs(state_fields) do
+        if original[field] == nil then restore[field] = false else restore[field] = original[field] end
+    end
+    local actual = plugin.progress_sync
+    local callback, fixed
+    local fake = require("weread.lib.progress_sync"):new{
+        settings = plugin.settings, client = {}, scheduler = { scheduleIn = function() end },
+        get_document = function() return reader.document end,
+        detect_book = function() return book_id end,
+        get_book = function(id) return plugin.settings:get_book(id) end,
+        get_chapters = function() return {} end, get_file_context = function() end,
+        get_view_mode = actual.get_view_mode, get_viewport_height = actual.get_viewport_height,
+        run_online = function(_kind, cb) callback = cb; return true end,
+        upload_position = function() return true, { acknowledged = true, position_confirmed = true } end,
+        goto_fraction = function() return true end, open_chapter = function() return true end,
+    }
+    function fake:capture_local()
+        local value = assert(actual:capture_local())
+        if not fixed then
+            fixed = { chapter_uid = value.chapter_uid, chapter_idx = value.chapter_idx,
+                chapter_offset = value.chapter_offset, percent = value.percent }
+        end
+        for key, v in pairs(fixed) do value[key] = v end
+        value.source_position, value.source_view = nil, nil
+        return value
+    end
+    fake.current_book_id, fake.verified = book_id, true
+    local first = assert(fake:capture_local());fake.local_position = first
+    assert(fake:_upload_snapshot(first, 'synthetic_rounded_position', false))
+    reader.rolling:onGotoPage(reader:getCurrentPage() == 1 and reader.document:getPageCount() or 1)
+    fake:on_page_update()
+    local newer = assert(fake:capture_local())
+    assert(newer.fraction ~= first.fraction and require('weread.lib.progress_readback').same_wire_position(first, newer),
+        'synthetic native positions did not share a rounded coordinate')
+    assert(callback);callback()
+    local disk = assert(require("weread.lib.settings"):new():get_book(book_id))
+    assert(math.abs(disk.last_local_position.fraction - newer.fraction) < 1e-12
+        and disk.pending_upload_position and math.abs(disk.pending_upload_position.fraction - newer.fraction) < 1e-12
+        and fake.dirty, 'same-coordinate page was not preserved on disk')
+    assert(plugin.settings:patch_reading_state(book_id, restore))
+    assert(writes() == before + 1, 'synthetic rounded-position check sent a network write')
+    cases[#cases + 1] = { mode = "same_rounded_coordinate", report_posts = 0, result = "PASS" }
     local out = assert(io.open(assert(os.getenv("WEREAD_EVIDENCE")) .. "/progress-confirmation-result.json", "wb"))
     out:write(Json.encode{ result = "PASS", synthetic_only = true, account_data_writes_attempted = 0,
         cases = cases, automatic_write_retries = 0, authorization_posts = 0, native_location_preserved = true,

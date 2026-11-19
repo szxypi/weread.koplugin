@@ -973,6 +973,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
     scope.book_id = book_id
     if not scope.account then return false end
     local start_live = self:_session_current(scope) and (self:capture_local() or self.local_position or position) or nil
+    local start_view = start_live and self:_viewport(self.get_document()) or nil
     self:_persist(book_id, {
         last_local_position = position,
         pending_upload_position = position,
@@ -1069,6 +1070,19 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             local moved = active and live and start_live and not (job.plan
                 and ProgressReadback.same_intent(live, start_live)
                 or not job.plan and ProgressReadback.same_wire_position(live, start_live))
+            if active and live and start_view then
+                local document = self.get_document()
+                local view = self:_viewport(document)
+                if view and not ReaderPosition.same_view(start_view, view) then
+                    -- Different pages can round to the same server position.
+                    -- Repagination alone is not movement if the original text
+                    -- remains visible in the new layout.
+                    if not ReaderPosition.layout_changed(start_view, view)
+                        or start_view.xpointer and not ReaderPosition.contains_anchor(document, view, start_view.xpointer) then
+                        moved = true
+                    end
+                end
+            end
             local uploaded=copy(job.plan and job.plan.position or position)
             if job.plan then
                 uploaded.summary=nil
@@ -1121,14 +1135,14 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                     self.verified,self.verified_at,self.verified_reason=true,patch.verified_at,'first_sync_confirmed'
                     self.source_local_anchor=copy(position.source_position)
                 end
-                self.dirty = not unchanged or not clear_pending
+                self.dirty = moved or not unchanged or not clear_pending
                 if moved then self.local_position = copy(live) end
                 self.last_uploaded_position = copy(position)
                 if type(patch.last_remote_position)=='table' then self.remote_position=copy(patch.last_remote_position) end
                 if cb_authorized then
                     if cb_first then
                         local marked=pcall(self._mark_verified,self,book_id,'cb_upload_confirmed',position,self.remote_position,
-                            not unchanged and live or nil)
+                            (moved or not unchanged) and live or nil)
                         if not marked or not self.verified then
                             self.interval:halt();self.verified,self.verified_at,self.verified_reason=false,nil,'local_save_failed'
                             self.dirty,self.state=true,'error'
@@ -1136,8 +1150,8 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                             return
                         end
                     else self:_mark_verified(book_id,'cb_upload_confirmed',position,self.remote_position,
-                        not unchanged and live or nil) end
-                    if not unchanged and live then
+                        (moved or not unchanged) and live or nil) end
+                    if (moved or not unchanged) and live then
                         -- A reader may turn the page while the request is in
                         -- flight. The confirmed anchor is old, but the local
                         -- resume point must remain the newer one.
