@@ -47,10 +47,12 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--koreader',type=Path,required=True)
     p.add_argument('--run-dir',type=Path,required=True);p.add_argument('--width',type=int,default=600)
     p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
-    p.add_argument('--case',choices=('normal','no-create','no-delete','host-mismatch','orchestrated','short-source'),default='normal');p.add_argument('--txt',action='store_true');p.add_argument('--start',action='store_true');p.add_argument('--padded',action='store_true');args=p.parse_args()
+    p.add_argument('--case',choices=('normal','no-create','no-delete','host-mismatch','orchestrated','short-source'),default='normal');p.add_argument('--txt',action='store_true');p.add_argument('--start',action='store_true');p.add_argument('--padded',action='store_true');p.add_argument('--cross-channel',action='store_true');p.add_argument('--web-mismatch',action='store_true');args=p.parse_args()
     if args.txt and args.case=='short-source':p.error('short-source fixture is XHTML')
     if args.start and not args.txt:p.error('start fixture is TXT')
     if args.padded and (not args.txt or args.start):p.error('padded fixture requires TXT and no start option')
+    if args.cross_channel and (not args.padded or args.case!='orchestrated') or args.web_mismatch and not args.cross_channel:
+        p.error('cross-channel fixture requires orchestrated padded TXT')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);candidate=root/'candidate.zip'
     subprocess.run(['bash','scripts/package_release.sh',str(candidate)],check=True,capture_output=True)
     profiles=set(Path('/dev/shm').glob('weread-cb-bookmark-*'))
@@ -112,12 +114,30 @@ def main():
                 options=dict(source_format='web_txt',source_marker=TEXT,prepare_fn=prepare_txt,point_fn=txt_point,
                              upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED',allow_zero_version=True)
             else:options={}
+            observations=[]
+            if args.cross_channel:
+                from verify_cb_txt_bookmark_cross_channel import observe_web
+                class Web:
+                    def __init__(self,_book):pass
+                    def set_cookie(self,*_args):pass
+                    def verify_account(self):pass
+                    def close(self):pass
+                    def request(self,_stage,_url):
+                        rows=deepcopy(list(server.selection_marks.values()))
+                        if args.web_mismatch and rows:rows[0]['range']='47'
+                        return dict(updated=rows)
+                def ui(*a,armed=False,**kw):
+                    def created(payload,body,target):observations.append(observe_web(payload,body,target,factory=Web))
+                    return run_ui(*a,armed=armed,on_created=created if armed else None,**kw)
+                options['ui_runner']=ui
             with patch('verify_cb_fixture_bookmark_native.save_refreshed_web_session',return_value=False):
                 result=run(dict(vid='900000',cookies={'wr_vid':'900000','wr_skey':'mock_key'}),None,NativeStore(),grant,journal,intent,
                     command,apply=True,uploader=uploader,upload_factory=lambda *_:None,source_factory=Source,
                     observer_factory=lambda book,creds,authority,store:Observer(book,creds,authority,store,opener=Opener(server)),**options)
             assert result['result']=='CB_NATIVE_BOOKMARK_VERIFIED' and not journal.imported,result
             assert result['native_writes']==2 and server.bookmark_posts==2 and intent.read()==(None,None)
+            if args.cross_channel:
+                assert len(observations)==1 and observations[0]['stable'] and observations[0]['range_matches']==(not args.web_mismatch)
             print(json.dumps(dict(result='PASS',case=args.case,width=args.width,height=args.height,
                                   dry_blocked=True,mock_writes=2,no_replay=True)))
             return

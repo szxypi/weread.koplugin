@@ -59,8 +59,9 @@ class Observer(ScopedNative):
         return super().request(stage,url,body,credentials,timeout)
 
 
-def run_ui(command,payload,plan,body,baseline,intent,authority,read,*,armed=False):
-    if type(armed) is not bool or not command or any(not isinstance(v,str) or not v for v in command):
+def run_ui(command,payload,plan,body,baseline,intent,authority,read,*,armed=False,on_created=None):
+    if (type(armed) is not bool or not command or any(not isinstance(v,str) or not v for v in command)
+            or on_created is not None and not callable(on_created)):
         raise ValueError('cb_native_bookmark/command')
     if intent.read()!=(None,None) or not authority() or read()!=baseline:raise ValueError('cb_native_bookmark/preflight')
     value=dict(payload,armed=armed,token=secrets.token_hex(16));receipt=intent.reserve(plan) if armed else None
@@ -86,6 +87,10 @@ def run_ui(command,payload,plan,body,baseline,intent,authority,read,*,armed=Fals
                 if not target or target['id']!=event['created_id']:raise ValueError('cb_native_bookmark/target')
                 receipt=intent.advance(receipt,'created',target=target)
                 if observe(baseline,read(),body,target=target)!=target:raise ValueError('cb_native_bookmark/target')
+                if on_created:
+                    on_created(payload,body,target)
+                    if not authority() or observe(baseline,read(),body,target=target)!=target:
+                        raise ValueError('cb_native_bookmark/target')
                 receipt=intent.advance(receipt,'delete_pending')
             else:
                 if state['phase']!='delete_pending' or state['target']!=target or event['created_id']!=target['id']:

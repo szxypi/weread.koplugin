@@ -72,6 +72,36 @@ class TestNativeFixture(unittest.TestCase):
         self.assertEqual(intent.read()[0]['phase'],'create_pending')
         self.assertIn('synthetic-new',state['marks']['updated'])
 
+    def test_created_hook_is_guarded_before_deletion_and_not_called_during_dry_run(self):
+        _,baseline,plan,body=fixture();intent=Intent(Backend());state=deepcopy(baseline);seen=[]
+        process=SimpleNamespace(stdin=io.BytesIO(),stdout=io.BytesIO(),wait=lambda **_kwargs:0)
+        def hook(payload,actual,target):
+            self.assertEqual(payload,{'synthetic':True});self.assertEqual(actual,body)
+            self.assertEqual(target['id'],'synthetic-new');self.assertEqual(intent.read()[0]['phase'],'created')
+            seen.append(True)
+        with patch('verify_cb_fixture_bookmark_native.subprocess.Popen',return_value=process), \
+             patch('verify_cb_fixture_bookmark_native.Frames',side_effect=lambda *_args,**_kwargs:FakeFrames(body,state,False)), \
+             patch('verify_cb_fixture_bookmark_native.stop'):
+            run_ui(['synthetic'],{'synthetic':True},plan,body,baseline,intent,lambda:True,lambda:deepcopy(state),armed=False,on_created=hook)
+        self.assertEqual(seen,[])
+        process.stdin=io.BytesIO()
+        with patch('verify_cb_fixture_bookmark_native.subprocess.Popen',return_value=process), \
+             patch('verify_cb_fixture_bookmark_native.Frames',side_effect=lambda *_args,**_kwargs:FakeFrames(body,state,True)), \
+             patch('verify_cb_fixture_bookmark_native.stop'):
+            run_ui(['synthetic'],{'synthetic':True},plan,body,baseline,intent,lambda:True,lambda:deepcopy(state),armed=True,on_created=hook)
+        self.assertEqual(seen,[True]);self.assertEqual(intent.read(),(None,None));self.assertEqual(state,baseline)
+
+    def test_changed_record_during_hook_stops_before_deletion(self):
+        _,baseline,plan,body=fixture();intent=Intent(Backend());state=deepcopy(baseline)
+        process=SimpleNamespace(stdin=io.BytesIO(),stdout=io.BytesIO(),wait=lambda **_kwargs:0)
+        def change(_payload,_body,_target):state['marks']['updated']['synthetic-new']['range']='999'
+        with patch('verify_cb_fixture_bookmark_native.subprocess.Popen',return_value=process), \
+             patch('verify_cb_fixture_bookmark_native.Frames',return_value=FakeFrames(body,state,True)), \
+             patch('verify_cb_fixture_bookmark_native.stop'):
+            with self.assertRaises(ValueError):
+                run_ui(['synthetic'],{},plan,body,baseline,intent,lambda:True,lambda:deepcopy(state),armed=True,on_created=change)
+        self.assertEqual(intent.read()[0]['phase'],'created');self.assertIn('synthetic-new',state['marks']['updated'])
+
     def test_runner_failure_reports_only_bounded_stage(self):
         _,baseline,plan,body=fixture();intent=Intent(Backend())
         process=SimpleNamespace(stdin=io.BytesIO(),stdout=io.BytesIO(),wait=lambda **_kwargs:1)
