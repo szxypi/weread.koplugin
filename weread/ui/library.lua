@@ -408,7 +408,7 @@ function M:refreshBookshelf(old_view, view_options)
         local archives = type(result) == "table" and type(result.archive) == "table" and result.archive or {}
         local snapshot_saved=not groups_incomplete and self.library_db~=nil and self.library_db:cacheShelf(all_books, archives)==true
         if snapshot_saved then UIManager:nextTick(function()
-            if still_current() then require('weread.ui.finish_offline').pump(self) end
+            if still_current() then require('weread.ui.finish_offline').pump(self,true) end
         end) end
         self.shelf_active_source = type(result) == "table" and result._shelf_source or "gateway"
         if type(result) == "table" and result._native_fallback then

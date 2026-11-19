@@ -21,9 +21,14 @@ function M:pump()
     if pending or reason then return false end
     local job={entry=entry};self.job=job
     local function current() return self.job==job and self.allowed() end
-    local started=self.service:prepare(entry.book_id,current,function(plan)
+    local started,start_reason=self.service:prepare(entry.book_id,current,function(plan,why)
         if not current() then self:cancel();return end
-        if not plan then self.job=nil;if self.notify then self.notify('unavailable',entry) end;return end
+        if not plan then
+            self.job=nil
+            local phase=why=='temporary' and 'retryable' or (why=='login' or why=='rate_limited') and why or 'unavailable'
+            if self.notify then self.notify(phase,entry) end
+            return
+        end
         local metadata=plan.metadata
         if not metadata or metadata.book_id~=entry.book_id or metadata.desired~=entry.desired
             or not self.service:preview_current(plan) then self:cancel();return end
@@ -44,7 +49,12 @@ function M:pump()
             if finished and type(result)=='table' and (result.kind=='confirmed' or result.kind=='noop') then
                 if self.queue:remove(claim) then phase='confirmed' end
             elseif finished and type(result)=='table' and result.attempted==false then
-                if self.queue:release_unsent(claim) then phase='deferred' end
+                local released=self.queue:release_unsent(claim)
+                if released then
+                    claim=released
+                    phase=result.kind=='temporary' and 'retryable'
+                        or (result.kind=='login' or result.kind=='rate_limited') and result.kind or 'deferred'
+                end
             end
             if self.notify then self.notify(phase,claim) end
         end)
@@ -55,7 +65,11 @@ function M:pump()
             if self.notify then self.notify('unconfirmed',claim) end
         end
     end,false,entry.desired)
-    if not started then self.job=nil;return false end
+    if not started then
+        self.job=nil
+        if self.notify and (start_reason=='login' or start_reason=='rate_limited') then self.notify(start_reason,entry) end
+        return false
+    end
     return true
 end
 return M

@@ -47,9 +47,15 @@ for _i,kind in ipairs({'member','other_mark','private','position'}) do
     f=fixture({shelf(0),progress(),{},after,point});result=f.run()
     expect(result.kind=='unconfirmed' and #f.requests==5 and f.posts==1 and f.phase=='pending','unrelated change accepted or automatically restored')
 end
-for _i,status in ipairs({401,403,429}) do
+for _i,status in ipairs({401,403,429,500,502,503,504}) do
     f=fixture({{status=status}});result=f.run()
-    expect(not result.attempted and result.kind==(status==401 and 'login' or 'unavailable') and f.posts==0,'failed preflight dispatched')
+    local kind=status==401 and 'login' or status==429 and 'rate_limited' or status>=500 and 'temporary' or 'unavailable'
+    expect(not result.attempted and result.kind==kind and f.posts==0,'failed preflight dispatched')
+end
+f=fixture({shelf(0),{status=503}});result=f.run()
+expect(not result.attempted and result.kind=='temporary' and f.posts==0,'temporary position read was not classified')
+for _,reason in ipairs({'native_auth/finish_write/http_503','native_auth/shelf/http_501','unexpected',false}) do
+    expect(Task.read_error(reason)=='unavailable','unknown or post-write failure was classified as retryable')
 end
 f=fixture({shelf(1),progress()});result=f.run()
 expect(result.kind=='changed' and not result.attempted and f.posts==0,'state changed after confirmation dispatched')

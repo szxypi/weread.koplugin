@@ -1,0 +1,14 @@
+{
+  "result": "UNVERIFIED",
+  "phase": "prepare",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "no_automatic_replay": true,
+  "intent_state": "absent",
+  "host_stages": [
+    {
+      "stage": "finish_shelf",
+      "status": 401
+    }
+  ]
+}

@@ -71,9 +71,46 @@ function M.refresh_view(host,id)
     view._finish_dirty=view._finish_dirty or {};view._finish_dirty[id]=true
     M.flush_view(host)
 end
+local function clear_retry(host)
+    local retry=host._finish_offline_retry;host._finish_offline_retry=nil
+    if retry and retry.timer then UI:unschedule(retry.timer) end
+end
 function M.cancel_sync(host)
+    clear_retry(host)
     if host._finish_offline_sync then host._finish_offline_sync:cancel() end
     host._finish_offline_sync=nil;host._finish_offline_account=nil
+end
+local function retry_later(host,account,entry)
+    if type(entry)~='table' or entry.phase~='queued' or type(entry.id)~='string' then return end
+    local retry=host._finish_offline_retry
+    if not retry or retry.account~=account or retry.id~=entry.id or retry.book_id~=entry.book_id then
+        clear_retry(host)
+        retry={account=account,id=entry.id,book_id=entry.book_id,attempts=0}
+        host._finish_offline_retry=retry
+    end
+    if retry.timer then return end
+    if retry.attempts>=2 then
+        if not retry.notified and host.showTransientInfo then
+            retry.notified=true;host:showTransientInfo(_('Offline finished mark could not sync. Refresh the bookshelf to try again.'),5)
+        end
+        return
+    end
+    retry.attempts=retry.attempts+1
+    local timer
+    timer=function()
+        if host._finish_offline_retry~=retry or retry.timer~=timer then return end
+        retry.timer=nil
+        if host.library_db:accountKey()~=account then clear_retry(host);return end
+        local current,err=queue(host):get(entry.book_id)
+        if err or not current or current.id~=entry.id or current.phase~='queued' then
+            clear_retry(host)
+            if not err then M.pump(host) end
+            return
+        end
+        M.pump(host)
+    end
+    retry.timer=timer
+    UI:scheduleIn(retry.attempts==1 and 30 or 60,timer)
 end
 local function allowed(host,account)
     if not account or host.library_db:accountKey()~=account or not host:isNetworkConnected()
@@ -86,11 +123,16 @@ local function allowed(host,account)
     end
     return true
 end
-function M.pump(host)
+function M.pump(host,force)
     if not host.library_db or not host.library_db.open or not host.client then return false end
     local account=host.library_db:accountKey()
     if host._finish_offline_sync and host._finish_offline_account~=account then M.cancel_sync(host) end
     if not allowed(host,account) then return false end
+    local retry=host._finish_offline_retry
+    if retry and retry.timer then
+        if force~=true then return false end
+        UI:unschedule(retry.timer);retry.timer=nil
+    end
     if not host._finish_offline_sync then
         host._finish_offline_account=account
         host._finish_offline_sync=require('weread.lib.finish_queue_sync'):new{
@@ -98,12 +140,19 @@ function M.pump(host)
             allowed=function() return allowed(host,account) end,
             notify=function(phase,entry)
                 if host._finish_offline_account~=account then return end
+                if phase=='confirmed' or phase=='unconfirmed' then clear_retry(host) end
                 if (phase=='confirmed' or phase=='unconfirmed') and entry then M.refresh_view(host,entry.book_id) end
                 if phase=='confirmed' then
                     if host.showTransientInfo then host:showTransientInfo(_('Offline finished mark synced.'),3) end
-                    UI:nextTick(function() M.pump(host) end)
+                    UI:nextTick(function() if host._finish_offline_account==account then M.pump(host) end end)
                 elseif phase=='unconfirmed' and host.showTransientInfo then
                     host:showTransientInfo(_('An offline finished mark needs review. It will not be sent again.'),5)
+                elseif phase=='retryable' then
+                    retry_later(host,account,entry)
+                elseif phase=='login' and host.showTransientInfo then
+                    host:showTransientInfo(_('Offline finished mark needs E-Ink authorization. Renew it, then refresh the bookshelf.'),5)
+                elseif phase=='rate_limited' and host.showTransientInfo then
+                    host:showTransientInfo(_('WeRead is limiting requests. Refresh the bookshelf later to retry the offline mark.'),5)
                 end
             end,
         }

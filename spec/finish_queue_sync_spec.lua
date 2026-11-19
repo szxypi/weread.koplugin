@@ -20,7 +20,8 @@ local function fixture()
     function service:pending() return state.pending,state.pending_error end
     function service:cancel() state.cancelled=(state.cancelled or 0)+1 end
     function service:prepare(id,guard,callback,resolving,desired)
-        state.guard,state.preview=guard,callback;state.request={id=id,resolving=resolving,desired=desired};return not state.prepare_failure
+        state.guard,state.preview=guard,callback;state.request={id=id,resolving=resolving,desired=desired}
+        return not state.prepare_failure,state.prepare_failure
     end
     function service:preview_current(plan) return state.plan==plan end
     function service:commit(_plan,callback) state.commit=callback;state.commit_count=(state.commit_count or 0)+1;return not state.commit_failure end
@@ -41,6 +42,20 @@ sync,s=fixture();sync:pump();s.prepared(true,true);s.commit({kind='noop',attempt
 expect(not s.entry and s.notifications[1]=='confirmed','already applied cloud target was resent or left queued')
 sync,s=fixture();sync:pump();s.prepared(false,true);s.commit({kind='changed',attempted=false},true)
 expect(s.entry.phase=='queued' and s.notifications[1]=='deferred','proven unsent operation did not remain queued')
+sync,s=fixture();sync:pump();s.preview(nil,'temporary')
+expect(s.entry.phase=='queued' and s.notifications[1]=='retryable' and not s.commit_count,'temporary preview was not retryable without dispatch')
+for _,reason in ipairs({'login','rate_limited','unavailable'}) do
+    sync,s=fixture();sync:pump();s.preview(nil,reason)
+    expect(s.notifications[1]==reason and s.entry.phase=='queued','non-transient preview scheduled retry: '..reason)
+end
+sync,s=fixture();sync:pump();s.prepared(false,true);s.commit({kind='temporary',attempted=false},true)
+expect(s.entry.phase=='queued' and s.notifications[1]=='retryable','proven-unsent temporary failure did not requeue')
+for _,reason in ipairs({'login','rate_limited'}) do
+    sync,s=fixture();sync:pump();s.prepared(false,true);s.commit({kind=reason,attempted=false},true)
+    expect(s.entry.phase=='queued' and s.notifications[1]==reason,'unsent failure lost user guidance: '..reason)
+end
+sync,s=fixture();sync:pump();s.prepared(false,true);s.commit({kind='temporary',attempted=true},true)
+expect(s.entry.phase=='dispatching' and s.notifications[1]=='unconfirmed','possibly sent write was queued again')
 sync,s=fixture();sync:pump();s.prepared(false,true);s.commit({kind='unconfirmed',attempted=true},false)
 expect(s.entry.phase=='dispatching' and s.notifications[1]=='unconfirmed' and not sync:pump(),'uncertain request was automatically replayed')
 sync,s=fixture();sync:pump();s.prepared(false,true);sync:cancel();s.commit({kind='confirmed',attempted=true},true)
@@ -49,6 +64,7 @@ sync,s=fixture();sync:pump();s.allowed=false;s.prepared(false,true)
 expect(s.entry.phase=='queued' and not s.commit_count,'account or network change dispatched stale plan')
 sync,s=fixture();s.pending=true;expect(not sync:pump() and not s.preview,'existing online write was ignored')
 sync,s=fixture();s.pending_error='storage';expect(not sync:pump() and not s.preview,'journal failure did not stop queue')
+sync,s=fixture();s.prepare_failure='login';expect(not sync:pump() and s.notifications[1]=='login','missing login failed silently')
 sync,s=fixture();s.entry.phase='dispatching';expect(not sync:pump(),'interrupted write was replayed on startup')
 sync,s=fixture();s.commit_failure=true;sync:pump();s.prepared(false,true)
 expect(s.entry.phase=='dispatching' and s.notifications[1]=='unconfirmed','failed startup was incorrectly retried')

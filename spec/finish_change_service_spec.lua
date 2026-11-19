@@ -21,12 +21,13 @@ local function fixture()
     local worker={start=function(_self,task,callback) f.starts=f.starts+1;if f.reject then return false end;f.task,f.callback=task,callback;return true end,
         cancel=function() f.cancelled=true end}
     Task.preview=function()
+        if f.preview_error then error(f.preview_error,0) end
         local plan=C.make(shelf(0),progress(),'41',true);plan.observed=observed(0);return plan
     end
     Task.inspect=function() return f.inspected or observed(0) end
     Task.run=function(_client,_settings,_selected,_input,record)
         expect(f.journal:owns(record,'prepared'),'no prepared record before worker')
-        if f.unsent then return {book_id='41',kind='changed',attempted=false,observed=observed(0)} end
+        if f.unsent then return {book_id='41',kind=type(f.unsent)=='string' and f.unsent or 'changed',attempted=false,observed=observed(0)} end
         f.record.phase='pending';f.posts=f.posts+1
         return {book_id='41',kind=f.unknown and 'unconfirmed' or 'confirmed',attempted=true,observed=observed(f.unknown and 0 or 1)}
     end
@@ -61,6 +62,15 @@ f=fixture();f.prepare();f.complete();f.commit();f.task();f.service:cancel()
 expect(f.record.phase=='pending' and f.posts==1,'possible dispatch was discarded by cancellation')
 f=fixture();f.prepare();f.complete();f.commit();f.unsent=true;f.complete()
 expect(f.finished and f.record.phase=='idle' and f.posts==0,'proven unsent state retained as sent')
+for reason,expected in pairs({['native_auth/shelf/http_503']='temporary',['native_auth/finish_progress/http_429']='rate_limited',
+    ['native_auth/shelf/http_401']='login',['synthetic secret']='unavailable'}) do
+    f=fixture();f.preview_error=reason;expect(f.prepare(),'read preview was not started');f.complete()
+    expect(not f.plan and f.reason==expected and f.posts==0 and f.record.phase=='idle','preview failure was not safely classified')
+end
+for _,kind in ipairs({'temporary','rate_limited'}) do
+    f=fixture();f.prepare();f.complete();f.commit();f.unsent=kind;f.complete()
+    expect(f.finished and f.result.kind==kind and f.record.phase=='idle' and f.posts==0,'read-only failure retained a write claim')
+end
 f=fixture();f.prepare();f.complete();f.commit();f.task();f.service:cancel();expect(f.prepare(true),'pending read-only preparation blocked');f.complete()
 f.plan.observed.snapshot.books[1].finishReading=1
 expect(not f.commit(),'reconciliation plan dispatched')

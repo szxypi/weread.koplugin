@@ -35,7 +35,11 @@ function M:prepare(id,guard,callback,resolving,desired)
     local job={book_id=id,guard=guard,access=selected,started=self.now(),record=resolving and record or nil,revision=record.revision}
     self.job=job
     local called,started=pcall(self._worker,self,function()
-        if not resolving then return Task.preview(self.client,self.settings,selected,id,desired) end
+        if not resolving then
+            local ok,plan=pcall(Task.preview,self.client,self.settings,selected,id,desired)
+            if not ok then return {_finish_read_error=Task.read_error(plan)} end
+            return plan
+        end
         local observed=Task.inspect(self.client,self.settings,selected,id);local flags=Contract.flags(observed.raw);local row=flags[id]
         local read,point=pcall(Contract.point,observed.progress,id)
         return {metadata=record.metadata,observed=observed,current_present=row~=nil,current_finished=row and row.finished.value,
@@ -44,6 +48,9 @@ function M:prepare(id,guard,callback,resolving,desired)
         if self.job~=job then return end
         if not self:current(job) then self:cancel();callback(nil,'session_changed');return end
         self.job=nil
+        if type(plan)=='table' and ({temporary=true,login=true,rate_limited=true,unavailable=true})[plan._finish_read_error] then
+            callback(nil,plan._finish_read_error);return
+        end
         if type(plan)~='table' or not Contract.valid_metadata(plan.metadata) or plan.metadata.book_id~=id or not plan.observed then callback(nil,'unavailable');return end
         local frozen={};for k,v in pairs(plan.metadata) do frozen[k]=v end
         job.metadata=frozen;job.observed=self.client:json_decode(self.client:json_encode(plan.observed));plan.resolving=resolving==true
@@ -87,7 +94,7 @@ function M:commit(plan,callback)
             local checked,value=pcall(Contract.check,result.observed.raw,result.observed.progress,record.metadata)
             confirmed=checked and value==true
         end
-        local unsent=valid and not result.attempted and ({changed=true,login=true,unavailable=true})[result.kind]
+        local unsent=valid and not result.attempted and ({changed=true,login=true,unavailable=true,temporary=true,rate_limited=true})[result.kind]
         local noop=valid and not result.attempted and result.kind=='noop' and record.metadata.before_hash==record.metadata.after_hash
         if noop and result.observed then
             local checked,value=pcall(Contract.check,result.observed.raw,result.observed.progress,record.metadata)

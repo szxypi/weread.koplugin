@@ -129,7 +129,7 @@ function M.show(host,id)
                 local parent=host.shelf_view
                 UIManager:nextTick(function()
                     local module=package.loaded['weread.ui.finish_offline']
-                    if module and host.shelf_view==parent then module.flush_view(host) end
+                    if module and host.shelf_view==parent and not host._shelf_state_menu then module.flush_view(host) end
                 end)
             end
             if on_close then return on_close(instance,...) end

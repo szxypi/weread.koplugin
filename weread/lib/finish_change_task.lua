@@ -34,12 +34,23 @@ function M.preview(client,settings,selected,id,desired)
     return plan
 end
 function M.expired(reason) return reason=='native_auth/shelf/http_401' or reason=='native_auth/finish_progress/http_401' end
+-- Only explicit failures of the read-only preflight qualify for retry. Never
+-- infer retryability from a write response or an arbitrary worker failure.
+function M.read_error(reason)
+    if M.expired(reason) then return 'login' end
+    if type(reason)~='string' then return 'unavailable' end
+    local stage,kind=reason:match('^native_auth/([%w_]+)/([%w_]+)$')
+    if stage~='shelf' and stage~='finish_progress' then return 'unavailable' end
+    if kind=='http_429' then return 'rate_limited' end
+    if ({transport=true,timeout=true,http_500=true,http_502=true,http_503=true,http_504=true})[kind] then return 'temporary' end
+    return 'unavailable'
+end
 function M.run(client,settings,selected,input,record,store,options)
     options=options or {};local out={kind='unconfirmed',attempted=false,book_id=input.book_id}
     local function owns() return current(settings,selected) and store:owns(record) end
     if not owns() then out.kind='login';return out end
     local prepared,plan=pcall(M.preview,client,settings,selected,input.book_id,input.desired)
-    if not prepared then out.kind=M.expired(plan) and 'login' or 'unavailable';return out end
+    if not prepared then out.kind=M.read_error(plan);return out end
     if not Contract.same(plan.metadata,record.metadata) then out.kind='changed';out.observed=plan.observed;return out end
     if plan.metadata.before_hash==plan.metadata.after_hash then out.kind='noop';out.observed=plan.observed;return out end
     local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=owns})

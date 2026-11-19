@@ -12,7 +12,7 @@ end
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/weread%-finish%-[%w_]+/profile$'))
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
-    assert(mode=='live' or mode=='reopen' or mode=='offline_reopen')
+    assert(mode=='live' or mode=='reopen' or mode=='offline_reopen' or mode=='retry_reopen')
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');require('gettext').changeLang('zh_CN')
     G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
@@ -54,6 +54,10 @@ local ok,reason=pcall(function()
         local result=remote(function(db)
             db:exec('BEGIN IMMEDIATE');local value=load(db);value.requests=value.requests+1
             if not allowed then value.forbidden=value.forbidden+1;save(db,value);db:exec('COMMIT');return {reject=true} end
+            if kind=='shelf' and (value.fault=='preflight_503_once' or value.fault=='preflight_429_once') then
+                local status=value.fault=='preflight_503_once' and 503 or 429
+                value.fault='normal';save(db,value);db:exec('COMMIT');return {injected_status=status}
+            end
             if writing then
                 value.posts=value.posts+1
                 if value.fault~='no_change' then value.shelf.books[1].finishReading=body.isCancel==0 and 1 or 0 end
@@ -62,6 +66,7 @@ local ok,reason=pcall(function()
             save(db,value);db:exec('COMMIT');return value
         end)
         assert(not result.reject);require('socket').sleep(.12)
+        if result.injected_status then return json.encode({errcode=-1}),result.injected_status end
         if writing and result.fault=='delayed' then require('socket').sleep(5) end
         if writing and result.fault=='lost_ack' then error('synthetic timeout',0) end
         if kind=='progress' and result.fault=='no_position' then return json.encode({errcode=-10102}),200 end
@@ -188,7 +193,7 @@ local ok,reason=pcall(function()
             end
             if not report.offline_shot then shot('offline-queued');report.offline_shot=true end
         end
-        local function reconnect(expected_posts,finished,overlay)
+        local function reconnect(expected_posts,finished,overlay,read_failure)
             local before=assert(plugin.shelf_view)
             local last=#before.layout
             before:moveFocusTo(math.min(2,#before.layout[last]),last,require('ui/widget/focusmanager').FOCUS_ONLY_ON_NT)
@@ -202,9 +207,24 @@ local ok,reason=pcall(function()
             elseif overlay=='status' then
                 plugin:showShelfState('41');detail=assert(plugin._shelf_state_menu)
             end
+            if read_failure then fault(read_failure=='temporary' and 'preflight_503_once' or 'preflight_429_once') end
+            local posts_before=state().posts
             plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
+            if read_failure=='temporary' then
+                wait(function() return plugin._finish_offline_retry and plugin._finish_offline_retry.timer end)
+                local retry=plugin._finish_offline_retry;local timer=retry.timer
+                expect(retry.attempts==1 and queue:get('41').phase=='queued' and state().posts==posts_before)
+                plugin:onNetworkConnected();expect(plugin._finish_offline_retry.timer==timer)
+                UI:unschedule(timer);UI:scheduleIn(.01,timer)
+            elseif read_failure=='rate_limited' then
+                wait(function() return state().fault=='normal' and plugin._finish_offline_sync and not plugin._finish_offline_sync.job end)
+                expect(not plugin._finish_offline_retry and queue:get('41').phase=='queued' and state().posts==posts_before)
+                plugin:onNetworkConnected()
+            end
             wait(function() local entry,err=queue:get('41');return not err and not entry end)
             expect(state().posts==expected_posts and journal:read().phase=='idle');saved(finished)
+            if read_failure=='temporary' then report.temporary_retry_verified=true end
+            if read_failure=='rate_limited' then report.rate_limit_stop_verified=true end
             if popup then
                 expect(plugin.shelf_view==before and before._shelf_popup==popup)
                 require('weread.ui.shelf_popup').close(before)
@@ -227,8 +247,8 @@ local ok,reason=pcall(function()
             if overlay~='detail' then expect(updated.selected.x==x and updated.selected.y==y) end
             if overlay=='search' then shot('offline-confirmed') end
         end
-        report.phase='offline-mark';queue_offline();expect(state().posts==8);reconnect(9,true,'search')
-        report.phase='offline-unmark';queue_offline(true);expect(state().posts==9);reconnect(10,false,'detail')
+        report.phase='offline-mark';queue_offline();expect(state().posts==8);reconnect(9,true,'search','temporary')
+        report.phase='offline-unmark';queue_offline(true);expect(state().posts==9);reconnect(10,false,'detail','rate_limited')
         report.phase='offline-already-applied';queue_offline(true)
         change(function(v) v.shelf.books[1].finishReading=1 end)
         reconnect(10,true,'status')
@@ -243,7 +263,7 @@ local ok,reason=pcall(function()
         plugin.isNetworkConnected=function() return false end;plugin:onNetworkDisconnected()
         expect(queue:get('41').phase=='dispatching' and journal:read().phase=='pending')
         fault('normal')
-    else
+    elseif mode=='offline_reopen' then
         report.phase='offline-reopen-no-retry'
         local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
         expect(state().posts==12 and queue:get('41').phase=='dispatching' and journal:read().phase=='pending')
@@ -254,6 +274,26 @@ local ok,reason=pcall(function()
         local dialog=assert(plugin._finish_offline_dialog)
         expect(dialog.text==tr('This offline change may have been sent. Remove its local record without retrying? Check the current cloud status separately; a delayed change may still appear.'))
         dialog.ok_callback();expect(not queue:get('41') and state().posts==12)
+        report.phase='retry-before-restart'
+        local top=UI:getTopmostVisibleWidget();if top~=plugin._shelf_state_menu then UI:close(top) end
+        plugin.isNetworkConnected=function() return false end
+        local menu=assert(plugin._shelf_state_menu);local action
+        for _,item in ipairs(menu.item_table) do if item.text==tr('Change finished mark') then action=item end end
+        expect(action);menu:onMenuSelect(action);assert(plugin._finish_offline_dialog).ok_callback()
+        expect(queue:get('41').phase=='queued' and state().posts==12)
+        top=UI:getTopmostVisibleWidget();if top~=plugin._shelf_state_menu then UI:close(top) end
+        fault('preflight_503_once');plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
+        wait(function() return plugin._finish_offline_retry and plugin._finish_offline_retry.timer end)
+        expect(queue:get('41').phase=='queued' and journal:read().phase=='idle' and state().posts==12)
+        report.queued_restart_prepared=true
+    else
+        report.phase='retry-after-restart'
+        local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
+        expect(state().posts==12 and queue:get('41').phase=='queued' and journal:read().phase=='idle')
+        expect(not plugin._finish_offline_retry);plugin:onNetworkConnected()
+        wait(function() local entry,err=queue:get('41');return not err and not entry end)
+        expect(state().posts==13 and journal:read().phase=='idle');saved(false)
+        report.queued_restart_verified=true
     end
     plugin:closeWeReadUI();for _i,worker in ipairs(workers) do wait(function() return worker.runner.done(worker.pid) end) end
     report.workers_reaped=true;local value=state();report.requests,report.posts,report.forbidden=value.requests,value.posts,value.forbidden
