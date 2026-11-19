@@ -9,7 +9,7 @@ return function(reader,flush_tasks,fixture_dir)
     local Wire=require('weread.lib.readtime_protocol');local zone=Wire.time_zone;Wire.time_zone=function() return '+08:00' end
     local original={ledger=host.offline_time.store,coverage=host.readtime_coverage,get_book=host.settings.get_book,
         getBook=host.library_db.getBook,connected=host.isNetworkConnected}
-    local roots={};local count=0;local reports={};local home=assert(os.getenv('KO_HOME'))
+    local roots={};local count=0;local reports={};local lock_checked=false;local home=assert(os.getenv('KO_HOME'))
     local function expect(v,reason) count=count+1;assert(v,reason or 'native time UI fixture failed') end
     local function pump(predicate)
         local deadline=socket.gettime()+20
@@ -39,18 +39,43 @@ return function(reader,flush_tasks,fixture_dir)
         host:closeOfflineTimeUI();host.offline_time_transfer_service=nil
         local f=F.new(mode,expect,roots,cb,config);expect(f.account==host.library_db:accountKey())
         local native_open=require('lua-ljsqlite3/init').open
-        local db=native_open(f.coverage.path);db:exec('CREATE TABLE synthetic_dispatch(id INTEGER PRIMARY KEY CHECK(id=1))');db:close()
+        local counter_path=f.root..'/synthetic-dispatch.db'
+        local db=native_open(counter_path);db:exec('CREATE TABLE synthetic_dispatch(id INTEGER PRIMARY KEY CHECK(id=1))');db:close()
+        if not lock_checked then
+            -- The old counter shared the journal DB. A parent transaction
+            -- could make its synthetic POST fail after the claim committed.
+            local held=native_open(f.coverage.path)
+            held:exec('CREATE TABLE synthetic_lock_probe(id INTEGER); BEGIN IMMEDIATE')
+            local competing=native_open(f.coverage.path);competing:exec('PRAGMA busy_timeout=0')
+            local readable=competing:rowexec('SELECT COUNT(*) FROM synthetic_lock_probe')
+            expect(tonumber(readable)==0,'WAL reader could not observe the journal')
+            local shared_ok=pcall(competing.exec,competing,'INSERT INTO synthetic_lock_probe VALUES(1)')
+            expect(not shared_ok,'shared synthetic write unexpectedly bypassed journal lock')
+            local separate=native_open(counter_path);separate:exec('INSERT INTO synthetic_dispatch VALUES(1)')
+            expect(tonumber(separate:rowexec('SELECT COUNT(*) FROM synthetic_dispatch'))==1,'separate counter blocked by journal lock')
+            separate:exec('DELETE FROM synthetic_dispatch');separate:close();competing:close()
+            held:exec('ROLLBACK; DROP TABLE synthetic_lock_probe');held:close();lock_checked=true
+        end
         local request=f.client.request
         function f.client:request(options)
             if options.method=='POST' then
-                local database=native_open(f.coverage.path);local statement=database:prepare('INSERT INTO synthetic_dispatch VALUES(1)')
+                local database=native_open(counter_path);local statement=database:prepare('INSERT INTO synthetic_dispatch VALUES(1)')
                 statement:step();statement:close();database:close()
             end
             return request(self,options)
         end
         function f.posts_count()
-            local database=native_open(f.coverage.path);local q=database:prepare('SELECT COUNT(*) FROM synthetic_dispatch')
+            local database=native_open(counter_path);local q=database:prepare('SELECT COUNT(*) FROM synthetic_dispatch')
             local value=tonumber(q:step()[1]);q:close();database:close();return value
+        end
+        function f.read_phase()
+            local database=native_open(f.coverage.path)
+            database:exec('PRAGMA busy_timeout=200')
+            local query=database:prepare([[SELECT phase FROM offline_time_records WHERE scope=?
+                AND phase IN ('prepared','claimed','acknowledged','unknown','confirmed')]])
+            local ok,row=pcall(function() return query:bind(f.account):step() end)
+            query:close();database:close();assert(ok,'synthetic read-only phase check failed')
+            return row and row[1]
         end
         host.offline_time.store,host.readtime_coverage=f.ledger,f.coverage
         host.settings.get_book=function(settings,id)
@@ -227,14 +252,17 @@ return function(reader,flush_tasks,fixture_dir)
     expect(not f.journal:pending(f.account) and f.posts_count()==1 and f.ledger:summary(f.account).confirmed==2)
     reports[#reports+1]='local_settlement_recovery'
     -- Close while the child waits after ACK. Its record survives and is sealed.
-    f=setup('no_delta');f.options.sleep=function(seconds) socket.sleep(seconds);f.clock=f.clock+seconds end
-    select_batch();button('Transfer this batch')
-    pump(function() local row=f.journal:pending(f.account);return row and row.phase=='acknowledged' end)
-    local worker=assert(host.offline_time_transfer_service.worker.job);local pid=worker.pid
-    host:closeOfflineTimeUI()
-    pump(function() return require('ffi/util').isSubProcessDone(pid) end)
-    expect(not host._offline_time_review and not host.busy_message and not host._offline_time_transfer_lock)
-    expect(f.posts_count()==1 and f.journal:pending(f.account).phase=='acknowledged' and f.ledger:summary(f.account).confirmed==0)
+    for _i=1,5 do
+        f=setup('no_delta');f.options.sleep=function(seconds) socket.sleep(seconds);f.clock=f.clock+seconds end
+        select_batch();button('Transfer this batch')
+        pump(function() return f.read_phase()=='acknowledged' or host._offline_time_detail~=nil end)
+        expect(f.read_phase()=='acknowledged','synthetic worker finished before its ACK could be inspected')
+        local worker=assert(host.offline_time_transfer_service.worker.job);local pid=worker.pid
+        host:closeOfflineTimeUI()
+        pump(function() return require('ffi/util').isSubProcessDone(pid) end)
+        expect(not host._offline_time_review and not host.busy_message and not host._offline_time_transfer_lock)
+        expect(f.posts_count()==1 and f.journal:pending(f.account).phase=='acknowledged' and f.ledger:summary(f.account).confirmed==0)
+    end
     reports[#reports+1]='cancel_after_ack'
     -- Use an actual subprocess and MemoryWorker with a controlled clock to
     -- cross the old 75-second timeout without a real 76-second wait.
@@ -259,6 +287,7 @@ return function(reader,flush_tasks,fixture_dir)
     for _i,root in ipairs(roots) do os.execute('rm -rf '..string.format('%q',root)) end
     local report={result='PASS',synthetic_only=true,account_data_posts=0,authentication_posts=0,
         screen_width=require('device').screen:getWidth(),actual_native_reader=true,actual_memory_workers=true,actual_sqlite=true,
+        synthetic_counter_isolated=lock_checked,read_only_phase_poll=true,cancel_after_ack_repetitions=5,
         cases=reports,duplicate_dispatches=0,old_metadata_unchanged=true,checks=count}
     local file=assert(io.open(home..'/../evidence/native-time-transfer.json','w'));file:write(Json.encode(report));file:close()
     print('PASS: native time menu -> child -> durable ACK -> accounting; GET-only recovery, lost reply retirement, cancel after ACK')
