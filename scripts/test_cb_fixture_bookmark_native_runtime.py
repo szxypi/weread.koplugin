@@ -47,9 +47,10 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--koreader',type=Path,required=True)
     p.add_argument('--run-dir',type=Path,required=True);p.add_argument('--width',type=int,default=600)
     p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
-    p.add_argument('--case',choices=('normal','no-create','no-delete','host-mismatch','orchestrated','short-source'),default='normal');p.add_argument('--txt',action='store_true');p.add_argument('--start',action='store_true');args=p.parse_args()
+    p.add_argument('--case',choices=('normal','no-create','no-delete','host-mismatch','orchestrated','short-source'),default='normal');p.add_argument('--txt',action='store_true');p.add_argument('--start',action='store_true');p.add_argument('--padded',action='store_true');args=p.parse_args()
     if args.txt and args.case=='short-source':p.error('short-source fixture is XHTML')
     if args.start and not args.txt:p.error('start fixture is TXT')
+    if args.padded and (not args.txt or args.start):p.error('padded fixture requires TXT and no start option')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);candidate=root/'candidate.zip'
     subprocess.run(['bash','scripts/package_release.sh',str(candidate)],check=True,capture_output=True)
     profiles=set(Path('/dev/shm').glob('weread-cb-bookmark-*'))
@@ -57,6 +58,8 @@ def main():
     if args.txt:
         if args.start:
             from cb_txt_start_bookmark_trial import BODY,TEXT,prepare as prepare_txt
+        elif args.padded:
+            from cb_txt_padded_bookmark_trial import BODY,TEXT,prepare as prepare_txt
         else:
             from cb_txt_bookmark_trial import BODY,TEXT,prepare as prepare_txt
         from txt_coordinates import PlainSource
@@ -102,6 +105,8 @@ def main():
             if args.txt:
                 if args.start:
                     from verify_cb_txt_start_bookmark_native import point as txt_point
+                elif args.padded:
+                    from verify_cb_txt_padded_bookmark_native import point as txt_point
                 else:
                     from verify_cb_txt_bookmark_native import point as txt_point
                 options=dict(source_format='web_txt',source_marker=TEXT,prepare_fn=prepare_txt,point_fn=txt_point,
