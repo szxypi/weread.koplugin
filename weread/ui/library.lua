@@ -168,6 +168,7 @@ function M:closeWeReadUI()
     if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
     if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
+    require('weread.ui.download_recovery').cancel(self)
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
     if self.cancelMPLink then self:cancelMPLink() end
@@ -1492,6 +1493,7 @@ function M:showBookMenu(book)
                 if self.cancelShelfState then self:cancelShelfState() end
                 self:cancelBookMetadata()
                 self:cancelBookReading()
+                require('weread.ui.download_recovery').cancel(self)
                 if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
                 local parent = self.shelf_view
                 local snapshot_current=parent and parent._shelf_snapshot_detail==view
@@ -2318,7 +2320,11 @@ function M:confirmAndDownloadChapters(book, chapters, suffix, options)
         text = text,
         ok_text = _("Download"), cancel_text = _("Cancel"),
         ok_callback = self:safeCallback(_("Download"), function()
-            self.downloader:start(book, chapters, suffix, options)
+            if suffix == 'full' and not options.single_chapter and not options.separate_chapters then
+                require('weread.ui.download_recovery').start(self,book,chapters,suffix,options)
+            else
+                self.downloader:start(book, chapters, suffix, options)
+            end
         end),
     })
 end

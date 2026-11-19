@@ -323,13 +323,17 @@ if os.getenv('WEREAD_TEST_RESUME_HANDOFF')=='1' then
 end
 host,view=detail()
 local rate_check
-if os.getenv('WEREAD_TEST_DOWNLOAD_RATE_LIMIT')=='1' or os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_EXPIRY')=='1' then
+if os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_RENEWAL') then
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    rate_check=dofile(fixtures..'download_auth_recovery_case.lua')(host,view,book,pump,tick,press)
+elseif os.getenv('WEREAD_TEST_DOWNLOAD_RATE_LIMIT')=='1' or os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_EXPIRY')=='1' then
     local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
     rate_check=dofile(fixtures..'download_rate_limit_case.lua')(host,view,book,pump,tick,press)
 else press(view,'⇩ Download full book') end
 pump(function() return book(host).cached_full_book~=nil and not host.downloader._active_job end)
 if rate_check then
-    if os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_EXPIRY')=='1' then report.auth_expiry=rate_check()
+    if os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_RENEWAL') then report.auth_renewal=rate_check()
+    elseif os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_EXPIRY')=='1' then report.auth_expiry=rate_check()
     else report.rate_limit=rate_check() end
 end
 local full=assert(book(host).cached_full_book)

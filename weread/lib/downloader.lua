@@ -497,7 +497,7 @@ function Downloader:_runInterruptible(dl, task)
         return self.client
     end
     local function updated(before)
-        if dl.reading_auth_recovery and type(dl.on_reading_auth_updated)=='function' then
+        if (dl.reading_auth_recovery or dl.full_auth_recovery) and type(dl.on_reading_auth_updated)=='function' then
             local after=WorkerSettings.fingerprint(self.settings)
             if after~=before then pcall(dl.on_reading_auth_updated,before,after) end
         end
@@ -678,6 +678,7 @@ function Downloader:start(book, chapters, suffix, options)
         started_at = time.now(),
         auth_fingerprint = WorkerSettings.fingerprint(self.settings),
         reading_auth_recovery = options.reading_auth_recovery == true and options.single_chapter == true,
+        full_auth_recovery = options.full_auth_recovery == true and resumable,
         detect_expired_login = options.prefetch ~= true,
         on_reading_auth_updated = options.on_reading_auth_updated,
     }
@@ -764,7 +765,7 @@ function Downloader:start(book, chapters, suffix, options)
             end
             dl.completion_notified = true
             self:_finishJob(dl)
-            if not dl.prefetch and not (expired and dl.reading_auth_recovery) then
+            if not dl.prefetch and not (expired and (dl.reading_auth_recovery or dl.full_auth_recovery)) then
                 if expired then
                     self.show_info(_("WeRead login expired. Please sign in again and retry the download."))
                 elseif rate_limited(err_init) then
@@ -890,7 +891,7 @@ function Downloader:_retryChapterSource(dl, err)
             if dl.progress_dialog then dl.progress_dialog:close();dl.progress_dialog=nil end
             self:_notifyCompletion(dl,false,'web_expired');self:_finishJob(dl)
         end
-        if not dl.reading_auth_recovery then
+        if not dl.reading_auth_recovery and not dl.full_auth_recovery then
             self.show_info(_(dl.resumable
                 and 'WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume.'
                 or 'WeRead login expired. Please sign in again and retry the download.'))

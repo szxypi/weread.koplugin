@@ -21,6 +21,12 @@ return function(host, view, book, pump, tick, press)
     request('/__control',{match=path,times=-1,skip=1,status=expired and 401 or 429})
     local notice, old_info = nil, host.downloader.show_info
     host.downloader.show_info=function(text) notice=text;return old_info(text) end
+    local recovery=require('weread.ui.download_recovery')
+    local old_start=recovery.start
+    if expired then recovery.start=function(target,...)
+        recovery.start=old_start
+        return target.downloader:start(...)
+    end end
     press(view,'⇩ Download full book')
     local job
     pump(function() job=host.downloader._active_job;return job~=nil end)

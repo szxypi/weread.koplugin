@@ -299,6 +299,7 @@ function M:onCloseDocument()
     if self.cancelReadStatsRequest then self:cancelReadStatsRequest() end
     if self.cancelBookMetadata then self:cancelBookMetadata() end
     if self.cancelBookReading then self:cancelBookReading() end
+    require('weread.ui.download_recovery').cancel(self)
     if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
     if self.source_navigation then self.source_navigation:cancel() end
     local source_position = self.source_position and self.source_position:current()
@@ -332,12 +333,14 @@ function M:onCloseDocument()
 end
 
 function M:onShowingReader()
+    require('weread.ui.download_recovery').cancel(self)
     if self.cancelBookReading then self:cancelBookReading() end
     require('weread.ui.mp_file_open').cancel(self)
     require('weread.ui.mp_reader_open').cancel(self)
 end
 
 function M:onCloseWidget()
+    require('weread.ui.download_recovery').cancel(self)
     local offline=package.loaded['weread.ui.finish_offline']
     if offline then offline.cancel_sync(self);offline.cancel_dialog(self) end
     if self.cancelBookReading then self:cancelBookReading() end
@@ -473,6 +476,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    require('weread.ui.download_recovery').cancel(self)
     local offline=package.loaded['weread.ui.finish_offline']
     if offline then offline.cancel_sync(self);offline.cancel_dialog(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
