@@ -8,7 +8,7 @@ local ok,reason=pcall(function()
     input=Json.decode(assert(io.stdin:read(length)))
     assert(type(input)=='table' and type(input.book)=='string' and input.book:match('^CB_[%w]+$')
         and type(input.chapter)=='string' and type(input.source)=='string' and type(input.chapters)=='table'
-        and type(input.cookies)=='table' and input.cookies.wr_vid==input.owner and type(input.native)=='table'
+        and type(input.cookies)=='table' and input.cookies.wr_vid == input.owner and type(input.native)=='table'
         and input.native.vid==input.owner and type(input.armed)=='boolean' and type(input.body)=='table'
         and type(input.first)=='number' and type(input.last)=='number' and input.first<input.last
         and type(input.token)=='string' and input.token:match('^[a-f0-9]+$') and #input.token==32)
