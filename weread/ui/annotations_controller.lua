@@ -236,6 +236,8 @@ function M:_removeLinkFilter()
 end
 
 function M:_teardownThoughtInterception()
+    local thought_replies = package.loaded['weread.ui.thought_replies']
+    if thought_replies then thought_replies.cancel(self) end
     if self._thought_interception_setup and self.ui then
         self.ui:unRegisterTouchZones({
             { id = "weread_thought_tap", overrides = { "tap_link" } },
@@ -329,9 +331,14 @@ function M:_showThoughtPopup(pages, link, session_gen, tap_started)
     end
 
     local popup_started = time.now()
-    local ok, popup = pcall(function()
+    local info = self:_parseThoughtHref(self:_linkHref(link))
+    if info then info.book_title = self.ui.doc_props and self.ui.doc_props.title end
+    local popup
+    local ok, result = pcall(function()
         return ThoughtPopup.show(ThoughtPopupConfig.build(self, pages, {
             close_callback = function()
+                local replies = package.loaded['weread.ui.thought_replies']
+                if replies then replies.cancelForPopup(self, popup) end
                 self._thought_popup_open = nil
                 self._current_thought_popup = nil
                 if self._thought_highlight_active then
@@ -340,8 +347,12 @@ function M:_showThoughtPopup(pages, link, session_gen, tap_started)
                     UIManager:setDirty(self.dialog, "ui")
                 end
             end,
+            on_replies = info and require('weread.lib.native_book_reviews').book_id(info.book_id) and function(item, view)
+                require('weread.ui.thought_replies').open(self, info, pages, item, view)
+            end or nil,
         }))
     end)
+    popup = result
     thought_perf("popup_show", popup_started, "ok=", tostring(ok),
         "pages=", tostring(#pages))
 

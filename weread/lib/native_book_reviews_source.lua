@@ -21,7 +21,7 @@ function M.fetch(client, book_id, limit, previous, selected, recover_auth)
     return Data.project(client, raw, book_id, limit, previous)
 end
 
-function M.fetch_replies(client, book_id, review_id, limit, previous, selected, recover_auth)
+function M.fetch_replies(client, book_id, review_id, limit, previous, selected, recover_auth, review_type)
     if not selected or not selected.native then fail('access_required') end
     local function current() if not M.matches(client.settings, selected) then fail('session_changed') end end
     current()
@@ -35,6 +35,6 @@ function M.fetch_replies(client, book_id, review_id, limit, previous, selected, 
         end
         fail('unavailable')
     end
-    return require('weread.lib.native_review_replies').project(client, raw, book_id, review_id, limit, previous)
+    return require('weread.lib.native_review_replies').project(client, raw, book_id, review_id, limit, previous, review_type)
 end
 return M

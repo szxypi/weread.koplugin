@@ -55,6 +55,7 @@ local CenterThoughtPopupWidget = InputContainer:extend{
     contrast = 9,
     tap_to_page = true,
     close_callback = nil,
+    on_replies = nil,
     dialog = nil,
     page_index = 1,
 
@@ -141,6 +142,7 @@ function CenterThoughtPopupWidget:_reopen(opts)
     if opts.tap_to_page ~= nil then self.tap_to_page = opts.tap_to_page end
     if opts.dialog then self.dialog = opts.dialog end
     self.close_callback = opts.close_callback
+    self.on_replies = opts.on_replies
     self.height_ratio = math.max(0.1, math.min(0.9, self.height_ratio or 0.70))
     self.width_ratio = math.max(0.4, math.min(1.0, self.width_ratio or 0.8))
     self.width = math.floor(Screen:getWidth() * self.width_ratio)
@@ -155,10 +157,12 @@ end
 --- collapsed, overflow truncated by TitleBar), or "Thoughts" when absent.
 function CenterThoughtPopupWidget:_title()
     local abstract = self.items and self.items[1] and self.items[1].abstract
+    local title = _("Thoughts")
     if type(abstract) == "string" and abstract ~= "" then
-        return abstract:gsub("%s+", " ")
+        title = abstract:gsub("%s+", " ")
     end
-    return _("Thoughts")
+    if self.on_replies then title = title .. " · " .. _("Hold a thought to view replies.") end
+    return title
 end
 
 --- Previous / page indicator / Next button row.
@@ -410,26 +414,32 @@ end
 function CenterThoughtPopupWidget:_showThoughtActionMenu(item)
     local popup = self
     local action_dialog
-    action_dialog = ButtonDialog:new{
-        buttons = {
-            {
-                {
-                    text = _("Copy"),
-                    callback = function()
-                        UIManager:close(action_dialog)
-                        popup:_copyThoughtContent(item)
-                    end,
-                },
-                {
-                    text = _("Generate QR code"),
-                    callback = function()
-                        UIManager:close(action_dialog)
-                        popup:_generateQRCode(item)
-                    end,
-                },
-            },
+    local buttons = {{
+        {
+            text = _("Copy"),
+            callback = function()
+                UIManager:close(action_dialog)
+                popup:_copyThoughtContent(item)
+            end,
         },
-    }
+        {
+            text = _("Generate QR code"),
+            callback = function()
+                UIManager:close(action_dialog)
+                popup:_generateQRCode(item)
+            end,
+        },
+    }}
+    if self.on_replies then
+        buttons[#buttons + 1] = {{
+            text = _("View replies"),
+            callback = function()
+                UIManager:close(action_dialog)
+                if popup.on_replies then popup.on_replies(item, popup) end
+            end,
+        }}
+    end
+    action_dialog = ButtonDialog:new{buttons = buttons}
     UIManager:show(action_dialog)
 end
 

@@ -150,6 +150,8 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    local thought_replies = package.loaded['weread.ui.thought_replies']
+    if thought_replies then thought_replies.cancel(self) end
     local reviews = package.loaded['weread.ui.native_book_reviews']
     if reviews then reviews.cancel(self) end
     local gateway_reviews = package.loaded['weread.ui.gateway_book_reviews']

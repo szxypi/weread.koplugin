@@ -75,7 +75,7 @@ open(); schedule(); valid = false; tick(); valid = true
 expect(not host._native_review_replies_owner and #views == 2, 'reply crossed credentials')
 open(); schedule(); tick(); first = views[#views]
 source_error = 'review_replies/changed'; first.callbacks.on_load_more(); schedule(); tick()
-expect(host._native_review_replies_owner.view == first and info == 'Review replies changed. Close and open them again.',
+expect(host._native_review_replies_owner.view == first and info == 'Replies changed. Close and open them again.',
     'changed prefix lost old page')
 source_error = nil; Replies.cancel(host)
 allow_recovery = true; host.native_renewal = {}; source_error = 'native_reviews/native_expired'

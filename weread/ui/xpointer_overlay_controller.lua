@@ -85,6 +85,8 @@ function M:_setupXPointerOverlayPrototype()
 end
 
 function M:_teardownXPointerOverlayPrototype()
+    local thought_replies = package.loaded['weread.ui.thought_replies']
+    if thought_replies then thought_replies.cancel(self) end
     if self._xpointer_overlay_touch_registered and self.ui then
         self.ui:unRegisterTouchZones({
             {
@@ -135,7 +137,19 @@ function M:_onXPointerOverlayTap(ges)
             },
         }
     end
-    require("weread.ui.thought_popup").show(ThoughtPopupConfig.build(self, items))
+    local info = {book_id = context and context.book_id or record.book_id,
+        chapter_uid = record.chapter_uid, range = record.range,
+        book_title = self.ui and self.ui.doc_props and self.ui.doc_props.title}
+    local popup
+    popup = require("weread.ui.thought_popup").show(ThoughtPopupConfig.build(self, items, {
+        on_replies = require('weread.lib.native_book_reviews').book_id(info.book_id) and function(item, view)
+            require('weread.ui.thought_replies').open(self, info, items, item, view)
+        end or nil,
+        close_callback = function()
+            local replies = package.loaded['weread.ui.thought_replies']
+            if replies then replies.cancelForPopup(self, popup) end
+        end,
+    }))
     return true
 end
 

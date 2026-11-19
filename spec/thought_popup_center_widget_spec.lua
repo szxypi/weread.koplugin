@@ -14,15 +14,19 @@ local function class(proto)
 end
 
 local dirty_target, dirty_mode, dirty_region
+local shown_dialog
 package.preload["ui/bidi"] = function()
     return {
         flipIfMirroredUILayout = function(value) return value end,
         flipDirectionIfMirroredUILayout = function(value) return value end,
     }
 end
-package.preload["ui/widget/buttondialog"] = function() return class() end
+package.preload["ui/widget/buttondialog"] = function() return {new = function(_, fields) return fields end} end
 package.preload["ui/widget/container/bottomcontainer"] = function() return class() end
 package.preload["ui/widget/linewidget"] = function() return class() end
+package.preload["ui/widget/horizontalgroup"] = function() return class() end
+package.preload["ui/widget/horizontalspan"] = function() return class() end
+package.preload["ui/widget/textwidget"] = function() return class() end
 package.preload["weread.ui.thought_popup.scroll_container"] = function() return class() end
 package.preload["ffi/blitbuffer"] = function() return { COLOR_WHITE = 255 } end
 package.preload["ui/widget/buttontable"] = function() return class() end
@@ -65,6 +69,8 @@ package.preload["ui/uimanager"] = function()
         setDirty = function(_self, target, mode, region)
             dirty_target, dirty_mode, dirty_region = target, mode, region
         end,
+        show = function(_, dialog) shown_dialog = dialog end,
+        close = function() end,
     }
 end
 package.preload["ui/widget/verticalgroup"] = function() return class() end
@@ -119,6 +125,16 @@ for _, widget in ipairs({ CenterWidget, require("weread.ui.thought_popup.widget"
     eq(view:_findItemAtContentY(80), nil, "separator does not copy the previous thought")
     eq(view:_findItemAtContentY(114), second, "likes retain the second thought")
     eq(view:_findItemAtContentY(130), second, "second body keeps its action target")
+    local chosen, owner
+    view.on_replies = function(item, popup_owner) chosen, owner = item, popup_owner end
+    view:_showThoughtActionMenu(second)
+    eq(shown_dialog.buttons[2][1].text, 'View replies', 'thought action offers replies')
+    shown_dialog.buttons[2][1].callback()
+    eq(chosen, second, 'reply action uses the selected thought')
+    eq(owner, view, 'reply action uses the active popup')
+    view.on_replies = nil
+    view:_showThoughtActionMenu(second)
+    eq(#shown_dialog.buttons, 1, 'unsupported popup does not advertise replies')
     if widget == CenterWidget then
         view.page_index = 2
         view._page_starts = { 0, 68, 161 }

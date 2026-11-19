@@ -22,13 +22,16 @@ function M.cancel(host)
     if view then UI:close(view) end
 end
 
-function M.open(host, parent, book, review, detail, parent_current)
+function M.open(host, parent, book, review, detail, parent_current, options)
     M.cancel(host)
+    options = options or {}
+    local review_type = options.review_type or 4
     local book_id, review_id = book.book_id or book.bookId, review.review_id
     if type(book_id) == 'number' and book_id >= 1 and book_id <= 9007199254740991 and book_id % 1 == 0 then
         book_id = string.format('%.0f', book_id)
     end
     if not require('weread.lib.native_book_reviews').book_id(book_id) or not Data.review_id(review_id)
+        or review_type ~= 1 and review_type ~= 4
         or type(parent_current) ~= 'function' or not parent_current() or parent.detail ~= detail then return false end
     local owner = {parent = parent, detail = detail}
     host._native_review_replies_owner = owner
@@ -58,7 +61,7 @@ function M.open(host, parent, book, review, detail, parent_current)
         local view
         view = require('weread.ui.book_reviews_view').show({book_title = book.title,
             mode = 'latest', result = page, latest_only = true, scroll_offset = offset, focus_row = focus_row,
-            title_text = 'Review replies', tab_text = 'Replies', empty_text = 'No replies.',
+            title_text = review_type == 1 and 'Thought replies' or 'Review replies', tab_text = 'Replies', empty_text = 'No replies.',
             incomplete_text = 'Some replies may be unavailable.',
             limited_text = 'Reply limit reached; more replies may be available.'}, {
             on_select = function(item)
@@ -91,11 +94,11 @@ function M.open(host, parent, book, review, detail, parent_current)
         local function failed(changed)
             if owner.context ~= context then return end
             finish()
-            host:showInfo(changed and _('Review replies changed. Close and open them again.')
-                or _('Could not load review replies. Please try again.'))
+            host:showInfo(changed and _('Replies changed. Close and open them again.')
+                or _('Could not load replies. Please try again.'))
             if not owner.view then M.cancel(host) end
         end
-        host:showBusy(_('Loading review replies...'), function() M.cancel(host) end)
+        host:showBusy(_('Loading replies...'), function() M.cancel(host) end)
         owner.busy = host.busy_message
         local launch
         local function complete(value)
@@ -117,7 +120,7 @@ function M.open(host, parent, book, review, detail, parent_current)
             end
             finish(); render(value.page)
         end
-        local scheduled = host:runOnlineTask(_('Review replies'), function()
+        local scheduled = host:runOnlineTask(_(review_type == 1 and 'Thought replies' or 'Review replies'), function()
             if not current() then if host._native_review_replies_owner == owner then M.cancel(host) end return end
             local ok, worker = pcall(function()
                 return owner.worker or require('weread.lib.memory_worker'):new{scheduler = UI, codec = host.client,
@@ -128,7 +131,7 @@ function M.open(host, parent, book, review, detail, parent_current)
             launch = function()
                 local started_ok, started = pcall(worker.start, worker, function()
                     local valid, result = pcall(Source.fetch_replies, host.client, book_id, review_id, limit,
-                        previous, parent.selected, host.native_renewal ~= nil and not context.recovery_attempted)
+                        previous, parent.selected, host.native_renewal ~= nil and not context.recovery_attempted, review_type)
                     return valid and {ok = true, page = result}
                         or {ok = false, native_expired = result == 'native_reviews/native_expired',
                             changed = result == 'review_replies/changed'}

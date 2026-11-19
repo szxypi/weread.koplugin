@@ -17,6 +17,12 @@ local function sample(count)
         comments = rows, commentsCount = 100, hotComments = {{private = 'discard'}}}
 end
 local first = Data.project(client, sample(21), '42', 'review_1', 20)
+local thought = sample(1); thought.review.type = 1
+expect(#Data.project(client, thought, '42', 'review_1', 20, nil, 1).items == 1, 'thought replies rejected')
+thought.review.isPrivate = false; thought.comments[1].isPrivate = false
+expect(#Data.project(client, thought, '42', 'review_1', 20, nil, 1).items == 1, 'public boolean rejected')
+expect(not pcall(Data.project, client, thought, '42', 'review_1', 20), 'thought accepted as book review')
+expect(not pcall(Data.project, client, thought, '42', 'review_1', 20, nil, 2), 'unknown review type accepted')
 expect(#first.items == 20 and first.has_more and first.items[1].author == '合成读者'
     and first.items[1].content == '合成回复 1', 'first reply page failed')
 expect(not first.items[1].private_field and not first.items[1].userVid and not first.items[1].hotComments,
