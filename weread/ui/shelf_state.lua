@@ -20,7 +20,14 @@ function M.cancel(host)
     if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end
     if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
     local menu=host._shelf_state_menu;host._shelf_state_menu=nil
-    if menu then UIManager:close(menu) end
+    if menu then
+        local parent=host.shelf_view
+        UIManager:close(menu)
+        if parent then UIManager:nextTick(function()
+            local module=package.loaded['weread.ui.finish_offline']
+            if module and host.shelf_view==parent and not host._shelf_state_menu then module.flush_view(host) end
+        end) end
+    end
 end
 local function text(value)
     if value==true then return _('Yes') elseif value==false then return _('No') end
@@ -111,11 +118,19 @@ function M.show(host,id)
     if menu then
         local on_close=menu.onCloseWidget
         menu.onCloseWidget=function(instance,...)
+            local owned=host._shelf_state_menu==instance
             if host._shelf_state_menu==instance then
                 if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
                 if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end
                 if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
                 host._shelf_state_menu=nil
+            end
+            if owned and host.shelf_view then
+                local parent=host.shelf_view
+                UIManager:nextTick(function()
+                    local module=package.loaded['weread.ui.finish_offline']
+                    if module and host.shelf_view==parent then module.flush_view(host) end
+                end)
             end
             if on_close then return on_close(instance,...) end
         end

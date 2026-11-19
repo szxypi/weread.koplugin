@@ -684,6 +684,9 @@ function M:showShelfView(mode, keyword, old_view, options)
     if self.stopHomeStatusTimer then self:stopHomeStatusTimer() end
     local LibraryView = require("weread.ui.library_view")
     old_view = old_view or self.shelf_view
+    local carry_dirty
+    if old_view and old_view._finish_dirty and old_view._finish_current and old_view._finish_current()
+        and not require('weread.ui.finish_offline').reconcile_view(self,old_view) then carry_dirty=old_view._finish_dirty end
     options = options or {}
     mode = mode or "books"
     options.mode = mode
@@ -928,8 +931,20 @@ function M:showShelfView(mode, keyword, old_view, options)
     })
     if paged then self.shelf_view_pages[mode] = view.page end
     self.shelf_view = view
+    view._finish_dirty=carry_dirty
+    view._finish_current=current
+    view._finish_redraw = function()
+        if not current() then return end
+        local next_options={};for key,value in pairs(options) do next_options[key]=value end
+        next_options.prepared_shelf={books=books,accounts=accounts};next_options.page=view.page
+        next_options.scroll_offset=view:getScrollOffset()
+        require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
+            self:showShelfView(mode,keyword,view,next_options)
+        end)
+    end
     view._prepare_detail_return = function()
         if not current() then return end
+        require('weread.ui.finish_offline').reconcile_view(self,view)
         return function()
             if self.shelf_view == view and not view._shelf_closed then
                 options.page = view.page

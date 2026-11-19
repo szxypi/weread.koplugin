@@ -23,7 +23,7 @@ local ok,reason=pcall(function()
     end
     local function load(db) return json.decode(db:rowexec('SELECT payload FROM remote WHERE id=1')) end
     local function save(db,value) local stmt=db:prepare('UPDATE remote SET payload=? WHERE id=1');stmt:bind(json.encode(value)):step();stmt:close() end
-    local function shelf() return {books={{bookId='41',title='合成测试书籍：读完标记',finishReading=0,secret=0},
+    local function shelf() return {books={{bookId='41',title='合成测试书籍：读完标记',finishReading=0,secret=0,readUpdateTime=1700000000},
         {bookId='42',title='合成其他书籍',finishReading=1,secret=0}},archive=json.decode('[]')} end
     local function progress() return {book={bookId='41',chapterUid=2,chapterIdx=2,chapterOffset=100,progress=37.5}} end
     if mode=='live' then remote(function(db)
@@ -166,7 +166,7 @@ local ok,reason=pcall(function()
         report.phase='restore';local view=open();confirm(view);expect(state().posts==8 and journal:read().phase=='idle');saved(false);shot('restored')
         expect(state().shelf.books[2].secret==0 and state().shelf.books[2].finishReading==1 and state().progress.book.chapterOffset==100)
         local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
-        local function queue_offline()
+        local function queue_offline(list_mode)
             plugin.isNetworkConnected=function() return false end
             plugin:showShelfState('41')
             local menu=assert(plugin._shelf_state_menu);local action
@@ -175,6 +175,8 @@ local ok,reason=pcall(function()
             local dialog=assert(plugin._finish_offline_dialog);dialog.ok_callback()
             expect(queue:get('41') and queue:get('41').phase=='queued')
             local top=UI:getTopmostVisibleWidget();if top~=plugin._shelf_state_menu then UI:close(top) end
+            local display=plugin.settings:get('shelf');display.view_mode=list_mode and 'list' or 'cover';display.paginated=not list_mode
+            plugin.settings:set('shelf',display);plugin.settings:flush()
             plugin:closeWeReadUI();plugin:showBookshelf()
             local shelf_view=assert(plugin.shelf_view);local book
             for _,item in ipairs(shelf_view.books) do if tostring(item.bookId or item.book_id)=='41' then book=item end end
@@ -186,17 +188,55 @@ local ok,reason=pcall(function()
             end
             if not report.offline_shot then shot('offline-queued');report.offline_shot=true end
         end
-        local function reconnect(expected_posts,finished)
+        local function reconnect(expected_posts,finished,overlay)
+            local before=assert(plugin.shelf_view)
+            local last=#before.layout
+            before:moveFocusTo(math.min(2,#before.layout[last]),last,require('ui/widget/focusmanager').FOCUS_ONLY_ON_NT)
+            local x,y=before.selected.x,before.selected.y
+            local popup,detail
+            if overlay=='search' then
+                before.on_search();popup=assert(before._shelf_popup)
+            elseif overlay=='detail' then
+                plugin:showBookMenu{book_id='41',title='合成测试书籍：读完标记',chapters={}}
+                detail=assert(plugin._book_detail_view)
+            elseif overlay=='status' then
+                plugin:showShelfState('41');detail=assert(plugin._shelf_state_menu)
+            end
             plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
             wait(function() local entry,err=queue:get('41');return not err and not entry end)
             expect(state().posts==expected_posts and journal:read().phase=='idle');saved(finished)
+            if popup then
+                expect(plugin.shelf_view==before and before._shelf_popup==popup)
+                require('weread.ui.shelf_popup').close(before)
+            elseif detail then
+                expect(plugin.shelf_view==before and (plugin._book_detail_view==detail or plugin._shelf_state_menu==detail))
+                UI:close(detail)
+            end
+            wait(function() return plugin.shelf_view and plugin.shelf_view~=before end)
+            local updated=plugin.shelf_view;local book
+            for _,item in ipairs(updated.books) do if tostring(item.bookId or item.book_id)=='41' then book=item end end
+            expect(book and require('weread.lib.shelf_flags').display(book,'finished')==finished
+                and not updated:itemStatus(book):find(tr('Pending sync'),1,true))
+            if updated.cover_mode then
+                local cell
+                for _,item in ipairs(updated._item_rows) do if item.book==book then cell=item end end
+                expect(cell and (finished and cell._finished_badge and cell._finished_badge.label.text==tr('Read complete')
+                    or not finished and not cell._finished_badge))
+            end
+            expect(updated.page==before.page)
+            if overlay~='detail' then expect(updated.selected.x==x and updated.selected.y==y) end
+            if overlay=='search' then shot('offline-confirmed') end
         end
-        report.phase='offline-mark';queue_offline();expect(state().posts==8);reconnect(9,true)
-        report.phase='offline-unmark';queue_offline();expect(state().posts==9);reconnect(10,false)
-        report.phase='offline-already-applied';queue_offline()
+        report.phase='offline-mark';queue_offline();expect(state().posts==8);reconnect(9,true,'search')
+        report.phase='offline-unmark';queue_offline(true);expect(state().posts==9);reconnect(10,false,'detail')
+        report.phase='offline-already-applied';queue_offline(true)
         change(function(v) v.shelf.books[1].finishReading=1 end)
-        reconnect(10,true)
-        report.phase='offline-unmark-after-noop';queue_offline();reconnect(11,false)
+        reconnect(10,true,'status')
+        report.phase='offline-unmark-after-noop';queue_offline()
+        plugin.prepareShelfProgress=function() return nil end;plugin.fetchVisibleShelfCovers=function() end
+        plugin:showHome()
+        expect(plugin.shelf_view._discovery_tab=='home' and #plugin.shelf_view.books>0)
+        reconnect(11,false)
         report.phase='offline-interrupted';queue_offline();fault('delayed')
         plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
         wait(function() return state().posts==12 end)

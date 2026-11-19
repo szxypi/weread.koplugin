@@ -22,6 +22,55 @@ function M.snapshot(host)
     for _,entry in ipairs(entries) do result[entry.book_id]={desired=entry.desired,phase=entry.phase} end
     return result
 end
+-- Only copy the freshly persisted cloud flag into existing page models. This
+-- never changes the database or other book fields, including local progress.
+function M.reconcile_view(host,view)
+    local dirty=view and view._finish_dirty
+    if not dirty then return true end
+    for id in pairs(dirty) do
+        local ok,state=pcall(host.library_db.getShelfStatus,host.library_db,id)
+        if not ok or type(state)~='table' then return false end
+        if state.present==true and type(state.book)=='table' then
+            local value=Flags.display(state.book,'finished')
+            if type(value)=='boolean' then
+                for _,book in ipairs(view.books or {}) do
+                    if tostring(book.bookId or book.book_id or '')==id then book.finishReading=value and 1 or 0 end
+                end
+            end
+        end
+        dirty[id]=nil
+    end
+    view._finish_dirty=nil
+    return true
+end
+function M.redraw_preserving_focus(host,view,render)
+    local selected=view.selected
+    local x,y=selected and selected.x,selected and selected.y
+    render()
+    local fresh=host.shelf_view
+    if fresh and fresh~=view and type(x)=='number' and type(y)=='number'
+        and fresh.layout and fresh.layout[y] and fresh.layout[y][x] and fresh.moveFocusTo then
+        fresh:moveFocusTo(x,y,require('ui/widget/focusmanager').FOCUS_ONLY_ON_NT)
+    end
+end
+function M.flush_view(host)
+    local view=host.shelf_view
+    if not view or view._shelf_closed or not view._finish_dirty or type(view._finish_redraw)~='function' then return end
+    -- The detail screen owns focus. Its existing return path rebuilds the
+    -- retained shelf and calls reconcile_view after the detail is dismissed.
+    if host._book_detail_view or host._shelf_state_menu then return end
+    local current=require('weread.ui.page_scope').capture(host,view)
+    require('weread.ui.shelf_popup').redraw(view,function()
+        if not current() or host._book_detail_view or host._shelf_state_menu or not M.reconcile_view(host,view) then return end
+        view._finish_redraw()
+    end)
+end
+function M.refresh_view(host,id)
+    local view=host.shelf_view
+    if not view or view._shelf_closed or type(view._finish_redraw)~='function' then return end
+    view._finish_dirty=view._finish_dirty or {};view._finish_dirty[id]=true
+    M.flush_view(host)
+end
 function M.cancel_sync(host)
     if host._finish_offline_sync then host._finish_offline_sync:cancel() end
     host._finish_offline_sync=nil;host._finish_offline_account=nil
@@ -47,8 +96,9 @@ function M.pump(host)
         host._finish_offline_sync=require('weread.lib.finish_queue_sync'):new{
             queue=queue(host),service=require('weread.ui.finish_change').service(host),
             allowed=function() return allowed(host,account) end,
-            notify=function(phase)
+            notify=function(phase,entry)
                 if host._finish_offline_account~=account then return end
+                if (phase=='confirmed' or phase=='unconfirmed') and entry then M.refresh_view(host,entry.book_id) end
                 if phase=='confirmed' then
                     if host.showTransientInfo then host:showTransientInfo(_('Offline finished mark synced.'),3) end
                     UI:nextTick(function() M.pump(host) end)

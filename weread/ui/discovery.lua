@@ -31,6 +31,10 @@ end
 function M:showDiscoveryPage(tab, books, options)
     local LibraryView = require("weread.ui.library_view")
     options = options or {}
+    local previous=self.shelf_view
+    local carry_dirty
+    if previous and previous._finish_dirty and previous._finish_current and previous._finish_current()
+        and not require('weread.ui.finish_offline').reconcile_view(self,previous) then carry_dirty=previous._finish_dirty end
     local home = options.home
     local cover_mode = not home or home.view_mode ~= "list"
     local layout = LibraryView.getLayout(cover_mode, #books, "books", 108, { home = home })
@@ -88,11 +92,20 @@ function M:showDiscoveryPage(tab, books, options)
         end,
     })
     self.shelf_view = view
+    view._finish_dirty=carry_dirty
     view._discovery_tab = tab
     scope = Scope.capture(self, view)
     view._discovery_current = current
+    view._finish_current = current
+    view._finish_redraw = function()
+        if not current() then return end
+        require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
+            options.page=view.page;self:showDiscoveryPage(tab,books,options)
+        end)
+    end
     view._prepare_detail_return = function()
         if not current() then return end
+        require('weread.ui.finish_offline').reconcile_view(self,view)
         return function()
             if self.shelf_view == view and not view._shelf_closed then
                 options.page = view.page

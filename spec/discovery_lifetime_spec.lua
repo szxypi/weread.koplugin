@@ -15,7 +15,7 @@ end} end
 package.preload['weread.ui.library_view']=function() return {
     getLayout=function() return {page_size=6,columns=3,rows=2} end,
     show=function(data,callbacks)
-        local view={page=data.page,page_size=data.page_size,home_layout=data.home_layout,data=data,callbacks=callbacks}
+        local view={page=data.page,page_size=data.page_size,home_layout=data.home_layout,books=data.books,data=data,callbacks=callbacks}
         view.onCloseWidget=function(self) self._shelf_closed=true;require('weread.ui.shelf_popup').close(self) end
         return view
     end,
@@ -186,4 +186,12 @@ cached={account='account-a',kind='category',category_title='saved',books={},hist
 plugin,state=empty_store();plugin:openBookstore();drain()
 expect(state.calls==0 and plugin.discovery_state==cached,'initial chart replaced cached store')
 package.loaded['weread.ui.discovery_cache']=saved_cache
+plugin,state=host();view=state.open()
+plugin.library_db.getShelfStatus=function() return {present=true,book={finishReading=1}} end
+local owner_popup={};require('weread.ui.shelf_popup').show(view,owner_popup,function() end)
+require('weread.ui.finish_offline').refresh_view(plugin,'1')
+view.callbacks.on_page_changed(2)
+require('weread.ui.shelf_popup').close(view);drain()
+expect(plugin.shelf_view~=view and plugin.shelf_view.page==2 and plugin.shelf_view.books[1].finishReading==1,
+    'another deferred page redraw discarded the finished-mark refresh')
 print('discovery_lifetime_spec: '..checks..' checks')
