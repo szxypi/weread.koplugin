@@ -15,6 +15,12 @@ expect(not C.validate_body('create',indexed),'unverified imported chapter index 
 local selection=F.clone(F.mark());selection.selection=true
 expect(not pcall(C.make,codec,imported,'create',selection,input,cb_marks,{bookId=imported.book_id,version=77},'900000'),
     'unverified imported selection accepted')
+local imported_selection=require('spec.helpers.mark_edit_fixture').reference();imported_selection.source.book_id=imported.book_id
+local zero_plan=C.make(codec,imported,'create',imported_selection,input,nil,{bookId=imported.book_id,version=0},'900000')
+expect(zero_plan.body.bookVersion==0 and C.validate_body('create',zero_plan.body),'zero-version imported thought rejected')
+local numeric_selection=require('spec.helpers.mark_edit_fixture').reference()
+expect(not pcall(C.make,codec,snapshot,'create',numeric_selection,input,nil,{bookId='900001',version=0},'900000'),
+    'zero-version numeric thought accepted')
 for _i,operation in ipairs({'edit','delete'}) do
     local safe=C.make(codec,imported,operation,imported.reviews[1],input)
     expect(C.validate_body(operation,safe.body) and C.validate_metadata(safe.metadata),'private imported thought rejected')

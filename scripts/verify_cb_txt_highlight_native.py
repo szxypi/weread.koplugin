@@ -18,9 +18,9 @@ from verify_synthetic_epub_upload import run as upload_run
 
 
 def stores():
-    def backend(part):return MacKeychain(service='org.codex.weread.cb-txt-native-highlight-'+part+'-v1',account=ACCOUNT)
+    def backend(part):return MacKeychain(service='org.codex.weread.cb-txt-native-highlight-'+part+'-v2',account=ACCOUNT)
     def lock(part):
-        path=Path(tempfile.gettempdir())/('codex-cb-txt-native-highlight-'+part+'-'+ACCOUNT+'.lock')
+        path=Path(tempfile.gettempdir())/('codex-cb-txt-native-highlight-v2-'+part+'-'+ACCOUNT+'.lock')
         return lambda:project_lock(path)
     return (Journal(backend=backend('upload'),lock=lock('upload'),validator=fixture.validate_plan),
             Receipt(backend=backend('receipt')),trial.Intent(backend=backend('intent'),lock=lock('intent')))
@@ -49,7 +49,7 @@ def run(saved,session,native,grant,journal,receipt,intent,command,*,apply=False,
     return runner(saved,session,native,grant,journal,intent,command,apply=apply,uploader=upload,
                   prepare_fn=prepare,source_format='web_txt',source_marker=trial.TEXT,span_fn=span,
                   upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED',fixture_authorized=authority,
-                  result_label='CB_NATIVE_TXT_HIGHLIGHT_VERIFIED')
+                  result_label='CB_NATIVE_TXT_HIGHLIGHT_VERIFIED',allow_zero_version=True)
 
 
 def main(argv=None):

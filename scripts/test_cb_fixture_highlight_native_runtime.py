@@ -48,7 +48,7 @@ def main():
     server=Server(args.case);txt_patch=None
     if args.txt:
         from cb_txt_highlight_trial import BODY
-        server.content_format='txt';txt_patch=patch('mock_weread.chapter_txt',return_value=BODY.decode());txt_patch.start()
+        server.content_format='txt';server.selection_book_version=0;txt_patch=patch('mock_weread.chapter_txt',return_value=BODY.decode());txt_patch.start()
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         if args.txt:
@@ -58,13 +58,14 @@ def main():
         baseline=observer.observe(grant);raw=BODY.decode() if args.txt else server.chapter_source(2)
         sample=dict(book_id=CB_READING_ID,chapter_uid='2',chapters=CHAPTERS,source_format='web_txt' if args.txt else 'web_xhtml',source=raw,
                     source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest())
-        plan,body=(prepare_txt('900000',CB_READING_ID,'a'*32,sample,700,baseline,range_unit='utf16') if args.txt
+        version=0 if args.txt else 700
+        plan,body=(prepare_txt('900000',CB_READING_ID,'a'*32,sample,version,baseline,range_unit='utf16') if args.txt
                    else prepare('900000',CB_READING_ID,'a'*32,sample,700,baseline))
         if args.txt:
             first,last=PlainSource(raw).locate(TEXT);span=dict(first=first,last=last)
         else:span=span_project(raw,CB_READING_ID,'2',dict(type=1,chapterUid=2,range=body['range'],markText=body['markText']))
         payload=dict(book=CB_READING_ID,chapter='2',chapter_idx=2,source=raw,chapters=CHAPTERS,
-            cookies={'wr_vid':'900000','wr_skey':'mock_key'},native=grant,owner='900000',book_version=700,
+            cookies={'wr_vid':'900000','wr_skey':'mock_key'},native=grant,owner='900000',book_version=version,
             body=body,first=span['first'],last=span['last'],source_format=sample['source_format'])
         os.environ.update(WEREAD_FIXTURE_SYNTHETIC='1',WEREAD_FIXTURE_MOCK_PORT=str(server.server_port))
         command=['python3','scripts/run_cb_fixture_highlight_ui.py','--koreader',str(args.koreader),
@@ -95,7 +96,7 @@ def main():
             if args.txt:
                 from verify_cb_txt_highlight_native import span as txt_span
                 options=dict(source_format='web_txt',source_marker=TEXT,span_fn=txt_span,
-                    upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED',prepare_fn=lambda *v:prepare_txt(*v,range_unit='utf16'))
+                    upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED',prepare_fn=lambda *v:prepare_txt(*v,range_unit='utf16'),allow_zero_version=True)
             else:options={}
             with patch('verify_cb_fixture_highlight_native.save_refreshed_web_session',return_value=False):
                 result=run(dict(vid='900000',cookies={'wr_vid':'900000','wr_skey':'mock_key'}),None,NativeStore(),grant,journal,intent,

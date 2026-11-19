@@ -74,7 +74,7 @@ function M.context(client,marks,metadata,book,owner,reference)
     if not first or #first>10 or #last>10 or tonumber(first)>=tonumber(last) or tonumber(last)>2147483647 then fail('range') end
     if type(metadata)~='table' or tostring(metadata.bookId)~=book then fail('metadata') end
     local version=metadata.bookVersion or metadata.version
-    if not integer(version,2147483647) or version==0 then fail('version') end
+    if not integer(version,2147483647) or version==0 and Marks.id(book) then fail('version') end
     local ctx={bookId=book,chapterUid=tostring(row.chapterUid),bookVersion=version,type=1,range=row.range,abstract=row.markText,isPrivate=1}
     -- Selection catalog indices belong to Web source verification. The real
     -- native creation fixture omitted chapterIdx; do not invent a conversion.
@@ -92,7 +92,8 @@ function M.validate_body(operation,body)
     if operation=='create' then
         allowed={bookId=true,chapterUid=true,bookVersion=true,type=true,range=true,abstract=true,isPrivate=true,content=true,chapterIdx=true}
         if not Marks.display_id(body.bookId) or not Marks.id(body.chapterUid) or tonumber(body.chapterUid)>2147483647
-            or not integer(body.bookVersion,2147483647) or body.bookVersion==0 or body.type~=1 or body.isPrivate~=1
+            or not integer(body.bookVersion,2147483647) or body.bookVersion==0 and Marks.id(body.bookId)
+            or body.type~=1 or body.isPrivate~=1
             or not M.valid_content(body.content) or not M.valid_content(body.abstract) or #body.abstract>4096
             or body.chapterIdx~=nil and (not Marks.id(body.bookId) or not integer(body.chapterIdx,2147483647)) then return false end
         local first,last

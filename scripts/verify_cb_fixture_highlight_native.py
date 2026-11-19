@@ -104,7 +104,7 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         uploader=upload_run,upload_factory=UploadProbe,observer_factory=Observer,source_factory=CbReadingProbe,ui_runner=run_ui,
         prepare_fn=prepare,native_writes=2,result_label='CB_NATIVE_HIGHLIGHT_VERIFIED',final_check=None,source_sleep=time.sleep,
         source_format='web_xhtml',source_marker=TEXT,span_fn=span_project,upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED',
-        fixture_authorized=owned):
+        fixture_authorized=owned,allow_zero_version=False):
     report=dict(result='UNVERIFIED',phase='preflight',native_writes_allocated=0,authentication_posts=0,
                 fixture_only=True,existing_book_writes=0,private_values_in_report=False)
     current={'saved':saved,'sample':None,'observer':None,'ui':None}
@@ -147,7 +147,7 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         try:
             baseline=observer.observe(grant);version=observer.version(grant)
             report['metadata_version_zero']=version==0
-            if version==0 or observer.version(grant)!=version:raise ValueError('cb_native_highlight/version')
+            if version==0 and not allow_zero_version or observer.version(grant)!=version:raise ValueError('cb_native_highlight/version')
             stage='prepare'
             plan,body=prepare_fn(owner,target,state['attempt'],sample,version,baseline)
             row={'type':1,'chapterUid':body['chapterUid'],'range':body['range'],'markText':body['markText']}

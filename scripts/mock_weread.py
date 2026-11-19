@@ -392,7 +392,7 @@ class MockServer(ThreadingHTTPServer):
                         required={'bookId','chapterUid','bookVersion','type','style','range','markText'}
                         selection_id=CB_READING_ID if self.cb_reading else BOOK_ID
                         if (set(data)!=required or data['bookId']!=selection_id or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style'))
-                                or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=700
+                                or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=getattr(self,'selection_book_version',700)
                                 or data['type']!=0 or data['style']!=0):raise ValueError('invalid bookmark body')
                         raw=self.chapter_source(data['chapterUid']);point=from_mark(raw,selection_id,str(data['chapterUid']),data)
                         if project(raw,point['chapter_offset'])['markText']!=data['markText']:raise ValueError('invalid bookmark preview')
@@ -420,7 +420,7 @@ class MockServer(ThreadingHTTPServer):
                     required={'bookId','chapterUid','bookVersion','type','style','colorStyle','range','markText'}
                     selection_id=CB_READING_ID if self.cb_reading else BOOK_ID
                     if (set(data)!=required or data['bookId']!=selection_id or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style','colorStyle'))
-                            or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=700
+                            or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=getattr(self,'selection_book_version',700)
                             or data['type']!=1 or data['style'] not in (0,1,2) or data['colorStyle'] not in (0,1,2,3,4,5)):raise ValueError('invalid highlight body')
                     if self.selection_quote(data['chapterUid'],data['range']).strip()!=data['markText']:raise ValueError('invalid highlight source')
                     identity='synthetic-new-highlight-'+str(self.highlight_posts+1)
@@ -458,7 +458,7 @@ class MockServer(ThreadingHTTPServer):
                     selection_id=CB_READING_ID if self.cb_reading else BOOK_ID
                     if (set(data)!=required or data['bookId']!=selection_id or type(data['chapterUid']) is not str or data['chapterUid'] not in {str(c['chapterUid']) for c in CHAPTERS}
                             or any(type(data[k]) is not int for k in ('bookVersion','type','isPrivate'))
-                            or data['bookVersion']!=700 or data['type']!=1 or data['isPrivate']!=1
+                            or data['bookVersion']!=getattr(self,'selection_book_version',700) or data['type']!=1 or data['isPrivate']!=1
                             or not isinstance(data['abstract'],str) or not 0<len(data['abstract'].encode())<=4096
                             or not isinstance(data['content'],str) or not 0<len(data['content'].encode())<=131072):raise ValueError('invalid selected quote request')
                     if self.selection_quote(int(data['chapterUid']),data['range']).strip()!=data['abstract']:
@@ -571,7 +571,7 @@ class MockServer(ThreadingHTTPServer):
                 source = book_metadata(next(b for b in readable_books+METADATA_BOOKS if b["bookId"] == book_id))
                 source["totalWords"] = source.pop("wordCount")
                 source.pop("bookVersion", None)
-                source.update(version=700,progress=99,chapterOffset=321,finishReading=1)
+                source.update(version=getattr(self,'selection_book_version',700),progress=99,chapterOffset=321,finishReading=1)
                 return 200, source
             if path == '/store/suggest' and method == 'GET':
                 if set(query)!={'keyword','count'} or len(query['keyword'])!=1 or query['count']!=['10']:

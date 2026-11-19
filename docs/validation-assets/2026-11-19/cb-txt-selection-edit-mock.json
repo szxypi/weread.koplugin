@@ -1,6 +1,7 @@
 {
   "result": "PASS",
   "sample": "synthetic imported TXT with a non-BMP character before the selection",
+  "imported_book_version": 0,
   "screens": ["600x800@167", "1264x1680@300"],
   "native_highlight": {"create_and_delete": true, "dry_run_blocked": true, "offline_reopen": true},
   "native_private_thought": {"create_edit_delete": true, "dry_run_blocked": true, "offline_reopen": true},

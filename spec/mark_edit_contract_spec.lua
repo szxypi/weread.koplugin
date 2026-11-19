@@ -6,6 +6,9 @@ local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.
 local imported_ref=F.clone(ref);imported_ref.source.book_id='CB_Synthetic'
 local imported_plan=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77})
 expect(C.validate_body('create',imported_plan.body) and C.validate_metadata(imported_plan.metadata),'verified imported highlight plan rejected')
+local zero_plan=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=0})
+expect(zero_plan.body.bookVersion==0 and C.validate_body('create',zero_plan.body),'zero-version imported highlight rejected')
+expect(not pcall(C.make,codec,snapshot,'create',ref,{bookId='900001',version=0}),'zero-version numeric highlight accepted')
 expect(imported_plan.body.style==1 and imported_plan.body.colorStyle==0,'default imported style changed')
 local imported_created=F.created(codec,imported)
 expect(C.check(imported_created,imported_plan.metadata),'imported creation was not independently confirmed')

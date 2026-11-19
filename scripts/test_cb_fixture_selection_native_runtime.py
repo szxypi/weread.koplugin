@@ -36,21 +36,22 @@ def main():
     if args.txt:
         from cb_txt_highlight_trial import BODY,TEXT,prepare as prepare_txt
         from txt_coordinates import PlainSource
-        server.content_format='txt';txt_patch=patch('mock_weread.chapter_txt',return_value=BODY.decode());txt_patch.start()
+        server.content_format='txt';server.selection_book_version=0;txt_patch=patch('mock_weread.chapter_txt',return_value=BODY.decode());txt_patch.start()
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         grant=credentials();intent=Intent(Backend());native=ScopedSelectionNative(CB_READING_ID,grant,lambda:True,intent,opener=Opener(server))
         baseline=native.observe(grant);raw=BODY.decode() if args.txt else server.chapter_source(2)
         sample=dict(book_id=CB_READING_ID,chapter_uid='2',chapters=CHAPTERS,source_format='web_txt' if args.txt else 'web_xhtml',source=raw,
                     source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest())
-        options=dict(prepare_fn=lambda *v:prepare_txt(*v,range_unit='utf16')) if args.txt else {}
-        plan,context,body=prepare('900000',CB_READING_ID,'a'*32,sample,700,baseline,'b'*32,**options)
+        options=dict(prepare_fn=lambda *v:prepare_txt(*v,range_unit='utf16'),allow_zero_version=True) if args.txt else {}
+        version=0 if args.txt else 700
+        plan,context,body=prepare('900000',CB_READING_ID,'a'*32,sample,version,baseline,'b'*32,**options)
         if args.txt:
             first,last=PlainSource(raw).locate(TEXT);span=dict(first=first,last=last)
         else:span=span_project(raw,CB_READING_ID,'2',dict(type=1,chapterUid=2,range=body['range'],markText=body['abstract']))
         from annotation_experiment_model import note_text
         payload=dict(book=CB_READING_ID,chapter='2',chapter_idx=2,source=raw,chapters=CHAPTERS,
-            cookies={'wr_vid':'900000','wr_skey':'mock_key'},native=grant,owner='900000',book_version=700,
+            cookies={'wr_vid':'900000','wr_skey':'mock_key'},native=grant,owner='900000',book_version=version,
             body=body,edited_text=note_text('b'*32,True),first=span['first'],last=span['last'],source_format=sample['source_format'])
         os.environ.update(WEREAD_FIXTURE_SYNTHETIC='1',WEREAD_FIXTURE_MOCK_PORT=str(server.server_port))
         command=['python3','scripts/run_cb_fixture_selection_ui.py','--koreader',str(args.koreader),'--candidate',str(candidate),

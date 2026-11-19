@@ -40,8 +40,8 @@ class Intent(SelectionTrialStore):
     def validate_plan(self,value):return validate_plan(value)
 
 
-def prepare(owner,book,attempt,sample,version,baseline,nonce,*,prepare_fn=prepare_source):
-    if type(version) is not int or version<=0:raise ValueError('cb_selection/version')
+def prepare(owner,book,attempt,sample,version,baseline,nonce,*,prepare_fn=prepare_source,allow_zero_version=False):
+    if type(version) is not int or version<0 or version==0 and not allow_zero_version:raise ValueError('cb_selection/version')
     source,highlight=prepare_fn(owner,book,attempt,sample,version,baseline)
     context=thought_context(highlight);body=dict(context,content=note_text(nonce))
     plan=validate_plan(dict(protocol=PROTOCOL,owner_sha256=digest(owner),book_sha256=digest(book),attempt=attempt,
