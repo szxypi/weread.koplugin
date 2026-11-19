@@ -70,21 +70,23 @@ def verify_capture(sample,row):
     try:quote=base64.b64decode(row['markText'],validate=True).decode('utf-8')
     except (ValueError,UnicodeError):raise ValueError('official_txt/selection') from None
     source=raw.removeprefix('\ufeff');first,last=map(int,match.groups())
-    valid=0<=first<last<=len(source)
-    checks=dict(range_in_bounds=valid,quote_length_valid=3<=len(quote)<=len(TEXT),
-                scalar_range_matches=valid and source[first:last]==quote,
+    scalar_valid=0<=first<last<=len(source);raw_utf16=source.encode('utf-16-le')
+    utf16_valid=0<=first<last<=len(raw_utf16)//2
+    quote_at=source.find(quote) if quote else -1
+    checks=dict(range_in_bounds=utf16_valid,quote_length_valid=3<=len(quote)<=len(TEXT),
+                scalar_range_matches=scalar_valid and source[first:last]==quote,
                 quote_inside_fixture=bool(quote) and quote in TEXT,quote_unique=bool(quote) and source.count(quote)==1,
-                non_bmp_before_range=valid and len(source[:first].encode('utf-16-le'))//2!=first,
+                non_bmp_before_range=quote_at>=0 and len(source[:quote_at].encode('utf-16-le'))//2!=quote_at,
                 utf16_range_matches=False)
     try:
-        raw_utf16=source.encode('utf-16-le')
-        checks['utf16_range_matches']=bool(quote) and raw_utf16[first*2:last*2].decode('utf-16-le')==quote
+        checks['utf16_range_matches']=utf16_valid and bool(quote) and raw_utf16[first*2:last*2].decode('utf-16-le')==quote
     except UnicodeError:pass
-    if not all(checks[key] for key in ('range_in_bounds','quote_length_valid','scalar_range_matches',
+    if not all(checks[key] for key in ('range_in_bounds','quote_length_valid','utf16_range_matches',
                                         'quote_inside_fixture','quote_unique','non_bmp_before_range')):
         raise CaptureError('official_txt/range',checks)
     return dict(result='PASS',same_book_and_chapter=True,exact_quote_and_range=True,
-                selected_from_fixture=True,non_bmp_before_selection=True,attempted_write_blocked=True)
+                selected_from_fixture=True,non_bmp_before_selection=True,attempted_write_blocked=True,
+                utf16_range_matches=True,scalar_range_matches=checks['scalar_range_matches'])
 
 
 def observe(sample,cookies,*,timeout=30000):

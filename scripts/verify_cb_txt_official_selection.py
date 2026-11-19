@@ -28,8 +28,8 @@ from verify_translation_preflight import save_refreshed_web_session
 
 
 def stores():
-    def backend(part):return MacKeychain(service='org.codex.weread.cb-txt-official-selection-'+part+'-v2',account=ACCOUNT)
-    path=Path(tempfile.gettempdir())/('codex-cb-txt-official-selection-upload-v2-'+ACCOUNT+'.lock')
+    def backend(part):return MacKeychain(service='org.codex.weread.cb-txt-official-selection-'+part+'-v3',account=ACCOUNT)
+    path=Path(tempfile.gettempdir())/('codex-cb-txt-official-selection-upload-v3-'+ACCOUNT+'.lock')
     return Journal(backend=backend('upload'),lock=lambda:project_lock(path),validator=validate_plan),Receipt(backend=backend('receipt'))
 
 

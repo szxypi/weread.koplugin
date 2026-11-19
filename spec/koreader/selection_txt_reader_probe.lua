@@ -50,7 +50,7 @@ local a,b=capture(first),capture(last);assert(not a.error and not b.error)
 assert(a.book_id==book.book_id and b.book_id==book.book_id and a.chapter_uid=='1' and b.chapter_uid=='1'
     and a.file==file and b.file==file and a.metadata==b.metadata and a.render_path==b.render_path)
 local result=assert(Quote.project_context(raw,a,b,text))
-assert(result.range=='47-109' and result.abstract==expected and requests==0)
+assert(result.range=='48-110' and result.abstract==expected and requests==0)
 print('\nWEREAD_TXT_SELECTION_READER='..json.encode({result='PASS',native_context=true,
     raw_range=true,book_bound=true,network_requests=requests,reopened=reopen}))
 os.exit(0)

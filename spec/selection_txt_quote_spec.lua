@@ -10,7 +10,7 @@ end
 local text='A unique synthetic passage for testing a plain text highlight.'
 local raw='A self-authored test begins with one emoji: 😀.\n'..text..'\n'
 local first,last=locate(raw,text);local result=assert(Quote.project(raw,first,last,text))
-expect(result.range=='47-109' and result.abstract==text and result.raw_bytes==#raw,'plain rune range after emoji')
+expect(result.range=='48-110' and result.abstract==text and result.raw_bytes==#raw,'UTF-16 range after emoji')
 expect(first==48 and last==110,'fixture did not distinguish UTF-16 from rune offsets')
 local with_bom='\239\187\191'..raw;local bom_first,bom_last=locate(with_bom,text)
 local bom=assert(Quote.project(with_bom,bom_first,bom_last,text))
@@ -41,9 +41,9 @@ local anchor=assert(Dom.normalize(raw));local selected=assert(Dom.normalize(text
 local a={text=anchor,point_offset=scalar_count(assert(Dom.normalize(prefix)))}
 local b={text=anchor,point_offset=a.point_offset+scalar_count(selected)}
 local from_context=assert(Quote.project_context(raw,a,b,text))
-expect(from_context.range=='47-109' and from_context.abstract==text,'native contexts projected the wrong raw range')
+expect(from_context.range=='48-110' and from_context.abstract==text,'native contexts projected the wrong raw range')
 local surrounding=assert(Quote.project(raw,47,110,text))
-expect(surrounding.range=='47-109' and surrounding.abstract==text,'outer newline was not excluded from candidate range')
+expect(surrounding.range=='48-110' and surrounding.abstract==text,'outer newline was not excluded from candidate range')
 expect(not Quote.project_context(raw,a,b,text..' altered'),'changed native selected text accepted')
 expect(not Quote.project_context(raw,{text=anchor..' ',point_offset=a.point_offset},b,text),
     'unnormalized native context accepted')

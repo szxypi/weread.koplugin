@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "sample": "synthetic TXT with a non-BMP character before each selected passage",
+  "screens": ["600x800@167", "1264x1680@300"],
+  "official_utf16_ranges": {"highlights_per_screen": 6, "thought_quotes_per_screen": 6, "native_buttons": true, "offline_reopen": true},
+  "previous_scalar_range_regression": "600x800@167",
+  "native_selection_projection": {"unit": "UTF-16 excluding leading BOM", "offline_reopen": true},
+  "ambiguous_range_interpretations_rejected": true,
+  "surrogate_midpoints_rejected": true,
+  "network_requests": 0,
+  "cloud_writes": 0,
+  "limitations": ["synthetic native UI only", "official saved-highlight display not verified", "TXT annotation writes remain disabled", "physical Kindle not tested"]
+}

@@ -1,5 +1,5 @@
--- Read-only TXT selection projection. Its returned range is a candidate and
--- grants no authority to submit or display a cloud annotation.
+-- Read-only TXT selection projection using the official web reader's observed
+-- UTF-16 unit. Its candidate grants no authority for cloud writes.
 local Coordinates=require('weread.lib.source_coordinates')
 local Quote=require('weread.lib.selection_quote')
 local Dom=require('weread.lib.source_dom')
@@ -50,8 +50,11 @@ function M.project(raw,first,last,text)
         local quote,leading,trailing=trim(Raw.quote(spans,tostring(start)..'-'..tostring(stop)))
         if quote=='' or #quote>Quote.MAX_QUOTE or Dom.normalize(quote)~=map.flat:sub(begin,ending-1) then fail('selection') end
         start,stop=start+leading,stop-trailing
-        local range=tostring(start)..'-'..tostring(stop)
-        if Raw.quote(spans,range)~=quote then fail('selection') end
+        if Raw.quote(spans,tostring(start)..'-'..tostring(stop))~=quote then fail('selection') end
+        -- Native TXT coordinates include a leading BOM; official range
+        -- candidates exclude it. Trimmed whitespace is always BMP.
+        local bom=raw:sub(1,3)=='\239\187\191' and 1 or 0
+        local range=tostring(first-bom+leading)..'-'..tostring(last-bom-trailing)
         return {range=range,abstract=quote,raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw}
     end)
     if ok then return value end

@@ -19,7 +19,7 @@ from verify_synthetic_epub_upload import run as upload_run
 
 def fixture(*,bom=False):
     raw=('\ufeff' if bom else '')+BODY.decode();source=raw.removeprefix('\ufeff')
-    quote=TEXT[:8];start=source.index(quote)
+    quote=TEXT[:8];start=len(source[:source.index(quote)].encode('utf-16-le'))//2
     sample=dict(book_id='CB_Synthetic42',chapter_uid='2',source_format='web_txt',source=raw,chapters=[dict(chapterUid=2)])
     row=dict(bookId=sample['book_id'],chapterUid=2,type=1,range=f'{start}-{start+len(quote)}',
              markText=base64.b64encode(quote.encode()).decode())
@@ -35,13 +35,13 @@ class OfficialSelectionTests(unittest.TestCase):
 
     def test_incorrect_range_and_scope_are_rejected(self):
         sample,row=fixture();start,end=map(int,row['range'].split('-'))
-        variants=[dict(row,range=f'{start+1}-{end+1}'),dict(row,bookId='CB_Other'),dict(row,chapterUid=3),
+        variants=[dict(row,range=f'{start-1}-{end-1}'),dict(row,bookId='CB_Other'),dict(row,chapterUid=3),
                   dict(row,markText='not base64!'),dict(row,type=True),dict(row,markText=base64.b64encode(b'other').decode())]
         for value in variants:
             with self.subTest(value=value),self.assertRaises(ValueError):verify_capture(sample,value)
-        with self.assertRaises(CaptureError) as failure:verify_capture(sample,dict(row,range=f'{start+1}-{end+1}'))
-        self.assertTrue(failure.exception.checks['utf16_range_matches'])
-        self.assertFalse(failure.exception.checks['scalar_range_matches'])
+        with self.assertRaises(CaptureError) as failure:verify_capture(sample,dict(row,range=f'{start-1}-{end-1}'))
+        self.assertFalse(failure.exception.checks['utf16_range_matches'])
+        self.assertTrue(failure.exception.checks['scalar_range_matches'])
         self.assertTrue(failure.exception.checks['quote_inside_fixture'])
         changed=deepcopy(sample);changed['source']=changed['source'].replace('😀','x')
         with self.assertRaises(ValueError):verify_capture(changed,row)

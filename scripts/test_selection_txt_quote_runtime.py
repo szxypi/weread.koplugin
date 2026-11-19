@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare synthetic TXT rune ranges with KOReader Lua; no account access."""
+"""Compare synthetic TXT UTF-16 ranges with KOReader Lua; no account access."""
 import argparse
 import json
 import re
@@ -11,8 +11,9 @@ def row(prefix,quote,suffix='',*,bom=False):
     before=('\ufeff' if bom else '')+prefix
     first=len(before.encode('utf-16-le'))//2
     last=first+len(quote.encode('utf-16-le'))//2
+    start=len(prefix.encode('utf-16-le'))//2;end=start+len(quote.encode('utf-16-le'))//2
     return dict(raw=raw,first=first,last=last,text=quote.replace('\r\n','\n'),
-                range=f'{len(prefix)}-{len(prefix)+len(quote)}',quote=quote)
+                range=f'{start}-{end}',quote=quote)
 
 
 def main(argv=None):

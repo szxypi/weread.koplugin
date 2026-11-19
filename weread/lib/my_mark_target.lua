@@ -22,6 +22,19 @@ end
 local function count(value)
     local n=0;for _at,_char in chars(value) do n=n+1 end;return n
 end
+-- Both scalar and UTF-16 ranges have been observed for imported TXT. Return
+-- scalar boundaries only when each UTF-16 endpoint is a whole code point.
+local function utf16_span(text,first,last)
+    local units,runes,a,b=0,0,nil,nil
+    for _at,char in chars(text) do
+        if units==first then a=runes end
+        if units==last then b=runes end
+        units=units+(#char==4 and 2 or 1);runes=runes+1
+    end
+    if units==first then a=runes end
+    if units==last then b=runes end
+    if a and b and a<b then return a,b end
+end
 -- Cheap menu eligibility only. Parsing, quotation verification and source
 -- conversion remain in the independent worker, including for very long text.
 local function chapter_id(row,search)
@@ -57,9 +70,20 @@ local function project(raw,book,chapter,row,search,format)
         local map=Coordinates.build(raw,{format=format,allow_multiple_bodies=true})
         if not map then fail('source_unsupported') end
         local source=raw:gsub('^\239\187\191','');local length=count(source)
-        if last>length then fail('quote_changed') end
         local spans=format=='web_txt' and Raw.plain(raw) or Raw.index(raw,{body_only=true})
-        if trim(Raw.quote(spans,row.range))~=trim(quote) then fail('quote_changed') end
+        local candidates={}
+        local function add_candidate(a,b)
+            if a and b and a<b and b<=length and trim(Raw.quote(spans,tostring(a)..'-'..tostring(b)))==trim(quote) then
+                for _i,prior in ipairs(candidates) do if prior[1]==a and prior[2]==b then return end end
+                candidates[#candidates+1]={a,b}
+            end
+        end
+        add_candidate(first,last)
+        if format=='web_txt' then
+            local a,b=utf16_span(source,first,last);add_candidate(a,b)
+        end
+        if #candidates~=1 then fail(#candidates==0 and 'quote_changed' or 'ambiguous') end
+        first,last=candidates[1][1],candidates[1][2]
         local selected=Protocol.utf8_substr(needle,1024)
         local long=count(needle)>1024
         local points={}

@@ -19,9 +19,10 @@ from run_my_mark_navigation_ui import FRAME,DOWNLOAD_FRAME,validate
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--run-dir',type=Path,required=True)
     parser.add_argument('--imported',action='store_true',help='exercise imported-book quote navigation')
-    parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts','bookmarks']);parser.add_argument('--personal-display',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
+    parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts','bookmarks']);parser.add_argument('--personal-display',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-utf16',action='store_true');parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
     if args.imported and args.download_missing:parser.error('imported fixture uses cached navigation')
     if args.txt and (not args.imported or args.variant=='bookmarks' or args.personal_display):parser.error('TXT fixture requires imported highlights or thoughts')
+    if args.txt_utf16 and not args.txt:parser.error('UTF-16 range requires TXT')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);repo=Path(__file__).resolve().parent.parent
     candidate=root/'candidate.zip';subprocess.run(['bash',str(repo/'scripts/package_release.sh'),str(candidate)],capture_output=True,check=True)
     book_id='CB_SyntheticNotes' if args.imported else '900001'
@@ -36,6 +37,10 @@ def main():
         for number,quote in enumerate(selected):
             encoded=quote if args.txt else quote.replace('&','&amp;');start=raw.index(encoded)
             row=dict(bookmarkId=f'synthetic-{index}-{number}',type=1,chapterUid=index,chapterIdx=index,markText=quote,range=f'{start}-{start+len(encoded)}')
+            if args.txt_utf16:
+                first=len(raw[:start].encode('utf-16-le'))//2
+                last=first+len(encoded.encode('utf-16-le'))//2
+                row['range']=f'{first}-{last}'
             if args.variant=='thoughts':
                 row=dict(reviewId=row['bookmarkId'],type=1,chapterUid=index,chapterIdx=index,range=row['range'],abstract=quote,
                          content=f'合成想法 {index}-{number}：这段附注不用于原文定位。',isPrivate=number%2,chapterName='合成章节 '+uid)

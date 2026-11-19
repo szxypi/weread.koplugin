@@ -116,9 +116,23 @@ assert(txt_target,txt_reason)
 eq(txt_target.chapter_offset,48);eq(txt_target.basis,'raw_txt_utf16');eq(txt_target.upload_verified,false)
 local bom_target=assert(Target.project('\239\187\191'..txt,'CB_Synthetic','2',txt_row,'web_txt'))
 eq(bom_target.chapter_offset,49)
--- No alternative offset may be accepted without the exact source quotation.
-local wrong={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='48-110'}
+-- Official web uses UTF-16; an earlier native test sent scalar ranges. Both
+-- are accepted only when they resolve to the same exact source quotation.
+local official={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='48-110'}
+eq(assert(Target.project(txt,'CB_Synthetic','2',official,'web_txt')).chapter_offset,48)
+eq(assert(Target.project('\239\187\191'..txt,'CB_Synthetic','2',official,'web_txt')).chapter_offset,49)
+local wrong={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='49-111'}
 eq(Target.project(txt,'CB_Synthetic','2',wrong,'web_txt'),nil)
+local ambiguous='😀'..string.rep('a',64)
+local duplicated={type=1,chapterUid=2,bookId='CB_Synthetic',markText=string.rep('a',12),range='2-14'}
+local rejected,ambiguous_reason=Target.project(ambiguous,'CB_Synthetic','2',duplicated,'web_txt')
+eq(rejected,nil);eq(ambiguous_reason,'my_mark_target/ambiguous')
+local cut={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='1-110'}
+eq(Target.project(txt,'CB_Synthetic','2',cut,'web_txt'),nil)
+local cut_quote='Unique quoted text for testing.'
+local surrogate='前文😀'..cut_quote..'x'
+local inside={type=1,chapterUid=2,bookId='CB_Synthetic',markText=cut_quote,range='3-'..tostring(4+#cut_quote)}
+eq(Target.project(surrogate,'CB_Synthetic','2',inside,'web_txt'),nil)
 eq(Target.project(txt,'CB_Other','2',txt_row,'web_txt'),nil)
 eq(Target.project(txt,'CB_Synthetic','2',txt_row,'unsupported'),nil)
 local txt_render='<html><body><p>Synthetic rendered text.</p></body></html>'
@@ -132,6 +146,7 @@ local txt_bound=Target.bind_file('/cached.epub','CB_Synthetic',txt_row,23,archiv
 assert(txt_bound.position,txt_bound.error)
 eq(txt_bound.position.chapter_offset,48);eq(txt_bound.position.basis,'raw_txt_utf16')
 eq(txt_bound.position.upload_verified,false);eq(txt_bound.metadata,txt_meta)
+eq(Target.bind_file('/cached.epub','CB_Synthetic',official,24,archive).position.chapter_offset,48)
 local before_txt=members[Source.raw_path(Crypto.sha256_hex(txt))]
 members[Source.raw_path(Crypto.sha256_hex(txt))]='changed'
 eq(Target.bind_file('/cached.epub','CB_Synthetic',txt_row,23,archive).position,nil)
