@@ -3,10 +3,12 @@ import io
 import json
 import unittest
 from unittest.mock import patch
+from types import SimpleNamespace
 
 from verify_eink_login import NativeProbe
 from verify_notebook_catalog import Probe, main, summarize
 from notebook_catalog_model import project
+from run_notebook_catalog_ui import FLAGS, FRAME, validate_stage
 
 
 class NotebookCatalogTest(unittest.TestCase):
@@ -22,6 +24,7 @@ class NotebookCatalogTest(unittest.TestCase):
             self.assertEqual(request.call_count,3)
             self.assertEqual(request.call_args.args[1],'https://i.weread.qq.com/user/notebooks?count=2&lastSort=123')
             self.assertIsNone(request.call_args.kwargs.get('body'))
+            probe.read(grant,100,123)
             with self.assertRaises(ValueError):probe.read(grant,2)
         for count,last in ((1,None),(2,-1),(2,True),(2,'1'),(2,2**54)):
             with self.subTest(count=count,last=last),self.assertRaises(ValueError):Probe().read(grant,count,last)
@@ -46,6 +49,38 @@ class NotebookCatalogTest(unittest.TestCase):
                         dict(source,books=[dict(row,bookId='42')]),dict(source,books=[dict(row,noteCount=True)])):
             with self.subTest(changed=changed),self.assertRaises(ValueError):project(changed,1000)
         self.assertEqual(project(dict(books=[],totalBookCount=0),1000)['books'],[])
+
+    def test_ui_report_checks_worker_and_offline_scope(self):
+        stage=dict.fromkeys(FLAGS,True)
+        stage.update(result='PASS',mode='live',phase='complete',pages=1,books=1,requests=1,forbidden=0,failed_line=0)
+        validate_stage(stage,'live',1)
+        for field,value in (('requests',2),('forbidden',1),('credential_audit',False),('books',0),('failed_line',5)):
+            with self.subTest(field=field),self.assertRaises(ValueError):validate_stage(dict(stage,**{field:value}),'live',1)
+        with self.assertRaises(ValueError):validate_stage(stage,'reopen',1)
+        validate_stage(dict(stage,mode='reopen',requests=0),'reopen',1)
+
+    def test_real_ui_success_and_failure_do_not_export_private_values(self):
+        raw=dict(books=[dict(bookId='123',book=dict(bookId='123',title='private-title',author='Author'),
+                        noteCount=1,reviewCount=0,bookmarkCount=0,sort=123)],totalBookCount=1)
+        grant={'vid':'123','accessToken':'private-access'};saved={'vid':'123'}
+        expected=project(raw,1)
+        stage=dict.fromkeys(FLAGS,True)
+        stage.update(result='PASS',mode='live',phase='complete',pages=1,books=1,requests=1,forbidden=0,failed_line=0)
+        ui=dict(result='PASS',profile_removed=True,installed_bytes_match=True,installed_files=1,
+                stages=[stage,dict(stage,mode='reopen',requests=0)])
+        payload=dict(model=expected,native=expected,requests=1,ui=ui)
+        for fail in (False,True):
+            child=SimpleNamespace(returncode=int(fail),stdout=FRAME+json.dumps(payload).encode())
+            with patch('verify_notebook_catalog.SessionStore') as web,patch('verify_notebook_catalog.NativeSessionStore') as native,\
+                    patch('verify_notebook_catalog.Probe') as probe,patch('verify_notebook_catalog.subprocess.run',return_value=child),\
+                    redirect_stdout(io.StringIO()) as out:
+                web.return_value.load.return_value=dict(saved);native.return_value.load.return_value=dict(grant)
+                probe.return_value.read.return_value=raw;probe.return_value.report={'stages':[]}
+                result=main(['--saved-session','--native-ui','--lua-command','fixture'])
+            self.assertEqual(result,int(fail));report=json.loads(out.getvalue())
+            self.assertNotIn('private-title',repr(report));self.assertNotIn('private-access',repr(report))
+            self.assertEqual(report['result'],'UNVERIFIED' if fail else 'OBSERVED')
+            if not fail:self.assertTrue(report['native_ui_verified'])
 
 
 if __name__=='__main__':unittest.main()

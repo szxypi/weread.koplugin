@@ -7,6 +7,7 @@ memory; the report contains only schema flags and bounded counts.
 import argparse
 import json
 import resource
+import subprocess
 from urllib.parse import urlencode
 
 from secure_native_session import NativeSessionStore
@@ -28,7 +29,7 @@ class Probe(NativeProbe):
         query=dict(count=count)
         if last is not None:query['lastSort']=last
         self.calls+=1
-        if self.calls>3:raise ValueError('notebook/scope')
+        if self.calls>4:raise ValueError('notebook/scope')
         return super().request('notebooks',BASE+'/user/notebooks?'+urlencode(query),credentials=grant)
 
 
@@ -54,7 +55,10 @@ def identity(row):
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true');args=parser.parse_args(argv)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--native-ui',action='store_true');parser.add_argument('--lua-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
+    if args.native_ui and (not args.saved_session or not args.lua_command) or args.lua_command and not args.native_ui:
+        parser.error('native UI requires saved session and Lua command')
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0,private_values_saved=False)
     resource.setrlimit(resource.RLIMIT_CORE,(0,0));saved=grant=probe=None
     try:
@@ -77,7 +81,32 @@ def main(argv=None):
                 later_ids=[identity(row) for row in later['books']]
                 report['next_matches_large_slice']=later_ids==large_ids[2:2+len(later_ids)] and bool(later_ids)
                 report['next_disjoint']=not set(small_ids)&set(later_ids)
+            if len(large['books'])>1 and type(large['books'][0].get('sort')) is int:
+                after_first=probe.read(grant,100,large['books'][0]['sort']);report['after_first']=summarize(after_first)
+                after_ids=[identity(row) for row in after_first['books']]
+                report['after_first_matches_full']=after_ids==large_ids
+                report['after_first_matches_tail']=after_ids==large_ids[1:]
+                report['after_first_excludes_cursor']=large_ids[0] not in after_ids
             if store.load(saved['vid'])!=grant:raise ValueError('notebook/stale')
+            if args.native_ui:
+                now=1;expected=project(large,now)
+                payload=dict(source=large,owner=saved['vid'],now=now,credentials=grant)
+                child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=600)
+                from run_notebook_catalog_ui import FRAME,validate_stage
+                if len(child.stdout)>12*1024*1024 or child.stdout.count(FRAME)!=1:raise ValueError('notebook/ui_frame')
+                actual=json.loads(child.stdout.split(FRAME)[1]);ui=actual.get('ui')
+                if isinstance(ui,dict):
+                    report['ui_diagnostics']=[{key:row[key] for key in ('failed_line','requests','forbidden','pages','books')
+                        if type(row.get(key)) is int and 0<=row[key]<=100000} for row in ui.get('stages',[])[:2] if isinstance(row,dict)]
+                if child.returncode or actual.get('model')!=expected or actual.get('native')!=expected or actual.get('requests')!=1:
+                    raise ValueError('notebook/ui_result')
+                if (not isinstance(ui,dict) or set(ui)!={'result','profile_removed','installed_bytes_match','installed_files','stages'}
+                        or ui['result']!='PASS' or ui['profile_removed'] is not True or ui['installed_bytes_match'] is not True
+                        or type(ui['installed_files']) is not int or not 1<=ui['installed_files']<=1000
+                        or not isinstance(ui['stages'],list) or len(ui['stages'])!=2):raise ValueError('notebook/ui_result')
+                for row,mode in zip(ui['stages'],('live','reopen')):validate_stage(row,mode,len(expected['books']))
+                if store.load(saved['vid'])!=grant:raise ValueError('notebook/stale')
+                report.update(native_https_matches=True,native_ui_verified=True,ui=ui)
             report['result']='OBSERVED'
     except Exception:
         report.update(result='UNVERIFIED',reason='notebook_read_unavailable')
