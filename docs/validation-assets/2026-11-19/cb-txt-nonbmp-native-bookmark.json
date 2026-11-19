@@ -1,0 +1,18 @@
+{
+  "result": "CB_NATIVE_TXT_PADDED_BOOKMARK_VERIFIED",
+  "sample": "one new short self-authored imported TXT with a non-BMP character before the bookmark",
+  "range_unit": "UTF-16 as submitted and independently read back",
+  "scalar_and_utf16_positions_differ": true,
+  "screen": "1264x1680@300",
+  "dry_run_blocked": true,
+  "native_bookmark_create_navigate_delete": true,
+  "native_bookmark_writes": 2,
+  "independent_readbacks": 2,
+  "offline_reopen_after_deletion": true,
+  "fixture_removed_and_independently_confirmed": true,
+  "original_observed_state_restored": true,
+  "authentication_posts": 0,
+  "existing_book_writes": 0,
+  "private_values_in_report": false,
+  "limitations": ["one bookmark after one non-BMP character", "server readback may echo submitted positions and does not independently prove official display semantics", "official saved-bookmark display not checked", "physical Kindle not tested"]
+}
