@@ -30,7 +30,7 @@ return function(plugin,home)
         return menu
     end
     local report={result='UNVERIFIED',synthetic_only=true,cases={},account_requests=0,account_data_writes=0}
-    assert(db:getShelfStatus('42').present==nil);show('42','Unknown','shelf-membership-unknown')
+    local initial=db:getShelfStatus('42');assert(not initial or initial.present==nil);show('42','Unknown','shelf-membership-unknown')
     assert(db:putBook({bookId='42',title='合成详情',finishReading=1}))
     assert(db:getShelfStatus('42').present==nil,'detail-only row became on-shelf')
     report.cases.no_snapshot_and_detail_only_unknown=true

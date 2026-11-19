@@ -135,7 +135,7 @@ function LibraryDB:open()
     return db
 end
 
--- Catalog lookups must not try to initialize or change the journal mode.
+-- Cached reads must not try to initialize or change the journal mode.
 -- An existing database can be readable while another connection prevents a
 -- WAL migration; treating that as a missing catalog breaks reader recovery.
 function LibraryDB:openRead()
@@ -210,7 +210,7 @@ function LibraryDB:cacheShelf(books, archives)
 end
 
 function LibraryDB:getShelfArchives()
-    local db = self:open()
+    local db = self:openRead()
     if not db then return nil end
     local stmt, archives
     local ok = pcall(function()
@@ -224,31 +224,30 @@ function LibraryDB:getShelfArchives()
 end
 
 function LibraryDB:getShelf()
-    local db = self:open()
+    local db = self:openRead()
     if not db then return nil end
     local books = {}
-    local ok, stmt = pcall(function()
-        return db:prepare([[
+    local stmt
+    local ok = pcall(function()
+        stmt = db:prepare([[
             SELECT payload FROM books
             WHERE on_shelf=1
             ORDER BY shelf_position, book_id
         ]])
-    end)
-    if ok and stmt then
         local row = stmt:reset():step()
         while row do
             local book = decode(row[1])
             if book then books[#books + 1] = book end
             row = stmt:step()
         end
-    end
+    end)
     close_statement(stmt)
     pcall(function() db:close() end)
     return ok and books or nil
 end
 
 function LibraryDB:getProfileState(name)
-    local db = self:open()
+    local db = self:openRead()
     if not db then return nil end
     local stmt, result
     local ok = pcall(function()
@@ -313,7 +312,7 @@ end
 function LibraryDB:getShelfProgress(ids)
     local result = {}
     if type(ids) ~= "table" or #ids == 0 then return result end
-    local db = self:open()
+    local db = self:openRead()
     if not db then return result end
     local stmt
     local ok = pcall(function()
@@ -382,12 +381,31 @@ end
 
 function LibraryDB:getBook(book_id)
     if not book_id then return nil end
-    local db = self:open()
+    local db = self:openRead()
     if not db then return nil end
     local stmt
     local result
     local ok = pcall(function()
-        stmt = db:prepare("SELECT COALESCE(detail_payload, payload) FROM books WHERE book_id=?")
+        local prepared, value = pcall(db.prepare, db, "SELECT COALESCE(detail_payload, payload) FROM books WHERE book_id=?")
+        if prepared then
+            stmt = value
+        else
+            -- An early schema has only payload. Check the actual columns before
+            -- falling back, so other query errors never select stale details.
+            local columns = db:prepare("PRAGMA table_info(books)")
+            local has_payload, has_detail = false, false
+            local columns_ok = pcall(function()
+                local column = columns:step()
+                while column do
+                    if column[2] == 'payload' then has_payload = true end
+                    if column[2] == 'detail_payload' then has_detail = true end
+                    column = columns:step()
+                end
+            end)
+            close_statement(columns)
+            assert(columns_ok and has_payload and not has_detail, 'library_db/book_schema')
+            stmt = db:prepare("SELECT payload FROM books WHERE book_id=?")
+        end
         local row = stmt:reset():bind(tostring(book_id)):step()
         local decoded = row and decode(row[1]) or nil
         -- Older detail rows may contain a checkpoint copied before a sync.
@@ -403,7 +421,7 @@ end
 -- detail payload. Opening a book/refreshing its metadata cannot change it.
 function LibraryDB:getShelfEntry(book_id)
     if type(book_id)~='string' or book_id=='' or #book_id>256 or book_id:find('[%z%c]') then return nil end
-    local db=self:open()
+    local db=self:openRead()
     if not db then return nil end
     local stmt,result
     local ok=pcall(function()
@@ -423,7 +441,7 @@ end
 -- means "not on shelf" when a complete validated list was committed with it.
 function LibraryDB:getShelfStatus(book_id)
     if not ShelfSnapshot.id({bookId=book_id}) or type(book_id)~='string' then return nil end
-    local db=self:open()
+    local db=self:openRead()
     if not db then return nil end
     local stmt,result
     local ok=pcall(function()

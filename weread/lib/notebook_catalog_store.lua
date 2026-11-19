@@ -5,7 +5,9 @@ function M:new(library,codec,account) return setmetatable({library=library,codec
 local function current(self) return self.account~=nil and self.library:accountKey()==self.account end
 function M:read()
     if not current(self) then return nil end
-    local db=self.library:open();if not db then return nil end
+    local db
+    if self.library.openRead then db=self.library:openRead() else db=self.library:open() end
+    if not db then return nil end
     local stmt
     local ok,result=pcall(function()
         if not current(self) then return nil end

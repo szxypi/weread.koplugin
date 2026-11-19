@@ -11,14 +11,37 @@ local function statement(db,sql,...)
     local ok,row=pcall(function() return stmt:bind(unpack(args)):step() end)
     stmt:close();if not ok then error('my_marks_store/statement',0) end;return row
 end
-local function run(self,task)
+local function run(self,task,read_only,empty)
     if not self.library or self.table_name~='my_cloud_marks' and self.table_name~='my_cloud_thoughts' then return nil end
-    local db=self.library:open();if not db then return nil end
+    local db
+    if read_only and type(self.library.openRead)=='function' then
+        db=self.library:openRead()
+        if not db then
+            -- A missing account database is an empty cache, but an unreadable
+            -- or locked existing database must remain an error, not an empty list.
+            local path=type(self.library.databasePath)=='function' and self.library:databasePath()
+            local ok,lfs=pcall(require,'libs/libkoreader-lfs')
+            if empty and path and ok then
+                local attributes,_,code=lfs.attributes(path)
+                if not attributes and code==2 then return empty end
+            end
+            return nil
+        end
+    else
+        db=self.library:open()
+        if not db then return nil end
+    end
     local transaction=false
     local ok,result=pcall(function()
-        db:exec([[CREATE TABLE IF NOT EXISTS ]]..self.table_name..[[ (
-            book_id TEXT PRIMARY KEY,payload TEXT NOT NULL,serial INTEGER NOT NULL
-        )]])
+        if read_only then
+            local schema=statement(db,'SELECT type FROM sqlite_master WHERE name=? COLLATE NOCASE',self.table_name)
+            if not schema then return empty end
+            if schema[1]~='table' then error('my_marks_store/schema',0) end
+        else
+            db:exec([[CREATE TABLE IF NOT EXISTS ]]..self.table_name..[[ (
+                book_id TEXT PRIMARY KEY,payload TEXT NOT NULL,serial INTEGER NOT NULL
+            )]])
+        end
         return task(db,function() db:exec('BEGIN IMMEDIATE');transaction=true end,
             function() db:exec('COMMIT');transaction=false end)
     end)
@@ -32,7 +55,7 @@ function M:read(id)
             FROM ]]..self.table_name..[[ WHERE book_id=?]],M.MAX_PAYLOAD,id)
         if not row or type(row[1])~='string' then return nil end
         return self.data.validate(self.codec,self.codec:json_decode(row[1]),id)
-    end)
+    end,true)
 end
 -- Enumerate only bounded account-local snapshot identities; payloads are
 -- validated separately by read() and never returned by this query.
@@ -50,7 +73,7 @@ function M:list_ids()
         end)
         stmt:close();if not ok then error('my_marks_store/identities',0) end
         return ids
-    end)
+    end,true,{})
 end
 function M:write(value)
     local valid,projected=pcall(self.data.validate,self.codec,value,type(value)=='table' and value.book_id)

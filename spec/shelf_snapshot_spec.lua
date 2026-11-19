@@ -37,7 +37,8 @@ connection:exec("DROP TRIGGER reject_archive")
 connection:close()
 account = { user_vid = user .. "-other" }
 local other_path = db:databasePath()
-assert(#db:getShelf() == 0 and db:getShelfArchives() == nil, "groups leaked into another account")
+local other_books=db:getShelf()
+assert((not other_books or #other_books == 0) and db:getShelfArchives() == nil, "groups leaked into another account")
 assert(not db:getShelfEntry('1'),'shelf state leaked into another account')
 account = { user_vid = user }
 assert(db:getShelfArchives()[1].archiveId == 5)

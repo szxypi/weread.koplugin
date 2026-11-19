@@ -42,7 +42,8 @@ local DB=require('weread.lib.library_db')
 local owner={user_vid=os.tmpname()};local first_owner=owner
 local settings={data_dir='/tmp',get=function() return owner end}
 local db=DB:new(settings);local first_path=db:databasePath()
-expect(db:getShelfStatus('42').present==nil,'fresh database declared absence')
+local initial=db:getShelfStatus('42')
+expect(not initial or initial.present==nil,'fresh database declared absence')
 expect(db:putBook({bookId='42',title='Details only'}),'detail setup')
 expect(db:getShelfStatus('42').present==nil,'detail row was treated as membership')
 expect(db:cacheShelf({{bookId='42',title='Saved shelf',finishReading=0}},{}),'complete snapshot setup')
@@ -62,7 +63,8 @@ expect(db:cacheShelf({{bookId='42'}},{}),'legacy setup')
 connection=db:open();connection:exec("DELETE FROM shelf_state WHERE name='membership_snapshot'");connection:close()
 expect(db:getShelfStatus('42').present==true and db:getShelfStatus('99').present==nil,'legacy cache invented negative evidence')
 owner={user_vid=first_owner.user_vid..'-other'};local other_path=db:databasePath()
-expect(db:getShelfStatus('42').present==nil,'membership leaked across accounts')
+local other=db:getShelfStatus('42')
+expect(not other or other.present==nil,'membership leaked across accounts')
 owner=first_owner
 expect(db:getShelfStatus('42').present==true,'switching back lost legacy positive evidence')
 for _i,path in ipairs({first_path,other_path}) do os.remove(path);os.remove(path..'-wal');os.remove(path..'-shm') end

@@ -175,7 +175,8 @@ local ok,reason=pcall(function()
     assert(tostring(record.book_id or record.bookId)==id)
     for key,value in pairs(input.expected_metadata) do if key~='bookId' then assert(record[key]==value) end end
     assert(record.detail_source=='native');report.native_detail=true
-    local state_path=record.cache_dir..'/reading_state.json';local state_hash=Crypto.sha256_hex(file(state_path))
+    local state_path=record.cache_dir..'/.weread-accounts/'..plugin.settings:account_state_scope()..'/reading_state.json'
+    local state_hash=Crypto.sha256_hex(file(state_path))
     local function paint() UI:forceRePaint() end
     local function open_state()
         local action
