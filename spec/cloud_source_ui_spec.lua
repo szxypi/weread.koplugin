@@ -1,6 +1,18 @@
 package.path='./?.lua;'..package.path
 local login_tasks={}
 local recovery_cancelled
+local renewal_request,renewal_calls,renewal_cancels=nil,0,0
+package.preload['weread.ui.web_renewal']=function() return {
+    run=function(_host,options,callback)
+        renewal_calls=renewal_calls+1;renewal_request={guard=options.is_current,callback=callback}
+        return true,renewal_request
+    end,
+    cancel=function(_host,request) if request==renewal_request then renewal_request=nil;renewal_cancels=renewal_cancels+1 end end,
+    error_text=function() return 'renewal failed' end,
+} end
+package.preload['weread.lib.web_authorization']=function() return {capture=function(settings)
+    return {revision=settings.auth_revision or string.rep('a',64),scope={vid='900000',epoch=settings.epoch or 1}}
+end} end
 local dialogs={}
 package.preload['ui/widget/confirmbox']=function() return {new=function(_self,options) dialogs[#dialogs+1]=options;return options end} end
 package.preload['ffi/util']=function() return {template=function(text,value) return (text:gsub('%%1',value)) end} end
@@ -39,7 +51,10 @@ local function fixture()
     local state={online=true,available=true,busy=false,cancelled=0,paused=false,moves=0,navs=0}
     local document={file='/synthetic.epub',page=1,identity='original-file'}
     local jobs={}
-    local host={settings={access={web={}}},ui={document=document,view={view_mode='page'}},_reader_session_gen=1,
+    local host={settings={access={web={}},get=function(self,key,default) return key=='api_key' and (self.api_key or default) or default end,
+        get_auth_scope=function(self) return {vid='900000',epoch=self.epoch or 1} end,
+        auth_scope_matches=function(self,scope) return scope.vid=='900000' and scope.epoch==(self.epoch or 1) end},
+        ui={document=document,view={view_mode='page'}},_reader_session_gen=1,
         detectWeReadBook=function() return '900001' end,
         isNetworkOnline=function() return state.online end,
         requireLogin=function() state.login=true end,
@@ -118,6 +133,38 @@ f=fixture();assert(Request.start(f.host));f.deliver(nil,{error='source_changed',
 expect(f.state.info:find('Download',1,true) and f.state.moves==0,'mismatched source guessed a target')
 f=fixture();assert(Request.start(f.host));f.deliver(nil,{position={chapter_uid='2'},metadata='other',request_id=1})
 expect(f.state.moves==0 and not f.host.cloud_source_request,'changed file metadata accepted')
+f=fixture();renewal_calls=0;assert(Request.start(f.host))
+f.deliver(nil,{error='web_expired',request_id=1})
+expect(renewal_calls==1 and renewal_request and renewal_request.guard() and f.state.moves==0,'expired cloud read did not start scoped renewal')
+local renewed=renewal_request;renewal_request=nil;f.host.settings.access={web={}}
+renewed.callback(true,{revision=string.rep('a',64)})
+expect(#f.jobs==2 and f.host.cloud_source_request.access==f.host.settings.access,'confirmed renewal did not restart the cloud read')
+f.deliver();f.complete(true)
+expect(f.state.moves==1 and f.state.notice and not f.host.cloud_source_request,'renewed cloud read did not finish navigation')
+f=fixture();renewal_calls=0;assert(Request.start(f.host));f.deliver(nil,{error='web_expired',request_id=1})
+renewed=renewal_request;renewal_request=nil;f.host.settings.access={web={}}
+renewed.callback(true,{revision=string.rep('a',64)})
+f.deliver(nil,{error='web_expired',request_id=1})
+expect(renewal_calls==1 and f.state.info:find('login expired',1,true) and not f.host.cloud_source_request,
+    'repeated expiration renewed more than once or hid the failure')
+f=fixture();renewal_calls=0;assert(Request.start(f.host));f.deliver(nil,{error='rate_limited',request_id=1})
+expect(renewal_calls==0 and f.state.info:find('limiting requests',1,true),'rate limit attempted renewal')
+f=fixture();renewal_calls=0;assert(Request.start(f.host));f.deliver(nil,{error='cloud_unavailable',request_id=1})
+expect(renewal_calls==0 and f.state.info and not f.host.cloud_source_request,'other read errors attempted renewal')
+for _,change in ipairs({'cancel','page','epoch','key','receipt'}) do
+    f=fixture();renewal_calls=0;renewal_cancels=0;assert(Request.start(f.host));f.deliver(nil,{error='web_expired',request_id=1})
+    renewed=assert(renewal_request)
+    if change=='cancel' then Request.cancel(f.host)
+    elseif change=='page' then f.doc.page=2
+    elseif change=='epoch' then f.host.settings.epoch=2
+    elseif change=='key' then f.host.settings.api_key='different'
+    else f.host.settings.auth_revision=string.rep('b',64) end
+    f.host.settings.access={web={}}
+    renewed.callback(true,{revision=string.rep('a',64)})
+    expect(#f.jobs==1 and not f.host.cloud_source_request and f.state.moves==0,'stale renewal resumed cloud navigation: '..change)
+    if change=='cancel' then expect(renewal_cancels==1,'cancel did not stop cloud renewal') end
+    renewal_request=nil
+end
 f=fixture();assert(Request.start(f.host));local old=f.jobs[1]
 assert(Request.start(f.host));local busy=f.host.busy_message
 old.callback(old.task())

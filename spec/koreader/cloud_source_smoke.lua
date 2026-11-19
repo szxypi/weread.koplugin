@@ -86,6 +86,49 @@ document.getDocumentFileContent=function(self,name)
     return original_read(self,name)
 end
 local writes=count('/web/book/read')
+local read_recovery=os.getenv('WEREAD_TEST_CLOUD_READ_RENEWAL') or ''
+local function preserve_mock_session()
+    -- Mock Settings:new resets synthetic credentials on every ReaderUI open.
+    -- Carry the current mock session across the switch as production does.
+    local original_new=Settings.new
+    Settings.new=function(class,...)
+        local current=plugin.settings:get('cookies')
+        local configured_key=plugin.settings:get('api_key','')
+        local fresh=original_new(class,...)
+        fresh:set('cookies',current);fresh:set('api_key',configured_key);fresh:flush()
+        return fresh
+    end
+end
+if read_recovery~='' then preserve_mock_session() end
+if read_recovery~='' and read_recovery~='post-download' then
+    local endpoint=read_recovery=='reader' and '/web/reader/'
+        or read_recovery=='chapter' and '/web/book/chapter/e_0' or '/web/book/getProgress'
+    local before_renew=count('/web/login/renewal')
+    control{match=endpoint,times=read_recovery=='repeat' and -1 or 1,status=401,web_renewal_mode='rotate'}
+    assert(plugin:showCloudSourcePosition())
+    if read_recovery=='cancel' then
+        pump(function() return plugin.cloud_source_request and plugin.cloud_source_request.renewal end)
+        plugin:cancelCloudSourcePosition()
+        assert(not plugin.cloud_source_request and not plugin._web_renewal_request and not plugin.busy_message,
+            'cancelled cloud read retained renewal or loading UI')
+        local read_cancel_deadline=socket.gettime()+1
+        while socket.gettime()<read_cancel_deadline do UIManager:handleInput();socket.sleep(0.01) end
+        assert(count('/web/login/renewal')-before_renew<=1 and document:getCurrentPage()==1,
+            'cancelled cloud read retried renewal or moved the reader')
+    else
+        pump(function() return not plugin.cloud_source_request end)
+        assert(count('/web/login/renewal')==before_renew+1,'cloud read renewed the wrong number of times')
+    end
+    if read_recovery=='repeat' then
+        assert(document:getCurrentPage()==1 and not plugin.busy_message,'persistent expiration moved the reader')
+    elseif read_recovery~='cancel' then
+        assert(document:isXPointerInCurrentPage(target.xpointer),'renewed cloud read missed the original target')
+        local selected=assert(plugin.source_position:current())
+        assert(selected.retained_source_target and selected.chapter_offset==remote.chapterOffset and not selected.upload_verified,
+            'renewed cloud read lost the source offset or granted upload permission')
+    end
+    close_info();reader.rolling:onGotoPage(1);control{match='',times=0,delay=0}
+end
 local entry
 for _,item in ipairs(plugin:getMainMenuItems()) do
     if item.text==require('weread.lib.i18n').tr('Open cloud reading position precisely') then entry=item end
@@ -261,23 +304,18 @@ local reads_before_download=count('/web/book/getProgress')
 local renewal=count('/web/login/renewal')
 local recovery=os.getenv('WEREAD_TEST_CLOUD_DOWNLOAD_RENEWAL')=='1'
 if recovery then
-    -- Mock Settings:new resets synthetic credentials on every ReaderUI open.
-    -- Carry the current mock session across the switch as production does.
-    local original_new=Settings.new
-    Settings.new=function(class,...)
-        local current=plugin.settings:get('cookies')
-        local configured_key=plugin.settings:get('api_key','')
-        local fresh=original_new(class,...)
-        fresh:set('cookies',current);fresh:set('api_key',configured_key);fresh:flush()
-        return fresh
-    end
+    preserve_mock_session()
     control{match='/web/book/chapter/e_0',times=1,status=401,web_renewal_mode='rotate'}
+elseif read_recovery=='post-download' then
+    control{match='/web/book/getProgress',times=1,status=401,web_renewal_mode='rotate'}
 end
 plugin.cloud_source_request.confirm.ok_callback()
 adopt_target(previous_reader)
-assert(count('/web/login/renewal')==renewal+(recovery and 1 or 0),'cloud target download renewal count changed')
+assert(count('/web/login/renewal')==renewal+((recovery or read_recovery=='post-download') and 1 or 0),
+    'cloud target download renewal count changed')
 assert(document.file~=single and not plugin.downloader._active_job,'downloaded chapter was not opened after cleanup')
-assert(count('/web/book/getProgress')==reads_before_download+2,'download was not reverified with one fresh stable cloud snapshot')
+assert(count('/web/book/getProgress')==reads_before_download+(read_recovery=='post-download' and 3 or 2),
+    'download was not reverified with one fresh stable cloud snapshot')
 local downloaded=document.file
 local verified=assert(plugin.source_position:current())
 assert(verified.chapter_offset==remote.chapterOffset,'downloaded chapter lost exact cloud source offset')
@@ -306,6 +344,6 @@ local report={result='PASS',synthetic_only=true,source_target_visible=true,cross
     navigator_cancelled=true,reader_reopen_cancelled=true,old_queued_upload_cancelled=true,report_gate_not_granted=true,
     cached_full_handoff=true,cached_chapter_handoff=true,startup_pull_superseded=true,download_declined=true,
     owned_download_cancelled=true,download_reverified=true,downloaded_source_target_visible=true,changed_source_no_guess=true,
-    expired_download_recovered=recovery,renewal_cancelled=cancelled_renewal,reading_writes=0}
+    expired_download_recovered=recovery,renewal_cancelled=cancelled_renewal,read_renewal=read_recovery,reading_writes=0}
 local file=assert(io.open(evidence..'/cloud-source.json','w'));file:write(client:json_encode(report));file:close()
 print('PASS: cloud GET/Reader/3 read shards/GET -> same-source EPUB -> native cross-chapter target/retention; offline/429/cancel/suspend/account/cached full/cached chapter/confirmed download/cancel; no reading writes')

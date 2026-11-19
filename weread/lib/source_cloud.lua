@@ -78,6 +78,8 @@ local function transport(client,id,selected)
                 chunks[#chunks+1]=chunk;return 1
             end})
         current()
+        if ok and not exceeded and code==401 then fail('web_expired') end
+        if ok and not exceeded and code==429 then fail('rate_limited') end
         if not ok or exceeded or code~=200 then fail('unavailable') end
         local raw=table.concat(chunks)
         if json then return client:decode_http_json(raw,{sensitive=true,api_name='cloud_source',code=code,headers=headers}) end

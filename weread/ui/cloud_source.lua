@@ -33,6 +33,7 @@ function M.cancel(host)
     host.cloud_source_request=nil
     if not job then return end
     if host.cloud_source_worker then host.cloud_source_worker:cancel() end
+    if job.renewal then require('weread.ui.web_renewal').cancel(host,job.renewal) end
     if job.task then UIManager:unschedule(job.task) end
     if job.confirm then UIManager:close(job.confirm) end
     if job.downloading and host.downloader then
@@ -107,6 +108,8 @@ function M.start(host,resume,options)
     local job={document=document,file=document.file,identity=identity,book_id=id,access=access,location=at,
         session=host._reader_session_gen,started=os.time(),sequence=host.cloud_source_sequence,
         navigation_generation=host.progress_sync and host.progress_sync.navigation_generation,
+        auth_scope=host.settings.get_auth_scope and host.settings:get_auth_scope(),
+        api_key=host.settings:get('api_key',''),
         sync_choice=options and options.sync_choice==true or false}
     host.cloud_source_request=job
     if host.source_position then host.source_position:pause('cloud_source') end
@@ -124,6 +127,8 @@ function M.start(host,resume,options)
                 or verified and _('Cloud reading position opened and sync comparison saved.')
                 or _('Cloud reading position opened. Progress reporting is waiting for verification.'),3)
         elseif reason=='cloud_changed' then host:showInfo(_('Cloud reading chapter changed during download. Please try again.'))
+        elseif reason=='web_expired' then host:showInfo(_('WeRead login expired. Please sign in again and retry.'))
+        elseif reason=='rate_limited' then host:showInfo(_('WeRead is limiting requests. Please try again later.'))
         elseif reason=='source_changed' or reason=='source_unavailable' then
             host:showInfo(_('This file has no matching original text. Download the target chapter or full book and try again.'))
         elseif job.navigating or job.switching then host:showInfo(_('Could not locate the cloud position in this file. Please check the current page.'))
@@ -135,13 +140,55 @@ function M.start(host,resume,options)
         host.cloud_source_worker=worker
     end
     local input={file=job.file,identity=identity,book_id=id,request_id=job.sequence}
-    local handle
-    local function run(task)
+    local handle,run
+    local function scoped()
+        return current(host,job,false,true) and job.auth_scope
+            and host.settings:auth_scope_matches(job.auth_scope) and host.settings:get('api_key','')==job.api_key
+    end
+    local function renew(task)
+        if not current(host,job) or not scoped() then M.cancel(host);return end
+        if job.renewed then finish('web_expired');return end
+        job.renewed=true
+        close_busy(host,job)
+        host:showBusy(_('Renewing WeRead login…\nTap or press a key to cancel.'),function()
+            if host.cloud_source_request==job then M.cancel(host) end
+        end)
+        job.busy=host.busy_message
+        local Renewal=require('weread.ui.web_renewal')
+        local called,started,request=pcall(Renewal.run,host,{is_current=function()
+            return scoped() and host:isNetworkOnline()
+        end},function(ok,receipt)
+            if host.cloud_source_request~=job then return end
+            job.renewal=nil
+            if not scoped() or receipt=='session_changed' then M.cancel(host);return end
+            if not ok then
+                M.cancel(host);host:showInfo(Renewal.error_text(receipt));return
+            end
+            local verified,fresh=pcall(require('weread.lib.web_authorization').capture,host.settings)
+            if not verified or type(receipt)~='table' or type(receipt.revision)~='string'
+                or #receipt.revision~=64 or not receipt.revision:match('^[0-9a-f]+$')
+                or type(fresh)~='table' or fresh.revision~=receipt.revision or type(fresh.scope)~='table'
+                or fresh.scope.vid~=job.auth_scope.vid or fresh.scope.epoch~=job.auth_scope.epoch then
+                M.cancel(host);return
+            end
+            local renewed=Cloud.capture(host.settings)
+            if not renewed or not renewed.web then M.cancel(host);return end
+            job.access=renewed
+            close_busy(host,job);busy();run(task)
+        end)
+        if host.cloud_source_request==job then
+            if called and started then job.renewal=request else finish('web_expired') end
+        elseif called and started and request then Renewal.cancel(host,request) end
+    end
+    run=function(task)
         local ok,started=pcall(host.cloud_source_worker.start,host.cloud_source_worker,function()
             local valid,result=pcall(task)
-            return valid and result or {error='cloud_unavailable',request_id=job.sequence}
+            return valid and result or {error=result=='source_cloud/web_expired' and 'web_expired'
+                or result=='source_cloud/rate_limited' and 'rate_limited' or 'cloud_unavailable',request_id=job.sequence}
         end,function(result)
             if not current(host,job) then if host.cloud_source_request==job then M.cancel(host) end return end
+            if type(result)=='table' and result.error=='web_expired' then renew(task);return end
+            if type(result)=='table' and result.error=='rate_limited' then finish('rate_limited');return end
             handle(result)
         end)
         if not ok or not started then finish('worker_unavailable');return false end

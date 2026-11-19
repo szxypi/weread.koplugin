@@ -71,7 +71,13 @@ for index,options in ipairs(state.requests) do
 end
 expect(state.requests[1].url==state.requests[6].url and not state.requests[1].body,'progress snapshots used different endpoints')
 client,state=fixture();state.code=429
-expect(not pcall(Cloud.fetch,client,id) and #state.requests==1,'429 fanned out or retried')
+local rate_ok,rate_error=pcall(Cloud.fetch,client,id)
+expect(not rate_ok and rate_error=='source_cloud/rate_limited' and #state.requests==1,'429 fanned out or retried')
+for _,case in ipairs({{401,'source_cloud/web_expired'},{403,'source_cloud/unavailable'},{500,'source_cloud/unavailable'}}) do
+    client,state=fixture();state.code=case[1]
+    local accepted,reason=pcall(Cloud.fetch,client,id)
+    expect(not accepted and reason==case[2] and #state.requests==1,'HTTP failure was misclassified or repeated')
+end
 client,state=fixture();state.move=true
 expect(not pcall(Cloud.fetch,client,id) and #state.requests==3,'changed credentials continued source reads')
 client,state=fixture();state.bad_reader=true
