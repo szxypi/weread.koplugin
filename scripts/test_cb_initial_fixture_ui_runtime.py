@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import threading
 
+import mock_weread
 from mock_weread import CHAPTERS, QUOTE, chapter_html, chapter_txt, prepare
 from native_reader_fixture import GRANT
 from test_cb_initial_ui_runtime import BOOK, FirstServer
@@ -20,14 +21,22 @@ def main():
     parser.add_argument('--width', type=int, default=600); parser.add_argument('--height', type=int, default=800)
     parser.add_argument('--dpi', type=int, default=167); parser.add_argument('--dry', action='store_true')
     parser.add_argument('--format', choices=('epub', 'txt'), default='epub')
+    parser.add_argument('--unicode',action='store_true')
     args = parser.parse_args(); root, runtime = args.run_dir.resolve(), args.koreader.resolve()
+    if args.unicode and args.format!='txt':parser.error('--unicode requires --format txt')
     server = FirstServer('normal'); server.content_format = args.format; thread = None
+    if args.unicode:
+        def unicode_chapter(uid):
+            value=chapter_txt(uid).replace('😀','好')
+            return value.replace('这是第1章的第16段。','这是第1章的第16段。唯一😀边界') if uid==1 else value
+        mock_weread.chapter_txt=unicode_chapter
     try:
         prepare(root, runtime, server.server_port, args.width, args.height, args.dpi)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-        source = chapter_txt(1) if args.format == 'txt' else chapter_html(1)
+        source = mock_weread.chapter_txt(1) if args.format == 'txt' else chapter_html(1)
         model = PlainSource(source) if args.format == 'txt' else FilteredSource(source)
-        offset = model.locate('这是第1章的第16段。' + QUOTE if args.format == 'txt' else '这是第1章的第16段。我们沿着小路慢慢前行')[0]
+        offset = (model.starts[source.index('😀')] if args.unicode else
+                  model.locate('这是第1章的第16段。' + QUOTE if args.format == 'txt' else '这是第1章的第16段。我们沿着小路慢慢前行')[0])
         summary = model.excerpt(offset)['text'] if args.format == 'txt' else ''.join(c for c in model.anchor_at(offset, size=96) if not c.isspace())[:20]
         payload = dict(book=BOOK, chapter='1', chapter_idx=1, offset=offset, expected_summary=summary,
                        source=source, source_format='web_txt' if args.format == 'txt' else 'web_xhtml', chapters=CHAPTERS, book_version=0, owner=GRANT['vid'], native=GRANT,
@@ -44,7 +53,7 @@ def main():
                         fresh_process=not args.dry, credentials_not_persisted=True)
         if proc.returncode or value != expected or server.first_posts != (0 if args.dry else 1):
             raise ValueError('private first-sync rehearsal failed: ' + json.dumps(value))
-        print(json.dumps(dict(result='PASS', dry=args.dry, width=args.width, height=args.height,
+        print(json.dumps(dict(result='PASS', dry=args.dry, unicode_boundary=args.unicode, width=args.width, height=args.height,
                               account_data_writes=server.first_posts, private_profile_removed=True)))
     finally:
         if thread is not None: server.shutdown(); thread.join()

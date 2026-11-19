@@ -7,8 +7,10 @@ local ok,reason=pcall(function()
     assert(type(input)=='table' and type(input.book)=='string' and input.book:sub(1,3)=='CB_'
         and type(input.chapter)=='string' and type(input.source)=='string' and type(input.chapters)=='table'
         and type(input.cookies)=='table' and input.cookies.wr_vid == input.owner
-        and type(input.first_offset)=='number' and type(input.next_offset)=='number'
-        and math.abs(input.next_offset-input.first_offset)==1)
+        and type(input.first_offset)=='number' and type(input.next_offset)=='number')
+    local distance=math.abs(input.next_offset-input.first_offset)
+    assert(distance==1 and input.unicode_boundary~=true
+        or distance==2 and input.source_format=='web_txt' and input.unicode_boundary==true)
     local reopening=os.getenv('WEREAD_FIXTURE_CB_REOPEN')=='1';local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
     local timed=input.timer==true
     local closing=input.close==true
@@ -31,6 +33,12 @@ local ok,reason=pcall(function()
     local bytes='return '..require('dump')(auth,nil,true);local at=0
     while at<#bytes do local n=tonumber(ffi.C.write(fd,ffi.cast('const char *',bytes)+at,#bytes-at));assert(n>0);at=at+n end
     package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
+    if input.unicode_boundary then
+        local map=assert(require('weread.lib.source_coordinates').build(input.source,{format='web_txt'}))
+        local lower=math.min(input.first_offset,input.next_offset)
+        local scalar=assert(map:literal_excerpt(lower,1))
+        assert(scalar.end_co==lower+2 and #scalar.text==4 and not map:literal_excerpt(lower+1,1))
+    end
     local Settings=require('weread.lib.settings');local make_settings=Settings.new
     function Settings:new()
         local value=make_settings(self);assert(synthetic and value.mock_endpoint or not synthetic and not value.mock_endpoint)

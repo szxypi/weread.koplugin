@@ -9,6 +9,7 @@ from unittest.mock import patch
 from cb_cloud_position import observed
 from cb_existing_position_intent import Intent
 from cb_txt_initial_fixture_plan import plan
+from cb_txt_unicode_fixture_plan import CONTEXT, EMOJI
 from test_cb_fixture_position import fixture
 from test_cb_fixture_position_transport import MemoryBackend
 from txt_coordinates import PlainSource
@@ -58,6 +59,21 @@ class TxtManualUiTrialTest(unittest.TestCase):
         self.assertFalse(h.report['position_writes_uncertain'])
         self.assertEqual(len(h.report['manual_stages']), 2)
         self.assertEqual(h.current['chapterOffset'], h.plan['first'])
+
+    def test_two_utf16_units_require_one_non_bmp_scalar(self):
+        h=Harness();h.sample['source']+='\n'+CONTEXT;h.model=PlainSource(h.sample['source'])
+        position=h.sample['source'].index(EMOJI)
+        first=h.model.starts[position];h.plan.update(first=first,following=h.model.ends[position])
+        h.current.update(chapterOffset=first,summary=h.model.excerpt(first)['text'])
+        h.context['initial_observed']=h.project()
+        def runner(command,payload,width,height,dpi):
+            self.assertIs(payload.get('unicode_boundary'),True)
+            return h.runner(command,payload,width,height,dpi)
+        self.assertTrue(task.manual_trial(h.context,h.report,h.intent,['manual'],runner=runner,attest=lambda:['manual']))
+        self.assertEqual(h.current['chapterOffset'],first)
+        invalid=Harness();invalid.plan['following']=invalid.plan['first']+2
+        self.assertFalse(invalid.execute());self.assertEqual(invalid.calls,[])
+        self.assertIsNone(invalid.intent.backend.load())
 
     def test_unknown_result_is_not_replayed(self):
         for failure, uncertain in (('dry', False), ('armed', True)):

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import threading
 
+import mock_weread
 from cb_cloud_position import observed
 from cb_existing_position_intent import Intent
 from mock_weread import CB_READING_ID, CHAPTERS, MockServer, QUOTE, chapter_txt, prepare
@@ -18,12 +19,22 @@ from verify_cb_txt_manual_fixture_ui_trial import manual_trial
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader', type=Path, required=True); parser.add_argument('--run-dir', type=Path, required=True)
+    parser.add_argument('--unicode',action='store_true')
     args = parser.parse_args(); root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     os.environ['LD_LIBRARY_PATH'] = str(runtime / 'libs')
     server = MockServer(0); server.cb_reading = True; server.content_format = 'txt'; thread = None
-    source = chapter_txt(1); model = PlainSource(source)
-    first = model.locate('这是第1章的第16段。' + QUOTE)[0]
-    plan = dict(book=CB_READING_ID, chapter='1', index=1, first=first, following=first+1)
+    if args.unicode:
+        def unicode_chapter(uid):
+            value=chapter_txt(uid).replace('😀','好')
+            return value.replace('这是第1章的第16段。','这是第1章的第16段。唯一😀边界') if uid==1 else value
+        mock_weread.chapter_txt=unicode_chapter
+    source = mock_weread.chapter_txt(1); model = PlainSource(source)
+    if args.unicode:
+        index=source.index('😀');first=model.starts[index];following=model.ends[index]
+        assert following-first==2
+    else:
+        first = model.locate('这是第1章的第16段。' + QUOTE)[0];following=first+1
+    plan = dict(book=CB_READING_ID, chapter='1', index=1, first=first, following=following)
     server.progress[CB_READING_ID] = dict(chapterUid=1, chapterIdx=1, chapterOffset=first, progress=25,
                                            summary=model.excerpt(first)['text'])
     try:
@@ -49,7 +60,7 @@ def main():
         if (server.request_totals.get(('/web/book/read',''), 0) != 4 or report['position_writes_known'] != 5
                 or report['position_writes_uncertain'] or len(report['manual_stages']) != 2):
             raise ValueError('chain counts')
-        print(json.dumps(dict(result='PASS', blocked_previews=2, manual_writes=4, dual_readbacks=4,
+        print(json.dumps(dict(result='PASS', unicode_boundary=args.unicode, blocked_previews=2, manual_writes=4, dual_readbacks=4,
                               screens=2, fresh_offline_reopens=2, private_profiles_removed=True)))
     finally:
         if thread is not None: server.shutdown(); thread.join()

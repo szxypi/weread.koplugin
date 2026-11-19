@@ -81,6 +81,11 @@ def manual_trial(context, report, intent, command, *, runner=run_manual, attest=
     plan, sample = context['plan'], context['sample']
     model = PlainSource(sample['source'])
     offsets = (plan['first'], plan['following'])
+    distance = abs(offsets[1]-offsets[0])
+    if distance not in (1,2): return False
+    if distance == 2:
+        scalar = model.excerpt(min(offsets),1)
+        if scalar['end_co'] != max(offsets) or ord(scalar['text']) <= 0xffff: return False
     summaries = {offset: model.excerpt(offset)['text'] for offset in offsets}
     fingerprint = hashlib.sha256((context['source_hash'] + ':' + str(offsets[0]) + ':' + str(offsets[1])).encode()).hexdigest()
     reservation = intent.reserve(context['owner'], context['target'], context['attempt'], fingerprint)
@@ -96,6 +101,7 @@ def manual_trial(context, report, intent, command, *, runner=run_manual, attest=
         payload = dict(book=context['target'], chapter=plan['chapter'], chapter_idx=plan['index'], first_offset=before,
                        next_offset=after, expected_summary=summaries[after], source=sample['source'], source_format='web_txt',
                        chapters=context['chapters'], book_version=0, owner=context['owner'], cookies=context['cookies'](), armed=False)
+        if distance == 2: payload['unicode_boundary'] = True
         if not runner(command, payload, width, height, dpi): return False
         if (not context['authority']() or not context['shelf_current']() or validate_pair(context, before, summaries[before]) != first
                 or context['attest']() != context['command'] or attest() != command): return False
