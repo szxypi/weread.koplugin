@@ -1230,6 +1230,19 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                     local own=ProgressReadback.same_intent(saved.pending_upload_position,position)
                     position.source_position=copy(plan.source_position)
                     if own then self:_persist(book_id,{pending_upload_position=position,last_local_position=position}) end
+                    -- A source point can become available while this same
+                    -- viewport is being prepared. Bind it to the starting
+                    -- snapshot only when both the original intent and the
+                    -- complete account-bound viewport are still unchanged.
+                    if own and start_live and not start_live.source_position and self:_session_current(scope)
+                        and scope.navigation_generation==self.navigation_generation
+                        and ProgressReadback.same_wire_position(start_live,position) then
+                        local view=require('weread.lib.source_view')
+                        local proof=view.capture(start_view,scope.account,plan.source_position)
+                        if proof and view.matches(proof,self:_viewport(self.get_document()),scope.account,plan.source_position) then
+                            start_live.source_position=copy(plan.source_position)
+                        end
+                    end
                 end
                 if initial_remote and plan.transport~=(cb_first and 'cb_web_initial' or 'native_position') then
                     if plan.release then plan.release() end

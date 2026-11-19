@@ -166,6 +166,26 @@ local expected=assert(readback.expected(position.book_id,uploaded))
 assert(readback.check(plugin.client:get_web_progress(position.book_id),expected).matches,'independent original-text readback differs')
 local remote = plugin.client:get_progress(position.book_id)
 assert(remote.book.progress == uploaded.percent, "mock cloud readback differs from uploaded position")
+-- Start while the original-text point is still being captured. Normal event
+-- timing keeps its local worker active; no real account requests are allowed.
+local prior_uploads=request_count('/web/book/read')
+assert(plugin.source_position:on_view_changed(true))
+assert(not plugin.source_position:current(),'late-source fixture was already prepared')
+local late_position=assert(sync:capture_local());assert(not late_position.source_position)
+assert(sync:_upload_snapshot(late_position,'manual_sync',false),'late-source upload did not start')
+local socket=require('socket');local late_deadline=socket.gettime()+45
+while sync.uploading do
+    assert(socket.gettime()<late_deadline,'late-source upload timed out')
+    UIManager:setInputTimeout(0);UIManager:handleInput();socket.sleep(.01)
+end
+assert(request_count('/web/book/read')==prior_uploads+1,'late-source upload was not sent exactly once')
+local late_saved=plugin.settings:get('books')[late_position.book_id]
+assert(late_saved.last_uploaded_position and not late_saved.pending_upload_position,
+    'unchanged late source left a duplicate pending position')
+local late_expected=assert(readback.expected(late_position.book_id,late_saved.last_uploaded_position))
+assert(readback.check(plugin.client:get_web_progress(late_position.book_id),late_expected).matches,
+    'late-source independent coordinate readback differs')
+position=assert(sync:capture_local());assert(position.source_position)
 local sync_config = plugin.settings:get("sync")
 local old_pull, old_upload = sync_config.pull_on_open, sync_config.upload_on_close
 sync_config.pull_on_open, sync_config.upload_on_close = true, true
@@ -217,7 +237,7 @@ print("PASS: real ReaderUI account/suspend cancels queued HTTP; valid upload per
 local progress_report={result='PASS',synthetic_only=true,real_account_requests=0,
     fixture_suspend_resume_pairs_restored=true,queued_old_account_upload_cancelled=true,queued_old_account_pull_cancelled=true,
     source_coordinates_confirmed=true,independent_web_coordinates_match=true,gateway_percentage_matches=true,
-    local_pending_cleared_after_confirmation=true,source_wait_before_cloud_observed=true,source_wait_max_seconds=35,
+    local_pending_cleared_after_confirmation=true,late_source_unchanged_cleared=true,source_wait_before_cloud_observed=true,source_wait_max_seconds=35,
     fresh_reads_after_source_ready=2,pre_suspend_upload_not_replayed=true,verified_after_resume=true,
     source_wait_job_retired=true,source_wait_cancel_reaped_local_worker=true,stale_source_wait_callbacks_ignored=true}
 

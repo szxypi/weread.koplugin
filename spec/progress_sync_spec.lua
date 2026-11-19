@@ -2604,6 +2604,49 @@ test('prepared source wire coordinates preserve local units and clear only their
     eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,10001,'old confirmation cleared later source intent')
 end)
 
+test('late source preparation clears only an unchanged viewport intent',function()
+    for _i,mode in ipairs({'unchanged','page_changed','layout_changed','unknown_layout','newer_pending','source_changed','navigation','account'}) do
+        local source
+        local f=fixture({}, {get_source_position=function() return source end,get_viewport_height=function() return 800 end})
+        f.document.getXPointer=function(self) return '/body/p/text().'..tostring(self.page) end
+        f.document.getCurrentPos=function() return 0 end
+        f.document.getDocumentRenderingHash=function(self) return self.hash end
+        f.document.hash=123;f.document.info={doc_height=8000}
+        local point=assert(f.sync:capture_local());f.sync:_mark_verified('book','fixture',point,{})
+        local ready
+        f.sync.prepare_upload=function(_intent,callback) ready=callback;return true end
+        local sends=0
+        f.sync.upload_position=function()
+            sends=sends+1
+            if mode=='source_changed' then source.chapter_offset=10001 end
+            return true,{acknowledged=true,position_confirmed=true}
+        end
+        f.sync:_upload_snapshot(point,'explicit_local_choice',true)
+        eq(f.sync.uploading,true,mode..': source preparation not started')
+        source={book_id='book',chapter_uid='22',chapter_offset=10000,basis='filtered_xhtml_utf16',upload_verified=false,
+            file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=1,render_path='chapter.xhtml'}
+        if mode=='page_changed' then f.document.page=26 elseif mode=='layout_changed' then f.document.hash=124
+        elseif mode=='unknown_layout' then f.document.hash=nil
+        elseif mode=='navigation' then f.sync:begin_local_navigation()
+        elseif mode=='account' then f.values.account={user_vid='fixture-account-b'};f.sync:on_account_changed()
+        elseif mode=='newer_pending' then
+            local newer=assert(f.sync:capture_local());newer.chapter_offset=newer.chapter_offset+1
+            f.values.books.book.pending_upload_position=newer
+        end
+        ready{position={book_id='book',chapter_uid='22',chapter_idx=2,chapter_offset=10000,percent=point.percent},
+            source_position=source,basis='filtered_xhtml_utf16',is_current=function() return true end}
+        eq(sends,(mode=='navigation' or mode=='account') and 0 or 1,mode..': unexpected dispatch count')
+        local saved=f.values.books.book
+        if mode=='unchanged' then
+            eq(saved.pending_upload_position,nil,'unchanged source completion left a duplicate pending position')
+            eq(f.sync.dirty,false,'unchanged source completion marked reading dirty')
+        else
+            eq(type(saved.pending_upload_position),'table',mode..': a newer or unverifiable position was cleared')
+            if mode=='source_changed' then eq(saved.pending_upload_position.source_position.chapter_offset,10001,'new source point lost') end
+        end
+    end
+end)
+
 test('failed and closed source preparations never fall back to estimated uploads',function()
     for _i,mode in ipairs({'failed','closed','expired'}) do
         local f=fixture({})
