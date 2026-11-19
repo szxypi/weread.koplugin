@@ -47,6 +47,14 @@ def frame(value):
 
 
 class TxtShelfDisplayScopeTests(unittest.TestCase):
+    def test_epub_shelf_scope_includes_only_observed_valid_book_ids(self):
+        preflight=probe.ReadingPreflight()
+        shelf={'books':[{'bookId':'41'},{'bookId':'CB_valid01'},{'bookId':'CB_valid01'},
+                        {'bookId':'CB_bad/foreign'},{'bookId':'other'},{}]}
+        with patch.object(probe.WebSourceProbe,'request',return_value=shelf):
+            self.assertIs(preflight.request('shelf','synthetic'),shelf)
+        self.assertEqual(preflight.shelf_ids,['41','CB_valid01'])
+
     def test_only_observed_valid_personal_books_join_txt_display_scope(self):
         preflight=probe.TxtReadingPreflight()
         shelf={'books':[{'bookId':'CB_valid01'},{'bookId':'CB_valid01'},

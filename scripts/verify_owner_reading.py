@@ -298,12 +298,16 @@ class ReadingPreflight(WebSourceProbe):
         if stage in ('e_0', 'e_1', 'e_3'):
             self.shards[stage] = value
         elif stage == 'shelf':
+            from verify_cb_progress import cb_id
             self.shelf_ids = []
             for row in value.get('books', []):
                 try:
                     self.shelf_ids.append(identifier(row.get('bookId')))
                 except (PreflightError, AttributeError):
-                    pass
+                    personal_id = cb_id(row.get('bookId')) if isinstance(row, dict) else None
+                    if personal_id:
+                        self.shelf_ids.append(personal_id)
+            self.shelf_ids = list(dict.fromkeys(self.shelf_ids))
         elif stage == 'progress_before':
             self.baseline = position(value, self.book_id)
         return value

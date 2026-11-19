@@ -1,0 +1,24 @@
+{
+  "result": "PASS",
+  "book_format": "epub",
+  "scope": "normal authenticated reading; no expired-session injection",
+  "platform": "KOReader v2026.07.1 Linux ARM64 under Xvfb",
+  "package_sha256": "2fa1fb24a46d7ef4d071ea97145cf5e72a80faffc38142a788eba299c0af5c7a",
+  "preflight_sha256": "3ab043751187f4346473f99aa5ddc1f63e2b38b7f73e2c73776239d7d9cda9b8",
+  "probe_sha256": "079682ad05233f4b9559ff25346f07af9d5a435f4ceb9d567e9b4bed3d330da1",
+  "earlier_diagnostics": {
+    "result": "UNVERIFIED",
+    "attempts": 2,
+    "reason": "shelf progress guard omitted observed valid personal-book IDs",
+    "cloud_position_unchanged": true
+  },
+  "runs": [
+    {"screen": "600x800/167 DPI", "live": "PASS", "offline_reopen": "PASS"},
+    {"screen": "1264x1680/300 DPI", "live": "PASS", "offline_reopen": "PASS"}
+  ],
+  "checks": ["native_reader", "source_text_visible", "page_turn", "position_checkpoint", "source_navigation_roundtrip", "credential_file_audit", "workers_reaped"],
+  "account_data_writes_attempted": 0,
+  "authentication_posts_attempted": 0,
+  "cloud_position_unchanged": true,
+  "physical_kindle_tested": false
+}
