@@ -1,4 +1,4 @@
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
 import unittest
@@ -12,6 +12,10 @@ from run_notebook_catalog_ui import FLAGS, FRAME, validate_stage
 
 
 class NotebookCatalogTest(unittest.TestCase):
+    def test_cached_samples_require_native_ui(self):
+        with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):
+            main(['--saved-session','--cached-notes-sample'])
+
     def test_offline_default_has_no_network_or_keychain(self):
         with patch('verify_notebook_catalog.SessionStore') as store,patch('verify_notebook_catalog.Probe') as probe,redirect_stdout(io.StringIO()) as out:
             self.assertEqual(main([]),0)

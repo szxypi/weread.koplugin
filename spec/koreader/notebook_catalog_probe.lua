@@ -4,7 +4,7 @@ require('setupkoenv')
 local ffi,json=require('ffi'),require('json');require('ffi/posix_h')
 local mode=arg[1]
 local report={result='UNVERIFIED',mode=mode,phase='init',anonymous_credentials=false,transport_guard=false,
-    worker_heartbeat=false,native_filemanager=false,menu_navigation=false,search_sort=false,file_sqlite=false,account_isolation=false,
+    worker_heartbeat=false,native_filemanager=false,menu_navigation=false,search_sort=false,saved_note_search=false,file_sqlite=false,account_isolation=false,
     cache_session_free=false,workers_reaped=false,credential_audit=false,pages=0,books=0,requests=0,forbidden=0,failed_line=0}
 local plugin,memory,counters,output;local descriptors={}
 local ok,reason=pcall(function()
@@ -13,6 +13,8 @@ local ok,reason=pcall(function()
     local raw=assert(io.stdin:read(8*1024*1024+1));assert(#raw<=8*1024*1024)
     local input=json.decode(raw);local grant=assert(input.credentials);local synthetic=input.synthetic==true
     assert(synthetic==(os.getenv('WEREAD_NOTEBOOK_SYNTHETIC')=='1'))
+    local real_samples=os.getenv('WEREAD_NOTEBOOK_SAVED_SAMPLES')=='1'
+    assert(real_samples==(input.saved_samples~=nil) and not (synthetic and real_samples))
     if synthetic then assert(grant.vid=='900000' and grant.accessToken=='synthetic-notebook-access'
         and grant.refreshToken=='synthetic-notebook-refresh' and grant.deviceId==string.rep('1',32)) end
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
@@ -128,15 +130,15 @@ local ok,reason=pcall(function()
     assert(same(owner.value,expected))
     report.phase='views'
     for page=1,menu.page_num do menu:onGotoPage(page);UI:forceRePaint();report.pages=report.pages+1 end
-    assert(#menu.item_table==#expected.books+4)
+    assert(#menu.item_table==#expected.books+5)
     for index,book in ipairs(expected.books) do
-        local item=menu.item_table[index+4];assert(item.text==book.title and item.mandatory==book.author)
-        menu:onGotoPage(menu:getPageNumber(index+4));report.books=report.books+1
+        local item=menu.item_table[index+5];assert(item.text==book.title and item.mandatory==book.author)
+        menu:onGotoPage(menu:getPageNumber(index+5));report.books=report.books+1
     end
     -- Exercise each per-book destination without additional network requests.
     local chosen,position
     local Marks=require('weread.lib.my_cloud_marks')
-    for index,book in ipairs(expected.books) do if Marks.display_id(book.bookId) then chosen=book;position=index+4;break end end
+    for index,book in ipairs(expected.books) do if Marks.display_id(book.bookId) then chosen=book;position=index+5;break end end
     assert(chosen);plugin.isNetworkOnline=function() return false end
     for index,variant in ipairs({'highlights','thoughts','bookmarks'}) do
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(menu.item_table[position])
@@ -178,8 +180,75 @@ local ok,reason=pcall(function()
     assert(count==#expected.books and counters[0]==request_count);UI:forceRePaint()
     menu:onMenuSelect(item('Sort notebooks'));sort=assert(menu._shelf_popup)
     sort.buttons[1][1].callback();tick();assert(owner.sort=='original')
-    for index,book in ipairs(expected.books) do assert(menu.item_table[index+4].notebook_id==book.bookId) end
+    for index,book in ipairs(expected.books) do assert(menu.item_table[index+5].notebook_id==book.bookId) end
     report.search_sort=true
+    if synthetic and mode=='live' then
+        local Saved=require('weread.lib.my_cloud_marks_store')
+        local array=function() return plugin.client:json_decode('[]') end
+        local marks={schema=1,book_id='900001',fetched_at=1000,chapters=array(),updated=array()}
+        marks.updated[1]={bookmarkId='saved-mark-a',type=1,markText='Synthetic needle in first book'}
+        assert(Saved:new(plugin.library_db,plugin.client):write(marks))
+        marks.book_id='900099';marks.updated[1].bookmarkId='saved-mark-extra'
+        marks.updated[1].markText='Synthetic needle in an extra cached book'
+        assert(Saved:new(plugin.library_db,plugin.client):write(marks))
+        local thoughts={schema=1,book_id='900002',fetched_at=1000,reviews=array()}
+        thoughts.reviews[1]={reviewId='saved-thought-b',content='Synthetic needle in a thought',isPrivate=1}
+        assert(Saved:new(plugin.library_db,plugin.client,'thoughts'):write(thoughts))
+    end
+    if real_samples and mode=='live' then
+        local Saved=require('weread.lib.my_cloud_marks_store')
+        assert(type(input.saved_samples)=='table' and #input.saved_samples==2)
+        for _,sample in ipairs(input.saved_samples) do
+            assert(sample.kind=='marks' or sample.kind=='thoughts')
+            assert(Saved:new(plugin.library_db,plugin.client,sample.kind=='thoughts' and 'thoughts' or nil):write(sample.snapshot))
+        end
+    end
+    local before_search=counters[0]
+    menu:onMenuSelect(item('Search all saved notes'));input_dialog=assert(menu._shelf_popup)
+    input_dialog:setInputText('synthetic needle');input_dialog.buttons[1][2].callback()
+    wait(function() return not owner.note_search_job end)
+    local results=assert(menu._shelf_popup);local found_notes={}
+    for _,row in ipairs(results.item_table) do if row.saved_note_id then found_notes[row.saved_note_id]=row end end
+    if synthetic then
+        assert(found_notes['saved-mark-a'] and found_notes['saved-mark-extra'] and found_notes['saved-thought-b'])
+        results:onMenuSelect(found_notes['saved-thought-b'])
+        local child=assert(plugin._my_marks_owner);local child_menu=assert(plugin._my_marks_menu)
+        assert(child.id=='900002' and child.thoughts and child_menu._shelf_popup)
+        assert(child_menu._shelf_popup.text:find('Synthetic needle in a thought',1,true))
+        plugin:cancelMyCloudMarks();assert(not plugin._my_marks_owner)
+    elseif real_samples then
+        UI:close(results);tick()
+        local Search=require('weread.lib.shelf_search')
+        for _,sample in ipairs(input.saved_samples) do
+            local rows=sample.kind=='thoughts' and sample.snapshot.reviews or sample.snapshot.updated
+            local target_note,search_text,target_text
+            for _,row in ipairs(rows) do
+                for _,value in ipairs({row.content or '',row.markText or '',row.abstract or ''}) do
+                    local candidate=Query.trim(Protocol.utf8_substr(Query.trim(value),4))
+                    if Search.prepare(candidate) and Search.contains(value,Search.prepare(candidate)) then target_note,search_text,target_text=row,candidate,value;break end
+                end
+                if target_note then break end
+            end
+            assert(target_note and search_text)
+            menu:onMenuSelect(item('Search all saved notes'));input_dialog=assert(menu._shelf_popup)
+            input_dialog:setInputText(search_text);input_dialog.buttons[1][2].callback()
+            wait(function() return not owner.note_search_job end);results=assert(menu._shelf_popup)
+            local id=sample.kind=='thoughts' and target_note.reviewId or target_note.bookmarkId;local chosen_result
+            for _,row in ipairs(results.item_table) do if row.saved_note_id==id and row.saved_book_id==sample.snapshot.book_id then chosen_result=row end end
+            assert(chosen_result and counters[0]==before_search)
+            results:onMenuSelect(chosen_result)
+            local child=assert(plugin._my_marks_owner);local child_menu=assert(plugin._my_marks_menu)
+            assert(child.id==sample.snapshot.book_id and child_menu._shelf_popup)
+            assert(child_menu._shelf_popup.text:find(target_text,1,true))
+            if sample.kind=='thoughts' then assert(child.thoughts) else assert(not child.thoughts) end
+            plugin:cancelMyCloudMarks();assert(not plugin._my_marks_owner)
+        end
+    else
+        assert(not next(found_notes),'fresh private profile unexpectedly contained saved notes')
+        UI:close(results);tick()
+    end
+    assert(not menu._shelf_popup and counters[0]==before_search)
+    report.saved_note_search=true
     local Store=require('weread.lib.notebook_catalog_store')
     assert(same(Store:new(plugin.library_db,plugin.client,plugin.library_db:accountKey()):read(),expected))
     local db=assert(plugin.library_db:open());local _,name,path=db:rowexec('PRAGMA database_list')

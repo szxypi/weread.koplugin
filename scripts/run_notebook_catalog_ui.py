@@ -12,7 +12,7 @@ import zipfile
 from run_persistent_ui_probe import extract_candidate,run_child
 
 FRAME=b'\nWEREAD_NOTEBOOK_RESULT='
-FLAGS={'anonymous_credentials','transport_guard','worker_heartbeat','native_filemanager','menu_navigation','search_sort','file_sqlite',
+FLAGS={'anonymous_credentials','transport_guard','worker_heartbeat','native_filemanager','menu_navigation','search_sort','saved_note_search','file_sqlite',
        'account_isolation','cache_session_free','workers_reaped','credential_audit'}
 
 
@@ -31,6 +31,7 @@ def main(argv=None):
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True)
     parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--synthetic',action='store_true')
+    parser.add_argument('--cached-notes-sample',action='store_true')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('Linux and built runtime required')
@@ -41,6 +42,11 @@ def main(argv=None):
         if len(raw)>8*1024*1024:raise ValueError('input_limit')
         payload=json.loads(raw)
         if (payload.get('synthetic') is True)!=args.synthetic:raise ValueError('input_scope')
+        if args.cached_notes_sample != ('saved_samples' in payload) or args.synthetic and args.cached_notes_sample:
+            raise ValueError('input_scope')
+        if args.cached_notes_sample and (not isinstance(payload['saved_samples'],list) or len(payload['saved_samples'])!=2
+                or [row.get('kind') for row in payload['saved_samples'] if isinstance(row,dict)]!=['marks','thoughts']):
+            raise ValueError('input_scope')
         count=len(payload['source']['books'])
         if not 1<=count<=5000:raise ValueError('input_count')
         with tempfile.TemporaryDirectory(prefix='weread-notebook-',dir='/dev/shm') as temporary:
@@ -49,6 +55,7 @@ def main(argv=None):
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(root/'xdg'),EMULATE_READER='1',EMULATE_BW_SCREEN='1',
                 EMULATE_BB_TYPE='BB8',EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi))
             if args.synthetic:env['WEREAD_NOTEBOOK_SYNTHETIC']='1'
+            if args.cached_notes_sample:env['WEREAD_NOTEBOOK_SAVED_SAMPLES']='1'
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/notebook_catalog_probe.lua';stages=[];live=None
             for mode in ('live','reopen'):
                 code,rawout,repaint=run_child([str(runtime/'luajit'),str(probe),mode],env,raw,runtime,timeout=180)

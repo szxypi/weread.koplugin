@@ -17,6 +17,7 @@ local function current(host,owner)
         and owner.document==(host.ui and host.ui.document) and host.settings:auth_scope_matches(owner.scope)
 end
 local function stop(host,owner)
+    require('weread.ui.notebook_search').cancel(host,owner)
     local context=owner.context;owner.context=nil
     if not context then return end
     if owner.worker then owner.worker:cancel() end
@@ -109,7 +110,10 @@ render=function(host,owner)
         if not current(host,owner) then return end
         owner.generation=(owner.generation or 0)+1
         local generation=owner.generation
-        local items={{text=_('Refresh my notebooks'),callback=function() if current(host,owner) then refresh(host,owner) end end}}
+        local items={{text=_('Refresh my notebooks'),callback=function() if current(host,owner) then refresh(host,owner) end end},
+            {text=_('Search all saved notes'),callback=function()
+                if current(host,owner) then require('weread.ui.notebook_search').prompt(host,owner,current) end
+            end}}
         if owner.value then
             local search_text=owner.search and Protocol.utf8_substr(owner.search,16) or ''
             if owner.search and #search_text<#owner.search then search_text=search_text..'…' end
@@ -136,6 +140,7 @@ render=function(host,owner)
 end
 refresh=function(host,owner)
     if not current(host,owner) or owner.context then return false end
+    require('weread.ui.notebook_search').cancel(host,owner)
     if not host:isNetworkOnline() then host:showOffline(_('My notebooks'));return false end
     local access=Data.capture(host.settings)
     if not access then host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false end

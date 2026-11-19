@@ -31,7 +31,8 @@ host.showInfo=function(_self,message) error(message) end
 host.cancelMyCloudMarks=function(self) self._my_marks_owner=nil end
 host.showMyCloudThoughts=function(self,id) assert(id=='900001');self._my_marks_owner={} end
 assert(Catalog.show(host));local menu=assert(host._notebook_menu)
-assert(menu.item_table[5].text=='合成书籍');menu.item_table[5].callback()
+local book;for _i,item in ipairs(menu.item_table) do if item.text=='合成书籍' then book=item end end
+assert(book);book.callback()
 local dialog=assert(menu._shelf_popup);assert(#dialog.buttons==3);dialog.buttons[2][1].callback()
 assert(host._my_marks_owner and not menu._shelf_popup);Catalog.cancel(host)
 assert(not host._notebook_menu and not host._my_marks_owner)

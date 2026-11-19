@@ -34,6 +34,24 @@ function M:read(id)
         return self.data.validate(self.codec,self.codec:json_decode(row[1]),id)
     end)
 end
+-- Enumerate only bounded account-local snapshot identities; payloads are
+-- validated separately by read() and never returned by this query.
+function M:list_ids()
+    return run(self,function(db)
+        local stmt=db:prepare('SELECT book_id FROM '..self.table_name..' ORDER BY serial DESC, book_id LIMIT ?')
+        local ids,seen={},{}
+        local ok=pcall(function()
+            local row=stmt:bind(M.MAX_BOOKS+1):step()
+            while row do
+                local id=row[1]
+                if not Data.display_id(id) or seen[id] or #ids>=M.MAX_BOOKS then error('my_marks_store/identities',0) end
+                seen[id]=true;ids[#ids+1]=id;row=stmt:step()
+            end
+        end)
+        stmt:close();if not ok then error('my_marks_store/identities',0) end
+        return ids
+    end)
+end
 function M:write(value)
     local valid,projected=pcall(self.data.validate,self.codec,value,type(value)=='table' and value.book_id)
     if not valid then return false end

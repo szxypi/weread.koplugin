@@ -42,6 +42,10 @@ local function fixture(saved)
     return host,value
 end
 local function row(menu,label) for _,item in ipairs(menu.item_table) do if item.text==label then return item end end;error('missing '..label) end
+local function listed(menu)
+    local names={};for _,item in ipairs(menu.item_table) do if item.notebook_id then names[#names+1]=item.text end end
+    return table.concat(names,',')
+end
 local host,value=fixture(snapshot());expect(Catalog.show(host),'cached catalog did not open')
 local menu=host._notebook_menu
 expect(not value.started and row(menu,'Synthetic book').mandatory=='Author','cached catalog not shown offline')
@@ -73,16 +77,15 @@ expect(row(menu,'Alpha book') and row(menu,'Beta book') and not pcall(row,menu,'
 hidden_callback();expect(not menu._shelf_popup,'stale row escaped search filter')
 expect(not value.started and value.writes==0,'offline search accessed network or saved query')
 row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[2][1].callback()
-expect(menu.item_table[5].text=='Beta book' and menu.item_table[6].text=='Alpha book','sort did not compose with search')
-search('writer');expect(menu.item_table[5].text=='Gamma book' and menu.item_table[6].text=='Unknown count','unknown count sorted ahead of known count')
+expect(listed(menu)=='Beta book,Alpha book','sort did not compose with search')
+search('writer');expect(listed(menu)=='Gamma book,Unknown count','unknown count sorted ahead of known count')
 search('missing');expect(row(menu,'No matching notebooks.').select_enabled==false,'empty search did not show message')
 row(menu,'Search notebooks').callback();popup=menu._shelf_popup;popup.buttons[1][1].callback()
-expect(menu.item_table[5].text=='Beta book' and menu.item_table[6].text=='Gamma book'
-    and menu.item_table[7].text=='Alpha book' and menu.item_table[8].text=='Unknown count','count sort or stable ties changed')
+expect(listed(menu)=='Beta book,Gamma book,Alpha book,Unknown count','count sort or stable ties changed')
 expect(host._notebook_owner.value.books[1].title=='Alpha book' and host._notebook_owner.value.books[2].title=='Beta book',
     'sorting mutated the saved list')
 row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[1][1].callback()
-expect(menu.item_table[5].text=='Alpha book' and menu.item_table[6].text=='Beta book','original order not restored')
+expect(listed(menu)=='Alpha book,Beta book,Gamma book,Unknown count','original order not restored')
 search('a long search query longer than display')
 expect(row(menu,'Search notebooks').mandatory=='a long search qu…','long search occupied entire row')
 row(menu,'Search notebooks').callback();popup=menu._shelf_popup;popup.input=string.rep('x',1025);popup.buttons[1][2].callback()

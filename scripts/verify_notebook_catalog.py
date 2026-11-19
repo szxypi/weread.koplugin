@@ -56,9 +56,12 @@ def identity(row):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
-    parser.add_argument('--native-ui',action='store_true');parser.add_argument('--lua-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
+    parser.add_argument('--native-ui',action='store_true')
+    parser.add_argument('--cached-notes-sample',action='store_true',help='Also check real saved-note samples in the isolated UI')
+    parser.add_argument('--lua-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     if args.native_ui and (not args.saved_session or not args.lua_command) or args.lua_command and not args.native_ui:
         parser.error('native UI requires saved session and Lua command')
+    if args.cached_notes_sample and not args.native_ui:parser.error('cached note samples require native UI')
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0,private_values_saved=False)
     resource.setrlimit(resource.RLIMIT_CORE,(0,0));saved=grant=probe=None
     try:
@@ -91,6 +94,14 @@ def main(argv=None):
             if args.native_ui:
                 now=1;expected=project(large,now)
                 payload=dict(source=large,owner=saved['vid'],now=now,credentials=grant)
+                if args.cached_notes_sample:
+                    from verify_my_cloud_marks import MarksProbe
+                    from verify_my_cloud_thoughts import ThoughtsProbe
+                    marks,thoughts=MarksProbe(),ThoughtsProbe()
+                    marks.prepare(grant);thoughts.prepare(grant)
+                    payload['saved_samples']=[dict(kind='marks',snapshot=marks.model),
+                                              dict(kind='thoughts',snapshot=thoughts.samples[0]['expected'])]
+                    report['sample_snapshots']=2
                 child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=600)
                 from run_notebook_catalog_ui import FRAME,validate_stage
                 if len(child.stdout)>12*1024*1024 or child.stdout.count(FRAME)!=1:raise ValueError('notebook/ui_frame')
