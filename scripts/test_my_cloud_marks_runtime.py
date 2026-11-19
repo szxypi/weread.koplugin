@@ -23,6 +23,7 @@ def main():
         row=dict(bookmarkId=f'synthetic-mark-{index}',type=kind,chapterUid=7,style=1,colorStyle=0,createTime=1000+index)
         if kind!=0:row['markText']=f'合成划线 {index+1}：原生文字显示与中文分页 😀。'+('这是长引用，点开后应完整显示。\n'*40 if index==1 else '第二句。')
         else:row['abstract']='合成书签的章节摘要。'
+        if index==3:row['markText']+=' Straße Café'
         source['updated'].append(row)
     if args.variant=='thoughts':
         source=dict(bookId=book_id,reviews=[],totalCount=45,hasMore=0)
@@ -30,6 +31,7 @@ def main():
             row=dict(reviewId=f'synthetic-thought-{index}',bookId=book_id,userVid=900000,content=f'合成想法 {index+1}：原生文字、中文分页 😀。',
                 chapterUid='7' if index==0 else 7,chapterIdx=1,type=1,isPrivate=index%2,chapterName='合成想法章节',createTime=1000+index)
             if index==44:row['content']=''
+            if index==3:row['content']+=' Straße Café'
             if index%10:row['abstract']='合成引用原文。'+('长引用保持完整。\n'*40 if index==1 else '第二句。')
             source['reviews'].append(dict(reviewId=row['reviewId'],review=row))
         expected=complete(source,book_id,'900000',1000)

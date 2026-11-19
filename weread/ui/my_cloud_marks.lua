@@ -4,6 +4,8 @@ local Store=require('weread.lib.my_cloud_marks_store')
 local Recovery=require('weread.lib.native_read_recovery')
 local Popup=require('weread.ui.shelf_popup')
 local Protocol=require('weread.lib.protocol')
+local Search=require('weread.lib.shelf_search')
+local SearchQuery=require('weread.lib.search_query')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
@@ -34,15 +36,47 @@ local function kind(row,owner)
     if owner.thoughts then return row.isPrivate==1 and _('Private thought') or _('Thought') end
     return row.type==1 and _('Highlight') or row.type==0 and _('Bookmark') or _('Cloud mark')
 end
-local function chapter(owner,row)
+local function chapter_title(owner,row)
     if owner.thoughts and row.chapterName and row.chapterName~='' then return row.chapterName end
     return owner.chapter_titles and owner.chapter_titles[row.chapterUid]
-        or owner.catalog_titles and owner.catalog_titles[row.chapterUid] or _('Chapter unavailable')
+        or owner.catalog_titles and owner.catalog_titles[row.chapterUid]
+end
+local function chapter(owner,row)
+    return chapter_title(owner,row) or _('Chapter unavailable')
 end
 local function preview(value)
     return Protocol.utf8_substr(value:gsub('[%z%c]',' '),80)
 end
+local function search_summary(value)
+    local text=preview(value);local short=Protocol.utf8_substr(text,16)
+    return #short<#text and short..'…' or short
+end
 local render,refresh
+local function search_dialog(host,owner)
+    local InputDialog=require('ui/widget/inputdialog')
+    local dialog
+    local function valid() return current(host,owner) and Popup.current(owner.menu,dialog) end
+    local function apply(value)
+        if not valid() then return end
+        local query=SearchQuery.trim(value)
+        if #query>1024 then host:showInfo(_('Search text is too long.'));return end
+        owner.search=query~='' and query or nil
+        owner.needle=Search.prepare(owner.search)
+        Popup.close(owner.menu);render(host,owner)
+    end
+    dialog=InputDialog:new{title=_('Search saved notes'),input=owner.search or '',input_type='text',buttons={{
+        {text=_('Clear'),callback=function() apply('') end},
+        {text=_('Search'),is_enter_default=true,callback=function() apply(dialog:getInputText()) end},
+    }}}
+    Popup.show(owner.menu,dialog,function(widget) host:showInputDialog(widget) end)
+end
+
+local function matches(owner,row)
+    if not owner.needle then return true end
+    return Search.contains(row.content,owner.needle) or Search.contains(row.markText,owner.needle)
+        or Search.contains(row.abstract,owner.needle) or Search.contains(chapter_title(owner,row),owner.needle)
+end
+
 render=function(host,owner)
     if not current(host,owner) then return end
     Popup.redraw(owner.menu,function()
@@ -64,6 +98,10 @@ render=function(host,owner)
                 if current(host,owner) then owner.filter=selected;render(host,owner) end
             end}
         end
+        if owner.value then items[#items+1]={text=_('Search saved notes'),
+            mandatory=owner.search and search_summary(owner.search) or '',callback=function()
+                if current(host,owner) then search_dialog(host,owner) end
+            end} end
         if owner.mark_writable and not owner.bookmarks then items[#items+1]={text=_('Local thought drafts'),callback=function()
             if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
         end}
@@ -83,7 +121,7 @@ render=function(host,owner)
             for _i,row in ipairs(owner.thoughts and owner.value.reviews or owner.value.updated) do
                 local has_quote=row.abstract~=nil and row.abstract~=''
                 local row_type=owner.thoughts and (has_quote and 1 or 0) or row.type
-                if owner.filter==nil or row_type==owner.filter then
+                if (owner.filter==nil or row_type==owner.filter) and matches(owner,row) then
                     count=count+1
                     local content=owner.thoughts and row.content or row.markText
                     if not content or content=='' then content=row.abstract end
@@ -172,7 +210,7 @@ render=function(host,owner)
                     end}
                 end
             end
-            if count==0 then items[#items+1]={text=_(owner.labels.empty),select_enabled=false} end
+            if count==0 then items[#items+1]={text=_(owner.needle and 'No matching notes in this view.' or owner.labels.empty),select_enabled=false} end
         else items[#items+1]={text=_(owner.labels.missing),select_enabled=false} end
         owner.menu:switchItemTable(nil,items)
     end)

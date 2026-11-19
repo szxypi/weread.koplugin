@@ -23,11 +23,12 @@ def native_budget(total):
 
 
 def validate_stage(value,mode,count,*,synthetic=False,shots=False,thoughts=False):
-    keys=FLAGS|{'result','mode','phase','screenshots','pages','quotes','requests','forbidden','failed_line','fault_cases'}
+    keys=FLAGS|{'result','mode','phase','screenshots','pages','quotes','requests','forbidden','failed_line','fault_cases','search_checked'}
     if not isinstance(value,dict) or set(value)!=keys:raise ValueError('ui_schema')
     if any(type(value[key]) is not bool or not value[key] for key in FLAGS):raise ValueError('ui_flags')
+    if type(value['search_checked']) is not bool or synthetic and not value['search_checked']:raise ValueError('ui_search')
     if any(type(value[key]) is not int or value[key]<0 for key in ['screenshots','pages','quotes','requests','forbidden','failed_line','fault_cases']):raise ValueError('ui_numbers')
-    if (value['result']!='PASS' or value['mode']!=mode or value['phase']!='complete' or value['screenshots']!=(3 if shots else 0) or value['forbidden']
+    if (value['result']!='PASS' or value['mode']!=mode or value['phase']!='complete' or value['screenshots']!=(4 if shots and synthetic else 3 if shots else 0) or value['forbidden']
             or value['failed_line'] or value['requests']!=((10 if thoughts else 6) if synthetic and mode=='live' else (native_budget(count) if thoughts and mode=='live' else int(mode=='live')))
             or value['fault_cases']!=(6 if synthetic and mode=='live' else 0) or not 1<=value['pages']<=1000 or value['quotes']!=count):raise ValueError('ui_incomplete')
     return value

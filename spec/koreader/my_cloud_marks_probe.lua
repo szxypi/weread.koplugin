@@ -5,7 +5,7 @@ local ffi,json=require('ffi'),require('json');require('ffi/posix_h')
 local mode=arg[1]
 local report={result='UNVERIFIED',mode=mode,phase='init',anonymous_credentials=false,transport_guard=false,worker_heartbeat=false,
     native_filemanager=false,file_sqlite=false,account_isolation=false,cache_session_free=false,all_quotes=false,
-    workers_reaped=false,credential_audit=false,screenshots=0,pages=0,quotes=0,requests=0,forbidden=0,failed_line=0,fault_cases=0}
+    workers_reaped=false,credential_audit=false,search_checked=false,screenshots=0,pages=0,quotes=0,requests=0,forbidden=0,failed_line=0,fault_cases=0}
 local plugin,memory,counters,output;local descriptors={}
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/weread%-marks%-[%w_]+/profile$'))
@@ -187,16 +187,20 @@ local ok,reason=pcall(function()
         local popup=assert(menu._shelf_popup);assert(type(popup.text)=='string')
         if imported then
             local buttons=popup.button_table
-            if buttons then for _j,name in ipairs({'change_highlight_style',
-                'change_highlight_color','open_bookmark'}) do
-                assert(not buttons:getButtonById(name),'imported-book unsupported action was exposed')
-            end end
             if thoughts and row.isPrivate~=1 and buttons then
                 assert(not buttons:getButtonById('thought_edit') and not buttons:getButtonById('thought_delete'),
                     'unverified imported public thought editing was exposed')
             end
-            if not thoughts and row.type==1 then assert(buttons and buttons:getButtonById('delete_highlight'),
-                'imported-book highlight deletion was hidden') end
+            if not thoughts and row.type==1 then
+                assert(buttons and buttons:getButtonById('delete_highlight'),'imported-book highlight deletion was hidden')
+                assert((not not buttons:getButtonById('change_highlight_style'))==require('weread.lib.mark_style').editable(row),
+                    'imported-book highlight style action did not follow verified state')
+                assert((not not buttons:getButtonById('change_highlight_color'))==require('weread.lib.mark_color').editable(row),
+                    'imported-book highlight color action did not follow verified state')
+            elseif not thoughts and row.type==0 and buttons then
+                assert((not not buttons:getButtonById('open_bookmark'))==require('weread.lib.my_bookmark_target').can_locate(row,true),
+                    'imported-book bookmark action did not follow verified preview')
+            end
         end
         local content=thoughts and row.content or row.markText
         if content and content~='' then assert(popup.text:find(content,1,true))
@@ -213,6 +217,60 @@ local ok,reason=pcall(function()
     for _,filter in ipairs(thoughts and {'Thoughts with quoted text','Other thoughts','All my thoughts'} or {'Highlights only','Bookmarks only','All cloud marks'}) do
         for _,item in ipairs(menu.item_table) do if item.text==tr(filter) then menu:onMenuSelect(item);break end end
         UI:forceRePaint()
+    end
+    if synthetic then
+        local function item(label)
+            for _,row in ipairs(menu.item_table) do if row.text==tr(label) then return row end end
+            error('missing synthetic search action')
+        end
+        local function search(text)
+            menu:onMenuSelect(item('Search saved notes'));local dialog=assert(menu._shelf_popup)
+            dialog:setInputText(text);dialog.buttons[1][2].callback();tick()
+        end
+        local before_requests=counters[0]
+        assert(not owner.search and not owner.needle)
+        search('　STRASSE　')
+        local results={};for _,row in ipairs(menu.item_table) do if row.my_note_id then results[#results+1]=row end end
+        assert(#results==1 and results[1].my_note_id==(thoughts and 'synthetic-thought-3' or 'synthetic-mark-3'))
+        local search_db=assert(plugin.library_db:open())
+        local saved_payload=search_db:rowexec('SELECT payload FROM '..(thoughts and 'my_cloud_thoughts' or 'my_cloud_marks'))
+        search_db:close();assert(type(saved_payload)=='string' and not saved_payload:find('STRASSE',1,true))
+        UI:forceRePaint();shot('search-results')
+        menu:onMenuSelect(item(thoughts and 'Other thoughts' or 'Bookmarks only'))
+        assert(item('No matching notes in this view.').select_enabled==false)
+        menu:onMenuSelect(item(thoughts and 'All my thoughts' or 'All cloud marks'))
+        menu:onMenuSelect(item('Search saved notes'));local dialog=assert(menu._shelf_popup)
+        dialog.buttons[1][1].callback();tick()
+        assert(not owner.search and not owner.needle)
+        local restored=0;for _,row in ipairs(menu.item_table) do if row.my_note_id then restored=restored+1 end end
+        assert(restored==#(thoughts and expected.reviews or expected.updated) and counters[0]==before_requests)
+        UI:forceRePaint();report.search_checked=true
+    else
+        -- Real text stays in this private process; no query or screenshot is exported.
+        local Search=require('weread.lib.shelf_search');local Query=require('weread.lib.search_query');local Protocol=require('weread.lib.protocol')
+        local chosen,query
+        for _,row in ipairs(thoughts and expected.reviews or expected.updated) do
+            for _,value in ipairs({row.content or '',row.markText or '',row.abstract or '',row.chapterName or ''}) do
+                local candidate=Query.trim(Protocol.utf8_substr(Query.trim(value),4))
+                local needle=Search.prepare(candidate)
+                if needle and Search.contains(value,needle) then chosen=row;query=candidate;break end
+            end
+            if chosen then break end
+        end
+        if chosen then
+            local function item(label)
+                for _,row in ipairs(menu.item_table) do if row.text==tr(label) then return row end end
+                error('missing private search action')
+            end
+            local before_requests=counters[0];menu:onMenuSelect(item('Search saved notes'))
+            local dialog=assert(menu._shelf_popup);dialog:setInputText(query);dialog.buttons[1][2].callback();tick()
+            local found=false;for _,row in ipairs(menu.item_table) do
+                if row.my_note_id==(thoughts and chosen.reviewId or chosen.bookmarkId) then found=true end
+            end
+            assert(found and counters[0]==before_requests);UI:forceRePaint()
+            menu:onMenuSelect(item('Search saved notes'));dialog=assert(menu._shelf_popup);dialog.buttons[1][1].callback();tick()
+            assert(not owner.search and not owner.needle and counters[0]==before_requests);report.search_checked=true
+        end
     end
     local Cache=require('weread.lib.my_cloud_marks_store');assert(same(Cache:new(plugin.library_db,plugin.client,input.variant):read(input.book_id),expected))
     local db=assert(plugin.library_db:open());local _,name,path=db:rowexec('PRAGMA database_list')

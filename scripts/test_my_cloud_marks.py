@@ -90,7 +90,7 @@ class MarksTests(unittest.TestCase):
 
     def test_native_ui_receipt_checks_every_flag_and_exact_counts(self):
         row=dict.fromkeys(FLAGS,True)
-        row.update(result='PASS',mode='live',phase='complete',screenshots=0,pages=5,quotes=52,requests=1,forbidden=0,failed_line=0,fault_cases=0)
+        row.update(result='PASS',mode='live',phase='complete',screenshots=0,pages=5,quotes=52,requests=1,forbidden=0,failed_line=0,fault_cases=0,search_checked=True)
         self.assertEqual(validate_stage(row,'live',52),row)
         for key,value in [('requests',0),('requests',True),('quotes',51),('pages',0),('screenshots',1),('forbidden',1),
                           ('fault_cases',1),('failed_line',1),('result','UNVERIFIED'),('mode','reopen'),('phase','init')]+[(key,False) for key in FLAGS]:

@@ -47,7 +47,7 @@ class CbNotesTests(unittest.TestCase):
         for mode in ('live', 'reopen'):
             row = dict.fromkeys(FLAGS, True)
             row.update(result='PASS', mode=mode, phase='complete', screenshots=0, pages=1,
-                       quotes=1, requests=int(mode == 'live'), forbidden=0, failed_line=0, fault_cases=0)
+                       quotes=1, requests=int(mode == 'live'), forbidden=0, failed_line=0, fault_cases=0, search_checked=True)
             stages.append(row)
         ui = dict(result='PASS', profile_removed=True, installed_bytes_match=True, stages=stages)
         payload = {'model': snapshot, 'native': snapshot, 'ui': ui}

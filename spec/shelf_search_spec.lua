@@ -26,6 +26,8 @@ local before = calls
 expect(Search.matches({title="A\0B"}, Search.prepare("A\0B")), "NUL fallback did not match safely")
 expect(calls == before, "NUL was passed to the Unicode normalizer")
 expect(Search.matches({}, nil) and not Search.matches(nil, "x"), "empty or malformed input handling changed")
+expect(Search.contains("café",Search.prepare("É")),"shared text matching lost Unicode case mapping")
+expect(not Search.contains(nil,Search.prepare("x")) and not Search.contains("text",nil),"shared text matching accepted invalid input")
 
 package.loaded["ffi/utf8proc"] = previous
 package.loaded["weread.lib.shelf_search"] = nil

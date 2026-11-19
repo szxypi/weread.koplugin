@@ -5,6 +5,10 @@ local UI={close=function(_self,view) view.closed=true;if view.onCloseWidget then
 package.preload['ui/uimanager']=function() return UI end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 package.preload['weread.ui.thought_text']=function() return {viewer=function(v) return v end} end
+package.preload['ui/widget/inputdialog']=function() return {new=function(_self,data)
+    function data:getInputText() return self.input end
+    return data
+end} end
 local Data=require('weread.lib.my_cloud_marks');local Store=require('weread.lib.my_cloud_marks_store')
 local Marks=require('weread.ui.my_cloud_marks')
 local checks=0
@@ -22,6 +26,7 @@ local function fixture(saved)
     host.isNetworkOnline=function() return value.online end
     host.showInfo=function(_self,text) value.notices[#value.notices+1]=text end
     host.showOffline=host.showInfo
+    host.showInputDialog=function(_self,dialog) UI:show(dialog) end
     host.showList=function(_self,title,items)
         return {item_table=items,title=title,switchItemTable=function(self,_title,rows) self.item_table=rows end}
     end
@@ -60,6 +65,32 @@ UI:close(menu._shelf_popup)
 expect(menu.item_table~=before and row(menu,'新引用'),'deferred redraw did not run after popup closed')
 local stale=row(menu,'新引用').callback;Marks.cancel(host);stale()
 expect(not host._my_marks_menu and not menu._shelf_popup,'stale popup reopened after closing')
+
+-- Saved-note search remains local, composes with filters and owns its dialog.
+local search_snapshot=snapshot();search_snapshot.updated[1].markText='Alpha quotation'
+search_snapshot.updated[1].abstract='Other excerpt';search_snapshot.chapters[1].title='Synthetic chapter'
+host,value=fixture(search_snapshot);Marks.show(host,'900001');menu=host._my_marks_menu
+local function search(text)
+    row(menu,'Search saved notes').callback();local dialog=menu._shelf_popup
+    dialog.input=text;dialog.buttons[1][2].callback()
+end
+search('  ALPHA　');expect(row(menu,'Alpha quotation') and not pcall(row,menu,'Synthetic chapter'),
+    'search did not trim/fold or limit results')
+expect(not value.started and value.writes==0,'offline search accessed the server or saved the query')
+row(menu,'Bookmarks only').callback();expect(row(menu,'No matching notes in this view.'),'search did not compose with type filter')
+row(menu,'All cloud marks').callback();search('other excerpt')
+expect(row(menu,'Alpha quotation'),'search missed the original quote when the display text differs')
+search('synthetic chapter');expect(row(menu,'Alpha quotation') and row(menu,'Synthetic chapter'),'search missed chapter names')
+search('a long search query longer than its display');expect(row(menu,'Search saved notes').mandatory=='a long search qu…',
+    'long search text occupied the entire menu row')
+row(menu,'Search saved notes').callback();local active=menu._shelf_popup
+active.input=string.rep('a',1025);active.buttons[1][2].callback()
+expect(menu._shelf_popup==active and #value.notices==1,'long search closed dialog or silently changed results')
+active.buttons[1][1].callback();expect(row(menu,'Alpha quotation') and row(menu,'Synthetic chapter'),'clear did not restore saved notes')
+row(menu,'Search saved notes').callback();local stale_search=menu._shelf_popup
+Marks.cancel(host);stale_search.input='alpha';stale_search.buttons[1][2].callback()
+expect(not host._my_marks_menu and not menu._shelf_popup,'stale search reopened a closed owner')
+
 for _,change in ipairs({'account','epoch','session','document','parent','scope','revision','close','cancel'}) do
     host,value=fixture(snapshot());value.online=true;Marks.show(host,'900001');menu=host._my_marks_menu
     row(menu,'Refresh my cloud marks').callback();local callback=value.complete
@@ -151,6 +182,10 @@ host,value=fixture();value.saved={schema=1,book_id='900001',fetched_at=1000,revi
 package.loaded['weread.lib.my_cloud_thoughts']={capture=Data.capture,matches=Data.matches,validate=Data.validate,EXPIRED='my_thoughts/native_expired'}
 expect(Marks.show(host,'900001','thoughts'),'thought adapter did not open')
 menu=host._my_marks_menu;expect(menu.title=='My cloud thoughts','thought mode retained the highlight title')
+row(menu,'Search saved notes').callback();local thought_search=menu._shelf_popup
+thought_search.input='quoted SOURCE';thought_search.buttons[1][2].callback()
+expect(row(menu,'My quoted thought') and not pcall(row,menu,'My standalone thought'),'thought search missed quote or leaked unrelated entry')
+row(menu,'Search saved notes').callback();menu._shelf_popup.buttons[1][1].callback()
 row(menu,'Thoughts with quoted text').callback()
 expect(row(menu,'My quoted thought') and not pcall(row,menu,'My standalone thought'),'thought quote filter used the review type')
 row(menu,'My quoted thought').callback()
@@ -192,6 +227,9 @@ expect(Marks.show(host,'900001','bookmarks'),'offline bookmark view rejected')
 menu=host._my_marks_menu
 expect(menu.title=='My cloud bookmarks' and host._my_marks_owner.filter==0,'bookmark scope/title lost')
 expect(not pcall(row,menu,'All cloud marks') and not pcall(row,menu,'合成引用'),'bookmark view exposed other types')
+row(menu,'Search saved notes').callback();local bookmark_search=menu._shelf_popup
+bookmark_search.input='缓存章节';bookmark_search.buttons[1][2].callback()
+expect(row(menu,'缓存章节') and not pcall(row,menu,'合成引用'),'bookmark search escaped its type or missed the cached chapter')
 row(menu,'缓存章节').callback()
 expect(menu._shelf_popup.buttons_table[1][1].id=='open_bookmark' and menu._shelf_popup.buttons_table[2][1].id=='delete_bookmark','point without preview lost actions')
 expect(menu._shelf_popup.text:find('No saved quote text.',1,true),'missing server preview synthesized')
