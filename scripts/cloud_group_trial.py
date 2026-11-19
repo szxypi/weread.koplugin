@@ -16,8 +16,9 @@ def _cross_channel(left, right):
 
 
 class Trial:
-    def __init__(self, journal, read_pair, post, current, sleep=time.sleep):
+    def __init__(self, journal, read_pair, post, current, sleep=time.sleep, request_builder=create_request):
         self.journal, self.read_pair, self.post, self.current, self.sleep = journal, read_pair, post, current, sleep
+        self.request_builder = request_builder
 
     def _read(self, *, require_match=True):
         if self.current() is not True: raise ValueError('cloud_group/stale')
@@ -75,7 +76,7 @@ class Trial:
             token = self.journal.advance(token, 'create_claimed'); report['phase'] = 'create_claimed'
             if self.current() is not True: raise ValueError('cloud_group/stale')
             report['data_posts'] += 1
-            try: response = self.post('/shelf/archive', create_request(name))
+            try: response = self.post('/shelf/archive', self.request_builder(name))
             except Exception: response = None
             report['create_ack'] = acknowledged(response)
             ident, after = self._observe_created(before, name)
