@@ -1,0 +1,17 @@
+{
+  "result": "PASS",
+  "sample": "new self-authored TXT with one non-BMP character before the selected sentence",
+  "source_format": "web_txt",
+  "independent_initial_shelf_baselines_match": true,
+  "unicode_rune_and_utf16_starts_differ": true,
+  "annotation_posts": 2,
+  "created_and_deleted_same_new_highlight": true,
+  "independent_readback_each_step": true,
+  "observed_original_state_restored": true,
+  "fixture_removed_and_independently_confirmed": true,
+  "existing_book_writes": 0,
+  "authentication_posts": 0,
+  "private_values_in_report": false,
+  "screenshots": 0,
+  "limitations": ["server echo does not establish visual range semantics", "native TXT selection is not enabled", "physical Kindle not tested"]
+}
