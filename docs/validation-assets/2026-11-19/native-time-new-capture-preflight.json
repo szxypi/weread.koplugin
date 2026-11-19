@@ -1,0 +1,22 @@
+{
+  "same_day_preview": {
+    "result": "SAME_DAY_PREVIEW_VERIFIED",
+    "seconds": 6,
+    "captured_native_baseline_matches": true,
+    "both_current_shelves_stable": true,
+    "two_statistics_reads_stable": true,
+    "observed_months": 1,
+    "saved_capture_unchanged": true,
+    "captured_web_shelf_comparable": false,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "dispatch_capability": false,
+    "historical_accounting_verified": false
+  },
+  "cross_day_preflight_same_day": {
+    "result": "NOT_YET_HISTORICAL",
+    "credentials_loaded": false,
+    "network_requests": 0,
+    "dispatch_capability": false
+  }
+}
