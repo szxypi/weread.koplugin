@@ -47,14 +47,18 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--koreader',type=Path,required=True)
     p.add_argument('--run-dir',type=Path,required=True);p.add_argument('--width',type=int,default=600)
     p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
-    p.add_argument('--case',choices=('normal','no-create','no-delete','host-mismatch','orchestrated','short-source'),default='normal');p.add_argument('--txt',action='store_true');args=p.parse_args()
+    p.add_argument('--case',choices=('normal','no-create','no-delete','host-mismatch','orchestrated','short-source'),default='normal');p.add_argument('--txt',action='store_true');p.add_argument('--start',action='store_true');args=p.parse_args()
     if args.txt and args.case=='short-source':p.error('short-source fixture is XHTML')
+    if args.start and not args.txt:p.error('start fixture is TXT')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);candidate=root/'candidate.zip'
     subprocess.run(['bash','scripts/package_release.sh',str(candidate)],check=True,capture_output=True)
     profiles=set(Path('/dev/shm').glob('weread-cb-bookmark-*'))
     server=Server(args.case);txt_patch=None
     if args.txt:
-        from cb_txt_bookmark_trial import BODY,TEXT,prepare as prepare_txt
+        if args.start:
+            from cb_txt_start_bookmark_trial import BODY,TEXT,prepare as prepare_txt
+        else:
+            from cb_txt_bookmark_trial import BODY,TEXT,prepare as prepare_txt
         from txt_coordinates import PlainSource
         server.content_format='txt';server.selection_book_version=0
         txt_patch=patch('mock_weread.chapter_txt',return_value=BODY.decode());txt_patch.start()
@@ -66,7 +70,7 @@ def main():
                     source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest())
         version=0 if args.txt else 700
         plan,body=(prepare_txt if args.txt else prepare)('900000',CB_READING_ID,'a'*32,sample,version,baseline)
-        point=dict(chapter_offset=PlainSource(raw).locate(TEXT)[0]) if args.txt else from_mark(raw,CB_READING_ID,'2',body)
+        point=dict(chapter_offset=PlainSource(raw).locate(body['markText'])[0]) if args.start else dict(chapter_offset=PlainSource(raw).locate(TEXT)[0]) if args.txt else from_mark(raw,CB_READING_ID,'2',body)
         payload=dict(book=CB_READING_ID,chapter='2',chapter_idx=2,source=raw,chapters=CHAPTERS,
             cookies={'wr_vid':'900000','wr_skey':'mock_key'},native=grant,owner='900000',book_version=version,
             body=body,first=point['chapter_offset'],source_format=sample['source_format'])
@@ -96,7 +100,10 @@ def main():
                 if cleaned:journal.imported=False
                 return {'result':('TXT_IMPORT_AND_SOURCE_VERIFIED' if args.txt else 'EPUB_IMPORT_AND_SOURCE_VERIFIED') if cleaned else 'UNVERIFIED','phase':'restored' if cleaned else 'imported'}
             if args.txt:
-                from verify_cb_txt_bookmark_native import point as txt_point
+                if args.start:
+                    from verify_cb_txt_start_bookmark_native import point as txt_point
+                else:
+                    from verify_cb_txt_bookmark_native import point as txt_point
                 options=dict(source_format='web_txt',source_marker=TEXT,prepare_fn=prepare_txt,point_fn=txt_point,
                              upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED',allow_zero_version=True)
             else:options={}
@@ -104,7 +111,7 @@ def main():
                 result=run(dict(vid='900000',cookies={'wr_vid':'900000','wr_skey':'mock_key'}),None,NativeStore(),grant,journal,intent,
                     command,apply=True,uploader=uploader,upload_factory=lambda *_:None,source_factory=Source,
                     observer_factory=lambda book,creds,authority,store:Observer(book,creds,authority,store,opener=Opener(server)),**options)
-            assert result['result']=='CB_NATIVE_BOOKMARK_VERIFIED' and not journal.imported
+            assert result['result']=='CB_NATIVE_BOOKMARK_VERIFIED' and not journal.imported,result
             assert result['native_writes']==2 and server.bookmark_posts==2 and intent.read()==(None,None)
             print(json.dumps(dict(result='PASS',case=args.case,width=args.width,height=args.height,
                                   dry_blocked=True,mock_writes=2,no_replay=True)))

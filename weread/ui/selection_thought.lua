@@ -11,12 +11,20 @@ local Style=require('weread.lib.mark_style')
 local Color=require('weread.lib.mark_color')
 local _=require('weread.lib.plugin_util').tr
 local M={KEY='04_weread_private_thought'}
+local function viewport_height(host)
+    local get=host.progress_sync and host.progress_sync.get_viewport_height
+    if type(get)~='function' then return nil end
+    local ok,height=pcall(get)
+    if not ok or type(height)~='number' or height~=height or height<=0 or height>65536 then return nil end
+    return height
+end
 local function current(host,owner)
     return host._selection_thought_owner==owner and not owner.menu._shelf_closed
         and owner.document==(host.ui and host.ui.document) and owner.document.file==owner.source_file
         and owner.account~=nil and owner.account==host.library_db:accountKey() and owner.session==host._reader_session_gen
         and owner.epoch==(host.discovery_epoch or 0) and host.settings:auth_scope_matches(owner.scope)
         and owner.mode==(host.ui.view and host.ui.view.view_mode or 'page')
+        and (owner.mode~='scroll' or owner.viewport_height==viewport_height(host))
         and (host._translation_mode==nil or host._translation_mode=='original')
         and Context.same_location(owner.location,Context.location(owner.document,owner.mode))
 end
@@ -99,6 +107,7 @@ function M.open(host,selection,bookmark)
     if not bookmark and #selection.text>4096 then host:showInfo(_('Select less text to write a WeRead thought.'));return false end
     local mode=host.ui.view and host.ui.view.view_mode or 'page'
     local owner={id=id,document=document,source_file=document.file,mode=mode,location=Context.location(document,mode),
+        viewport_height=mode=='scroll' and viewport_height(host) or nil,
         account=host.library_db:accountKey(),scope=host.settings:get_auth_scope(),session=host._reader_session_gen,
         epoch=host.discovery_epoch or 0,thoughts=false,bookmarks=bookmark==true,imported=not Marks.id(id)}
     if not owner.location or not owner.account then return false end
@@ -120,7 +129,7 @@ function M.open(host,selection,bookmark)
     end
     owner.thread=coroutine.create(function()
         if bookmark then
-            local input=Context.capture(document,id,owner.location,{is_current=function() return current(host,owner) end,
+            local input=Context.capture(document,id,owner.location,{viewport_height=owner.viewport_height,is_current=function() return current(host,owner) end,
                 yield=function() coroutine.yield() end})
             if not input or input.error then owner.error=input and input.error;return nil end
             input.chapters=host.library_db:getChapters(id);return input

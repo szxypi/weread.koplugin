@@ -1,0 +1,16 @@
+{
+  "result": "SOURCE_FORMAT_IDENTIFIED",
+  "scope": "read-only inspection of the previously removed self-authored fixture bound to its restored journal and receipt",
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "bookmark_writes_in_original_attempt": 0,
+  "returned_xhtml": true,
+  "returned_txt": false,
+  "fixture_marker_once": true,
+  "source_and_position_stable": true,
+  "fixture_source_bytes": 10415,
+  "returned_chapter_source_bytes": 7094,
+  "catalog_chapters": 2,
+  "private_values_in_report": false,
+  "limitations": ["one removed self-authored fixture", "reason for service-side format conversion not established", "not evidence of real TXT bookmark position semantics"]
+}

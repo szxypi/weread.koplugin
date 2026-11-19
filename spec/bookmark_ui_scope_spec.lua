@@ -20,6 +20,7 @@ package.preload['weread.lib.source_context']=function() return {
     same_location=function(a,b) return a and b and a.point==b.point and a.view_mode==b.view_mode end,
     capture=function(document,id,location,options)
         assert(options.is_current() and location.point==document.point and (id=='41' or id=='CB_Synthetic'))
+        if location.view_mode=='scroll' then assert(options.viewport_height==document.expected_height) end
         return {file=document.file,book_id=id,text='Source preview',point_offset=0}
     end,
 } end
@@ -65,6 +66,12 @@ end
 host,f=fixture();host.ui.highlight.selected_text={text='Active selection'}
 expect(not Selection.open_bookmark(host) and not host._selection_thought_owner and f.cancels==0,'active selection reused as page origin')
 host,f=fixture();host._translation_mode='translation';expect(not Selection.open_bookmark(host) and f.cancels==0,'translated page became original bookmark')
+host,f=fixture();host.ui.view.view_mode='scroll';host.ui.document.expected_height=720
+host.progress_sync={get_viewport_height=function() return host.ui.document.expected_height end}
+expect(Selection.open_bookmark(host),'scroll bookmark rejected');advance();f.done(f.task());owner=host._selection_thought_owner
+expect(owner.reference and owner.viewport_height==720,'scroll viewport height was not captured')
+host.ui.document.expected_height=600;Selection.view_changed(host)
+expect(not host._selection_thought_owner and owner.menu.closed,'viewport height change retained stale bookmark')
 host,f=fixture();f.account=nil;expect(not Selection.open_bookmark(host),'logged-out page opened bookmark')
 host,f=fixture();host.detectWeReadBook=function() return 'CB_Synthetic' end
 expect(Selection.open_bookmark(host),'imported current-page action rejected');advance();f.done(f.task());owner=host._selection_thought_owner
