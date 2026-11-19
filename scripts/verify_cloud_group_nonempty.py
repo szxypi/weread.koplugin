@@ -8,6 +8,7 @@ import resource
 
 from cloud_group_binding import Binding
 from cloud_group_nonempty_binding import Binding as NonemptyBinding
+from cloud_group_fixture_cleanup import Intent as CleanupIntent,verified_for
 from cloud_group_fixture import Journal as UploadJournal, binding
 from cloud_group_journal import Journal as OldJournal
 from cloud_group_nonempty_inspect import inspect, inspect_original
@@ -76,7 +77,8 @@ def main(argv=None):
                 elif args.inspect:
                     readonly=NonemptyBinding()
                     report.update(inspect(groups,lambda:binding(uploads,receipt.backend),grant,current,read_pair,readonly))
-                    report.update(inspect_original(old,groups,lambda:binding(uploads,receipt.backend),grant,current,read_pair,guard.check,readonly))
+                    report.update(inspect_original(old,groups,lambda:binding(uploads,receipt.backend),grant,current,read_pair,guard.check,readonly,
+                        lambda group,upload,owner:verified_for(CleanupIntent(),group,upload,owner)))
                 else:
                     if (uploads.read()[0] is not None or groups.read()[0] is not None or receipt.backend.load() is not None
                             or MARKER.exists() or no_other_pending() is not True):raise ValueError('group_scope')

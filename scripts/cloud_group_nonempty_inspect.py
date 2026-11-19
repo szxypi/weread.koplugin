@@ -35,7 +35,7 @@ def inspect(journal, fixture, grant, current, read_pair, read_binding=None):
     return result
 
 
-def inspect_original(old_journal, group_journal, fixture, grant, current, read_pair, old_guard, read_binding=None):
+def inspect_original(old_journal, group_journal, fixture, grant, current, read_pair, old_guard, read_binding=None, removed_verified=None):
     """Compare each channel to the pre-upload shelf after removing only the fixture."""
     old_guard(False)
     old,old_token=old_journal.read(); group,group_token=group_journal.read(); upload,upload_token=fixture()
@@ -44,14 +44,21 @@ def inspect_original(old_journal, group_journal, fixture, grant, current, read_p
             or group['target']!=upload['target'] or group['upload_attempt']!=upload['attempt']
             or group['upload_plan_hash']!=hash_value(upload['plan']) or current() is not True):
         raise ValueError('group_inspect/binding')
+    removed=removed_verified is not None and removed_verified(group,upload,grant['vid']) is True
     samples=[]
     for _ in range(2):
         raw=read_pair()
         if not isinstance(raw,dict) or set(raw)!={'native','web'}:raise ValueError('group_inspect/read')
-        samples.append(tuple(strip_fixture(raw[key],upload['target']) for key in ('native','web')))
+        if removed:
+            values=tuple(project(raw[key]) for key in ('native','web'))
+            if any(upload['target'] in value['members'] or any(upload['target'] in row['bookIds'] for row in value['groups'].values())
+                   for value in values):raise ValueError('group_inspect/changed')
+            samples.append(values)
+        else:samples.append(tuple(strip_fixture(raw[key],upload['target']) for key in ('native','web')))
     if (samples[0]!=samples[1] or current() is not True or old_journal.read()!=(old,old_token)
             or group_journal.read()!=(group,group_token) or fixture()!=(upload,upload_token)):
         raise ValueError('group_inspect/changed')
-    return dict(native_original_state_unchanged=digest(samples[1][0])==old['native_before'],
-                web_original_state_unchanged=digest(samples[1][1])==old['web_before'],
-                old_group_absent=True)
+    result=dict(native_original_state_unchanged=digest(samples[1][0])==old['native_before'],
+                web_original_state_unchanged=digest(samples[1][1])==old['web_before'],old_group_absent=True)
+    if removed:result['fixture_cleanup_verified']=True
+    return result

@@ -1,0 +1,18 @@
+{
+  "result": "FIXTURE_CLEANED",
+  "fixture": "previously uploaded synthetic EPUB",
+  "fresh_native_and_web_shelf_baselines_stable": true,
+  "fixture_absent_from_all_groups": true,
+  "fixture_unstarted_and_notes_empty": true,
+  "cleanup_posts": 1,
+  "group_posts": 0,
+  "authentication_posts": 0,
+  "fixture_removed_on_both_channels": true,
+  "other_current_shelf_state_unchanged": true,
+  "original_group_request_unresolved": true,
+  "original_group_still_absent": true,
+  "original_group_request_replayed": false,
+  "read_only_inspection_after_cleanup": true,
+  "older_baseline_unchanged": false,
+  "private_values_in_report": false
+}

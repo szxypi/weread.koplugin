@@ -2,6 +2,7 @@
 from copy import deepcopy
 import json
 import unittest
+from unittest.mock import patch
 from urllib.parse import urlsplit
 
 from cloud_group_contract import digest, project
@@ -94,6 +95,28 @@ class FullTransportTest(unittest.TestCase):
         result=check();self.assertTrue(result['native_original_state_unchanged'] and result['web_original_state_unchanged'])
         service.shelf['books'][0]['secret']=1
         result=check();self.assertFalse(result['native_original_state_unchanged']);self.assertFalse(result['web_original_state_unchanged'])
+
+    def test_orphan_cleanup_is_exact_and_original_group_remains_inspectable(self):
+        from cloud_group_fixture_cleanup import Intent,execute as cleanup,verified_for
+        from verify_cloud_group_fixture_cleanup import ScopedNative as CleanupProbe
+        _,service,uploads,groups,old,receipt=self.run_case('missing');grant=credentials()
+        upload,_=binding(uploads,receipt.backend);group,_=groups.read();previous,_=old.read();intent=Intent(Backend())
+        probe=CleanupProbe(grant,lambda:True,intent,group,upload,upload['target'],opener=service)
+        notes=lambda:{'empty':True,'unstarted':True,'native_state':'a'*64,'web_state':'b'*64}
+        with patch('verify_cloud_group_fixture_cleanup.no_other_pending',return_value=True):
+            result=cleanup(grant['vid'],grant,upload['target'],group,upload,(previous['name'],group['name']),intent,
+                           lambda:True,service.pair,notes,probe.delete,apply=True,sleep=lambda _:None)
+        self.assertEqual(result['result'],'FIXTURE_CLEANED');self.assertEqual(service.calls.count('/shelf/delete'),1)
+        self.assertEqual(groups.read()[0]['phase'],'create_claimed');self.assertTrue(verified_for(intent,group,upload,grant['vid']))
+        self.assertFalse(verified_for(intent,dict(group,target='CB_other'),upload,grant['vid']))
+        self.assertFalse(verified_for(intent,group,upload,'900001'))
+        guard=Guard(old,None,grant,lambda:True,service.pair)
+        inspected=inspect_original(old,groups,lambda:binding(uploads,receipt.backend),grant,lambda:True,service.pair,guard.check,
+                                   removed_verified=lambda g,u,o:verified_for(intent,g,u,o))
+        self.assertTrue(inspected['fixture_cleanup_verified']);self.assertTrue(inspected['native_original_state_unchanged'])
+        service.shelf['books'].append(dict(bookId=upload['target'],title='Synthetic',finishReading=0))
+        with self.assertRaises(ValueError):inspect_original(old,groups,lambda:binding(uploads,receipt.backend),grant,lambda:True,
+            service.pair,guard.check,removed_verified=lambda g,u,o:verified_for(intent,g,u,o))
 
 
 if __name__=='__main__':unittest.main()
