@@ -12,7 +12,7 @@ end
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/weread%-finish%-[%w_]+/profile$'))
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
-    assert(mode=='live' or mode=='reopen')
+    assert(mode=='live' or mode=='reopen' or mode=='offline_reopen')
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');require('gettext').changeLang('zh_CN')
     G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
@@ -24,7 +24,7 @@ local ok,reason=pcall(function()
     local function load(db) return json.decode(db:rowexec('SELECT payload FROM remote WHERE id=1')) end
     local function save(db,value) local stmt=db:prepare('UPDATE remote SET payload=? WHERE id=1');stmt:bind(json.encode(value)):step();stmt:close() end
     local function shelf() return {books={{bookId='41',title='合成测试书籍：读完标记',finishReading=0,secret=0},
-        {bookId='42',title='合成其他书籍',finishReading=1,secret=0}},archive={}} end
+        {bookId='42',title='合成其他书籍',finishReading=1,secret=0}},archive=json.decode('[]')} end
     local function progress() return {book={bookId='41',chapterUid=2,chapterIdx=2,chapterOffset=100,progress=37.5}} end
     if mode=='live' then remote(function(db)
         db:exec('CREATE TABLE remote(id INTEGER PRIMARY KEY,payload TEXT NOT NULL)');db:exec([[INSERT INTO remote VALUES(1,'{}')]])
@@ -161,10 +161,54 @@ local ok,reason=pcall(function()
         report.phase='cancel-after-dispatch';view=open();fault('delayed');view.ok_callback();wait(function() return state().posts==7 end)
         plugin.busy_message:onTapClose();expect(not plugin._finish_change_ui and journal:read().phase=='pending');shot('pending')
         fault('normal')
-    else
+    elseif mode=='reopen' then
         report.phase='read-only-reopen';expect(state().posts==7 and journal:read().phase=='pending');accept();expect(state().posts==7);saved(true)
         report.phase='restore';local view=open();confirm(view);expect(state().posts==8 and journal:read().phase=='idle');saved(false);shot('restored')
         expect(state().shelf.books[2].secret==0 and state().shelf.books[2].finishReading==1 and state().progress.book.chapterOffset==100)
+        local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
+        local function queue_offline()
+            plugin.isNetworkConnected=function() return false end
+            plugin:showShelfState('41')
+            local menu=assert(plugin._shelf_state_menu);local action
+            for _,item in ipairs(menu.item_table) do if item.text==tr('Change finished mark') then action=item end end
+            expect(action);menu:onMenuSelect(action)
+            local dialog=assert(plugin._finish_offline_dialog);dialog.ok_callback()
+            expect(queue:get('41') and queue:get('41').phase=='queued')
+            local top=UI:getTopmostVisibleWidget();if top~=plugin._shelf_state_menu then UI:close(top) end
+            plugin:closeWeReadUI();plugin:showBookshelf()
+            local shelf_view=assert(plugin.shelf_view);local book
+            for _,item in ipairs(shelf_view.books) do if tostring(item.bookId or item.book_id)=='41' then book=item end end
+            expect(book and shelf_view:itemStatus(book):find(tr('Pending sync'),1,true))
+            if shelf_view.cover_mode then
+                local cell
+                for _,item in ipairs(shelf_view._item_rows) do if item.book==book then cell=item end end
+                expect(cell and cell._finished_badge and cell._finished_badge.label.text==tr('Pending sync'))
+            end
+        end
+        local function reconnect(expected_posts,finished)
+            plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
+            wait(function() local entry,err=queue:get('41');return not err and not entry end)
+            expect(state().posts==expected_posts and journal:read().phase=='idle');saved(finished)
+        end
+        report.phase='offline-mark';queue_offline();expect(state().posts==8);reconnect(9,true)
+        report.phase='offline-unmark';queue_offline();expect(state().posts==9);reconnect(10,false)
+        report.phase='offline-interrupted';queue_offline();fault('delayed')
+        plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
+        wait(function() return state().posts==11 end)
+        plugin.isNetworkConnected=function() return false end;plugin:onNetworkDisconnected()
+        expect(queue:get('41').phase=='dispatching' and journal:read().phase=='pending')
+        fault('normal')
+    else
+        report.phase='offline-reopen-no-retry'
+        local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
+        expect(state().posts==11 and queue:get('41').phase=='dispatching' and journal:read().phase=='pending')
+        plugin:onNetworkConnected();local until_=socket.gettime()+.5;while socket.gettime()<until_ do tick() end
+        expect(state().posts==11 and queue:get('41').phase=='dispatching')
+        accept();expect(state().posts==11 and journal:read().phase=='idle');saved(true)
+        report.phase='offline-review';expect(require('weread.ui.finish_offline').open(plugin,'41'))
+        local dialog=assert(plugin._finish_offline_dialog)
+        expect(dialog.text==tr('This offline change may have been sent. Remove its local record without retrying? Check the current cloud status separately; a delayed change may still appear.'))
+        dialog.ok_callback();expect(not queue:get('41') and state().posts==11)
     end
     plugin:closeWeReadUI();for _i,worker in ipairs(workers) do wait(function() return worker.runner.done(worker.pid) end) end
     report.workers_reaped=true;local value=state();report.requests,report.posts,report.forbidden=value.requests,value.posts,value.forbidden

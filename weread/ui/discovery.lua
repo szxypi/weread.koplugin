@@ -64,6 +64,7 @@ function M:showDiscoveryPage(tab, books, options)
         status_text = home and self:homeStatusText(),
         summary_text = home and self:homeReadingSummary(),
         navigation = self:discoveryNavigation(tab, current), books = books,
+        finish_pending = require('weread.ui.finish_offline').snapshot(self),
         cover_mode = cover_mode, paged = true, page = page,
         page_size = layout.page_size, cover_columns = layout.columns,
         cover_rows = layout.rows, cover_paths = cover_paths,

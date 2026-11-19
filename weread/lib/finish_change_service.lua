@@ -24,7 +24,7 @@ function M:_worker(task,callback)
     self.worker=self.worker or require('weread.lib.memory_worker'):new{scheduler=self.scheduler,codec=self.client,max_bytes=8*1024*1024}
     return self.worker:start(task,callback)
 end
-function M:prepare(id,guard,callback,resolving)
+function M:prepare(id,guard,callback,resolving,desired)
     if self.job or self.preview then return false,'busy' end
     local selected=Access.capture(self.settings,self.store);if not selected or selected.renewal_pending then return false,'login' end
     local record,reason=self.journal:read();if not record then return false,reason end
@@ -35,7 +35,7 @@ function M:prepare(id,guard,callback,resolving)
     local job={book_id=id,guard=guard,access=selected,started=self.now(),record=resolving and record or nil,revision=record.revision}
     self.job=job
     local called,started=pcall(self._worker,self,function()
-        if not resolving then return Task.preview(self.client,self.settings,selected,id) end
+        if not resolving then return Task.preview(self.client,self.settings,selected,id,desired) end
         local observed=Task.inspect(self.client,self.settings,selected,id);local flags=Contract.flags(observed.raw);local row=flags[id]
         local read,point=pcall(Contract.point,observed.progress,id)
         return {metadata=record.metadata,observed=observed,current_present=row~=nil,current_finished=row and row.finished.value,

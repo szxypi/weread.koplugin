@@ -11,6 +11,7 @@ local function service(host)
     end
     return host._finish_change_service
 end
+M.service=service
 function M.pending(host)
     if not host.client or not host.library_db or not host.library_db.open then return nil end
     return service(host):pending()
@@ -38,6 +39,8 @@ local function message(reason)
     return _('Could not prepare or save this finished-mark change. Check E-Ink login, network and storage, then try again.')
 end
 function M.open(host,id,resolving)
+    local offline=require('weread.ui.finish_offline')
+    offline.cancel_sync(host)
     M.cancel(host)
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     local private_pending,private_error=require('weread.ui.shelf_flag_change').pending(host)
@@ -54,6 +57,11 @@ function M.open(host,id,resolving)
         host:showInfo(_('A previous bookshelf change is unconfirmed. Check it before making another change.'));return false
     end
     if member_error=='storage' then host:showInfo(message('storage'));return false end
+    if not resolving then
+        local queued,queue_error=offline.get(host,id)
+        if queue_error then host:showInfo(_('Could not read offline finished marks.'));return false end
+        if queued or not host:isNetworkConnected() then return offline.open(host,id) end
+    end
     if not host:isNetworkConnected() then host:showOffline(_('Shelf status'));return false end
     local task=service(host);local ctx={owner=scope(host)};host._finish_change_ui=ctx
     local function finish(text,book)

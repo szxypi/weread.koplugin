@@ -51,3 +51,11 @@ for _, dimensions in ipairs({ { 320, 480 }, { 600, 800 }, { 800, 600 }, { 1072, 
             layout.columns, layout.rows))
     end
 end
+local book={bookId='41',title='Pending book',finishReading=1}
+local view=LibraryView.show({mode='books',title='Shelf',books={book},cover_mode=true,paged=true,
+    page_size=1,cover_columns=1,cover_rows=1,finish_pending={['41']={desired=false,phase='queued'}}},callbacks)
+local cell=assert(view._item_rows[1])
+assert(not cell._finished and cell._finished_badge.label.text=='Pending sync', 'offline pending badge missing')
+assert(view:itemStatus(book):find('Not finished',1,true) and view:itemStatus(book):find('Pending sync',1,true),
+    'offline desired status not shown in list view')
+assert(book.finishReading==1, 'offline display modified cloud snapshot')

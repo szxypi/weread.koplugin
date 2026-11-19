@@ -338,6 +338,8 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    local offline=package.loaded['weread.ui.finish_offline']
+    if offline then offline.cancel_sync(self);offline.cancel_dialog(self) end
     if self.cancelBookReading then self:cancelBookReading() end
     require('weread.ui.mp_file_open').detach(self)
     require('weread.ui.mp_reader_open').detach(self)
@@ -471,6 +473,8 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local offline=package.loaded['weread.ui.finish_offline']
+    if offline then offline.cancel_sync(self);offline.cancel_dialog(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     require('weread.ui.chapter_links').cancel(self)
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
@@ -524,6 +528,7 @@ function M:onResume()
     if self.source_position then self.source_position:resume("suspend") end
     self.read_report:on_resume()
     if self.offline_time then self.offline_time:resume() end
+    require('weread.ui.finish_offline').pump(self)
     if self.startHomeStatusTimer and self.shelf_view and self.shelf_view.home_layout then
         self:startHomeStatusTimer(self.shelf_view)
     end
@@ -540,9 +545,11 @@ end
 function M:onNetworkConnected()
     if self.progress_sync then self.progress_sync:on_network_connected() end
     if self.offline_time then self.offline_time:update("network_connected", true) end
+    require('weread.ui.finish_offline').pump(self)
 end
 
 function M:onNetworkDisconnected()
+    local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     if self.progress_sync then self.progress_sync:on_network_disconnected() end
     if self.offline_time then self.offline_time:update("network_disconnected", false) end

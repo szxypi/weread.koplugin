@@ -25,7 +25,11 @@ def main():
             extract_candidate(candidate,profile/'plugins');shots=root/'screenshots';shots.mkdir()
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_FINISH_SHOTS=str(shots))
-            for mode in ('live','reopen'):
+            code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/finish_queue_store_smoke.lua'),
+                str(profile/'plugins/weread.koplugin'),str(Path(temporary)/'queue-smoke')],env,b'',args.koreader.resolve(),timeout=60)
+            if code or repaint or b'PASS: offline finished-mark queue SQLite' not in out:raise ValueError('queue_store')
+            report['queue_store_verified']=True
+            for mode in ('live','reopen','offline_reopen'):
                 code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/finish_change_ui_probe.lua'),mode],env,b'',args.koreader.resolve(),timeout=300)
                 if len(out)>4*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_frame')
                 stage=json.loads(out.split(FRAME)[1]);report['stages'].append(stage)

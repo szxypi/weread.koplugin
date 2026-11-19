@@ -14,6 +14,8 @@ local function current(host,owner)
         and owner.parent==host._book_detail_view
 end
 function M.cancel(host)
+    local offline=package.loaded['weread.ui.finish_offline']
+    if offline then offline.cancel_dialog(host) end
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     if host._finish_change_ui then require('weread.ui.finish_change').cancel(host) end
     if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end
@@ -33,12 +35,16 @@ function M.show(host,id)
     local book=ok and type(entry)=='table' and entry.book or nil
     local present
     if ok and type(entry)=='table' and type(entry.present)=='boolean' then present=entry.present end
+    local offline=host.client and host.library_db.open and require('weread.ui.finish_offline').get(host,id)
+    local finished=Flags.display(book,'finished')
     local items={
         {text=_('In cloud bookshelf'),mandatory=type(present)=='boolean' and text(present) or _('Unknown'),select_enabled=false},
         {text=_('Pinned'),mandatory=text(Flags.display(book,'pinned')),select_enabled=false},
         {text=_('Private reading'),mandatory=text(Flags.display(book,'private')),select_enabled=false},
-        {text=_('Finished reading'),mandatory=text(Flags.display(book,'finished')),select_enabled=false},
+        {text=_('Finished reading'),mandatory=offline and (text(offline.desired)..' · '.._(offline.phase=='queued' and 'Pending sync' or 'Needs review'))
+            or text(finished),select_enabled=false},
     }
+    if offline then items[#items+1]={text=_('Saved cloud finished mark'),mandatory=text(finished),select_enabled=false} end
     if book or type(present)=='boolean' then
         local stamp=entry.cached_at
         local date=type(stamp)=='number' and stamp>=1 and stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp)

@@ -142,7 +142,7 @@ local FinishedBadge = Widget:extend{}
 
 function FinishedBadge:init()
     self.label = TextWidget:new{
-        text = _("Read complete"),
+        text = self.label_text or _("Read complete"),
         face = Font:getFace("cfont", 9),
     }
     -- Chinese glyphs occupy their line box unevenly. Use separate horizontal
@@ -555,10 +555,11 @@ function CoverCell:init()
         cover_layers[#cover_layers + 1] = shadow
     end
     cover_layers[#cover_layers + 1] = cover_card
-    self._finished = is_finished(self.book)
+    self._finished = self.finish_pending and self.finish_pending.desired or false
+    if not self.finish_pending then self._finished = is_finished(self.book) end
     self._has_finished_badge = self._finished
-    if self._finished then
-        local badge = FinishedBadge:new{}
+    if self._finished or self.finish_pending then
+        local badge = FinishedBadge:new{label_text=self.finish_pending and _(self.finish_pending.phase=='queued' and 'Pending sync' or 'Needs review') or nil}
         -- Keep the completion stamp inside the rounded cover silhouette. If it
         -- touches the outer top-right corner, its square white background
         -- hides the cover radius and makes the card read as a right angle.
@@ -1095,7 +1096,10 @@ end
 function LibraryView:itemStatus(book)
     if self.mode == "public_account" then return book.author or "" end
     local status
-    if is_finished(book) then
+    local pending=self.finish_pending and self.finish_pending[tostring(book.bookId or book.book_id or '')]
+    if pending then
+        status=_(pending.desired and 'Done' or 'Not finished')..' · '.._(pending.phase=='queued' and 'Pending sync' or 'Needs review')
+    elseif is_finished(book) then
         status = _("Done")
     elseif type(book._shelf_progress) == "number" then
         status = tostring(book._shelf_progress) .. "%"
@@ -1182,6 +1186,7 @@ function LibraryView:content()
                 or cell_height
             local cover_cell = CoverCell:new{
                 book = book,
+                finish_pending = self.finish_pending and self.finish_pending[tostring(book.bookId or book.book_id or '')],
                 cached = book._cached == true,
                 cover_path = self.cover_paths and self.cover_paths[book] or nil,
                 cover_loading = self.cover_loading and self.cover_loading[book] == true,
@@ -1488,6 +1493,7 @@ function M.show(data, callbacks)
         cover_cell_height = data.cover_cell_height,
         cover_paths = data.cover_paths,
         cover_loading = data.cover_loading,
+        finish_pending = data.finish_pending,
         on_close = callbacks.on_close,
         on_switch = callbacks.on_switch,
         on_select_group = callbacks.on_select_group,

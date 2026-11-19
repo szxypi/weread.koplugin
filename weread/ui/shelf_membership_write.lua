@@ -48,6 +48,7 @@ local function redraw_account_shelf(host,account,saved)
     end
 end
 function M.open(host,id,resolving)
+    local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(host) end
     M.cancel(host)
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     local private_pending,private_error=require('weread.ui.shelf_flag_change').pending(host)
