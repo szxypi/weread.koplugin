@@ -70,7 +70,7 @@ function M.cancel(host)
     if menu then menu._shelf_closed=true;Popup.close(menu);UI:close(menu) end
 end
 
-local render,fetch_page
+local render,fetch_page,switch_search
 render=function(host,owner)
     if not current(host,owner) or not owner.menu then return end
     Popup.redraw(owner.menu,function()
@@ -79,6 +79,19 @@ render=function(host,owner)
         if owner.state and not owner.state.finished and owner.state.pages<128 then
             items[#items+1]={text=_('Load more results'),callback=function()
                 if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation then fetch_page(host,owner) end
+            end}
+        end
+        if owner.state and owner.state.pages>0 and owner.state.pages<128 and owner.fallback_state then
+            items[#items+1]={text=_('Search from current chapter'),callback=function()
+                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation then
+                    switch_search(host,owner,true)
+                end
+            end}
+        elseif owner.primary_state then
+            items[#items+1]={text=_('Continue original search'),callback=function()
+                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation then
+                    switch_search(host,owner,false)
+                end
             end}
         end
         local cached_added=false
@@ -124,6 +137,25 @@ render=function(host,owner)
         end
         owner.menu:switchItemTable(nil,items)
     end)
+end
+
+-- Each starting point keeps its own cursor; the page and hit limits and the
+-- seen ranges belong to the combined search, including after a switch.
+switch_search=function(host,owner,to_fallback)
+    local source=owner.state
+    local target=to_fallback and owner.fallback_state or owner.primary_state
+    if not source or not target then return false end
+    target.pages=source.pages;target.seen=source.seen;target.hit_count=source.hit_count
+    if to_fallback then
+        owner.primary_state=not source.finished and source or nil
+        owner.fallback_state=nil;owner.fallback_attempted=true
+    else
+        owner.fallback_state=not source.finished and source or nil
+        owner.primary_state=nil
+    end
+    owner.state=target;render(host,owner)
+    if to_fallback then return fetch_page(host,owner) end
+    return true
 end
 
 local function begin_work(host,owner,task,done)
@@ -220,14 +252,10 @@ fetch_page=function(host,owner,recovered)
                 return a.finish<b.finish
             end)
         end
-        if owner.cb_book and owner.state.finished and owner.state.pages<128 and owner.fallback_state then
-            local fallback=owner.fallback_state;owner.fallback_state=nil
-            fallback.pages=owner.state.pages
-            -- Both queries share one bounded result set. The worker suppresses
-            -- ranges already shown by the first starting point.
-            fallback.seen=owner.state.seen;fallback.hit_count=owner.state.hit_count
-            owner.state=fallback;owner.fallback_attempted=true
-            render(host,owner);fetch_page(host,owner);return
+        if owner.state.finished and owner.primary_state then
+            switch_search(host,owner,false);return
+        elseif owner.cb_book and owner.state.finished and owner.state.pages<128 and owner.fallback_state then
+            switch_search(host,owner,true);return
         end
         render(host,owner)
     end)

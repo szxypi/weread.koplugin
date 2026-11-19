@@ -11,7 +11,7 @@ import verify_cb_search_boundaries as task
 
 class CBBoundarySearchTests(unittest.TestCase):
     def test_default_is_offline(self):
-        for args in ([],['--native-ui'],['--native-ui','--nonempty']):
+        for args in ([],['--native-ui'],['--native-ui','--nonempty'],['--native-ui','--early']):
             output=io.StringIO()
             with patch.object(task,'SessionStore',side_effect=AssertionError('credentials')):
                 with patch.object(task,'BoundaryProbe',side_effect=AssertionError('network')):
@@ -24,6 +24,14 @@ class CBBoundarySearchTests(unittest.TestCase):
         queries=task.segment_queries(raw)
         self.assertEqual(len(queries),1)
         self.assertEqual(queries[0][0],'甲乙丙丁')
+
+    def test_frequent_queries_are_bounded_and_match_the_source(self):
+        raw='<html><body><p>天地天地天地</p><p>山河山河山河</p></body></html>'
+        queries=task.frequent_segment_queries(raw)
+        self.assertEqual(len(queries),2)
+        for term,(start,end) in queries:
+            self.assertEqual(len(term),2)
+            self.assertEqual(raw.encode('utf-16-le')[start*2:end*2].decode('utf-16-le'),term)
 
     def test_each_query_has_a_separate_one_shot_budget(self):
         probe=task.BoundaryProbe();probe.authenticated=True;probe.vid='900000';probe.book_id='CB_Synthetic1'

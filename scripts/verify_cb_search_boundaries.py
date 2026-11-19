@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Compare bounded CB_ search queries from within retained source segments."""
 import argparse
+from collections import Counter
 import json
 import re
 import resource
@@ -62,10 +63,27 @@ def segment_queries(raw):
     return found
 
 
+def frequent_segment_queries(raw):
+    model=FilteredSource(raw,allow_multiple_bodies=True);visible=''.join(model.characters)
+    counts=Counter()
+    for _base,segment in model.segments:
+        for index in range(len(segment)-1):
+            word=segment[index:index+2]
+            if re.fullmatch(r'[\u4e00-\u9fff]{2}',word):counts[word]+=1
+    found=[]
+    for word,count in sorted(counts.items(),key=lambda row:(-row[1],row[0])):
+        index=visible.find(word)
+        if count<2 or index<0:break
+        found.append((word,(model.starts[index],model.ends[index+1])))
+        if len(found)==2:break
+    return found
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--native-ui',action='store_true');parser.add_argument('--container',default='weread-validation')
     parser.add_argument('--nonempty',action='store_true',help='choose a matched first-page sample for native deduplication')
+    parser.add_argument('--early',action='store_true',help='select a multipage sample for early current-chapter search')
     parser.add_argument('--runtime',default='/validation/runtime/lib/koreader');parser.add_argument('--source',default='/source')
     parser.add_argument('--candidate',default='/validation/cb-fallback-600-v5/candidate.zip')
     args=parser.parse_args(argv);resource.setrlimit(resource.RLIMIT_CORE,(0,0))
@@ -87,7 +105,7 @@ def main(argv=None):
             if before!=sample['baseline'] or chapters!=sample['chapters']:raise ValueError('baseline_changed')
             web.first_chapter=str(chapters[0]['chapterUid'])
             ids={str(row['chapterUid']) for row in chapters};attempts=[]
-            queries=segment_queries(sample['source']) if sample['source_format']=='web_xhtml' else []
+            queries=(frequent_segment_queries(sample['source']) if args.early else segment_queries(sample['source'])) if sample['source_format']=='web_xhtml' else []
             for index,(keyword,expected) in enumerate(queries,1):
                 if restricted:break
                 pair={}
@@ -119,16 +137,19 @@ def main(argv=None):
                         if row['http_status'] in (401,429) or event.get('api_code') is not None:restricted=True
                     attempts.append(row)
                     pair[role]=row
-                first_usable=(pair.get('first',{}).get('rows',0)>0 and pair['first']['target_matches_source']
+                first_usable=(pair.get('first',{}).get('rows',0)>0 and pair['first']['more'] if args.early
+                              else pair.get('first',{}).get('rows',0)>0 and pair['first']['target_matches_source']
                               if args.nonempty else pair.get('first',{}).get('rows')==0)
                 if (candidate is None and 'current' in pair and 'first' in pair
                         and pair['current']['response_valid'] and pair['current']['target_matches_source']
-                        and pair['first']['response_valid'] and first_usable and not pair['first']['more']):
+                        and pair['first']['response_valid'] and first_usable and (args.early or not pair['first']['more'])):
                     candidate=(sample,keyword,expected)
+                if args.early and candidate:break
             after=baseline_position(web.request('search_progress_after',pos_url),web.book_id)
             later,later_chapters=readable_chapters(web.request('search_catalog_after',BASE+'/web/book/chapterInfos',{'bookIds':[web.book_id]}),web.book_id)
             if before!=after or chapters!=later_chapters or versions(record)!=versions(later):raise ValueError('baseline_changed')
             observations.append({'queries':attempts,'position_unchanged':True,'catalog_unchanged':True})
+            if args.early and candidate and not restricted:break
         native_ui=[]
         if args.native_ui:
             phase='native_ui'
@@ -151,6 +172,7 @@ def main(argv=None):
             cookies={c.name:c.value for c in web.cookies if c.name in {'wr_vid','wr_skey','wr_rt','wr_ql','wr_pf'}}
             payload=dict(owner=web.vid,cookies=cookies,book=web.book_id,chapter=web.chapter,chapters=safe,
                 source=sample['source'],keyword=keyword,start=expected[0],finish=expected[1],current_fallback=True,
+                early_fallback=args.early,
                 allowed=[{'chapter':ids[0],'start':0,'finish':0},{'chapter':web.chapter,'start':0,'finish':0}])
             for catalog_missing in (False,True):
                 payload['catalog_missing']=catalog_missing
@@ -171,7 +193,7 @@ def main(argv=None):
             searches_stopped_on_rejection=restricted,native_ui=native_ui)
     except Exception as exc:
         report['phase']=phase
-        if str(exc) in {'baseline_changed','search_scope','search_repeated','http_rejected','api_rejected'}:report['reason']=str(exc)
+        if str(exc) in {'baseline_changed','search_scope','search_repeated','http_rejected','api_rejected','ui_no_sample'}:report['reason']=str(exc)
         if str(exc) in {'owner_ui/runner','owner_ui/report','owner_ui/native_search','owner_ui/native_navigate',
                         'owner_ui/navigation_confirm','owner_ui/navigation_working','owner_ui/navigation_inactive',
                         'owner_ui/navigation_locate_failed','owner_ui/navigation_bind_failed'}:report['reason']=str(exc)

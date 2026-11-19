@@ -293,6 +293,15 @@ local ok,result=pcall(function()
     end
     if input.current_fallback then
         assert(not missing and #input.allowed==2)
+        if input.early_fallback then
+            wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
+            assert(not owner.state.finished and owner.fallback_state)
+            local action
+            for _i,item in ipairs(owner.menu.item_table) do
+                if item.text==require('weread.lib.i18n').tr('Search from current chapter') then action=item end
+            end
+            assert(action);owner.menu:onMenuSelect(action)
+        end
         wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
         find_selected()
     else
@@ -331,9 +340,16 @@ local ok,result=pcall(function()
         source_opened=true
         return open_source(self,...)
     end
-    -- Loaded results expose the downloaded-chapter search action before the
-    -- hits, in addition to an optional load-more action.
-    local prefix=1+(not owner.state.finished and owner.state.pages<128 and 1 or 0)
+    -- Count the available actions before hits; either cursor may be parked.
+    local prefix=0
+    local actions={['Load more results']=true,['Search downloaded chapters']=true,
+        ['Search from current chapter']=true,['Continue original search']=true}
+    for _i,item in ipairs(owner.menu.item_table) do
+        local is_action=false
+        for label in pairs(actions) do if item.text==translate(label) then is_action=true;break end end
+        if not is_action then break end
+        prefix=prefix+1
+    end
     local item=assert(owner.menu.item_table[index+prefix]);phase='navigate';owner.menu:onMenuSelect(item)
     local cancelled=false
     if missing then

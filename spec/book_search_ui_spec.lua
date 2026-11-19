@@ -57,9 +57,18 @@ package.preload['weread.lib.book_search']=function() return {
         if fetch_mode=='fallback' and state.cursor.chapter=='1' then
             state.pages=state.pages+1;state.finished=true;return {hits={},finished=true}
         end
-        if fetch_mode=='merge' then
+        if fetch_mode=='merge' or fetch_mode=='interleave' then
             local candidates
-            if state.cursor.chapter=='1' then
+            if fetch_mode=='interleave' then
+                state.step=(state.step or 0)+1
+                if state.cursor.chapter=='1' and state.step==1 then
+                    candidates={{chapter_uid='2',start=30,finish=34}};state.finished=false
+                elseif state.cursor.chapter=='1' then
+                    candidates={{chapter_uid='2',start=30,finish=34},{chapter_uid='2',start=50,finish=54}};state.finished=true
+                elseif state.step==1 then
+                    candidates={{chapter_uid='2',start=10,finish=14},{chapter_uid='2',start=30,finish=34}};state.finished=false
+                else candidates={{chapter_uid='2',start=40,finish=44}};state.finished=true end
+            elseif state.cursor.chapter=='1' then
                 candidates={{chapter_uid='2',start=30,finish=34}};state.finished=true
             elseif state.pages==1 then
                 candidates={{chapter_uid='2',start=10,finish=14},{chapter_uid='2',start=30,finish=34}}
@@ -386,6 +395,53 @@ expect(#cb_owner.value==1 and cb_owner.value[1].start==30 and cb_owner.state.pag
     and cb_owner.menu.items[1].text=='Load more results','failed supplemental request discarded first results or retry')
 fetch_mode='merge';cb_owner.menu.items[1].callback();active_worker:complete()
 expect(#cb_owner.value==2 and cb_owner.value[1].start==10,'supplemental retry lost results')
+Search.cancel(host)
+fetch_mode='interleave';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'early supplemental search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+before=fetches;active_worker:complete()
+local function action(label)
+    for _i,item in ipairs(cb_owner.menu.items) do if item.text==label then return item end end
+end
+local early=assert(action('Search from current chapter'));early.callback()
+expect(cb_owner.primary_state and cb_owner.job and cb_owner.state.pages==1,
+    'early supplemental search discarded the first cursor or page count')
+active_worker:complete()
+expect(#cb_owner.value==2 and cb_owner.value[1].start==10 and cb_owner.state.hit_count==2,
+    'early supplemental search did not merge and deduplicate')
+local resume=assert(action('Continue original search'));resume.callback()
+expect(not cb_owner.job and cb_owner.fallback_state and cb_owner.state.cursor.chapter=='1' and cb_owner.state.pages==2,
+    'switching back discarded the supplemental cursor or changed the first cursor')
+assert(action('Load more results')).callback();active_worker:complete()
+expect(cb_owner.job and cb_owner.fallback_attempted and cb_owner.state.cursor.chapter=='2' and cb_owner.state.pages==3
+    and #cb_owner.value==3,'first search did not resume or continue the unfinished supplement')
+active_worker:complete()
+expect(cb_owner.state.finished and cb_owner.state.pages==4 and cb_owner.state.hit_count==4 and #cb_owner.value==4
+    and cb_owner.value[1].start==10 and cb_owner.value[2].start==30 and cb_owner.value[3].start==40
+    and cb_owner.value[4].start==50 and fetches==before+4,'interleaved search lost order, limits, or results')
+Search.cancel(host)
+expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'cancelled early supplemental search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();assert(action('Search from current chapter')).callback()
+local early_worker=active_worker;host.busy_message.cancel();assert(action('Continue original search')).callback()
+early_worker:complete()
+expect(cb_owner.state.cursor.chapter=='1' and cb_owner.state.pages==1 and #cb_owner.value==1,
+    'cancelled supplemental response crossed into the resumed first search')
+Search.cancel(host)
+expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'failed early supplemental search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();assert(action('Search from current chapter')).callback()
+fetch_mode='fail';active_worker:complete()
+expect(#cb_owner.value==1 and cb_owner.state.pages==1 and action('Continue original search'),
+    'failed early supplement discarded results or the first cursor')
+assert(action('Continue original search')).callback()
+expect(cb_owner.fallback_state and action('Search from current chapter'),'failed supplement could not be resumed')
+fetch_mode='interleave';Search.cancel(host)
+expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'bounded early supplemental search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();cb_owner.state.pages=127
+assert(action('Search from current chapter')).callback();active_worker:complete()
+expect(cb_owner.state.pages==128 and not cb_owner.job and not action('Load more results')
+    and not action('Search from current chapter'),'switching cursors exceeded the shared page limit')
 Search.cancel(host)
 fetch_mode='fallback';expect(Search.open(host,'CB_Synthetic',two_chapters,'99'),'unknown-chapter search did not open')
 cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)

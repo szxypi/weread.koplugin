@@ -1,0 +1,27 @@
+{
+  "synthetic_native_ui": {
+    "result": "PASS",
+    "sizes": ["600x800", "1264x1680"],
+    "early_supplement": true,
+    "deduplicated": true,
+    "original_cursor_resumed": true,
+    "source_navigation_verified": true
+  },
+  "component_tests": {
+    "two_cursors_resumed": true,
+    "cancel_and_failed_search_preserve_results": true,
+    "shared_page_limit": true
+  },
+  "owner_readonly": {
+    "result": "UNVERIFIED",
+    "books": 5,
+    "search_gets": 18,
+    "multipage_candidates_observed": true,
+    "stopped_after_api_rejection": true,
+    "native_ui_executed": false,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "position_catalog_and_shelf_unchanged": true
+  },
+  "remaining": "real-service native UI and physical Kindle"
+}
