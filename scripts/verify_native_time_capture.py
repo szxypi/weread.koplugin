@@ -118,9 +118,12 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);access=parser.add_mutually_exclusive_group()
     access.add_argument('--saved-session',action='store_true');access.add_argument('--mock',action='store_true')
     parser.add_argument('--source-format',choices=('web_txt','web_xhtml'),default='web_txt')
-    parser.add_argument('--capture',action='store_true');parser.add_argument('--with-evidence',action='store_true');parser.add_argument('--native-ui-command',nargs=argparse.REMAINDER)
+    parser.add_argument('--capture',action='store_true');parser.add_argument('--with-evidence',action='store_true')
+    parser.add_argument('--fresh-bundle',action='store_true',help='use a separate immutable ordinary-book evidence slot')
+    parser.add_argument('--native-ui-command',nargs=argparse.REMAINDER)
     a=parser.parse_args(argv)
-    if (a.saved_session or a.mock or a.capture or a.with_evidence or a.native_ui_command or a.source_format!='web_txt') and not ((a.saved_session or a.mock) and a.capture and a.native_ui_command):parser.error('explicit capture and private native command required')
+    if (a.saved_session or a.mock or a.capture or a.with_evidence or a.fresh_bundle or a.native_ui_command or a.source_format!='web_txt') and not ((a.saved_session or a.mock) and a.capture and a.native_ui_command):parser.error('explicit capture and private native command required')
+    if a.fresh_bundle and not a.with_evidence:parser.error('fresh bundle requires SQLite evidence')
     r=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,authentication_posts=0,
            synthetic_only=a.mock,future_write_granted=False,private_data_on_regular_disk=False)
     web=api=saved=grant=session=server=None
@@ -172,8 +175,12 @@ def main(argv=None):
                 web=MockSource();web.vid=grant['vid'];web.set_cookie('wr_vid',web.vid);web.set_cookie('wr_skey','mock_key');factory=MockNative
             else:
                 if a.with_evidence:
-                    from native_time_capture_bundle import CaptureBundleStore
-                    store=CaptureBundleStore()
+                    if a.fresh_bundle:
+                        from native_time_capture_fresh_bundle import store as fresh_store
+                        store=fresh_store()
+                    else:
+                        from native_time_capture_bundle import CaptureBundleStore
+                        store=CaptureBundleStore()
                 else:store=NativeCaptureStore()
                 if store.read()!=(None,None):raise ValueError('native_capture/already_captured')
                 from verify_native_thought_trial import other_pending
