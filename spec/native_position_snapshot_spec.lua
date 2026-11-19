@@ -44,7 +44,11 @@ input.initialize_cloud=true
 result=Snapshot.run({},settings,selected,input,gate);expect(result.kind=='ready' and State.none(result.metadata.before))
 none.book.chapterIdx=0;none.book.summary=''
 expect(Snapshot.run({},settings,selected,input,gate).kind=='ready','cross-channel absent metadata flags wrongly required identical')
-none.book.readingTime=1;expect(Snapshot.run({},settings,selected,input,gate).kind=='unavailable','unproven nonzero-time initialization')
+for _i,key in ipairs({'readingTime','recordReadingTime','ttsTime'}) do
+    none.book[key]=1
+    expect(Snapshot.run({},settings,selected,input,gate).kind=='initial_time_unverified','unproven nonzero-time initialization was not identified')
+    none.book[key]=0
+end
 none.book.readingTime=0;none.book.chapterUid=2;none.book.summary='now located'
 expect(Snapshot.run({},settings,selected,input,gate).kind=='changed','initial intent overwrote a new real point')
 Auth.new=original

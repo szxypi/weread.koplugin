@@ -681,6 +681,17 @@ test('first-sync authority is granted only after ACK readback and local save',fu
     eq(f.values.books['41'].last_remote_position.summary,nil,'summary leaked to checkpoint')
 end)
 
+test('first sync explains unsupported prior reading time and preserves the local position',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize()
+    f.prepared(nil,'source_initial_time_unverified')
+    eq(f.notifications[#f.notifications].code,'upload_failed','missing first-sync failure notice')
+    eq(f.notifications[#f.notifications].data.error,'source_initial_time_unverified','specific restriction was lost')
+    eq(f.sync.verified,false,'unsupported state granted sync authority')
+    eq(f.sync.interval.task,nil,'unsupported state armed automatic sync')
+    eq(#f.uploads,0,'unsupported state used the Web sender')
+    eq(f.values.books['41'].pending_upload_position.source_position.chapter_offset,150,'local position was lost')
+end)
+
 test('first-sync unknown result stays unverified and is not resent on close',function()
     local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
     f.complete(true,false,{acknowledged=false,report_attempted=true,error_kind='unconfirmed',error='upload_readback_unconfirmed'})

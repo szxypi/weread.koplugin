@@ -64,6 +64,7 @@ local zh = {
     ["Approximate cloud position opened. Sync again to compare positions."] = "已尝试打开云端位置。再次同步可比较阅读进度。",
     ["Sync current position"] = "同步当前阅读位置",
     ["WeRead has no chapter position for \"%1\" yet. Sync the current KOReader position to begin cloud progress? Later automatic syncing starts only after this position is confirmed."] = "微信读书尚无《%1》的章节位置。是否将当前 KOReader 阅读位置同步到云端？位置确认成功后，才会开启后续自动同步。",
+    ["WeRead has recorded reading time but has no chapter position for this book. First-time sync is not available for this state yet. Your local position is kept; nothing was uploaded."] = "微信读书已记录本书的阅读时长，但尚无章节位置，暂不支持此状态下的首次同步。本机阅读位置已保留，未上传任何进度。",
     ["WeRead has no chapter position for “%1”. Archiving keeps the old request result and your local position; it does not resend or undo anything. A delayed cloud change may still arrive."] = "微信读书尚无《%1》的章节位置。封存会保留上次请求结果和本机位置，不重发或撤销请求；服务端仍可能稍后变化。",
     ["Cloud reading position opened and sync comparison saved."] = "已打开云端阅读位置，并保存同步核对结果。",
     ["Review previous sync"] = "核对上次同步",

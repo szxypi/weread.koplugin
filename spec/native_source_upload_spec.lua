@@ -99,6 +99,9 @@ for _i,kind in ipairs({'login','changed','unavailable'}) do
     f=fixture();f.snapshot_kind=kind;f:prepare()
     expect(not f.plan and f.starts==0 and not f.upload.job,'failed read preflight reached sender')
 end
+f=fixture();f.snapshot_kind='initial_time_unverified';f:prepare()
+expect(not f.plan and f.starts==0 and f.reason=='source_initial_time_unverified' and not f.upload.job,
+    'nonzero-time first sync did not stop with an actionable reason')
 f=fixture();f.upload:prepare(f.intent,f.callback);f.intent.expected_remote.chapter_offset=999
 f.capture(F.clone(f.candidate),nil,{});f.probe(f.task())
 expect(f.plan,'caller mutated immutable expected cloud point')

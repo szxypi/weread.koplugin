@@ -200,7 +200,9 @@ function M:_snapshot(job)
             or metadata.file_id~=point.file_id or metadata.source_sha256~=point.raw_sha256
             or not P.equal(metadata.desired,candidate) or not Snapshot.matches_expected(metadata.before,intent.expected_remote,intent.initialize_cloud) then
             local reason_=type(result)=='table' and result.kind=='login' and 'source_native_authentication_unavailable'
-                or type(result)=='table' and result.kind=='changed' and 'source_remote_changed' or 'source_currentness_unavailable'
+                or type(result)=='table' and result.kind=='changed' and 'source_remote_changed'
+                or type(result)=='table' and result.kind=='initial_time_unverified' and 'source_initial_time_unverified'
+                or 'source_currentness_unavailable'
             self:_fail(job,reason_);return
         end
         if job.dispatched then job.metadata=copy(metadata);self:_send(job) else self:_plan(job,metadata) end

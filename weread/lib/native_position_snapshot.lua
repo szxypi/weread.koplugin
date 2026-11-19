@@ -36,6 +36,7 @@ function M.run(client,settings,selected,input,gate)
         assert(version~=nil,'native_position/version')
         local snapshot=State.snapshot(auth:_request('position_progress',BASE..'/book/getProgress?bookId='..desired.book_id,nil,selected.credentials),desired.book_id)
         assert(M.matches_expected(snapshot.position,input.expected_remote,input.initialize_cloud),'native_position/remote_changed')
+        assert(not State.none(snapshot.position) or State.zero(snapshot.counts),'native_position/initial_time_unverified')
         local shelf=auth:read_shelf(selected.credentials)
         local metadata={book_id=desired.book_id,before=snapshot.position,desired=desired,counts=snapshot.counts,
             version=version,shelf_sha256=Shelf.state_hash(shelf),source_sha256=input.source.raw_sha256,
@@ -45,6 +46,7 @@ function M.run(client,settings,selected,input,gate)
     auth:cancel()
     if ok then return {kind='ready',metadata=value} end
     if type(value)=='string' and value:find('native_position/remote_changed',1,true) then return {kind='changed'} end
+    if type(value)=='string' and value:find('native_position/initial_time_unverified',1,true) then return {kind='initial_time_unverified'} end
     if require('weread.lib.native_position_task').expired(value) then return {kind='login',authentication_expired=true} end
     return {kind='unavailable'}
 end
