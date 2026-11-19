@@ -5,12 +5,12 @@ import io
 import json
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 
 from cb_fixture_bookmark_trial import Intent,prepare
 from test_cb_fixture_highlight_trial import fixture as source_fixture
 from test_secure_native_session import Backend
-from verify_cb_fixture_bookmark_native import Observer, TrialFailure, main, run_ui
+from verify_cb_fixture_bookmark_native import Observer, TrialFailure, main, run, run_ui
 
 
 def fixture():
@@ -84,6 +84,69 @@ class TestNativeFixture(unittest.TestCase):
                 run_ui(['synthetic'],{},plan,body,baseline,intent,lambda:True,lambda:deepcopy(baseline),armed=False)
         self.assertEqual(caught.exception.stage,dict(result='UNVERIFIED',phase='prepare',failure_line=138))
         self.assertEqual(intent.read(),(None,None))
+
+    def source_case(self,*,save_failure=False,errors=(),invalid=False):
+        from test_verify_cb_fixture_highlight_trial import FakeUpload
+        from verify_cb_reading import CbReadingError
+        sample,baseline,_,_=fixture();sample['baseline']={'chapter':'0','offset':0,'percent':0}
+        sample['chapters']=[{'chapterUid':2,'chapterIdx':2}]
+        grant={'vid':'900000','accessToken':'synthetic'};saved={'vid':'900000','cookies':{'wr_vid':'900000'}}
+        upload=FakeUpload(sample['book_id'],saved['vid'],object());intent=Intent(Backend())
+        errors=list(errors);attempts=[];sleeps=[]
+        class NativeStore:
+            def load(self,_owner):return grant
+        class Source:
+            def __init__(self):
+                self.samples=[];self.phase='catalog'
+                self.last_checks=dict(catalog_unchanged=True,versions_unchanged=True,position_unchanged=True)
+            def set_cookie(self,*_args):pass
+            def verify_account(self):pass
+            def close(self):pass
+            def inspect(self,book):
+                assert book==sample['book_id'];attempts.append(1)
+                if errors:raise CbReadingError(errors.pop(0))
+                self.phase='complete';return dict(deepcopy(sample),source='missing marker') if invalid else deepcopy(sample)
+        def uploader(_probe,_journal,_grant,_check,source,*,apply,cleanup_gate):
+            assert apply;upload.imported=True
+            try:verified=source(sample['book_id']) is True
+            except Exception:verified=False
+            upload.cleaned=cleanup_gate(upload,upload.receipt,upload.state['plan'],sample['book_id'])
+            if upload.cleaned:upload.imported=False
+            return dict(result='EPUB_IMPORT_AND_SOURCE_VERIFIED' if verified else 'EPUB_IMPORTED_SOURCE_UNVERIFIED',
+                        phase='restored' if upload.cleaned else 'imported')
+        ui=Mock();observer=Mock()
+        with patch('verify_cb_fixture_bookmark_native.save_refreshed_web_session',
+                   side_effect=RuntimeError('private synthetic detail') if save_failure else None,return_value=False):
+            report=run(saved,None,NativeStore(),grant,upload,intent,['synthetic'],apply=True,uploader=uploader,
+                       upload_factory=lambda *_:None,observer_factory=observer,source_factory=Source,ui_runner=ui,source_sleep=sleeps.append)
+        return report,upload,intent,observer,ui,attempts,sleeps
+
+    def test_failed_session_save_never_publishes_source_or_launches_native(self):
+        report,upload,intent,observer,ui,attempts,sleeps=self.source_case(save_failure=True)
+        self.assertEqual(report['source_failure'],'other');self.assertEqual(report['source_phase'],'complete')
+        self.assertEqual(report['native_writes_allocated'],0);self.assertTrue(upload.cleaned)
+        self.assertNotIn('private synthetic detail',json.dumps(report));observer.assert_not_called();ui.assert_not_called()
+        self.assertEqual(intent.read(),(None,None));self.assertEqual(len(attempts),1);self.assertEqual(sleeps,[])
+
+    def test_invalid_marker_reports_only_fixed_booleans_and_does_not_dispatch(self):
+        report,upload,intent,observer,ui,attempts,sleeps=self.source_case(invalid=True)
+        self.assertEqual(report['source_failure'],'invalid_sample')
+        self.assertEqual(report['source_checks'],dict(identity=True,format=True,marker=False,baseline=True))
+        self.assertEqual(report['native_writes_allocated'],0);self.assertTrue(upload.cleaned)
+        observer.assert_not_called();ui.assert_not_called();self.assertEqual(intent.read(),(None,None))
+        self.assertEqual(len(attempts),1);self.assertEqual(sleeps,[])
+
+    def test_changed_source_stops_without_read_retry_or_native_dispatch(self):
+        report,upload,intent,observer,ui,attempts,sleeps=self.source_case(errors=['cb_read_baseline_changed'])
+        self.assertEqual(report['source_failure'],'cb_read_baseline_changed');self.assertEqual(report['source_phase'],'catalog')
+        self.assertTrue(upload.cleaned);observer.assert_not_called();ui.assert_not_called()
+        self.assertEqual(intent.read(),(None,None));self.assertEqual(len(attempts),1);self.assertEqual(sleeps,[])
+
+    def test_empty_catalog_read_retries_are_bounded_and_never_dispatch(self):
+        report,upload,intent,observer,ui,attempts,sleeps=self.source_case(errors=['cb_catalog_empty']*3)
+        self.assertEqual(report['source_failure'],'cb_catalog_empty');self.assertEqual(report['source_attempts'],3)
+        self.assertTrue(upload.cleaned);observer.assert_not_called();ui.assert_not_called()
+        self.assertEqual(intent.read(),(None,None));self.assertEqual(len(attempts),3);self.assertEqual(sleeps,[2,4])
 
 
 if __name__=='__main__':unittest.main()

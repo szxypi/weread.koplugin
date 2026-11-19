@@ -129,19 +129,26 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         current['sample']=None
         for attempt in range(3):
             web=source_factory();web.vid=current['saved']['vid'];web.allowed={target}
+            report['source_attempts']=attempt+1
             try:
                 for key,value in current['saved']['cookies'].items():web.set_cookie(key,value)
                 web.verify_account();sample=web.inspect(target);web.verify_account()
-                if (sample.get('book_id')!=target or sample.get('source_format')!=source_format or source_marker not in sample.get('source','')
-                        or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
-                        or not all(value is True for value in web.last_checks.values())):
+                checks=web.last_checks
+                source_checks=dict(identity=isinstance(sample,dict) and sample.get('book_id')==target,
+                    format=isinstance(sample,dict) and sample.get('source_format')==source_format,
+                    marker=isinstance(sample,dict) and isinstance(sample.get('source'),str) and source_marker in sample['source'],
+                    baseline=isinstance(checks,dict) and set(checks)=={'catalog_unchanged','versions_unchanged','position_unchanged'}
+                        and all(value is True for value in checks.values()))
+                if not all(source_checks.values()):
+                    report['source_checks']=source_checks
                     report['source_failure']='invalid_sample';return False
                 report.pop('source_failure',None)
-                current['sample']=sample
+                report.pop('source_checks',None)
                 if save_refreshed_web_session(session,current['saved'],web):
                     old=current['saved'];current['saved']=session.load()
                     if old['vid']!=current['saved']['vid']:raise ValueError('cb_native_bookmark/owner')
                     old.clear()
+                current['sample']=sample
                 return True
             except (CbReadingError,CbMetadataError) as error:
                 known={'cb_catalog_empty','cb_catalog_invalid','cb_catalog_identity','cb_resume_chapter_missing',
@@ -151,7 +158,12 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
                 if str(error) not in ('cb_catalog_empty','cb_catalog_invalid') or attempt==2:raise
             except Exception:
                 report['source_failure']='other';raise
-            finally:web.samples.clear();web.close()
+            finally:
+                phase=getattr(web,'phase',None)
+                if report.get('source_failure') and phase in ('init','catalog','source','compare','anchor','complete'):
+                    report['source_phase']=phase
+                elif not report.get('source_failure'):report.pop('source_phase',None)
+                web.samples.clear();web.close()
             source_sleep(2*(attempt+1))
         return False
     def trial(upload,receipt,_upload_plan,target):
