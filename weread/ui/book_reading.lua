@@ -107,6 +107,8 @@ function M.cancel(host)
     if not context then return end
     host.book_reading_context = nil
     if host.book_reading_worker then host.book_reading_worker:cancel() end
+    if context.web_request then require('weread.ui.web_renewal').cancel(host,context.web_request) end
+    if context.recovery_schedule and UIManager.unschedule then UIManager:unschedule(context.recovery_schedule) end
     if context.complete then host.downloader:cancelRequest(context.complete, "reading_cancelled") end
     close_busy(host, context)
 end
@@ -149,22 +151,28 @@ function M.start(host, book, view, origin)
     local access = Source.web_access(host.settings)
     if not access then return false end
     M.cancel(host)
+    local document=host.ui and host.ui.document
     local context = { epoch = host.discovery_epoch or 0, view = view,
         scope = host.settings:get_auth_scope(), account = host.library_db and host.library_db:accountKey(),
-        fingerprint = WorkerSettings.fingerprint(host.settings) }
+        fingerprint = WorkerSettings.fingerprint(host.settings), api_key=host.settings:get('api_key',''),
+        document=document, file=document and document.file, session=host._reader_session_gen }
     host.book_reading_context = context
     local function current()
+        local now_document=host.ui and host.ui.document
         return host.book_reading_context == context and (host.discovery_epoch or 0) == context.epoch
             and (not view or host._book_detail_view == view)
             and (not origin or origin.current())
             and (not host.library_db or host.library_db:accountKey() == context.account)
             and host.settings:auth_scope_matches(context.scope)
+            and host.settings:get('api_key','')==context.api_key
+            and now_document==context.document and (not now_document or now_document.file==context.file)
+            and host._reader_session_gen==context.session
     end
-    local function fail()
+    local function fail(message)
         if host.book_reading_context ~= context then return end
         if not current() then M.cancel(host); return end
         M.cancel(host)
-        host:showInfo(_("Could not prepare this book for reading. Check your connection and login, then try again."))
+        host:showInfo(_(message or "Could not prepare this book for reading. Check your connection and login, then try again."))
     end
     host:showBusy(_("Preparing book for reading..."), function() M.cancel(host) end)
     context.busy = host.busy_message
@@ -176,54 +184,111 @@ function M.start(host, book, view, origin)
         if not ok then fail(); return false end
         host.book_reading_worker = worker
     end
-    local ok, started = pcall(host.book_reading_worker.start, host.book_reading_worker, function()
-        local auth_result = WorkerSettings.capture(host.settings)
-        local copy = { book_id = id, title = book.title, author = book.author, reader_url = book.reader_url }
-        local state = Content.ensure_reader_state(host.client, copy)
-        local progress, chapter = state.progress or {}, state.current_chapter or {}
-        local chapters,version=Content.fetch_catalog(host.client,copy)
-        return { book_id = id, chapters = M.catalog(chapters), source_version=version or 0, auth = auth_result(),
-            remote = { chapter_uid = progress.chapterUid or chapter.chapterUid,
-                chapter_idx = progress.chapterIdx or chapter.chapterIdx } }
-    end, function(result)
-        -- Old worker callbacks must never cancel a replacement request.
-        if host.book_reading_context ~= context then return end
-        if not current() or WorkerSettings.fingerprint(host.settings) ~= context.fingerprint then M.cancel(host); return end
-        local chapters = type(result) == "table" and result.book_id == id and M.catalog(result.chapters)
-        if not chapters or type(result.source_version)~='number' or result.source_version%1~=0
-            or result.source_version<0 or result.source_version>2147483647 then fail();return end
-        if result.auth and not WorkerSettings.merge(host.settings, context.fingerprint, result.auth) then fail(); return end
-        local latest = host.settings:get_book(id) or book
-        local target = M.choose(chapters, latest, result.remote, context.account)
-        latest.chapters = chapters
-        local saved = pcall(function()
-            if host.library_db and not host.library_db:putChapters(id, chapters) then error("catalog_save_failed", 0) end
-            if not Content.save_catalog_cache(host.client, host.settings, latest, chapters) then error("catalog_save_failed", 0) end
-        end)
-        if not saved then fail(); return end
-        close_busy(host, context)
-        local download_book
-        context.complete = function(success, path)
-            if host.book_reading_context ~= context then return end
-            if not success or not current() then M.cancel(host); return end
-            -- The downloader releases its job before the native reader opens.
-            UIManager:scheduleIn(0.1, function()
-                if host.book_reading_context ~= context then return end
-                if not current() then M.cancel(host); return end
-                host.book_reading_context = nil
-                host:openFile(path,nil,download_book)
-            end)
+    local launch, recover
+    recover=function()
+        context.recovery_schedule=nil
+        if not current() then M.cancel(host);return end
+        if WorkerSettings.fingerprint(host.settings)~=context.fingerprint then M.cancel(host);return end
+        if context.recovery_attempted then
+            fail('WeRead login expired. Please sign in again and retry.');return
         end
-        -- Bind only this new download to the catalogue just read. Existing
-        -- cached files/ledger identities are never relabelled from metadata.
-        download_book={};for key,value in pairs(latest) do download_book[key]=value end
-        download_book.bookVersion=result.source_version
-        local launched, accepted = pcall(host.downloader.start, host.downloader, download_book, { target }, "chapter", {
-            single_chapter = true, offer_read = false, silent_completion = true, on_complete = context.complete,
-        })
-        if not launched then fail() elseif not accepted then M.cancel(host) end
-    end)
-    if not ok or not started then fail(); return false end
+        context.recovery_attempted,context.renewing=true,true
+        if not context.busy then
+            host:showBusy(_('Renewing WeRead login…\nTap or press a key to cancel.'),function() M.cancel(host) end)
+            context.busy=host.busy_message
+        end
+        local Renewal=require('weread.ui.web_renewal')
+        local called,started,request=pcall(Renewal.run,host,{is_current=function()
+            return current() and (not host.isNetworkOnline or host:isNetworkOnline())
+        end},function(ok,receipt)
+            if host.book_reading_context~=context then return end
+            context.web_request,context.renewing=nil,false
+            if not current() or receipt=='session_changed' then M.cancel(host);return end
+            if not ok then M.cancel(host);host:showInfo(Renewal.error_text(receipt));return end
+            local verified,fresh=pcall(require('weread.lib.web_authorization').capture,host.settings)
+            if not verified or type(receipt)~='table' or type(receipt.revision)~='string'
+                or #receipt.revision~=64 or not receipt.revision:match('^[0-9a-f]+$')
+                or type(fresh)~='table' or fresh.revision~=receipt.revision or type(fresh.scope)~='table' or fresh.scope.vid~=context.scope.vid or fresh.scope.epoch~=context.scope.epoch
+                or not Source.web_access(host.settings) then M.cancel(host);return end
+            context.fingerprint=WorkerSettings.fingerprint(host.settings)
+            launch()
+        end)
+        if host.book_reading_context==context and context.renewing then
+            if called and started then context.web_request=request
+            else context.renewing=false;fail() end
+        elseif called and started and request then Renewal.cancel(host,request) end
+    end
+    launch=function()
+        context.generation=(context.generation or 0)+1
+        local generation=context.generation
+        local ok,started=pcall(host.book_reading_worker.start,host.book_reading_worker,function()
+            local good,value=pcall(function()
+                local auth_result=WorkerSettings.capture(host.settings)
+                local copy={book_id=id,title=book.title,author=book.author,reader_url=book.reader_url}
+                local client=require('weread.lib.book_reading_client').wrap(host.client,copy)
+                local state=Content.ensure_reader_state(client,copy)
+                local progress,chapter=state.progress or {},state.current_chapter or {}
+                local chapters,version=Content.fetch_catalog(client,copy)
+                return {book_id=id,chapters=M.catalog(chapters),source_version=version or 0,auth=auth_result(),
+                    remote={chapter_uid=progress.chapterUid or chapter.chapterUid,chapter_idx=progress.chapterIdx or chapter.chapterIdx}}
+            end)
+            if good then return value end
+            return {error=value=='book_reading/web_expired' and 'web_expired'
+                or value=='download_read/rate_limited' and 'rate_limited' or 'unavailable'}
+        end,function(result)
+            if host.book_reading_context~=context or generation~=context.generation then return end
+            if not current() or WorkerSettings.fingerprint(host.settings)~=context.fingerprint then M.cancel(host);return end
+            if type(result)=='table' and result.error=='web_expired' then recover();return end
+            if type(result)=='table' and result.error=='rate_limited' then
+                fail('WeRead is limiting requests. Download stopped. Please try again later.');return
+            end
+            local chapters=type(result)=='table' and result.book_id==id and M.catalog(result.chapters)
+            if not chapters or type(result.source_version)~='number' or result.source_version%1~=0
+                or result.source_version<0 or result.source_version>2147483647 then fail();return end
+            if result.auth and not WorkerSettings.merge(host.settings,context.fingerprint,result.auth) then fail();return end
+            context.fingerprint=WorkerSettings.fingerprint(host.settings)
+            local latest=host.settings:get_book(id) or book
+            local target=M.choose(chapters,latest,result.remote,context.account)
+            latest.chapters=chapters
+            local saved=pcall(function()
+                if host.library_db and not host.library_db:putChapters(id,chapters) then error('catalog_save_failed',0) end
+                if not Content.save_catalog_cache(host.client,host.settings,latest,chapters) then error('catalog_save_failed',0) end
+            end)
+            if not saved then fail();return end
+            close_busy(host,context)
+            local download_book
+            context.complete=function(success,path)
+                if host.book_reading_context~=context then return end
+                if not current() or WorkerSettings.fingerprint(host.settings)~=context.fingerprint then M.cancel(host);return end
+                if not success then
+                    if path=='web_expired' then
+                        context.recovery_schedule=function() if host.book_reading_context==context then recover() end end
+                        UIManager:scheduleIn(0.1,context.recovery_schedule)
+                    else M.cancel(host) end
+                    return
+                end
+                UIManager:scheduleIn(0.1,function()
+                    if host.book_reading_context~=context then return end
+                    if not current() then M.cancel(host);return end
+                    host.book_reading_context=nil;host:openFile(path,nil,download_book)
+                end)
+            end
+            download_book={};for key,value in pairs(latest) do download_book[key]=value end
+            download_book.bookVersion=result.source_version
+            local launched,accepted=pcall(host.downloader.start,host.downloader,download_book,{target},'chapter',{
+                single_chapter=true,offer_read=false,silent_completion=true,on_complete=context.complete,reading_auth_recovery=true,
+                on_reading_auth_updated=function(before,after)
+                    if current() and context.fingerprint==before and Source.web_access(host.settings) then
+                        context.fingerprint=after
+                    end
+                end,
+            })
+            if not launched then fail() elseif not accepted then M.cancel(host) end
+        end)
+        if not ok or not started then fail();return false end
+        return true
+    end
+    if not launch() then return false end
     return true
 end
 

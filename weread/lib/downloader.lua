@@ -490,7 +490,26 @@ end
 -- KOReader's pipe transport and cancellation/reaping.
 function Downloader:_runInterruptible(dl, task)
     if dl.cancelled then return nil end
-    if not dl.trapper then return task(self.client) end
+    local function scoped_client()
+        if dl.reading_auth_recovery then
+            return require('weread.lib.book_reading_client').wrap(self.client,dl.book,dl.chapters[1])
+        end
+        return self.client
+    end
+    local function updated(before)
+        if dl.reading_auth_recovery and type(dl.on_reading_auth_updated)=='function' then
+            local after=WorkerSettings.fingerprint(self.settings)
+            if after~=before then pcall(dl.on_reading_auth_updated,before,after) end
+        end
+    end
+    if not dl.trapper then
+        if not dl.reading_auth_recovery then return task(self.client) end
+        local before=WorkerSettings.fingerprint(self.settings)
+        local ok,value=pcall(task,scoped_client())
+        updated(before)
+        if not ok then error(value,0) end
+        return value
+    end
     local dialog = dl.progress_dialog
     local fingerprint = WorkerSettings.fingerprint(self.settings)
     local completed, result = dl.trapper:dismissableRunInSubprocess(function()
@@ -498,8 +517,9 @@ function Downloader:_runInterruptible(dl, task)
         -- Match the independently verified read cadence for batches. The
         -- wrapper and its waits exist only in this disposable child, so the
         -- UI remains responsive and cancellation can terminate a waiting read.
+        local base = scoped_client()
         local client = (tonumber(dl.total) or 0) > 1
-            and DownloadReadClient.wrap(self.client) or self.client
+            and DownloadReadClient.wrap(base) or base
         local ok, value = xpcall(function() return task(client) end, debug.traceback)
         return { ok = ok, value = value, auth = auth_result() }
     end, dialog)
@@ -507,7 +527,10 @@ function Downloader:_runInterruptible(dl, task)
     if dl.cancelled then return nil end
     if not completed then error("could not start download worker") end
     if not result then error("download worker returned no result") end
-    if result.auth then WorkerSettings.merge(self.settings, fingerprint, result.auth) end
+    if result.auth and (result.ok or not dl.reading_auth_recovery) then
+        local merged=WorkerSettings.merge(self.settings,fingerprint,result.auth)
+        if merged then updated(fingerprint) end
+    end
     if not result.ok then error(result.value, 0) end
     return result.value
 end
@@ -654,6 +677,8 @@ function Downloader:start(book, chapters, suffix, options)
         on_complete = options.on_complete,
         started_at = time.now(),
         auth_fingerprint = WorkerSettings.fingerprint(self.settings),
+        reading_auth_recovery = options.reading_auth_recovery == true and options.single_chapter == true,
+        on_reading_auth_updated = options.on_reading_auth_updated,
     }
     self._active_job = dl
 
@@ -731,12 +756,14 @@ function Downloader:start(book, chapters, suffix, options)
                 dl.progress_dialog:close()
                 dl.progress_dialog = nil
             end
+            local expired = dl.reading_auth_recovery and type(err_init)=='string'
+                and (err_init=='book_reading/web_expired' or err_init:match('^book_reading/web_expired[\r\n]'))
             if type(options.on_complete) == "function" then
-                pcall(options.on_complete, false, rate_limited(err_init) and "rate_limited" or err_init)
+                pcall(options.on_complete, false, expired and "web_expired" or rate_limited(err_init) and "rate_limited" or err_init)
             end
             dl.completion_notified = true
             self:_finishJob(dl)
-            if not dl.prefetch then
+            if not dl.prefetch and not expired then
                 if rate_limited(err_init) then
                     self.show_info(_("WeRead is limiting requests. Download stopped. Please try again later."))
                 else
@@ -851,6 +878,12 @@ function Downloader:_rateLimit(dl)
 end
 
 function Downloader:_retryChapterSource(dl, err)
+    if dl.reading_auth_recovery and type(err)=='string' and
+        (err=='book_reading/web_expired' or err:match('^book_reading/web_expired[\r\n]')) then
+        self:_releaseStandby(dl);self:_cleanupWorkspace(dl)
+        if dl.progress_dialog then dl.progress_dialog:close();dl.progress_dialog=nil end
+        self:_notifyCompletion(dl,false,'web_expired');self:_finishJob(dl);return false
+    end
     if rate_limited(err) then self:_rateLimit(dl);return false end
     local chapter = dl.chapters[dl.index]
     local uid = tostring(chapter and chapter.chapterUid or dl.index)

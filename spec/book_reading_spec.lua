@@ -255,4 +255,111 @@ for _i,value in ipairs({true,'7',-1,2147483648,1.5}) do
 end
 source_version=0;host,state=fixture();Reading.start(host,book);state.job.complete(state.job.task())
 expect(state.download.book.bookVersion==0,'missing catalogue version fell back to display metadata')
+-- A definite 401 in preparation or chapter download gets one scoped renewal.
+local old_renewal,old_auth=package.loaded['weread.ui.web_renewal'],package.loaded['weread.lib.web_authorization']
+local renew_calls,renew_cancel,pending,active_state=0,0,nil,nil
+local cookies
+local fake_renewal={}
+function fake_renewal.run(_host,options,callback)
+    renew_calls=renew_calls+1;pending={guard=options.is_current,callback=callback};return true,pending
+end
+function fake_renewal.cancel(_host,request)
+    if pending==request then renew_cancel=renew_cancel+1;pending=nil end
+end
+function fake_renewal.error_text() return 'renewal failed' end
+package.loaded['weread.ui.web_renewal']=fake_renewal
+package.loaded['weread.lib.web_authorization']={capture=function()
+    return {revision=string.rep('a',64),scope={vid='900000',epoch=active_state.epoch}}
+end}
+local function renewed(credentials)
+    local job=assert(pending);pending=nil
+    credentials.wr_skey='renewed-synthetic-access'
+    job.callback(true,{revision=string.rep('a',64)})
+end
+host,state,cookies=fixture();active_state=state;renew_calls=0
+expect(Reading.start(host,book),'expired preparation did not start')
+state.job.complete({error='web_expired'})
+expect(renew_calls==1 and pending and pending.guard() and state.downloads==0,'401 did not start a single scoped renewal')
+renewed(cookies)
+expect(state.job and state.downloads==0,'renewal did not restart preparation')
+state.job.complete(state.job.task())
+expect(state.downloads==1 and state.download.options.reading_auth_recovery,'renewed preparation did not enter guarded chapter download')
+state.download.options.on_complete(true,'/cache/renewed.epub');tasks[1]()
+expect(state.path=='/cache/renewed.epub','renewed reading did not open')
+
+host,state,cookies=fixture();active_state=state;renew_calls=0
+Reading.start(host,book);state.job.complete({error='web_expired'});renewed(cookies)
+state.job.complete({error='web_expired'})
+expect(renew_calls==1 and not host.book_reading_context and state.errors==1 and state.downloads==0,
+    'second preparation 401 retried or opened a book')
+
+host,state,cookies=fixture();active_state=state;renew_calls=0
+Reading.start(host,book);state.job.complete(state.job.task())
+local before_auth=require('weread.lib.worker_settings').fingerprint(host.settings)
+cookies.wr_skey='successful-reader-cookie'
+local after_auth=require('weread.lib.worker_settings').fingerprint(host.settings)
+state.download.options.on_reading_auth_updated(before_auth,after_auth)
+state.download.options.on_complete(false,'web_expired');tasks[1]()
+expect(renew_calls==1 and pending,'verified successful reader cookie update blocked recovery')
+Reading.cancel(host)
+
+host,state,cookies=fixture();active_state=state;renew_calls=0
+Reading.start(host,book);state.job.complete(state.job.task())
+cookies.wr_skey='changed-outside'
+state.download.options.on_complete(false,'web_expired')
+expect(renew_calls==0 and #tasks==0 and not host.book_reading_context,
+    'unrelated credential change retained a stale download')
+
+host,state,cookies=fixture();active_state=state;renew_calls=0
+Reading.start(host,book);state.job.complete(state.job.task())
+local first_complete=state.download.options.on_complete
+first_complete(false,'web_expired')
+expect(renew_calls==0 and #tasks==1,'chapter 401 renewed before downloader released its job')
+tasks[1]();expect(renew_calls==1 and pending and host.busy_message,'chapter 401 did not expose cancellable renewal')
+renewed(cookies);state.job.complete(state.job.task())
+expect(state.downloads==2 and state.download.chapter.chapterUid=='1','chapter recovery did not recheck and download the selected chapter')
+state.download.options.on_complete(false,'web_expired');tasks[#tasks]()
+expect(renew_calls==1 and not host.book_reading_context and state.errors==1,'second chapter 401 was retried')
+
+for _,change in ipairs({'cancel','view','account','session','navigation','document'}) do
+    host,state=fixture();active_state=state;pending=nil;renew_calls=0;renew_cancel=0
+    local view={};host._book_detail_view=view;host.ui={document={file='/original'}}
+    Reading.start(host,book,view);state.job.complete({error='web_expired'});local job=assert(pending)
+    if change=='cancel' then state.cancel()
+    elseif change=='view' then host._book_detail_view={}
+    elseif change=='account' then state.owner='other'
+    elseif change=='session' then state.epoch=state.epoch+1
+    elseif change=='navigation' then host.discovery_epoch=host.discovery_epoch+1
+    else host.ui.document={file='/other'} end
+    if change=='cancel' then expect(renew_cancel==1 and not host.book_reading_context,'cancel did not stop owned renewal')
+    else
+        expect(not job.guard(),'stale renewal guard stayed active: '..change)
+        job.callback(false,'session_changed')
+        expect(not host.book_reading_context and state.downloads==0,'stale renewal resumed reading: '..change)
+    end
+end
+host,state,cookies=fixture();active_state=state;renew_calls=0
+Reading.start(host,book);cookies.wr_skey='changed-outside'
+state.job.complete({error='web_expired'})
+expect(renew_calls==0 and not host.book_reading_context and state.downloads==0,
+    'a stale credential snapshot triggered renewal')
+
+host,state=fixture();active_state=state;renew_calls=0
+Reading.start(host,book);state.job.complete({error='web_expired'})
+local wrong=assert(pending);pending=nil;wrong.callback(true,{revision='invalid'})
+expect(renew_calls==1 and not host.book_reading_context and state.downloads==0,
+    'unverified renewal receipt resumed reading')
+
+host,state=fixture();active_state=state;renew_calls=0
+Reading.start(host,book);state.job.complete(state.job.task())
+state.download.options.on_complete(false,'web_expired');local delayed=tasks[1]
+Reading.cancel(host);delayed()
+expect(renew_calls==0 and state.downloads==1 and not host.book_reading_context,
+    'cancelled download started a late renewal')
+
+host,state=fixture();active_state=state;renew_calls=0
+Reading.start(host,book);state.job.complete({error='unavailable'})
+expect(renew_calls==0 and state.errors==1 and not host.book_reading_context,'non-401 failure attempted renewal')
+package.loaded['weread.ui.web_renewal'],package.loaded['weread.lib.web_authorization']=old_renewal,old_auth
+
 print(("book_reading_spec: %d checks"):format(checks))

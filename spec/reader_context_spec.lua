@@ -109,6 +109,23 @@ ok,err=pcall(Content.fetch_chapter_shard,limited_client,{}, {book_id='900001',ps
 expect(not ok and err=='download_read/rate_limited','chapter rate limit was not safely propagated')
 ok,err=pcall(Content.fetch_chapter_css,limited_client,{}, {book_id='900001',psvts='synthetic'}, {chapterUid=2})
 expect(not ok and err=='download_read/rate_limited','style rate limit was incorrectly ignored')
+client.book_reading_auth_classification=true
+client.get_text=function() error('book_reading/web_expired',0) end
+ok,err=pcall(Content.ensure_reader_state,client,book)
+expect(not ok and err=='book_reading/web_expired','explicit reader 401 was hidden')
+client.book_reading_auth_classification=nil
+ok,err=pcall(Content.ensure_reader_state,client,book)
+expect(not ok and err=='Could not load this book’s reading page. Check your connection and login, then try again.',
+    'reader 401 classification escaped its explicit scope')
+client.book_reading_auth_classification=true
+client.post_json=function() error('book_reading/web_expired',0) end
+ok,err=pcall(Content.fetch_catalog,client,book)
+expect(not ok and err=='book_reading/web_expired','explicit catalog 401 was hidden')
+local expired_css={book_reading_auth_classification=true,
+    request=function() error('book_reading/web_expired',0) end,json_encode=function() return '{}' end}
+ok,err=pcall(Content.fetch_chapter_css,expired_css,{}, {book_id='900001',psvts='synthetic'}, {chapterUid=2})
+expect(not ok and err=='book_reading/web_expired','style request 401 was incorrectly ignored')
+client.book_reading_auth_classification=nil
 local old_chapters={{chapterUid=7}}
 book.chapters=old_chapters
 client.post_json=function() error('private catalog body') end

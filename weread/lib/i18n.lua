@@ -1217,6 +1217,7 @@ local zh = {
     ["Download %1 selected chapter(s)?"] = "下载选中的 %1 个章节？",
     ["A book with many chapters may take a long time. Prefer single- or multi-chapter downloads when possible."] = "全书下载耗时长，建议使用章节缓存或预下载。",
     ["WeRead is limiting requests. Download paused; completed chapters are kept. Try Download full book again later."] = "微信读书暂时限制请求，下载已暂停，已完成的章节已保留。请稍后再次选择下载全书继续。",
+    ["WeRead login expired. Please sign in again and retry."] = "微信读书登录已过期，请重新登录后重试。",
     ["WeRead is limiting requests. Download stopped. Please try again later."] = "微信读书暂时限制请求，下载已停止，请稍后重试。",
     ["Downloading underlines and thoughts may significantly increase download time."] = "下载划线和想法会显著延长下载时间。",
     ["Download text only"] = "仅下载正文",

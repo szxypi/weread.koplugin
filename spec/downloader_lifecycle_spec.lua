@@ -211,6 +211,16 @@ for _, resumable in ipairs({true, false}) do
 end
 Content.fetch_single_chapter_source=original_fetch
 
+Content.fetch_single_chapter_source=function() error('book_reading/web_expired',0) end
+local auth_count,auth_notice=#scheduled,0
+local auth_limited={book={book_id='book'},chapters={{chapterUid=30}},index=1,total=1,
+    failed={},selected={},state={},reading_auth_recovery=true,standby_guard=true,
+    on_complete=function(ok,reason) auth_notice=auth_notice+1;expect(not ok and reason=='web_expired','wrong download auth result') end}
+downloader._active_job=auth_limited;downloader:_beginStandby();downloader:_step(auth_limited)
+expect(auth_notice==1 and #scheduled==auth_count and downloader._active_job==nil and downloader._standby_ref==0,
+    'expired single-chapter download retried or leaked its job')
+Content.fetch_single_chapter_source=original_fetch
+
 -- Preparation must already be painted while DNS/session/cache work blocks.
 local pending_init, painted, reader_calls = nil, false, 0
 downloader.refresh_ui = function()
@@ -459,4 +469,22 @@ cache_guarded:cancelPrefetch('synthetic_cancel')
 expect(lease_releases==1,'prefetch cancellation released the gate before completion')
 table.remove(scheduled,1)()
 expect(lease_releases==2 and not cache_guarded._active_job,'cancelled scheduled prefetch leaked its gate')
+-- Failed scoped reads cannot persist child cookie rotations; successful reads
+-- report the accepted change to the owner for subsequent recovery checks.
+local auth_values={cookies={wr_vid='900000',wr_skey='original'}}
+local auth_settings={get=function(_,key,default) return auth_values[key] or default end,
+    update_auth=function(_,fields) auth_values.cookies=fields.cookies end}
+local auth_downloader=Downloader:new{settings=auth_settings,client={}}
+local child_result,changed
+local auth_job={reading_auth_recovery=true,book={book_id='900001'},chapters={{chapterUid=1}},
+    trapper={dismissableRunInSubprocess=function() return true,child_result end},
+    on_reading_auth_updated=function(before,after) changed={before,after} end}
+child_result={ok=false,value='book_reading/web_expired',auth={cookies={wr_vid='900000',wr_skey='untrusted'}}}
+local ok_auth,reason_auth=pcall(auth_downloader._runInterruptible,auth_downloader,auth_job,function() end)
+expect(not ok_auth and reason_auth=='book_reading/web_expired' and auth_values.cookies.wr_skey=='original' and not changed,
+    'failed worker overwrote login credentials')
+child_result={ok=true,value='done',auth={cookies={wr_vid='900000',wr_skey='verified-read'}}}
+local auth_value=auth_downloader:_runInterruptible(auth_job,function() end)
+expect(auth_value=='done' and auth_values.cookies.wr_skey=='verified-read' and changed and changed[1]~=changed[2],
+    'successful worker cookie rotation did not update the owner')
 print(("downloader_lifecycle_spec: %d checks"):format(checks))

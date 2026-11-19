@@ -238,6 +238,11 @@ shot("reading-bookstore")
 local store_book
 for _, book in ipairs(plugin.discovery_state.books) do if tostring(book.bookId or book.book_id) == "900001" then store_book = book end end
 assert(store_book, "bookstore did not return target")
+local auth_case,auth_reset
+if os.getenv('WEREAD_TEST_READING_AUTH_RECOVERY') then
+    local run_auth=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'book_reading_renewal_case.lua')
+    auth_case,auth_reset=run_auth(plugin,os.getenv('WEREAD_TEST_READING_AUTH_RECOVERY'))
+end
 if os.getenv('WEREAD_TEST_QUICK_READ')=='1' then
     local view=plugin.shelf_view
     local cell
@@ -259,8 +264,15 @@ else
     pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
     press(plugin._book_detail_view, "▤ Read")
 end
+local auth_mode=os.getenv('WEREAD_TEST_READING_AUTH_RECOVERY')
+if auth_mode=='repeat401' or auth_mode=='forbidden' or auth_mode=='limited' then
+    pump(function() return not plugin.book_reading_context end)
+    assert(not Reader.instance and plugin._book_detail_view,'persistent 401 opened a reader or lost the book')
+    auth_reset();clean_popups(plugin._book_detail_view);press(plugin._book_detail_view,'▤ Read')
+end
 pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document:getPageCount() > 1 end)
 local reader = Reader.instance
+if auth_case then auth_case(reader) end
 assert(reader.document.file:match("%.epub$"), "Read did not open the native EPUB engine")
 assert(not plugin.book_reading_context and not plugin._book_detail_view and not plugin.shelf_view,
     "plugin views survived native handoff")

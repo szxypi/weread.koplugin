@@ -1629,7 +1629,10 @@ function Content.ensure_reader_state(client, book)
     local loaded, reader_html = pcall(client.get_text, client, reader_url, { referer = reader_url,
         sensitive = true, diagnostic_api = "reader_context", rate_limit_signal = true })
     if not loaded then
-        if reader_html == "download_read/rate_limited" then error(reader_html, 0) end
+        if reader_html == "download_read/rate_limited"
+            or client.book_reading_auth_classification and reader_html == "book_reading/web_expired" then
+            error(reader_html, 0)
+        end
         reader_context_error(true)
     end
     local valid, state = pcall(ReaderContext.project, book, reader_html, function(encoded)
@@ -1658,6 +1661,7 @@ function Content.fetch_catalog(client, book)
         bookIds = { tostring(book_id) },
     }, { referer = reader_url, sensitive = true, diagnostic_api = "chapter_catalog" })
     if not loaded then
+        if client.book_reading_auth_classification and catalog == "book_reading/web_expired" then error(catalog, 0) end
         error(require("weread.lib.i18n").tr("Could not load this book’s chapter list. Check your connection and login, then try again."), 0)
     end
     local chapters = Content.readable_chapters(Content.normalize_chapters(catalog, book_id))
@@ -1875,7 +1879,8 @@ function Content.fetch_chapter_css(client, settings, book, chapter)
     local ok, css = pcall(function()
         return Content.decode_content_shard(Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/e_2"))
     end)
-    if not ok and css == "download_read/rate_limited" then error(css, 0) end
+    if not ok and (css == "download_read/rate_limited"
+        or client.book_reading_auth_classification and css == "book_reading/web_expired") then error(css, 0) end
     if ok then
         local sanitized, removed = Content.sanitize_book_css(css)
         if removed > 0 then
