@@ -91,8 +91,8 @@ function BookReviews.normalize_item(entry)
         content = BookReviews.plain_text(review.htmlContent)
     end
     local rating = tonumber(review.star) or 0
-    if rating > 10 then
-        rating = rating / 10
+    if rating > 0 then
+        rating = rating / 20
     end
     return {
         review_id = review.reviewId,
@@ -118,6 +118,44 @@ function BookReviews.normalize_list(data)
         has_more = data.reviewsHasMore == true or tonumber(data.reviewsHasMore) == 1,
         synckey = tonumber(data.synckey) or 0,
     }
+end
+
+-- The gateway uses the final entry's idx and the returned synckey together.
+-- Reject invalid or repeated cursors rather than silently fetching page one.
+function BookReviews.append_page(previous, data)
+    assert(type(data) == "table" and type(data.reviews) == "table", "invalid review page")
+    assert((data.errcode == nil or tonumber(data.errcode) == 0)
+        and (data.errCode == nil or tonumber(data.errCode) == 0), "review page rejected")
+    local page = BookReviews.normalize_list(data)
+    local last = page.items[#page.items]
+    local cursor = last and last.idx
+    local sync = tonumber(data.synckey)
+    if page.has_more then
+        assert(cursor and cursor > 0 and cursor == math.floor(cursor)
+            and sync and sync >= 0 and sync == math.floor(sync), "invalid review cursor")
+        assert(not previous or not previous.seen_cursors[cursor], "repeated review cursor")
+    end
+    local items, seen_cursors, seen_ids = {}, {}, {}
+    if previous then
+        for key in pairs(previous.seen_cursors) do seen_cursors[key] = true end
+        for _i, item in ipairs(previous.items) do
+            items[#items + 1] = item
+            if item.review_id then seen_ids[tostring(item.review_id)] = true end
+        end
+    end
+    for _i, item in ipairs(page.items) do
+        local id = item.review_id and tostring(item.review_id)
+        if not id or not seen_ids[id] then
+            items[#items + 1] = item
+            if id then seen_ids[id] = true end
+        end
+    end
+    if cursor then seen_cursors[cursor] = true end
+    page.items = items
+    page.seen_cursors = seen_cursors
+    page.max_idx = cursor
+    page.synckey = sync
+    return page
 end
 
 function BookReviews.format_date(value)

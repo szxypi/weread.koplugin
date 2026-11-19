@@ -39,6 +39,7 @@ local BookReviewsView = FocusManager:extend{
     result = nil,
     on_switch = nil,
     on_select = nil,
+    on_load_more = nil,
 }
 
 function BookReviewsView:buildTabBar()
@@ -89,7 +90,7 @@ function BookReviewsView:reviewText(review)
         review.author ~= "" and review.author or _("Anonymous"),
     }
     if review.rating > 0 then
-        metadata[#metadata + 1] = T(_("Score %1"), BookReviews.format_rating(review.rating))
+        metadata[#metadata + 1] = T(_("Score %1 / 5"), BookReviews.format_rating(review.rating))
     end
     local review_date = BookReviews.format_date(review.create_time)
     if review_date ~= "" then
@@ -142,6 +143,16 @@ function BookReviewsView:buildContent()
         self._review_buttons[#self._review_buttons + 1] = button
         table.insert(content, button)
         table.insert(content, VerticalSpan:new{ width = Size.padding.small })
+    end
+    if self.result and self.result.has_more and self.on_load_more then
+        local button = Button:new{
+            text = _("Load more results"),
+            width = self.content_width,
+            show_parent = self,
+            callback = self.on_load_more,
+        }
+        self._review_buttons[#self._review_buttons + 1] = button
+        table.insert(content, button)
     end
     return content
 end
@@ -210,6 +221,7 @@ function BookReviewsView:onShow()
 end
 
 function BookReviewsView:onCloseWidget()
+    self._review_closed = true
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
@@ -228,6 +240,7 @@ function M.show(data, callbacks)
         result = data.result,
         on_switch = callbacks.on_switch,
         on_select = callbacks.on_select,
+        on_load_more = callbacks.on_load_more,
     }
     UIManager:show(view)
     return view

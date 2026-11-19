@@ -472,6 +472,14 @@ ok, error_message = pcall(function()
 end)
 expect(ok, "empty review list failed to build: " .. tostring(error_message))
 expect(#shown == 14, "all bookshelf and empty-state views should be shown")
+local review_more_selected = false
+local reviews_with_more = BookReviewsView.show({
+    book_title = "Book", mode = "recommended",
+    result = { items = {{ author = "Reader", content = "Good", rating = 5, create_time = 0 }}, has_more = true },
+}, { on_load_more = function() review_more_selected = true end })
+expect(#reviews_with_more._review_buttons == 2, "review list did not create its load-more button")
+reviews_with_more._review_buttons[2].callback()
+expect(review_more_selected, "review load-more button did not invoke its callback")
 
 expect(#paged_view._header_buttons == 5 and paged_view._tab_buttons == nil
         and paged_view._action_primary == nil, "shelf retained its permanent tabs or toolbars")

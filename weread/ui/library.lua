@@ -1414,7 +1414,7 @@ function M:showBookReviewDetail(book, review, mode)
     local metadata = {}
     if review.rating > 0 then
         metadata[#metadata + 1] = T(
-            _("Score %1"), BookReviews.format_rating(review.rating)
+            _("Score %1 / 5"), BookReviews.format_rating(review.rating)
         )
     end
     local review_date = BookReviews.format_date(review.create_time)
@@ -1452,7 +1452,9 @@ function M:showBookReviews(book)
     }
 
     local loadReviews
-    loadReviews = function(mode, old_view)
+    loadReviews = function(mode, old_view, more)
+        if session.loading then return end
+        if more and (not session.cache[mode] or not session.cache[mode].has_more) then return end
         local function showResult(result)
             if old_view then
                 UIManager:close(old_view)
@@ -1469,22 +1471,30 @@ function M:showBookReviews(book)
                 on_select = function(review, selected_mode)
                     self:showBookReviewDetail(book, review, selected_mode)
                 end,
+                on_load_more = function()
+                    loadReviews(mode, view, true)
+                end,
             })
         end
 
-        if session.cache[mode] then
+        if session.cache[mode] and not more then
             showResult(session.cache[mode])
             return
         end
         self:showBusy(_("Loading book reviews..."))
-        self:runOnlineTask(_("Book reviews"), function()
+        session.loading = true
+        local scheduled = self:runOnlineTask(_("Book reviews"), function()
             local ok, result = pcall(function()
                 local list_type = mode == "latest" and 3 or 1
-                return BookReviews.normalize_list(
-                    self.client:get_book_reviews(book_id, list_type, 20)
+                local previous = more and session.cache[mode] or nil
+                return BookReviews.append_page(previous,
+                    self.client:get_book_reviews(book_id, list_type, 20,
+                        previous and previous.max_idx, previous and previous.synckey)
                 )
             end)
+            session.loading = false
             self:closeBusy()
+            if old_view and old_view._review_closed then return end
             if not ok then
                 logger.err("load book reviews failed:", log_error(result))
                 self:showInfo(T(_("%1 failed:\n%2"), _("Book reviews"), display_error(result)))
@@ -1493,6 +1503,10 @@ function M:showBookReviews(book)
             session.cache[mode] = result
             showResult(result)
         end)
+        if not scheduled then
+            session.loading = false
+            self:closeBusy()
+        end
     end
 
     loadReviews("recommended", nil)

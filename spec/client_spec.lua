@@ -327,6 +327,16 @@ expect(failure_log:find("shelf sync failed", 1, true),
     "shelf failure diagnostics were not written")
 
 local review_client = Client:new(settings)
+local review_gateway
+review_client.gateway = function(_self, api_name, params)
+    review_gateway = { name = api_name, params = params }
+    return { reviews = {} }
+end
+review_client:get_book_reviews("42", 3, 20, 7, 123)
+expect(review_gateway.name == "/review/list" and review_gateway.params.bookId == "42"
+    and review_gateway.params.reviewListType == 3 and review_gateway.params.count == 20
+    and review_gateway.params.maxIdx == 7 and review_gateway.params.synckey == 123,
+    "book review pagination did not forward both cursors")
 local ok_review, data_review, err_review
 ok_review, _, err_review = review_client:get_review_comments("")
 expect(not ok_review and err_review == "empty review_id",

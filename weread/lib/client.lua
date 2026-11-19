@@ -847,11 +847,13 @@ function Client:get_public_book_search(keyword, cursor)
     return self:decode_http_json(table.concat(chunks),{sensitive=true,api_name='public_book_search',code=code,headers=headers})
 end
 
-function Client:get_book_reviews(book_id, review_list_type, count)
+function Client:get_book_reviews(book_id, review_list_type, count, max_idx, synckey)
     return self:gateway("/review/list", {
         bookId = book_id,
         reviewListType = review_list_type or 1,
         count = count or 20,
+        maxIdx = max_idx,
+        synckey = synckey,
     })
 end
 
