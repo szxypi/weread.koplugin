@@ -13,6 +13,7 @@ package.preload['ui/uimanager']=function() return {
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,T=function(text) return text end,
     log_error=tostring,display_error=tostring,file_exists=function(path) return existing[path]==true end} end
 local Library=require('weread.ui.library')
+package.loaded['weread.ui.download_recovery']={start=function(host,...) return host.downloader:start(...) end}
 local checks=0
 local function expect(value,label) checks=checks+1;assert(value,label or ('check '..checks)) end
 local book,chapter={book_id='book',cached_chapters={}},{chapterUid=22,title='Chapter two'}
@@ -47,6 +48,8 @@ expect(#stale.downloads==0 and stale.counters()==0,'stale prompt downloaded or c
 local current=fixture();assert(current.host:openProgressTargetChapter(book,chapter));dialogs[#dialogs].ok_callback()
 expect(#current.downloads==1 and current.downloads[1].open_on_complete~=true,'downloader retained unscoped automatic open')
 expect(current.downloads[1].silent_completion and current.downloads[1].offer_read==false,'download could show an unscoped read prompt')
+expect(type(current.downloads[1].recovery_current)=='function' and current.downloads[1].recovery_current(),
+    'target download lost its navigation guard')
 current.complete(true,'/new.epub')
 expect(#current.opens==0 and #queue==1,'download callback opened before cleanup')
 current.drain()

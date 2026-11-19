@@ -1221,6 +1221,7 @@ local zh = {
     ["WeRead login expired. Please sign in again and retry the download."] = "微信读书登录已过期，请重新登录后重试下载。",
     ["WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume."] = "微信读书登录已过期，下载已暂停，已完成的章节已保留。请重新登录后再次选择下载全书继续。",
     ["Could not verify the book catalog. Download paused; completed chapters are kept. Try Download full book again."] = "无法核对书籍目录，下载已暂停，已完成的章节已保留。请再次选择下载全书。",
+    ["Could not verify the selected chapters. Download stopped. Try again."] = "无法核对所选章节，下载已停止，请重试。",
     ["WeRead is limiting requests. Download stopped. Please try again later."] = "微信读书暂时限制请求，下载已停止，请稍后重试。",
     ["Downloading underlines and thoughts may significantly increase download time."] = "下载划线和想法会显著延长下载时间。",
     ["Download text only"] = "仅下载正文",

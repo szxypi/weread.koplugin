@@ -167,14 +167,28 @@ if cb_edit then
 end
 if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
+local manual_kind=os.getenv('WEREAD_TEST_MANUAL_AUTH_RECOVERY')
+local manual_case
+if manual_kind then
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    manual_case=dofile(fixtures..'manual_auth_recovery_case.lua')(current,manual_kind,pump,tick)
+    if manual_kind=='selected' then
+        manual_case.selected(book(current),first)
+        current=Reader.instance.weread
+    end
+end
 current:showChapterList(book(current))
 pump(function() return current._chapter_list_view~=nil end)
-local view=assert(current._chapter_list_view);assert(view._chapter_rows[4]);view._chapter_rows[4].callback()
+local view=assert(current._chapter_list_view);assert(view._chapter_rows[4])
+if manual_case and manual_kind~='selected' then manual_case.arm_single(view) end
+view._chapter_rows[4].callback()
+if manual_case and manual_kind=='single-repeat' then manual_case.recover_single(view) end
 pump(function()
     local active=Reader.instance
     return active and active.document and active.document.file~=first and active.weread.settings:get_book(id).cached_chapters['4']==active.document.file
 end)
 reader,current=Reader.instance,Reader.instance.weread
+if manual_case and manual_kind~='selected' then manual_case.check_single() end
 local second=reader.document.file
 local second_checkpoint={page=reader:getCurrentPage(),xpointer=reader.document:getXPointer()}
 current:showChapterList(book(current));view=assert(current._chapter_list_view);view._chapter_rows[2].callback()

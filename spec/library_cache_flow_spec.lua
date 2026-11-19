@@ -450,4 +450,18 @@ for _,action in ipairs(detail_data.actions) do if action.text=='Read cached copy
 expect(cached_action~=nil,'cached chapter missing from an old catalog has no manual reading action')
 opened_path=nil;cached_action.callback()
 expect(opened_path=='/cache/unknown.epub','manual reading could not open a chapter outside the old catalog')
+local recovery_calls=0
+local previous_recovery=package.loaded['weread.ui.download_recovery']
+package.loaded['weread.ui.download_recovery']={start=function() recovery_calls=recovery_calls+1 end}
+local confirmed_book={book_id='42'}
+Library.confirmAndDownloadChapters(host,confirmed_book,{{chapterUid=1}},'chapter',{single_chapter=true})
+local active_confirmation=last_dialog;active_confirmation.ok_callback()
+expect(recovery_calls==1,'current confirmation did not start the selected download')
+Library.confirmAndDownloadChapters(host,confirmed_book,{{chapterUid=1}},'chapter',{single_chapter=true})
+local stale_confirmation=last_dialog;current_owner='account-b';stale_confirmation.ok_callback();current_owner='account-a'
+expect(recovery_calls==1,'stale confirmation crossed account boundaries')
+Library.confirmAndDownloadChapters(host,confirmed_book,{{chapterUid=1}},'chapter',{single_chapter=true})
+stale_confirmation=last_dialog;confirmed_book.book_id='43';stale_confirmation.ok_callback()
+expect(recovery_calls==1,'stale confirmation downloaded a different book')
+package.loaded['weread.ui.download_recovery']=previous_recovery
 print(("library_cache_flow_spec: %d checks"):format(checks))

@@ -1,4 +1,4 @@
--- Resume a confirmed full-book download after one verified Web renewal.
+-- Recover a confirmed manual download after one verified Web renewal.
 local UIManager = require('ui/uimanager')
 local Content = require('weread.lib.content')
 local Access = require('weread.lib.read_access')
@@ -21,9 +21,25 @@ local function same_catalog(left,right)
     return true
 end
 
-function M.cancel(host,leave_download)
+local function same_selection(selected,catalog)
+    if not selected or not catalog then return false end
+    local index={}
+    for i,row in ipairs(catalog) do index[row.chapterUid]={index=i,row=row} end
+    local last=0
+    for _,row in ipairs(selected) do
+        local match=index[row.chapterUid]
+        if not match or match.index<=last or row.title~=match.row.title
+            or row.chapterIdx~=nil and row.chapterIdx~=match.row.chapterIdx
+            or row.wordCount>0 and row.wordCount~=match.row.wordCount
+            or row.level~=match.row.level then return false end
+        last=match.index
+    end
+    return true
+end
+
+function M.cancel(host,leave_download,owner)
     local ctx=host._full_download_recovery
-    if not ctx then return end
+    if not ctx or owner and ctx.owner~=owner and ctx.parent_owner~=owner then return end
     host._full_download_recovery=nil
     if ctx.schedule and UIManager.unschedule then UIManager:unschedule(ctx.schedule) end
     if host._full_download_recovery_worker then host._full_download_recovery_worker:cancel() end
@@ -34,6 +50,12 @@ end
 
 function M.start(host,book,chapters,suffix,options)
     options=options or {}
+    if options.recovery_current then
+        local ok,current=pcall(options.recovery_current)
+        if not ok or current~=true then return false end
+    end
+    if options.recovery_owner and (options.recovery_owner._catalog_closed or options.recovery_owner._weread_closed)
+        or options.recovery_parent_owner and options.recovery_parent_owner._catalog_closed then return false end
     if host._full_download_recovery then
         host:showTransientInfo(_('Another download is already in progress.'),1)
         return false
@@ -50,12 +72,19 @@ function M.start(host,book,chapters,suffix,options)
         targets[i]=copy
     end
     local page_current=Scope.capture(host,host.shelf_view)
+    local full=suffix=='full' and not options.single_chapter and not options.separate_chapters
     local ctx={scope=scope,catalog=catalog,version=FileIdentity.version(book.bookVersion),
-        fingerprint=WorkerSettings.fingerprint(host.settings),api_key=host.settings:get('api_key','')}
+        fingerprint=WorkerSettings.fingerprint(host.settings),api_key=host.settings:get('api_key',''),
+        owner=options.recovery_owner or (not full and host._chapter_list_view or nil),
+        parent_owner=options.recovery_parent_owner}
     host._full_download_recovery=ctx
     local function current()
         local valid,current_id=pcall(require('weread.lib.reader_context').book_id,book)
+        local owner_current=not ctx.owner or not ctx.owner._catalog_closed and not ctx.owner._weread_closed
+        local guard_ok,guard=true,true
+        if options.recovery_current then guard_ok,guard=pcall(options.recovery_current) end
         return valid and current_id==id and host._full_download_recovery==ctx and page_current()
+            and owner_current and guard_ok and guard==true
             and host.settings:auth_scope_matches(ctx.scope) and host.settings:get('api_key','')==ctx.api_key
     end
     local function finish(ok,value,message)
@@ -67,6 +96,12 @@ function M.start(host,book,chapters,suffix,options)
     end
     local launch,recover
     local download_book=book
+    local expired_message=full and 'WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume.'
+        or 'WeRead login expired. Please sign in again and retry the download.'
+    local catalog_message=full and 'Could not verify the book catalog. Download paused; completed chapters are kept. Try Download full book again.'
+        or 'Could not verify the selected chapters. Download stopped. Try again.'
+    local limit_message=full and 'WeRead is limiting requests. Download paused; completed chapters are kept. Try Download full book again later.'
+        or 'WeRead is limiting requests. Download stopped. Please try again later.'
     local function recheck()
         if not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then M.cancel(host);return end
         local ok,started=pcall(host._full_download_recovery_worker.start,host._full_download_recovery_worker,function()
@@ -85,16 +120,18 @@ function M.start(host,book,chapters,suffix,options)
             if host._full_download_recovery~=ctx then return end
             if not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then M.cancel(host);return end
             if type(result)=='table' and result.error=='web_expired' then
-                finish(false,'web_expired','WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume.');return
+                finish(false,'web_expired',expired_message);return
             end
             if type(result)=='table' and result.error=='rate_limited' then
-                finish(false,'rate_limited','WeRead is limiting requests. Download paused; completed chapters are kept. Try Download full book again later.');return
+                finish(false,'rate_limited',limit_message);return
             end
             local version=type(result)=='table' and result.version
-            if type(result)~='table' or result.book_id~=id or not same_catalog(ctx.catalog,Reading.catalog(result.chapters))
+            local fresh=type(result)=='table' and Reading.catalog(result.chapters)
+            if type(result)~='table' or result.book_id~=id
+                or not (full and same_catalog(ctx.catalog,fresh) or not full and same_selection(ctx.catalog,fresh))
                 or type(version)~='number' or version%1~=0 or version<0 or version>2147483647
                 or ctx.version>0 and version>0 and ctx.version~=version or FileIdentity.version(book.bookVersion)~=ctx.version then
-                finish(false,'catalog_changed','Could not verify the book catalog. Download paused; completed chapters are kept. Try Download full book again.');return
+                finish(false,'catalog_changed',catalog_message);return
             end
             if result.auth and not WorkerSettings.merge(host.settings,ctx.fingerprint,result.auth) then
                 finish(false,'session_changed');return
@@ -109,13 +146,13 @@ function M.start(host,book,chapters,suffix,options)
             download_book.bookVersion=version
             launch()
         end)
-        if not ok or not started then finish(false,'unavailable','Could not verify the book catalog. Download paused; completed chapters are kept. Try Download full book again.') end
+        if not ok or not started then finish(false,'unavailable',catalog_message) end
     end
     recover=function()
         ctx.schedule=nil
         if not current() or WorkerSettings.fingerprint(host.settings)~=ctx.fingerprint then M.cancel(host);return end
         if ctx.attempted then
-            finish(false,'web_expired','WeRead login expired. Download paused; completed chapters are kept. Sign in again and choose Download full book to resume.');return
+            finish(false,'web_expired',expired_message);return
         end
         ctx.attempted=true
         host:showBusy(_('Renewing WeRead login…\nTap or press a key to cancel.'),function() M.cancel(host) end)
@@ -158,7 +195,7 @@ function M.start(host,book,chapters,suffix,options)
     end
     launch=function()
         local copy={};for key,value in pairs(options) do copy[key]=value end
-        copy.full_auth_recovery=true;copy.on_complete=ctx.complete
+        copy.full_auth_recovery=full;copy.manual_auth_recovery=not full;copy.on_complete=ctx.complete
         copy.on_reading_auth_updated=function(before,after)
             if current() and ctx.fingerprint==before and Source.web_access(host.settings) then ctx.fingerprint=after end
         end

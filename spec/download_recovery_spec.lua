@@ -20,7 +20,7 @@ package.loaded['weread.lib.web_authorization']={capture=function() return {
     scope={vid='900000',epoch=state.epoch}} end}
 local Recovery=require('weread.ui.download_recovery')
 local chapters={{chapterUid='1',title='One',wordCount=100},{chapterUid='2',title='Two',wordCount=100}}
-local function fixture(version)
+local function fixture(version,kind,owner,guard)
     tasks,request,renewals,cancels={},nil,0,0
     state={epoch=1,owner='owner',starts=0,stops=0,info=0,completed=0}
     local cookies={wr_vid='900000',wr_skey='synthetic-only'}
@@ -42,7 +42,12 @@ local function fixture(version)
         cancel=function() state.workers_cancelled=(state.workers_cancelled or 0)+1 end}}
     local book={book_id='900001',title='Book',bookVersion=version or 0}
     local options={on_complete=function(ok,value) state.completed=state.completed+1;state.result={ok,value} end}
-    assert(Recovery.start(host,book,chapters,'full',options))
+    local targets,suffix=chapters,'full'
+    if kind=='single' then targets={chapters[2]};suffix='chapter';options.single_chapter=true
+    elseif kind=='selected' then targets=chapters;suffix='chapters';options.separate_chapters=true end
+    if owner then options.recovery_owner=owner end
+    if guard then options.recovery_current=guard end
+    assert(Recovery.start(host,book,targets,suffix,options))
     return host,book,cookies
 end
 local function expire()
@@ -127,4 +132,42 @@ local stale=request;request=nil;stale.callback(true,{revision=string.rep('b',64)
 assert(state.starts==1 and not host._full_download_recovery,'foreign renewal receipt was accepted')
 host=fixture();state.job.options.on_complete(false,'web_expired');Recovery.cancel(host)
 assert(#tasks==0 and state.stops==1 and renewals==0,'cancellation left a scheduled renewal')
-print('download_recovery_spec: scoped full-book renewal passed')
+
+for _,kind in ipairs({'single','selected'}) do
+    local owner={};host,book,cookies=fixture(0,kind,owner)
+    assert(state.job.options.manual_auth_recovery and not state.job.options.full_auth_recovery)
+    expire();verify(cookies)
+    local enlarged={chapters[1],chapters[2],{chapterUid='3',title='Three',wordCount=100}}
+    state.worker.complete({book_id='900001',chapters=enlarged,version=0})
+    assert(state.starts==2 and state.job.options.manual_auth_recovery and state.job.book~=book,
+        'renewed '..kind..' did not restart after validating selected chapters')
+    assert(#state.job.chapters==(kind=='single' and 1 or 2),'recovery changed selected chapters')
+    state.job.options.on_complete(true,'/cache/selected.epub')
+    assert(state.completed==1 and state.result[1] and state.stops==0 and not host._full_download_recovery,
+        'renewed '..kind..' did not complete exactly once')
+end
+
+cookies=select(3,fixture(0,'single'));expire();verify(cookies)
+state.worker.complete({book_id='900001',chapters={chapters[1]},version=0})
+assert(state.starts==1 and state.completed==1 and state.info==1 and state.message:find('selected chapters',1,true),
+    'missing selected chapter resumed the download')
+cookies=select(3,fixture(0,'selected'));expire();verify(cookies)
+state.worker.complete({book_id='900001',chapters={chapters[2],chapters[1]},version=0})
+assert(state.starts==1 and state.completed==1 and state.info==1,'reordered selected chapters were accepted')
+local owner={}
+host=fixture(0,'single',owner);expire()
+Recovery.cancel(host,false,{})
+assert(host._full_download_recovery,'unrelated view cancelled the download')
+Recovery.cancel(host,false,owner)
+assert(not host._full_download_recovery and not request and state.stops==1,'closing the owner did not cancel renewal')
+local target_current=true
+host=fixture(0,'single',nil,function() return target_current end);expire()
+local pending=request;target_current=false
+pending.callback(true,{revision=string.rep('a',64)})
+assert(not host._full_download_recovery and state.starts==1,'replaced cloud-position intent resumed a download')
+cookies=select(3,fixture(0,'single'));expire();verify(cookies)
+state.worker.complete({book_id='900001',chapters=chapters,version=0})
+state.job.options.on_complete(false,'web_expired');table.remove(tasks,1)()
+assert(renewals==1 and state.info==1 and state.message:find('retry the download',1,true),
+    'second single-chapter 401 did not stop with the right notice')
+print('download_recovery_spec: scoped manual-download renewal passed')

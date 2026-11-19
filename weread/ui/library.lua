@@ -1966,6 +1966,7 @@ function M:showChapterList(book, on_close)
         view.onCloseWidget=function(widget,...)
             widget._catalog_closed=true
             require('weread.ui.catalog_request').cancel(self,widget)
+            require('weread.ui.download_recovery').cancel(self,false,widget)
             if on_close_widget then return on_close_widget(widget,...) end
         end
     end
@@ -1977,6 +1978,8 @@ end
 function M:showChapterDownloadSelection(book, chapters, on_downloaded)
     local selected = {}
     local menu
+    local chapter_view=self._chapter_list_view
+    local page_current=require('weread.ui.page_scope').capture(self,self.shelf_view)
     local function selectedChapters()
         local result = {}
         for _i, chapter in ipairs(chapters) do
@@ -2010,10 +2013,18 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
                 if #targets == 0 then return end
                 self:confirmAndDownloadChapters(book, targets, "chapters", {
                     separate_chapters = true,
+                    recovery_owner = menu,
+                    recovery_parent_owner = chapter_view,
+                    recovery_current = function()
+                        return page_current() and menu and not menu._weread_closed and (not chapter_view
+                            or self._chapter_list_view==chapter_view and not chapter_view._catalog_closed)
+                    end,
                     on_complete = function(ok)
                         if not ok then return end
                         UIManager:scheduleIn(0.1, function()
-                            if menu then UIManager:close(menu) end
+                            if not page_current() or not menu or menu._weread_closed or chapter_view
+                                and (self._chapter_list_view~=chapter_view or chapter_view._catalog_closed) then return end
+                            UIManager:close(menu)
                             if on_downloaded then on_downloaded() end
                         end)
                     end,
@@ -2052,6 +2063,14 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
     end
     menu = self:showList(_("Select chapters to download"), items,
         _("No chapters."), { items_per_page = perpage })
+    if menu then
+        local on_close_widget=menu.onCloseWidget
+        menu.onCloseWidget=function(widget,...)
+            widget._weread_closed=true
+            require('weread.ui.download_recovery').cancel(self,false,widget)
+            if on_close_widget then return on_close_widget(widget,...) end
+        end
+    end
 end
 
 function M:openFile(path, after_open_callback, resume_book)
@@ -2274,10 +2293,11 @@ function M:openProgressTargetChapter(book, chapter)
         ok_callback = self:safeCallback(_("Download target chapter"), function()
             UIManager:close(confirm)
             if not current() then return end
-            self.downloader:start(book, { chapter }, "chapter", {
+            require('weread.ui.download_recovery').start(self,book, { chapter }, "chapter", {
                 single_chapter = true,
                 silent_completion = true,
                 offer_read = false,
+                recovery_current = current,
                 on_complete = function(ok, reason)
                     if not current() then return end
                     if not ok then
@@ -2322,16 +2342,29 @@ end
 -- Annotation matching is a reading action, shared by all download forms.
 function M:confirmAndDownloadChapters(book, chapters, suffix, options)
     options = options or {}
+    local reader_context=require('weread.lib.reader_context')
+    local valid_id,id=pcall(reader_context.book_id,book)
+    if not valid_id then return end
+    local page_current=require('weread.ui.page_scope').capture(self,self.shelf_view)
+    local chapter_view=(options.single_chapter or options.separate_chapters) and self._chapter_list_view or nil
+    local previous_current=options.recovery_current
+    local guarded={};for key,value in pairs(options) do guarded[key]=value end
+    guarded.recovery_owner=options.recovery_owner or chapter_view
+    guarded.recovery_current=function()
+        local valid,current_id=pcall(reader_context.book_id,book)
+        if not valid or current_id~=id or not page_current() then return false end
+        if chapter_view and (self._chapter_list_view~=chapter_view or chapter_view._catalog_closed) then return false end
+        if previous_current then local ok,result=pcall(previous_current);return ok and result==true end
+        return true
+    end
     local text = options.confirmation_text
         or T(_("Download %1 selected chapter(s)?"), tostring(#chapters))
     UIManager:show(ConfirmBox:new{
         text = text,
         ok_text = _("Download"), cancel_text = _("Cancel"),
         ok_callback = self:safeCallback(_("Download"), function()
-            if suffix == 'full' and not options.single_chapter and not options.separate_chapters then
-                require('weread.ui.download_recovery').start(self,book,chapters,suffix,options)
-            else
-                self.downloader:start(book, chapters, suffix, options)
+            if guarded.recovery_current() then
+                require('weread.ui.download_recovery').start(self,book,chapters,suffix,guarded)
             end
         end),
     })

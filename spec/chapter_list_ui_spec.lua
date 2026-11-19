@@ -122,6 +122,7 @@ host:showChapterList(book)
 local original_view=host._chapter_list_view
 original_view:onCloseWidget()
 expect(cancelled_view==original_view,'closing chapter view immediately cancels its pending refresh')
+original_view._catalog_closed=nil
 expect(catalog_view_data.title == "Book" and #catalog_view_data.chapters == 7,
     "chapter catalog view receives the title and all chapters")
 expect(catalog_view_data.chapters[1].status == "100 words",
@@ -173,6 +174,20 @@ expect(closed == 1 and returned_to_parent,
     "successful multi-download closes selection and returns to parent list")
 expect(catalog_view_data.chapters[1].status == "Cached",
     "successful multi-download refreshes cached chapter status")
+
+local manager=require('ui/uimanager')
+local old_schedule,late=manager.scheduleIn,nil
+manager.scheduleIn=function(_,_,callback) late=callback end
+local reopened=false
+host:showChapterDownloadSelection(book,chapters,function() reopened=true end)
+local stale_selection=shown[#shown]
+stale_selection.items[2].callback()
+stale_selection.items[1].callback()
+downloaded_options.on_complete(true)
+expect(type(late)=='function','completed selection did not schedule its return')
+fake_menu:onCloseWidget();late()
+expect(not reopened,'closed selection reopened its parent after a late completion')
+manager.scheduleIn=old_schedule
 
 print(string.format(
     "chapter_list_ui_spec: %d checks, %d failure(s)", checks, failures))

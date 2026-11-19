@@ -54,6 +54,9 @@ local function pump(predicate)
     until false
 end
 local old_sync=old_reader.weread.progress_sync
+-- This fixture exercises the legacy position mapper and its download handoff.
+-- Production normally uses the independently verified source-position path.
+old_sync.apply_source_remote=nil
 pump(function() return old_sync.current_book_id=='900001' end)
 local _,_,context=old_sync:capture_local()
 assert(old_sync:_apply_remote({book_id='900001',chapter_uid=2,chapter_idx=2,chapter_offset=154,
@@ -61,6 +64,7 @@ assert(old_sync:_apply_remote({book_id='900001',chapter_uid=2,chapter_idx=2,chap
 pump(function() return ReaderUI.instance and ReaderUI.instance~=old_reader and ReaderUI.instance.document.file==paths[2] end)
 local reader=ReaderUI.instance
 local sync=reader.weread.progress_sync
+sync.apply_source_remote=nil
 pump(function() return sync.current_book_id=='900001' end)
 assert(sync~=old_sync,'fixture did not create a new progress controller')
 local position=assert(sync:capture_local())
@@ -79,6 +83,7 @@ local function current_first()
     local previous=reader
     pump(function() return ReaderUI.instance and ReaderUI.instance~=previous and ReaderUI.instance.document.file==paths[1] end)
     reader=ReaderUI.instance;sync=reader.weread.progress_sync
+    sync.apply_source_remote=nil
     pump(function() return sync.current_book_id=='900001' and reader.weread.source_position:current()~=nil end)
 end
 local function uncached()
