@@ -28,7 +28,6 @@ def main():
     parser.add_argument('--case',choices=('normal','orchestrated','thought_create','thought_edit','thought_delete','seed_delete','host_mismatch'),default='normal')
     parser.add_argument('--associated',action='store_true');parser.add_argument('--auto-remove',action='store_true');parser.add_argument('--txt',action='store_true');args=parser.parse_args()
     if args.auto_remove and not args.associated or args.case=='seed_delete' and not args.associated:parser.error('requires associated mark')
-    if args.txt and args.case=='orchestrated':parser.error('TXT uses the scoped native supervisor')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);candidate=root/'candidate.zip'
     subprocess.run(['bash','scripts/package_release.sh',str(candidate)],check=True,capture_output=True)
     profiles=set(Path('/dev/shm').glob('weread-cb-selection-*'))
@@ -77,11 +76,18 @@ def main():
                 assert apply;upload.imported=True;assert source(CB_READING_ID)
                 cleaned=cleanup_gate(upload,receipt,{},CB_READING_ID)
                 if cleaned:upload.imported=False
-                return {'result':'EPUB_IMPORT_AND_SOURCE_VERIFIED' if cleaned else 'UNVERIFIED','phase':'restored' if cleaned else 'imported'}
+                success='TXT_IMPORT_AND_SOURCE_VERIFIED' if args.txt else 'EPUB_IMPORT_AND_SOURCE_VERIFIED'
+                return {'result':success if cleaned else 'UNVERIFIED','phase':'restored' if cleaned else 'imported'}
+            if args.txt:
+                from verify_cb_txt_highlight_native import span as txt_span
+                more=dict(source_format='web_txt',source_marker=TEXT,span_fn=txt_span,
+                    upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED',allow_zero_version=True,
+                    prepare_fn=lambda *v:prepare(*v,prepare_fn=lambda *a:prepare_txt(*a,range_unit='utf16'),allow_zero_version=True))
+            else:more={}
             with patch('verify_cb_fixture_selection_native.save_refreshed_web_session',return_value=False):
                 result=orchestrate(dict(vid='900000',cookies={'wr_vid':'900000','wr_skey':'mock_key'}),None,NativeStore(),grant,
                     upload,intent,command,apply=True,uploader=uploader,upload_factory=lambda *_:None,source_factory=Source,
-                    native_factory=lambda book,creds,authority,store:ScopedSelectionNative(book,creds,authority,store,opener=Opener(server)))
+                    native_factory=lambda book,creds,authority,store:ScopedSelectionNative(book,creds,authority,store,opener=Opener(server)),**more)
             assert result['result']=='CB_NATIVE_SELECTION_VERIFIED' and not upload.imported
             assert result['dry_run_blocked'] and result['native_ui_completed'] and result['native_thought_steps']==3
             assert server.selection_posts==3 and intent.read()==(None,None)

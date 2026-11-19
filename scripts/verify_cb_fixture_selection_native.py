@@ -11,6 +11,7 @@ from pathlib import Path
 import resource
 import secrets
 import tempfile
+import time
 
 from annotation_experiment_model import note_text
 from cb_fixture_selection_native_bridge import NativeSelectionBridge
@@ -23,7 +24,8 @@ from synthetic_upload_epub import TEXT
 from verify_cb_fixture_position_trial import owned
 from verify_cb_fixture_selection_trial import ScopedSelectionNative
 from verify_cb_progress import cb_id
-from verify_cb_reading import CbReadingProbe
+from verify_cb_reading import CbReadingError,CbReadingProbe
+from verify_cb_metadata import CbMetadataError
 from verify_personal_upload_trial import Probe as UploadProbe
 from verify_synthetic_epub_upload import run as upload_run
 from verify_translation_preflight import save_refreshed_web_session
@@ -41,45 +43,55 @@ def stores():
 
 
 def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,uploader=upload_run,
-        upload_factory=UploadProbe,native_factory=ScopedSelectionNative,source_factory=CbReadingProbe,bridge_factory=NativeSelectionBridge):
+        upload_factory=UploadProbe,native_factory=ScopedSelectionNative,source_factory=CbReadingProbe,bridge_factory=NativeSelectionBridge,
+        source_format='web_xhtml',source_marker=TEXT,span_fn=span_project,prepare_fn=prepare,
+        upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED',result_label='CB_NATIVE_SELECTION_VERIFIED',fixture_authorized=owned,
+        allow_zero_version=False,source_sleep=time.sleep):
     report=dict(result='UNVERIFIED',phase='preflight',native_thought_steps=0,cleanup_posts=0,authentication_posts=0,
                 fixture_only=True,existing_book_writes=0,private_values_in_report=False)
     current={'saved':saved,'sample':None,'trial':None}
     def same_grant(value):return native_store.load(current['saved']['vid'])==value
     def source(target):
-        web=source_factory();web.vid=current['saved']['vid'];web.allowed={target}
-        try:
-            for key,value in current['saved']['cookies'].items():web.set_cookie(key,value)
-            web.verify_account();sample=web.inspect(target);web.verify_account()
-            if (sample.get('book_id')!=target or sample.get('source_format')!='web_xhtml' or TEXT not in sample.get('source','')
-                    or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
-                    or not all(value is True for value in web.last_checks.values())):return False
-            current['sample']=sample
-            if save_refreshed_web_session(session,current['saved'],web):
-                old=current['saved'];current['saved']=session.load()
-                if old['vid']!=current['saved']['vid']:raise ValueError('cb_native_selection/owner')
-                old.clear()
-            return True
-        finally:web.samples.clear();web.close()
+        current['sample']=None
+        for attempt in range(3):
+            web=source_factory();web.vid=current['saved']['vid'];web.allowed={target}
+            try:
+                for key,value in current['saved']['cookies'].items():web.set_cookie(key,value)
+                web.verify_account();sample=web.inspect(target);web.verify_account()
+                if (sample.get('book_id')!=target or sample.get('source_format')!=source_format or source_marker not in sample.get('source','')
+                        or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
+                        or not all(value is True for value in web.last_checks.values())):return False
+                current['sample']=sample
+                if save_refreshed_web_session(session,current['saved'],web):
+                    old=current['saved'];current['saved']=session.load()
+                    if old['vid']!=current['saved']['vid']:raise ValueError('cb_native_selection/owner')
+                    old.clear()
+                return True
+            except (CbReadingError,CbMetadataError) as error:
+                if str(error) not in ('cb_catalog_empty','cb_catalog_invalid') or attempt==2:raise
+            finally:web.samples.clear();web.close()
+            source_sleep(2*(attempt+1))
+        return False
     def trial(upload,receipt,_plan,target):
         owner=current['saved']['vid'];sample=current['sample']
-        def authority():return bool(cb_id(target) and owned(upload,receipt,target,owner,grant,same_grant))
+        def authority():return bool(cb_id(target) and fixture_authorized(upload,receipt,target,owner,grant,same_grant))
         if not authority():return False
         if sample is None:return True
         state,_=upload.read();native=native_factory(target,grant,authority,intent);bridge=None
         try:
             before=native.observe(grant);version=native.version(grant)
-            if not version or native.version(grant)!=version:raise ValueError('cb_native_selection/version')
+            report['metadata_version_zero']=version==0
+            if version==0 and not allow_zero_version or native.version(grant)!=version:raise ValueError('cb_native_selection/version')
             nonce=secrets.token_hex(16)
-            plan,context,body=prepare(owner,target,state['attempt'],sample,version,before,nonce)
-            span=span_project(sample['source'],target,sample['chapter_uid'],dict(type=1,chapterUid=int(context['chapterUid']),
+            plan,context,body=prepare_fn(owner,target,state['attempt'],sample,version,before,nonce)
+            span=span_fn(sample['source'],target,sample['chapter_uid'],dict(type=1,chapterUid=int(context['chapterUid']),
                 range=context['range'],markText=context['abstract']))
             chapters=[dict(row) for row in sample['chapters']]
             chosen=[row for row in chapters if str(row.get('chapterUid'))==sample['chapter_uid']]
             if len(chosen)!=1 or type(chosen[0].get('chapterIdx')) is not int:raise ValueError('cb_native_selection/chapter')
             payload=dict(book=target,chapter=sample['chapter_uid'],chapter_idx=chosen[0]['chapterIdx'],source=sample['source'],
                 chapters=chapters,cookies=current['saved']['cookies'],native=grant,owner=owner,book_version=version,
-                body=body,edited_text=note_text(nonce,True),first=span['first'],last=span['last'])
+                body=body,edited_text=note_text(nonce,True),first=span['first'],last=span['last'],source_format=source_format)
             read=lambda:native.observe(grant)
             bridge=bridge_factory(command,payload,plan,before,intent,authority,read)
             current['trial']=execute(plan,context,body,before,intent,authority,read,bridge.send,
@@ -104,8 +116,8 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,up
         result=uploader(upload,journal,grant,same_grant,source,apply=apply,cleanup_gate=trial)
         report['upload']=result;report['phase']=result.get('phase','unknown')
         if result.get('result')=='READ_ONLY_PREVIEW':report['result']='READ_ONLY_PREVIEW'
-        elif result.get('result')=='EPUB_IMPORT_AND_SOURCE_VERIFIED' and current['trial'] and current['trial']['result']=='PASS':
-            report.update(result='CB_NATIVE_SELECTION_VERIFIED',fixture_removed=True,original_records_restored=True,no_replay=True,
+        elif result.get('result')==upload_success and current['trial'] and current['trial']['result']=='PASS':
+            report.update(result=result_label,fixture_removed=True,original_records_restored=True,no_replay=True,
                 associated_highlight_observed=current['trial']['associated_highlight_observed'],
                 derived_chapter_metadata_changed=current['trial']['derived_chapter_metadata_changed'],fresh_offline=True)
     except Exception:report['result']='UNVERIFIED'
