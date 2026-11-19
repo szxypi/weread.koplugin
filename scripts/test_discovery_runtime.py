@@ -26,7 +26,9 @@ def main():
     parser.add_argument("--height", type=int, default=800)
     parser.add_argument("--dpi", type=int, default=167)
     parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
+    parser.add_argument('--quick-read',action='store_true',help='Finish the signed-in reading flow via the book hold menu')
     parser.add_argument('--guest-login-read',action='store_true',help='Exercise guest public search through synthetic QR login into the native reader')
+    parser.add_argument('--guest-hold-login-read',action='store_true',help='Exercise guest book hold through synthetic QR login into the native reader')
     parser.add_argument('--guest-rank-login-read',action='store_true',help='Exercise first-entry public ranking through synthetic QR login and offline reading')
     parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
     parser.add_argument("--progress-response", action="store_true", help="Reject foreign/malformed sync responses in the reading flow")
@@ -57,8 +59,8 @@ def main():
     parser.add_argument('--process-loss-kind', choices=('periodic','manual','close'), default='periodic',
                         help='Select periodic reading time, manual progress, or close-time progress')
     args = parser.parse_args()
-    guest_read = args.guest_login_read or args.guest_rank_login_read
-    if args.guest_login_read and args.guest_rank_login_read:
+    guest_read = args.guest_login_read or args.guest_rank_login_read or args.guest_hold_login_read
+    if sum((args.guest_login_read,args.guest_rank_login_read,args.guest_hold_login_read)) > 1:
         parser.error('select only one guest entry')
     if guest_read and (args.reading_flow or args.cached_resume or args.footnotes or args.rich_footnotes
             or args.chapter_links or args.chapter_link_scroll or args.chapter_link_preflight or args.process_loss):
@@ -69,6 +71,8 @@ def main():
         parser.error('--chapter-links uses a separate fixture')
     if args.chapter_link_preflight and (args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
         parser.error('--chapter-link-preflight uses a separate fixture')
+    if args.quick_read and not args.reading_flow:
+        parser.error('--quick-read requires --reading-flow')
     if args.offline_progress and not args.reading_flow:
         parser.error("--offline-progress requires --reading-flow")
     if args.progress_response and not args.reading_flow:
@@ -137,6 +141,7 @@ def main():
     server.guest_login_fixture=guest_read
     if guest_read:server.control['guest_login_pending']=True
     if args.guest_rank_login_read:environment['WEREAD_GUEST_RANK']='1'
+    if args.guest_hold_login_read:environment['WEREAD_GUEST_HOLD']='1'
     server.finish_fixture=args.finish_change
     server.selection_fixture=args.selection_thought or args.cb_highlight_edit
     server.cb_reading=args.cb_resume
@@ -155,6 +160,7 @@ def main():
     environment["WEREAD_MOCK_PORT"] = str(server.server_port)
     if args.offline_progress:
         environment["WEREAD_TEST_OFFLINE_PROGRESS"] = "1"
+    if args.quick_read:environment['WEREAD_TEST_QUICK_READ']='1'
     if args.progress_response:
         environment["WEREAD_TEST_PROGRESS_RESPONSE"] = "1"
     if args.progress_confirmation: environment['WEREAD_TEST_PROGRESS_CONFIRMATION'] = '1'
@@ -214,7 +220,8 @@ def main():
                 assert json.loads(raw.split(marker,1)[1].splitlines()[0])==dict(result='PASS',exact_chapter=True,pending_preserved=True)
             if guest_read and result.returncode==0:
                 entry='/web/bookListInCategory/rising' if args.guest_rank_login_read else '/web/search/global'
-                for path in (entry,'/web/book/publicinfos','/api/userInfo'):
+                paths=(entry,'/api/userInfo') if args.guest_hold_login_read else (entry,'/web/book/publicinfos','/api/userInfo')
+                for path in paths:
                     assert server.request_totals[(path,'')]==1, 'guest login/read did not perform exactly one expected request'
                 assert server.request_totals[('/api/auth/getLoginUid','')]==2, 'QR cancellation or retry was not exercised'
                 assert server.request_totals[('/api/auth/getLoginInfo','')]>=1, 'QR login was not checked'

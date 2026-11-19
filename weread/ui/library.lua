@@ -2121,8 +2121,9 @@ function M:readCachedCopy(book,view)
     return false
 end
 
-function M:startBookReading(book, view)
+function M:startBookReading(book, view, origin)
     if view and self._book_detail_view ~= view then return false end
+    if origin and not origin.current() then return false end
     local warning=package.loaded['weread.ui.missing_resume']
     if warning then warning.cancel(self) end
     local id = book.book_id or book.bookId
@@ -2136,7 +2137,7 @@ function M:startBookReading(book, view)
     if reason=='resume_not_cached' and not exact then
         return require('weread.ui.missing_resume').show(self,id,view,uid)
     end
-    return require("weread.ui.book_reading").start(self, latest, view)
+    return require("weread.ui.book_reading").start(self, latest, view, origin)
 end
 
 function M:cancelBookReading()

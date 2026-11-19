@@ -137,6 +137,25 @@ host._book_detail_view={};expect(not intent.current(),'closed guest detail retai
 host._book_detail_view=guest_view;host.discovery_epoch=2;expect(not intent.current(),'changed page retained login intent')
 host.discovery_epoch=1;state.owner='other';expect(not intent.current(),'new account retained guest login intent')
 host,state=fixture()
+state.owner=nil;state.login=false;host.ui={}
+host.settings.get_auth_scope=function() return nil end
+host.requireLogin=function(_self,_cookie,_key,value) intent=value;return false end
+host.startBookReading=function(_self,value) resumed_book=value end
+local page_current=true
+local origin={current=function() return page_current end}
+local public_book={bookId='900001',title='Public title',author='Public author',chapter_uid='123',cached_file='/foreign'}
+expect(not Reading.start(host,public_book,nil,origin) and intent and intent.current(),
+    'guest quick read lost its login intent')
+public_book.title='Changed later';intent.resume()
+expect(resumed_book.book_id=='900001' and resumed_book.title=='Public title' and resumed_book.author=='Public author'
+    and not resumed_book.chapter_uid and not resumed_book.cached_file,'guest continuation retained mutable or local state')
+page_current=false;expect(not intent.current(),'replaced guest page retained its login intent')
+expect(not Reading.start(host,public_book,nil,origin),'stale quick-read page started a request')
+host,state=fixture();page_current=true
+expect(Reading.start(host,book,nil,origin),'current quick read did not start')
+page_current=false;state.job.complete(state.job.task())
+expect(state.downloads==0 and not host.book_reading_context,'stale quick-read worker downloaded a book')
+host,state=fixture()
 expect(Reading.start(host, book), "reading preparation did not start")
 expect(state.downloads == 0 and host.busy_message, "network preparation blocked or skipped busy UI")
 local result = state.job.task()

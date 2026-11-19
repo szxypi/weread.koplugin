@@ -111,8 +111,9 @@ function M.cancel(host)
     close_busy(host, context)
 end
 
-function M.start(host, book, view)
+function M.start(host, book, view, origin)
     if view and host._book_detail_view ~= view then return false end
+    if origin and not origin.current() then return false end
     -- CB_ catalog/content queries were verified independently before opening
     -- this read path. Chapter IDs and synchronization retain their own gates.
     local id = Access.display_book_id(book.book_id or book.bookId)
@@ -121,18 +122,27 @@ function M.start(host, book, view)
     if host.isNetworkConnected then online = host:isNetworkConnected() else online = host:isNetworkOnline() end
     if not online then host:showOffline(_("Read")); return false end
     local continuation
-    if view and host.library_db and not host.library_db:accountKey()
+    if (view or origin) and host.library_db and not host.library_db:accountKey()
         and host.settings.get_auth_scope and not host.settings:get_auth_scope() then
         local epoch,auth_epoch=host.discovery_epoch or 0,host.settings:get('auth_epoch',0)
         local session,document=host._reader_session_gen,host.ui and host.ui.document
+        local selected={book_id=id}
+        -- Retain public display metadata only, never local or account state.
+        if origin then
+            for _,key in ipairs({'title','author'}) do
+                local value=book[key]
+                if type(value)=='string' and #value<=2048 and not value:find('[%z%c]') then selected[key]=value end
+            end
+        end
         continuation={
             current=function()
-                return host._book_detail_view==view and (host.discovery_epoch or 0)==epoch
+                return (not view or host._book_detail_view==view)
+                    and (not origin or origin.current()) and (host.discovery_epoch or 0)==epoch
                     and host._reader_session_gen==session and (host.ui and host.ui.document)==document
                     and not host.library_db:accountKey() and not host.settings:get_auth_scope()
                     and host.settings:get('auth_epoch',0)==auth_epoch
             end,
-            resume=function() return host:startBookReading({book_id=id}) end,
+            resume=function() return host:startBookReading(selected) end,
         }
     end
     if not host:requireLogin(true, false, continuation) then return false end
@@ -146,6 +156,7 @@ function M.start(host, book, view)
     local function current()
         return host.book_reading_context == context and (host.discovery_epoch or 0) == context.epoch
             and (not view or host._book_detail_view == view)
+            and (not origin or origin.current())
             and (not host.library_db or host.library_db:accountKey() == context.account)
             and host.settings:auth_scope_matches(context.scope)
     end

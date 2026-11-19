@@ -238,9 +238,27 @@ shot("reading-bookstore")
 local store_book
 for _, book in ipairs(plugin.discovery_state.books) do if tostring(book.bookId or book.book_id) == "900001" then store_book = book end end
 assert(store_book, "bookstore did not return target")
-plugin.shelf_view.on_select(store_book)
-pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
-press(plugin._book_detail_view, "▤ Read")
+if os.getenv('WEREAD_TEST_QUICK_READ')=='1' then
+    local view=plugin.shelf_view
+    local cell
+    for _,item in ipairs(view._item_rows) do if item.book==store_book then cell=item end end
+    assert(cell,'selected bookstore book lacks a cover cell')
+    UI:forceRePaint()
+    local event=require('ui/event')
+    local pos=require('ui/geometry'):new{x=cell.dimen.x+math.floor(cell.dimen.w/2),y=cell.dimen.y+math.floor(cell.dimen.h/2)}
+    assert(cell:handleEvent(event:new('Gesture',{ges='hold',pos=pos})))
+    local dialog=assert(view._shelf_popup)
+    assert(cell:handleEvent(event:new('Gesture',{ges='hold_release',pos=pos})))
+    local read
+    for _,row in ipairs(dialog.buttons) do for _,button in ipairs(row) do
+        if button.text==require('weread.lib.plugin_util').tr('Read now') then read=button end
+    end end
+    assert(read);read.callback()
+else
+    plugin.shelf_view.on_select(store_book)
+    pump(function() return plugin._book_detail_view and not plugin.book_metadata_context end)
+    press(plugin._book_detail_view, "▤ Read")
+end
 pump(function() return Reader.instance and Reader.instance.weread and Reader.instance.document:getPageCount() > 1 end)
 local reader = Reader.instance
 assert(reader.document.file:match("%.epub$"), "Read did not open the native EPUB engine")

@@ -23,7 +23,9 @@ function M.open(host,owner,book,current)
         end
     end
     local buttons={
-        {{text=_('Read now'),callback=action(function() host:startBookReading(book) end)}},
+        {{text=_('Read now'),callback=action(function()
+            host:startBookReading(book,nil,{current=current})
+        end)}},
         {{text=_('Book details'),callback=action(function() host:showBookRecord(book) end)}},
         {{text=_('Shelf status'),callback=action(function() host:showShelfState(id) end)}},
         {{text=_('Cancel'),callback=action(function() end)}},
