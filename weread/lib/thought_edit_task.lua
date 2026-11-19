@@ -22,12 +22,13 @@ function M.preview(client,settings,selected,input)
                 local book=settings:get_book(input.book_id)
                 if not book then error('thought_edit/source',0) end
                 book.chapters=require('weread.lib.library_db'):new(settings):getChapters(input.book_id)
-                local reference=require('weread.lib.selection_reference').verify(input.reference,book,input.source_file)
-                if not reference then error('thought_edit/source',0) end
+                local reference,format=require('weread.lib.selection_reference').verify(input.reference,book,input.source_file)
+                if not reference or format~='web_xhtml' and format~='web_txt' then error('thought_edit/source',0) end
                 local source=require('weread.lib.source_currentness')
                 local access=source.capture(settings)
                 if not access or not access.web or access.web.cookies.wr_vid~=selected.scope.vid then error('thought_edit/source_access',0) end
-                if require('weread.lib.my_cloud_marks').id(input.book_id) then source.fetch(client,reference.source,access)
+                if require('weread.lib.my_cloud_marks').id(input.book_id) then source.fetch(client,reference.source,access,format)
+                elseif format=='web_txt' then source.fetch_cb_txt(client,reference.source,access)
                 else source.fetch_cb(client,reference.source,access) end
             else marks=auth:read_my_cloud_marks(selected.credentials,input.book_id) end
             metadata=auth:read_book_metadata(selected.credentials,input.book_id)

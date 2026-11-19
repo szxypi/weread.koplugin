@@ -50,4 +50,10 @@ expect(not Quote.project_context(raw,{text=anchor..' ',point_offset=a.point_offs
 expect(not Quote.project_context(raw,{text=anchor,point_offset=10000},b,text),'out-of-range native point accepted')
 local duplicate=prefix..text..'\n'..prefix..text..'\n'
 expect(not Quote.project_context(duplicate,a,b,text),'ambiguous repeated contexts accepted')
+expect(Quote.extract(raw,'48-110')==text,'UTF-16 quote could not be restored')
+expect(Quote.extract(with_bom,'48-110')==text,'BOM changed restored quote')
+expect(not Quote.extract(raw,'45-110'),'surrogate midpoint accepted by restore')
+expect(not Quote.extract(raw,'048-110'),'noncanonical range accepted by restore')
+expect(not Quote.extract(raw,'48-999999'),'out-of-range endpoint accepted by restore')
+expect(not Quote.extract('bad\255','0-1'),'invalid source accepted by restore')
 print('selection_txt_quote_spec: '..checks..' checks')

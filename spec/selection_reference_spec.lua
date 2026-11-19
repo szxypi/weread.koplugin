@@ -23,6 +23,7 @@ expect(row.chapterIdx==3 and row.source.raw_sha256==value.raw_sha256 and row.sou
 expect(Ref.parse(row.bookmarkId).range==row.range,'draft reference does not retain range')
 expect(Ref.same(row,assert(Ref.restore(book,nil,row.bookmarkId,archive))),'offline restore changed reference')
 expect(Ref.verify(row,book,nil,archive)~=nil,'valid cached reference rejected')
+expect(select(2,Ref.verify(row,book,nil,archive))=='web_xhtml','verified XHTML source format missing')
 local reference=F.clone(row);reference.markText='Different quote';expect(not Ref.verify(reference,book,nil,archive),'forged quote accepted')
 reference=F.clone(row);reference.source.chapter_idx=4;expect(not Ref.verify(reference,book,nil,archive),'stale chapter index accepted')
 reference=F.clone(row);reference.source.unknown=true;expect(not Ref.valid(reference,'900001'),'unknown source field accepted')
@@ -60,4 +61,32 @@ local cb_snapshot=F.snapshot(codec);cb_snapshot.book_id='CB_Synthetic'
 local cb_plan=Contract.make(codec,cb_snapshot,'create',imported,'Thought',nil,{bookId='CB_Synthetic',version=77},'900000')
 expect(Contract.validate_body('create',cb_plan.body) and cb_plan.body.chapterIdx==nil and cb_plan.body.isPrivate==1
     and cb_plan.body.abstract==imported.markText,'imported selection did not preserve verified private context')
+local prefix='A self-authored test begins with one emoji: 😀.\n'
+local txt_quote='A unique synthetic passage for testing a plain text highlight.'
+local txt=prefix..txt_quote..'\nA separate following sentence provides context.'
+local txt_render='<html><body><p>Synthetic TXT rendering.</p></body></html>'
+local txt_identity_raw=Identity.encode(imported_book,chapters,Identity.capture(imported_book),Crypto.sha256_hex(txt_render))
+local txt_identity=assert(Identity.decode(txt_identity_raw))
+local txt_metadata=assert(Source.bind(assert(Source.capture(imported_book,chapters[1],txt,'web_txt')),
+    txt_identity,path,Crypto.sha256_hex(txt_render)))
+members={[Identity.PATH]=txt_identity_raw,[Source.meta_path('2')]=txt_metadata,[Source.path_meta_path(path)]=txt_metadata,
+    [Source.raw_path(Crypto.sha256_hex(txt))]=txt,[path]=txt_render}
+local txt_row=assert(Ref.capture({file='/cached.epub',book_id='CB_Synthetic',chapter_uid='2',first=48,last=110,
+    text=txt_quote,chapters=chapters},archive))
+expect(txt_row.range=='48-110' and txt_row.markText==txt_quote,'TXT selection range was not UTF-16')
+expect(Ref.same(txt_row,assert(Ref.restore(imported_book,nil,txt_row.bookmarkId,archive))),'TXT draft did not restore')
+local verified,format=Ref.verify(txt_row,imported_book,nil,archive)
+expect(verified and Ref.same(verified,txt_row) and format=='web_txt','verified TXT identity or format missing')
+local function scalar_count(text) local n=0;for _char in text:gmatch('[%z\1-\127\194-\244][\128-\191]*') do n=n+1 end;return n end
+local Dom=require('weread.lib.source_dom');local context=assert(Dom.normalize(txt))
+local before=scalar_count(assert(Dom.normalize(prefix)));local selected=scalar_count(assert(Dom.normalize(txt_quote)))
+local first={file='/cached.epub',book_id='CB_Synthetic',chapter_uid='2',identity=txt_identity,metadata=txt_metadata,
+    render_path=path,text=context,point_offset=before}
+local last=F.clone(first);last.point_offset=before+selected
+local txt_native=assert(Ref.capture_native({first=first,last=last,text=txt_quote,chapters=chapters},archive))
+expect(Ref.same(txt_native,txt_row),'TXT native selection did not bind to source')
+last.metadata='changed';expect(not Ref.capture_native({first=first,last=last,text=txt_quote,chapters=chapters},archive),'foreign TXT metadata accepted')
+local forged=F.clone(txt_row);forged.markText='Changed';expect(not Ref.verify(forged,imported_book,nil,archive),'changed TXT quotation accepted')
+members[Source.raw_path(Crypto.sha256_hex(txt))]='changed'
+expect(not Ref.verify(txt_row,imported_book,nil,archive),'changed TXT source accepted')
 print('selection_reference_spec: '..checks..' checks')

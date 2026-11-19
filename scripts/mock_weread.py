@@ -235,6 +235,15 @@ class MockServer(ThreadingHTTPServer):
             source=source.replace('</body>',extra+'</body>')
         return source
 
+    def selection_quote(self,uid,marker):
+        if self.content_format=='txt':
+            first,last=map(int,marker.split('-'))
+            source=chapter_txt(uid).removeprefix('\ufeff').encode('utf-16-le')
+            if not 0<=first<last<=len(source)//2:raise ValueError('invalid TXT range')
+            return source[first*2:last*2].decode('utf-16-le')
+        from annotation_source_quotes import SourceQuotes
+        return SourceQuotes(self.chapter_source(uid),body_only=True).quote(marker)
+
     def route(self, method, target, data):
         readable_books=BOOKS+(CB_READING_BOOKS if self.cb_reading else [])
         if self.finish_fixture:
@@ -413,8 +422,7 @@ class MockServer(ThreadingHTTPServer):
                     if (set(data)!=required or data['bookId']!=selection_id or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style','colorStyle'))
                             or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=700
                             or data['type']!=1 or data['style'] not in (0,1,2) or data['colorStyle'] not in (0,1,2,3,4,5)):raise ValueError('invalid highlight body')
-                    from annotation_source_quotes import SourceQuotes
-                    if SourceQuotes(self.chapter_source(data['chapterUid']),body_only=True).quote(data['range']).strip()!=data['markText']:raise ValueError('invalid highlight source')
+                    if self.selection_quote(data['chapterUid'],data['range']).strip()!=data['markText']:raise ValueError('invalid highlight source')
                     identity='synthetic-new-highlight-'+str(self.highlight_posts+1)
                     row={k:v for k,v in data.items() if k not in {'bookId','bookVersion'}};row.update(bookmarkId=identity,createTime=1700000001+self.highlight_posts)
                     with self.lock:
@@ -453,8 +461,7 @@ class MockServer(ThreadingHTTPServer):
                             or data['bookVersion']!=700 or data['type']!=1 or data['isPrivate']!=1
                             or not isinstance(data['abstract'],str) or not 0<len(data['abstract'].encode())<=4096
                             or not isinstance(data['content'],str) or not 0<len(data['content'].encode())<=131072):raise ValueError('invalid selected quote request')
-                    from annotation_source_quotes import SourceQuotes
-                    if SourceQuotes(self.chapter_source(int(data['chapterUid'])),body_only=True).quote(data['range']).strip()!=data['abstract']:
+                    if self.selection_quote(int(data['chapterUid']),data['range']).strip()!=data['abstract']:
                         raise ValueError('selection quote does not address source')
                     identity='synthetic-selection-'+str(self.selection_posts+1)
                     row={k:data[k] for k in ('chapterUid','type','range','abstract','isPrivate','content')}

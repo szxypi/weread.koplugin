@@ -102,7 +102,9 @@ def run_ui(command,payload,plan,body,baseline,intent,authority,read,*,armed=Fals
 
 def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         uploader=upload_run,upload_factory=UploadProbe,observer_factory=Observer,source_factory=CbReadingProbe,ui_runner=run_ui,
-        prepare_fn=prepare,native_writes=2,result_label='CB_NATIVE_HIGHLIGHT_VERIFIED',final_check=None,source_sleep=time.sleep):
+        prepare_fn=prepare,native_writes=2,result_label='CB_NATIVE_HIGHLIGHT_VERIFIED',final_check=None,source_sleep=time.sleep,
+        source_format='web_xhtml',source_marker=TEXT,span_fn=span_project,upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED',
+        fixture_authorized=owned):
     report=dict(result='UNVERIFIED',phase='preflight',native_writes_allocated=0,authentication_posts=0,
                 fixture_only=True,existing_book_writes=0,private_values_in_report=False)
     current={'saved':saved,'sample':None,'observer':None,'ui':None}
@@ -114,7 +116,7 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
             try:
                 for key,value in current['saved']['cookies'].items():web.set_cookie(key,value)
                 web.verify_account();sample=web.inspect(target);web.verify_account()
-                if (sample.get('book_id')!=target or sample.get('source_format')!='web_xhtml' or TEXT not in sample.get('source','')
+                if (sample.get('book_id')!=target or sample.get('source_format')!=source_format or source_marker not in sample.get('source','')
                         or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
                         or not all(value is True for value in web.last_checks.values())):
                     report['source_failure']='invalid_sample';return False
@@ -137,24 +139,25 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         return False
     def trial(upload,receipt,_upload_plan,target):
         owner=current['saved']['vid'];sample=current['sample']
-        def authority():return bool(cb_id(target) and owned(upload,receipt,target,owner,grant,same_grant))
+        def authority():return bool(cb_id(target) and fixture_authorized(upload,receipt,target,owner,grant,same_grant))
         if not authority():return False
         if sample is None:return True
         state,_=upload.read();observer=observer_factory(target,grant,authority,intent);current['observer']=observer
         stage='observe'
         try:
             baseline=observer.observe(grant);version=observer.version(grant)
+            report['metadata_version_zero']=version==0
             if version==0 or observer.version(grant)!=version:raise ValueError('cb_native_highlight/version')
             stage='prepare'
             plan,body=prepare_fn(owner,target,state['attempt'],sample,version,baseline)
             row={'type':1,'chapterUid':body['chapterUid'],'range':body['range'],'markText':body['markText']}
-            span=span_project(sample['source'],target,sample['chapter_uid'],row)
+            span=span_fn(sample['source'],target,sample['chapter_uid'],row)
             chapters=[dict(row) for row in sample['chapters']]
             chosen=[row for row in chapters if str(row.get('chapterUid'))==sample['chapter_uid']]
             if len(chosen)!=1 or type(chosen[0].get('chapterIdx')) is not int:raise ValueError('cb_native_highlight/chapter')
             payload=dict(book=target,chapter=sample['chapter_uid'],chapter_idx=chosen[0]['chapterIdx'],source=sample['source'],
                 chapters=chapters,cookies=current['saved']['cookies'],native=grant,owner=owner,book_version=version,
-                body=body,first=span['first'],last=span['last'])
+                body=body,first=span['first'],last=span['last'],source_format=source_format)
             read=lambda:observer.observe(grant)
             stage='dry'
             dry=ui_runner(command,payload,plan,body,baseline,intent,authority,read,armed=False)
@@ -184,7 +187,7 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         result=uploader(upload,journal,grant,same_grant,source,apply=apply,cleanup_gate=trial)
         report['upload']=result;report['phase']=result.get('phase','unknown')
         if result.get('result')=='READ_ONLY_PREVIEW':report['result']='READ_ONLY_PREVIEW'
-        elif result.get('result')=='EPUB_IMPORT_AND_SOURCE_VERIFIED' and current['ui'] and current['ui']['result']=='PASS':
+        elif result.get('result')==upload_success and current['ui'] and current['ui']['result']=='PASS':
             report.update(result=result_label,native_writes=native_writes,independent_readbacks=native_writes,
                           fresh_offline=True,fixture_removed=True,original_records_restored=True,no_replay=True)
     except Exception:report['result']='UNVERIFIED'

@@ -1,6 +1,7 @@
 -- Source-bound selection references. Draft IDs retain only chapter/range/hash;
 -- restoring them requires the same verified source in a known cached EPUB.
 local Quote=require('weread.lib.selection_quote')
+local TxtQuote=require('weread.lib.selection_txt_quote')
 local Source=require('weread.lib.position_source')
 local Identity=require('weread.lib.book_file_identity')
 local Currentness=require('weread.lib.source_currentness')
@@ -45,7 +46,7 @@ local function archive(file,book,uid,read)
     local identity=data and Identity.decode(data[Identity.PATH]);local meta=data and data[Source.meta_path(uid)]
     local record=Source.decode_metadata(meta)
     if not identity or identity.book_id~=book or not record or record.book_id~=book or record.chapter_uid~=uid
-        or record.file_id~=identity.file_id or record.format~='web_xhtml' then fail('source') end
+        or record.file_id~=identity.file_id or record.format~='web_xhtml' and record.format~='web_txt' then fail('source') end
     local raw_path=Source.raw_path(record.raw_sha256)
     data=read(file,{[raw_path]=Source.MAX_BYTES,[record.render_path]=Source.MAX_RENDERED_BYTES})
     local verified=Source.verify_snapshot{metadata=meta,identity=identity,book_id=book,chapter_uid=uid,
@@ -68,8 +69,9 @@ end
 function M.capture(input,read)
     return guarded(function()
         if type(input)~='table' or not Marks.display_id(input.book_id) or not Marks.id(input.chapter_uid) then fail('scope') end
-        local raw=archive(input.file,input.book_id,input.chapter_uid,read)
-        local value=Quote.project(raw,input.first,input.last,input.text);if not value then fail('selection') end
+        local raw,record=archive(input.file,input.book_id,input.chapter_uid,read)
+        local value=(record.format=='web_txt' and TxtQuote or Quote).project(raw,input.first,input.last,input.text)
+        if not value then fail('selection') end
         return reference(input.book_id,input.chapter_uid,Candidate.chapter_index(input.chapters,input.chapter_uid),value)
     end)
 end
@@ -82,6 +84,11 @@ function M.capture_native(input,read)
         local raw,record,metadata=archive(a.file,a.book_id,a.chapter_uid,read)
         if a.metadata~=metadata or a.render_path~=record.render_path or a.identity.file_id~=record.file_id
             or b.identity.file_id~=record.file_id or a.identity.book_version~=record.book_version or b.identity.book_version~=record.book_version then fail('source_changed') end
+        if record.format=='web_txt' then
+            local value=TxtQuote.project_context(raw,a,b,input.text)
+            if not value then fail('selection') end
+            return reference(a.book_id,a.chapter_uid,Candidate.chapter_index(input.chapters,a.chapter_uid),value)
+        end
         local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
         local function endpoint(context,label)
             local text=context.text;local offset=context.point_offset
@@ -123,7 +130,7 @@ function M.capture_native(input,read)
         return reference(a.book_id,a.chapter_uid,Candidate.chapter_index(input.chapters,a.chapter_uid),value)
     end)
 end
-function M.restore(book,current_file,key,read)
+local function restore(book,current_file,key,read)
     return guarded(function()
         local parsed=M.parse(key);local id=type(book)=='table' and tostring(book.book_id or book.bookId or '')
         if not parsed or not Marks.display_id(id) then fail('scope') end
@@ -135,15 +142,22 @@ function M.restore(book,current_file,key,read)
                 seen[file]=true
                 local ok,raw,record=pcall(archive,file,id,parsed.chapter_uid,read)
                 if ok and record.raw_sha256==parsed.raw_sha256 then
-                    local quote=trim(Raw.quote(Raw.index(raw,{body_only=true}),parsed.range))
+                    local extracted=record.format=='web_txt' and TxtQuote.extract(raw,parsed.range)
+                        or record.format=='web_xhtml' and Raw.quote(Raw.index(raw,{body_only=true}),parsed.range)
+                    if not extracted then fail('source_changed') end
+                    local quote=trim(extracted)
                     local row=reference(id,parsed.chapter_uid,index,{range=parsed.range,abstract=quote,
                         raw_sha256=record.raw_sha256,raw_bytes=record.raw_bytes})
-                    return row
+                    return {row=row,format=record.format}
                 end
             end
         end
         fail('source_changed')
     end)
+end
+function M.restore(book,current_file,key,read)
+    local result,reason=restore(book,current_file,key,read)
+    return result and result.row or nil,reason
 end
 function M.same(a,b)
     for _i,key in ipairs({'selection','type','bookmarkId','range','chapterUid','chapterIdx','markText'}) do if a[key]~=b[key] then return false end end
@@ -153,7 +167,7 @@ function M.same(a,b)
 end
 function M.verify(row,book,current_file,read)
     if type(book)~='table' or not M.valid(row,tostring(book.book_id or book.bookId or '')) then return nil end
-    local restored=M.restore(book,current_file,row.bookmarkId,read)
-    return restored and M.same(restored,row) and restored or nil
+    local result=restore(book,current_file,row.bookmarkId,read)
+    if result and M.same(result.row,row) then return result.row,result.format end
 end
 return M

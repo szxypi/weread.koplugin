@@ -61,6 +61,33 @@ function M.project(raw,first,last,text)
     return nil,type(value)=='string' and value:match('^selection_txt_quote/[a-z_]+$') or 'selection_txt_quote/unavailable'
 end
 
+-- Reconstruct a draft from its canonical official UTF-16 range. The source
+-- record, book identity and digest must be independently verified by callers.
+function M.extract(raw,range)
+    local ok,value=pcall(function()
+        local a,b
+        if type(range)=='string' then a,b=range:match('^(%d+)%-(%d+)$') end
+        if not a or #a>10 or #b>10 or tostring(tonumber(a))~=a or tostring(tonumber(b))~=b then fail('boundary') end
+        a,b=tonumber(a),tonumber(b)
+        if not integer(a) or not integer(b) or a>=b then fail('boundary') end
+        if not Coordinates.build(raw,{format='web_txt'}) then fail('source') end
+        local source=raw:gsub('^\239\187\191','');local units,start,ending=0,nil,nil
+        for at,char in source:gmatch('()([%z\1-\127\194-\244][\128-\191]*)') do
+            if units==a then start=at end
+            if units==b then ending=at end
+            units=units+(#char==4 and 2 or 1)
+        end
+        if units==a then start=#source+1 end
+        if units==b then ending=#source+1 end
+        if not start or not ending or start>=ending then fail('boundary') end
+        local text=source:sub(start,ending-1)
+        if #text==0 or #text>Quote.MAX_QUOTE then fail('text') end
+        return text
+    end)
+    if ok then return value end
+    return nil,type(value)=='string' and value:match('^selection_txt_quote/[a-z_]+$') or 'selection_txt_quote/unavailable'
+end
+
 -- Resolve native endpoint contexts against one raw TXT source. This helper is
 -- intentionally unbound to a book or archive; callers must establish those
 -- identities separately before considering its result for any operation.

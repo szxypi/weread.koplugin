@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import threading
+from unittest.mock import patch
 
 from cb_fixture_selection_native_bridge import NativeSelectionBridge
 from cb_fixture_selection_trial import Intent,execute,prepare
@@ -25,28 +26,36 @@ def main():
     parser.add_argument('--run-dir',type=Path,required=True);parser.add_argument('--width',type=int,default=600)
     parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     parser.add_argument('--case',choices=('normal','orchestrated','thought_create','thought_edit','thought_delete','seed_delete','host_mismatch'),default='normal')
-    parser.add_argument('--associated',action='store_true');parser.add_argument('--auto-remove',action='store_true');args=parser.parse_args()
+    parser.add_argument('--associated',action='store_true');parser.add_argument('--auto-remove',action='store_true');parser.add_argument('--txt',action='store_true');args=parser.parse_args()
     if args.auto_remove and not args.associated or args.case=='seed_delete' and not args.associated:parser.error('requires associated mark')
+    if args.txt and args.case=='orchestrated':parser.error('TXT uses the scoped native supervisor')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);candidate=root/'candidate.zip'
     subprocess.run(['bash','scripts/package_release.sh',str(candidate)],check=True,capture_output=True)
     profiles=set(Path('/dev/shm').glob('weread-cb-selection-*'))
-    server=Server(args.case,args.associated,args.auto_remove);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    server=Server(args.case,args.associated,args.auto_remove);txt_patch=None
+    if args.txt:
+        from cb_txt_highlight_trial import BODY,TEXT,prepare as prepare_txt
+        from txt_coordinates import PlainSource
+        server.content_format='txt';txt_patch=patch('mock_weread.chapter_txt',return_value=BODY.decode());txt_patch.start()
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         grant=credentials();intent=Intent(Backend());native=ScopedSelectionNative(CB_READING_ID,grant,lambda:True,intent,opener=Opener(server))
-        baseline=native.observe(grant);raw=server.chapter_source(2)
-        sample=dict(book_id=CB_READING_ID,chapter_uid='2',chapters=CHAPTERS,source_format='web_xhtml',source=raw,
+        baseline=native.observe(grant);raw=BODY.decode() if args.txt else server.chapter_source(2)
+        sample=dict(book_id=CB_READING_ID,chapter_uid='2',chapters=CHAPTERS,source_format='web_txt' if args.txt else 'web_xhtml',source=raw,
                     source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest())
-        plan,context,body=prepare('900000',CB_READING_ID,'a'*32,sample,700,baseline,'b'*32)
-        span=span_project(raw,CB_READING_ID,'2',dict(type=1,chapterUid=2,range=body['range'],markText=body['abstract']))
+        options=dict(prepare_fn=lambda *v:prepare_txt(*v,range_unit='utf16')) if args.txt else {}
+        plan,context,body=prepare('900000',CB_READING_ID,'a'*32,sample,700,baseline,'b'*32,**options)
+        if args.txt:
+            first,last=PlainSource(raw).locate(TEXT);span=dict(first=first,last=last)
+        else:span=span_project(raw,CB_READING_ID,'2',dict(type=1,chapterUid=2,range=body['range'],markText=body['abstract']))
         from annotation_experiment_model import note_text
         payload=dict(book=CB_READING_ID,chapter='2',chapter_idx=2,source=raw,chapters=CHAPTERS,
             cookies={'wr_vid':'900000','wr_skey':'mock_key'},native=grant,owner='900000',book_version=700,
-            body=body,edited_text=note_text('b'*32,True),first=span['first'],last=span['last'])
+            body=body,edited_text=note_text('b'*32,True),first=span['first'],last=span['last'],source_format=sample['source_format'])
         os.environ.update(WEREAD_FIXTURE_SYNTHETIC='1',WEREAD_FIXTURE_MOCK_PORT=str(server.server_port))
         command=['python3','scripts/run_cb_fixture_selection_ui.py','--koreader',str(args.koreader),'--candidate',str(candidate),
                  '--width',str(args.width),'--height',str(args.height),'--dpi',str(args.dpi)]
         if args.case=='orchestrated':
-            from unittest.mock import patch
             from verify_cb_fixture_selection_native import run as orchestrate
             receipt=object()
             class Upload:
@@ -108,6 +117,7 @@ def main():
         finally:bridge.close()
     finally:
         server.shutdown();thread.join();server.server_close()
+        if txt_patch:txt_patch.stop()
         assert set(Path('/dev/shm').glob('weread-cb-selection-*'))==profiles,'native fixture profile leaked'
 
 

@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "sample": "synthetic imported TXT with a non-BMP character before the selection",
+  "screens": ["600x800@167", "1264x1680@300"],
+  "native_highlight": {"create_and_delete": true, "dry_run_blocked": true, "offline_reopen": true},
+  "native_private_thought": {"create_edit_delete": true, "dry_run_blocked": true, "offline_reopen": true},
+  "unknown_receipt": {"highlight_create_not_replayed": true, "thought_create_not_replayed": true, "thought_edit_not_replayed": true},
+  "source_mismatch_blocks_preview": true,
+  "xhtml_native_highlight_regression": "600x800@167",
+  "cloud_writes": 0,
+  "limitations": ["loopback mock only", "real TXT native write and official saved-highlight display not yet tested", "physical Kindle not tested"]
+}
