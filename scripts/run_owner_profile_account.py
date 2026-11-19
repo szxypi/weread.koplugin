@@ -11,20 +11,23 @@ from run_persistent_ui_probe import extract_candidate, run_child
 from run_owner_reading_probe import check_installed
 
 FRAME=b'\nWEREAD_PROFILE_ACCOUNT_UI='
-FLAGS={'name_matches','sqlite_verified','offline_cache','worker_reaped','account_isolated','credentials_not_on_disk'}
+FLAGS={'name_matches','sqlite_verified','offline_cache','worker_reaped','account_isolated','credentials_not_on_disk',
+       'statistics_verified','concurrent_started'}
 
 
-def decode_stage(raw,mode):
+def decode_stage(raw,mode,with_statistics=False):
     if not isinstance(raw,bytes) or len(raw)>2*1024*1024 or raw.count(FRAME)!=1:raise ValueError('frame')
     value=json.loads(raw.split(FRAME)[1])
-    if (not isinstance(value,dict) or set(value)!=FLAGS|{'result','mode','phase','requests','forbidden','failed_line'}
+    if (not isinstance(value,dict) or set(value)!=FLAGS|{'result','mode','phase','requests','statistics_requests','forbidden','failed_line'}
             or value['result'] not in ('PASS','UNVERIFIED') or value['mode']!=mode
             or value['phase'] not in ('init','profile','audit','complete')
             or any(type(value[key]) is not bool for key in FLAGS)
-            or any(type(value[key]) is not int or not 0<=value[key]<=1000 for key in ('requests','forbidden','failed_line'))):
+            or any(type(value[key]) is not int or not 0<=value[key]<=1000 for key in ('requests','statistics_requests','forbidden','failed_line'))):
         raise ValueError('schema')
-    if value['result']=='PASS' and (value['phase']!='complete' or not all(value[key] for key in FLAGS-{'offline_cache'})
+    if value['result']=='PASS' and (value['phase']!='complete' or not all(value[key] for key in FLAGS-{'offline_cache','statistics_verified','concurrent_started'})
             or value['offline_cache']!=(mode=='reopen') or value['requests']!=(1 if mode=='live' else 0)
+            or value['statistics_verified']!=with_statistics or value['concurrent_started']!=(with_statistics and mode=='live')
+            or not (1<=value['statistics_requests']<=24 if with_statistics and mode=='live' else value['statistics_requests']==0)
             or value['forbidden'] or value['failed_line']):raise ValueError('incomplete')
     return value
 
@@ -34,6 +37,7 @@ def main(argv=None):
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--candidate',type=Path,required=True)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800)
     parser.add_argument('--dpi',type=int,default=167);parser.add_argument('--mock-port',type=int)
+    parser.add_argument('--with-statistics',action='store_true')
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('requires Linux and KOReader')
     if args.mock_port is not None and not 1<=args.mock_port<=65535:parser.error('invalid mock port')
@@ -45,6 +49,7 @@ def main(argv=None):
         if len(raw)>65536:raise ValueError('input')
         payload=json.loads(raw)
         if payload.get('mock_port')!=args.mock_port:raise ValueError('input')
+        if (payload.get('with_statistics') is True)!=args.with_statistics:raise ValueError('input')
         if args.mock_port is not None and (payload.get('owner')!='900000' or payload.get('cookies',{}).get('wr_skey')!='mock-only'):
             raise ValueError('input')
         with tempfile.TemporaryDirectory(prefix='weread-profile-',dir='/dev/shm') as temporary:
@@ -56,7 +61,7 @@ def main(argv=None):
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/owner_profile_account_ui.lua'
             for mode in ('live','reopen'):
                 code,out,repaint=run_child([str(runtime/'luajit'),str(probe),mode],env,raw,runtime,timeout=100)
-                stage=decode_stage(out,mode);report['stages'].append(stage)
+                stage=decode_stage(out,mode,args.with_statistics);report['stages'].append(stage)
                 if code or repaint or stage['result']!='PASS':raise ValueError('stage')
             check_installed(args.candidate,profile);report.update(installed_bytes_match=True,result='PASS')
     except Exception:
