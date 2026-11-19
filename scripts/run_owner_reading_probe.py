@@ -42,6 +42,7 @@ def main(argv=None):
     parser.add_argument('--cb-single-page',action='store_true')
     parser.add_argument('--diagnostic-read-pacing', action='store_true')
     addons.add_argument('--annotations', action='store_true')
+    parser.add_argument('--thought-replies-reader', action='store_true', help='Verify one public thought reply in ReaderUI')
     addons.add_argument('--annotation-recovery', action='store_true')
     addons.add_argument('--progress-preview', action='store_true')
     addons.add_argument('--progress-roundtrip', action='store_true')
@@ -61,6 +62,8 @@ def main(argv=None):
     parser.add_argument('--off-shelf-mock-port',type=int)
     parser.add_argument('--resume-mock-port',type=int,help='Synthetic missing-resume fixture only')
     args = parser.parse_args(argv)
+    if args.thought_replies_reader and not args.annotations:
+        parser.error('--thought-replies-reader requires --annotations')
     if args.off_shelf_store and not args.off_shelf_home:parser.error('--off-shelf-store requires --off-shelf-home')
     if args.off_shelf_cover and not args.off_shelf_store:parser.error('--off-shelf-cover requires --off-shelf-store')
     if args.off_shelf_marks and not args.off_shelf_store:parser.error('--off-shelf-marks requires --off-shelf-store')
@@ -168,7 +171,12 @@ def main(argv=None):
         if args.cb_sync_limit:
             from cb_sync_limit_contract import decode_envelope as decoder
         if args.annotations:
-            from owner_annotation_contract import decode
+            if args.thought_replies_reader:
+                from owner_thought_replies_contract import decode
+                if not isinstance(payload.get('annotations', {}).get('reply_check'), dict): raise ValueError('input_limit')
+            else:
+                from owner_annotation_contract import decode
+                if 'reply_check' in payload.get('annotations', {}): raise ValueError('input_limit')
             decoder = decode
         if args.annotation_recovery:
             from owner_recovery_contract import decode
@@ -231,7 +239,8 @@ def main(argv=None):
                 if args.cb_sync_limit:
                     command.append(str(probe.with_name('owner_cb_sync_limit_case.lua')))
                 if args.annotations:
-                    command.append(str(probe.with_name('owner_annotations_case.lua')))
+                    command.append(str(probe.with_name('owner_thought_replies_case.lua' if args.thought_replies_reader
+                                                       else 'owner_annotations_case.lua')))
                 if args.annotation_recovery:
                     command.append(str(probe.with_name('owner_expired_annotations_case.lua')))
                 if args.progress_preview:

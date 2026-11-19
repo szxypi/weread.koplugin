@@ -621,6 +621,16 @@ local ok,reason=pcall(function()
                     +(stamp and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 and 128 or 0)
                 counters[22]=({shelf_progress=1,position_readback=2,source_currentness=3})[options.diagnostic_api] or 4
             end
+            if input.annotations and input.annotations.reply_check and counters[6]==0 then
+                local url,h=options.url or '',options.headers or {}
+                local id,stamp=url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=([1-9]%d*)&_=(%d+)$')
+                if not id then id,stamp=url:match('^https://weread%.qq%.com/web/book/getProgress%?bookId=(CB_[A-Za-z0-9]+)&_=(%d+)$') end
+                counters[27]=(id and 1 or 0)+(id and progress_urls['https://weread.qq.com/web/book/getProgress?bookId='..id] and 2 or 0)
+                    +(options.diagnostic_api=='shelf_progress' and 4 or 0)+(options.sensitive==true and 8 or 0)
+                    +(options.skip_cookie==true and 16 or 0)+(options.persist_response_cookies==false and 32 or 0)
+                    +(stamp and #stamp<=16 and math.abs(tonumber(stamp)-os.time()*1000)<=30000 and 64 or 0)
+                    +(id and h.Referer==Protocol.reader_url(id) and 128 or 0)
+            end
             if counters[6]==0 then
                 local url,h=options.url or '',options.headers or {}
                 counters[9]=url:find('/web/book/getProgress',1,true) and 1

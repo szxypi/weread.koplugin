@@ -12,6 +12,20 @@
 
 另在真实 KOReader 阅读界面加载合成 EPUB，使用原生授权、HTTP、SQLite 和正文划线定位，点击划线后长按想法，从居中及底部弹窗进入回复列表；每种布局均加载两页并返回。对读取前后的阅读页、精确阅读位置和章节来源缓存进行比较，并测试请求延迟期间关闭弹窗，不显示迟到的回复。此项运行于 600×800 与 1264×1680（Kindle Oasis 2 分辨率）的隔离模拟环境，所有数据均由本地模拟服务提供。
 
-真实账号只读获取一章的 96 条公开想法，确认其书籍、章节和内外想法编号；其中一条想法有一条回复。在 KOReader 原生弹窗和覆盖层入口中，用内存模拟阅读器上下文和章节缓存，后台核对该想法并通过实际 HTTPS 读取回复，与独立读取逐项一致。独立核对包含六次只读请求，其中目录和想法查询使用只读 POST；原生界面另发一次回复 GET。没有账号数据写入、真实内容文件或真实截图。该次只覆盖一章和一条有回复的想法，不代表已经在真实 ReaderUI、所有书籍或实体 Kindle 上验收。
+真实账号还在完整 KOReader 阅读界面进行只读验证：从插件书架进入当前章节，实际定位划线、长按公开想法并打开回复，将显示内容与独立请求逐项比较。600×800 和 1264×1680 模拟尺寸均检查了关闭弹窗后的本地位置、章节缓存和前后云端进度；随后在全新离线进程中重开阅读并核对已有划线与想法，未尝试离线读取回复。验收使用临时内存文件系统，完成后清理；没有账号数据写入或私人截图。该验证只覆盖一本书、一章及一条有回复的想法，不代表所有书籍或实体 Kindle 均已验收。
 
 `scripts/verify_thought_replies.py` 默认离线；显式使用保存的会话和私有进程时，真实数据仅通过内存管道比较。
+
+完整阅读器验证使用打包候选、保存在钥匙串中的授权和隔离的 KOReader 运行环境：
+
+```sh
+bash scripts/package_release.sh ../.validation/owner-replies-reader-candidate.zip
+python3 scripts/verify_owner_annotations.py --saved-session --reader-replies --lua-command \
+  docker exec -i -w /source weread-validation xvfb-run -a \
+  python3 scripts/run_owner_reading_probe.py \
+  --koreader /validation/runtime/lib/koreader \
+  --candidate /validation/owner-replies-reader-candidate.zip \
+  --annotations --thought-replies-reader
+```
+
+末尾追加 `--width 1264 --height 1680 --dpi 300` 可验证 KO2 分辨率。工具只公开固定状态和计数，不输出正文、回复或凭据；验证期间正文、回复和临时配置仅驻留内存。

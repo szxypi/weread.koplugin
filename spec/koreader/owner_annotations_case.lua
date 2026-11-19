@@ -258,7 +258,8 @@ return function(input, mode, counters, dependencies)
             end
             local review
             for _j, row in ipairs(source.reviews) do if row.range == record.range then review = row; break end end
-            if not selected and review and #review.pageReviews > 0 then
+            if not selected and review and #review.pageReviews > 0
+                and (not config.reply_check or record.range == config.reply_check.range) then
                 selected, expected = record, require("weread.lib.annotations").buildThoughtPopupItems(review)
             end
         end
@@ -278,6 +279,7 @@ return function(input, mode, counters, dependencies)
         for _i, item in ipairs(expected) do
             for _j, field in ipairs({ "content", "author", "abstract" }) do assert(popup.items[_i][field] == item[field]) end
         end
+        if self.check_replies then self:check_replies(plugin, reader, popup, pump, tick, source) end
         UI:forceRePaint(); require("weread.ui.thought_popup").closeVisible()
         self.report.popup_matches_cached_items = true
     end

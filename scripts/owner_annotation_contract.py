@@ -42,8 +42,9 @@ def digest(underlines, reviews):
     return hashlib.sha256(b''.join(parts)).hexdigest()
 
 
-def prepare(payload, credentials, raw_source):
+def prepare(payload, credentials, raw_source, *, include_replies=False, diagnostics=None):
     probe = AnnotationProbe()
+    if diagnostics is not None: diagnostics['annotations'] = probe.report['stages']
     probe.book_id, probe.chapter_uid = payload['book_id'], payload['chapter_uid']
     raw = probe.request('underlines', BASE + '/book/underlines?' + urlencode(dict(
         bookId=probe.book_id, chapterUid=probe.chapter_uid, synckey=0)), credentials=credentials)
@@ -67,9 +68,32 @@ def prepare(payload, credentials, raw_source):
     summary = probe.summary(payload['shelf_books'])
     if not summary['all_requested_range_pages_complete'] or not summary['thought_items']:
         raise ValueError('annotations_incomplete_page_scope')
-    return dict(credentials=credentials, ranges=[row['range'] for row in underlines],
+    result = dict(credentials=credentials, ranges=[row['range'] for row in underlines],
                 source_quotes_digest=SourceQuotes(raw_source).digest([row['range'] for row in underlines]),
                 digest=digest(underlines, reviews), underlines=len(underlines), thought_items=summary['thought_items'])
+    if include_replies:
+        from verify_thought_replies import SingleProbe
+        target = None
+        for row in reviews:
+            for index, page in enumerate(row['pageReviews'], 1):
+                review, identity = page.get('review'), page.get('reviewId')
+                if (type(page.get('commentsCount')) is int and page['commentsCount'] > 0
+                        and isinstance(identity, str) and 0 < len(identity) <= 256 and not any(c.isspace() for c in identity)
+                        and isinstance(review, dict) and review.get('reviewId') == identity
+                        and str(review.get('bookId')) == probe.book_id and str(review.get('chapterUid')) == probe.chapter_uid
+                        and type(review.get('type')) is int and review['type'] == 1 and review.get('isPrivate') in (None, 0)):
+                    target = (row['range'], index, identity); break
+            if target: break
+        if not target: raise ValueError('no_matching_thought_with_replies')
+        marker, index, identity = target
+        query = dict(reviewId=identity, commentsCount=21, commentsDirection=0, likesCount=0, synckey=0)
+        single = SingleProbe(identity)
+        if diagnostics is not None: diagnostics['replies'] = single.report['stages']
+        expected = single.request('single', BASE+'/review/single?'+urlencode(query), credentials=credentials)
+        if not isinstance(expected.get('comments'), list) or not 1 <= len(expected['comments']) <= 21:
+            raise ValueError('no_reply_sample')
+        result['reply_check'] = dict(range=marker, index=index, review_id=identity, expected=expected)
+    return result
 
 
 def validate(value, mode, complete):

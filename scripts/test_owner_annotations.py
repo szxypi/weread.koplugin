@@ -100,6 +100,38 @@ class OwnerAnnotationsTests(unittest.TestCase):
             contract.prepare(dict(book_id='900001',chapter_uid='2',shelf_books=1),{},'x'*100)
         self.assertEqual(request.call_count,1)
 
+    def test_reply_candidate_is_same_book_chapter_and_independently_read(self):
+        from verify_native_annotations import AnnotationProbe
+        from verify_thought_replies import SingleProbe
+        marker='10-20'; body=dict(bookId='900001',chapterUid=2,type=1,isPrivate=0,reviewId='synthetic-thought',content='synthetic')
+        page=dict(reviewId='synthetic-thought',commentsCount=1,review=body)
+        rows=[dict(range=marker,hasMore=0,totalCount=1,pageReviews=[page])]
+        payload=dict(book_id='900001',chapter_uid='2',shelf_books=1)
+        reply=dict(comments=[dict(commentId='synthetic-reply')])
+        with patch.object(AnnotationProbe,'request',side_effect=[dict(underlines=[dict(range=marker)]),dict(reviews=rows)]), \
+                patch.object(SingleProbe,'request',return_value=reply) as read,patch.object(contract.time,'sleep'):
+            result=contract.prepare(payload,dict(vid=OWNER),'x'*100,include_replies=True)
+        self.assertEqual(result['reply_check'],dict(range=marker,index=1,review_id='synthetic-thought',expected=reply))
+        self.assertEqual(read.call_count,1)
+        body['chapterUid']=3
+        with patch.object(AnnotationProbe,'request',side_effect=[dict(underlines=[dict(range=marker)]),dict(reviews=rows)]), \
+                patch.object(SingleProbe,'request') as read,patch.object(contract.time,'sleep'),self.assertRaises(ValueError):
+            contract.prepare(payload,dict(vid=OWNER),'x'*100,include_replies=True)
+        read.assert_not_called()
+
+    def test_reply_acceptance_requires_comparison_and_offline_zero_requests(self):
+        from owner_thought_replies_contract import decode
+        value=envelope()
+        for mode,row in zip(('live','reopen'),value['report']['stages']):
+            row['annotations']=addon(mode)
+            row['annotations']['reply_check']=dict(compared=mode=='live',parent_closed=mode=='live',
+                                                  position_unchanged=mode=='live',requests=int(mode=='live'),denied_progress=0)
+        self.assertEqual(decode(frame(value),OWNER)['report']['result'],'PASS')
+        for mode,key,changed in ((0,'compared',False),(0,'requests',0),(0,'denied_progress',1),
+                                 (1,'requests',1),(1,'parent_closed',True),(1,'denied_progress',1)):
+            bad=copy.deepcopy(value);bad['report']['stages'][mode]['annotations']['reply_check'][key]=changed
+            with self.assertRaises(ValueError):decode(frame(bad),OWNER)
+
     def run_online(self, *, unmatched=0, moved=False, failure=False):
         web=MagicMock();web.vid=OWNER;web.book_id='900001';web.report=dict(stages=[])
         web.prepare.return_value=dict(book_id='900001',chapter_uid='2',shelf_books=1)
