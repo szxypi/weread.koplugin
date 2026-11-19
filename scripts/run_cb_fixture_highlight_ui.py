@@ -30,6 +30,10 @@ def run(payload, runtime, candidate, width, height, dpi):
                 or not isinstance(payload.get('cookies'), dict) or not isinstance(payload.get('native'), dict)):
             raise ValueError('cb_highlight/input')
         armed = payload['armed']; token = payload.get('token')
+        styles = payload.get('styles', False)
+        if type(styles) is not bool or styles and os.environ.get('WEREAD_FIXTURE_SYNTHETIC') != '1':
+            raise ValueError('cb_highlight/style_scope')
+        writes = 4 if styles else 2
         if not isinstance(token, str) or len(token) != 32 or any(c not in '0123456789abcdef' for c in token):
             raise ValueError('cb_highlight/input')
         secrets = [value.encode() for mapping in (payload['cookies'], payload['native']) for key, value in mapping.items()
@@ -68,12 +72,12 @@ def run(payload, runtime, candidate, width, height, dpi):
                         if not armed and steps: raise ValueError('cb_highlight/step')
                         sys.stdout.buffer.write(b'\n' + frames.prefix + b'STEP=' + json.dumps(value,separators=(',', ':')).encode() + b'\n')
                         sys.stdout.buffer.flush(); reply(child.stdin, read_reply(sys.stdin.buffer)); steps += 1
-                    if child.wait(timeout=15): raise ValueError('cb_highlight/child')
+                    status = child.wait(timeout=15)
                     expected = (dict(result='PASS',fresh_offline=True,requests=0,pending_cleared=True) if reopened else
-                                dict(result='PASS',native_controls=True,source_verified=True,writes=2,denied=0,pending_cleared=True) if armed else
+                                dict(result='PASS',native_controls=True,source_verified=True,writes=writes,denied=0,pending_cleared=True) if armed else
                                 dict(result='DRY_RUN',write_blocked=True,writes=0,denied=0))
-                    if value != expected or steps != (0 if reopened else 2 if armed else 1):
-                        report['stage'] = {k:value[k] for k in ('result','phase','failure_line') if k in value}
+                    if status or value != expected or steps != (0 if reopened else writes if armed else 1):
+                        report['stage'] = {k:value[k] for k in ('result','phase','failure_line','retained_pending','no_retry') if k in value}
                         raise ValueError('cb_highlight/stage')
                 finally:
                     if child.poll() is None:
@@ -83,7 +87,7 @@ def run(payload, runtime, candidate, width, height, dpi):
                 for path in profile.rglob('*'):
                     if path.is_file() and not path.is_symlink() and any(secret in path.read_bytes() for secret in secrets):
                         raise ValueError('cb_highlight/credential_storage')
-            report.update(result='PASS' if armed else 'DRY_RUN', native_controls=True, writes=2 if armed else 0,
+            report.update(result='PASS' if armed else 'DRY_RUN', native_controls=True, writes=writes if armed else 0,
                           fresh_offline=armed, credentials_not_persisted=True)
     except Exception:
         pass

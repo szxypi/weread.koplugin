@@ -14,6 +14,8 @@ local ok,reason=pcall(function()
         and type(input.token)=='string' and input.token:match('^[a-f0-9]+$') and #input.token==32)
     local reopen=os.getenv('WEREAD_CB_HIGHLIGHT_REOPEN')=='1'
     local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
+    local styles=input.styles==true
+    assert((input.styles==nil or type(input.styles)=='boolean') and (not styles or synthetic))
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
     require('gettext').changeLang('zh_CN')
@@ -77,12 +79,13 @@ local ok,reason=pcall(function()
         if native_ok and options.method=='GET' and options.body==nil and reads[options.url] and counts[0]<80 then
             counts[0]=counts[0]+1;options.persist_response_cookies=false;return request(self,options)
         end
-        local operation=({[base..'/book/addBookmark']='create',[base..'/book/removeBookmark']='delete'})[options.url]
+        local operation=({[base..'/book/addBookmark']='create',[base..'/book/removeBookmark']='delete',
+            [base..'/book/updateBookmark']=styles and 'style' or nil})[options.url]
         if native_ok and options.method=='POST' and operation and type(options.body)=='string' and gate then
             assert(tonumber(ffi.C.getpid())~=parent,'highlight write on UI thread')
             local body=self:json_decode(options.body)
             if not gate:claim(operation,body) then counts[3]=counts[3]+1;error('cb_highlight/dry_run',0) end
-            counts[1]=counts[1]+1;assert(counts[1]<=2);options.persist_response_cookies=false;return request(self,options)
+            counts[1]=counts[1]+1;assert(counts[1]<=(styles and 4 or 2));options.persist_response_cookies=false;return request(self,options)
         end
         if web_guard(options,0,function(body) return self:json_decode(body) end)=='read' and counts[0]<80 then
             counts[0]=counts[0]+1;options.persist_response_cookies=false;return request(self,options)
@@ -122,7 +125,7 @@ local ok,reason=pcall(function()
     assert(Content.save_catalog_cache(client,settings,book,input.chapters));settings:set('books',{[input.book]=book});settings:flush()
     local main=host();assert(main.library_db:putChapters(input.book,input.chapters))
     gate=dofile(fixtures..'native_highlight_trial_gate.lua'):new({permit_writes=input.armed,book_id=input.book,
-        original_ids={},create_body=input.body},main.library_db,main.client,home)
+        original_ids={},create_body=input.body,styles=styles},main.library_db,main.client,home)
     main:openChapter(book,target);wait(function() return Reader.instance and Reader.instance.weread end)
     reader=Reader.instance;plugin=reader.weread
     plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
@@ -161,11 +164,32 @@ local ok,reason=pcall(function()
     local created=saved.updated[1].bookmarkId;acknowledge({seq=1,created_id=created});gate:advance(created)
     require('weread.ui.selection_thought').cancel(plugin);assert(plugin:showMyCloudMarks(input.book));owner=assert(plugin._my_marks_owner)
     local item;for _i,value in ipairs(owner.menu.item_table) do if value.my_note_id==created then item=value end end
-    assert(item);item.callback();result.phase='delete';tap('delete_highlight');submit()
-    assert(gate:read().phase=='delete_pending' and journal:read().phase=='idle');acknowledge({seq=2,created_id=created})
-    saved=assert(cache:read(input.book));assert(#saved.updated==0 and counts[1]==2 and counts[2]==0)
+    assert(item)
+    if styles then
+        for step,style in ipairs({0,2}) do
+            result.phase='style'..style;item.callback();tap('change_highlight_style')
+            UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_'..style)):onTapSelectButton()
+            submit()
+            if journal:read().phase=='pending' then
+                assert(synthetic and gate:read().phase=='style'..style..'_pending' and counts[1]==step+1)
+                item.callback();tap('change_highlight_style')
+                UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_'..style)):onTapSelectButton()
+                wait(function() return not owner.mark_editor end)
+                assert(journal:read().phase=='pending' and counts[1]==step+1 and counts[2]==0)
+                result={result='UNCONFIRMED',phase=result.phase,retained_pending=true,no_retry=true};return
+            end
+            assert(gate:read().phase=='style'..style..'_pending' and journal:read().phase=='idle')
+            saved=assert(cache:read(input.book));assert(#saved.updated==1 and saved.updated[1].style==style and saved.updated[1].colorStyle==0)
+            acknowledge({seq=step+1,created_id=created});gate:advance_style(created,style)
+            item=nil;for _i,value in ipairs(owner.menu.item_table) do if value.my_note_id==created then item=value end end
+            assert(item)
+        end
+    end
+    item.callback();result.phase='delete';tap('delete_highlight');submit()
+    assert(gate:read().phase=='delete_pending' and journal:read().phase=='idle');acknowledge({seq=styles and 4 or 2,created_id=created})
+    saved=assert(cache:read(input.book));assert(#saved.updated==0 and counts[1]==(styles and 4 or 2) and counts[2]==0)
     plugin:cancelMyCloudMarks();plugin:onFlushSettings();reader:onClose(false)
-    result={result='PASS',native_controls=true,source_verified=true,writes=2,denied=0,pending_cleared=true}
+    result={result='PASS',native_controls=true,source_verified=true,writes=styles and 4 or 2,denied=0,pending_cleared=true}
 end)
 if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('cb_fixture_highlight_ui%.lua:(%d+):')) or 0 end
 if input and type(input.token)=='string' and input.token:match('^[a-f0-9]+$') and #input.token==32 then
