@@ -5,12 +5,12 @@ must prove its own abstract; nearby highlights and the thought text cannot
 stand in for a missing quoted source.
 """
 import re
-from my_cloud_marks_model import identifier,integer,text
+from my_cloud_marks_model import display_identifier,identifier,integer,text
 from my_mark_target import project as highlight_target
 
 
 def reference(book,chapter,row):
-    if (not identifier(book) or not identifier(chapter) or not isinstance(row,dict)
+    if (not display_identifier(book) or not identifier(chapter) or not isinstance(row,dict)
             or not text(row.get('reviewId'),256,False) or any(c.isspace() for c in row['reviewId'])
             or row.get('bookId') is not None and str(row['bookId'])!=book
             or not integer(row.get('chapterUid'),2147483647) or row['chapterUid']==0 or str(row['chapterUid'])!=chapter

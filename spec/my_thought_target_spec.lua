@@ -9,6 +9,10 @@ local first=assert(raw:find('Unique',1,true))-1;local last=assert(raw:find('</b>
 local row={reviewId='synthetic-review',type=1,chapterUid=2,range=first..'-'..last,abstract='Unique quoted & selected text',content='My separate thought',isPrivate=1}
 local expected=assert(Mark.project(raw,'41','2',{type=1,chapterUid=2,range=row.range,markText=row.abstract}))
 local value=assert(Target.project(raw,'41','2',row));expect(Target.can_locate(row) and value.chapter_offset==expected.chapter_offset and value.upload_verified==false,'quote adapter changed source units')
+local imported=assert(Target.project(raw,'CB_Synthetic','2',row))
+expect(imported.book_id=='CB_Synthetic' and imported.chapter_offset==value.chapter_offset and imported.upload_verified==false,'imported quote lost validated read-only source')
+local foreign=copy(row);foreign.bookId='CB_Other'
+expect(not Target.project(raw,'CB_Synthetic','2',foreign),'foreign imported-book quote was accepted')
 for _i,bad in ipairs({{bookId='42'},{chapterUid=3},{chapterUid='2'},{chapterUid=true},{type=0},{type=true},{reviewId=''},{reviewId='bad id'},{reviewId='bad　id'},
     {abstract=''},{abstract='different'},{abstract='bad\255'},{range='1-2'},{range='1:2'},{range='2-1'},{range='0-99999999999'}}) do
     local changed=copy(row);for k,v in pairs(bad) do changed[k]=v end

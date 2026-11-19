@@ -7,7 +7,6 @@ local Dom=require('weread.lib.source_dom')
 local Data=require('weread.lib.my_cloud_marks')
 local Crypto=require('weread.lib.crypto')
 local Protocol=require('weread.lib.protocol')
-local ReadAccess=require('weread.lib.read_access')
 local M={}
 local function fail(reason) error('my_mark_target/'..reason,0) end
 local function integer(value,max) return type(value)=='number' and value>=0 and value%1==0 and value<=max end
@@ -30,9 +29,9 @@ function M.can_locate(row)
     local first,last=row.range:match('^(%d+)%-(%d+)$')
     return first~=nil and #first<=10 and #last<=10 and tonumber(first)<tonumber(last) and tonumber(last)<=2147483647
 end
-local function project(raw,book,chapter,row,search)
+local function project(raw,book,chapter,row)
     local ok,value=pcall(function()
-        if not (search and ReadAccess.display_book_id(book) or Data.id(book)) or not Data.id(chapter) or type(row)~='table' or row.type~=1
+        if not Data.display_id(book) or not Data.id(chapter) or type(row)~='table' or row.type~=1
             or not integer(row.chapterUid,2147483647) or tostring(row.chapterUid)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book then fail('scope') end
         local quote=row.markText
@@ -82,14 +81,14 @@ local function project(raw,book,chapter,row,search)
     if ok then return value end
     return nil,type(value)=='string' and value:match('^my_mark_target/[a-z_]+$') and value or 'my_mark_target/unavailable'
 end
-function M.project(raw,book,chapter,row) return project(raw,book,chapter,row,false) end
-function M.project_search(raw,book,chapter,row) return project(raw,book,chapter,row,true) end
+function M.project(raw,book,chapter,row) return project(raw,book,chapter,row) end
+function M.project_search(raw,book,chapter,row) return project(raw,book,chapter,row) end
 -- Independent worker-only archive reads. No raw text or path from the mark
 -- becomes a filename; candidates come from the reader and this book's cache.
 local function bind_file(file,book,row,request_id,read_archive,projection,search)
     local ok,value=pcall(function()
         if type(file)~='string' or file=='' or #file>4096 or file:find('[%z%c]')
-            or not (search and ReadAccess.display_book_id(book) or Data.id(book))
+            or not Data.display_id(book)
             or type(row)~='table' or not integer(row.chapterUid,2147483647) then fail('scope') end
         local uid=tostring(row.chapterUid)
         local Source=require('weread.lib.position_source')
@@ -126,7 +125,7 @@ end
 local function resolve(book,current_file,row,request_id,read_archive,projection,search)
     if type(book)~='table' then return {error='my_mark_target/scope',request_id=request_id} end
     local raw_id=tostring(book.book_id or book.bookId or '')
-    local id=search and ReadAccess.display_book_id(raw_id) or Data.id(raw_id)
+    local id=Data.display_id(raw_id)
     local uid=type(row)=='table' and tostring(row.chapterUid)
     if not id or not uid then return {error='my_mark_target/scope',request_id=request_id} end
     local seen={}

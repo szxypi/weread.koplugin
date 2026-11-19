@@ -8,7 +8,7 @@ import hashlib
 import re
 
 from annotation_source_quotes import SourceQuotes
-from my_cloud_marks_model import identifier,integer,text
+from my_cloud_marks_model import display_identifier,identifier,integer,text
 from verify_source_coordinates import FilteredSource,CoordinateError
 
 
@@ -19,7 +19,7 @@ def flat(value):return ''.join(char for char in value if not char.isspace())
 
 
 def project(raw,book,chapter,row):
-    if not identifier(book) or not identifier(chapter):fail('scope')
+    if not display_identifier(book) or not identifier(chapter):fail('scope')
     if (not isinstance(row,dict) or row.get('type')!=1 or type(row.get('type')) is not int
             or str(row.get('chapterUid'))!=chapter or not integer(row.get('chapterUid'),2147483647)
             or row.get('bookId') is not None and str(row['bookId'])!=book):fail('scope')

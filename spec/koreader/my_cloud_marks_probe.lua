@@ -163,8 +163,10 @@ local ok,reason=pcall(function()
     assert(same(owner.value,expected))
     if imported then
         local notice=false
+        local label=thoughts and 'Imported book thought quotes can be located when verified; editing is not yet supported.'
+            or 'Imported book highlights can be located when verified; bookmark location and editing are not yet supported.'
         for _i,item in ipairs(menu.item_table) do
-            if item.text==tr('Imported book notes can be viewed here; editing and opening their location are not yet supported.') then
+            if item.text==tr(label) then
                 notice=item.select_enabled==false
             end
             assert(item.text~=tr('Local thought drafts') and item.text~=tr('Check last thought change')
@@ -185,7 +187,13 @@ local ok,reason=pcall(function()
         assert(item and item.callback and item.select_enabled~=false)
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(item)
         local popup=assert(menu._shelf_popup);assert(type(popup.text)=='string')
-        if imported then assert(not popup.buttons_table or #popup.buttons_table==0,'imported-book editing or navigation was exposed') end
+        if imported then
+            local buttons=popup.button_table
+            if buttons then for _j,name in ipairs({'delete_bookmark','delete_highlight','change_highlight_style',
+                'change_highlight_color','thought_create','thought_edit','thought_delete','open_bookmark'}) do
+                assert(not buttons:getButtonById(name),'imported-book unsupported action was exposed')
+            end end
+        end
         local content=thoughts and row.content or row.markText
         if content and content~='' then assert(popup.text:find(content,1,true))
         elseif thoughts then assert(popup.text:find(tr('No thought text was returned.'),1,true)) end

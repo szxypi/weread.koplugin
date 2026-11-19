@@ -96,8 +96,12 @@ local imported_metadata=assert(Source.bind(imported_capture,imported_identity,pa
 members={[Identity.PATH]=imported_root,[Source.meta_path('2')]=imported_metadata,[Source.path_meta_path(path)]=imported_metadata,
     [Source.raw_path(Crypto.sha256_hex(raw))]=raw,[path]=raw}
 local imported_row=row(raw,quote);imported_row.bookId='CB_Synthetic'
-eq(Target.bind_file('/cached.epub','CB_Synthetic',imported_row,21,archive).position,nil)
-eq(Target.resolve(imported,'/cached.epub',imported_row,21,archive).position,nil)
+eq(Target.bind_file('/cached.epub','CB_Synthetic',imported_row,21,archive).position.chapter_offset,15)
+eq(Target.resolve(imported,'/cached.epub',imported_row,21,archive).position.chapter_offset,15)
+eq(Target.project(raw,'CB_Synthetic','2',imported_row).upload_verified,false)
+eq(Target.project(raw,'CB_Other','2',imported_row),nil)
+local changed_imported=row(raw,'Different selected text',15);changed_imported.bookId='CB_Synthetic'
+eq(Target.project(raw,'CB_Synthetic','2',changed_imported),nil)
 bound=Target.bind_search_file('/cached.epub','CB_Synthetic',imported_row,21,archive)
 eq(bound.position.book_id,'CB_Synthetic');eq(bound.position.chapter_offset,15);eq(bound.position.upload_verified,false);eq(bound.remote,nil)
 resolved=Target.resolve_search(imported,'/cached.epub',imported_row,22,archive)

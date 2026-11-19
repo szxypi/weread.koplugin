@@ -40,6 +40,15 @@ def public_report(value):
                 if type(stage.get(key)) is int and 0<=stage[key]<=100000:item[key]=stage[key]
             for key,allowed in [('result',('PASS','UNVERIFIED')),('mode',('live','reopen')),('phase',('init','navigate','close','complete'))]:
                 if stage.get(key) in allowed:item[key]=stage[key]
+            diagnostic=stage.get('diagnostic')
+            allowed={'reader_open','owner_navigating','busy_visible','target_present','source_ready','error_visible',
+                     'finish_target_unavailable','finish_navigation_unavailable','finish_target_changed','finish_other',
+                     'dom_anchor_missing','dom_anchor_ambiguous','dom_walk_diverged','dom_other',
+                     'dom_failed_endpoints','dom_failed_checkpoint','dom_failed_verification',
+                     'dom_full_returned','dom_full_match','dom_prefix_returned','dom_prefix_match',
+                     'dom_actual_contains_expected','dom_expected_contains_actual','dom_same_byte_length',
+                     'dom_same_first_scalar','dom_same_last_scalar'}
+            if isinstance(diagnostic,dict):item['diagnostic']={key:diagnostic[key] for key in allowed if type(diagnostic.get(key)) is bool}
             result['stages'].append(item)
     return result
 

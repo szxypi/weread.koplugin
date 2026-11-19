@@ -20,6 +20,15 @@ def row(raw,quote,start=None):
 
 
 class TargetTests(unittest.TestCase):
+    def test_imported_highlight_requires_same_book_and_exact_original_quote(self):
+        raw='<html><body><p>Unique selected text content.</p></body></html>'
+        mark=row(raw,'Unique selected text');mark['bookId']='CB_Synthetic'
+        target=project(raw,'CB_Synthetic','2',mark)
+        self.assertEqual(target['chapter_offset'],15)
+        self.assertFalse(target['upload_verified'])
+        with self.assertRaises(ValueError):project(raw,'CB_Other','2',mark)
+        with self.assertRaises(ValueError):project(raw.replace('Unique','Changed'),'CB_Synthetic','2',mark)
+
     def test_plain_and_bom_coordinates_bind_original_bytes(self):
         for bom,expected in [('',15),('\ufeff',16)]:
             raw=bom+'<html><body><p>Unique selected text content.</p></body></html>'

@@ -5,6 +5,7 @@ local Source = require('weread.lib.position_source')
 local Identity = require('weread.lib.book_file_identity')
 local TextEnd = require('weread.lib.document_text_end')
 local M = { MAX_TEXT_BYTES = 8 * 1024 * 1024, CHECKPOINT_INTERVAL = 256, MAX_EDGE_STEPS = 65536 }
+local REPAIR_RADIUS = 16
 local Index = {}
 Index.__index = Index
 local function fail(reason) error('source_dom/' .. reason, 0) end
@@ -293,6 +294,36 @@ function Index:_endpoints(first,target,last)
     return result[first],result[target],result[last]
 end
 
+-- Some CRE layouts advance the visible-character cursor differently from
+-- range extraction. Recover only a nearby boundary whose complete chapter
+-- prefix exactly matches the already indexed native text. The full quote and
+-- local prefix are still checked below before a pointer is returned.
+function Index:_verified_boundary(candidate, byte)
+    local expected=self.flat:sub(1,byte-1)
+    local seen={}
+    local function matches(xp)
+        if type(xp)~='string' or fragment(xp)~=self.root or seen[xp] then return false end
+        seen[xp]=true
+        return normalize(self:_extract(self.root..'.0',xp),function() self:_yield() end)==expected
+    end
+    if matches(candidate) then return candidate end
+    local previous,following=candidate,candidate
+    for _i=1,REPAIR_RADIUS do
+        self:_yield()
+        if previous then
+            previous=self.document:getPrevVisibleChar(previous)
+            if matches(previous) then return previous end
+            if type(previous)~='string' or fragment(previous)~=self.root then previous=nil end
+        end
+        if following and type(self.document.getNextVisibleChar)=='function' then
+            following=self.document:getNextVisibleChar(following)
+            if matches(following) then return following end
+            if type(following)~='string' or fragment(following)~=self.root then following=nil end
+        else following=nil end
+        if not previous and not following then break end
+    end
+end
+
 function Index:_protected(task)
     local result,err=protected(task)
     if not result and (err == 'source_dom/walk_diverged' or err == 'source_dom/cancelled'
@@ -332,9 +363,18 @@ function Index:locate_anchor(anchor)
         -- Native walking and extraction can disagree around hidden/generated
         -- content or collapsed whitespace. Verify the complete quote AND its
         -- exact prefix; a failed walk never falls back to an approximate page.
-        if normalize(self:_extract(begin,ending)) ~= anchor.text then fail('walk_diverged') end
-        local prefix=begin == target and '' or normalize(self:_extract(begin,target))
-        if prefix ~= anchor.text:sub(1,relative) then fail('walk_diverged') end
+        local full=normalize(self:_extract(begin,ending))
+        local prefix=full == anchor.text and (begin == target and '' or normalize(self:_extract(begin,target))) or nil
+        if full ~= anchor.text or prefix ~= anchor.text:sub(1,relative) then
+            begin=self:_verified_boundary(begin,first)
+            target=self:_verified_boundary(target,first+relative)
+            ending=self:_verified_boundary(ending,last+1)
+            if not begin or not target or not ending
+                or normalize(self:_extract(begin,ending)) ~= anchor.text
+                or (begin == target and '' or normalize(self:_extract(begin,target))) ~= anchor.text:sub(1,relative) then
+                fail('walk_diverged')
+            end
+        end
         self:_check()
         self._last_located_byte=first+relative
         return { xpointer=target,co=co,book_id=self.book_id,chapter_uid=self.chapter_uid,

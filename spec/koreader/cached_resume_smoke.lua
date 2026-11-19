@@ -109,7 +109,7 @@ local function check_cb_notes(reader,current,seed)
             updated={{bookmarkId='synthetic-highlight',type=1,chapterUid=2,markText='合成导入书划线',range='10-18'},
                 {bookmarkId='synthetic-bookmark',type=0,chapterUid=2,range='25'}},chapters={{chapterUid=2,title='合成章节'}}})
         assert(Cache:new(current.library_db,current.client,'thoughts'):write{schema=1,book_id=id,fetched_at=1000,
-            reviews={{reviewId='synthetic-thought',content='合成导入书想法',abstract='合成引用',isPrivate=1,chapterUid=2,range='10-18'}}})
+            reviews={{reviewId='synthetic-thought',content='合成导入书想法',abstract='合成引用',isPrivate=1,type=1,chapterUid=2,range='10-18'}}})
     end
     local entries={}
     for _i,item in ipairs(current:getMainMenuItems()) do if item.text then entries[item.text]=item end end
@@ -122,7 +122,19 @@ local function check_cb_notes(reader,current,seed)
         for _j,row in ipairs(owner.menu.item_table) do if row.my_note_id==case[2] then selected=row end end
         assert(selected);selected.callback()
         local popup=assert(owner.menu._shelf_popup)
-        assert(not popup.buttons_table or #popup.buttons_table==0,'imported book exposed editing or source navigation')
+        local buttons=popup.button_table
+        if case[2]=='synthetic-bookmark' then
+            assert(not buttons or not buttons:getButtonById('open_bookmark'),'imported book exposed bookmark navigation')
+        else
+            assert(buttons and buttons:getButtonById(case[2]=='synthetic-highlight' and 'open_highlight' or 'open_thought_quote'),
+                'imported book did not expose source-verified navigation')
+        end
+        if buttons then
+            for _j,name in ipairs({'delete_bookmark','delete_highlight','change_highlight_style','change_highlight_color',
+                'thought_create','thought_edit','thought_delete'}) do
+                assert(not buttons:getButtonById(name),'imported book exposed editing')
+            end
+        end
         current:cancelMyCloudMarks();clean(reader)
     end
 end

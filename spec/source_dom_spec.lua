@@ -192,6 +192,23 @@ corrupt.document.getPrevVisibleChar=function() return xp(0) end
 local rejected,reject_reason=corrupt:locate(point.co)
 expect(not rejected and reject_reason=='source_dom/walk_diverged','wrong DOM walk accepted')
 expect(not corrupt:locate(point.co),'diverged checkpoint reused')
+-- A cursor that skips one visible character can recover only when all three
+-- native boundaries independently match their complete chapter prefixes.
+local shifted,_,shifted_doc=fixture(raw,text)
+local normal_previous=shifted_doc.getPrevVisibleChar
+local skip=true
+shifted_doc.getPrevVisibleChar=function(self,pointer)
+    local previous=normal_previous(self,pointer)
+    if skip and previous then skip=false; return normal_previous(self,previous) end
+    return previous
+end
+local corrected,corrected_reason=shifted:locate(point.co)
+expect(corrected,corrected_reason)
+expect(corrected.xpointer==located.xpointer,'verified cursor repair changed the exact native point')
+local far,_,far_doc=fixture(raw,text)
+far_doc.getPrevVisibleChar=function() return xp(0) end
+local far_result,far_reason=far:locate(point.co)
+expect(not far_result and far_reason=='source_dom/walk_diverged','unverified distant cursor was accepted')
 local _,_,prepared_doc,prepared_archive=fixture(raw,text)
 prepared_doc.getHTMLFromXPointers=function(self) return self:getHTMLFromXPointer() end
 local native_read=prepared_doc.getDocumentFileContent

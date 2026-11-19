@@ -41,8 +41,16 @@ class ThoughtTargetTests(unittest.TestCase):
         for key,value in [('bookId','42'),('chapterUid',3),('chapterUid','2'),('chapterUid',True),('type',0),('type',True),('reviewId',''),('reviewId','bad id'),('reviewId','bad\u3000id')]:
             bad=dict(row,**{key:value})
             with self.subTest(key=key,value=value),self.assertRaises(ValueError):project(raw,'41','2',bad)
-        for book,chapter in [('CB_fake','2'),('41','0'),('41','3')]:
+        for book,chapter in [('CB_','2'),('CB_fake&x=1','2'),('41','0'),('41','3')]:
             with self.assertRaises(ValueError):project(raw,book,chapter,row)
+
+    def test_imported_thought_quote_is_read_only_and_rejects_foreign_book(self):
+        raw,row=fixture();row['bookId']='CB_Synthetic'
+        target=project(raw,'CB_Synthetic','2',row)
+        self.assertFalse(target['upload_verified'])
+        with self.assertRaises(ValueError):project(raw,'CB_Other','2',row)
+        row['abstract']='Changed source quote'
+        with self.assertRaises(ValueError):project(raw,'CB_Synthetic','2',row)
 
     def test_missing_malformed_or_stale_ranges_never_fall_back_to_text_search(self):
         raw,row=fixture()

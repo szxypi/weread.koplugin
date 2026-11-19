@@ -19,7 +19,7 @@ function M.can_locate(row)
         and #row.abstract<=65536 and Target.can_locate(mark(row))
 end
 local function reference(book,chapter,row)
-    if not Data.id(book) or not Data.id(chapter) or type(row)~='table' or not key(row.reviewId)
+    if not Data.display_id(book) or not Data.id(chapter) or type(row)~='table' or not key(row.reviewId)
         or row.type~=1 or type(row.chapterUid)~='number' or row.chapterUid<1 or row.chapterUid>2147483647
         or row.chapterUid%1~=0 or tostring(row.chapterUid)~=chapter
         or row.bookId~=nil and tostring(row.bookId)~=book then return nil,'my_thought_target/scope' end

@@ -25,7 +25,9 @@ expect(imported.book_id=='CB_Synthetic' and imported.chapter_offset==start and i
     'imported search result was not locally source verified')
 local marks=require('weread.lib.my_mark_target')
 local imported_row=assert(Target.row('CB_Synthetic',hit))
-expect(not marks.project(raw,'CB_Synthetic','2',imported_row),'search support widened cloud mark scope')
+local imported_mark=assert(marks.project(raw,'CB_Synthetic','2',imported_row))
+expect(imported_mark.chapter_offset==imported.chapter_offset and imported_mark.upload_verified==false,
+    'imported highlight and search did not use the same read-only source boundary')
 expect(not Target.row('41',{chapter_uid='2',start=0,finish=1,text='x',source_verified=true})
     and not Target.row('41',{chapter_uid='2',start=0,finish=2147483648,text='x',source_verified=false})
     and not Target.row('CB_bad/path',hit) and not Target.row('MP_WXS_1',hit),'unverified range limits or book scope were bypassed')
