@@ -114,14 +114,25 @@ local ok,reason=pcall(function()
         return view
     end
     local function open(resolving)
+        plugin:cancelShelfState()
         plugin:showBookMenu{book_id='41',title='合成测试书籍：读完标记',chapters={}}
         local detail=assert(plugin._book_detail_view)
-        for _i,button in ipairs(detail._action_buttons) do if button.text==tr('Shelf status') then button.callback();break end end
+        local direct
+        if not resolving then for _,button in ipairs(detail._action_buttons) do
+            if button.text==tr('Change finished mark') then direct=button;break end
+        end end
+        if direct then direct.callback() end
+        for _i,button in ipairs(detail._action_buttons) do
+            if not direct and button.text==tr('Shelf status') then button.callback();break end
+        end
         local menu=assert(plugin._shelf_state_menu)
-        for _i,item in ipairs(menu.item_table) do if item.text==tr(resolving and 'Check pending finished-mark change' or 'Change finished mark') then
-            menu:onMenuSelect(item);wait(function() return plugin._finish_change_ui and plugin._finish_change_ui.dialog end)
-            return plugin._finish_change_ui.dialog
-        end end;error('missing finished-mark entry')
+        if not direct then
+            for _i,item in ipairs(menu.item_table) do
+                if item.text==tr(resolving and 'Check pending finished-mark change' or 'Change finished mark') then menu:onMenuSelect(item);break end
+            end
+        end
+        wait(function() return plugin._finish_change_ui and plugin._finish_change_ui.dialog end)
+        return plugin._finish_change_ui.dialog
     end
     local function notice()
         wait(function() return not plugin._finish_change_ui end)
@@ -169,8 +180,14 @@ local ok,reason=pcall(function()
         for _,book in ipairs(plugin.shelf_view.books) do if book.bookId=='41' then found=book end end
         expect(found and require('weread.lib.shelf_flags').display(found,'finished')==true)
         expect(plugin.shelf_view.on_select and plugin.shelf_view._item_rows[1].hold_callback)
-        report.phase='unmark';fault('lost_ack');view=open();expect(view.ok_text==tr('Mark as unfinished'));confirm(view)
+        report.phase='unmark';fault('lost_ack');before=plugin.shelf_view
+        view=open();expect(view.ok_text==tr('Mark as unfinished'));confirm(view)
         expect(state().posts==2 and journal:read().phase=='idle');saved(false);fault('normal')
+        UI:close(assert(plugin._shelf_state_menu));assert(plugin._book_detail_view):onClose()
+        wait(function() return plugin.shelf_view~=before end)
+        found=nil
+        for _,book in ipairs(plugin.shelf_view.books) do if book.bookId=='41' then found=book end end
+        expect(found and require('weread.lib.shelf_flags').display(found,'finished')==false)
         report.phase='cancel'
         view=open();view.cancel_callback();expect(state().posts==2 and not plugin._finish_change_ui and journal:read().phase=='idle')
         view=open();plugin:closeWeReadUI();view.ok_callback();expect(state().posts==2 and not plugin._finish_change_ui)

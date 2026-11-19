@@ -444,6 +444,16 @@ UIManager:close(home_status);flush_tasks()
 assert(plugin.shelf_view~=home_owner and plugin.shelf_view.books[1].finishReading==1,
     'home did not refresh the updated status after dismissing the menu')
 assert(plugin.library_db:cacheShelf(books,response.archive));plugin:showHome()
+home_owner=plugin.shelf_view
+plugin:showBookMenu(home_owner.books[1])
+local home_detail=assert(plugin._book_detail_view)
+assert(plugin:showShelfState(seed_id));home_status=assert(plugin._shelf_state_menu)
+assert(plugin.library_db:cacheShelf(changed_books,response.archive))
+plugin:applyShelfSnapshot(changed_books,response.archive)
+UIManager:close(home_status);home_detail:onClose();flush_tasks()
+assert(plugin.shelf_view~=home_owner and plugin.shelf_view.books[1].finishReading==1,
+    'returning from details did not rebuild home from the updated shelf')
+assert(plugin.library_db:cacheShelf(books,response.archive));plugin:showHome()
 assert(plugin.shelf_view.settings_button and plugin._home_status_task, "home controls/status timer missing")
 plugin:onSuspend()
 assert(plugin._home_status_task == nil, "suspend retained the status timer")

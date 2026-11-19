@@ -117,8 +117,13 @@ function M:showDiscoveryPage(tab, books, options)
             options.page=view.page;self:showDiscoveryPage(tab,books,options)
         end)
     end
-    view._prepare_detail_return = function()
-        if not current() then return end
+    view._prepare_detail_return = function(snapshot_current)
+        if not current() then
+            if snapshot_current then return function()
+                if self.shelf_view==view and not view._shelf_closed then view._shelf_snapshot_redraw() end
+            end end
+            return
+        end
         require('weread.ui.finish_offline').reconcile_view(self,view)
         return function()
             if self.shelf_view == view and not view._shelf_closed then

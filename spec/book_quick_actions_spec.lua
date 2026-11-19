@@ -101,4 +101,9 @@ do
     by_label(o._shelf_popup,'Change finished mark').callback();revoke();flush()
     expect(not h.finished and not h.status,'stale shortcut opened a controller')
 end
+do
+    local h,_,c=managed(true);local existing={};h._shelf_state_menu=existing
+    expect(not Quick.change(h,'42','weread.ui.finish_change',c), 'shortcut replaced an active status flow')
+    expect(h._shelf_state_menu==existing and not h.status and not h.finished,'duplicate activation cancelled a status flow')
+end
 print('PASS: book quick actions ('..checks..' checks)')

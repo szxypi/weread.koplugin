@@ -80,7 +80,24 @@ return function(reader,plugin,pump,shot,clean_popups)
     local notice=UI:getTopmostVisibleWidget();if notice~=plugin._shelf_state_menu then UI:close(notice) end
     UI:close(assert(plugin._shelf_state_menu));pump(function() return plugin.shelf_view and plugin.shelf_view~=owner end)
     for _,book in ipairs(plugin.shelf_view.books) do assert(tostring(book.bookId or book.book_id)~=id,'removed book remains on shelf') end
-    view=preview();assert(view.ok_text==tr('Add to cloud bookshelf'));confirm(view);present(id,true)
+    owner=plugin.shelf_view
+    plugin:showBookMenu{book_id=id,title='合成测试书籍',chapters={}}
+    local detail=assert(plugin._book_detail_view);local add
+    for _,button in ipairs(detail._action_buttons) do if button.text==tr('Change cloud membership') then add=button end end
+    assert(add);add.callback()
+    local active=assert(plugin._shelf_membership_ui);add.callback()
+    assert(plugin._shelf_membership_ui==active,'repeated detail action cancelled the in-flight check')
+    pump(function() return plugin._shelf_membership_ui and plugin._shelf_membership_ui.dialog end)
+    view=plugin._shelf_membership_ui.dialog
+    assert(view.ok_text==tr('Add to cloud bookshelf'));confirm(view);present(id,true)
+    notice=UI:getTopmostVisibleWidget();if notice~=plugin._shelf_state_menu then UI:close(notice) end
+    UI:close(assert(plugin._shelf_state_menu));detail:onClose()
+    add.callback()
+    assert(not plugin._shelf_membership_ui and not plugin._shelf_state_menu and writes()==before+2,
+        'closed detail retained an active shelf shortcut')
+    pump(function() return plugin.shelf_view and plugin.shelf_view~=owner end)
+    local added=false;for _,book in ipairs(plugin.shelf_view.books) do if tostring(book.bookId or book.book_id)==id then added=true end end
+    assert(added,'returning from details did not refresh the added book')
     assert(writes()==before+2,'shortcut round trip did not write once per confirmed change')
 
     before=writes();view=preview()

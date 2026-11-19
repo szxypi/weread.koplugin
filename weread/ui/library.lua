@@ -297,6 +297,11 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
                 owner._shelf_snapshot_redraw()
             end
         end)
+    elseif owner and self._book_detail_view and owner._shelf_snapshot_redraw and not owner._shelf_closed then
+        -- The detail must remain visible; bind its eventual return to the
+        -- newly applied snapshot and the same account/document context.
+        owner._shelf_snapshot_detail=self._book_detail_view
+        owner._shelf_snapshot_current=require('weread.ui.page_scope').capture(self,owner)
     end
 end
 
@@ -966,8 +971,13 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:showShelfView(mode,keyword,view,next_options)
         end)
     end
-    view._prepare_detail_return = function()
-        if not current() then return end
+    view._prepare_detail_return = function(snapshot_current)
+        if not current() then
+            if snapshot_current then return function()
+                if self.shelf_view==view and not view._shelf_closed then view._shelf_snapshot_redraw() end
+            end end
+            return
+        end
         require('weread.ui.finish_offline').reconcile_view(self,view)
         return function()
             if self.shelf_view == view and not view._shelf_closed then
@@ -1317,6 +1327,30 @@ function M:showBookMenu(book)
         end),
     }
     local actions = {}
+    local Quick=require('weread.ui.book_quick_actions')
+    local detail_id=tostring(book_id or '')
+    local member_shortcut,finish_shortcut=Quick.available(self,detail_id)
+    local detail_account=self.library_db and self.library_db:accountKey()
+    local detail_session,detail_epoch,detail_document=self._reader_session_gen,self.discovery_epoch or 0,self.ui and self.ui.document
+    local detail_auth=self.settings.get_auth_scope and self.settings:get_auth_scope()
+    local function detail_current()
+        if self._book_detail_view~=view or not detail_account or self.library_db:accountKey()~=detail_account
+            or self._reader_session_gen~=detail_session or (self.discovery_epoch or 0)~=detail_epoch
+            or (self.ui and self.ui.document)~=detail_document then return false end
+        if self.settings.get_auth_scope then
+            local auth=self.settings:get_auth_scope()
+            if not detail_auth then return auth==nil end
+            return auth and auth.vid==detail_auth.vid and auth.epoch==detail_auth.epoch
+                and self.settings:auth_scope_matches(detail_auth)
+        end
+        return true
+    end
+    if member_shortcut then actions[#actions+1]={text=_('Change cloud membership'),callback=self:safeCallback(_('Shelf status'),function()
+        Quick.change(self,detail_id,'weread.ui.shelf_membership_write',detail_current)
+    end)} end
+    if finish_shortcut then actions[#actions+1]={text=_('Change finished mark'),callback=self:safeCallback(_('Shelf status'),function()
+        Quick.change(self,detail_id,'weread.ui.finish_change',detail_current)
+    end)} end
     local shelf_state_action
     if self.showShelfState then
         local owner_account=self.library_db and self.library_db:accountKey()
@@ -1459,9 +1493,11 @@ function M:showBookMenu(book)
                 self:cancelBookMetadata()
                 self:cancelBookReading()
                 if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
-                self._book_detail_view = nil
                 local parent = self.shelf_view
-                local resume = parent and parent._prepare_detail_return and parent._prepare_detail_return()
+                local snapshot_current=parent and parent._shelf_snapshot_detail==view
+                    and parent._shelf_snapshot_current and parent._shelf_snapshot_current()
+                self._book_detail_view = nil
+                local resume = parent and parent._prepare_detail_return and parent._prepare_detail_return(snapshot_current)
                 self.discovery_epoch = (self.discovery_epoch or 0) + 1
                 -- Rebuild the retained parent with fresh callbacks after the
                 -- detail's epoch is invalidated; old deferred taps stay stale.
