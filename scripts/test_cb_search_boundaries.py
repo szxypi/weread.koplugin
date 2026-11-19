@@ -11,7 +11,7 @@ import verify_cb_search_boundaries as task
 
 class CBBoundarySearchTests(unittest.TestCase):
     def test_default_is_offline(self):
-        for args in ([],['--native-ui'],['--native-ui','--nonempty'],['--native-ui','--early']):
+        for args in ([],['--native-ui'],['--native-ui','--nonempty'],['--native-ui','--early'],['--native-ui','--early','--early-resume']):
             output=io.StringIO()
             with patch.object(task,'SessionStore',side_effect=AssertionError('credentials')):
                 with patch.object(task,'BoundaryProbe',side_effect=AssertionError('network')):
@@ -46,6 +46,13 @@ class CBBoundarySearchTests(unittest.TestCase):
             with self.assertRaises(ValueError):probe.guard('segment_2_current',probe.search_url,{})
             probe.first_chapter='8'
             with self.assertRaises(ValueError):probe.guard('segment_2_first',probe.search_url,None)
+            probe.resume_cursor={'chapter':'7','start':12,'finish':18};probe.search_cursor=dict(probe.resume_cursor)
+            probe.search_url=task.BASE+'/web/book/search_v2?'+urlencode(dict(bookId=probe.book_id,chapterUid='7',
+                keyword=probe.keyword,posBegin=12,posEnd=18,mode='scrollDown',count=50))
+            probe.guard('early_next',probe.search_url,None)
+            with self.assertRaisesRegex(ValueError,'search_repeated'):probe.guard('early_next',probe.search_url,None)
+            probe.search_cursor={'chapter':'7','start':13,'finish':18}
+            with self.assertRaises(ValueError):probe.guard('early_next',probe.search_url,None)
         finally:probe.close()
 
 

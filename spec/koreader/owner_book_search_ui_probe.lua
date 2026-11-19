@@ -292,10 +292,12 @@ local ok,result=pcall(function()
         end
     end
     if input.current_fallback then
-        assert(not missing and #input.allowed==2)
+        assert(not missing and #input.allowed==(input.early_resume and 3 or 2))
+        local original_cursor
         if input.early_fallback then
             wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
             assert(not owner.state.finished and owner.fallback_state)
+            original_cursor={chapter=owner.state.cursor.chapter,start=owner.state.cursor.start,finish=owner.state.cursor.finish}
             local action
             for _i,item in ipairs(owner.menu.item_table) do
                 if item.text==require('weread.lib.i18n').tr('Search from current chapter') then action=item end
@@ -303,6 +305,26 @@ local ok,result=pcall(function()
             assert(action);owner.menu:onMenuSelect(action)
         end
         wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
+        if original_cursor then
+            local original=owner.primary_state or owner.state
+            assert(not original.finished and original.cursor.chapter==original_cursor.chapter
+                and original.cursor.start==original_cursor.start and original.cursor.finish==original_cursor.finish)
+        end
+        if input.early_resume then
+            assert(original_cursor and original_cursor.chapter==input.allowed[3].chapter
+                and original_cursor.start==input.allowed[3].start and original_cursor.finish==input.allowed[3].finish)
+            local translate=require('weread.lib.i18n').tr
+            local function action(label)
+                for _i,item in ipairs(owner.menu.item_table) do if item.text==translate(label) then return item end end
+            end
+            if owner.primary_state then owner.menu:onMenuSelect(assert(action('Continue original search'))) end
+            assert(owner.state.cursor.chapter==original_cursor.chapter and owner.state.cursor.start==original_cursor.start
+                and owner.state.cursor.finish==original_cursor.finish)
+            owner.menu:onMenuSelect(assert(action('Load more results')))
+            wait(function() return owner.state.pages==3 and not owner.job end)
+            assert(not owner.state.finished and (owner.state.cursor.chapter~=original_cursor.chapter
+                or owner.state.cursor.start~=original_cursor.start or owner.state.cursor.finish~=original_cursor.finish))
+        end
         find_selected()
     else
         for page=1,#input.allowed do
@@ -380,7 +402,9 @@ local ok,result=pcall(function()
     download_counters[5]=0
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(not plugin.progress_sync.verified and not plugin.read_report.job and counters[2]==0)
-    if input.current_fallback then assert(counters[0]==2 and counters[1]==2) end
+    if input.current_fallback then
+        local expected=input.early_resume and 3 or 2;assert(counters[0]==expected and counters[1]==expected)
+    end
     wait(function() for _i,pid in ipairs(workers) do if not require('ffi/util').isSubProcessDone(pid) then return false end end;return true end)
     local value={result='PASS',native_menu=true,search_result_verified=true,source_navigation=true,
         workers_reaped=true,account_gets=tonumber(counters[0]),search_gets=tonumber(counters[1]),denied_requests=tonumber(counters[2])}

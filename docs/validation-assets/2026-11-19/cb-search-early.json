@@ -12,7 +12,7 @@
     "cancel_and_failed_search_preserve_results": true,
     "shared_page_limit": true
   },
-  "owner_readonly": {
+  "initial_owner_readonly": {
     "result": "UNVERIFIED",
     "books": 5,
     "search_gets": 18,
@@ -23,5 +23,34 @@
     "authentication_posts": 0,
     "position_catalog_and_shelf_unchanged": true
   },
-  "remaining": "real-service native UI and physical Kindle"
+  "owner_readonly_followup": {
+    "result": "PASS",
+    "candidate_books": 5,
+    "observed_books": 1,
+    "independent_search_gets": 4,
+    "both_starts_returned_50_with_more": true,
+    "native_ui_sizes": ["600x800", "1264x1680"],
+    "cached_and_missing_catalog": true,
+    "original_cursor_preserved": true,
+    "duplicate_target_removed_and_navigation_verified": true,
+    "position_catalog_source_and_shelf_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "screenshots": 0
+  },
+  "owner_original_page_resume": {
+    "result": "PASS",
+    "candidate_books": 5,
+    "observed_books": 1,
+    "independent_search_gets": 5,
+    "native_ui_sizes": ["600x800", "1264x1680"],
+    "catalog_cached": true,
+    "native_search_gets_per_size": 3,
+    "resumed_original_cursor_and_verified_navigation": true,
+    "position_catalog_source_and_shelf_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "screenshots": 0
+  },
+  "remaining": "additional real books and physical Kindle"
 }
