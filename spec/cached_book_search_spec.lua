@@ -129,6 +129,10 @@ expect(Access.cached_chapter({[9007199254740992]='/wrong.epub'},'900719925474099
     'rounded numeric key aliased an adjacent chapter')
 expect(Access.cached_chapter({[2147483648]='/legacy.epub'},'2147483648')=='/legacy.epub',
     'exact legacy numeric chapter key stopped working')
+expect(Access.cached_chapter({['4']='/current.epub',[4]='/legacy.epub'},'4')=='/current.epub',
+    'numeric fallback displaced the exact stored string key')
+expect(Access.cached_chapter({legacy='/legacy.epub'},'legacy')=='/legacy.epub',
+    'exact nonnumeric legacy cache key stopped working')
 expect(not Target.can_locate({type=1,bookId=input.book,chapterUid=9007199254740992,markText='x',range='1',
     abstract=string.rep('a',64),bookmarkId=string.rep('b',64),reviewId=string.rep('c',64)}),
     'imprecise numeric chapter identity was accepted')

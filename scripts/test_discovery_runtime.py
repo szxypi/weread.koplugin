@@ -45,6 +45,7 @@ def main():
     parser.add_argument('--chapter-links', action='store_true', help='Exercise standalone chapter taps, downloads and cross-file history')
     parser.add_argument('--chapter-link-preflight', action='store_true', help='Exercise standalone archive link workers without navigation')
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
+    parser.add_argument('--cached-resume-numeric-keys',action='store_true',help='Exercise legacy numeric chapter cache keys')
     parser.add_argument('--cb-resume',action='store_true',help='Use the opt-in synthetic CB_ shelf book for cached reading')
     parser.add_argument('--cb-highlight-edit',action='store_true',help='Exercise imported-book highlight writes on the isolated mock service')
     parser.add_argument('--cache-cleanup',action='store_true',help='Verify native cache cleanup keeps local reading records')
@@ -90,6 +91,7 @@ def main():
     if args.cached_resume and (args.footnotes or args.reading_flow):
         parser.error('--cached-resume uses a separate fixture')
     if args.cb_resume and not args.cached_resume:parser.error('--cb-resume requires --cached-resume')
+    if args.cached_resume_numeric_keys and not args.cached_resume:parser.error('--cached-resume-numeric-keys requires --cached-resume')
     if args.cb_highlight_edit and (not args.cached_resume or not args.cb_resume or args.content_format!='epub'):
         parser.error('--cb-highlight-edit requires --cached-resume --cb-resume with EPUB')
     if args.cache_cleanup and not args.cached_resume:parser.error('--cache-cleanup requires --cached-resume')
@@ -139,6 +141,7 @@ def main():
     server.selection_fixture=args.selection_thought or args.cb_highlight_edit
     server.cb_reading=args.cb_resume
     if args.cb_resume:environment['WEREAD_TEST_CB_RESUME']='1'
+    if args.cached_resume_numeric_keys:environment['WEREAD_TEST_NUMERIC_CACHE_KEYS']='1'
     if args.cb_highlight_edit:environment['WEREAD_TEST_CB_HIGHLIGHT_EDIT']='1'
     if args.cache_cleanup:environment['WEREAD_TEST_CACHE_CLEANUP']='1'
     if args.download_pacing:environment['WEREAD_TEST_DOWNLOAD_PACING']='1'
@@ -205,6 +208,10 @@ def main():
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
                                         cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                         timeout=240 if args.cache_cleanup else 120)
+            if args.cached_resume_numeric_keys and result.returncode==0:
+                log.flush(); raw=(root/'evidence/runtime.log').read_bytes(); marker=b'\nWEREAD_NUMERIC_CACHE_RESUME='
+                assert raw.count(marker)==1, 'numeric-cache resume fixture did not run'
+                assert json.loads(raw.split(marker,1)[1].splitlines()[0])==dict(result='PASS',exact_chapter=True,pending_preserved=True)
             if guest_read and result.returncode==0:
                 entry='/web/bookListInCategory/rising' if args.guest_rank_login_read else '/web/search/global'
                 for path in (entry,'/web/book/publicinfos','/api/userInfo'):

@@ -124,5 +124,21 @@ expect(M.start(host,book,cloud_hint,{'/chapter.epub'},{cloud_view=true}),'change
 cached_valid=false;worker:complete();cached_valid=true
 expect(UI.top and UI.top.ok_callback and not host.opened,'changed cloud file skipped fallback confirmation')
 M.cancel(host);catalog_available=false
+book={book_id='41',cached_chapters={[2]='/chapter.epub'},unindexed_resume=hint}
+host.opened=nil
+expect(M.start(host,book,hint,{'/chapter.epub'}),'legacy numeric cache verification did not start')
+worker:complete()
+expect(host.opened=='/chapter.epub','legacy numeric cache key lost its exact chapter')
+M.cancel(host)
+-- Removing the exact string key while a worker is running must invalidate
+-- the old result; a rounded numeric key for another chapter cannot replace it.
+point.chapter_uid='9007199254740993'
+local large_hint=assert(Hint.make(point,'41',owner,epoch))
+book={book_id='41',cached_chapters={['9007199254740993']='/chapter.epub'},unindexed_resume=large_hint}
+host.opened=nil
+expect(M.start(host,book,large_hint,{'/chapter.epub'}),'large chapter verification did not start')
+book.cached_chapters={ [9007199254740992]='/chapter.epub' }
+worker:complete()
+expect(not host.opened and not host._unindexed_resume_job,'rounded numeric key kept a stale chapter verification alive')
 Source.document_metadata=original_metadata
 print(('unindexed_resume_ui_spec: %d checks'):format(checks))

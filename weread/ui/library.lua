@@ -14,6 +14,7 @@ local logger = require("weread.lib.logger")
 local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
 local WeRead = require("weread.lib.protocol")
+local ReadAccess = require("weread.lib.read_access")
 
 local PluginUtil = require("weread.lib.plugin_util")
 local _ = PluginUtil.tr
@@ -1937,7 +1938,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         for chapter_index = page_start, page_end do
             local chapter = chapters[chapter_index]
             local uid = tostring(chapter.chapterUid or chapter.chapterId or chapter_index)
-            local cached = book.cached_chapters and book.cached_chapters[uid]
+            local cached = ReadAccess.cached_chapter(book.cached_chapters,uid)
             local is_cached = file_exists(cached)
             items[#items + 1] = {
                 text_func = function()
@@ -2008,7 +2009,7 @@ function M:openBookForReading(book, quiet, options)
             chapters=Content.load_catalog_cache(self.client,self.settings,book)
         end
         if cloud_hint or type(chapters)~='table' or #chapters==0 then
-            local mapped=require('weread.lib.read_access').cached_chapter(book.cached_chapters,hint.chapter_uid)
+            local mapped=ReadAccess.cached_chapter(book.cached_chapters,hint.chapter_uid)
             local paths={}
             if file_exists(mapped) then paths[#paths+1]=mapped end
             if full_path~=mapped and file_exists(full_path) then paths[#paths+1]=full_path end
@@ -2040,7 +2041,7 @@ function M:openBookForReading(book, quiet, options)
     local Reading=require('weread.ui.book_reading')
     if options and options.prefer_exact then
         local uid=Reading.resume_uid(chapters,book,account)
-        local target=uid and book.cached_chapters and book.cached_chapters[uid]
+        local target=uid and ReadAccess.cached_chapter(book.cached_chapters,uid)
         if uid and not file_exists(target) then
             for _id,path in pairs(book.cached_chapters or {}) do
                 if file_exists(path) then return false,'resume_not_cached',uid end
@@ -2051,7 +2052,7 @@ function M:openBookForReading(book, quiet, options)
         target_index=Reading.resume_index(chapters,book,nil,account)
         for index, chapter in ipairs(chapters) do
             local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
-            local path = book.cached_chapters and book.cached_chapters[uid]
+            local path = ReadAccess.cached_chapter(book.cached_chapters,uid)
             if file_exists(path) then
                 candidates[#candidates + 1] = { index = index, path = path }
             end

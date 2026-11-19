@@ -1,5 +1,6 @@
 -- Verify a catalog-free chapter selection off the UI thread before opening it.
 local Cache=require('weread.lib.cached_book_search')
+local Access=require('weread.lib.read_access')
 local Hint=require('weread.lib.unindexed_resume')
 local Scope=require('weread.ui.page_scope')
 local Source=require('weread.lib.position_source')
@@ -60,8 +61,7 @@ function M.start(host,book,hint,paths,options)
         local age=os.time()-job.started
         if host._unindexed_resume_job~=job or age<0 or age>120 or not scope() or not same_auth(host) then return false end
         local latest=host.settings:get_book(id)
-        local mapped=type(latest)=='table' and type(latest.cached_chapters)=='table'
-            and (latest.cached_chapters[hint.chapter_uid] or latest.cached_chapters[tonumber(hint.chapter_uid)])
+        local mapped=type(latest)=='table' and Access.cached_chapter(latest.cached_chapters,hint.chapter_uid)
         local full=type(latest)=='table' and host.getFullBookCachePath and host:getFullBookCachePath(latest)
         for _i,path in ipairs(candidates) do if path~=mapped and path~=full then return false end end
         return latest and Hint.valid(latest[field],id,owner,auth_epoch)

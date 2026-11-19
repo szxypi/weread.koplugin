@@ -20,8 +20,11 @@ end
 -- Older caches may use numeric table keys. Never round a decimal chapter ID
 -- through a floating-point number: adjacent IDs above 2^53 can alias.
 function M.cached_chapter(chapters, value)
+    if type(chapters) ~= 'table' then return nil end
+    -- Preserve exact legacy string keys even when they are not numeric.
+    if type(value)=='string' and chapters[value] ~= nil then return chapters[value] end
     local id = M.book_id(value)
-    if type(chapters) ~= 'table' or not id then return nil end
+    if not id then return nil end
     if chapters[id] ~= nil then return chapters[id] end
     if #id < 16 or #id == 16 and id <= '9007199254740991' then
         return chapters[tonumber(id)]

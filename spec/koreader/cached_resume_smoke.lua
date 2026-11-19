@@ -244,6 +244,30 @@ for _i,mode in ipairs({'pending','last_local','foreign_owner','no_catalog','dupl
     close_reader()
 end
 host=assert(FM.instance.weread);assert(host.library_db:putChapters(id,catalog))
+if os.getenv('WEREAD_TEST_NUMERIC_CACHE_KEYS')=='1' then
+    patch(host,{chapters=catalog,chapter_uid=2,chapter_idx=2,
+        pending_upload_position={book_id=id,chapter_uid=4,chapter_idx=4,percent=70},
+        pending_upload_account=saved.pending_upload_account,last_local_position=last_local,
+        recent_read_account=saved.pending_upload_account,cached_chapters={['2']=first,['4']=second}})
+    host,view=detail()
+    -- Persisted JSON normalizes object keys to strings. Inject the legacy
+    -- in-memory representation at the host boundary after loading the view.
+    local original_get_book=host.settings.get_book
+    host.settings.get_book=function(store,requested)
+        local value=original_get_book(store,requested)
+        if value and tostring(requested)==id then value.cached_chapters={[2]=first,[4]=second} end
+        return value
+    end
+    assert(book(host).cached_chapters[4]==second,'fixture did not retain numeric cache keys')
+    press(view,'Read cached copy')
+    host.settings.get_book=original_get_book
+    pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==second end)
+    assert(book(Reader.instance.weread).pending_upload_position.chapter_uid==4,
+        'opening the exact cached chapter changed the pending position')
+    print('\nWEREAD_NUMERIC_CACHE_RESUME='..json.encode({result='PASS',exact_chapter=true,pending_preserved=true}))
+    close_reader();host=assert(FM.instance.weread)
+    patch(host,{cached_chapters={['2']=first,['4']=second}})
+end
 local function omit_target()
     patch(assert(FM.instance.weread),{chapters=false,chapter_uid=4,chapter_idx=4,
         pending_upload_position={book_id=id,chapter_uid=4,chapter_idx=4,percent=70},

@@ -216,6 +216,23 @@ expect(opened_path=='/cache/2.epub','missing catalog used a foreign pending chap
 partial.chapters=original_catalog
 partial.pending_upload_position=nil
 
+-- Older cached-chapter maps can contain numeric keys. An exact local target
+-- must not be reported missing merely because its catalog UID is a string.
+partial.cached_chapters={[2]='/cache/2.epub',[4]='/cache/4.epub'}
+partial.pending_upload_position={book_id='42',chapter_uid='4'}
+partial.pending_upload_account='account-a'
+opened_path=nil
+expect(host:openBookForReading(partial,true,{prefer_exact=true}) and opened_path=='/cache/4.epub',
+    'exact numeric-key cache was reported missing or opened another chapter')
+partial.pending_upload_position.chapter_uid='9007199254740993'
+partial.cached_chapters={[9007199254740992]='/cache/2.epub'}
+opened_path=nil
+local opened,missing_reason=host:openBookForReading(partial,true,{prefer_exact=true})
+expect(not opened and missing_reason=='resume_not_cached' and not opened_path,
+    'rounded numeric cache key was mistaken for an adjacent large chapter')
+partial.cached_chapters={['2']='/cache/2.epub',['4']='/cache/4.epub'}
+partial.pending_upload_position=nil
+
 local hint_owner=string.rep('a',20)
 local hinted=require('weread.lib.unindexed_resume').make({book_id='42',chapter_uid='4',file_id=string.rep('b',64),
     raw_sha256=string.rep('c',64),basis='filtered_xhtml_utf16',upload_verified=false},'42',hint_owner,0)
