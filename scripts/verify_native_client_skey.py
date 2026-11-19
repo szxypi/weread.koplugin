@@ -14,7 +14,7 @@ from cloud_group_contract import project
 from cloud_group_trial import _cross_channel
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
-from verify_cloud_group_auth import WebKeyShelf
+from verify_cloud_group_auth import AndroidKeyShelf, WebKeyShelf
 from verify_cloud_group_trial import FULL_SHELF
 from verify_eink_login import NativeProbe
 from verify_eink_renewal import RenewalProbe
@@ -69,14 +69,17 @@ def execute(store,owner,previous,probe,client,native):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
-    parser.add_argument('--renew-and-check',action='store_true');args=parser.parse_args(argv)
+    parser.add_argument('--renew-and-check',action='store_true')
+    parser.add_argument('--android-profile',action='store_true',help='Check the fixed Android client profile instead of the desktop profile')
+    args=parser.parse_args(argv)
     if args.saved_session!=args.renew_and_check:parser.error('both explicit options are required')
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     report=dict(result='OFFLINE_ONLY',authentication_posts=0,account_data_posts=0)
     try:
         if args.saved_session:
             owner=SessionStore().load()['vid'];store=NativeSessionStore();previous=store.load(owner)
-            report=execute(store,owner,previous,CaptureProbe(),WebKeyShelf(),NativeProbe())
+            report=execute(store,owner,previous,CaptureProbe(),AndroidKeyShelf() if args.android_profile else WebKeyShelf(),NativeProbe())
+            report['profile']='android' if args.android_profile else 'desktop'
     except Exception:report.update(result='UNVERIFIED')
     print(json.dumps(report,ensure_ascii=False))
     return 0 if report['result'] in ('OFFLINE_ONLY','CLIENT_KEY_ABSENT','CLIENT_KEY_REJECTED','CLIENT_KEY_READ_VERIFIED') else 1

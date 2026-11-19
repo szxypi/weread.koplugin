@@ -75,6 +75,7 @@ class NativeSkeyTest(unittest.TestCase):
     def test_default_does_not_open_store_or_network(self):
         with patch('verify_native_client_skey.SessionStore') as session,patch('verify_native_client_skey.CaptureProbe') as probe,redirect_stdout(io.StringIO()):
             self.assertEqual(main([]),0)
+            self.assertEqual(main(['--android-profile']),0)
         session.assert_not_called();probe.assert_not_called()
 
 

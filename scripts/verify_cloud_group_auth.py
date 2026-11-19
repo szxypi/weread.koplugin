@@ -22,13 +22,16 @@ from verify_cloud_group_trial import FULL_SHELF
 class WebKeyShelf:
     def __init__(self, opener=None): self.opener=opener or build_opener(NoRedirect())
 
+    def headers(self, owner, key):
+        return {'vid':owner,'skey':key,'v':'10.2.1.87',
+                'User-Agent':'WeRead/10.2.1 (iPad; iOS 26.5; Scale/2.00)','Accept':'application/json'}
+
     def read(self, owner, key):
         if (not isinstance(owner,str) or not owner.isascii() or not owner.isdigit()
                 or not isinstance(key,str) or not 1<=len(key)<=4096
                 or any(ord(c)<33 or ord(c)>126 or c in '\r\n' for c in key)):
             raise ValueError('cloud_group_auth/credentials')
-        req=Request(FULL_SHELF,headers={'vid':owner,'skey':key,'v':'10.2.1.87',
-            'User-Agent':'WeRead/10.2.1 (iPad; iOS 26.5; Scale/2.00)','Accept':'application/json'})
+        req=Request(FULL_SHELF,headers=self.headers(owner,key))
         with self.opener.open(req,timeout=15) as response:
             raw=response.read(4*1024*1024+1)
             if response.status!=200 or len(raw)>4*1024*1024:raise ValueError('cloud_group_auth/response')
@@ -38,6 +41,13 @@ class WebKeyShelf:
             code=value.get(field)
             if code is not None and (type(code) is not int or code!=0):raise ValueError('cloud_group_auth/rejected')
         return value
+
+
+class AndroidKeyShelf(WebKeyShelf):
+    """One fixed legacy Android client profile, for read-only comparison."""
+    def headers(self, owner, key):
+        return {'vid':owner,'skey':key,'User-Agent':'WeRead/7.0.0 WRBrand/huawei Dalvik/2.1.0',
+                'Accept':'application/json'}
 
 
 def main(argv=None):

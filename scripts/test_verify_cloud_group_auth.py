@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from test_cloud_group_trial import shelf
-from verify_cloud_group_auth import WebKeyShelf, main
+from verify_cloud_group_auth import AndroidKeyShelf, WebKeyShelf, main
 from verify_cloud_group_trial import FULL_SHELF
 
 
@@ -37,6 +37,19 @@ class WebKeyShelfTest(unittest.TestCase):
             with self.subTest(owner=owner,key=key),self.assertRaises(ValueError):WebKeyShelf(Opener({})).read(owner,key)
         for value in (-1,False,0.0):
             with self.subTest(code=value),self.assertRaises(ValueError):WebKeyShelf(Opener({'errcode':value})).read('42','synthetic-key')
+
+    def test_android_profile_still_allows_only_the_fixed_shelf_read(self):
+        opener=Opener(shelf(True));probe=AndroidKeyShelf(opener)
+        self.assertEqual(probe.read('42','synthetic-key'),shelf(True))
+        request,timeout=opener.calls[0]
+        self.assertEqual((request.full_url,request.get_method(),request.data,timeout),(FULL_SHELF,'GET',None,15))
+        self.assertEqual(request.get_header('User-agent'),'WeRead/7.0.0 WRBrand/huawei Dalvik/2.1.0')
+        self.assertEqual(request.get_header('Skey'),'synthetic-key')
+        self.assertNotIn('synthetic-key',request.full_url)
+        self.assertIsNone(request.get_header('Cookie'));self.assertIsNone(request.get_header('Authorization'))
+        for owner,key in (('42','bad\nkey'),('x','key'),('42','')):
+            with self.assertRaises(ValueError):probe.read(owner,key)
+        self.assertEqual(len(opener.calls),1)
 
     def test_default_never_opens_credentials_or_network(self):
         with patch('verify_cloud_group_auth.SessionStore') as session,patch('verify_cloud_group_auth.WebKeyShelf') as probe,redirect_stdout(io.StringIO()):
