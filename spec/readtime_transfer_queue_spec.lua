@@ -101,6 +101,7 @@ ledger,_,queue=fixture(rows)
 before=C.digest(ledger:review_page(account,'all',0,nil,100))
 result=assert(queue:select(account,nil,{historical=true}));eq(result.selection.seconds,120)
 eq(result.selection.parts[1].start_time,100100);eq(result.report.deferred,7320);eq(result.report.scanned,124)
+eq(result.report.deferred_today,7260);eq(result.report.deferred_zone,60);eq(result.report.deferred_other_day,0)
 eq(C.digest(ledger:review_page(account,'all',0,nil,100)),before)
 -- A midnight-spanning source row is split without editing the captured row.
 ledger,_,queue=fixture({{start_time=143970,duration=60},{start_time=100000,duration=60}})
@@ -109,6 +110,7 @@ eq(result.selection.parts[2].start_time,143970);eq(result.selection.parts[2].dur
 eq(result.selection.rows[1].duration,60);eq(ledger:summary(account).pending,120)
 queue=({fixture({{start_time=150000,duration=60},{start_time=50000,duration=60},{start_time=100000,duration=60}})})[3]
 result=assert(queue:select(account,nil,{historical=true}));eq(result.selection.seconds,60);eq(result.selection.parts[1].start_time,50000)
+eq(result.report.deferred_today,60);eq(result.report.deferred_other_day,60);eq(result.report.deferred_zone,0)
 ledger,_,queue=fixture({{start_time=150000,duration=60}})
 eq(assert(queue:select(account,nil,{historical=true})).selection,false);eq(ledger:summary(account).pending,60)
 -- Imported time remains invisible to the normal queue until its explicit gate
@@ -139,9 +141,9 @@ ledger,_,queue=fixture({{book_id='CB_Synthetic',start_time=100000,duration=2},
 local scope={historical=true,allow_cb=true}
 eq(assert(queue:select(account,nil,scope)).selection.book_id,'CB_Synthetic')
 scope.exclude_book_ids={CB_Synthetic=true}
-eq(assert(queue:select(account,nil,scope)).selection.book_id,'42')
+result=assert(queue:select(account,nil,scope));eq(result.selection.book_id,'42');eq(result.report.skipped,2)
 scope.exclude_book_ids['42']=true
-eq(assert(queue:select(account,nil,scope)).selection,false)
+result=assert(queue:select(account,nil,scope));eq(result.selection,false);eq(result.report.skipped,5)
 eq(ledger:summary(account).pending,5)
 eq(queue:select(account,nil,{allow_cb=true,exclude_book_ids={['CB_Synthetic']=false}}),nil)
 eq(queue:select(account,nil,{allow_cb=true,exclude_book_ids={['CB_bad/']=true}}),nil)

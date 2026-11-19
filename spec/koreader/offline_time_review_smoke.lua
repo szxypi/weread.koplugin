@@ -71,6 +71,24 @@ return function(reader,request_count,flush_tasks)
     choose('Covered time records');wait_menu();shot('covered');choose('Offline reading time');wait_menu()
     choose('Check saved time');wait_detail();shot('selection')
     assert(plugin._offline_time_detail.title:find('600',1,true),'native scan did not reach valid rows after page one')
+    local function button(label)
+        for _i,row in ipairs(assert(plugin._offline_time_detail).buttons) do for _j,item in ipairs(row) do
+            if item.text==tr(label) then item.callback();return end
+        end end
+        error('offline ledger action missing: '..label)
+    end
+    button('Why some time was not selected');wait_detail();shot('selection-reasons')
+    assert(plugin._offline_time_detail.title:find(tr('Source or time needs verification: %1'):gsub('%%1','121 秒'),1,true),
+        'native diagnostic missed source-ineligible time')
+    assert(plugin._offline_time_detail.title:find(tr('Overlapping local records: %1'):gsub('%%1','60 秒'),1,true),
+        'native diagnostic missed overlapping time')
+    button('Back');wait_detail()
+    button('Skip this book for now');wait_detail()
+    assert(plugin._offline_time_detail.title:find(tr('No locally verified time is available in this check.'),1,true))
+    button('Why some time was not selected');wait_detail()
+    assert(plugin._offline_time_detail.title:find(tr('Books skipped in this session: %1'):gsub('%%1','1320 秒'),1,true),
+        'native diagnostic missed skipped book')
+    button('Close');show();choose('Check saved time');wait_detail()
     plugin._offline_time_detail.buttons[1][1].callback();wait_menu()
     local old_menu=plugin._offline_time_menu;first();assert(plugin._offline_time_menu==old_menu,'stale row reopened old page')
     choose('Check saved time');wait_detail()

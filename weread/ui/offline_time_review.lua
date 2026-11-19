@@ -53,6 +53,33 @@ local function time_label(row)
 end
 local function seconds(value) return T(_('%1 s'),tostring(value)) end
 local load,transfer
+local function selection_diagnostics(value)
+    local report=assert(value.report)
+    assert(type(report)=='table' and type(report.scan_complete)=='boolean' and C.integer(report.scanned,0,50000))
+    local fields={'unsupported','conflicting','covered','untracked','deferred','deferred_today','deferred_zone','deferred_other_day','skipped'}
+    for _,key in ipairs(fields) do assert(C.integer(report[key],0,3000000)) end
+    assert(report.deferred==report.deferred_today+report.deferred_zone+report.deferred_other_day)
+    local lines={T(_('Pending records checked: %1'),tostring(report.scanned)),
+        _('The amounts below describe this check and may not cover every book or time period. Overlapping records may be counted more than once.')}
+    local labels={
+        {'deferred_today','Today in Beijing time: %1'},
+        {'deferred_zone','Other time zones, not yet transferable: %1'},
+        {'deferred_other_day','Other historical dates, for a later batch: %1'},
+        {'unsupported','Source or time needs verification: %1'},
+        {'untracked','Before coverage tracking began: %1'},
+        {'covered','Reserved for other reports: %1'},
+        {'conflicting','Overlapping local records: %1'},
+        {'skipped','Books skipped in this session: %1'},
+    }
+    local found=false
+    for _i,entry in ipairs(labels) do
+        local amount=report[entry[1]]
+        if amount>0 then lines[#lines+1]=T(_(entry[2]),seconds(amount));found=true end
+    end
+    if not found then lines[#lines+1]=_('No excluded time was identified in this check.') end
+    if not report.scan_complete then lines[#lines+1]=_('The check stopped after preparing a full batch.') end
+    return table.concat(lines,'\n')
+end
 local function dialog(host,context,text,back,actions)
     close_field(host,'_offline_time_detail')
     local widget
@@ -152,7 +179,11 @@ local function render(host,context,kind,value,args)
             {text='Skip this book for now',callback=function()
                 context.excluded[chosen.book_id]=true;load(host,context,'selection',{})
             end},
-        } or nil
+        } or {}
+        local details=selection_diagnostics(value)
+        actions[#actions+1]={text='Why some time was not selected',callback=function()
+            dialog(host,context,details,function() load(host,context,'selection',{}) end)
+        end}
         dialog(host,context,text..'\n\n'.._('Only the displayed historical batch is sent. Uncertain requests are kept and never resent.'),
             function() load(host,context,'summary',{}) end,actions)
     elseif kind=='transfer_record' then

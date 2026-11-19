@@ -22,7 +22,8 @@ function M:select(account,book_id,options)
     end
     local now=self.now()
     if not C.integer(now,1,4102444800) then return nil,'invalid_clock' end
-    local selected={rows={},parts={},seconds=0};local report={scanned=0,unsupported=0,conflicting=0,covered=0,untracked=0,deferred=0}
+    local selected={rows={},parts={},seconds=0};local report={scanned=0,unsupported=0,conflicting=0,covered=0,untracked=0,deferred=0,
+        deferred_today=0,deferred_zone=0,deferred_other_day=0,skipped=0}
     local historical_day
     local cursor,upper,seen=0,nil,{}
     for _page=1,501 do
@@ -42,7 +43,8 @@ function M:select(account,book_id,options)
                     or not C.integer(range[2],range[1]+1,row.start_time+row.duration) then return nil,'invalid_page' end
             end
             if not C.verified(row,now,allow_cb) then report.unsupported=report.unsupported+row.duration
-            elseif not excluded[row.book_id] and (not book_id or row.book_id==book_id) and same(row,selected) then
+            elseif excluded[row.book_id] then report.skipped=report.skipped+row.duration
+            elseif (not book_id or row.book_id==book_id) and same(row,selected) then
                 candidates[#candidates+1]=row;blocked[row.id]=entry.blocked
             end
         end
@@ -66,7 +68,12 @@ function M:select(account,book_id,options)
                             if by_row[part.row_id].time_zone=='+08:00' and day<Day(now) and (not historical_day or day==historical_day) then
                                 historical_day=day
                                 available.parts[#available.parts+1]={row_id=part.row_id,start_time=first,duration=finish-first}
-                            else report.deferred=report.deferred+finish-first end
+                            else
+                                local amount=finish-first;report.deferred=report.deferred+amount
+                                local field=by_row[part.row_id].time_zone~='+08:00' and 'deferred_zone'
+                                    or day>=Day(now) and 'deferred_today' or 'deferred_other_day'
+                                report[field]=report[field]+amount
+                            end
                             first=finish
                         end
                     end

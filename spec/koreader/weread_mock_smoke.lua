@@ -143,7 +143,14 @@ assert(not sync.verified and not sync.uploading and not sync.pulling, "account t
 plugin.settings:set("account", account)
 plugin.settings:flush()
 plugin:onWeReadAccountChanged()
+-- Account changes restart asynchronous original-position capture. Wait for
+-- that account-bound snapshot before testing the successful upload path.
+pump_until(function()
+    local point=plugin.source_position:current()
+    return point and point.book_id=='900001'
+end)
 position = assert(sync:capture_local())
+assert(position.source_position,'current-account original position not ready')
 assert(sync:_upload_snapshot(position, "manual_sync", false), "current-account upload did not start")
 pump_until(function() return not sync.uploading end)
 assert(request_count("/web/book/read") > writes_before, "valid upload never reached real Client/HTTP")

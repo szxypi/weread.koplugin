@@ -56,7 +56,27 @@ eq(C.digest(ledger:pending(account)),original)
 eq(host._offline_time_detail.buttons[3][1].text,'Skip this book for now')
 host._offline_time_detail.buttons[3][1].callback();deliver()
 eq(host._offline_time_detail.title:find('No locally verified time',1,true)~=nil,true)
+eq(host._offline_time_detail.buttons[2][1].text,'Why some time was not selected')
+host._offline_time_detail.buttons[2][1].callback()
+eq(host._offline_time_detail.title:find('Books skipped in this session: 1500 s',1,true)~=nil,true)
+host._offline_time_detail.buttons[1][1].callback();deliver()
+eq(host._offline_time_detail.title:find('No locally verified time',1,true)~=nil,true)
 eq(C.digest(ledger:pending(account)),original)
+-- Scan reasons are descriptive only; opening details neither claims nor sends.
+Review.show(host);deliver();choose('Check saved time')
+jobs[#jobs].callback({selection=false,report={scanned=8,scan_complete=true,unsupported=1,conflicting=2,covered=3,untracked=4,
+    deferred=18,deferred_today=5,deferred_zone=6,deferred_other_day=7,skipped=8}})
+host._offline_time_detail.buttons[2][1].callback();local details=host._offline_time_detail.title
+for _,label in ipairs({'Today in Beijing time: 5 s','Other time zones, not yet transferable: 6 s',
+    'Other historical dates, for a later batch: 7 s','Source or time needs verification: 1 s','Before coverage tracking began: 4 s',
+    'Reserved for other reports: 3 s','Overlapping local records: 2 s','Books skipped in this session: 8 s'}) do
+    eq(details:find(label,1,true)~=nil,true)
+end
+eq(C.digest(ledger:pending(account)),original)
+Review.show(host);deliver();choose('Check saved time')
+jobs[#jobs].callback({selection=false,report={scanned=0,scan_complete=true,unsupported=0,conflicting=0,covered=0,untracked=0,
+    deferred=1,deferred_today=0,deferred_zone=0,deferred_other_day=0,skipped=0}})
+eq(host._offline_time_review,nil);eq(host.info,'Could not read saved time. The records are kept.')
 Review.show(host);deliver();choose('Check saved time');deliver()
 eq(host._offline_time_detail.title:find('Local duplicate check: 600 s',1,true)~=nil,true)
 -- Busy dismissal and all late results leave newer views untouched.
