@@ -29,7 +29,7 @@ return function(plugin, kind)
         local scope=assert(self.settings:get_auth_scope())
         local auth=assert(require('weread.lib.web_authorization').capture(self.settings))
         assert(auth.scope.vid==scope.vid and auth.scope.epoch==scope.epoch)
-        assert(self.settings:get('cookies',{}).wr_skey==(expected==1 and 'XXXrenewed-native' or 'mock-only'))
+        assert(self.settings:get('cookies',{}).wr_skey == (expected==1 and 'XXXrenewed-native' or 'mock-only'))
         credentials_saved=true
         return old_open(self,...)
     end
