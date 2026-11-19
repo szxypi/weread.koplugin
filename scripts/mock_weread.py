@@ -531,9 +531,26 @@ class MockServer(ThreadingHTTPServer):
                 from verify_native_annotations import validate_batch
                 validate_batch(data["reviews"])
                 uid=data["chapterUid"];marks={row['range'] for row in native_annotations(uid,control['native_annotation_many'])}
+                identity=f"mock-native-review-{book_id}-{uid}"
+                thought=dict(review(uid),reviewId=identity,bookId=book_id,chapterUid=uid,type=1,isPrivate=0)
                 return 200,dict(reviews=[] if control["empty_annotations"] else [
-                    dict(range=item["range"],metadata=None,pageReviews=[dict(review=review(uid))])
+                    dict(range=item["range"],metadata=None,pageReviews=[dict(reviewId=identity,review=thought)])
                     for item in data["reviews"] if item["range"] in marks])
+            if path == "/review/single" and method == "GET":
+                if (set(query)!={'reviewId','commentsCount','commentsDirection','likesCount','synckey'}
+                        or any(len(value)!=1 for value in query.values())
+                        or query['commentsDirection']!=['0'] or query['likesCount']!=['0'] or query['synckey']!=['0']):
+                    raise ValueError('invalid synthetic thought replies query')
+                identity=query['reviewId'][0]
+                match=re.fullmatch(r'mock-native-review-([1-9][0-9]*)-([1-6])',identity)
+                count=query['commentsCount'][0]
+                if (not match or not any(book['bookId']==match.group(1) for book in BOOKS)
+                        or not re.fullmatch(r'[1-9][0-9]*',count) or not 2<=int(count)<=201):
+                    raise ValueError('invalid synthetic thought replies target')
+                comments=[dict(reviewId=identity,commentId=f'mock-native-comment-{i}',author={'nick':'合成读者'},
+                               content=f'合成回复 {i}',createTime=1700000000-i) for i in range(1,24)]
+                return 200,dict(reviewId=identity,review=dict(reviewId=identity,bookId=match.group(1),
+                    chapterUid=int(match.group(2)),type=1,isPrivate=0),comments=comments[:int(count)])
             if path == "/readdata/detail" and method == "GET":
                 if set(query) != {"mode", "baseTime"} or any(len(v) != 1 for v in query.values()):
                     raise ValueError("invalid native statistics query")

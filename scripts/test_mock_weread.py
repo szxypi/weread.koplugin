@@ -196,6 +196,16 @@ class MockTests(unittest.TestCase):
         for changed in (dict(body,chapterUid=True),dict(body,extra=0),dict(body,reviews=[])):
             with self.assertRaises(ValueError):self.server.route('POST',target+'/book/readreviews',changed)
 
+    def test_native_thought_reply_fixture_is_scoped_and_paginated(self):
+        base='https://i.weread.qq.com/review/single?reviewId=mock-native-review-900001-1&commentsDirection=0&likesCount=0&synckey=0&commentsCount='
+        first=self.server.route('GET',base+'21',{})[1]
+        second=self.server.route('GET',base+'41',{})[1]
+        self.assertEqual((len(first['comments']),len(second['comments'])),(21,23))
+        self.assertEqual(first['comments'],second['comments'][:21])
+        self.assertEqual(first['review']['bookId'],BOOK_ID)
+        for url in (base+'202',base+'1',base+'21&extra=1',base.replace('900001','999999')+'21'):
+            with self.subTest(url=url),self.assertRaises(ValueError):self.server.route('GET',url,{})
+
     @classmethod
     def setUpClass(cls):
         cls.server = MockServer(0)

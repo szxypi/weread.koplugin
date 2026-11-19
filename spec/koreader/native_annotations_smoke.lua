@@ -62,11 +62,75 @@ return function(plugin, count, flush, home, pump_until)
     reader.rolling:onGotoXPointer(record.pos0); flush(); shot("native-annotations-keyless-overlay")
     local visible = assert(plugin._xpointer_overlay.visible[1])
     local pos = { x = visible.rect.x + visible.rect.w / 2, y = visible.rect.y + visible.rect.h / 2 }
-    assert(plugin:_onXPointerOverlayTap({ pos = pos }), "actual overlay tap did not open thought popup")
-    local popup = UI:getTopmostVisibleWidget()
-    assert(popup.items and popup.items[1].content:find("合成想法", 1, true))
-    shot("native-annotations-keyless-thought")
-    require("weread.ui.thought_popup").closeVisible()
+    local original_popup = settings:get("thought_popup", {})
+    local original_position = original_popup.position
+    local page_before, pointer_before, source_before = reader:getCurrentPage(), reader.document:getXPointer(), client:json_encode(source)
+    local function open_thought(position)
+        original_popup.position = position
+        settings:set("thought_popup", original_popup); settings:flush()
+        assert(plugin:_onXPointerOverlayTap({ pos = pos }), "actual overlay tap did not open thought popup")
+        local popup = UI:getTopmostVisibleWidget()
+        assert(popup.items and popup.items[1].content:find("合成想法", 1, true) and popup.on_replies)
+        return popup
+    end
+    local function open_replies(popup)
+        UI:forceRePaint()
+        local area = popup._viewport or popup._scroll_container
+        local offset = popup._viewport and popup._pages:getPageContentStart(popup.page_index, popup._page_starts)
+            or (area.scroll_offset or 0)
+        local hold_y
+        for _, piece in ipairs(popup._pages.layout.pieces) do
+            if piece.y and piece.piece_h and piece.piece_h > 1 then
+                local content_y = piece.y + 1
+                local y = area.dimen.y + content_y - offset
+                if y >= area.dimen.y and y < area.dimen.y + area.dimen.h
+                    and popup:_findItemAtContentY(content_y) == popup.items[1] then hold_y = y; break end
+            end
+        end
+        assert(hold_y, "no visible thought to hold")
+        local point = require("ui/geometry"):new{ x = area.dimen.x + math.floor(area.dimen.w / 2), y = hold_y, w = 1, h = 1 }
+        popup:onHoldThought(nil, { pos = point })
+        local menu = UI:getTopmostVisibleWidget()
+        assert(menu.buttons and menu.buttons[2] and menu.buttons[2][1])
+        menu.buttons[2][1].callback()
+    end
+    local replies_before = count("/review/single")
+    for _, position in ipairs({"center", "bottom"}) do
+        local popup = open_thought(position)
+        shot("native-annotations-keyless-thought-" .. position)
+        open_replies(popup)
+        pump_until(function() return plugin._native_review_replies_owner and plugin._native_review_replies_owner.view end)
+        local owner = plugin._native_review_replies_owner
+        local view = owner.view
+        assert(#view.result.items == 20 and view.result.has_more)
+        view._review_buttons[#view._review_buttons].callback()
+        pump_until(function() return owner.view and owner.view ~= view end)
+        assert(#owner.view.result.items == 23 and not owner.view.result.has_more)
+        popup:onClose(); flush()
+        assert(not plugin._thought_reply_owner and not plugin._native_review_replies_owner)
+        assert(reader:getCurrentPage() == page_before and reader.document:getXPointer() == pointer_before
+            and client:json_encode(store:get("900001", "source", uid)) == source_before)
+    end
+    assert(count("/review/single") == replies_before + 4)
+    -- Closing the parent during a slow HTTP request cancels the child and
+    -- prevents a late response from opening an orphaned reply page.
+    control { match = "/review/single", delay = 0.7, times = 0 }
+    local delayed_popup = open_thought("center")
+    open_replies(delayed_popup)
+    pump_until(function()
+        local owner = plugin._native_review_replies_owner
+        return owner and owner.worker and owner.worker.job
+    end)
+    delayed_popup:onClose(); flush()
+    assert(not plugin._thought_reply_owner and not plugin._native_review_replies_owner)
+    local delayed_deadline = socket.gettime() + 0.9
+    pump_until(function() return socket.gettime() >= delayed_deadline end)
+    assert(not plugin._thought_reply_owner and not plugin._native_review_replies_owner
+        and reader:getCurrentPage() == page_before and reader.document:getXPointer() == pointer_before
+        and client:json_encode(store:get("900001", "source", uid)) == source_before)
+    control { match = "", delay = 0, times = 0 }
+    original_popup.position = original_position
+    settings:set("thought_popup", original_popup); settings:flush()
 
     -- A real slow thought POST can be paused without waiting for the socket.
     control { match = "/book/readreviews", delay = 1.2, times = 0 }
@@ -202,7 +266,8 @@ return function(plugin, count, flush, home, pump_until)
     assert(count("/web/book/read") == writes and count("/login", "native_renewal") == renewals + expected_renewals)
     local output = assert(io.open(home .. "/../evidence/native-annotations.json", "wb"))
     output:write(client:json_encode({ result = "PASS", synthetic_only = true, keyless_native = true,
-        native_picker_and_matching = true, real_overlay_tap_and_popup = true, cancel_and_resume_batch = true,
+        native_picker_and_matching = true, real_overlay_tap_and_popup = true, thought_reply_pages = true,
+        thought_reply_cancel_no_late_view = true, cancel_and_resume_batch = true,
         no_late_commit = true, bounded_401_and_429_recovery = true, grant_change_rejected = true,
         recovered_remaining_thought_batch = true, offline_cached_matching = true,
         headless_parent_recovery = true, renewal_cancel_no_replay = true, cancelled_renewal_posts = cancelled_posts,
