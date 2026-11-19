@@ -9,9 +9,11 @@ local mark={schema=1,book_id='900001',fetched_at=1000,updated={{bookmarkId='synt
 local thought={schema=1,book_id='900001',fetched_at=1000,reviews={{reviewId='synthetic-thought',content='Saved thought',abstract='Quote',isPrivate=1,userVid='discard'}},token='discard'}
 expect(marks:write(mark) and thoughts:write(thought))
 expect(marks:read('900001').updated[1].markText=='Saved quote' and thoughts:read('900001').reviews[1].content=='Saved thought')
+local imported={schema=1,book_id='CB_SyntheticNotes',fetched_at=1000,reviews={{reviewId='synthetic-imported',content='Imported thought'}}}
+expect(thoughts:write(imported) and thoughts:read('CB_SyntheticNotes').reviews[1].content=='Imported thought')
 expect(not marks:write(thought) and not thoughts:write(mark))
-local db=library:open();local raw=db:rowexec('SELECT payload FROM my_cloud_thoughts');db:close();expect(not raw:find('discard',1,true))
-account='900099';expect(not thoughts:read('900001'));account='900000'
+local db=library:open();local raw=db:rowexec("SELECT payload FROM my_cloud_thoughts WHERE book_id='900001'");db:close();expect(not raw:find('discard',1,true))
+account='900099';expect(not thoughts:read('900001') and not thoughts:read('CB_SyntheticNotes'));account='900000'
 local open=library.open
 function library:open()
     local handle=assert(open(self));return {exec=function(_self,sql) if sql=='COMMIT' then error('synthetic failure') end;return handle:exec(sql) end,

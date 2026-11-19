@@ -202,6 +202,7 @@ local zh = {
     ["Could not save my thoughts. The previous saved copy is kept."] = "无法保存我的想法，已保留原缓存。",
     ["No thought text was returned."] = "未返回想法文字。",
     ["My cloud highlights"] = "我的云端划线",
+    ["Imported book notes can be viewed here; editing and opening their location are not yet supported."] = "导入书笔记目前支持查看，暂不支持编辑或跳转原文位置。",
     ["Highlight"] = "划线",
     ["Bookmark"] = "书签",
     ["Cloud mark"] = "云端标记",

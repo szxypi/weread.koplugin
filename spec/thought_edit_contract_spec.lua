@@ -5,6 +5,11 @@ local Auth=require('weread.lib.native_authorization')
 local codec=F.codec();local snapshot=F.snapshot(codec)
 local checks=0;local function expect(value,label) checks=checks+1;assert(value,label) end
 local input='新的实际想法 😀\n第二行'
+local imported=F.clone(snapshot);imported.book_id='CB_Synthetic'
+for _i,operation in ipairs({'create','edit','delete'}) do
+    expect(not pcall(C.make,codec,imported,operation,F.row(),input,F.marks(codec),{bookId='CB_Synthetic',version=77},'900000'),
+        'read-only imported book gained thought-write authority: '..operation)
+end
 expect(C.row_hash(F.row())=='fc64ea1140bd2e72d1fcb42602ef7513f5b1ee7369e8c6ecdd27887de39e61b1','Python row digest differs')
 expect(C.snapshot_hash(snapshot)=='7815d1e39244fdb89750b37734ebebb5007cdc0595ba8d8633b5530621f126ff','Python set digest differs')
 expect(C.digest({'中😀',12,'12'})=='be80ffb5ab35c48e543bcff520d2402918946844ebfdd1c1e7a4bdd2a802d958','Python typed digest differs')

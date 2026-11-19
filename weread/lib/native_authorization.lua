@@ -246,7 +246,7 @@ end
 
 -- Own marks GET verified by verify_my_cloud_marks.py before Lua integration.
 function Auth:read_my_cloud_marks(credentials, book_id)
-    if not require('weread.lib.my_cloud_marks').id(book_id) then fail('my_marks','invalid_book') end
+    if not require('weread.lib.my_cloud_marks').display_id(book_id) then fail('my_marks','invalid_book') end
     if type(credentials)~='table' or not vid(credentials.vid) or not text(credentials.accessToken,8192) then
         fail('my_marks','invalid_credentials')
     end
@@ -257,7 +257,7 @@ end
 -- Personal listType=11 and progressive count prefixes verified in Python.
 function Auth:read_my_cloud_thoughts(credentials,book_id,count)
     local Data=require('weread.lib.my_cloud_thoughts')
-    if not Data.id(book_id) or type(count)~='number' or count<1 or count>Data.MAX_ROWS or count%1~=0 then fail('my_thoughts','invalid_query') end
+    if not Data.display_id(book_id) or type(count)~='number' or count<1 or count>Data.MAX_ROWS or count%1~=0 then fail('my_thoughts','invalid_query') end
     if type(credentials)~='table' or not vid(credentials.vid) or not text(credentials.accessToken,8192) then fail('my_thoughts','invalid_credentials') end
     if self.expected_vid and vid(credentials.vid)~=self.expected_vid then fail('my_thoughts','account_mismatch') end
     return self:_request('my_thoughts',BASE..'/review/list?bookId='..book_id..'&listType=11&listMode=0&mine=1&synckey=0&count='..count,nil,credentials)

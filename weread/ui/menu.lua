@@ -207,7 +207,7 @@ function M:getMainMenuItems()
                     callback = self:safeCallback(_("Export article to EPUB"), function() self:showCurrentMPArticleExport() end),
                 }
             end
-            if require('weread.lib.my_cloud_marks').id(book_id) then
+            if require('weread.lib.my_cloud_marks').display_id(book_id) then
                 local session,document=self._reader_session_gen,self.ui.document
                 local account=self.library_db and self.library_db:accountKey()
                 reader_items[#reader_items+1]={text=_('My cloud highlights'),callback=self:safeCallback(_('My cloud highlights'),function()
@@ -216,12 +216,14 @@ function M:getMainMenuItems()
                         self:showMyCloudMarks(book_id)
                     end
                 end)}
-                reader_items[#reader_items+1]={text=_('Save cloud bookmark'),callback=self:safeCallback(_('Save cloud bookmark'),function()
-                    if session==self._reader_session_gen and document==self.ui.document
-                        and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
-                        require('weread.ui.selection_thought').open_bookmark(self)
-                    end
-                end)}
+                if require('weread.lib.my_cloud_marks').id(book_id) then
+                    reader_items[#reader_items+1]={text=_('Save cloud bookmark'),callback=self:safeCallback(_('Save cloud bookmark'),function()
+                        if session==self._reader_session_gen and document==self.ui.document
+                            and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
+                            require('weread.ui.selection_thought').open_bookmark(self)
+                        end
+                    end)}
+                end
                 reader_items[#reader_items+1]={text=_('My cloud bookmarks'),callback=self:safeCallback(_('My cloud bookmarks'),function()
                     if session==self._reader_session_gen and document==self.ui.document
                         and account==(self.library_db and self.library_db:accountKey()) and self:detectWeReadBook()==book_id then
@@ -229,7 +231,7 @@ function M:getMainMenuItems()
                     end
                 end)}
             end
-            if require('weread.lib.my_cloud_marks').id(book_id) then
+            if require('weread.lib.my_cloud_marks').display_id(book_id) then
                 local session,document=self._reader_session_gen,self.ui.document
                 local account=self.library_db and self.library_db:accountKey()
                 reader_items[#reader_items+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()

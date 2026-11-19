@@ -76,7 +76,25 @@ expect(value.writes==0 and row(menu,'合成引用') and #value.notices==1,'faile
 host,value=fixture();value.online=true;Marks.show(host,'900001');expect(value.started==1,'empty first visit did not load')
 value.complete({error='worker_failed'});expect(value.writes==0 and #value.notices==1,'failed response saved as empty success')
 Marks.cancel(host)
-expect(not Marks.show(host,'CB_Synthetic') and not Marks.show(host,'MP_WXS_synthetic'),'unverified book type opened')
+expect(not Marks.show(host,'CB_') and not Marks.show(host,'MP_WXS_synthetic'),'unsupported book type opened')
+local cb=snapshot();cb.book_id='CB_Synthetic'
+host,value=fixture(cb)
+expect(Marks.show(host,'CB_Synthetic') and not value.started,'imported-book highlights did not open offline')
+menu=host._my_marks_menu
+expect(not pcall(row,menu,'Local thought drafts') and not pcall(row,menu,'Check last cloud mark change'),
+    'read-only imported book exposed editing actions')
+expect(row(menu,'Imported book notes can be viewed here; editing and opening their location are not yet supported.').select_enabled==false,
+    'imported-book read-only limitation was not visible')
+row(menu,'合成引用').callback()
+expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and not menu._shelf_popup.buttons_table,
+    'imported-book highlight exposed unverified navigation or editing')
+Marks.cancel(host)
+cb.updated[2].range='25'
+host,value=fixture(cb)
+expect(Marks.show(host,'CB_Synthetic','bookmarks') and not value.started,'imported-book bookmarks did not open offline')
+menu=host._my_marks_menu;row(menu,'合成章节').callback()
+expect(not menu._shelf_popup.buttons_table,'imported-book bookmark exposed unverified navigation or deletion')
+Marks.cancel(host)
 -- Explicit expiry permits one parent-owned renewal and one replayed GET only.
 host,value=fixture(snapshot());value.online=true;Marks.show(host,'900001');menu=host._my_marks_menu
 local renewals=0
@@ -118,6 +136,15 @@ value.online=true;old_refresh();local old_complete=value.complete
 value.saved=snapshot();Marks.show(host,'900001');local replacement=host._my_marks_menu
 old_refresh();old_complete({schema=1,book_id='900001',fetched_at=1001,reviews={}})
 expect(host._my_marks_menu==replacement and value.writes==0 and not host.busy_message and value.cancelled==1,'old thought result changed a highlight view')
+Marks.cancel(host)
+host,value=fixture();value.saved={schema=1,book_id='CB_Synthetic',fetched_at=1000,reviews={
+    {reviewId='synthetic-thought',content='Imported thought',abstract='Quoted source',isPrivate=1,chapterUid=7,range='12-25'}}}
+expect(Marks.show(host,'CB_Synthetic','thoughts'),'imported-book thoughts did not open')
+menu=host._my_marks_menu
+expect(not pcall(row,menu,'Check last thought change'),'imported-book thought editing exposed')
+row(menu,'Imported thought').callback()
+expect(not menu._shelf_popup.buttons_table and menu._shelf_popup.text:find('Imported thought',1,true),
+    'imported-book thought exposed unverified navigation or editing')
 Marks.cancel(host)
 local bookmark_view=snapshot();bookmark_view.updated[2].range='25'
 host,value=fixture(bookmark_view)

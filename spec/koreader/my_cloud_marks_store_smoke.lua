@@ -12,8 +12,10 @@ local function snapshot(id)
         chapters=json.decode('[]'),accessToken='strip'}
 end
 expect(cache:write(snapshot()));expect(cache:read('900001').updated[1].markText=='合成引用')
-local db=assert(library:open());local raw=db:rowexec('SELECT payload FROM my_cloud_marks');db:close();expect(not raw:find('strip',1,true))
-account='900099';expect(cache:read('900001')==nil);account='900000'
+expect(cache:write(snapshot('CB_SyntheticNotes')))
+expect(cache:read('CB_SyntheticNotes').updated[1].markText=='合成引用')
+local db=assert(library:open());local raw=db:rowexec("SELECT payload FROM my_cloud_marks WHERE book_id='900001'");db:close();expect(not raw:find('strip',1,true))
+account='900099';expect(cache:read('900001')==nil and cache:read('CB_SyntheticNotes')==nil);account='900000'
 local open=library.open
 function library:open()
     local handle=assert(open(self))

@@ -2,6 +2,11 @@ package.path='./?.lua;'..package.path
 local F=require('spec.helpers.mark_edit_fixture');local C=require('weread.lib.mark_edit_contract')
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
 local codec=F.codec();local snapshot=F.snapshot(codec);local ref=F.reference()
+local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.book_id='CB_Synthetic';imported.thoughts.book_id='CB_Synthetic'
+for _i,operation in ipairs({'create','delete','style','color','bookmark_create','bookmark_delete'}) do
+    expect(not pcall(C.make,codec,imported,operation,ref,{bookId='CB_Synthetic',version=77},1,1),
+        'read-only imported book gained mark-write authority: '..operation)
+end
 local plan=C.make(codec,snapshot,'create',ref,{bookId='900001',version=77})
 expect(C.validate_body('create',plan.body) and C.validate_metadata(plan.metadata),'valid creation rejected')
 expect(plan.body.chapterIdx==nil and type(plan.body.chapterUid)=='number','guessed native index or wrong UID type')

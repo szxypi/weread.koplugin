@@ -19,6 +19,14 @@ expect(snapshot.reviews[1].content=='合成想法 1' and not snapshot.reviews[1]
 expect(Data.page(client,source(1,3),'900001','900000').has_more,'false hasMore truncated the personal list')
 expect(not pcall(Data.project,client,source(1,3),'900001','900000',1000),'partial prefix became complete cache')
 expect(#Data.project(client,source(0,0),'900001','900000',1000).reviews==0,'empty personal list rejected')
+local cb=source()
+for _i,row in ipairs(cb.reviews) do row.review.bookId='CB_Synthetic' end
+expect(#Data.project(client,cb,'CB_Synthetic','900000',1000).reviews==3,'imported-book thoughts rejected')
+expect(not Data.id('CB_Synthetic') and Data.display_id('CB_Synthetic'),'imported-book read granted mutation identity')
+expect(not pcall(Data.page,client,cb,'CB_Synthetic','CB_Synthetic'),'imported book accepted as account owner')
+cb.reviews[1].review.bookId='CB_Other'
+expect(not pcall(Data.page,client,cb,'CB_Synthetic','900000'),'foreign imported-book thought accepted')
+cb.reviews[1].review.bookId='CB_Synthetic'
 local function reject(value) expect(not pcall(Data.page,client,value,'900001','900000'),'invalid own thought accepted') end
 local lines=source();lines.reviews[1].review.abstract='First\r\nSecond\tline'
 expect(Data.page(client,lines,'900001','900000').reviews[1].abstract==lines.reviews[1].review.abstract,'CRLF thought quote changed')
@@ -76,6 +84,11 @@ for _,code in ipairs({403,404,429,503}) do
     calls={};status=code;ok,err=pcall(Data.fetch,client,'900001',selected(),{recover_auth=true})
     expect(not ok and err=='my_thoughts/unavailable' and #calls==1,'non401 failure retried or exposed raw response')
 end
+calls={};status=200;responses={cb}
+snapshot=Data.fetch(client,'CB_Synthetic',selected(),{now=1000})
+expect(snapshot.book_id=='CB_Synthetic' and #snapshot.reviews==3 and #calls==1,'imported-book native thoughts read failed')
+expect(calls[1].url=='https://i.weread.qq.com/review/list?bookId=CB_Synthetic&listType=11&listMode=0&mine=1&synckey=0&count=20'
+    and calls[1].method=='GET' and not calls[1].body,'imported-book thoughts used another route')
 local access=selected();revision=2;calls={}
 expect(not pcall(Data.fetch,client,'900001',access) and #calls==0,'old grant sent request')
 valid=false

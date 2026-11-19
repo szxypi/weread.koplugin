@@ -1272,7 +1272,7 @@ function M:showBookMenu(book)
         }
     end
     if shelf_state_action then actions[#actions+1]=shelf_state_action end
-    if self.showMyCloudMarks and require('weread.lib.my_cloud_marks').id(tostring(book_id)) then
+    if self.showMyCloudMarks and require('weread.lib.my_cloud_marks').display_id(tostring(book_id)) then
         local account=self.library_db and self.library_db:accountKey()
         local session,document=self._reader_session_gen,self.ui and self.ui.document
         actions[#actions+1]={text=_('My cloud highlights'),callback=self:safeCallback(_('My cloud highlights'),function()
@@ -1282,7 +1282,7 @@ function M:showBookMenu(book)
             end
         end)}
     end
-    if self.showMyCloudThoughts and require('weread.lib.my_cloud_marks').id(tostring(book_id)) then
+    if self.showMyCloudThoughts and require('weread.lib.my_cloud_marks').display_id(tostring(book_id)) then
         local account=self.library_db and self.library_db:accountKey()
         local session,document=self._reader_session_gen,self.ui and self.ui.document
         actions[#actions+1]={text=_('My cloud thoughts'),callback=self:safeCallback(_('My cloud thoughts'),function()
@@ -1292,7 +1292,7 @@ function M:showBookMenu(book)
             end
         end)}
     end
-    if self.showMyCloudBookmarks and require('weread.lib.my_cloud_marks').id(tostring(book_id)) then
+    if self.showMyCloudBookmarks and require('weread.lib.my_cloud_marks').display_id(tostring(book_id)) then
         local account=self.library_db and self.library_db:accountKey()
         local session,document=self._reader_session_gen,self.ui and self.ui.document
         actions[#actions+1]={text=_('My cloud bookmarks'),callback=self:safeCallback(_('My cloud bookmarks'),function()

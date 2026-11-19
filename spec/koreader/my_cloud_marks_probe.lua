@@ -18,7 +18,8 @@ local ok,reason=pcall(function()
         and grant.refreshToken=='synthetic-mark-refresh' and grant.deviceId==string.rep('1',32)) end
     local thoughts=input.variant=='thoughts';assert(thoughts==(os.getenv('WEREAD_PERSONAL_THOUGHTS')=='1'))
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
-    local Data=require(thoughts and 'weread.lib.my_cloud_thoughts' or 'weread.lib.my_cloud_marks');assert(Data.id(input.book_id))
+    local Data=require(thoughts and 'weread.lib.my_cloud_thoughts' or 'weread.lib.my_cloud_marks');assert(Data.display_id(input.book_id))
+    local imported=not Data.id(input.book_id)
     local codec={json_encode=function(_self,v) return json.encode(v) end,json_decode=function(_self,v) return json.decode(v) end}
     local expected=Data.project(codec,input.source,input.book_id,input.owner,input.now)
     assert(input.owner==grant.vid)
@@ -160,8 +161,20 @@ local ok,reason=pcall(function()
         wait(function() return not owner.context end)
     else assert(not owner.context and not owner.worker);report.worker_heartbeat=true end
     assert(same(owner.value,expected))
+    if imported then
+        local notice=false
+        for _i,item in ipairs(menu.item_table) do
+            if item.text==tr('Imported book notes can be viewed here; editing and opening their location are not yet supported.') then
+                notice=item.select_enabled==false
+            end
+            assert(item.text~=tr('Local thought drafts') and item.text~=tr('Check last thought change')
+                and item.text~=tr('Check last cloud mark change'),'imported-book write entry was exposed')
+        end
+        assert(notice,'imported-book read-only notice was missing')
+    end
     report.phase='views'
     for page=1,menu.page_num do menu:onGotoPage(page);UI:forceRePaint();report.pages=report.pages+1 end
+    if imported then menu:onGotoPage(1);UI:forceRePaint() end
     shot('all-marks')
     local items=menu.item_table;local shown={}
     for _i,row in ipairs(thoughts and expected.reviews or expected.updated) do
@@ -172,6 +185,7 @@ local ok,reason=pcall(function()
         assert(item and item.callback and item.select_enabled~=false)
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(item)
         local popup=assert(menu._shelf_popup);assert(type(popup.text)=='string')
+        if imported then assert(not popup.buttons_table or #popup.buttons_table==0,'imported-book editing or navigation was exposed') end
         local content=thoughts and row.content or row.markText
         if content and content~='' then assert(popup.text:find(content,1,true))
         elseif thoughts then assert(popup.text:find(tr('No thought text was returned.'),1,true)) end

@@ -19,6 +19,14 @@ def source(count=3,total=3):
 
 
 class ThoughtsTests(unittest.TestCase):
+    def test_imported_book_read_still_requires_numeric_account_and_matching_book(self):
+        raw=source()
+        for row in raw['reviews']:row['review']['bookId']='CB_Synthetic'
+        self.assertEqual(len(complete(raw,'CB_Synthetic','900000',1000)['reviews']),3)
+        with self.assertRaises(ThoughtsError):page(raw,'CB_Synthetic','CB_Synthetic')
+        raw['reviews'][0]['review']['bookId']='CB_Other'
+        with self.assertRaises(ThoughtsError):page(raw,'CB_Synthetic','900000')
+
     def test_crlf_quote_preserved_and_other_controls_refused(self):
         raw=source();raw['reviews'][0]['review']['abstract']='First\r\nSecond\tline'
         self.assertEqual(page(raw,'900001','900000')['reviews'][0]['abstract'],raw['reviews'][0]['review']['abstract'])

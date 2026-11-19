@@ -6,6 +6,10 @@ def identifier(value):
     return isinstance(value,str) and re.fullmatch('[1-9][0-9]{0,19}',value) is not None
 
 
+def display_identifier(value):
+    return identifier(value) or isinstance(value,str) and re.fullmatch(r'CB_[A-Za-z0-9]{1,64}',value) is not None
+
+
 def text(value,limit,empty=True):
     return (isinstance(value,str) and (empty or bool(value)) and len(value.encode())<=limit
             and not re.search(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]',value))
@@ -15,7 +19,7 @@ def integer(value,maximum):return type(value) is int and 0<=value<=maximum
 
 
 def project(source,identity,owner,now):
-    if not identifier(identity) or not integer(now,2**53-1) or now==0:raise ValueError('my_marks_scope')
+    if not display_identifier(identity) or not integer(now,2**53-1) or now==0:raise ValueError('my_marks_scope')
     def scope(value):
         if not isinstance(value,dict):raise ValueError('my_marks_object')
         for key in ('bookId','book_id'):

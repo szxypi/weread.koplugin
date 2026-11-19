@@ -327,6 +327,14 @@ expect(cache.show_annotations == false and annotation_menu_updates == 1
         and visibility_item.check_callback_updates_menu == true,
     "annotation toggle did not refresh the kept-open main menu")
 
+host.detectWeReadBook = function() return "CB_SyntheticNotes" end
+local imported_reader_items = host:getMainMenuItems()
+expect(menu_has(imported_reader_items, "My cloud highlights")
+        and menu_has(imported_reader_items, "My cloud thoughts")
+        and menu_has(imported_reader_items, "My cloud bookmarks")
+        and not menu_has(imported_reader_items, "Save cloud bookmark"),
+    "imported book did not expose only the validated personal-note readers")
+
 host.detectWeReadBook = function() return "mp-book" end
 local mp_reader_items = host:getMainMenuItems()
 expect(menu_has(mp_reader_items,"Export article to EPUB") and not menu_has(weread_reader_items,"Export article to EPUB")

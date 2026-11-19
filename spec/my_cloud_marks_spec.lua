@@ -33,9 +33,17 @@ local raw=source();raw.updated[2]=raw.updated[1];reject(raw)
 raw=source();raw.chapters[2]=raw.chapters[1];reject(raw)
 raw=source();raw.updated[3]=raw.updated[1];reject(raw)
 raw=source();raw.updated=rows();for i=1,5001 do raw.updated[i]={bookmarkId='synthetic-'..i} end;reject(raw)
-for _,id in ipairs({'0','CB_Synthetic','900001&x=1',string.rep('9',21)}) do
+for _,id in ipairs({'0','CB_','CB_Synthetic&x=1','MP_WXS_1','900001&x=1',string.rep('9',21)}) do
     expect(not pcall(Data.project,client,source(),id,'900000',1),'invalid identity accepted')
 end
+local cb=source();cb.bookId='CB_Synthetic';cb.updated[1].bookId='CB_Synthetic'
+local cb_value=Data.project(client,cb,'CB_Synthetic','900000',1000)
+expect(cb_value.updated[1].markText=='合成引用\n第二行' and Data.display_id('CB_Synthetic')=='CB_Synthetic',
+    'imported-book display projection rejected')
+expect(not Data.id('CB_Synthetic'),'imported book gained write authority')
+cb.updated[1].bookId='CB_Other'
+expect(not pcall(Data.project,client,cb,'CB_Synthetic','900000',1000),'foreign imported-book mark accepted')
+cb.updated[1].bookId='CB_Synthetic'
 for _,now in ipairs({0,true,0/0,math.huge}) do expect(not pcall(Data.project,client,source(),'900001','900000',now),'invalid time accepted') end
 -- Native grant and transport isolation, stale replies, one GET, no fallback.
 local scope,revision,valid={vid='900000',epoch=1},1,true
@@ -67,6 +75,13 @@ for _,status in ipairs({403,404,429,500}) do
 end
 local auth=Auth:new(client,{expected_vid='900000'});local count=#calls
 expect(not pcall(auth.read_my_cloud_marks,auth,{vid='900002',accessToken='synthetic'},'900001') and #calls==count,'wrong owner sent request')
+code=200;calls={};selected=Data.capture(settings,store)
+client.json_decode=function(self,bytes) return bytes=='fixture' and cb or decode(self,bytes) end
+result=Data.fetch(client,'CB_Synthetic',selected,{now=1000})
+expect(result.book_id=='CB_Synthetic' and #result.updated==1 and #calls==1,'imported-book native read failed')
+expect(calls[1].url=='https://i.weread.qq.com/book/bookmarklist?bookId=CB_Synthetic&synckey=0'
+    and calls[1].method=='GET' and not calls[1].body,'imported-book read used another route')
+count=#calls
 valid=false
 expect(not pcall(Data.fetch,client,'900001',selected) and #calls==count,'signed-out native request sent')
 print('PASS: own cloud mark projection and isolated read transport ('..checks..' checks)')

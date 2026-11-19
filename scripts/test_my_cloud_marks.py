@@ -19,6 +19,14 @@ def source():
 
 
 class MarksTests(unittest.TestCase):
+    def test_imported_book_read_does_not_expand_numeric_identifier(self):
+        from my_cloud_marks_model import identifier
+        raw=source();raw['bookId']=raw['updated'][0]['bookId']='CB_Synthetic'
+        self.assertEqual(project(raw,'CB_Synthetic','900000',1000)['updated'][0]['markText'],'合成引用\n第二行')
+        self.assertFalse(identifier('CB_Synthetic'))
+        raw['updated'][0]['bookId']='CB_Other'
+        with self.assertRaises(ValueError):project(raw,'CB_Synthetic','900000',1000)
+
     def test_crlf_preview_is_preserved_and_other_controls_still_rejected(self):
         raw=source();raw['updated'][0]['markText']='First\r\nSecond\tline\nThird'
         self.assertEqual(project(raw,'900001','900000',1)['updated'][0]['markText'],raw['updated'][0]['markText'])

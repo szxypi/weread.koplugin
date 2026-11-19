@@ -3,7 +3,7 @@
 -- A false hasMore flag is insufficient: actual count=1/2 replies were prefixes.
 local Marks=require('weread.lib.my_cloud_marks')
 local Protocol=require('weread.lib.protocol')
-local M={MAX_ROWS=5000,id=Marks.id,capture=Marks.capture,matches=Marks.matches,EXPIRED='my_thoughts/native_expired'}
+local M={MAX_ROWS=5000,id=Marks.id,display_id=Marks.display_id,capture=Marks.capture,matches=Marks.matches,EXPIRED='my_thoughts/native_expired'}
 local function fail(reason) error('my_thoughts/'..reason,0) end
 local function integer(value,max) return type(value)=='number' and value>=0 and value%1==0 and value<=max end
 local function text(value,max,empty)
@@ -46,7 +46,7 @@ local function entry(value,present)
     return out
 end
 function M.page(client,source,id,owner)
-    if not M.id(id) or not M.id(owner) then fail('scope') end
+    if not M.display_id(id) or not M.id(owner) then fail('scope') end
     local present,array,scope=codec_info(client);scope(source,id,owner)
     for _i,key in ipairs({'errcode','errCode'}) do if present(source[key]) and source[key]~=0 then fail('rejected') end end
     if present(source.succ) and source.succ~=true and source.succ~=1 then fail('rejected') end
@@ -73,12 +73,12 @@ function M.page(client,source,id,owner)
     return {reviews=out,total_count=source.totalCount,has_more=source.hasMore==true or source.hasMore==1 or #out<source.totalCount}
 end
 function M.snapshot(client,page,id,now)
-    if not M.id(id) or not integer(now,2^53-1) or now==0 then fail('time') end
+    if not M.display_id(id) or not integer(now,2^53-1) or now==0 then fail('time') end
     if page.has_more or #page.reviews~=page.total_count then fail('incomplete') end
     return M.validate(client,{schema=1,book_id=id,fetched_at=now,reviews=page.reviews},id)
 end
 function M.validate(client,value,id)
-    if not M.id(id) or type(value)~='table' or value.schema~=1 or value.book_id~=id
+    if not M.display_id(id) or type(value)~='table' or value.schema~=1 or value.book_id~=id
         or not integer(value.fetched_at,2^53-1) or value.fetched_at==0 then fail('snapshot') end
     local present,array,scope=codec_info(client);scope(value,id);array(value.reviews)
     local out={schema=1,book_id=id,fetched_at=value.fetched_at,reviews=client:json_decode('[]')};local seen={}
@@ -98,7 +98,7 @@ local function same(left,right)
     return true
 end
 function M.fetch(client,id,selected,options)
-    options=options or {};if not M.id(id) then fail('scope') end
+    options=options or {};if not M.display_id(id) then fail('scope') end
     local function current() return M.matches(client.settings,selected) end
     if not current() then fail('session_changed') end
     local auth=require('weread.lib.native_authorization'):new(client,{expected_vid=selected.native.scope.vid,is_current=current})

@@ -1,6 +1,6 @@
 """Independent own-thought text projection; display ranges never drive writes."""
 import re
-from my_cloud_marks_model import identifier,integer,text
+from my_cloud_marks_model import display_identifier,identifier,integer,text
 
 
 class ThoughtsError(ValueError):pass
@@ -40,7 +40,7 @@ def entry(value):
 
 
 def page(source,identity,owner):
-    if not identifier(identity) or not identifier(owner):fail('scope')
+    if not display_identifier(identity) or not identifier(owner):fail('scope')
     scope(source,identity,owner)
     for key in ('errcode','errCode'):
         if source.get(key) is not None and (type(source[key]) is not int or source[key]!=0):fail('rejected')

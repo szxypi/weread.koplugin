@@ -26,7 +26,7 @@ local function run(self,task)
     pcall(db.close,db);return ok and result or nil
 end
 function M:read(id)
-    if not Data.id(id) then return nil end
+    if not Data.display_id(id) then return nil end
     return run(self,function(db)
         local row=statement(db,[[SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END
             FROM ]]..self.table_name..[[ WHERE book_id=?]],M.MAX_PAYLOAD,id)

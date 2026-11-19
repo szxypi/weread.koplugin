@@ -102,6 +102,30 @@ local function ready(reader)
     pump(function() return reader.weread.source_position:current()~=nil end)
     return assert(reader.weread.source_position:current())
 end
+local function check_cb_notes(reader,current,seed)
+    local Cache=require('weread.lib.my_cloud_marks_store')
+    if seed then
+        assert(Cache:new(current.library_db,current.client):write{schema=1,book_id=id,fetched_at=1000,
+            updated={{bookmarkId='synthetic-highlight',type=1,chapterUid=2,markText='合成导入书划线',range='10-18'},
+                {bookmarkId='synthetic-bookmark',type=0,chapterUid=2,range='25'}},chapters={{chapterUid=2,title='合成章节'}}})
+        assert(Cache:new(current.library_db,current.client,'thoughts'):write{schema=1,book_id=id,fetched_at=1000,
+            reviews={{reviewId='synthetic-thought',content='合成导入书想法',abstract='合成引用',isPrivate=1,chapterUid=2,range='10-18'}}})
+    end
+    local entries={}
+    for _i,item in ipairs(current:getMainMenuItems()) do if item.text then entries[item.text]=item end end
+    assert(not entries[tr('Save cloud bookmark')], 'imported book exposed unvalidated bookmark writing')
+    for _i,case in ipairs({{'My cloud highlights','synthetic-highlight'},
+        {'My cloud bookmarks','synthetic-bookmark'},{'My cloud thoughts','synthetic-thought'}}) do
+        local item=assert(entries[tr(case[1])]);item.callback()
+        local owner=assert(current._my_marks_owner);assert(owner.value and not owner.writable and not owner.context)
+        local selected
+        for _j,row in ipairs(owner.menu.item_table) do if row.my_note_id==case[2] then selected=row end end
+        assert(selected);selected.callback()
+        local popup=assert(owner.menu._shelf_popup)
+        assert(not popup.buttons_table or #popup.buttons_table==0,'imported book exposed editing or source navigation')
+        current:cancelMyCloudMarks();clean(reader)
+    end
+end
 FM:showFiles(home)
 local host=assert(FM.instance.weread)
 if offline then
@@ -109,6 +133,7 @@ if offline then
     local reader=read_from_shelf(expected.file)
     assert(reader.document:isXPointerInCurrentPage(expected.xpointer) and reader:getCurrentPage()==expected.page)
     local position=ready(reader);assert(position.chapter_uid==expected.chapter_uid and position.basis==Source.coordinate_basis(format))
+    if cb_resume then check_cb_notes(reader,reader.weread,false) end
     UI:forceRePaint();Device.screen:shot(evidence..'/cached-resume-offline.png')
     close_reader()
     print('PASS: fresh offline plugin selection -> full cached EPUB -> saved page and chapter; zero HTTP')
@@ -117,6 +142,7 @@ end
 local loaded=false;host:refreshBookshelf(nil,{on_loaded=function(ok) loaded=ok end})
 pump(function() return not host.shelf_refreshing end);assert(loaded)
 local reader,current=read_from_shelf()
+if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
 current:showChapterList(book(current))
 pump(function() return current._chapter_list_view~=nil end)

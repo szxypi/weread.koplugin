@@ -50,6 +50,9 @@ render=function(host,owner)
         owner.chapter_titles={}
         for _i,item in ipairs(owner.value and owner.value.chapters or {}) do owner.chapter_titles[item.chapterUid]=item.title end
         local items={{text=_(owner.labels.refresh),callback=function() if current(host,owner) then refresh(host,owner) end end}}
+        if not owner.writable then
+            items[#items+1]={text=_('Imported book notes can be viewed here; editing and opening their location are not yet supported.'),select_enabled=false}
+        end
         local filters=owner.bookmarks and {} or owner.thoughts and {{'All my thoughts',nil},{'Thoughts with quoted text',1},{'Other thoughts',0}}
             or {{'All cloud marks',nil},{'Highlights only',1},{'Bookmarks only',0}}
         for _i,filter in ipairs(filters) do
@@ -58,13 +61,13 @@ render=function(host,owner)
                 if current(host,owner) then owner.filter=selected;render(host,owner) end
             end}
         end
-        if not owner.bookmarks then items[#items+1]={text=_('Local thought drafts'),callback=function()
+        if owner.writable and not owner.bookmarks then items[#items+1]={text=_('Local thought drafts'),callback=function()
             if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
         end}
         items[#items+1]={text=_('Check last thought change'),callback=function()
             if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').check(host,owner,current,render) end
         end} end
-        if not owner.thoughts then
+        if owner.writable and not owner.thoughts then
             items[#items+1]={text=_('Check last cloud mark change'),callback=function()
                 if current(host,owner) then stop(host,owner);require('weread.ui.mark_editor').check(host,owner,current,render) end
             end}
@@ -98,7 +101,7 @@ render=function(host,owner)
                         local viewer
                         local buttons
                         local target=require(owner.thoughts and 'weread.lib.my_thought_target' or row.type==0 and 'weread.lib.my_bookmark_target' or 'weread.lib.my_mark_target')
-                        if target.can_locate(row) then
+                        if owner.writable and target.can_locate(row) then
                             buttons={{{id=owner.thoughts and 'open_thought_quote' or row.type==0 and 'open_bookmark' or 'open_highlight',
                                 text=_(owner.thoughts and 'Open thought quoted text' or row.type==0 and 'Open bookmark position' or 'Open highlighted text'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
@@ -107,13 +110,13 @@ render=function(host,owner)
                             end}}}
                         end
                         local editor=require('weread.ui.thought_editor')
-                        if not owner.thoughts and row.type==0 and target.can_locate(row) then
+                        if owner.writable and not owner.thoughts and row.type==0 and target.can_locate(row) then
                             buttons=buttons or {};buttons[#buttons+1]={{id='delete_bookmark',text=_('Delete cloud bookmark'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                 stop(host,owner);require('weread.ui.mark_editor').start(host,owner,'bookmark_delete',row,current,render)
                             end}}
                         end
-                        if not owner.thoughts and row.type==1 then
+                        if owner.writable and not owner.thoughts and row.type==1 then
                             buttons=buttons or {};buttons[#buttons+1]={{id='delete_highlight',text=_('Delete highlight'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                 stop(host,owner);require('weread.ui.mark_editor').start(host,owner,'delete',row,current,render)
@@ -151,8 +154,8 @@ render=function(host,owner)
                                 end}}
                             end
                         end
-                        local operations=owner.thoughts and editor.can_edit(row) and {'edit','delete'}
-                            or not owner.thoughts and editor.can_create(row) and {'create'} or {}
+                        local operations=owner.writable and (owner.thoughts and editor.can_edit(row) and {'edit','delete'}
+                            or not owner.thoughts and editor.can_create(row) and {'create'}) or {}
                         for _j,operation in ipairs(operations) do
                             buttons=buttons or {};buttons[#buttons+1]={{id='thought_'..operation,
                                 text=_(operation=='create' and 'Write private thought' or operation=='edit' and 'Edit this thought' or 'Delete this thought'),callback=function()
@@ -228,14 +231,14 @@ refresh=function(host,owner)
 end
 function M.show(host,id,variant)
     if variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
-    if not Data.id(id) or not host.library_db then return false end
+    if not Data.display_id(id) or not host.library_db then return false end
     local scope=host.settings:get_auth_scope()
     if not host.library_db:accountKey() or not scope or not host.settings:auth_scope_matches(scope) then
         host:showInfo(_('Please scan the QR code to log in first.'));return false
     end
     M.cancel(host)
     local thoughts=variant=='thoughts'
-    local owner={id=id,scope=scope,thoughts=thoughts,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,
+    local owner={id=id,scope=scope,thoughts=thoughts,writable=Data.id(id)~=nil,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,
         data=thoughts and require('weread.lib.my_cloud_thoughts') or Data,account=host.library_db:accountKey(),epoch=host.discovery_epoch or 0,
         session=host._reader_session_gen,document=host.ui and host.ui.document,parent=host._book_detail_view,
         store=Store:new(host.library_db,host.client,thoughts and 'thoughts' or nil)}
