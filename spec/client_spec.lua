@@ -741,6 +741,15 @@ for _,reader_code in ipairs({302,403}) do
     expect(not ok and err=='sensitive_http_unavailable','sensitive Reader HTTP error exposed body')
 end
 expect(not table.concat(logs,'\n'):find('private-',1,true),'Reader diagnostics exposed private body')
+responses[#responses+1]={code=429,body='private-rate-limit-body'}
+ok,err=pcall(client.get_text,client,'https://weread.qq.com/web/reader/synthetic',
+    {sensitive=true,diagnostic_api='reader_context',rate_limit_signal=true})
+expect(not ok and err=='download_read/rate_limited','reader rate limit was not signaled safely')
+responses[#responses+1]={code=429,body='private-rate-limit-body'}
+ok,err=pcall(client.get_text,client,'https://weread.qq.com/web/reader/synthetic',
+    {sensitive=true,diagnostic_api='reader_context'})
+expect(not ok and err=='sensitive_http_unavailable','rate-limit signaling escaped its explicit scope')
+expect(not table.concat(logs,'\n'):find('private-',1,true),'rate-limit diagnostics exposed private body')
 
 logs={}
 responses[#responses+1]={code=403,body='private-position-upload'}

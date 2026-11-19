@@ -152,6 +152,17 @@ expect(written_chapters == fetched_chapters,
 expect(callback_chapters == fetched_chapters,
     "chapter callback did not receive the fetched catalog")
 
+local content=require("weread.lib.content")
+local previous_reader,previous_info=content.ensure_reader_state,host.showInfo
+local rate_notice,unexpected_callback
+content.ensure_reader_state=function() error("download_read/rate_limited",0) end
+host.showInfo=function(_,text) rate_notice=text end
+host:loadChapters({book_id="42"},function() unexpected_callback=true end,true)
+expect(rate_notice=="WeRead is limiting requests. Download stopped. Please try again later."
+    and not unexpected_callback and written_chapters==fetched_chapters,
+    "rate-limited chapter catalog exposed an internal error or changed saved chapters")
+content.ensure_reader_state,host.showInfo=previous_reader,previous_info
+
 db_chapters = { { chapterUid = 8, title = "Database chapter" } }
 callback_chapters = nil
 local db_book = { book_id = "42", title = "Database catalog" }

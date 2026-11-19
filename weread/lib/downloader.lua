@@ -48,6 +48,11 @@ local function display_error(err)
     return text
 end
 
+local function rate_limited(err)
+    return type(err) == "string" and (err == "download_read/rate_limited"
+        or err:match("^download_read/rate_limited[\r\n]") ~= nil)
+end
+
 local READER_BOOK_FIELDS = {
     "book_id", "title", "author", "psvts", "pclts", "token", "reader_url",
     "chapter_uid", "chapter_idx", "chapter_offset", "progress", "summary",
@@ -727,12 +732,16 @@ function Downloader:start(book, chapters, suffix, options)
                 dl.progress_dialog = nil
             end
             if type(options.on_complete) == "function" then
-                pcall(options.on_complete, false, err_init)
+                pcall(options.on_complete, false, rate_limited(err_init) and "rate_limited" or err_init)
             end
             dl.completion_notified = true
             self:_finishJob(dl)
             if not dl.prefetch then
-                self.show_info(T(_("Download failed:\n%1"), display_error(err_init)))
+                if rate_limited(err_init) then
+                    self.show_info(_("WeRead is limiting requests. Download stopped. Please try again later."))
+                else
+                    self.show_info(T(_("Download failed:\n%1"), display_error(err_init)))
+                end
             end
             return
         end
@@ -824,7 +833,25 @@ function Downloader:_skipCompletedChapterBatch(dl)
     return true
 end
 
+function Downloader:_rateLimit(dl)
+    if dl.resumable then
+        self:_preserveWorkspace(dl, "rate_limited")
+    else
+        self:_releaseStandby(dl)
+        self:_cleanupWorkspace(dl)
+        if dl.progress_dialog then dl.progress_dialog:close();dl.progress_dialog = nil end
+        self:_notifyCompletion(dl, false, "rate_limited")
+        self:_finishJob(dl)
+    end
+    if not dl.prefetch then
+        self.show_info(_(dl.resumable
+            and "WeRead is limiting requests. Download paused; completed chapters are kept. Try Download full book again later."
+            or "WeRead is limiting requests. Download stopped. Please try again later."))
+    end
+end
+
 function Downloader:_retryChapterSource(dl, err)
+    if rate_limited(err) then self:_rateLimit(dl);return false end
     local chapter = dl.chapters[dl.index]
     local uid = tostring(chapter and chapter.chapterUid or dl.index)
     dl.chapter_source_retries = dl.chapter_source_retries or {}

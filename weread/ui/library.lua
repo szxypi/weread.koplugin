@@ -1856,7 +1856,11 @@ function M:loadChapters(book, callback, force_refresh)
         self:closeBusy()
         if not ok then
             logger.err("load chapters failed:", log_error(chapters_or_err))
-            self:showInfo(T(_("Load chapters failed:\n%1"), display_error(chapters_or_err)))
+            if chapters_or_err == "download_read/rate_limited" then
+                self:showInfo(_("WeRead is limiting requests. Download stopped. Please try again later."))
+            else
+                self:showInfo(T(_("Load chapters failed:\n%1"), display_error(chapters_or_err)))
+            end
             return
         end
         local cache_ok, cache_err = Content.save_catalog_cache(

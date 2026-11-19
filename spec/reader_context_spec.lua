@@ -98,6 +98,17 @@ client.get_text=function() error('sensitive_http_unavailable',0) end
 book.psvts='old';book.pclts='old';book.token='old'
 local ok,err=pcall(Content.ensure_reader_state,client,book)
 expect(not ok and err=='Could not load this book’s reading page. Check your connection and login, then try again.' and book.psvts==nil and book.pclts==nil and book.token==nil,'network failure retained a usable old session')
+client.get_text=function() error('download_read/rate_limited',0) end
+book.psvts='old';book.pclts='old';book.token='old'
+ok,err=pcall(Content.ensure_reader_state,client,book)
+expect(not ok and err=='download_read/rate_limited' and book.psvts==nil and book.pclts==nil and book.token==nil,
+    'reader rate limit was hidden or left an old session')
+local limited_client={request=function() return 'private body',429 end,json_encode=function() return '{}' end}
+ok,err=pcall(Content.fetch_chapter_shard,limited_client,{}, {book_id='900001',psvts='synthetic'},
+    {chapterUid=2},'/web/book/chapter/e_0')
+expect(not ok and err=='download_read/rate_limited','chapter rate limit was not safely propagated')
+ok,err=pcall(Content.fetch_chapter_css,limited_client,{}, {book_id='900001',psvts='synthetic'}, {chapterUid=2})
+expect(not ok and err=='download_read/rate_limited','style rate limit was incorrectly ignored')
 local old_chapters={{chapterUid=7}}
 book.chapters=old_chapters
 client.post_json=function() error('private catalog body') end

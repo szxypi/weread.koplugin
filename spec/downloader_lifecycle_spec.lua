@@ -182,8 +182,36 @@ scheduled[#scheduled]()
 expect(retry_download.index == 2 and retry_download.failed[1] == "30",
     "chapter was not skipped after exhausting two retries")
 
--- Preparation must already be painted while DNS/session/cache work blocks.
+-- A service rate limit stops the whole batch at once. Completed full-book
+-- checkpoints survive and a single-chapter job is cleaned instead.
 local Content = require("weread.lib.content")
+local original_fetch = Content.fetch_single_chapter_source
+Content.fetch_single_chapter_source = function() error("download_read/rate_limited", 0) end
+for _, resumable in ipairs({true, false}) do
+    local count, notified, released, cleaned = #scheduled, 0, 0, 0
+    local old_cleanup = downloader._cleanupWorkspace
+    downloader._cleanupWorkspace = function(self, job)
+        cleaned = cleaned + 1;job.workspace = nil
+    end
+    local limited = {
+        book = {book_id="book"}, chapters={{chapterUid=30},{chapterUid=31}}, index=1, total=2,
+        failed={}, selected={}, completed={}, resumable=resumable, workspace={sentinel=true}, state={}, standby_guard=true,
+        operation_lease={release=function() released=released+1 end},
+        progress_dialog={setTitle=function() end,reportProgress=function() end,close=function() end},
+        on_complete=function(ok,reason) notified=notified+1;expect(not ok and reason=="rate_limited", "wrong rate-limit result") end,
+    }
+    downloader._active_job=limited;downloader:_beginStandby();downloader:_step(limited)
+    expect(#scheduled==count and limited.index==1 and #limited.failed==0, "rate-limited batch retried or skipped ahead")
+    expect(notified==1 and released==1 and downloader._active_job==nil and downloader._standby_ref==0,
+        "rate-limit cleanup or completion failed")
+    expect(resumable and limited.workspace and cleaned==0 or not resumable and not limited.workspace and cleaned==1,
+        "rate-limit cleanup discarded or retained the wrong workspace")
+    expect(messages[#messages]:find("limiting requests",1,true), "rate-limit message missing")
+    downloader._cleanupWorkspace=old_cleanup
+end
+Content.fetch_single_chapter_source=original_fetch
+
+-- Preparation must already be painted while DNS/session/cache work blocks.
 local pending_init, painted, reader_calls = nil, false, 0
 downloader.refresh_ui = function()
     expect(dialog.visible, "preparation dialog was not shown before repaint")
@@ -241,6 +269,17 @@ pending_init()
 expect(not dialog.visible and downloader._active_job == nil,
     "failed initialization left the preparation dialog or job active")
 expect(downloader._standby_ref == 0, "preparation failure leaked standby guard")
+
+Content.ensure_reader_state = function() error("download_read/rate_limited",0) end
+local init_reason
+painted=false
+expect(downloader:start({title="Book"},chapters,"full",{on_complete=function(ok,reason)
+    expect(not ok, "rate-limited initialization was reported as successful");init_reason=reason
+end}), "rate-limit initialization did not start")
+pending_init()
+expect(init_reason=="rate_limited" and not dialog.visible and downloader._active_job==nil
+    and downloader._standby_ref==0 and messages[#messages]:find("limiting requests",1,true),
+    "rate-limited initialization leaked its job or exposed an internal error")
 
 downloader.run_online_task = function()
     expect(painted and dialog.visible, "offline check ran before repaint")

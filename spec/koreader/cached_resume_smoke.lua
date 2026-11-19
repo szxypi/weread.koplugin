@@ -321,8 +321,14 @@ if os.getenv('WEREAD_TEST_RESUME_HANDOFF')=='1' then
     handoff_position=assert(book(assert(FM.instance.weread)).last_local_position.source_position)
     assert(handoff_position.chapter_uid=='2' and handoff_position.chapter_offset==point.co)
 end
-host,view=detail();press(view,'⇩ Download full book')
+host,view=detail()
+local rate_check
+if os.getenv('WEREAD_TEST_DOWNLOAD_RATE_LIMIT')=='1' then
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    rate_check=dofile(fixtures..'download_rate_limit_case.lua')(host,view,book,pump,tick,press)
+else press(view,'⇩ Download full book') end
 pump(function() return book(host).cached_full_book~=nil and not host.downloader._active_job end)
+if rate_check then report.rate_limit=rate_check() end
 local full=assert(book(host).cached_full_book)
 pump(function() return Reader.instance and Reader.instance.document.file==full end)
 reader,current=Reader.instance,Reader.instance.weread;report.full_download=true

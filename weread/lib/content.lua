@@ -1627,8 +1627,11 @@ function Content.ensure_reader_state(client, book)
     -- A rejected response cannot leave a previously usable download session.
     book.psvts, book.pclts, book.token = nil, nil, nil
     local loaded, reader_html = pcall(client.get_text, client, reader_url, { referer = reader_url,
-        sensitive = true, diagnostic_api = "reader_context" })
-    if not loaded then reader_context_error(true) end
+        sensitive = true, diagnostic_api = "reader_context", rate_limit_signal = true })
+    if not loaded then
+        if reader_html == "download_read/rate_limited" then error(reader_html, 0) end
+        reader_context_error(true)
+    end
     local valid, state = pcall(ReaderContext.project, book, reader_html, function(encoded)
         return client:json_decode(encoded)
     end)
@@ -1687,6 +1690,7 @@ function Content.fetch_chapter_shard(client, _settings, book, chapter, endpoint)
         },
         body = client:json_encode(params),
     })
+    if code == 429 then error("download_read/rate_limited", 0) end
     if not code or code < 200 or code >= 300 then
         error(endpoint .. " failed: HTTP " .. tostring(code or "unknown"))
     end
@@ -1762,7 +1766,7 @@ function Content.fetch_chapter_xhtml(client, settings, book, chapter)
     end
 
     if not ok then
-        error(e0)
+        error(e0, 0)
     end
 
     book._content_format = "epub"
@@ -1871,6 +1875,7 @@ function Content.fetch_chapter_css(client, settings, book, chapter)
     local ok, css = pcall(function()
         return Content.decode_content_shard(Content.fetch_chapter_shard(client, settings, book, chapter, "/web/book/chapter/e_2"))
     end)
+    if not ok and css == "download_read/rate_limited" then error(css, 0) end
     if ok then
         local sanitized, removed = Content.sanitize_book_css(css)
         if removed > 0 then

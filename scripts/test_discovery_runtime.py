@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--cb-highlight-edit',action='store_true',help='Exercise imported-book highlight writes on the isolated mock service')
     parser.add_argument('--cache-cleanup',action='store_true',help='Verify native cache cleanup keeps local reading records')
     parser.add_argument('--download-pacing',action='store_true',help='Cancel a paced source worker and preserve the existing full book')
+    parser.add_argument('--download-rate-limit',action='store_true',help='Pause a limited full-book download and resume completed chapters')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
     parser.add_argument('--process-loss', choices=('before-state-commit','before-dispatch','after-apply','before-readback'),
@@ -100,6 +101,7 @@ def main():
         parser.error('--cb-highlight-edit requires --cached-resume --cb-resume with EPUB')
     if args.cache_cleanup and not args.cached_resume:parser.error('--cache-cleanup requires --cached-resume')
     if args.download_pacing and not args.cached_resume:parser.error('--download-pacing requires --cached-resume')
+    if args.download_rate_limit and not args.cached_resume:parser.error('--download-rate-limit requires --cached-resume')
     if args.content_format!='epub' and not args.cached_resume:
         parser.error('--content-format txt requires --cached-resume')
     if args.resume_handoff and not args.cached_resume:
@@ -150,6 +152,7 @@ def main():
     if args.cb_highlight_edit:environment['WEREAD_TEST_CB_HIGHLIGHT_EDIT']='1'
     if args.cache_cleanup:environment['WEREAD_TEST_CACHE_CLEANUP']='1'
     if args.download_pacing:environment['WEREAD_TEST_DOWNLOAD_PACING']='1'
+    if args.download_rate_limit:environment['WEREAD_TEST_DOWNLOAD_RATE_LIMIT']='1'
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
     if args.resume_handoff:
         environment['WEREAD_TEST_RESUME_HANDOFF']='1'
@@ -213,7 +216,7 @@ def main():
             else:
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
                                         cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
-                                        timeout=240 if args.cache_cleanup else 120)
+                                        timeout=240 if args.cache_cleanup or args.download_rate_limit else 120)
             if args.cached_resume_numeric_keys and result.returncode==0:
                 log.flush(); raw=(root/'evidence/runtime.log').read_bytes(); marker=b'\nWEREAD_NUMERIC_CACHE_RESUME='
                 assert raw.count(marker)==1, 'numeric-cache resume fixture did not run'

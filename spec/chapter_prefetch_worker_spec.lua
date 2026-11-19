@@ -86,4 +86,13 @@ assert(table.concat(calls, ",")
 assert(table.concat(progress, ",")
     == "reader,source,images,footnotes,epub")
 
+local content=require("weread.lib.content")
+local tries,sleeps=0,0
+content.fetch_single_chapter_source=function() tries=tries+1;error("download_read/rate_limited",0) end
+context.sleep=function() sleeps=sleeps+1 end
+local ok,err=pcall(Worker.run,settings,{}, {book_id="book"},{chapterUid="2"},context)
+assert(not ok and tostring(err):find("download_read/rate_limited",1,true) and tries==1 and sleeps==0,
+    "prefetch retried a rate-limited chapter")
+assert(calls[#calls]=="cleanup", "rate-limited prefetch did not clean its workspace")
+
 print("chapter_prefetch_worker_spec: isolated settings and complete pipeline passed")

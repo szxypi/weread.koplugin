@@ -33,6 +33,8 @@ function M.run(settings, client, book, chapter, context)
                 client, settings, book, chapter, state)
             FileIdentity.check(source_identity, book)
             if fetched then xhtml, position_source = value, source; break end
+            if type(value) == "string" and (value == "download_read/rate_limited"
+                or value:match("^download_read/rate_limited[\r\n]")) then error(value, 0) end
             if attempt == 3 then error(value, 0) end
             context.sleep(0.8 * attempt)
         end
