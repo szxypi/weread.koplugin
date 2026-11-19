@@ -44,4 +44,21 @@ expect(not Point.from_mark(entity,'41','2',{type=0,chapterUid=2,range=tostring(a
 expect(not Point.project(entity,#entity-7),'chapter end became nearest point')
 local multi='<body><p>Unique &NotEqualTilde; bookmark context.</p></body>'
 expect(not Point.project(multi,coordinate(multi,'≂̸')),'multiple entity scalars accepted as one point')
+local imported_raw='<body><p>😀 Unique imported bookmark preview with sufficient distinct source context.</p></body>'
+local imported_value=assert(Point.project(imported_raw,coordinate(imported_raw,'Unique')))
+local imported_row={type=0,chapterUid=2,range=imported_value.range,markText=imported_value.markText}
+local imported=assert(Point.from_mark(imported_raw,'CB_SyntheticNotes','2',imported_row))
+expect(imported.chapter_offset==imported_value.chapter_offset and not imported.upload_verified,'imported point changed position or gained upload rights')
+expect(Point.can_locate(imported_row,true),'unique imported preview hidden')
+for _i,preview in ipairs({'','short','Wrong text that has enough distinct characters','\255','\0'}) do
+    imported_row.markText=preview
+    expect(not Point.from_mark(imported_raw,'CB_SyntheticNotes','2',imported_row),'invalid imported preview accepted')
+end
+imported_row.markText=nil
+expect(not Point.can_locate(imported_row,true) and not Point.from_mark(imported_raw,'CB_SyntheticNotes','2',imported_row),'missing imported preview accepted')
+imported_row.markText='Unique imported bookmark preview'
+expect(not Point.from_mark('<body><p>Unique imported bookmark preview Unique imported bookmark preview</p></body>',
+    'CB_SyntheticNotes','2',{type=0,chapterUid=2,range='9',markText=imported_row.markText}),'repeated imported preview accepted')
+imported_row.bookId='CB_Other'
+expect(not Point.from_mark(imported_raw,'CB_SyntheticNotes','2',imported_row),'foreign imported bookmark accepted')
 print('bookmark_point_spec: '..checks..' checks')

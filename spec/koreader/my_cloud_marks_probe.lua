@@ -164,7 +164,7 @@ local ok,reason=pcall(function()
     if imported then
         local notice=false
         local label=thoughts and 'Imported book thought quotes can be located when verified; editing is not yet supported.'
-            or 'Imported book highlights can be located when verified; bookmark location and editing are not yet supported.'
+            or 'Imported book marks can be located when their source is verified; editing is not yet supported.'
         for _i,item in ipairs(menu.item_table) do
             if item.text==tr(label) then
                 notice=item.select_enabled==false

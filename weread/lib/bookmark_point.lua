@@ -14,9 +14,21 @@ function M.point(value)
     local at=tonumber(value)
     return at<=2147483647 and tostring(at)==value and at or nil
 end
-function M.can_locate(row)
+local function imported_preview(row)
+    if type(row)~='table' or type(row.markText)~='string' or #row.markText>131072
+        or row.markText:find('[%z\1-\8\11\12\14-\31\127]')
+        or Protocol.utf8_substr(row.markText,#row.markText)~=row.markText then return nil end
+    local text=Dom.normalize(row.markText)
+    if not text then return nil end
+    local count=0
+    for _char in text:gmatch('[%z\1-\127\194-\244][\128-\191]*') do count=count+1 end
+    if count<12 then return nil end
+    return text
+end
+function M.can_locate(row,require_preview)
     return type(row)=='table' and row.type==0 and type(row.chapterUid)=='number'
         and row.chapterUid>=1 and row.chapterUid<=2147483647 and row.chapterUid%1==0 and M.point(row.range)~=nil
+        and (not require_preview or imported_preview(row)~=nil)
 end
 local function trim(text)
     local first,last
@@ -78,7 +90,8 @@ function M.project(raw,co)
 end
 function M.from_mark(raw,book,chapter,row)
     return guarded(function()
-        if not Marks.id(book) or not Marks.id(chapter) or not M.can_locate(row) or tostring(row.chapterUid)~=chapter
+        local imported=not Marks.id(book)
+        if not Marks.display_id(book) or not Marks.id(chapter) or not M.can_locate(row,imported) or tostring(row.chapterUid)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book or row.book_id~=nil and tostring(row.book_id)~=book then fail('scope') end
         local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
         local value,byte=scan(raw,map,M.point(row.range))
@@ -87,6 +100,8 @@ function M.from_mark(raw,book,chapter,row)
             if type(row.markText)~='string' or #row.markText>131072 or Protocol.utf8_substr(row.markText,#row.markText)~=row.markText then fail('preview') end
             local text=Dom.normalize(row.markText)
             if not text or text=='' or map.flat:sub(byte,byte+#text-1)~=text then fail('preview') end
+            if imported and (not imported_preview(row) or map.flat:find(text,1,true)~=byte
+                or map.flat:find(text,byte+1,true)) then fail('preview') end
         end
         if not (map:anchor(value.chapter_offset,{segment_only=true}) or map:anchor(value.chapter_offset)) then fail('anchor') end
         return {book_id=book,chapter_uid=chapter,chapter_offset=value.chapter_offset,raw_sha256=value.raw_sha256,

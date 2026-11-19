@@ -83,7 +83,7 @@ expect(Marks.show(host,'CB_Synthetic') and not value.started,'imported-book high
 menu=host._my_marks_menu
 expect(not pcall(row,menu,'Local thought drafts') and not pcall(row,menu,'Check last cloud mark change'),
     'read-only imported book exposed editing actions')
-expect(row(menu,'Imported book highlights can be located when verified; bookmark location and editing are not yet supported.').select_enabled==false,
+expect(row(menu,'Imported book marks can be located when their source is verified; editing is not yet supported.').select_enabled==false,
     'imported-book read-only limitation was not visible')
 row(menu,'合成引用').callback()
 expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and #menu._shelf_popup.buttons_table==1
@@ -95,6 +95,13 @@ host,value=fixture(cb)
 expect(Marks.show(host,'CB_Synthetic','bookmarks') and not value.started,'imported-book bookmarks did not open offline')
 menu=host._my_marks_menu;row(menu,'合成章节').callback()
 expect(not menu._shelf_popup.buttons_table,'imported-book bookmark exposed unverified navigation or deletion')
+Marks.cancel(host)
+cb.updated[2].markText='独一无二的导入书书签原文预览文字。'
+host=fixture(cb)
+expect(Marks.show(host,'CB_Synthetic','bookmarks'),'imported-book bookmarks did not reopen')
+menu=host._my_marks_menu;row(menu,cb.updated[2].markText).callback()
+expect(#menu._shelf_popup.buttons_table==1 and menu._shelf_popup.buttons_table[1][1].id=='open_bookmark',
+    'imported-book preview did not expose only source-verified bookmark navigation')
 Marks.cancel(host)
 -- Explicit expiry permits one parent-owned renewal and one replayed GET only.
 host,value=fixture(snapshot());value.online=true;Marks.show(host,'900001');menu=host._my_marks_menu

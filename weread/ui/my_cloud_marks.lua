@@ -51,9 +51,9 @@ render=function(host,owner)
         for _i,item in ipairs(owner.value and owner.value.chapters or {}) do owner.chapter_titles[item.chapterUid]=item.title end
         local items={{text=_(owner.labels.refresh),callback=function() if current(host,owner) then refresh(host,owner) end end}}
         if not owner.writable then
-            local notice=owner.bookmarks and 'Imported book notes can be viewed here; editing and opening their location are not yet supported.'
+            local notice=owner.bookmarks and 'Imported book bookmarks can be located when their preview is uniquely verified; editing is not yet supported.'
                 or owner.thoughts and 'Imported book thought quotes can be located when verified; editing is not yet supported.'
-                or 'Imported book highlights can be located when verified; bookmark location and editing are not yet supported.'
+                or 'Imported book marks can be located when their source is verified; editing is not yet supported.'
             items[#items+1]={text=_(notice),select_enabled=false}
         end
         local filters=owner.bookmarks and {} or owner.thoughts and {{'All my thoughts',nil},{'Thoughts with quoted text',1},{'Other thoughts',0}}
@@ -104,7 +104,7 @@ render=function(host,owner)
                         local viewer
                         local buttons
                         local target=require(owner.thoughts and 'weread.lib.my_thought_target' or row.type==0 and 'weread.lib.my_bookmark_target' or 'weread.lib.my_mark_target')
-                        if (owner.writable or owner.thoughts or row.type==1) and target.can_locate(row) then
+                        if target.can_locate(row,not owner.writable and row.type==0) then
                             buttons={{{id=owner.thoughts and 'open_thought_quote' or row.type==0 and 'open_bookmark' or 'open_highlight',
                                 text=_(owner.thoughts and 'Open thought quoted text' or row.type==0 and 'Open bookmark position' or 'Open highlighted text'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end

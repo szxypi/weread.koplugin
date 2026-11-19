@@ -6,7 +6,7 @@ come from verified original source and are not assumed to be returned by API.
 import hashlib
 import re
 from selection_quote import Selection,normalized
-from my_cloud_marks_model import identifier,text as valid_text
+from my_cloud_marks_model import display_identifier,identifier,text as valid_text
 
 
 def point_range(value):
@@ -47,7 +47,7 @@ def project(raw,co):
 
 
 def from_mark(raw,book,chapter,row):
-    if (not identifier(book) or not identifier(chapter) or not isinstance(row,dict) or type(row.get('type')) is not int or row['type']!=0
+    if (not display_identifier(book) or not identifier(chapter) or not isinstance(row,dict) or type(row.get('type')) is not int or row['type']!=0
             or type(row.get('chapterUid')) is not int or str(row['chapterUid'])!=chapter
             or any(str(row[k])!=book for k in ('bookId','book_id') if k in row)):raise ValueError('bookmark_point/scope')
     raw_at=point_range(row.get('range'));model=Selection(raw)
@@ -56,8 +56,12 @@ def from_mark(raw,book,chapter,row):
     co=model.filtered.starts[model.visible[indices[0]]];value=project(raw,co)
     if value['range']!=row['range']:raise ValueError('bookmark_point/boundary')
     preview=row.get('markText')
+    imported=not identifier(book)
+    if imported and (not valid_text(preview,131072,False) or len(normalized(preview))<12):raise ValueError('bookmark_point/preview')
     if preview is not None and preview!='':
         if not valid_text(preview,131072,False) or not normalized(preview) or not model.flat.startswith(normalized(preview),indices[0]):
+            raise ValueError('bookmark_point/preview')
+        if imported and (model.flat.find(normalized(preview))!=indices[0] or model.flat.find(normalized(preview),indices[0]+1)>=0):
             raise ValueError('bookmark_point/preview')
     return dict(book_id=book,chapter_uid=chapter,chapter_offset=co,raw_sha256=value['raw_sha256'],raw_bytes=value['raw_bytes'],
                 basis='filtered_xhtml_utf16',upload_verified=False)

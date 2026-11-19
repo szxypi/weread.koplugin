@@ -21,6 +21,7 @@ local ok,reason=pcall(function()
         for _i,key in ipairs({'confirmations','downloaded_chapters','http_gets','catalog_posts','content_posts','forbidden_requests','http_failures'}) do report[key]=0 end
     end
     local thoughts=input.variant=='thoughts';assert(thoughts==(os.getenv('WEREAD_MARKNAV_VARIANT')=='thoughts'))
+    local bookmarks=input.variant=='bookmarks';assert(bookmarks==(os.getenv('WEREAD_MARKNAV_VARIANT')=='bookmarks'))
     local personal=os.getenv('WEREAD_PERSONAL_DISPLAY')=='1';assert(not personal or not thoughts and not downloading)
     if personal then
         report.personal_display=false;report.personal_native_text=false;report.personal_spans=0
@@ -201,7 +202,7 @@ local ok,reason=pcall(function()
         local books=plugin.settings:get('books',{});books[id]=book;plugin.settings:set('books',books);plugin.settings:flush();report.source_files=#input.chapters+1
     end
     local tr=require('weread.lib.plugin_util').tr
-    local Target=require(thoughts and 'weread.lib.my_thought_target' or 'weread.lib.my_mark_target')
+    local Target=require(thoughts and 'weread.lib.my_thought_target' or bookmarks and 'weread.lib.my_bookmark_target' or 'weread.lib.my_mark_target')
     local function note_id(row) return thoughts and row.reviewId or row.bookmarkId end
     local expected={}
     for _i,sample in ipairs(input.chapters) do
@@ -223,14 +224,14 @@ local ok,reason=pcall(function()
         if not reader then
             plugin:showBookMenu(book)
             local detail=assert(plugin._book_detail_view);local entry
-            for _j,button in ipairs(detail._action_buttons) do if button.text==tr(thoughts and 'My cloud thoughts' or 'My cloud highlights') then entry=button end end
+            for _j,button in ipairs(detail._action_buttons) do if button.text==tr(thoughts and 'My cloud thoughts' or bookmarks and 'My cloud bookmarks' or 'My cloud highlights') then entry=button end end
             assert(entry);entry.callback()
-        else assert(require('weread.ui.my_cloud_marks').show(plugin,id,thoughts and 'thoughts' or nil)) end
+        else assert(require('weread.ui.my_cloud_marks').show(plugin,id,thoughts and 'thoughts' or bookmarks and 'bookmarks' or nil)) end
         local owner=assert(plugin._my_marks_owner);assert(not owner.context)
         local menu=owner.menu;local index
         for at,item in ipairs(menu.item_table) do if item.my_note_id==note_id(row) then index=at end end
         assert(index);menu:onGotoPage(menu:getPageNumber(index));menu:onMenuSelect(menu.item_table[index]);UI:forceRePaint()
-        local popup=assert(menu._shelf_popup);local button=assert(popup.button_table:getButtonById(thoughts and 'open_thought_quote' or 'open_highlight'))
+        local popup=assert(menu._shelf_popup);local button=assert(popup.button_table:getButtonById(thoughts and 'open_thought_quote' or bookmarks and 'open_bookmark' or 'open_highlight'))
         if _i==1 then shot('highlight') end
         if downloading then
             button:onTapSelectButton()
@@ -264,7 +265,7 @@ local ok,reason=pcall(function()
             old_dismiss()
             assert(owner.navigation==replacement,'old busy action cancelled new lookup')
         else button:onTapSelectButton() end
-        assert(button.text==tr(thoughts and 'Open thought quoted text' or 'Open highlighted text'));report.buttons=report.buttons+1
+        assert(button.text==tr(thoughts and 'Open thought quoted text' or bookmarks and 'Open bookmark position' or 'Open highlighted text'));report.buttons=report.buttons+1
         local beat=false;UI:scheduleIn(.1,function() beat=true end)
         wait(function()
             reader=require('apps/reader/readerui').instance

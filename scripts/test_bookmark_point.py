@@ -61,5 +61,18 @@ class BookmarkPointTests(unittest.TestCase):
         for preview in (None,''):
             self.assertEqual(from_mark(raw,'41','2',dict(row,markText=preview))['chapter_offset'],value['chapter_offset'])
 
+    def test_imported_preview_must_match_unique_complete_original(self):
+        raw='<body><p>😀 Unique imported bookmark preview with sufficient distinct source context.</p></body>'
+        value=project(raw,coordinate(raw,'Unique'))
+        row=dict(type=0,chapterUid=2,range=value['range'],markText=value['markText'])
+        result=from_mark(raw,'CB_SyntheticNotes','2',row)
+        self.assertEqual(result['chapter_offset'],value['chapter_offset']);self.assertFalse(result['upload_verified'])
+        for bad in (None,'','short','Wrong text with enough characters','\x00','\ud800'):
+            with self.subTest(preview=repr(bad)),self.assertRaises((ValueError,UnicodeError)):
+                from_mark(raw,'CB_SyntheticNotes','2',dict(row,markText=bad))
+        with self.assertRaises(ValueError):from_mark(raw,'CB_SyntheticNotes','2',dict(row,bookId='CB_Other'))
+        duplicate='<body><p>Unique imported bookmark preview Unique imported bookmark preview</p></body>'
+        with self.assertRaises(ValueError):from_mark(duplicate,'CB_SyntheticNotes','2',dict(row,range=str(duplicate.index('Unique')),markText='Unique imported bookmark preview'))
+
 
 if __name__=='__main__':unittest.main()
