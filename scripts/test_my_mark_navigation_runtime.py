@@ -19,7 +19,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--run-dir',type=Path,required=True)
     parser.add_argument('--imported',action='store_true',help='exercise imported-book quote navigation')
     parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts','bookmarks']);parser.add_argument('--personal-display',action='store_true');parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
-    if args.imported and (args.download_missing or args.personal_display):parser.error('imported fixture uses cached navigation')
+    if args.imported and args.download_missing:parser.error('imported fixture uses cached navigation')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);repo=Path(__file__).resolve().parent.parent
     candidate=root/'candidate.zip';subprocess.run(['bash',str(repo/'scripts/package_release.sh'),str(candidate)],capture_output=True,check=True)
     book_id='CB_SyntheticNotes' if args.imported else '900001'

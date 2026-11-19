@@ -5,6 +5,11 @@ local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) en
 local raw='<body><p>Unique selected quote and following context.</p></body>'
 local mark={type=1,chapterUid=2,range='9-30',markText='Unique selected quote'}
 local value=assert(Span.prepare(raw,'41','2',mark));expect(value.first==9 and value.last==30,'exact endpoints changed')
+local imported=assert(Span.prepare(raw,'CB_SyntheticNotes','2',mark))
+expect(imported.first==value.first and imported.last==value.last and imported.normalized_sha256==value.normalized_sha256,
+    'imported span changed the verified native range')
+expect(not Span.project(raw,'CB_SyntheticNotes','2',{type=1,chapterUid=2,range=mark.range,markText=mark.markText,bookId='CB_Other'}),
+    'foreign imported mark accepted')
 expect(value.first_anchor.co==9 and value.last_anchor.co==30,'anchors do not pin endpoints')
 local reverse=assert(Quote.project(raw,value.first,value.last,mark.markText));expect(reverse.range==mark.range,'forward proof differs')
 local bom=assert(Span.project('\239\187\191'..raw,'41','2',mark));expect(bom.first==10 and bom.last==31,'BOM units changed')

@@ -323,8 +323,13 @@ local ok,reason=pcall(function()
             assert(reader.document:getXPointer()==origin and json.encode(reader.annotation.annotations)==native_notes)
             assert(file_bytes(reader.document.file)==bytes)
             UI:forceRePaint();assert(s.overlay.enabled)
-            local visible=false;for _j,entry in ipairs(s.overlay.visible) do if entry.record.bookmarkId==row.bookmarkId then visible=true end end
-            assert(visible)
+            local box;for _j,entry in ipairs(s.overlay.visible) do if entry.record.bookmarkId==row.bookmarkId then box=entry.rect;break end end
+            assert(box)
+            if synthetic and _i==1 then
+                assert(plugin:_onXPointerOverlayTap{pos={x=box.x+box.w/2,y=box.y+box.h/2}},'personal highlight tap was not routed')
+                local tapped=assert(plugin._my_marks_owner);assert(tapped.menu._shelf_popup,'personal highlight detail was not opened')
+                require('weread.ui.my_cloud_marks').cancel(plugin)
+            end
             report.personal_spans=report.personal_spans+1
         end
         UI:forceRePaint();report.located=report.located+1

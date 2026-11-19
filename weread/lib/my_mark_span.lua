@@ -18,7 +18,7 @@ local function trim(text)
 end
 function M.project(raw,book,chapter,row)
     local ok,value=pcall(function()
-        if not Marks.id(book) or not Marks.id(chapter) or type(row)~='table' or row.type~=1
+        if not Marks.display_id(book) or not Marks.id(chapter) or type(row)~='table' or row.type~=1
             or type(row.chapterUid)~='number' or tostring(row.chapterUid)~=chapter
             or type(row.markText)~='string' or #row.markText==0 or #row.markText>131072
             or row.bookId~=nil and tostring(row.bookId)~=book or row.book_id~=nil and tostring(row.book_id)~=book

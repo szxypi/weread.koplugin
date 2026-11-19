@@ -184,7 +184,7 @@ end
 function M.attach(host)
     M.detach(host)
     if not host.settings or not host.settings.get_auth_scope or not host.library_db or not host.detectWeReadBook then return false end
-    local document=host.ui and host.ui.document;local book=Marks.id(host:detectWeReadBook())
+    local document=host.ui and host.ui.document;local book=Marks.display_id(host:detectWeReadBook())
     local scope=host.settings:get_auth_scope();local account=host.library_db and host.library_db:accountKey()
     if not document or not book or not account or not scope or not host.settings:auth_scope_matches(scope)
         or not document.info or document.info.has_pages or not host.ui.view or not host.ui.view.registerViewModule then return false end
@@ -253,7 +253,7 @@ function M.available(host)
     local m=metadata(host,s);if not m or not m.record or m.record.format~='web_xhtml' then return false end
     for _i,row in ipairs(s.snapshot and s.snapshot.updated or {}) do
         if tostring(row.chapterUid)==m.chapter_uid and (require('weread.lib.my_mark_target').can_locate(row)
-            or require('weread.lib.bookmark_point').can_locate(row)) then return true end
+            or require('weread.lib.bookmark_point').can_locate(row,not Marks.id(s.book))) then return true end
     end
     return false
 end

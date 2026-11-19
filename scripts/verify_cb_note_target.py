@@ -14,6 +14,7 @@ from unittest.mock import patch
 
 from my_cloud_marks_model import project as marks_project
 from my_mark_target import project as target_project
+from my_mark_span import project as span_project
 from run_my_mark_navigation_ui import FRAME, public_report, validate
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore
@@ -58,8 +59,10 @@ def read_source(saved, store, ids, identity, uid):
         web.close()
 
 
-def native_ui(command, payload, width, height, dpi):
+def native_ui(command, payload, width, height, dpi, *, personal=False):
     args = list(command) + ['--width', str(width), '--height', str(height), '--dpi', str(dpi)]
+    if personal:
+        args.append('--personal-display')
     data = json.dumps(payload, ensure_ascii=False).encode()
     if len(data) > 12 * 1024 * 1024:
         raise ValueError('cb_note_target/input')
@@ -73,18 +76,21 @@ def native_ui(command, payload, width, height, dpi):
         raise NativeUiFailure(result)
     try:
         for stage, mode in zip(result['stages'], ('live', 'reopen')):
-            validate(stage, mode, 1, 1)
+            validate(stage, mode, 1, 1, personal=personal)
     except ValueError:
         raise NativeUiFailure(result) from None
     return dict(width=width, height=height, located=1, fresh_offline_reopen=True,
-                plugin_http_requests=0, profile_removed=True)
+                plugin_http_requests=0, profile_removed=True, personal_display_verified=personal)
 
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
+    parser.add_argument('--personal-display', action='store_true')
     parser.add_argument('--native-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if args.personal_display and not args.native_command:
+        parser.error('personal display requires a native command')
     if args.native_command and not args.saved_session:
         parser.error('native UI requires --saved-session')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
@@ -116,13 +122,17 @@ def main(argv=None):
                     or first['baseline'] != second['baseline']:
                 raise ValueError('cb_note_target/source_changed')
             expected = target_project(second['source'], identity, uid, row)
+            if args.personal_display:
+                span = span_project(second['source'], identity, uid, row)
+                if span['first'] != expected['chapter_offset'] or span['last'] <= span['first']:
+                    raise ValueError('cb_note_target/span')
             report.update(imported_books=len(ids), matching_highlights=len(selected), source_reads=2,
                           quote_matches_source=True, source_and_position_unchanged=True,
                           cookie_rotation_saved=rotated1 or rotated2)
             if args.native_command:
                 payload = dict(book_id=identity, owner=credentials['vid'], model=model,
                                chapters=[dict(chapter_uid=uid, raw=second['source'], rows=[row], targets=[expected])])
-                report['native_ui'] = [native_ui(args.native_command, payload, width, height, dpi)
+                report['native_ui'] = [native_ui(args.native_command, payload, width, height, dpi, personal=args.personal_display)
                                        for width, height, dpi in ((600, 800, 167), (1264, 1680, 300))]
             final_native = CbNotesProbe(); final_native.ids = {identity}
             latest = marks_project(final_native.read('marks', identity, credentials), identity, credentials['vid'], now)

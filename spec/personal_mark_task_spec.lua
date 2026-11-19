@@ -77,4 +77,16 @@ for _i,field in ipairs({'range','markText','chapterUid'}) do
 end
 local missing=Fixture.clone(point);missing.markText=nil
 expect(#Task.prepare('/cached.epub','41',metadata,{missing},archive).rows==1,'preview-less exact point unavailable')
+local imported_book={book_id='CB_Synthetic',bookVersion=7}
+local imported_root=Identity.encode(imported_book,{chapter},Identity.capture(imported_book),Crypto.sha256_hex(raw))
+local imported_meta=assert(Source.bind(assert(Source.capture(imported_book,chapter,raw,'web_xhtml')),
+    assert(Identity.decode(imported_root)),path,Crypto.sha256_hex(raw)))
+members[Identity.PATH]=imported_root;members[Source.meta_path('2')]=imported_meta;members[Source.path_meta_path(path)]=imported_meta
+local imported=Task.prepare('/cached.epub','CB_Synthetic',imported_meta,{row,point},archive)
+expect(#imported.rows==2 and imported.rows[1].normalized_sha256==span.normalized_sha256
+    and imported.rows[2].bookmark==true,'imported source produced different validated highlight or bookmark')
+expect(#Task.prepare('/cached.epub','CB_Synthetic',imported_meta,{missing},archive).rows==0,
+    'imported preview-less bookmark gained an indicator')
+expect(#Task.prepare('/cached.epub','CB_Synthetic',imported_meta,{wrong},archive).rows==0,
+    'foreign imported chapter gained a highlight')
 print('personal_mark_task_spec: '..checks..' checks passed')

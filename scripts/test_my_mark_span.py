@@ -11,6 +11,13 @@ def row(raw,text,marker=None):
 
 
 class SpanTests(unittest.TestCase):
+    def test_imported_ranges_preserve_exact_source_and_reject_foreign_marks(self):
+        raw='<body><p>Unique selected quote and following context.</p></body>';mark=row(raw,'Unique selected quote')
+        expected=project(raw,'41','2',mark);actual=project(raw,'CB_SyntheticNotes','2',mark)
+        self.assertEqual(actual,expected)
+        for changed in (dict(mark,bookId='CB_Other'),dict(mark,markText='Changed selected quote'),dict(mark,chapterUid=3)):
+            with self.subTest(changed=changed),self.assertRaises(ValueError):project(raw,'CB_SyntheticNotes','2',changed)
+
     def test_plain_unicode_and_leading_bom(self):
         raw='<body><p>前言 😀Unique selected quote and following context.</p></body>'
         mark=row(raw,'Unique selected quote');result=project(raw,'41','2',mark)

@@ -1,12 +1,12 @@
 """Exact own-highlight raw range -> both filtered-source boundaries."""
 import hashlib
 import re
-from my_cloud_marks_model import identifier,integer,text
+from my_cloud_marks_model import display_identifier,identifier,integer,text
 from selection_quote import Selection,normalized
 
 
 def project(raw,book,chapter,row):
-    if (not identifier(book) or not identifier(chapter) or not isinstance(row,dict) or type(row.get('type')) is not int or row['type']!=1
+    if (not display_identifier(book) or not identifier(chapter) or not isinstance(row,dict) or type(row.get('type')) is not int or row['type']!=1
             or not integer(row.get('chapterUid'),2147483647) or str(row['chapterUid'])!=chapter
             or any(str(row[k])!=book for k in ('bookId','book_id') if k in row)
             or not text(row.get('markText'),131072,False)):raise ValueError('my_mark_span/scope')
