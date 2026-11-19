@@ -1,6 +1,6 @@
 -- Real KOReader widgets and memory workers; synthetic Skill and native data.
 require('setupkoenv')
-package.path = '/source/?.lua;' .. package.path
+package.path = (os.getenv('WEREAD_SOURCE') or '/source') .. '/?.lua;' .. package.path
 G_defaults = require('luadefaults'):open()
 G_reader_settings = require('luasettings'):open(assert(os.getenv('KO_HOME')) .. '/settings.reader.lua')
 G_reader_settings:saveSetting('language', 'zh_CN'); require('gettext').changeLang('zh_CN')

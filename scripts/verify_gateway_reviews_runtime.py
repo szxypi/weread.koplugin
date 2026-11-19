@@ -62,6 +62,7 @@ def main():
     parser.add_argument('--dpi', type=int, default=167)
     args = parser.parse_args()
     runtime = args.koreader.resolve()
+    repo = Path(__file__).resolve().parent.parent
     if not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
         parser.error('valid KOReader runtime and dimensions required')
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -73,8 +74,9 @@ def main():
             env = dict(os.environ, KO_HOME=root, SDL_VIDEODRIVER='dummy', EMULATE_READER='1',
                        EMULATE_BW_SCREEN='1', EMULATE_BB_TYPE='BB8', EMULATE_READER_W=str(args.width),
                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi),
-                       LD_LIBRARY_PATH=str(runtime / 'libs'), WEREAD_GATEWAY_MOCK_PORT=str(server.server_port))
-            child = subprocess.run([str(runtime / 'luajit'), '/source/spec/koreader/gateway_book_reviews_smoke.lua'],
+                       LD_LIBRARY_PATH=str(runtime / 'libs'), WEREAD_SOURCE=str(repo),
+                       WEREAD_GATEWAY_MOCK_PORT=str(server.server_port))
+            child = subprocess.run([str(runtime / 'luajit'), str(repo / 'spec/koreader/gateway_book_reviews_smoke.lua')],
                                    cwd=runtime, env=env, capture_output=True, timeout=90)
         expected = [(1, None), (1, 20), (3, None)]
         got = [(row.get('reviewListType'), row.get('maxIdx')) for row in server.calls]
