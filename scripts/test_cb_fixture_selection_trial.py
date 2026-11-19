@@ -63,6 +63,28 @@ class SelectionTests(unittest.TestCase):
         with self.assertRaises(ValueError):run()
         self.assertEqual(fake.sent,['thought1']);self.assertEqual(intent.read()[0]['native_steps'],0)
 
+    def test_native_completion_failure_keeps_reservation(self):
+        sample,baseline,_old,_body=fixture()
+        plan,context,body=prepare('900000','CB_Synthetic42','a'*32,sample,1,baseline,'b'*32)
+        fake=Fake(baseline);intent=Intent(Backend())
+        def interrupted():raise RuntimeError('synthetic native completion failure')
+        with self.assertRaises(RuntimeError):
+            execute(plan,context,body,baseline,intent,fake.owned,fake.read,fake.thought,fake.cleanup,
+                    sleep=lambda _n:None,before_finish=interrupted)
+        state,_=intent.read();self.assertEqual((state['phase'],state['native_steps'],state['cleanup_verified']),('pending',3,True))
+        with self.assertRaises(ValueError):
+            execute(plan,context,body,baseline,intent,fake.owned,fake.read,fake.thought,fake.cleanup,sleep=lambda _n:None)
+        self.assertEqual(fake.sent,['thought1','thought2','thought3'])
+
+    def test_native_completion_reports_late_chapter_metadata(self):
+        sample,baseline,_old,_body=fixture()
+        plan,context,body=prepare('900000','CB_Synthetic42','a'*32,sample,1,baseline,'b'*32)
+        fake=Fake(baseline);intent=Intent(Backend())
+        def completed():fake.value['marks']['chapters'][context['chapterUid']]={'chapterUid':2,'title':'Synthetic'}
+        result=execute(plan,context,body,baseline,intent,fake.owned,fake.read,fake.thought,fake.cleanup,
+                       sleep=lambda _n:None,before_finish=completed)
+        self.assertTrue(result['derived_chapter_metadata_changed']);self.assertEqual(intent.read(),(None,None))
+
     def test_changed_original_or_source_blocks_before_dispatch(self):
         fake,intent,run=case();fake.value['position']['chapter']='different'
         with self.assertRaises(ValueError):run()

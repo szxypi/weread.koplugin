@@ -50,7 +50,7 @@ def prepare(owner,book,attempt,sample,version,baseline,nonce):
     return plan,context,body
 
 
-def execute(plan,context,body,baseline,intent,owned,read,send_thought,send_cleanup,*,sleep=time.sleep):
+def execute(plan,context,body,baseline,intent,owned,read,send_thought,send_cleanup,*,sleep=time.sleep,before_finish=None):
     validate_plan(plan)
     if (digest(context)!=plan['context_sha256'] or digest(body)!=plan['request_sha256']
             or digest(baseline)!=plan['baseline_sha256'] or body!=dict(context,content=note_text(plan['nonce']))
@@ -102,6 +102,13 @@ def execute(plan,context,body,baseline,intent,owned,read,send_thought,send_clean
     final=read()
     if not owned() or not restored(baseline,final,context,plan['nonce'],target,known_mark):raise ValueError('cb_selection/final')
     changed=final['marks']['chapters']!=baseline['marks']['chapters']
+    if before_finish is not None:
+        before_finish()
+        final=read()
+        if (not owned() or intent.read()[1]!=receipt
+                or not restored(baseline,final,context,plan['nonce'],target,known_mark)):
+            raise ValueError('cb_selection/ownership')
+        changed=final['marks']['chapters']!=baseline['marks']['chapters']
     receipt=intent.complete(receipt);intent.finish(receipt)
     if intent.read()!=(None,None):raise ValueError('cb_selection/intent')
     return dict(result='PASS',thought_writes=3,cleanup_writes=int(cleanup),associated_highlight_observed=known_mark is not None,
