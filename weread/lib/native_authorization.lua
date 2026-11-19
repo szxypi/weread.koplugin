@@ -271,6 +271,17 @@ function Auth:read_my_cloud_thoughts(credentials,book_id,count)
     return self:_request('my_thoughts',BASE..'/review/list?bookId='..book_id..'&listType=11&listMode=0&mine=1&synckey=0&count='..count,nil,credentials)
 end
 
+-- Latest public book reviews: verified prefixes, but hasMore is not reliable.
+function Auth:read_book_reviews(credentials, book_id, count)
+    local Data = require('weread.lib.native_book_reviews')
+    if not Data.book_id(book_id) or type(count) ~= 'number' or count < 2
+        or count > Data.MAX_ITEMS + 1 or count % 1 ~= 0 then fail('book_reviews', 'invalid_query') end
+    if type(credentials) ~= 'table' or not vid(credentials.vid) or not text(credentials.accessToken, 8192)
+        or self.expected_vid and vid(credentials.vid) ~= self.expected_vid then fail('book_reviews', 'invalid_credentials') end
+    return self:_request('book_reviews', BASE .. '/review/list?bookId=' .. book_id
+        .. '&listType=3&listMode=1&synckey=0&count=' .. count .. '&maxIdx=0&tips=1', nil, credentials)
+end
+
 -- Payloads and readback semantics verified by the user-authorized Python
 -- create/edit/delete roundtrip. No renewal or write replay exists here.
 function Auth:write_my_thought(credentials,operation,body,on_dispatch)

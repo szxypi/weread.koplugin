@@ -40,18 +40,23 @@ local BookReviewsView = FocusManager:extend{
     on_switch = nil,
     on_select = nil,
     on_load_more = nil,
+    on_close = nil,
+    latest_only = false,
+    scroll_offset = nil,
+    focus_row = nil,
 }
 
 function BookReviewsView:buildTabBar()
-    local first_width = math.floor(self.screen_w / #TABS)
+    local tabs = self.latest_only and { TABS[2] } or TABS
+    local first_width = math.floor(self.screen_w / #tabs)
     local row = HorizontalGroup:new{}
     self._tab_buttons = {}
-    for index, tab in ipairs(TABS) do
+    for index, tab in ipairs(tabs) do
         local active = tab.mode == self.mode
         local button = Button:new{
             text = _(tab.text),
-            width = index == #TABS
-                and self.screen_w - first_width * (#TABS - 1)
+            width = index == #tabs
+                and self.screen_w - first_width * (#tabs - 1)
                 or first_width,
             radius = 0,
             margin = 0,
@@ -116,7 +121,6 @@ function BookReviewsView:buildContent()
             face = Font:getFace("cfont", 18),
             max_width = self.content_width,
         })
-        return content
     end
 
     for _i, review in ipairs(items) do
@@ -153,6 +157,16 @@ function BookReviewsView:buildContent()
         }
         self._review_buttons[#self._review_buttons + 1] = button
         table.insert(content, button)
+    end
+    if self.latest_only then
+        table.insert(content, VerticalSpan:new{ width = Size.padding.large })
+        table.insert(content, TextWidget:new{
+            text = self.result and self.result.limited
+                and _("Review limit reached; more reviews may be available.")
+                or _("Some reviews may be unavailable."),
+            face = Font:getFace("cfont", 16),
+            max_width = self.content_width,
+        })
     end
     return content
 end
@@ -195,6 +209,8 @@ function BookReviewsView:init()
             },
         },
     }
+    self._review_scroll = scroll
+    if self.scroll_offset then scroll:setScrolledOffset(self.scroll_offset) end
     local rows = { self._tab_buttons }
     for _i, review_button in ipairs(self._review_buttons) do
         rows[#rows + 1] = { review_button }
@@ -203,7 +219,7 @@ function BookReviewsView:init()
     for _i, button in ipairs(self._tab_buttons) do outside_scroll[button] = true end
     FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
     -- Reviews follow the tab row.
-    FocusNav.initialFocus(self, 1, #rows > 1 and 2 or 1)
+    FocusNav.initialFocus(self, 1, math.min(#rows, self.focus_row or (#rows > 1 and 2 or 1)))
 
     self[1] = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
@@ -222,6 +238,7 @@ end
 
 function BookReviewsView:onCloseWidget()
     self._review_closed = true
+    if self.on_close then self.on_close() end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
@@ -241,6 +258,10 @@ function M.show(data, callbacks)
         on_switch = callbacks.on_switch,
         on_select = callbacks.on_select,
         on_load_more = callbacks.on_load_more,
+        on_close = callbacks.on_close,
+        latest_only = data.latest_only == true,
+        scroll_offset = data.scroll_offset,
+        focus_row = data.focus_row,
     }
     UIManager:show(view)
     return view

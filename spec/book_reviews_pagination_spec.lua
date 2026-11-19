@@ -74,4 +74,17 @@ shown[4].callbacks.on_load_more()
 shown[4]._review_closed = true
 pending()
 assert(#shown == 4 and errors == 1)
+local opened, cancelled = 0, 0
+package.loaded['weread.lib.native_book_reviews_source'] = {capture = function() return {native = {}} end}
+package.loaded['weread.ui.native_book_reviews'] = {
+    cancel = function() cancelled = cancelled + 1 end,
+    open = function(_, book, access) assert(book.book_id == '42' and access.native); opened = opened + 1; return true end,
+}
+host.settings = {is_api_configured = function() return false end}
+assert(host:showBookReviews({book_id = '42'}) and opened == 1 and cancelled == 1,
+    'keyless native authorization did not open native reviews')
+host.settings.is_api_configured = function() return true end
+pages[1] = {reviewsHasMore = 0, reviews = {}}
+host:showBookReviews({book_id = '42'}); pending()
+assert(opened == 1 and requests[#requests][2] == 1, 'Skill route did not preserve recommended reviews')
 print("book_reviews_pagination_spec: paging, tab cache, failure and close passed")

@@ -480,6 +480,15 @@ local reviews_with_more = BookReviewsView.show({
 expect(#reviews_with_more._review_buttons == 2, "review list did not create its load-more button")
 reviews_with_more._review_buttons[2].callback()
 expect(review_more_selected, "review load-more button did not invoke its callback")
+local native_reviews_closed = false
+local native_reviews = BookReviewsView.show({
+    book_title = "Book", mode = "latest", latest_only = true,
+    result = { items = {}, has_more = false },
+}, { on_close = function() native_reviews_closed = true end })
+expect(#native_reviews._tab_buttons == 1 and #native_reviews._review_buttons == 0,
+    "native review mode exposed an unverified recommended tab")
+native_reviews:onCloseWidget()
+expect(native_reviews_closed, "native review view did not notify its owner when closed")
 
 expect(#paged_view._header_buttons == 5 and paged_view._tab_buttons == nil
         and paged_view._action_primary == nil, "shelf retained its permanent tabs or toolbars")

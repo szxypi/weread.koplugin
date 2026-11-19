@@ -151,6 +151,8 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    local reviews = package.loaded['weread.ui.native_book_reviews']
+    if reviews then reviews.cancel(self) end
     local notebooks=package.loaded['weread.ui.notebook_catalog']
     if notebooks then notebooks.cancel(self) end
     local saved_searches=package.loaded['weread.ui.saved_searches']
@@ -1250,7 +1252,8 @@ function M:showBookMenu(book)
         end)
     end)
     local review_action = {
-        text = _("Recommended / Latest"),
+        text = self.settings.is_api_configured and not self.settings:is_api_configured()
+            and _("Latest reviews") or _("Recommended / Latest"),
         callback = self:safeCallback(_("Book reviews"), function()
             self:showBookReviews(book)
         end),
@@ -1389,6 +1392,8 @@ function M:showBookMenu(book)
         end),
         on_close = function()
             if self._book_detail_view == view then
+                local reviews = package.loaded['weread.ui.native_book_reviews']
+                if reviews then reviews.cancel(self) end
                 if self.cancelMyCloudMarks then self:cancelMyCloudMarks() end
                 if self.cancelShelfState then self:cancelShelfState() end
                 self:cancelBookMetadata()
@@ -1443,6 +1448,14 @@ function M:showBookReviewDetail(book, review, mode)
 end
 
 function M:showBookReviews(book)
+    local native_ui = package.loaded['weread.ui.native_book_reviews']
+    if native_ui then native_ui.cancel(self) end
+    if self.settings and self.settings.is_api_configured and not self.settings:is_api_configured() then
+        local selected = require('weread.lib.native_book_reviews_source').capture(self.settings)
+        if selected and selected.native then
+            return require('weread.ui.native_book_reviews').open(self, book, selected)
+        end
+    end
     if not self:requireLogin(false, true) then
         return
     end
@@ -1456,6 +1469,11 @@ function M:showBookReviews(book)
         if session.loading then return end
         if more and (not session.cache[mode] or not session.cache[mode].has_more) then return end
         local function showResult(result)
+            local offset, focus_row
+            if more and old_view and old_view._review_scroll and old_view._review_scroll.getScrolledOffset then
+                offset = old_view._review_scroll:getScrolledOffset()
+                focus_row = #old_view.result.items + 2
+            end
             if old_view then
                 UIManager:close(old_view)
             end
@@ -1464,6 +1482,8 @@ function M:showBookReviews(book)
                 book_title = book.title or _("Untitled"),
                 mode = mode,
                 result = result,
+                scroll_offset = offset,
+                focus_row = focus_row,
             }, {
                 on_switch = function(new_mode)
                     loadReviews(new_mode, view)
