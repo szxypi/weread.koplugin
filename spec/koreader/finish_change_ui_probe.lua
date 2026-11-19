@@ -184,6 +184,7 @@ local ok,reason=pcall(function()
                 for _,item in ipairs(shelf_view._item_rows) do if item.book==book then cell=item end end
                 expect(cell and cell._finished_badge and cell._finished_badge.label.text==tr('Pending sync'))
             end
+            if not report.offline_shot then shot('offline-queued');report.offline_shot=true end
         end
         local function reconnect(expected_posts,finished)
             plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()

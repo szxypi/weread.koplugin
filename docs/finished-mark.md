@@ -23,6 +23,9 @@
 两种屏幕尺寸的实际 KOReader 模拟环境使用本机合成服务完成离线保存、联网标记与取消、
 发送后中断、全新进程不重发及只读核对；账号隔离、并发领取和 SQLite 回滚另经实际数据库测试。
 KO2 尺寸另验证离线期间云端已变为目标状态时不发送重复修改。
+同样的场景后来在两种尺寸重新运行；[600×800](validation-assets/2026-11-20/finish-offline-600.png)
+和 [KO2](validation-assets/2026-11-20/finish-offline-ko2.png) 截图均为合成书籍，
+对应结果见 [600×800](validation-assets/2026-11-20/finish-offline-600.json) 和 [KO2](validation-assets/2026-11-20/finish-offline-ko2.json)。
 此轮未向真实账号发送修改；真实设备及自然断网重连仍待验收。
 
 ## 每次确认只操作一次
