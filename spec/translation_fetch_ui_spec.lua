@@ -2,7 +2,7 @@ package.path='./?.lua;'..package.path
 local state
 local function clone(v) local t={};for k,x in pairs(v) do t[k]=x end;return t end
 package.loaded['weread.lib.translation_fetch']={MAX_OUTPUT=10000,MAX_BOOK_CHAPTERS=2000,
-    run=function() return state.result end,run_book=function(...) state.resume_choice=select(7,...)
+    run=function() return state.result end,run_book=function(...) state.resume_choice=select(7,...);state.range_count=select(8,...)
         if state.run_error then error(state.run_error,0) end;return state.result end}
 package.loaded['weread.lib.position_source']={document_metadata=function() return {chapter_uid='1',metadata='metadata',record={format='web_xhtml'},identity={file_id=string.rep('a',64)}} end}
 package.loaded['weread.lib.source_dom']={member=function() return {render_path='OEBPS/chapter.xhtml'} end}
@@ -110,6 +110,23 @@ expect(table.concat(state.progress_values,',')=='0,20,98','full-book progress wa
 deliver();expect(state.copies.__full and state.copies.__full.file_id==string.rep('b',64)
     and not state.copies['1'] and host._translation_fetch_result,'full-book copy was not indexed separately')
 progress(97);expect(#state.progress_values==3,'late progress changed a completed dialog')
+host,deliver=fixture();state.result={ok=true,chapter_uid='1',chapter_ids={'1','2','3'},bytes=100,blocks=2,chapters=3,
+    translated_chapters=2,matched=true,target='/body/DocFragment[1]/body/p[1]',file_id=string.rep('b',64)}
+expect(UI.start(host,'range') and host.translation_fetch_worker.timeout==300,'range download did not start with its own timeout')
+deliver();expect(state.copies.__range_1 and state.copies.__range_2 and state.copies.__range_3
+    and not state.copies.__full and host._translation_fetch_result,'range copy shortcuts were not scoped to its chapters')
+for _,change in ipairs({'missing','wrong_first','duplicate','extra','wrong_count','unsafe'}) do
+    host,deliver=fixture();state.result={ok=true,chapter_uid='1',chapter_ids={'1','2','3'},bytes=100,blocks=2,chapters=3,
+        translated_chapters=2,matched=true,target='/body/DocFragment[1]/body/p[1]',file_id=string.rep('b',64)}
+    if change=='missing' then state.result.chapter_ids=nil
+    elseif change=='wrong_first' then state.result.chapter_ids[1]='2'
+    elseif change=='duplicate' then state.result.chapter_ids[3]='2'
+    elseif change=='extra' then state.result.chapter_ids.extra='4'
+    elseif change=='wrong_count' then state.result.chapters=2
+    else state.result.chapter_ids[2]='../2' end
+    UI.start(host,'range');deliver()
+    expect(not state.copies and state.aborted==1 and not host._translation_fetch_result,'invalid range was published: '..change)
+end
 host=fixture();UI.start(host,true);state.progress_dialog.buttons[1][1].callback()
 expect(not host.translation_fetch_job and not host.busy_message and state.aborted==1 and state.released==1,
     'progress dialog cancel did not clean the job')
@@ -133,12 +150,26 @@ host=fixture();state.copy_stat={mode='file',size=100,ino=2,dev=1,modification=1}
 state.copies={__full={schema=1,book_id='900001',account='synthetic-account',source_file_id=string.rep('a',64),
     path='/book/output.epub',file_id=string.rep('b',64),bytes=100}}
 expect(UI.saved_entry(host)==state.copies.__full,'full-book shortcut was not available for current chapter')
+state.copies.__range_1=clone(state.copies.__full)
+expect(UI.saved_entry(host)==state.copies.__range_1,'newer range shortcut was shadowed by an older full-book copy')
+state.copies.__range_1=nil
 state.copy_stat.ino=state.stat.ino
 expect(not UI.saved_entry(host),'hard-linked copy was accepted as independent')
 state.copy_stat.ino=2;state.copies.__full.account='another-account'
 expect(not UI.saved_entry(host),'another account’s full-book copy was accepted')
+host,deliver=fixture();state.copies={__range_1={old=true},__range_2={old=true},unrelated={kept=true}}
+state.result={ok=true,chapter_uid='1',bytes=100,blocks=2,chapters=6,translated_chapters=4,
+    matched=true,target='/body/DocFragment[3]/body/p[1]',file_id=string.rep('b',64)}
+UI.start(host,true);deliver()
+expect(state.copies.__full and not state.copies.__range_1 and not state.copies.__range_2 and state.copies.unrelated.kept,
+    'new full-book copy did not replace range shortcuts safely')
 package.loaded['weread.lib.translation_resume']={new=function() return {summary=function() return {count=2,generation=string.rep('a',32)} end,
     clear=function(_self,token) state.cleared=token;return not state.clear_failed end} end}
+host=fixture();host.library_db.open=function() end
+expect(UI.start(host,'range') and host.translation_fetch_job and not host._translation_resume_prompt,
+    'range download disturbed a pending full-book checkpoint')
+state.jobs[1].task();expect(state.range_count==3 and not state.resume_choice and not state.cleared,
+    'range download attempted to resume or clear the full-book checkpoint')
 host=fixture();host.library_db.open=function() end
 expect(UI.start(host,true) and host._translation_resume_prompt and not host.translation_fetch_job,'saved download did not offer a choice')
 local prompt=host._translation_resume_prompt

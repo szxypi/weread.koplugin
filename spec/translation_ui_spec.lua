@@ -66,7 +66,7 @@ expect(state.css:find('user{color:black;}',1,true) and state.css:find('display: 
 expect(Display.show(host) and host.translation_job and host.busy_message,'offline inspection did not start')
 deliver();expect(host._translation_menu and not host.busy_message,'verified profile did not open choices')
 local menu=host._translation_menu
-expect(#menu.item_table==7 and menu.item_table[1].mandatory=='Current','mode choices/current marker absent')
+expect(#menu.item_table==8 and menu.item_table[1].mandatory=='Current','mode choices/current marker absent')
 menu.item_table[2].callback()
 expect(state.reloads==1 and state.preference.mode=='bilingual','mode did not persist/reload')
 expect(state.next_host._translation_mode=='bilingual' and state.next_state.target=='/body/DocFragment[1]/body/p[1]/text().3','reload lost bilingual position')

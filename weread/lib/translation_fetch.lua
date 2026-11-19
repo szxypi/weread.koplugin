@@ -178,24 +178,33 @@ end
 -- EPUB through the caller's exclusively owned descriptor. Any missing chapter,
 -- changed catalog or limit failure aborts the whole copy rather than silently
 -- producing a truncated book.
-function M.run_book(client,settings,input,output,progress,resume_store,resume)
+function M.run_book(client,settings,input,output,progress,resume_store,resume,range_count)
     local function report(value) if type(progress)=='function' then pcall(progress,value) end end
     local book={book_id=input.book_id,title=input.title,author=input.author,cache_dir=input.directory}
     local before,metadata,original,_,_,identity_record=local_source(input,input.path)
     if metadata~=input.metadata then fail('source') end
     local initial=M.client(client,book,input.chapter_uid)
     Content.ensure_reader_state(initial,book)
-    local chapters,version=Content.fetch_catalog(initial,book)
-    if #chapters<1 then fail('catalog') end
-    if #chapters>M.MAX_BOOK_CHAPTERS then fail('chapter_limit') end
+    local catalog,version=Content.fetch_catalog(initial,book)
+    if #catalog<1 then fail('catalog') end
+    if #catalog>M.MAX_BOOK_CHAPTERS then fail('chapter_limit') end
     local seen,current={},nil
-    for index,chapter in ipairs(chapters) do
+    for index,chapter in ipairs(catalog) do
         local uid=tostring(chapter.chapterUid or '')
         if uid=='' or seen[uid] then fail('catalog') end
         seen[uid]=true
         if uid==input.chapter_uid then current=index end
     end
     if not current then fail('catalog') end
+    local chapters=catalog
+    if range_count~=nil then
+        if type(range_count)~='number' or range_count%1~=0 or range_count<1 or range_count>3 then fail('chapter_limit') end
+        chapters={}
+        for index=current,math.min(#catalog,current+range_count-1) do chapters[#chapters+1]=catalog[index] end
+        current=1
+        -- A short-range copy never claims or clears a full-book checkpoint.
+        resume_store=nil
+    end
     -- A legacy identity without its sealed content digest cannot bind a
     -- checkpoint to the original file. The download still works normally.
     local token=resume_store and Identity.has_text_digest(identity_record)
@@ -246,7 +255,7 @@ function M.run_book(client,settings,input,output,progress,resume_store,resume)
     end
     if blocks<1 then return {ok=false,reason='missing'} end
     local again,later=Content.fetch_catalog(M.client(client,book,input.chapter_uid),book)
-    if version~=later or not equal(chapters,again) then fail('catalog_changed') end
+    if version~=later or not equal(catalog,again) then fail('catalog_changed') end
     report(94)
     Content.save_book_epub(settings,book,chapters,bodies,'translation',assets,css,nil,identity,sources,output)
     local info=require('libs/libkoreader-lfs').attributes(output.path)
@@ -262,9 +271,11 @@ function M.run_book(client,settings,input,output,progress,resume_store,resume)
     local result_meta=headers and Source.decode_metadata(headers[Source.meta_path(input.chapter_uid)])
     if not result_identity or not result_meta or profile.file_id~=result_identity.file_id
         or result_meta.file_id~=result_identity.file_id or profile.chapters[current].member_path~=result_meta.render_path then fail('output') end
+    local chapter_ids
+    if range_count then chapter_ids={};for _,chapter in ipairs(chapters) do chapter_ids[#chapter_ids+1]=tostring(chapter.chapterUid) end end
     return {ok=true,bytes=info.size,blocks=profile.blocks,chapters=#chapters,translated_chapters=translated,file_id=result_identity.file_id,
         resume_token=token,
-        chapter_uid=input.chapter_uid,matched=target~=nil,target=target or '/body/DocFragment['..current..']/body'}
+        chapter_uid=input.chapter_uid,chapter_ids=chapter_ids,matched=target~=nil,target=target or '/body/DocFragment['..current..']/body'}
 end
 function M.run(client,settings,input,output)
     local book={book_id=input.book_id,title=input.title,author=input.author,cache_dir=input.directory}

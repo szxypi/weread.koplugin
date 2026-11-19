@@ -242,6 +242,10 @@ local function show_choices(host,profile,owner)
         if host._translation_menu~=menu or not current(host,owner) then return end
         require('weread.ui.translation_fetch').start(host)
     end}
+    items[#items+1]={text=_('Download existing translations for next chapters'),callback=function()
+        if host._translation_menu~=menu or not current(host,owner) then return end
+        require('weread.ui.translation_fetch').start(host,'range')
+    end}
     items[#items+1]={text=_('Download existing translations for full book'),callback=function()
         if host._translation_menu~=menu or not current(host,owner) then return end
         require('weread.ui.translation_fetch').start(host,true)
