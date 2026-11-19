@@ -81,15 +81,15 @@ local cb=snapshot();cb.book_id='CB_Synthetic'
 host,value=fixture(cb)
 expect(Marks.show(host,'CB_Synthetic') and not value.started,'imported-book highlights did not open offline')
 menu=host._my_marks_menu
-expect(not pcall(row,menu,'Local thought drafts') and row(menu,'Check last cloud mark change'),
-    'imported book exposed thoughts or hid mark recovery')
-expect(row(menu,'Imported book highlights can be saved and deleted after verification; other editing is not yet supported.').select_enabled==false,
+expect(row(menu,'Local thought drafts') and row(menu,'Check last thought change') and row(menu,'Check last cloud mark change'),
+    'imported book hid draft or recovery')
+expect(row(menu,'Imported book highlights support private thoughts, saving and deletion after verification.').select_enabled==false,
     'imported-book editing limitation was not visible')
 row(menu,'合成引用').callback()
-expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and #menu._shelf_popup.buttons_table==2
+expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and #menu._shelf_popup.buttons_table==3
     and menu._shelf_popup.buttons_table[1][1].id=='open_highlight'
-    and menu._shelf_popup.buttons_table[2][1].id=='delete_highlight',
-    'imported-book highlight did not expose navigation and verified deletion')
+    and menu._shelf_popup.buttons_table[2][1].id=='delete_highlight' and menu._shelf_popup.buttons_table[3][1].id=='thought_create',
+    'imported-book highlight did not expose verified actions')
 Marks.cancel(host)
 cb.updated[2].range='25'
 host,value=fixture(cb)
@@ -150,11 +150,19 @@ host,value=fixture();value.saved={schema=1,book_id='CB_Synthetic',fetched_at=100
     {reviewId='synthetic-thought',content='Imported thought',abstract='Quoted source',isPrivate=1,type=1,chapterUid=7,range='12-25'}}}
 expect(Marks.show(host,'CB_Synthetic','thoughts'),'imported-book thoughts did not open')
 menu=host._my_marks_menu
-expect(not pcall(row,menu,'Check last thought change'),'imported-book thought editing exposed')
+expect(row(menu,'Check last thought change'),'imported-book thought recovery missing')
 row(menu,'Imported thought').callback()
-expect(#menu._shelf_popup.buttons_table==1 and menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote'
+expect(#menu._shelf_popup.buttons_table==3 and menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote'
+    and menu._shelf_popup.buttons_table[2][1].id=='thought_edit' and menu._shelf_popup.buttons_table[3][1].id=='thought_delete'
     and menu._shelf_popup.text:find('Imported thought',1,true),
-    'imported-book thought did not expose only verified-source navigation')
+    'imported-book private thought did not expose verified actions')
+Marks.cancel(host)
+host,value=fixture();value.saved={schema=1,book_id='CB_Synthetic',fetched_at=1000,reviews={
+    {reviewId='synthetic-public',content='Imported public thought',abstract='Quote',isPrivate=0,type=1,chapterUid=7,range='12-25'}}}
+expect(Marks.show(host,'CB_Synthetic','thoughts'),'imported public thought did not open')
+menu=host._my_marks_menu;row(menu,'Imported public thought').callback()
+expect(#menu._shelf_popup.buttons_table==1 and menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote',
+    'unverified imported public thought write was exposed')
 Marks.cancel(host)
 local bookmark_view=snapshot();bookmark_view.updated[2].range='25'
 host,value=fixture(bookmark_view)

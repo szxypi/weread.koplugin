@@ -136,7 +136,9 @@ local function new_context(host,owner,current,redraw)
 end
 function M.start(host,owner,operation,reference,current,redraw,restore)
     if not current(host,owner) or operation=='create' and not M.can_create(reference)
-        or operation~='create' and (operation~='edit' and operation~='delete' or not M.can_edit(reference)) then return false end
+        or operation~='create' and (operation~='edit' and operation~='delete' or not M.can_edit(reference))
+        or not require('weread.lib.my_cloud_marks').id(owner.id)
+            and (operation=='create' and reference.selection or operation~='create' and reference.isPrivate~=1) then return false end
     local ctx=new_context(host,owner,current,redraw)
     ctx.operation,ctx.reference=operation,reference
     if reference.selection then ctx.source_file=owner.source_file or host.ui and host.ui.document and host.ui.document.file end

@@ -6,9 +6,20 @@ local codec=F.codec();local snapshot=F.snapshot(codec)
 local checks=0;local function expect(value,label) checks=checks+1;assert(value,label) end
 local input='新的实际想法 😀\n第二行'
 local imported=F.clone(snapshot);imported.book_id='CB_Synthetic'
-for _i,operation in ipairs({'create','edit','delete'}) do
-    expect(not pcall(C.make,codec,imported,operation,F.row(),input,F.marks(codec),{bookId='CB_Synthetic',version=77},'900000'),
-        'read-only imported book gained thought-write authority: '..operation)
+local cb_marks=F.marks(codec);cb_marks.bookId=imported.book_id
+local cb_plan=C.make(codec,imported,'create',F.mark(),input,cb_marks,{bookId=imported.book_id,version=77},'900000')
+expect(C.validate_body('create',cb_plan.body) and C.validate_metadata(cb_plan.metadata) and cb_plan.body.chapterIdx==nil,
+    'imported highlight private thought rejected or unverified chapter index included')
+local indexed=F.clone(cb_plan.body);indexed.chapterIdx=1
+expect(not C.validate_body('create',indexed),'unverified imported chapter index accepted')
+local selection=F.clone(F.mark());selection.selection=true
+expect(not pcall(C.make,codec,imported,'create',selection,input,cb_marks,{bookId=imported.book_id,version=77},'900000'),
+    'unverified imported selection accepted')
+for _i,operation in ipairs({'edit','delete'}) do
+    local safe=C.make(codec,imported,operation,imported.reviews[1],input)
+    expect(C.validate_body(operation,safe.body) and C.validate_metadata(safe.metadata),'private imported thought rejected')
+    local public=F.clone(imported);public.reviews[1].isPrivate=0
+    expect(not pcall(C.make,codec,public,operation,public.reviews[1],input),'public imported thought accepted')
 end
 expect(C.row_hash(F.row())=='fc64ea1140bd2e72d1fcb42602ef7513f5b1ee7369e8c6ecdd27887de39e61b1','Python row digest differs')
 expect(C.snapshot_hash(snapshot)=='7815d1e39244fdb89750b37734ebebb5007cdc0595ba8d8633b5530621f126ff','Python set digest differs')

@@ -60,6 +60,7 @@ end
 function M.context(client,marks,metadata,book,owner,reference)
     local row
     if reference.selection then
+        if not Marks.id(book) then fail('selection') end
         if not require('weread.lib.selection_reference').valid(reference,book) then fail('selection') end
         row=reference
     else
@@ -78,7 +79,7 @@ function M.context(client,marks,metadata,book,owner,reference)
     local ctx={bookId=book,chapterUid=tostring(row.chapterUid),bookVersion=version,type=1,range=row.range,abstract=row.markText,isPrivate=1}
     -- Selection catalog indices belong to Web source verification. The real
     -- native creation fixture omitted chapterIdx; do not invent a conversion.
-    if row.chapterIdx~=nil and not reference.selection then ctx.chapterIdx=row.chapterIdx end
+    if row.chapterIdx~=nil and not reference.selection and Marks.id(book) then ctx.chapterIdx=row.chapterIdx end
     return ctx
 end
 function M.body_hash(body)
@@ -91,10 +92,10 @@ function M.validate_body(operation,body)
     local allowed
     if operation=='create' then
         allowed={bookId=true,chapterUid=true,bookVersion=true,type=true,range=true,abstract=true,isPrivate=true,content=true,chapterIdx=true}
-        if not Marks.id(body.bookId) or not Marks.id(body.chapterUid) or tonumber(body.chapterUid)>2147483647
+        if not Marks.display_id(body.bookId) or not Marks.id(body.chapterUid) or tonumber(body.chapterUid)>2147483647
             or not integer(body.bookVersion,2147483647) or body.bookVersion==0 or body.type~=1 or body.isPrivate~=1
             or not M.valid_content(body.content) or not M.valid_content(body.abstract) or #body.abstract>4096
-            or body.chapterIdx~=nil and not integer(body.chapterIdx,2147483647) then return false end
+            or body.chapterIdx~=nil and (not Marks.id(body.bookId) or not integer(body.chapterIdx,2147483647)) then return false end
         local first,last
         if type(body.range)=='string' then first,last=body.range:match('^(%d+)%-(%d+)$') end
         if not first or #first>10 or #last>10 or tonumber(first)>=tonumber(last) or tonumber(last)>2147483647 then return false end
@@ -106,7 +107,7 @@ function M.validate_body(operation,body)
 end
 function M.make(client,snapshot,operation,reference,content,marks,metadata,owner)
     local book=type(snapshot)=='table' and snapshot.book_id
-    if not Marks.id(book) or operation~='create' and operation~='edit' and operation~='delete' then fail('operation') end
+    if not Marks.display_id(book) or operation~='create' and operation~='edit' and operation~='delete' then fail('operation') end
     snapshot=Thoughts.validate(client,snapshot,book)
     if operation~='delete' and not M.valid_content(content) then fail('content') end
     local before=M.snapshot_hash(snapshot)
@@ -120,6 +121,7 @@ function M.make(client,snapshot,operation,reference,content,marks,metadata,owner
         for _i,row in ipairs(snapshot.reviews) do if row.reviewId==target then original=row end end
         if not original or M.row_hash(original)~=M.row_hash(reference) then fail('changed') end
         if original.isPrivate~=0 and original.isPrivate~=1 then fail('privacy') end
+        if not Marks.id(book) and original.isPrivate~=1 then fail('privacy') end
         body={reviewId=target};local rows=client:json_decode('[]')
         for _i,row in ipairs(snapshot.reviews) do
             if row.reviewId~=target then rows[#rows+1]=row
@@ -135,7 +137,7 @@ function M.make(client,snapshot,operation,reference,content,marks,metadata,owner
         match_hash=matching,match_index=indexed and 1 or 0,request_hash=M.body_hash(body)},body=body,snapshot=snapshot}
 end
 function M.validate_metadata(value)
-    if type(value)~='table' or not Marks.id(value.book_id) or not M.key(value.target_id)
+    if type(value)~='table' or not Marks.display_id(value.book_id) or not M.key(value.target_id)
         or value.operation~='create' and value.operation~='edit' and value.operation~='delete' then return false end
     local allowed={};for _i,k in ipairs(META) do allowed[k]=true;if value[k]==nil then return false end end
     for key in pairs(value) do if not allowed[key] then return false end end

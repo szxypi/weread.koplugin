@@ -31,6 +31,8 @@ class AnnotationExperimentStore:
         path=Path(tempfile.gettempdir())/('codex-annotation-weread-'+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
 
+    def validate_plan(self,value):return validate_plan(value)
+
     def _load(self):
         raw=self.backend.load()
         if raw is None:return None,None
@@ -43,7 +45,7 @@ class AnnotationExperimentStore:
                     or type(value['posts']) is not int or value['posts']!=PHASES[value['phase']][0]
                     or not isinstance(value['attempt'],str) or not re.fullmatch('[a-f0-9]{32}',value['attempt'])
                     or not isinstance(value['created_at'],str) or not 1<=len(value['created_at'])<=64):raise ValueError()
-            validate_plan(value['plan'])
+            self.validate_plan(value['plan'])
             if PHASES[value['phase']][1]:
                 if not valid_key(value['created_id']) or not isinstance(value['record_sha256'],str) or not re.fullmatch('[a-f0-9]{64}',value['record_sha256']):raise ValueError()
             elif value['created_id'] is not None or value['record_sha256'] is not None:raise ValueError()
@@ -65,7 +67,7 @@ class AnnotationExperimentStore:
             value,raw=self._load();return value,Receipt(raw) if raw else None
 
     def prepare(self,plan):
-        validate_plan(plan)
+        self.validate_plan(plan)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('annotation_intent_exists')
             return self._write(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),created_at=datetime.now(timezone.utc).isoformat(),

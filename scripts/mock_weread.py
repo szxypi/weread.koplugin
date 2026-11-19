@@ -445,7 +445,8 @@ class MockServer(ThreadingHTTPServer):
                 if query or self.selection_posts>=12:raise ValueError('invalid selection thought scope')
                 if path=='/review/add':
                     required={'bookId','chapterUid','bookVersion','type','range','abstract','isPrivate','content'}
-                    if (set(data)!=required or data['bookId']!=BOOK_ID or type(data['chapterUid']) is not str or data['chapterUid'] not in {str(c['chapterUid']) for c in CHAPTERS}
+                    selection_id=CB_READING_ID if self.cb_reading else BOOK_ID
+                    if (set(data)!=required or data['bookId']!=selection_id or type(data['chapterUid']) is not str or data['chapterUid'] not in {str(c['chapterUid']) for c in CHAPTERS}
                             or any(type(data[k]) is not int for k in ('bookVersion','type','isPrivate'))
                             or data['bookVersion']!=700 or data['type']!=1 or data['isPrivate']!=1
                             or not isinstance(data['abstract'],str) or not 0<len(data['abstract'].encode())<=4096

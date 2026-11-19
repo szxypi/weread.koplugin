@@ -52,8 +52,8 @@ render=function(host,owner)
         local items={{text=_(owner.labels.refresh),callback=function() if current(host,owner) then refresh(host,owner) end end}}
         if not owner.writable then
             local notice=owner.bookmarks and 'Imported book bookmarks can be located when their preview is uniquely verified; editing is not yet supported.'
-                or owner.thoughts and 'Imported book thought quotes can be located when verified; editing is not yet supported.'
-                or 'Imported book highlights can be saved and deleted after verification; other editing is not yet supported.'
+                or owner.thoughts and 'Imported book private thoughts can be edited and deleted after verification.'
+                or 'Imported book highlights support private thoughts, saving and deletion after verification.'
             items[#items+1]={text=_(notice),select_enabled=false}
         end
         local filters=owner.bookmarks and {} or owner.thoughts and {{'All my thoughts',nil},{'Thoughts with quoted text',1},{'Other thoughts',0}}
@@ -64,7 +64,7 @@ render=function(host,owner)
                 if current(host,owner) then owner.filter=selected;render(host,owner) end
             end}
         end
-        if owner.writable and not owner.bookmarks then items[#items+1]={text=_('Local thought drafts'),callback=function()
+        if owner.mark_writable and not owner.bookmarks then items[#items+1]={text=_('Local thought drafts'),callback=function()
             if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
         end}
         items[#items+1]={text=_('Check last thought change'),callback=function()
@@ -157,7 +157,7 @@ render=function(host,owner)
                                 end}}
                             end
                         end
-                        local operations=owner.writable and (owner.thoughts and editor.can_edit(row) and {'edit','delete'}
+                        local operations=owner.mark_writable and (owner.thoughts and editor.can_edit(row) and (owner.writable or row.isPrivate==1) and {'edit','delete'}
                             or not owner.thoughts and editor.can_create(row) and {'create'}) or {}
                         for _j,operation in ipairs(operations) do
                             buttons=buttons or {};buttons[#buttons+1]={{id='thought_'..operation,

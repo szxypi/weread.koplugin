@@ -35,6 +35,10 @@ expect(not store:claim(record) and not store:finish(record,'prepared'),'pending 
 local fresh=Store:new(library,codec);expect(fresh:owns(record,'pending'),'restart forgot possible dispatch')
 expect(fresh:finish(record,'pending') and not fresh:draft(draft.draft_key),'confirmed completion did not remove matching draft')
 expect(not fresh:finish(record,'pending'),'old completion accepted')
+local imported_draft=assert(store:save_draft('CB_Synthetic','create','synthetic-mark',C.row_hash(F.row()),'Imported draft'))
+expect(store:draft(imported_draft.draft_key).content=='Imported draft','imported draft not durable')
+account='900099';expect(not store:draft(imported_draft.draft_key),'imported draft leaked between accounts');account='900000'
+expect(store:delete_draft(imported_draft),'imported draft could not be removed')
 draft=assert(store:save_draft('900001','edit','synthetic-note',C.row_hash(F.row()),'Draft old'))
 local previous=draft;draft=assert(store:save_draft('900001','edit','synthetic-note',C.row_hash(F.row()),'Draft replacement'))
 expect(not store:delete_draft(previous) and store:draft(draft.draft_key).content=='Draft replacement','old draft callback deleted replacement')

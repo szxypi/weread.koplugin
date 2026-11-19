@@ -129,7 +129,7 @@ function M:finish(record,phase,keep_draft)
     end,true)==true
 end
 function M:save_draft(book,operation,reference,base_hash,content)
-    if not require('weread.lib.my_cloud_marks').id(book) or operation~='create' and operation~='edit'
+    if not require('weread.lib.my_cloud_marks').display_id(book) or operation~='create' and operation~='edit'
         or not Contract.key(reference) or not Contract.hash(base_hash) or not Contract.valid_content(content) then return nil,'invalid' end
     local version=self.nonce();if not token(version) then return nil,'storage' end
     local key=M.draft_key(book,operation,reference)
@@ -153,7 +153,7 @@ function M:drafts()
             local row=stmt:step()
             while row do
                 row[8]=tonumber(row[8])
-                if #values>=M.MAX_DRAFTS or not Contract.hash(row[1]) or not require('weread.lib.my_cloud_marks').id(row[2])
+                if #values>=M.MAX_DRAFTS or not Contract.hash(row[1]) or not require('weread.lib.my_cloud_marks').display_id(row[2])
                     or row[3]~='create' and row[3]~='edit' or not Contract.key(row[4]) or not Contract.hash(row[5])
                     or row[1]~=M.draft_key(row[2],row[3],row[4]) or not Contract.valid_content(row[6])
                     or not token(row[7]) or not integer(row[8]) then error('thought_store/draft',0) end
