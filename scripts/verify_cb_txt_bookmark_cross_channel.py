@@ -13,6 +13,7 @@ import resource
 import tempfile
 from urllib.parse import urlencode
 
+from annotation_experiment_model import digest
 from cb_official_viewport import allowed_bookmark_read
 import cb_txt_padded_bookmark_trial as trial
 from personal_upload_trial import Journal
@@ -60,6 +61,13 @@ def compare(value,book,body,target):
                 range_matches=row.get('range')==body['range'],preview_matches=text==body['markText'] or decoded==body['markText'])
 
 
+def snapshot(value,book,body,target):
+    """Compare complete bookmark data, excluding unrelated response clocks."""
+    projected=compare(value,book,body,target)
+    stable={key:dict(present=key in value,value=value.get(key)) for key in ('updated','chapters','removed')}
+    return projected,digest(stable)
+
+
 def observe_web(payload,body,target,*,factory=BookmarkWeb):
     if (not isinstance(payload,dict) or not isinstance(target,dict) or set(target)!={'id','sha256'}
             or payload.get('book')!=body.get('bookId') or payload.get('owner')!=payload.get('cookies',{}).get('wr_vid')
@@ -69,9 +77,9 @@ def observe_web(payload,body,target,*,factory=BookmarkWeb):
     try:
         for key,value in payload['cookies'].items():web.set_cookie(key,value)
         web.verify_account();url=BASE+'/web/book/bookmarklist?'+urlencode(dict(bookId=payload['book']))
-        first=compare(web.request('bookmarks_before',url),payload['book'],body,target)
-        second=compare(web.request('bookmarks_after',url),payload['book'],body,target);web.verify_account()
-        if first!=second:raise ValueError('txt_bookmark_web/changed')
+        first,first_hash=snapshot(web.request('bookmarks_before',url),payload['book'],body,target)
+        second,second_hash=snapshot(web.request('bookmarks_after',url),payload['book'],body,target);web.verify_account()
+        if first!=second or first_hash!=second_hash:raise ValueError('txt_bookmark_web/changed')
         return dict(result='WEB_READBACK',stable=True,**first)
     finally:web.close()
 

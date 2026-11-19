@@ -54,6 +54,18 @@ class CrossChannelTests(unittest.TestCase):
             def request(inner,*_):
                 inner.reads+=1;return {'updated':[dict(self.row,range='48' if inner.reads==1 else '47')]}
         with self.assertRaises(ValueError):verify.observe_web(self.payload,self.body,self.target,factory=Changing)
+        class ChangingOtherField(Web):
+            def request(inner,*_):
+                inner.reads+=1;return {'updated':[dict(self.row,createTime=1700000000+inner.reads)]}
+        with self.assertRaises(ValueError):verify.observe_web(self.payload,self.body,self.target,factory=ChangingOtherField)
+        class ChangingChapterIndex(Web):
+            def request(inner,*_):
+                inner.reads+=1;return {'updated':[deepcopy(self.row)],'chapters':[{'chapterUid':2,'sort':inner.reads}]}
+        with self.assertRaises(ValueError):verify.observe_web(self.payload,self.body,self.target,factory=ChangingChapterIndex)
+        class ResponseClockChanges(Web):
+            def request(inner,*_):
+                inner.reads+=1;return {'updated':[deepcopy(self.row)],'timestamp':inner.reads}
+        self.assertEqual(verify.observe_web(self.payload,self.body,self.target,factory=ResponseClockChanges),self.expected)
 
     def test_web_error_never_prevents_cleanup_or_claims_success(self):
         receipt=Receipt(Backend());calls=[]
