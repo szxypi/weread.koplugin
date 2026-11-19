@@ -149,6 +149,14 @@ function Auth:read_shelf(credentials)
     return shelf
 end
 
+-- Full-list behavior is checked against totalBookCount by notebook_catalog.
+function Auth:read_notebooks(credentials)
+    self:_current('notebooks')
+    if type(credentials)~='table' or not vid(credentials.vid) or not text(credentials.accessToken,8192)
+        or self.expected_vid and vid(credentials.vid)~=self.expected_vid then fail('notebooks','invalid_credentials') end
+    return self:_request('notebooks',BASE..'/user/notebooks?count=100',nil,credentials)
+end
+
 -- Numeric-book and public-account membership writes independently verified by
 -- bounded owner roundtrips. Never renew or retry a dispatched operation.
 function Auth:write_shelf_membership(credentials, book_id, operation, on_dispatch)

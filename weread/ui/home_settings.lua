@@ -10,7 +10,7 @@ local M = {}
 local section_labels = { status = "Clock and device status", summary = "Reading overview",
     shortcuts = "Home shortcuts", recent = "Recently read" }
 local shortcut_labels = { shelf = "Bookshelf", store = "Bookstore", search = "Search WeRead",
-    profile = "My WeRead", settings = "Quick settings", refresh = "Refresh" }
+    profile = "My WeRead", notebooks = "My notebooks", settings = "Quick settings", refresh = "Refresh" }
 
 function M:homePreferences()
     return Layout.normalize(self.settings:get("home"))
@@ -74,6 +74,7 @@ function M:homeShortcuts(preferences)
         store = function() self:closeWeReadUI() self:openBookstore() end,
         search = function() self:showDiscoverySearch() end,
         profile = function() self:closeWeReadUI() self:showProfile() end,
+        notebooks = function() require('weread.ui.notebook_catalog').show(self) end,
         settings = function() self:showHomeQuickSettings() end,
         refresh = function() self:refreshHome() end,
     }

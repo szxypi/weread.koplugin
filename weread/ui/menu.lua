@@ -146,6 +146,12 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _("My notebooks"),
+            callback = self:safeCallback(_("My notebooks"), function()
+                require('weread.ui.notebook_catalog').show(self)
+            end),
+        },
+        {
             text = _("Upload local book"),
             callback = self:safeCallback(_("Upload local book"), function()
                 require('weread.ui.personal_upload').open(self)

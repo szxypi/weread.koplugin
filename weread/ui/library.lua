@@ -150,6 +150,8 @@ function M:showBookshelf()
 end
 
 function M:closeWeReadUI()
+    local notebooks=package.loaded['weread.ui.notebook_catalog']
+    if notebooks then notebooks.cancel(self) end
     local saved_searches=package.loaded['weread.ui.saved_searches']
     if saved_searches then saved_searches.cancel(self) end
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
