@@ -16,7 +16,7 @@ local function trim(text)
     end
     return first and text:sub(first,last) or ''
 end
-function M.project(raw,book,chapter,row)
+function M.project(raw,book,chapter,row,format)
     local ok,value=pcall(function()
         if not Marks.display_id(book) or not Marks.id(chapter) or type(row)~='table' or row.type~=1
             or type(row.chapterUid)~='number' or tostring(row.chapterUid)~=chapter
@@ -27,6 +27,21 @@ function M.project(raw,book,chapter,row)
         if type(row.range)=='string' then a,b=row.range:match('^(%d+)%-(%d+)$') end
         if not a or #a>10 or #b>10 or tonumber(a)>=tonumber(b) or tonumber(b)>2147483647 then fail('range') end
         a,b=tonumber(a),tonumber(b)
+        format=format or 'web_xhtml'
+        if format=='web_txt' then
+            local target=require('weread.lib.my_mark_target').project(raw,book,chapter,row,format)
+            local map=Coordinates.build(raw,{format=format})
+            local clean=Dom.normalize(row.markText)
+            if not target or not map or not clean or clean=='' then fail('quote') end
+            map:_index()
+            local start=Quote.boundary(map,target.chapter_offset)
+            local stop=start and start+#clean
+            if not start or map.flat:sub(start,stop-1)~=clean then fail('quote') end
+            local last=map:_point(stop-1,true)
+            if Quote.boundary(map,last)~=stop then fail('boundary') end
+            return {first=target.chapter_offset,last=last,normalized_sha256=Crypto.sha256_hex(clean),
+                normalized_bytes=#clean,raw_sha256=target.raw_sha256,raw_bytes=target.raw_bytes}
+        elseif format~='web_xhtml' then fail('source') end
         local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
         local length=0;for _char in raw:gsub('^\239\187\191',''):gmatch('[%z\1-\127\194-\244][\128-\191]*') do length=length+1 end
         if b>length then fail('range') end
@@ -78,9 +93,9 @@ local function inside_anchor(map,span,ending)
         end
     end
 end
-function M.prepare(raw,book,chapter,row)
-    local span,reason=M.project(raw,book,chapter,row);if not span then return nil,reason end
-    local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then return nil,'my_mark_span/source' end
+function M.prepare(raw,book,chapter,row,format)
+    local span,reason=M.project(raw,book,chapter,row,format);if not span then return nil,reason end
+    local map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true});if not map then return nil,'my_mark_span/source' end
     local first=inside_anchor(map,span,false) or map:anchor(span.first,{segment_only=true}) or map:anchor(span.first)
     local last=inside_anchor(map,span,true) or map:anchor(span.last,{segment_only=true}) or map:anchor(span.last)
     if not first or not last then return nil,'my_mark_span/anchor' end

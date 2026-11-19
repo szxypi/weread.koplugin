@@ -20,7 +20,8 @@ function M.load(client,library,book,access,online)
 end
 function M.prepare(file,book,metadata,rows,read)
     local record=Source.decode_metadata(metadata)
-    if not record or record.book_id~=book or record.format~='web_xhtml' or type(rows)~='table' or #rows>M.BATCH then error('personal_marks/scope',0) end
+    if not record or record.book_id~=book or record.format~='web_xhtml' and record.format~='web_txt'
+        or type(rows)~='table' or #rows>M.BATCH then error('personal_marks/scope',0) end
     read=read or require('weread.lib.source_archive').read
     local wanted={[Identity.PATH]=Identity.MAX_BYTES,[Source.meta_path(record.chapter_uid)]=Source.MAX_META_BYTES,
         [Source.path_meta_path(record.render_path)]=Source.MAX_META_BYTES,[Source.raw_path(record.raw_sha256)]=Source.MAX_BYTES,
@@ -33,13 +34,13 @@ function M.prepare(file,book,metadata,rows,read)
     if not verified then error('personal_marks/source',0) end
     local result={metadata=metadata,rows={}}
     for _i,row in ipairs(rows) do
-        if row.type==0 then
+        if row.type==0 and record.format=='web_xhtml' then
             local point=Point.prepare(verified.raw,book,record.chapter_uid,row)
             if point then
                 result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),bookmark=true,anchor=point.anchor}
             end
-        else
-            local span=Span.prepare(verified.raw,book,record.chapter_uid,row)
+        elseif row.type==1 then
+            local span=Span.prepare(verified.raw,book,record.chapter_uid,row,record.format)
             if span then
                 result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),
                     first_anchor=span.first_anchor,last_anchor=span.last_anchor,normalized_sha256=span.normalized_sha256}

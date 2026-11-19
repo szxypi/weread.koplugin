@@ -147,13 +147,15 @@ function M.update(host)
         load(host,s,not s.remote_attempted and host.isNetworkOnline and host:isNetworkOnline() or false);return
     end
     local m=metadata(host,s)
-    if not m or not m.record or m.record.format~='web_xhtml' then cancel_work(s);s.metadata=nil;clear(host,s);return end
+    if not m or not m.record or m.record.format~='web_xhtml' and m.record.format~='web_txt' then
+        cancel_work(s);s.metadata=nil;clear(host,s);return
+    end
     if s.metadata==m.metadata and (s.job or s.complete) then return end
     cancel_work(s);s.metadata=m.metadata;s.complete=false;clear(host,s)
     if not s.snapshot then return end
     local uid=m.chapter_uid;local rows,ranges,styles={},{},{}
     for _i,row in ipairs(s.snapshot.updated) do
-        if (row.type==1 or row.type==0) and tostring(row.chapterUid)==uid then
+        if (row.type==1 or row.type==0 and m.record.format=='web_xhtml') and tostring(row.chapterUid)==uid then
             rows[#rows+1]=row;ranges[row.bookmarkId]=row.range;styles[row.bookmarkId]=row.style or 0
         end
     end
@@ -250,10 +252,10 @@ function M.available(host)
     local s=host._personal_marks;if not s or not current(host,s) then return false end
     if #s.records>0 or #s.bookmarks>0 then return true end
     if s.complete then return false end
-    local m=metadata(host,s);if not m or not m.record or m.record.format~='web_xhtml' then return false end
+    local m=metadata(host,s);if not m or not m.record or m.record.format~='web_xhtml' and m.record.format~='web_txt' then return false end
     for _i,row in ipairs(s.snapshot and s.snapshot.updated or {}) do
         if tostring(row.chapterUid)==m.chapter_uid and (require('weread.lib.my_mark_target').can_locate(row)
-            or require('weread.lib.bookmark_point').can_locate(row,not Marks.id(s.book))) then return true end
+            or m.record.format=='web_xhtml' and require('weread.lib.bookmark_point').can_locate(row,not Marks.id(s.book))) then return true end
     end
     return false
 end

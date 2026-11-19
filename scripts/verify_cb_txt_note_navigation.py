@@ -25,9 +25,10 @@ from verify_cb_txt_fixture import Receipt
 SCREENS=((600,800,167),(1264,1680,300))
 
 
-def stores(unit='scalar'):
+def stores(unit='scalar',personal=False):
     if unit not in ('scalar','utf16'):raise ValueError('txt_navigation/unit')
-    scope='cb-txt-note-navigation' if unit=='scalar' else 'cb-txt-utf16-note-navigation'
+    if type(personal) is not bool or personal and unit!='utf16':raise ValueError('txt_navigation/scope')
+    scope=('cb-txt-note-display' if personal else 'cb-txt-note-navigation' if unit=='scalar' else 'cb-txt-utf16-note-navigation')
     def backend(part):return MacKeychain(service='org.codex.weread.'+scope+'-'+part+'-v1',account=ACCOUNT)
     def lock(part):
         path=Path(tempfile.gettempdir())/('codex-'+scope+'-'+part+'-'+ACCOUNT+'.lock')
@@ -62,8 +63,9 @@ def payload(owner,sample,body,target,current,*,unit='scalar'):
 
 
 def run(saved,session,native,grant,journal,receipt,intent,command,*,apply=False,uploader=None,ui=native_ui,
-        highlight_runner=run_highlight,unit='scalar'):
-    if (unit not in ('scalar','utf16') or not isinstance(command,list) or not command
+        highlight_runner=run_highlight,unit='scalar',personal=False):
+    if (unit not in ('scalar','utf16') or type(personal) is not bool or personal and unit!='utf16'
+            or not isinstance(command,list) or not command
             or any(not isinstance(x,str) or not x for x in command)):
         raise ValueError('txt_navigation/command')
     captured={};observations=[]
@@ -76,7 +78,7 @@ def run(saved,session,native,grant,journal,receipt,intent,command,*,apply=False,
             if _body!=body or not owned():raise ValueError('txt_navigation/ownership')
             data=payload(captured['owner'],captured['sample'],body,target,reader(),unit=unit)
             for width,height,dpi in SCREENS:
-                observations.append(ui(command,data,width,height,dpi))
+                observations.append(ui(command,data,width,height,dpi,personal=True) if personal else ui(command,data,width,height,dpi))
         return trial.execute(plan,body,baseline,intent_arg,owned,read,send,on_created=on_created)
     def runner(*args,**kwargs):
         kwargs.update(prepare_fn=prepare,execute_fn=execute,result_label='CB_TXT_NOTE_NAVIGATION_VERIFIED')
@@ -97,8 +99,10 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true');parser.add_argument('--apply',action='store_true')
     parser.add_argument('--utf16',action='store_true',help='use official observed UTF-16 ranges')
+    parser.add_argument('--personal-display',action='store_true',help='verify the native highlight overlay')
     parser.add_argument('--native-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     if args.apply and not args.saved_session:parser.error('apply requires saved session')
+    if args.personal_display and not args.utf16:parser.error('personal display requires UTF-16 fixture')
     if args.saved_session and not args.native_command:parser.error('native command required')
     if not args.saved_session:
         print(json.dumps(dict(result='OFFLINE_ONLY',annotation_posts=0)));return 0
@@ -106,7 +110,8 @@ def main(argv=None):
     try:
         session=SessionStore();saved=session.load();native=NativeSessionStore();grant=native.load(saved['vid'])
         unit='utf16' if args.utf16 else 'scalar'
-        report=run(saved,session,native,grant,*stores(unit),args.native_command,apply=args.apply,unit=unit)
+        report=run(saved,session,native,grant,*stores(unit,args.personal_display),args.native_command,apply=args.apply,
+                   unit=unit,personal=args.personal_display)
     except Exception:
         report=dict(result='UNVERIFIED',phase='setup')
     finally:

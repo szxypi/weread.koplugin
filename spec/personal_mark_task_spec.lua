@@ -89,4 +89,21 @@ expect(#Task.prepare('/cached.epub','CB_Synthetic',imported_meta,{missing},archi
     'imported preview-less bookmark gained an indicator')
 expect(#Task.prepare('/cached.epub','CB_Synthetic',imported_meta,{wrong},archive).rows==0,
     'foreign imported chapter gained a highlight')
+local txt_prefix='A self-authored test begins with one emoji: 😀.\n'
+local txt_quote='A unique synthetic passage for testing a plain text highlight.'
+local txt=txt_prefix..txt_quote..'\nA separate sentence provides context.'
+local rendered='<html><body><p>Synthetic rendered TXT.</p></body></html>'
+local txt_root=Identity.encode(imported_book,{chapter},Identity.capture(imported_book),Crypto.sha256_hex(rendered))
+local txt_meta=assert(Source.bind(assert(Source.capture(imported_book,chapter,txt,'web_txt')),
+    assert(Identity.decode(txt_root)),path,Crypto.sha256_hex(rendered)))
+members={[Identity.PATH]=txt_root,[Source.meta_path('2')]=txt_meta,[Source.path_meta_path(path)]=txt_meta,
+    [Source.raw_path(Crypto.sha256_hex(txt))]=txt,[path]=rendered}
+local txt_row={bookmarkId='synthetic-txt-highlight',type=1,chapterUid=2,range='48-110',markText=txt_quote}
+local txt_output=Task.prepare('/cached.epub','CB_Synthetic',txt_meta,{txt_row,point},archive)
+expect(#txt_output.rows==1 and txt_output.rows[1].first_anchor.co==48 and txt_output.rows[1].last_anchor.co==110,
+    'verified TXT highlight or skipped TXT bookmark changed')
+wrong=Fixture.clone(txt_row);wrong.range='49-111'
+expect(#Task.prepare('/cached.epub','CB_Synthetic',txt_meta,{wrong},archive).rows==0,'mismatched TXT highlight displayed')
+members[Source.raw_path(Crypto.sha256_hex(txt))]='changed'
+expect(not pcall(Task.prepare,'/cached.epub','CB_Synthetic',txt_meta,{txt_row},archive),'changed TXT source displayed')
 print('personal_mark_task_spec: '..checks..' checks passed')
