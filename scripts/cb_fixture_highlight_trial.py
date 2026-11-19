@@ -79,9 +79,9 @@ def prepare(owner, book, attempt, sample, version, baseline):
     return plan, body
 
 
-def execute(plan, body, baseline, intent, owned, read, send):
+def execute(plan, body, baseline, intent, owned, read, send, *, validator=validate_plan):
     """Dispatch at most two ordered writes; exceptions never retry or clean up."""
-    validate_plan(plan)
+    validator(plan)
     if digest(body) != plan['request_sha256'] or digest(baseline) != plan['baseline_sha256']:
         raise ValueError('cb_highlight/changed')
     if not owned() or intent.read()[0] is not None or read() != baseline or read() != baseline or not owned():

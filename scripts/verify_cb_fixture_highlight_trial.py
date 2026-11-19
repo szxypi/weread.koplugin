@@ -112,7 +112,8 @@ class ScopedNative(NativeProbe):
 def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         uploader=upload_run, upload_factory=UploadProbe, native_factory=ScopedNative, source_factory=CbReadingProbe,
         prepare_fn=prepare, execute_fn=execute, final_check=None, result_label='CB_FIXTURE_HIGHLIGHT_VERIFIED', expected_posts=2,
-        source_sleep=time.sleep):
+        source_sleep=time.sleep, source_format='web_xhtml', source_marker=TEXT,
+        upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=owned):
     report = dict(result='UNVERIFIED', phase='preflight', annotation_posts=0, authentication_posts=0,
                   existing_book_writes=0, fixture_only=True, private_values_in_report=False)
     current = {'saved': saved, 'sample': None, 'native': None, 'trial': None}
@@ -124,8 +125,8 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
             try:
                 for key, value in current['saved']['cookies'].items(): web.set_cookie(key, value)
                 web.verify_account(); sample = web.inspect(target); web.verify_account()
-                if (sample.get('book_id') != target or sample.get('source_format') != 'web_xhtml'
-                        or TEXT not in sample.get('source', '') or set(web.last_checks) != {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
+                if (sample.get('book_id') != target or sample.get('source_format') != source_format
+                        or source_marker not in sample.get('source', '') or set(web.last_checks) != {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
                         or not all(value is True for value in web.last_checks.values())):
                     report['source_failure']='invalid_sample'; return False
                 if save_refreshed_web_session(session, current['saved'], web):
@@ -150,7 +151,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
 
     def trial(upload, receipt, _plan, target):
         owner = current['saved']['vid']; sample = current['sample']
-        def authority(): return bool(cb_id(target) and owned(upload, receipt, target, owner, grant, same_grant))
+        def authority(): return bool(cb_id(target) and fixture_authorized(upload, receipt, target, owner, grant, same_grant))
         if not authority(): return False
         if sample is None: return True  # No annotation was sent; exact upload cleanup remains separately guarded.
         state, _ = upload.read(); native = native_factory(target, grant, authority, intent); current['native'] = native
@@ -181,7 +182,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         result = uploader(upload, journal, grant, same_grant, source, apply=apply, cleanup_gate=trial)
         report['upload'] = result; report['phase'] = result.get('phase', 'unknown')
         if result.get('result') == 'READ_ONLY_PREVIEW': report['result'] = 'READ_ONLY_PREVIEW'
-        elif result.get('result') == 'EPUB_IMPORT_AND_SOURCE_VERIFIED' and current['trial'] and current['trial']['result'] == 'PASS':
+        elif result.get('result') == upload_success and current['trial'] and current['trial']['result'] == 'PASS':
             report.update(result=result_label, original_records_restored=True,
                           fixture_removed=True, no_replay=True)
     except Exception:
