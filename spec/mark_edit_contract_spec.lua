@@ -3,10 +3,7 @@ local F=require('spec.helpers.mark_edit_fixture');local C=require('weread.lib.ma
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
 local codec=F.codec();local snapshot=F.snapshot(codec);local ref=F.reference()
 local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.book_id='CB_Synthetic';imported.thoughts.book_id='CB_Synthetic'
-for _i,operation in ipairs({'style','color'}) do
-    expect(not pcall(C.make,codec,imported,operation,ref,{bookId='CB_Synthetic',version=77},1,1),
-        'read-only imported book gained mark-write authority: '..operation)
-end
+expect(not pcall(C.make,codec,imported,'color',ref,nil,nil,1),'unverified imported color update accepted')
 local imported_ref=F.clone(ref);imported_ref.source.book_id='CB_Synthetic'
 local imported_plan=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77})
 expect(C.validate_body('create',imported_plan.body) and C.validate_metadata(imported_plan.metadata),'verified imported highlight plan rejected')
@@ -17,6 +14,15 @@ for _i,choice in ipairs({{0,0},{2,0},{1,1}}) do
 end
 local imported_created=F.created(codec,imported)
 expect(C.check(imported_created,imported_plan.metadata),'imported creation was not independently confirmed')
+for _i,style in ipairs({0,2}) do
+    local change=C.make(codec,imported_created,'style',imported_created.marks.updated[2],nil,style)
+    local result=F.clone(imported_created);result.marks.updated[2].style=style
+    expect(C.validate_metadata(change.metadata) and C.check(result,change.metadata) and not C.check(imported_created,change.metadata),
+        'imported style change was not independently confirmed')
+end
+local imported_colored=F.clone(imported_created);imported_colored.marks.updated[2].colorStyle=3
+expect(not pcall(C.make,codec,imported_colored,'style',imported_colored.marks.updated[2],nil,2),
+    'unverified imported colored highlight style update accepted')
 local imported_delete=C.make(codec,imported_created,'delete',imported_created.marks.updated[2])
 expect(C.validate_metadata(imported_delete.metadata) and C.check(imported,imported_delete.metadata),'imported deletion was not independently confirmed')
 local foreign=F.clone(imported_ref);foreign.source.book_id='CB_Other'

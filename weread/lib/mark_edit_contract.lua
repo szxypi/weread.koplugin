@@ -55,7 +55,7 @@ local function creating(operation) return operation=='create' or operation=='boo
 local function deleting(operation) return operation=='delete' or operation=='bookmark_delete' end
 local function updating(operation) return operation=='style' or operation=='color' end
 local function supported(book,operation)
-    return Marks.id(book)~=nil or Marks.display_id(book)~=nil and (creating(operation) or deleting(operation))
+    return Marks.id(book)~=nil or Marks.display_id(book)~=nil and (creating(operation) or deleting(operation) or operation=='style')
 end
 local function preview(value)
     return type(value)=='string' and #value>0 and #value<=4096 and Protocol.utf8_substr(value,#value)==value
@@ -118,6 +118,7 @@ function M.make(client,snapshot,operation,reference,metadata,style,color)
             body={bookmarkIds=client:json_decode('[]')};body.bookmarkIds[1]=row.bookmarkId
         elseif operation=='style' then
             if not Style.editable(row) or not Style.valid(style) or style==row.style then fail('style') end
+            if not Marks.id(book) and row.colorStyle~=0 then fail('color') end
             body={bookmarkId=row.bookmarkId,style=style,colorStyle=row.colorStyle}
         else
             if not Color.editable(row) or not Color.valid(color) or color==row.colorStyle then fail('color') end

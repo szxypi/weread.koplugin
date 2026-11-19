@@ -59,7 +59,7 @@ function M.start(host,owner,operation,reference,current,redraw,style,color)
         and operation~='bookmark_create' and operation~='bookmark_delete' then return false end
     local imported=not require('weread.lib.my_cloud_marks').id(owner.id)
     if imported and (not require('weread.lib.my_cloud_marks').display_id(owner.id)
-        or operation~='create' and operation~='delete' and operation~='bookmark_create' and operation~='bookmark_delete') then return false end
+        or operation~='create' and operation~='delete' and operation~='style' and operation~='bookmark_create' and operation~='bookmark_delete') then return false end
     local bookmark=operation=='bookmark_create' or operation=='bookmark_delete'
     if operation=='create' then
         style=imported and 1 or require('weread.lib.mark_style').default(host.settings)

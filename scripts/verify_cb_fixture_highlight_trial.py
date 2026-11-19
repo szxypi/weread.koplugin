@@ -108,7 +108,7 @@ class ScopedNative(NativeProbe):
 
 def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         uploader=upload_run, upload_factory=UploadProbe, native_factory=ScopedNative, source_factory=CbReadingProbe,
-        prepare_fn=prepare, execute_fn=execute, final_check=None, result_label='CB_FIXTURE_HIGHLIGHT_VERIFIED'):
+        prepare_fn=prepare, execute_fn=execute, final_check=None, result_label='CB_FIXTURE_HIGHLIGHT_VERIFIED', expected_posts=2):
     report = dict(result='UNVERIFIED', phase='preflight', annotation_posts=0, authentication_posts=0,
                   existing_book_writes=0, fixture_only=True, private_values_in_report=False)
     current = {'saved': saved, 'sample': None, 'native': None, 'trial': None}
@@ -144,7 +144,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
             current['trial'] = execute_fn(plan, body, before, intent, authority,
                                        lambda: native.observe(grant), lambda stage, value, permit: native.send(stage, value, permit, grant))
             after_marks=native.observe(grant)
-            if native.posts != 2 or not (final_check(before,after_marks,body) if final_check else after_marks==before): return False
+            if native.posts != expected_posts or not (final_check(before,after_marks,body) if final_check else after_marks==before): return False
             old = sample; current['sample'] = None
             if not source(target): return False
             after = current['sample']
