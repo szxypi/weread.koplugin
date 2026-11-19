@@ -38,11 +38,11 @@ def make_journal():
 
 
 class ScopedNative(NativeProbe):
-    def __init__(self, book, grant, authority, intent, *, opener=None):
-        if not cb_id(book): raise ValueError('cb_highlight/scope')
+    def __init__(self, book, grant, authority, intent, *, opener=None, max_gets=40):
+        if not cb_id(book) or type(max_gets) is not int or not 1 <= max_gets <= 80: raise ValueError('cb_highlight/scope')
         super().__init__(opener)
         self.book, self.grant_hash, self.authority, self.intent = book, digest(grant), authority, intent
-        self.posts, self.gets, self.body, self.pending = 0, 0, None, None
+        self.posts, self.gets, self.body, self.pending, self.max_gets = 0, 0, None, None, max_gets
 
     def request(self, stage, url, body=None, credentials=None, timeout=15):
         if not self.authority() or digest(credentials) != self.grant_hash:
@@ -53,7 +53,7 @@ class ScopedNative(NativeProbe):
                    'position': BASE + '/book/getProgress?' + urlencode(dict(bookId=self.book)),
                    'info': BASE + '/book/info?' + urlencode(dict(bookId=self.book))}
         if body is None:
-            if queries.get(stage) != url or self.gets >= 40: raise ValueError('cb_highlight/read_scope')
+            if queries.get(stage) != url or self.gets >= self.max_gets: raise ValueError('cb_highlight/read_scope')
             self.gets += 1
         else:
             state, receipt = self.intent.read()
