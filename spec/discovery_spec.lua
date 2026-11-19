@@ -15,6 +15,13 @@ expect(#result.books == 2 and result.next_cursor == 9 and result.has_more, "sear
 expect(not Data.page("recommend", { books = { { bookId = "a" } }, hasMore = true }, 9).has_more,
     "non-advancing cursor must not cause an endless next-batch loop")
 expect(not pcall(Data.page, "recommend", {}, 0), "malformed response treated as empty success")
+local with_reason=Data.book{reason=' 推荐\n理由 ',bookInfo={bookId='3',title='Book',author='Author'}}
+expect(with_reason.reason=='推荐 理由' and with_reason.author=='Author','recommendation reason lost or not normalized')
+expect(Data.book{bookId='3',reason=string.rep('书',101)}.reason==string.rep('书',100)..'…',
+    'recommendation reason was not truncated on a character boundary')
+expect(Data.book{bookId='3',reason=string.char(255)}.reason==nil
+    and Data.book{bookId='3',reason=string.rep('x',8193)}.reason==nil,
+    'invalid recommendation reason reached the display')
 expect(#Data.page("search", { results = {} }, 0).books == 0, "empty search rejected")
 local similar = Data.page("similar", { booksimilar = { sessionId = "session-a", hasMore = true, books = {
     { idx = 21, book = { bookInfo = { bookId = "similar-a", title = "Similar A" } } },

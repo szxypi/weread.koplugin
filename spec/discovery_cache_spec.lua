@@ -15,10 +15,16 @@ expect(value.query.session_id==nil and value.pages[1].books[1].private_extra==ni
 local state=Cache.state(value,0)
 expect(state.cached and state.has_more and state.next_cursor==20 and #state.history==0,'first saved batch')
 local detailed=snapshot()
+detailed.pages[1].books[1].reason='Recommended for you'
 detailed.pages[1].books[1]._public_info={intro='Public introduction',publisher='Public publisher',newRating=860,newRatingCount=12,token='secret'}
 local restored=Cache.state(Cache.validate(detailed),0).books[1]._public_info
 expect(restored.intro=='Public introduction' and restored.publisher=='Public publisher'
     and restored.newRating==860 and restored.newRatingCount==12 and not restored.token,'public details not isolated or retained in cache')
+expect(Cache.state(Cache.validate(detailed),0).books[1].reason=='Recommended for you','recommendation reason lost offline')
+for _,invalid in ipairs({string.char(255),'line\nbreak',string.rep('x',513)}) do
+    local bad=snapshot();bad.pages[1].books[1].reason=invalid
+    rejected(function() Cache.validate(bad) end)
+end
 expect(not state.session_id and not state.source_revision and not state._cache_generation,'remote binding restored from disk')
 state=Cache.state(value,20)
 expect(not state.has_more and state.history[1]==0 and state.books[1].title=='Title','saved continuation history')

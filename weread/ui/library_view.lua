@@ -285,6 +285,7 @@ function LeftAlignedTitle:init()
 end
 
 function LeftAlignedTitle:paintTo(bb, x, y)
+    self.dimen.x,self.dimen.y=x,y
     self.content:paintTo(bb, x, y)
 end
 
@@ -487,6 +488,8 @@ local CoverCell = InputContainer:extend{
     cached = false,
     callback = nil,
     hold_callback = nil,
+    store_details = false,
+    store_reason = false,
     show_parent = nil,
 }
 
@@ -495,6 +498,7 @@ function CoverCell:init()
         width = self.width,
         height = self.height,
         size_scale = Screen:scaleBySize(1000) / 1000,
+        detail_lines = self.store_details and (self.store_reason and 2 or 1) or 0,
     }
     local border = Size.border.thin
     local image_width = math.max(1, metrics.card_width - 2 * border)
@@ -667,6 +671,35 @@ function CoverCell:init()
         height = metrics.title_height,
         content = title_line,
     }
+    local card_contents=VerticalGroup:new{
+        align = "center",
+        CenterContainer:new{ dimen = Geom:new{ w = metrics.cover_width, h = metrics.cover_height }, cover },
+        VerticalSpan:new{ width = metrics.title_gap },
+        CenterContainer:new{ dimen = Geom:new{ w = metrics.cover_width, h = metrics.title_height }, title_container },
+    }
+    if self.store_details then
+        card_contents[#card_contents+1]=VerticalSpan:new{width=metrics.detail_gap}
+        local author=type(self.book.author)=='string' and self.book.author:gsub('[%c]+',' ') or ''
+        local info=self.book._public_info
+        local rating=type(info)=='table' and info.newRating
+        local count=type(info)=='table' and info.newRatingCount
+        if type(rating)=='number' and rating==rating and rating>0 and rating<=1000
+            and type(count)=='number' and count>0 and count<=1e10 and count%1==0 then
+            local score=_('Rating')..' '..string.format('%.1f',rating/100)
+            author=author~='' and score..' · '..author or score
+        end
+        local fields={author}
+        if self.store_reason then fields[#fields+1]=type(self.book.reason)=='string' and self.book.reason:gsub('[%c]+',' ') or '' end
+        self._store_details={}
+        self._store_detail_frames={}
+        for _,value in ipairs(fields) do
+            local line=TextWidget:new{text=value,face=Font:getFace('cfont',13),max_width=metrics.cover_width}
+            self._store_details[#self._store_details+1]=line
+            local frame=LeftAlignedTitle:new{width=metrics.cover_width,height=metrics.detail_line_height,content=line}
+            self._store_detail_frames[#self._store_detail_frames+1]=frame
+            card_contents[#card_contents+1]=frame
+        end
+    end
     self.frame = FrameContainer:new{
         bordersize = 0,
         radius = 0,
@@ -676,18 +709,7 @@ function CoverCell:init()
         show_parent = self.show_parent,
         CenterContainer:new{
             dimen = Geom:new{ w = self.width, h = self.height },
-            VerticalGroup:new{
-                align = "center",
-                CenterContainer:new{
-                    dimen = Geom:new{ w = metrics.cover_width, h = metrics.cover_height },
-                    cover,
-                },
-                VerticalSpan:new{ width = metrics.title_gap },
-                CenterContainer:new{
-                    dimen = Geom:new{ w = metrics.cover_width, h = metrics.title_height },
-                    title_container,
-                },
-            },
+            card_contents,
         },
     }
     self[1] = self.frame
@@ -759,6 +781,8 @@ local LibraryView = FocusManager:extend{
     on_manage_mp_accounts = nil,
     on_select = nil,
     on_hold = nil,
+    store_details = false,
+    store_reason = false,
     paged = false,
     page = 1,
     page_size = 10,
@@ -1230,6 +1254,8 @@ function LibraryView:content()
                 cover_path = self.cover_paths and self.cover_paths[book] or nil,
                 cover_loading = self.cover_loading and self.cover_loading[book] == true,
                 contain_cover = self.mode == "public_account",
+                store_details = self.store_details,
+                store_reason = self.store_reason,
                 width = width,
                 height = math.max(1, height),
                 show_parent = self,
@@ -1489,6 +1515,8 @@ function M.getLayout(cover_mode, count, mode, extra_height, options)
                 width = width, height = height,
                 size_scale = Screen:scaleBySize(1000) / 1000,
                 reserved_height = reserved,
+                max_columns = options.store and 3 or nil,
+                max_rows = options.store and 2 or nil,
                 min_cell_width = options.home and options.home.density == "compact"
                     and math.ceil(140 * math.sqrt(Screen:scaleBySize(1000) / 1000)) or nil,
                 min_cell_height = options.home and options.home.density == "compact"
@@ -1511,6 +1539,8 @@ function M.show(data, callbacks)
         mode = data.mode,
         portal = data.portal,
         home_layout = data.home_layout,
+        store_details = data.store_details,
+        store_reason = data.store_reason,
         status_text = data.status_text,
         summary_text = data.summary_text,
         empty_text = data.empty_text,

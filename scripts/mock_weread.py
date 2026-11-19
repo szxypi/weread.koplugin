@@ -746,7 +746,7 @@ class MockServer(ThreadingHTTPServer):
             candidates = BOOKS[:15] if cid == "100001" else BOOKS
             batch = candidates[start:start + 20]
             return 200, dict(books=[dict(bookInfo=dict(b,publisher="合成出版社",newRating=860,newRatingCount=12),
-                searchIdx=start + i + 1) for i, b in enumerate(batch)],
+                searchIdx=start + i + 1,reason="合成推荐理由" if i == 0 else "") for i, b in enumerate(batch)],
                              hasMore=int(start + len(batch) < len(candidates)))
         if path.startswith("/web/reader/") and method == "GET":
             encoded = path.rsplit("/", 1)[1].split("k")

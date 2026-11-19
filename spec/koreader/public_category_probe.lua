@@ -123,7 +123,7 @@ local ok,reason=pcall(function()
         end
         local view={role=sample.role,cursor=state.cursor,books=json.decode('[]'),next_cursor=state.next_cursor,has_more=state.has_more,cached=state.cached==true}
         for _book_index,book in ipairs(state.books) do
-            local row={};for _field_index,key in ipairs({'bookId','title','author','cover','category','searchIdx'}) do row[key]=book[key] end
+            local row={};for _field_index,key in ipairs({'bookId','title','author','cover','category','searchIdx','reason'}) do row[key]=book[key] end
             view.books[#view.books+1]=row
         end
         private.views[#private.views+1]=view;report.batch_views=report.batch_views+1
@@ -134,7 +134,15 @@ local ok,reason=pcall(function()
             local size=current[1]:getSize();assert(size.h==Device.screen:getHeight() and size.w<=Device.screen:getWidth())
             for index,book in ipairs(current:getVisibleBooks()) do
                 local expected=state.books[(page-1)*current.page_size+index]
-                for _field_index,key in ipairs({'bookId','title','author','cover','category','searchIdx'}) do assert(same(book[key],expected[key])) end
+                for _field_index,key in ipairs({'bookId','title','author','cover','category','searchIdx','reason'}) do assert(same(book[key],expected[key])) end
+                local cell=assert(current._item_rows[index]);local lines=assert(cell._store_details)
+                if book.author~='' then assert(lines[1].text:find(book.author,1,true),'author omitted from store card') end
+                if book.reason then assert(lines[2] and lines[2].text==book.reason,'reason omitted from store card') end
+                local info=book._public_info
+                if info and type(info.newRating)=='number' and info.newRating>0
+                    and type(info.newRatingCount)=='number' and info.newRatingCount>0 then
+                    assert(lines[1].text:find(string.format('%.1f',info.newRating/100),1,true),'rating omitted from store card')
+                end
                 if not reverse then checked=checked+1 end
             end
             UI:forceRePaint();report.painted_views=report.painted_views+1;assert(report.painted_views<=256)

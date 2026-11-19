@@ -53,6 +53,14 @@ class CategoryBooksTests(unittest.TestCase):
         self.assertEqual((len(value['books']),value['next_cursor'],value['has_more']),(1,21,True))
         self.assertNotIn('private_extra',json.dumps(value));self.assertNotIn('session_id',value)
 
+    def test_recommendation_reason_projection(self):
+        value=probe.page(dict(books=[dict(bookId='1',reason=' 推荐\n理由 '),
+                                     dict(bookId='2',reason='书'*101),
+                                     dict(bookId='3',reason='\ud800')]))
+        self.assertEqual(value['books'][0]['reason'],'推荐 理由')
+        self.assertEqual(value['books'][1]['reason'],'书'*100+'…')
+        self.assertNotIn('reason',value['books'][2])
+
     def test_invalid_shapes_and_errors(self):
         for value in (None,[],{},dict(books={}),dict(books=[False]),dict(books=[],errCode=-1),dict(books=[],succ=False),dict(books=[{}]*101)):
             with self.subTest(value=value),self.assertRaises(ValueError):probe.page(value)

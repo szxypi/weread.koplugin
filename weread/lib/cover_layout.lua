@@ -65,8 +65,12 @@ function CoverLayout.card(options)
     local requested_shadow = math.max(1, math.floor(3 * size_scale))
     local title_gap = math.max(1, math.floor(4 * size_scale))
     local title_height = math.max(1, math.floor(42 * size_scale))
+    local detail_lines=math.max(0,math.min(2,math.floor(nonnegative(options.detail_lines,0))))
+    local detail_line_height=math.max(1,math.ceil(24*size_scale))
+    local detail_gap=detail_lines>0 and math.max(1,math.floor(2*size_scale)) or 0
+    local detail_height=detail_lines*detail_line_height+detail_gap
     local max_cover_width = math.max(1, width - 2 * gutter)
-    local max_cover_height = math.max(1, height - 2 * gutter - title_gap - title_height)
+    local max_cover_height = math.max(1, height - 2 * gutter - title_gap - title_height - detail_height)
     local shadow = math.min(requested_shadow,
         math.max(0, math.min(max_cover_width - 1, max_cover_height - 1)))
     local max_card_width = math.max(1, max_cover_width - shadow)
@@ -88,6 +92,8 @@ function CoverLayout.card(options)
         shadow = shadow,
         title_gap = title_gap,
         title_height = title_height,
+        detail_line_height = detail_line_height,
+        detail_gap = detail_gap,
         cover_width = card_width + shadow,
         cover_height = card_height + shadow,
         card_width = card_width,

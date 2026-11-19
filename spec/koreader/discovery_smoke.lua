@@ -58,6 +58,16 @@ local function paint(name)
             assert(title.dimen.x>=cell.dimen.x and title.dimen.x+title:getSize().w<=cell.dimen.x+cell.dimen.w,
                 'cover title escaped its column')
             if #title.vertical_string_list>2 then assert(title.line_with_ellipsis==2,'long title lost its second-line ellipsis') end
+            if cell._store_details then for index,line in ipairs(cell._store_details) do
+                local frame=cell._store_detail_frames[index]
+                assert(frame.dimen.x>=cell.dimen.x and frame.dimen.x+frame.dimen.w<=cell.dimen.x+cell.dimen.w
+                    and frame.dimen.y>=title.dimen.y+title:getSize().h
+                    and frame.dimen.y+frame.dimen.h<=cell.dimen.y+cell.dimen.h
+                    and line:getSize().w<=frame.dimen.w and line:getSize().h<=frame.dimen.h,
+                    ('store metadata geometry cell=%s,%s,%s,%s title=%s,%s frame=%s,%s,%s,%s line=%s,%s'):format(
+                        cell.dimen.x,cell.dimen.y,cell.dimen.w,cell.dimen.h,title.dimen.y,title:getSize().h,
+                        frame.dimen.x,frame.dimen.y,frame.dimen.w,frame.dimen.h,line:getSize().w,line:getSize().h))
+            end end
         end
         local cell=plugin.shelf_view._item_rows[1]
         if cell then
@@ -156,6 +166,12 @@ assert(plugin.discovery_state and plugin.discovery_state.kind=='category'
     and #plugin.discovery_state.books==20 and not plugin.discovery_state.account,
     'initial native store did not display the guest public chart')
 paint('store-initial-public-chart')
+local store_cell=assert(plugin.shelf_view._item_rows[1])
+assert(store_cell._store_details and store_cell._store_details[1].text:find('8.6',1,true)
+    and store_cell._store_details[1].text:find('测试作者',1,true)
+    and not store_cell._store_details[1]:isTruncated()
+    and store_cell._store_details[2].text=='合成推荐理由',
+    'store cover omitted public rating, author or recommendation reason')
 local original_read=plugin.startBookReading
 local opened
 plugin.startBookReading=function(_self,book) opened=book end
@@ -170,6 +186,10 @@ plugin.isNetworkConnected=function() return false end
 plugin:openBookstore();flush_tasks()
 assert(plugin.discovery_state and plugin.discovery_state.cached and plugin.discovery_state.category_id=='rising'
     and plugin.discovery_state.cursor==20,'offline store did not restore the initial chart')
+UIManager:forceRePaint()
+store_cell=assert(plugin.shelf_view._item_rows[1])
+assert(store_cell._store_details[1].text:find('8.6',1,true)
+    and store_cell._store_details[2].text=='合成推荐理由','offline store lost its cover details')
 plugin:closeWeReadUI();plugin.discovery_state=nil
 plugin.settings:set('account',initial_account);plugin.settings:flush()
 plugin.requireLogin=require_login
@@ -559,6 +579,7 @@ paint("shelf-list")
 plugin:closeWeReadUI()
 plugin:showBookstore()
 paint("store-empty")
+books[1].reason=string.rep('推荐理由',30)
 plugin.discovery_state = {
     account = plugin.library_db:accountKey(), books = books, loaded_at = os.time(),
     kind = "recommend", cursor = 0, next_cursor = 26, has_more = true, history = { 0 },

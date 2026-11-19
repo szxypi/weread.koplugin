@@ -2,6 +2,7 @@
 -- Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only; see NOTICE.
 local M = { PAGE_SIZE = 20, CACHE_TTL = 15 * 60 }
 local Access = require('weread.lib.read_access')
+local Protocol = require('weread.lib.protocol')
 local ShelfTime = require('weread.lib.shelf_time')
 
 local function number(value)
@@ -11,6 +12,14 @@ end
 
 local function text(value)
     return (type(value) == "string" or type(value) == "number") and tostring(value) or ""
+end
+
+local function reason(value)
+    if type(value)~='string' or #value>8192 then return nil end
+    value=value:gsub('[%c]+',' '):match('^%s*(.-)%s*$')
+    if value=='' or Protocol.utf8_substr(value,#value+1)~=value then return nil end
+    local result=Protocol.utf8_substr(value,100)
+    return result~=value and result..'…' or result
 end
 
 local function recent_event(book)
@@ -31,6 +40,7 @@ function M.book(row)
     return {
         bookId = id, title = text(b.title), author = text(b.author),
         cover = text(b.cover), category = text(b.category),
+        reason = reason(row.reason or b.reason),
         searchIdx = number(row.searchIdx or row.idx or b.searchIdx or b.idx),
     }
 end

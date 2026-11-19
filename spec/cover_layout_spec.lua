@@ -82,6 +82,11 @@ expect(card.card_width == 162 and card.card_height == 239,
     "cover shadow should remain inside its shelf slot")
 expect(card.radius == 5,
     "cover frame should use a stable e-ink-friendly corner radius")
+local store=CoverLayout.card{width=200,height=300,size_scale=1,detail_lines=2}
+expect(store.title_height==card.title_height and store.card_height<card.card_height,
+    'store metadata displaced the two-line title or overlapped the cover')
+expect(store.cover_height+store.title_gap+store.title_height+store.detail_gap+2*store.detail_line_height<=300,
+    'store metadata exceeded the cover slot')
 
 local portrait_crop = CoverLayout.centerCrop(300, 600, 180, 260)
 expect(portrait_crop.width == 180 and portrait_crop.height == 360

@@ -36,8 +36,12 @@ function M:showDiscoveryPage(tab, books, options)
     if previous and previous._finish_dirty and previous._finish_current and previous._finish_current()
         and not require('weread.ui.finish_offline').reconcile_view(self,previous) then carry_dirty=previous._finish_dirty end
     local home = options.home
+    local show_reason=false
+    if tab=='store' then for _,book in ipairs(books) do
+        if type(book.reason)=='string' and book.reason~='' then show_reason=true;break end
+    end end
     local cover_mode = not home or home.view_mode ~= "list"
-    local layout = LibraryView.getLayout(cover_mode, #books, "books", 108, { home = home })
+    local layout = LibraryView.getLayout(cover_mode, #books, "books", 108, { home = home, store = tab=='store' })
     local page = math.max(1, math.min(options.page or 1, math.max(1, math.ceil(#books / layout.page_size))))
     local cover_paths, visible = {}, {}
     local cache = self:getShelfCoverCache()
@@ -65,6 +69,7 @@ function M:showDiscoveryPage(tab, books, options)
         mode = "books", portal = true, title = options.title,
         empty_text = options.empty_text, actions = Scope.entries(current, options.actions),
         home_layout = home,
+        store_details = tab=='store', store_reason = show_reason,
         status_text = home and self:homeStatusText(),
         summary_text = home and self:homeReadingSummary(),
         navigation = self:discoveryNavigation(tab, current), books = books,

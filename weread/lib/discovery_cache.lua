@@ -42,6 +42,10 @@ local function books(value)
         for key,limit in pairs({title=4096,author=4096,cover=8192,category=4096}) do
             if not text(book[key],limit,true) then fail() end;row[key]=book[key]
         end
+        if book.reason~=nil then
+            if not text(book.reason,512) or Protocol.utf8_substr(book.reason,#book.reason+1)~=book.reason then fail() end
+            row.reason=book.reason
+        end
         if book._public_info~=nil then row._public_info=require('weread.lib.public_book_info').project(book._public_info) end
         if book.searchIdx~=nil then if not integer(book.searchIdx) then fail() end;row.searchIdx=book.searchIdx end
         out[#out+1]=row

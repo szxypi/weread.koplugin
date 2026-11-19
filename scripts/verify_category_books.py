@@ -51,6 +51,14 @@ def page(data, cursor=0):
             seen.add(identity)
             value=dict(bookId=identity,title=text(book.get('title'),4096),author=text(book.get('author'),4096),
                        cover=text(book.get('cover'),8192),category=text(book.get('category'),4096))
+            raw_reason=row.get('reason')
+            if raw_reason is None or raw_reason is False:raw_reason=book.get('reason')
+            if type(raw_reason) is str:
+                try:
+                    if len(raw_reason.encode('utf-8'))<=8192:
+                        cleaned=re.sub(r'[\x00-\x1f\x7f]+',' ',raw_reason).strip(' \t\n\r\v\f')
+                        if cleaned:value['reason']=cleaned[:100]+('…' if len(cleaned)>100 else '')
+                except UnicodeEncodeError:pass
             if idx is not None:value['searchIdx']=idx
             books.append(value)
     more=data.get('hasMore',len(data['books'])>=20)
@@ -134,7 +142,8 @@ def main(argv=None):
         if args.online:
             probe=Probe();payload=probe.prepare()
             report.update(result='PUBLIC_CATEGORY_BOOKS_PROTOCOL_VERIFIED',python_gets=probe.calls,
-                          list_roles=['rank','main','child'],batch_sizes=[len(row['expected']['books']) for row in payload['samples']])
+                          list_roles=['rank','main','child'],batch_sizes=[len(row['expected']['books']) for row in payload['samples']],
+                          books_with_recommendation_reason=sum('reason' in book for row in payload['samples'] for book in row['expected']['books']))
             if args.lua_command:
                 from public_category_ui_contract import compare_runner,decode_runner
                 raw=json.dumps(payload,ensure_ascii=False).encode()
