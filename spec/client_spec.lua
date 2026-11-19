@@ -749,6 +749,13 @@ responses[#responses+1]={code=429,body='private-rate-limit-body'}
 ok,err=pcall(client.get_text,client,'https://weread.qq.com/web/reader/synthetic',
     {sensitive=true,diagnostic_api='reader_context'})
 expect(not ok and err=='sensitive_http_unavailable','rate-limit signaling escaped its explicit scope')
+for _,signal in ipairs({true,false}) do
+    responses[#responses+1]={code=429,body='private-rate-limit-body'}
+    ok,err=pcall(client.post_json,client,'https://weread.qq.com/web/book/chapterInfos',{},
+        {sensitive=true,diagnostic_api='chapter_catalog',rate_limit_signal=signal})
+    expect(not ok and err==(signal and 'download_read/rate_limited' or 'sensitive_http_unavailable'),
+        'catalog rate-limit signal did not respect its explicit scope')
+end
 expect(not table.concat(logs,'\n'):find('private-',1,true),'rate-limit diagnostics exposed private body')
 
 logs={}

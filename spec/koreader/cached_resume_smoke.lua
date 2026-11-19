@@ -321,9 +321,19 @@ if os.getenv('WEREAD_TEST_RESUME_HANDOFF')=='1' then
     handoff_position=assert(book(assert(FM.instance.weread)).last_local_position.source_position)
     assert(handoff_position.chapter_uid=='2' and handoff_position.chapter_offset==point.co)
 end
+if os.getenv('WEREAD_TEST_CATALOG_AUTH_RECOVERY') and os.getenv('WEREAD_TEST_CATALOG_AUTH_RECOVERY')~='refresh' then
+    host=assert(FM.instance.weread)
+    patch(host,{chapters=false})
+    local saved_book=book(host)
+    assert(host.library_db:putBook(saved_book) and host.library_db:putChapters(id,{}))
+    os.remove(assert(require('weread.lib.content').catalog_cache_path(host.settings,saved_book)))
+end
 host,view=detail()
 local rate_check
-if os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_RENEWAL') then
+if os.getenv('WEREAD_TEST_CATALOG_AUTH_RECOVERY') then
+    local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+    rate_check=dofile(fixtures..'catalog_auth_recovery_case.lua')(host,view,book,pump,tick,press)
+elseif os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_RENEWAL') then
     local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
     rate_check=dofile(fixtures..'download_auth_recovery_case.lua')(host,view,book,pump,tick,press)
 elseif os.getenv('WEREAD_TEST_DOWNLOAD_RATE_LIMIT')=='1' or os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_EXPIRY')=='1' then
@@ -332,7 +342,8 @@ elseif os.getenv('WEREAD_TEST_DOWNLOAD_RATE_LIMIT')=='1' or os.getenv('WEREAD_TE
 else press(view,'⇩ Download full book') end
 pump(function() return book(host).cached_full_book~=nil and not host.downloader._active_job end)
 if rate_check then
-    if os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_RENEWAL') then report.auth_renewal=rate_check()
+    if os.getenv('WEREAD_TEST_CATALOG_AUTH_RECOVERY') then report.catalog_auth=rate_check()
+    elseif os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_RENEWAL') then report.auth_renewal=rate_check()
     elseif os.getenv('WEREAD_TEST_DOWNLOAD_AUTH_EXPIRY')=='1' then report.auth_expiry=rate_check()
     else report.rate_limit=rate_check() end
 end

@@ -121,6 +121,9 @@ client.book_reading_auth_classification=true
 client.post_json=function() error('book_reading/web_expired',0) end
 ok,err=pcall(Content.fetch_catalog,client,book)
 expect(not ok and err=='book_reading/web_expired','explicit catalog 401 was hidden')
+client.post_json=function() error('download_read/rate_limited',0) end
+ok,err=pcall(Content.fetch_catalog,client,book)
+expect(not ok and err=='download_read/rate_limited','catalog rate limit was hidden')
 local expired_css={book_reading_auth_classification=true,
     request=function() error('book_reading/web_expired',0) end,json_encode=function() return '{}' end}
 ok,err=pcall(Content.fetch_chapter_css,expired_css,{}, {book_id='900001',psvts='synthetic'}, {chapterUid=2})

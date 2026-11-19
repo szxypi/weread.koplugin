@@ -168,6 +168,7 @@ function M:closeWeReadUI()
     if self.cancelMPDownloadRecovery then self:cancelMPDownloadRecovery() end
     if self.cancelMPArticleCleanup then self:cancelMPArticleCleanup() end
     if self.cancelWebRenewal then self:cancelWebRenewal() end
+    require('weread.ui.catalog_request').cancel(self)
     require('weread.ui.download_recovery').cancel(self)
     if self.cancelMPArticleCatalog then self:cancelMPArticleCatalog() end
     if self.cancelMPArticleDownload then self:cancelMPArticleDownload() end
@@ -1493,6 +1494,7 @@ function M:showBookMenu(book)
                 if self.cancelShelfState then self:cancelShelfState() end
                 self:cancelBookMetadata()
                 self:cancelBookReading()
+                require('weread.ui.catalog_request').cancel(self)
                 require('weread.ui.download_recovery').cancel(self)
                 if self.cancelDiscoveryRequest then self:cancelDiscoveryRequest() end
                 local parent = self.shelf_view
@@ -1849,39 +1851,38 @@ function M:loadChapters(book, callback, force_refresh)
     if not self:requireLogin(true, false) then
         return
     end
+    local reader_context=require('weread.lib.reader_context')
+    local valid_id,requested_id=pcall(reader_context.book_id,book)
+    if not valid_id then
+        self:showInfo(_("Could not load this book’s chapter list. Check your connection and login, then try again."))
+        return
+    end
+    local current = require('weread.ui.page_scope').capture(self,self.shelf_view)
+    local chapter_view = force_refresh and self._chapter_list_view or nil
     self:runOnlineTask(_("Loading chapter list..."), function()
-        self:showBusy(_("Loading chapter list..."))
-        local ok, chapters_or_err = pcall(function()
-            Content.ensure_reader_state(self.client, book)
-            return Content.fetch_catalog(self.client, book)
-        end)
-        self:closeBusy()
-        if not ok then
-            logger.err("load chapters failed:", log_error(chapters_or_err))
-            if chapters_or_err == "download_read/rate_limited" then
-                self:showInfo(_("WeRead is limiting requests. Download stopped. Please try again later."))
-            else
-                self:showInfo(T(_("Load chapters failed:\n%1"), display_error(chapters_or_err)))
+        local same_id,current_id=pcall(reader_context.book_id,book)
+        if not same_id or current_id~=requested_id or not current()
+            or chapter_view and (self._chapter_list_view~=chapter_view or chapter_view._catalog_closed) then return end
+        require('weread.ui.catalog_request').start(self,book,function(chapters_or_err)
+            book.chapters=chapters_or_err
+            local cache_ok, cache_err = Content.save_catalog_cache(
+                self.client, self.settings, book, chapters_or_err)
+            if not cache_ok then
+                logger.warn("save chapter catalog cache failed:", log_error(cache_err))
             end
-            return
-        end
-        local cache_ok, cache_err = Content.save_catalog_cache(
-            self.client, self.settings, book, chapters_or_err)
-        if not cache_ok then
-            logger.warn("save chapter catalog cache failed:", log_error(cache_err))
-        end
-        local books = self.settings:get("books", {})
-        local book_id = book.book_id or book.bookId
-        if book_id then
-            if self.library_db then
-                self.library_db:putChapters(book_id, chapters_or_err)
-                self.library_db:putBook(book)
+            local books = self.settings:get("books", {})
+            local book_id = book.book_id or book.bookId
+            if book_id then
+                if self.library_db then
+                    self.library_db:putChapters(book_id, chapters_or_err)
+                    self.library_db:putBook(book)
+                end
+                books[book_id] = book
+                self.settings:set("books", books)
+                self.settings:flush()
             end
-            books[book_id] = book
-            self.settings:set("books", books)
-            self.settings:flush()
-        end
-        callback(chapters_or_err)
+            callback(chapters_or_err)
+        end,{current=current,chapter_view=chapter_view})
     end)
 end
 
@@ -1953,6 +1954,7 @@ function M:showChapterList(book, on_close)
                 end)
             end,
             on_close = function()
+                require('weread.ui.catalog_request').cancel(self,view)
                 if self._chapter_list_view == view then
                     self._chapter_list_view = nil
                 end
@@ -1960,6 +1962,12 @@ function M:showChapterList(book, on_close)
             end,
         })
         self._chapter_list_view = view
+        local on_close_widget=view.onCloseWidget
+        view.onCloseWidget=function(widget,...)
+            widget._catalog_closed=true
+            require('weread.ui.catalog_request').cancel(self,widget)
+            if on_close_widget then return on_close_widget(widget,...) end
+        end
     end
     self:loadChapters(book, function(chapters)
         showCatalog(chapters)

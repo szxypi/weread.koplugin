@@ -1659,9 +1659,10 @@ function Content.fetch_catalog(client, book)
     local reader_url = verified_reader_url(book)
     local loaded, catalog = pcall(client.post_json, client, "https://weread.qq.com/web/book/chapterInfos", {
         bookIds = { tostring(book_id) },
-    }, { referer = reader_url, sensitive = true, diagnostic_api = "chapter_catalog" })
+    }, { referer = reader_url, sensitive = true, diagnostic_api = "chapter_catalog", rate_limit_signal = true })
     if not loaded then
-        if client.book_reading_auth_classification and catalog == "book_reading/web_expired" then error(catalog, 0) end
+        if catalog == "download_read/rate_limited"
+            or client.book_reading_auth_classification and catalog == "book_reading/web_expired" then error(catalog, 0) end
         error(require("weread.lib.i18n").tr("Could not load this book’s chapter list. Check your connection and login, then try again."), 0)
     end
     local chapters = Content.readable_chapters(Content.normalize_chapters(catalog, book_id))

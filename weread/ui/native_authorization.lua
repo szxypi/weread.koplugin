@@ -91,6 +91,7 @@ function Controller:_error(message)
 end
 
 function Controller:_cancel_reads()
+    require('weread.ui.catalog_request').cancel(self.host)
     require('weread.ui.download_recovery').cancel(self.host)
     for _, method in ipairs({ "cancelShelfRefresh", "cancelBookMetadata", "cancelBookReading", "cancelDiscoveryRequest", "cancelProfileRefresh", "cancelReadStatsRequest" }) do
         if self.host[method] then self.host[method](self.host) end

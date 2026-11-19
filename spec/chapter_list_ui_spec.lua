@@ -116,7 +116,12 @@ host.settings = {
     end,
 }
 local book = { bookId = "book-1", title = "Book", cached_chapters = {} }
+local cancelled_view
+package.loaded['weread.ui.catalog_request']={cancel=function(_,view) cancelled_view=view end}
 host:showChapterList(book)
+local original_view=host._chapter_list_view
+original_view:onCloseWidget()
+expect(cancelled_view==original_view,'closing chapter view immediately cancels its pending refresh')
 expect(catalog_view_data.title == "Book" and #catalog_view_data.chapters == 7,
     "chapter catalog view receives the title and all chapters")
 expect(catalog_view_data.chapters[1].status == "100 words",

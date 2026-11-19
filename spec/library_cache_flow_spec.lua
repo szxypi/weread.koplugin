@@ -144,6 +144,15 @@ expect(shown_book and shown_book.intro=='Full existing introduction' and shown_b
 db_detail=nil
 
 local callback_chapters
+package.loaded['weread.ui.catalog_request']={start=function(target,book,done)
+    local ok,value=pcall(function()
+        require('weread.lib.content').ensure_reader_state(target.client,book)
+        return require('weread.lib.content').fetch_catalog(target.client,book)
+    end)
+    if ok then done(value)
+    else target:showInfo(value=='download_read/rate_limited'
+        and 'WeRead is limiting requests. Download stopped. Please try again later.' or 'catalog failed') end
+end,cancel=function() end}
 host:loadChapters({ book_id = "42", title = "Catalog" }, function(chapters)
     callback_chapters = chapters
 end, true)
@@ -162,6 +171,15 @@ expect(rate_notice=="WeRead is limiting requests. Download stopped. Please try a
     and not unexpected_callback and written_chapters==fetched_chapters,
     "rate-limited chapter catalog exposed an internal error or changed saved chapters")
 content.ensure_reader_state,host.showInfo=previous_reader,previous_info
+
+local delayed,old_online,old_writes=nil,host.runOnlineTask,catalog_save_count
+host.runOnlineTask=function(_,_,fn) delayed=fn;return true end
+local changing_book={book_id='42'}
+unexpected_callback=false
+host:loadChapters(changing_book,function() unexpected_callback=true end,true)
+changing_book.book_id='43';assert(delayed);delayed()
+expect(not unexpected_callback and catalog_save_count==old_writes,'deferred catalog request used a replaced book')
+host.runOnlineTask=old_online
 
 db_chapters = { { chapterUid = 8, title = "Database chapter" } }
 callback_chapters = nil
