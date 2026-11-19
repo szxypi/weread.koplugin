@@ -19,7 +19,7 @@ local ok,reason=pcall(function()
     local matrix=input.matrix==true
     assert((input.styles==nil or type(input.styles)=='boolean') and (input.palette==nil or type(input.palette)=='boolean')
         and (input.matrix==nil or type(input.matrix)=='boolean') and not (styles and palette)
-        and (not matrix or synthetic and not styles and not palette))
+        and (not matrix or not styles and not palette))
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
     require('gettext').changeLang('zh_CN')
@@ -218,7 +218,7 @@ local ok,reason=pcall(function()
         result.phase='style2';item.callback();tap('change_highlight_style')
         UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_2')):onTapSelectButton()
         submit()
-        if journal:read().phase=='pending' then
+        if synthetic and journal:read().phase=='pending' then
             assert(gate:read().phase=='style2_pending' and counts[1]==2)
             item.callback();tap('change_highlight_style')
             UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_2')):onTapSelectButton()
@@ -233,7 +233,7 @@ local ok,reason=pcall(function()
         result.phase='color0';item.callback();tap('change_highlight_color')
         UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_color_0')):onTapSelectButton()
         submit()
-        if journal:read().phase=='pending' then
+        if synthetic and journal:read().phase=='pending' then
             assert(gate:read().phase=='color0_pending' and counts[1]==3)
             item.callback();tap('change_highlight_color')
             UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_color_0')):onTapSelectButton()

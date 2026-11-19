@@ -12,6 +12,7 @@ import resource
 import secrets
 import subprocess
 import tempfile
+import time
 
 from cb_fixture_highlight_trial import Intent as BaseIntent, prepare
 from highlight_trial_model import observe
@@ -24,7 +25,8 @@ from synthetic_upload_epub import TEXT
 from verify_cb_fixture_highlight_trial import ScopedNative
 from verify_cb_fixture_position_trial import owned
 from verify_cb_progress import cb_id
-from verify_cb_reading import CbReadingProbe
+from verify_cb_reading import CbReadingError, CbReadingProbe
+from verify_cb_metadata import CbMetadataError
 from verify_personal_upload_trial import Probe as UploadProbe
 from verify_synthetic_epub_upload import run as upload_run
 from verify_translation_preflight import save_refreshed_web_session
@@ -100,26 +102,39 @@ def run_ui(command,payload,plan,body,baseline,intent,authority,read,*,armed=Fals
 
 def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
         uploader=upload_run,upload_factory=UploadProbe,observer_factory=Observer,source_factory=CbReadingProbe,ui_runner=run_ui,
-        prepare_fn=prepare,native_writes=2,result_label='CB_NATIVE_HIGHLIGHT_VERIFIED',final_check=None):
+        prepare_fn=prepare,native_writes=2,result_label='CB_NATIVE_HIGHLIGHT_VERIFIED',final_check=None,source_sleep=time.sleep):
     report=dict(result='UNVERIFIED',phase='preflight',native_writes_allocated=0,authentication_posts=0,
                 fixture_only=True,existing_book_writes=0,private_values_in_report=False)
     current={'saved':saved,'sample':None,'observer':None,'ui':None}
     def same_grant(value):return native_store.load(current['saved']['vid'])==value
     def source(target):
-        web=source_factory();web.vid=current['saved']['vid'];web.allowed={target}
-        try:
-            for key,value in current['saved']['cookies'].items():web.set_cookie(key,value)
-            web.verify_account();sample=web.inspect(target);web.verify_account()
-            if (sample.get('book_id')!=target or sample.get('source_format')!='web_xhtml' or TEXT not in sample.get('source','')
-                    or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
-                    or not all(value is True for value in web.last_checks.values())):return False
-            current['sample']=sample
-            if save_refreshed_web_session(session,current['saved'],web):
-                old=current['saved'];current['saved']=session.load()
-                if old['vid']!=current['saved']['vid']:raise ValueError('cb_native_highlight/owner')
-                old.clear()
-            return True
-        finally:web.samples.clear();web.close()
+        current['sample']=None
+        for attempt in range(3):
+            web=source_factory();web.vid=current['saved']['vid'];web.allowed={target}
+            try:
+                for key,value in current['saved']['cookies'].items():web.set_cookie(key,value)
+                web.verify_account();sample=web.inspect(target);web.verify_account()
+                if (sample.get('book_id')!=target or sample.get('source_format')!='web_xhtml' or TEXT not in sample.get('source','')
+                        or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
+                        or not all(value is True for value in web.last_checks.values())):
+                    report['source_failure']='invalid_sample';return False
+                if save_refreshed_web_session(session,current['saved'],web):
+                    old=current['saved'];current['saved']=session.load()
+                    if old['vid']!=current['saved']['vid']:raise ValueError('cb_native_highlight/owner')
+                    old.clear()
+                report.pop('source_failure',None);current['sample']=sample
+                return True
+            except (CbReadingError,CbMetadataError) as error:
+                known={'cb_catalog_empty','cb_catalog_invalid','cb_catalog_identity','cb_resume_chapter_missing',
+                       'cb_reader_chapter_mismatch','cb_txt_marker_invalid','cb_source_invalid','cb_read_baseline_changed',
+                       'cb_source_anchor_unavailable','cb_content_scope','cb_read_scope','cb_read_repeated'}
+                report['source_failure']=str(error) if str(error) in known else 'other'
+                if str(error) not in ('cb_catalog_empty','cb_catalog_invalid') or attempt==2:raise
+            except Exception:
+                report['source_failure']='other';raise
+            finally:web.samples.clear();web.close()
+            source_sleep(2*(attempt+1))
+        return False
     def trial(upload,receipt,_upload_plan,target):
         owner=current['saved']['vid'];sample=current['sample']
         def authority():return bool(cb_id(target) and owned(upload,receipt,target,owner,grant,same_grant))

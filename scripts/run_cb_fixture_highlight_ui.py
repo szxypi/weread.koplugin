@@ -34,7 +34,7 @@ def run(payload, runtime, candidate, width, height, dpi):
         palette = payload.get('palette', False)
         matrix = payload.get('matrix', False)
         if (type(styles) is not bool or type(palette) is not bool or type(matrix) is not bool
-                or sum((styles, palette, matrix)) > 1 or matrix and os.environ.get('WEREAD_FIXTURE_SYNTHETIC') != '1'):
+                or sum((styles, palette, matrix)) > 1):
             raise ValueError('cb_highlight/style_scope')
         writes = 4 if styles or palette or matrix else 2
         if not isinstance(token, str) or len(token) != 32 or any(c not in '0123456789abcdef' for c in token):

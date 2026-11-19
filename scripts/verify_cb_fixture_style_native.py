@@ -41,15 +41,16 @@ class TrialFailure(ValueError):
         super().__init__('cb_native_style/runner'); self.stage = stage
 
 
-def run_ui(command, payload, plan, body, baseline, intent, authority, read, *, armed=False, palette=False):
-    if type(armed) is not bool or type(palette) is not bool or not command or any(not isinstance(v, str) or not v for v in command):
+def run_ui(command, payload, plan, body, baseline, intent, authority, read, *, armed=False, palette=False, matrix=False):
+    if (type(armed) is not bool or type(palette) is not bool or type(matrix) is not bool or palette and matrix
+            or not command or any(not isinstance(v, str) or not v for v in command)):
         raise ValueError('cb_native_style/command')
     if (digest(body) != plan['request_sha256'] or digest(baseline) != plan['baseline_sha256']
-            or type(body['style']) is not int or body['style'] != 1 or type(body['colorStyle']) is not int
-            or body['colorStyle'] != (3 if palette else 0)
+            or type(body['style']) is not int or body['style'] != (0 if matrix else 1) or type(body['colorStyle']) is not int
+            or body['colorStyle'] != (3 if palette or matrix else 0)
             or intent.read() != (None, None) or not authority() or read() != baseline):
         raise ValueError('cb_native_style/preflight')
-    value = dict(payload, styles=not palette, palette=palette, armed=armed, token=secrets.token_hex(16))
+    value = dict(payload, styles=not palette and not matrix, palette=palette, matrix=matrix, armed=armed, token=secrets.token_hex(16))
     receipt = intent.reserve(plan) if armed else None
     child = None; steps = 0; target = row = None
     try:
@@ -72,10 +73,12 @@ def run_ui(command, payload, plan, body, baseline, intent, authority, read, *, a
             if seq == 1:
                 target = observe(baseline, current, body); row = current['marks']['updated'][target['id']]
             elif seq in (2, 3):
-                target, row = (observe_color(baseline, current, body, target, row, {2: 0, 3: 3}[seq]) if palette
+                target, row = (observe_color(baseline, current, dict(body, style=2), target, row, 0) if matrix and seq == 3
+                               else observe_change(baseline, current, body, target, row, 2) if matrix
+                               else observe_color(baseline, current, body, target, row, {2: 0, 3: 3}[seq]) if palette
                                else observe_change(baseline, current, body, target, row, {2: 0, 3: 2}[seq]))
             else:
-                observe(baseline, current, dict(body, style=1 if palette else 2), deleted=True, target=target)
+                observe(baseline, current, dict(body, style=1 if palette else 2, colorStyle=0 if matrix else body['colorStyle']), deleted=True, target=target)
             if event['created_id'] != target['id'] or not authority(): raise ValueError('cb_native_style/target')
             if seq < 4:
                 receipt = intent.advance(receipt, {1: 'created', 2: 'straight', 3: 'wave'}[seq], target=target)
@@ -97,7 +100,7 @@ def run_ui(command, payload, plan, body, baseline, intent, authority, read, *, a
             raise TrialFailure(stage)
         if status or steps != (4 if armed else 1) or not authority(): raise ValueError('cb_native_style/result')
         if armed:
-            observe(baseline, read(), dict(body, style=1 if palette else 2), deleted=True, target=target)
+            observe(baseline, read(), dict(body, style=1 if palette else 2, colorStyle=0 if matrix else body['colorStyle']), deleted=True, target=target)
             if not authority(): raise ValueError('cb_native_style/ownership')
             receipt = intent.advance(receipt, 'verified'); intent.finish(receipt)
             if intent.read() != (None, None): raise ValueError('cb_native_style/intent')

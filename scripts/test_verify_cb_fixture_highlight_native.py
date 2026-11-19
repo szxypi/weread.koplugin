@@ -5,12 +5,12 @@ import io
 import json
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 
 from cb_fixture_highlight_trial import Intent
 from test_cb_fixture_highlight_trial import fixture
 from test_secure_native_session import Backend
-from verify_cb_fixture_highlight_native import Observer, main, run_ui
+from verify_cb_fixture_highlight_native import Observer, main, run, run_ui
 
 
 class FakeFrames:
@@ -65,6 +65,59 @@ class TestNativeFixture(unittest.TestCase):
         intent,state=self.run_case(True,invalid=True)
         self.assertEqual(intent.read()[0]['phase'],'create_pending')
         self.assertIn('synthetic-new',state['marks']['updated'])
+
+    def source_case(self,errors=(),save_failure=False):
+        from test_verify_cb_fixture_highlight_trial import FakeUpload
+        from verify_cb_reading import CbReadingError
+        sample,baseline,_,_=fixture();sample['baseline']={'chapter':'0','offset':0,'percent':0}
+        sample['chapters']=[{'chapterUid':2,'chapterIdx':2}]
+        grant={'vid':'900000','accessToken':'synthetic'};saved={'vid':'900000','cookies':{'wr_vid':'900000'}}
+        upload=FakeUpload(sample['book_id'],saved['vid'],object());intent=Intent(Backend());errors=list(errors);attempts=[];sleeps=[]
+        class NativeStore:
+            def load(self,_owner):return grant
+        class Source:
+            def __init__(self):self.samples=[];self.last_checks=dict(catalog_unchanged=True,versions_unchanged=True,position_unchanged=True)
+            def set_cookie(self,*_args):pass
+            def verify_account(self):pass
+            def close(self):pass
+            def inspect(self,book):
+                assert book==sample['book_id'];attempts.append(1)
+                if errors:raise CbReadingError(errors.pop(0))
+                return deepcopy(sample)
+        class Native:
+            def __init__(self,_book,_grant,authority,_intent):self.authority=authority
+            def observe(self,_grant):assert self.authority();return deepcopy(baseline)
+            def version(self,_grant):return 1
+        def uploader(_probe,_journal,_grant,_check,source,*,apply,cleanup_gate):
+            assert apply;upload.imported=True
+            try:verified=source(sample['book_id']) is True
+            except Exception:verified=False
+            upload.cleaned=cleanup_gate(upload,upload.receipt,upload.state['plan'],sample['book_id'])
+            if upload.cleaned:upload.imported=False
+            return {'result':('EPUB_IMPORT_AND_SOURCE_VERIFIED' if verified else 'EPUB_IMPORTED_SOURCE_UNVERIFIED') if upload.cleaned else 'UNVERIFIED',
+                    'phase':'restored' if upload.cleaned else 'imported'}
+        ui=Mock(side_effect=lambda *_args,armed,**_kwargs:{'result':'PASS' if armed else 'DRY_RUN'})
+        with patch('verify_cb_fixture_highlight_native.save_refreshed_web_session',side_effect=RuntimeError('synthetic') if save_failure else None,return_value=False):
+            report=run(saved,None,NativeStore(),grant,upload,intent,['synthetic'],apply=True,uploader=uploader,
+                       upload_factory=lambda *_:None,observer_factory=Native,source_factory=Source,ui_runner=ui,source_sleep=sleeps.append)
+        return report,upload,intent,ui,attempts,sleeps
+
+    def test_source_session_failure_never_launches_native_writes(self):
+        report,upload,intent,ui,attempts,sleeps=self.source_case(save_failure=True)
+        self.assertEqual(report['result'],'UNVERIFIED');self.assertEqual(report['source_failure'],'other')
+        self.assertEqual(report['native_writes_allocated'],0);self.assertTrue(upload.cleaned);ui.assert_not_called()
+        self.assertEqual(intent.read(),(None,None));self.assertEqual(len(attempts),1);self.assertEqual(sleeps,[])
+
+    def test_only_empty_catalog_retries_before_native_work(self):
+        report,upload,intent,ui,attempts,sleeps=self.source_case(errors=['cb_catalog_empty','cb_catalog_empty'])
+        self.assertEqual(report['result'],'CB_NATIVE_HIGHLIGHT_VERIFIED');self.assertTrue(upload.cleaned)
+        self.assertEqual(len(attempts),4);self.assertEqual(sleeps,[2,4]);self.assertEqual(ui.call_count,2)
+        self.assertNotIn('source_failure',report);self.assertEqual(intent.read(),(None,None))
+
+    def test_changed_source_does_not_retry(self):
+        report,upload,intent,ui,attempts,sleeps=self.source_case(errors=['cb_read_baseline_changed'])
+        self.assertEqual(report['source_failure'],'cb_read_baseline_changed');self.assertEqual(len(attempts),1)
+        self.assertEqual(sleeps,[]);self.assertTrue(upload.cleaned);ui.assert_not_called();self.assertEqual(intent.read(),(None,None))
 
 
 if __name__=='__main__':unittest.main()

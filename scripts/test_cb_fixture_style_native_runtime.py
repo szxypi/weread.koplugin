@@ -111,7 +111,7 @@ def main():
     parser.add_argument('--palette', action='store_true')
     parser.add_argument('--matrix', action='store_true')
     args = parser.parse_args(); root = args.run_dir.resolve(); root.mkdir(parents=True, exist_ok=False)
-    if args.matrix and (args.palette or args.production or args.case not in ('normal','no-0','no-2')):raise ValueError('synthetic scope')
+    if args.matrix and (args.palette or args.case not in ('normal','no-0','no-2','orchestrated')):raise ValueError('synthetic scope')
     if args.palette and args.case == 'no-2' or not args.palette and args.case == 'no-3':
         raise ValueError('synthetic scope')
     candidate = root / 'candidate.zip'; subprocess.run(['bash', 'scripts/package_release.sh', str(candidate)], check=True, capture_output=True)
@@ -134,7 +134,9 @@ def main():
                    '--width', str(args.width), '--height', str(args.height), '--dpi', str(args.dpi)]
         if args.case == 'orchestrated':
             from unittest.mock import patch
-            if args.palette:
+            if args.matrix:
+                from verify_cb_fixture_matrix_native import run
+            elif args.palette:
                 from verify_cb_fixture_color_native import run
             else:
                 from verify_cb_fixture_style_native import run
@@ -163,7 +165,7 @@ def main():
                 result=run(dict(vid='900000',cookies={'wr_vid':'900000','wr_skey':'mock_key'}),None,NativeStore(),grant,journal,intent,
                            command,apply=True,uploader=uploader,upload_factory=lambda *_:None,source_factory=Source,
                            observer_factory=lambda book,creds,authority,store:Observer(book,creds,authority,store,opener=Opener(server)))
-            assert result['result']==('CB_NATIVE_COLOR_VERIFIED' if args.palette else 'CB_NATIVE_STYLE_VERIFIED') and result['native_writes']==4 and not journal.imported
+            assert result['result']==('CB_NATIVE_MATRIX_VERIFIED' if args.matrix else 'CB_NATIVE_COLOR_VERIFIED' if args.palette else 'CB_NATIVE_STYLE_VERIFIED') and result['native_writes']==4 and not journal.imported
             assert server.highlight_posts==4 and intent.read()==(None,None)
             print(json.dumps(dict(result='PASS',case=args.case,width=args.width,height=args.height,mock_writes=4,no_replay=True)))
             return
@@ -171,7 +173,7 @@ def main():
         def invoke(armed):
             if args.production:
                 from verify_cb_fixture_style_native import run_ui as production_run
-                return production_run(command, payload, plan, body, baseline, intent, lambda: True, read, armed=armed, palette=args.palette)
+                return production_run(command, payload, plan, body, baseline, intent, lambda: True, read, armed=armed, palette=args.palette, matrix=args.matrix)
             return run_ui(command, payload, plan, body, baseline, intent, read, armed=armed, palette=args.palette, matrix=args.matrix)
         dry = invoke(False)
         assert dry['result'] == 'DRY_RUN' and server.highlight_posts == 0
