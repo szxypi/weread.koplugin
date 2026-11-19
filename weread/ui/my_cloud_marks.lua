@@ -17,6 +17,7 @@ local function current(host,owner)
         and host.settings:auth_scope_matches(owner.scope)
 end
 local function stop(host,owner)
+    require('weread.ui.cloud_notes_export').cancel(host,owner)
     require('weread.ui.my_mark_navigation').cancel(host,owner)
     require('weread.ui.thought_editor').cancel(host,owner)
     require('weread.ui.mark_editor').cancel(host,owner)
@@ -102,6 +103,9 @@ render=function(host,owner)
             mandatory=owner.search and search_summary(owner.search) or '',callback=function()
                 if current(host,owner) then search_dialog(host,owner) end
             end} end
+        if owner.value then items[#items+1]={text=_('Export saved cloud notes'),callback=function()
+            if current(host,owner) then require('weread.ui.cloud_notes_export').show(host,owner,current) end
+        end} end
         if owner.mark_writable and not owner.bookmarks then items[#items+1]={text=_('Local thought drafts'),callback=function()
             if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
         end}

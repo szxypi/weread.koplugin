@@ -1,0 +1,33 @@
+{
+  "synthetic_native_reader": {
+    "screens": ["600x800", "1264x1680"],
+    "entry_points": ["cloud_marks", "cloud_thoughts"],
+    "book_types": ["ordinary", "imported"],
+    "formats": ["markdown", "json"],
+    "filtered_view_exported_all_saved_items": true,
+    "both_cached_categories_included": true,
+    "new_process_offline_export": true,
+    "network_requests_during_export": 0,
+    "profile_removed": true
+  },
+  "component_checks": {
+    "missing_snapshot_disclosed": true,
+    "identifiers_and_coordinates_excluded": true,
+    "markdown_escaped": true,
+    "cancellation_and_write_failure_remove_partial": true,
+    "account_and_stale_callback_guarded": true
+  },
+  "real_account_in_memory_comparison": {
+    "books": 1,
+    "marks_and_bookmarks": 52,
+    "thoughts": 3,
+    "json_fields_exact": true,
+    "markdown_quotes_exact": true,
+    "snapshots_and_shelf_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "private_notes_saved": false
+  },
+  "real_personal_notes_export_file_created": false,
+  "physical_kindle_tested": false
+}

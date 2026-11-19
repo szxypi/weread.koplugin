@@ -1,6 +1,20 @@
 local I18n = {}
 
 local zh = {
+    ["Export saved cloud notes"] = "导出已保存的云端笔记",
+    ["WeRead notes"] = "微信读书笔记",
+    ["Cloud marks"] = "云端划线与书签",
+    ["Not saved on this device"] = "此设备没有可用的已保存数据",
+    ["Not saved or unavailable"] = "未保存或不可读取",
+    ["Saved at"] = "保存时间",
+    ["Public"] = "公开",
+    ["Visibility unknown"] = "可见性未知",
+    ["Could not prepare cloud notes export."] = "无法准备云端笔记导出。",
+    ["Exporting saved cloud notes…\nTap or press a key to cancel."] = "正在导出已保存的云端笔记……\n点击或按键取消。",
+    ["Could not export cloud notes. Check storage and try again."] = "无法导出云端笔记，请检查存储空间后重试。",
+    ["Exported %1 saved cloud notes to:\n%2"] = "已将 %1 条已保存的云端笔记导出到：\n%2",
+    ["No saved cloud notes to export. Refresh the lists while online."] = "没有可导出的已保存云端笔记，请联网刷新列表。",
+    ["Export all saved cloud marks and thoughts, regardless of the current filter.\nMarks: %1\nThoughts: %2\n\nOnly data saved on this device is included."] = "导出全部已保存的云端划线、书签和想法，不受当前筛选影响。\n划线与书签：%1\n想法：%2\n\n仅包含此设备已保存的数据。",
     ["Save this page locally for this account"] = "为当前账号保存本机位置",
     ["Local reading position saved for this account."] = "已为当前账号保存本机位置。",
     ["Could not save this reading position."] = "无法保存当前阅读位置。",

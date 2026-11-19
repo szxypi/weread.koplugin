@@ -232,6 +232,40 @@ local ok,reason=pcall(function()
         search('　STRASSE　')
         local results={};for _,row in ipairs(menu.item_table) do if row.my_note_id then results[#results+1]=row end end
         assert(#results==1 and results[1].my_note_id==(thoughts and 'synthetic-thought-3' or 'synthetic-mark-3'))
+        -- The filtered view exports both complete saved snapshots, never just
+        -- the single visible match. All content here is synthetic and local.
+        local Store=require('weread.lib.my_cloud_marks_store')
+        local arr=function() return plugin.client:json_decode('[]') end
+        local other
+        if thoughts then
+            other={schema=1,book_id=input.book_id,fetched_at=input.now,updated=arr(),chapters=arr()}
+            other.updated[1]={bookmarkId='synthetic-other-mark',type=1,chapterUid=7,markText='Synthetic other mark'}
+            assert(Store:new(plugin.library_db,plugin.client):write(other))
+        else
+            other={schema=1,book_id=input.book_id,fetched_at=input.now,reviews=arr()}
+            other.reviews[1]={reviewId='synthetic-other-thought',content='Synthetic other thought',isPrivate=1}
+            assert(Store:new(plugin.library_db,plugin.client,'thoughts'):write(other))
+        end
+        local before_export=counters[0]
+        for _,format in ipairs({'markdown','json'}) do
+            menu:onMenuSelect(item('Export saved cloud notes'));local picker=assert(menu._shelf_popup)
+            if format=='markdown' then picker.other_buttons[1][1].callback() else picker.ok_callback() end
+            local job=assert(owner.export_job);local path=job.output.path
+            assert(owner.export_worker.job and owner.export_worker.job.pid~=parent,'export did not run in a worker')
+            wait(function() return not owner.export_job end)
+            local exported=assert(io.open(path,'rb'));local bytes=exported:read('*a');exported:close()
+            if format=='json' then
+                local value=plugin.client:json_decode(bytes)
+                assert(value.source=='WeRead' and value.snapshots.marks.available and value.snapshots.thoughts.available)
+                assert(#value.marks==(thoughts and 1 or 45) and #value.thoughts==(thoughts and 45 or 1))
+                assert(not value.marks[1].bookmarkId and not value.thoughts[1].reviewId,'private note IDs were exported')
+            else
+                assert(bytes:find(thoughts and 'Synthetic other mark' or 'Synthetic other thought',1,true))
+                assert(not bytes:find('synthetic%-other%-mark') and not bytes:find('synthetic%-other%-thought'))
+            end
+            assert(counters[0]==before_export and owner.search,'export changed filter or accessed network')
+            local info=UI:getTopmostVisibleWidget();if info and info~=menu then UI:close(info) end
+        end
         local search_db=assert(plugin.library_db:open())
         local saved_payload=search_db:rowexec('SELECT payload FROM '..(thoughts and 'my_cloud_thoughts' or 'my_cloud_marks'))
         search_db:close();assert(type(saved_payload)=='string' and not saved_payload:find('STRASSE',1,true))
