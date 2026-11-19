@@ -18,6 +18,9 @@ local ok,reason=pcall(function()
     token=assert(input.rpc_token);assert(type(token)=='string' and #token==32 and token:match('^[a-f0-9]+$'))
     local armed=input.permit_writes;assert(type(armed)=='boolean' and armed==(os.getenv('WEREAD_FINISH_TRIAL_ARMED')=='1'))
     report.permit_writes=armed
+    local offline=input.offline_queue==true
+    assert(offline==(os.getenv('WEREAD_FINISH_TRIAL_OFFLINE')=='1'))
+    if offline then report.offline_queue=false end
     local grant=input.credentials;local id=input.book_id
     assert(type(id)=='string' and #id<=20 and id:match('^[1-9]%d*$') and type(grant.vid)=='string' and grant.vid:match('^[1-9]%d*$'))
     assert(input.expected_metadata.bookId==id and input.shelf_books>=1 and input.shelf_books<=5000)
@@ -72,12 +75,20 @@ local ok,reason=pcall(function()
         if kind=='post' then
             local record=assert(plugin._finish_change_service.journal:read())
             assert(record.phase=='pending' and C.same(record.metadata,counters[1]==0 and input.mark or input.restore))
+            if offline then
+                local queued=assert(require('weread.lib.finish_queue_store'):new(plugin.library_db):get(id))
+                assert(queued.phase=='dispatching' and queued.desired==(counters[1]==0))
+                counters[5]=counters[5]+1
+            end
             counters[4]=counters[4]+1;counters[1]=counters[1]+1
         else counters[0]=counters[0]+1 end
         return request(self,options)
     end
     plugin=dofile(source..'/main.lua'):new{ui={menu={registerToMainMenu=function() end}}}
     plugin.isNetworkConnected=function() return true end;plugin.isNetworkOnline=function() return true end
+    if offline then
+        assert(plugin.library_db:cacheShelf({{bookId=id,title=input.expected_metadata.title,finishReading=0}},{}))
+    end
     plugin.fetchVisibleShelfCovers=function() end;plugin.prepareShelfProgress=function() return nil end;plugin.refreshVisibleShelfProgress=function() end
     local tr=require('weread.lib.plugin_util').tr;local Crypto=require('weread.lib.crypto');local socket=require('socket')
     local function wait(predicate)
@@ -95,7 +106,9 @@ local ok,reason=pcall(function()
         pending_upload_position={book_id=id,chapter_uid=1,chapter_offset=7,percent=12}}});plugin.settings:flush()
     report.phase='detail';plugin:showBookRecord(input.expected_metadata);wait(function() return not plugin.book_metadata_context end)
     local detail=assert(plugin._book_detail_view);assert(detail.data.title==input.expected_metadata.title);report.native_detail=true
-    local state_path=assert(plugin.settings:get_book(id)).cache_dir..'/reading_state.json';local original=Crypto.sha256_hex(file(state_path))
+    local state_path=assert(plugin.settings:get_book(id)).cache_dir..'/.weread-accounts/'
+        ..plugin.settings:account_state_scope()..'/reading_state.json'
+    local original=Crypto.sha256_hex(file(state_path))
     for _i,buttons in ipairs({detail._action_buttons or {},detail._footer_actions or {}}) do
         for _j,button in ipairs(buttons) do if button.text==tr('Shelf status') then button.callback() end end
     end
@@ -121,19 +134,70 @@ local ok,reason=pcall(function()
         assert(type(reply)=='table' and reply.seq==sequence and reply.ok==true)
         for key in pairs(reply) do assert(key=='seq' or key=='ok') end
     end
-    report.phase='preview';local dialog=preview(input.mark);report.first_preview=true;report.native_confirmations=true
-    dialog.cancel_callback();dialog.ok_callback();assert(not plugin._finish_change_ui and counters[1]==0)
-    report.cancel_no_post=true
-    dialog=preview(input.mark)
-    if armed then
-        report.phase='mark';submit(dialog)
-        assert(counters[1]==1 and plugin._finish_change_service.journal:read().phase=='idle')
-        assert(require('weread.lib.shelf_flags').project(plugin.library_db:getShelfStatus(id).book).finished.value==true);host_step(1);counters[3]=1
-        report.phase='restore';dialog=preview(input.restore);report.second_preview=true;submit(dialog)
-        assert(counters[1]==2 and plugin._finish_change_service.journal:read().phase=='idle')
-        assert(require('weread.lib.shelf_flags').project(plugin.library_db:getShelfStatus(id).book).finished.value==false);host_step(2)
-        report.journal_before_posts=counters[4]==2;report.cache_verified=true
-    else dialog.cancel_callback();assert(counters[1]==0) end
+    if offline then
+        local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
+        local service=require('weread.ui.finish_change').service(plugin);local commit=service.commit
+        function service:commit(plan,callback)
+            local expected=counters[1]==0 and input.mark or input.restore
+            assert(C.same(plan.metadata,expected))
+            if counters[1]==0 then report.first_preview=true else report.second_preview=true end
+            if not armed then return false end
+            return commit(self,plan,callback)
+        end
+        local function queue_action(cancel)
+            plugin.isNetworkConnected=function() return false end
+            local menu=assert(plugin._shelf_state_menu);local invoked=false
+            for _i,item in ipairs(menu.item_table) do if item.text==tr('Change finished mark') then item.callback();invoked=true;break end end
+            assert(invoked);local dialog=assert(plugin._finish_offline_dialog);report.native_confirmations=true
+            if cancel then dialog.cancel_callback();dialog.ok_callback();assert(not queue:get(id) and counters[1]==0);return end
+            dialog.ok_callback();local queued=assert(queue:get(id));assert(queued.phase=='queued' and queued.desired==(counters[1]==0))
+            local top=UI:getTopmostVisibleWidget();if top~=plugin._shelf_state_menu then UI:close(top) end
+        end
+        local function reconnect(expected)
+            plugin.isNetworkConnected=function() return true end
+            local beat=false;UI:scheduleIn(.1,function() beat=true end);plugin:onNetworkConnected()
+            if armed then
+                local completed=false
+                wait(function()
+                    local entry,err=queue:get(id);local record=service.journal:read()
+                    if err or not record or not beat then return false end
+                    completed=not entry and record.phase=='idle' and counters[1]==expected
+                    local stopped=entry and entry.phase=='dispatching' and counters[1]==expected
+                        and plugin._finish_offline_sync and not plugin._finish_offline_sync.job
+                    return completed or stopped
+                end)
+                assert(completed)
+            else
+                wait(function() local entry=queue:get(id);return entry and entry.phase=='dispatching' and report.first_preview and beat end)
+            end
+            report.worker_heartbeat=true
+        end
+        report.phase='preview';queue_action(true);report.cancel_no_post=true
+        queue_action(false);report.phase='mark';reconnect(1)
+        if armed then
+            assert(require('weread.lib.shelf_flags').project(plugin.library_db:getShelfStatus(id).book).finished.value==true)
+            host_step(1);counters[3]=1
+            require('weread.ui.shelf_state').show(plugin,id)
+            report.phase='restore';queue_action(false);reconnect(2)
+            assert(require('weread.lib.shelf_flags').project(plugin.library_db:getShelfStatus(id).book).finished.value==false)
+            host_step(2);report.journal_before_posts=counters[4]==2;report.cache_verified=true
+            report.offline_queue=counters[5]==2
+        else report.offline_queue=true;assert(counters[1]==0) end
+    else
+        report.phase='preview';local dialog=preview(input.mark);report.first_preview=true;report.native_confirmations=true
+        dialog.cancel_callback();dialog.ok_callback();assert(not plugin._finish_change_ui and counters[1]==0)
+        report.cancel_no_post=true
+        dialog=preview(input.mark)
+        if armed then
+            report.phase='mark';submit(dialog)
+            assert(counters[1]==1 and plugin._finish_change_service.journal:read().phase=='idle')
+            assert(require('weread.lib.shelf_flags').project(plugin.library_db:getShelfStatus(id).book).finished.value==true);host_step(1);counters[3]=1
+            report.phase='restore';dialog=preview(input.restore);report.second_preview=true;submit(dialog)
+            assert(counters[1]==2 and plugin._finish_change_service.journal:read().phase=='idle')
+            assert(require('weread.lib.shelf_flags').project(plugin.library_db:getShelfStatus(id).book).finished.value==false);host_step(2)
+            report.journal_before_posts=counters[4]==2;report.cache_verified=true
+        else dialog.cancel_callback();assert(counters[1]==0) end
+    end
     assert(Crypto.sha256_hex(file(state_path))==original)
     local latest=assert(plugin.settings:get_book(id));assert(latest.progress==.12 and latest.pending_upload_position.chapter_offset==7)
     report.local_state_preserved=true;plugin:closeWeReadUI()
@@ -151,7 +215,7 @@ local ok,reason=pcall(function()
         end end
     end
     report.phase='audit';audit(home);report.credential_audit=true
-    assert(counters[2]==0 and counters[0]>=5);report.phase,report.result='complete','PASS'
+    assert(counters[2]==0 and counters[0]>=(offline and not armed and 3 or 5));report.phase,report.result='complete','PASS'
 end)
 if plugin then pcall(plugin.closeWeReadUI,plugin) end
 if counters then report.native_gets,report.native_posts,report.denied=tonumber(counters[0]),tonumber(counters[1]),tonumber(counters[2]);ffi.C.munmap(counters,128) end

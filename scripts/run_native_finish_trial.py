@@ -23,28 +23,33 @@ COUNTS={'native_gets':40,'native_posts':2,'denied':32,'screenshots':0,'failed_li
 PHASES={'init','detail','preview','mark','restore','audit','complete'}
 
 
-def validate_stage(value,armed):
-    if (not isinstance(value,dict) or set(value)!=FLAGS|set(COUNTS)|{'result','phase','permit_writes'}
+def validate_stage(value,armed,offline=False):
+    required=FLAGS|set(COUNTS)|{'result','phase','permit_writes'}|({'offline_queue'} if offline else set())
+    if (not isinstance(value,dict) or set(value)!=required
             or value['result'] not in ('PASS','UNVERIFIED') or value['phase'] not in PHASES
             or value['permit_writes'] is not armed or any(type(value[key]) is not bool for key in FLAGS)
+            or offline and type(value['offline_queue']) is not bool
             or any(type(value[key]) is not int or not 0<=value[key]<=cap for key,cap in COUNTS.items())):raise ValueError('native_finish/stage')
     if value['result']=='PASS':
         needed=FLAGS-{'second_preview','cache_verified','journal_before_posts'}
         if (value['phase']!='complete' or not all(value[key] for key in needed) or value['native_posts']!=(2 if armed else 0)
                 or any(value[key] is not armed for key in ('second_preview','cache_verified','journal_before_posts'))
-                or value['native_gets']<(13 if armed else 5) or value['denied'] or value['failed_line']
-                or not value['shelf_books'] or not value['profile_files_audited']):raise ValueError('native_finish/incomplete')
+                or value['native_gets']<(13 if armed else 3 if offline else 5) or value['denied'] or value['failed_line']
+                or not value['shelf_books'] or not value['profile_files_audited']
+                or offline and not value['offline_queue']):raise ValueError('native_finish/incomplete')
     return value
 
 
-def validate_payload(value,armed,mock_port):
+def validate_payload(value,armed,mock_port,offline=False):
     fields={'credentials','book_id','expected_metadata','shelf_books','mark','restore','permit_writes','rpc_token'}
     if mock_port is not None:fields.add('mock_port')
+    if offline:fields.add('offline_queue')
     if (not isinstance(value,dict) or set(value)!=fields or value['permit_writes'] is not armed
             or not isinstance(value['rpc_token'],str) or len(value['rpc_token'])!=32 or any(c not in 'abcdef0123456789' for c in value['rpc_token'])
             or type(value['shelf_books']) is not int or not 1<=value['shelf_books']<=5000
             or not isinstance(value['expected_metadata'],dict) or value['expected_metadata'].get('bookId')!=value['book_id']
             or value.get('mock_port')!=mock_port):raise ValueError('native_finish/input')
+    if offline and value['offline_queue'] is not True:raise ValueError('native_finish/input')
     grant=value['credentials'];validate_credentials(grant)
     validate_plan(dict(protocol=PROTOCOL,owner=grant['vid'],book_id=value['book_id'],groups_sha256='0'*64,
         grant_sha256=hashlib.sha256(canonical(grant)).hexdigest(),mark=value['mark'],restore=value['restore']))
@@ -55,7 +60,8 @@ def validate_payload(value,armed,mock_port):
 def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',required=True,type=Path);parser.add_argument('--candidate',required=True,type=Path)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
-    parser.add_argument('--armed',action='store_true');parser.add_argument('--mock-port',type=int);args=parser.parse_args();runtime=args.koreader.resolve()
+    parser.add_argument('--armed',action='store_true');parser.add_argument('--mock-port',type=int)
+    parser.add_argument('--offline-queue',action='store_true');args=parser.parse_args();runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or not 1<=min(args.width,args.height,args.dpi)<=max(args.width,args.height,args.dpi)<=4096:parser.error('bounded Linux runtime required')
     if args.mock_port is not None and not 1<=args.mock_port<=65535:parser.error('invalid loopback port')
     if not any(row.split()[1:3]==['/dev/shm','tmpfs'] for row in Path('/proc/mounts').read_text().splitlines()):parser.error('tmpfs required')
@@ -67,12 +73,13 @@ def main():
     try:
         payload=read_initial(sys.stdin.buffer)
         if len(json.dumps(payload).encode())>256*1024:raise ValueError('native_finish/input')
-        validate_payload(payload,args.armed,args.mock_port)
+        validate_payload(payload,args.armed,args.mock_port,args.offline_queue)
         with tempfile.TemporaryDirectory(prefix='weread-finish-trial-',dir='/dev/shm') as temporary:
             root=Path(temporary);profile=root/'profile';(profile/'plugins').mkdir(parents=True);(root/'xdg').mkdir(mode=0o700)
             extract_candidate(args.candidate,profile/'plugins')
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(root/'xdg'),EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_FINISH_TRIAL_ARMED='1' if args.armed else '0')
+            if args.offline_queue:env['WEREAD_FINISH_TRIAL_OFFLINE']='1'
             if args.mock_port is not None:env['WEREAD_FINISH_TRIAL_MOCK']=str(args.mock_port)
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/owner_finish_trial_probe.lua'
             child=subprocess.Popen([str(runtime/'luajit'),str(probe)],env=env,cwd=runtime,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,start_new_session=True)
@@ -80,7 +87,7 @@ def main():
                 write_initial(child.stdin,payload);frames=Frames(child.stdout,payload['rpc_token'],timeout=210)
                 while True:
                     kind,value=frames.next()
-                    if kind=='RESULT':result['stage']=validate_stage(value,args.armed);break
+                    if kind=='RESULT':result['stage']=validate_stage(value,args.armed,args.offline_queue);break
                     sys.stdout.buffer.write(b'\n'+frames.prefix+b'STEP='+json.dumps(value,separators=(',',':')).encode()+b'\n');sys.stdout.buffer.flush()
                     reply(child.stdin,read_reply(sys.stdin.buffer))
                 if child.wait(timeout=10) or result['stage']['result']!='PASS':raise ValueError('native_finish/child')

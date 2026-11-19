@@ -118,6 +118,13 @@ class FramingTests(unittest.TestCase):
         for armed in (False,True):self.assertEqual(validate_stage(stage(armed),armed),stage(armed))
         for field,bad in (('native_posts',1),('native_confirmations',False),('denied',1),('screenshots',1)):
             with self.assertRaises(ValueError):validate_stage(dict(stage(True),**{field:bad}),True)
+    def test_offline_stage_requires_explicit_queue_proof(self):
+        for armed in (False,True):
+            value=dict(stage(armed),offline_queue=True)
+            if not armed:value['native_gets']=3
+            self.assertEqual(validate_stage(value,armed,True),value)
+            with self.assertRaises(ValueError):validate_stage(dict(value,offline_queue=False),armed,True)
+            with self.assertRaises(ValueError):validate_stage(value,armed,False)
     def test_input_is_bound_to_exact_account_operation_and_mock(self):
         p=plan();value=dict(credentials=credentials(),book_id='41',expected_metadata=dict(bookId='41',title='Synthetic'),shelf_books=2,
             mark=p['mark'],restore=p['restore'],permit_writes=False,rpc_token='a'*32)

@@ -63,10 +63,10 @@ class FinishTrialProbe(NativeProbe):
         return check(self.bound,shelf,progress,finished)
 
 
-def validate_result(value,armed):
+def validate_result(value,armed,offline=False):
     if (not isinstance(value,dict) or set(value)!={'result','profile_removed','installed','stage'}
             or value['result'] not in ('PASS','UNVERIFIED') or type(value['profile_removed']) is not bool):raise ValueError('native_finish/result')
-    if value['stage'] is not None:validate_stage(value['stage'],armed)
+    if value['stage'] is not None:validate_stage(value['stage'],armed,offline)
     if value['result']=='PASS':
         item=value['installed']
         if (not value['profile_removed'] or value['stage'] is None or value['stage']['result']!='PASS'
@@ -75,11 +75,12 @@ def validate_result(value,armed):
     return value
 
 
-def run(probe,credentials,store,command,*,armed=False,mock_port=None,current=None):
-    if type(armed) is not bool or not command or any(not isinstance(v,str) or not v for v in command):raise ValueError('native_finish/command')
+def run(probe,credentials,store,command,*,armed=False,mock_port=None,current=None,offline=False):
+    if type(armed) is not bool or type(offline) is not bool or not command or any(not isinstance(v,str) or not v for v in command):raise ValueError('native_finish/command')
     if store.pending():raise ValueError('native_finish/pending')
     probe.current(credentials);probe.read(credentials,False);payload=deepcopy(probe.payload)
     payload.update(permit_writes=armed,rpc_token=secrets.token_hex(16))
+    if offline:payload['offline_queue']=True
     if mock_port is not None:payload['mock_port']=mock_port
     receipt=store.reserve(probe.bound) if armed else None
     child=frames=runner=None;steps=0;awaiting=None
@@ -89,7 +90,7 @@ def run(probe,credentials,store,command,*,armed=False,mock_port=None,current=Non
         write_initial(child.stdin,payload);frames=Frames(child.stdout,payload['rpc_token'],timeout=300)
         while True:
             kind,value=frames.next()
-            if kind=='RESULT':runner=validate_result(value,armed);break
+            if kind=='RESULT':runner=validate_result(value,armed,offline);break
             awaiting=value.get('seq')
             if (not armed or set(value)!={'seq'} or type(awaiting) is not int or awaiting!=steps+1 or awaiting>2
                     or not store.owns(receipt,probe.bound)):raise ValueError('native_finish/step')
@@ -110,7 +111,7 @@ def run(probe,credentials,store,command,*,armed=False,mock_port=None,current=Non
             try:
                 reply(child.stdin,dict(seq=awaiting,ok=False));frames.deadline=time.monotonic()+15
                 kind,value=frames.next()
-                if kind=='RESULT':runner=validate_result(value,armed)
+                if kind=='RESULT':runner=validate_result(value,armed,offline)
                 child.wait(timeout=10)
             except Exception:pass
         raise TrialFailure(runner,steps) from None
@@ -136,12 +137,14 @@ def resolve(credentials,store,probe=None):
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--offline-queue',action='store_true',help='exercise the native offline queue before each operation')
     mode=parser.add_mutually_exclusive_group();mode.add_argument('--dry-run',action='store_true');mode.add_argument('--apply',action='store_true')
     mode.add_argument('--status',action='store_true');mode.add_argument('--resolve',action='store_true')
     parser.add_argument('--native-ui-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0);credentials=probe=None;phase='init'
     try:
         if args.saved_session:
+            if args.offline_queue and not (args.apply or args.dry_run):raise ValueError('native_finish/command')
             store=NativeFinishTrialStore()
             if args.status:
                 report.update(result='PASS',intent_state='pending' if store.pending() else 'absent')
@@ -159,11 +162,11 @@ def main(argv=None):
                     if not args.native_ui_command:raise ValueError('native_finish/command')
                     def current():
                         if NativeSessionStore().load(owner)!=credentials:raise ValueError('native_finish/grant_replaced')
-                    phase='apply' if args.apply else 'dry-run';report=run(probe,credentials,store,args.native_ui_command,armed=args.apply,current=current)
+                    phase='apply' if args.apply else 'dry-run';report=run(probe,credentials,store,args.native_ui_command,armed=args.apply,current=current,offline=args.offline_queue)
                 elif args.native_ui_command:raise ValueError('native_finish/command')
                 else:report.update(result='PASS',shelf_books=probe.payload['shelf_books'],unfinished_selected=True,mark_and_restore_plans=True,
                     full_flags_groups_position_bound=True,intent_state='absent',reserved_posts=0)
-        elif args.native_ui_command or any((args.apply,args.dry_run,args.resolve,args.status)):raise ValueError('native_finish/offline')
+        elif args.native_ui_command or any((args.apply,args.dry_run,args.resolve,args.status,args.offline_queue)):raise ValueError('native_finish/offline')
     except (Exception,KeyboardInterrupt) as error:
         report=dict(result='UNVERIFIED',phase=phase,account_data_posts=None if phase=='apply' else 0,authentication_posts=0,no_automatic_replay=True)
         if isinstance(error,TrialFailure):report.update(native_ui=error.runner,independent_steps=error.steps)
