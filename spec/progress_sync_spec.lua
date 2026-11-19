@@ -344,6 +344,9 @@ test('CB upload confirmation preserves a newer page reached during the send',fun
     eq(f.sync.verified,true,'confirmed old point lost its baseline')
     eq(f.sync.dirty,true,'newer page was marked synchronized')
     eq(f.values.books[id].last_local_position.source_position.chapter_offset,151,'confirmation overwrote newer local resume point')
+    local pending=f.values.books[id].pending_upload_position
+    eq(pending and pending.source_position and pending.source_position.chapter_offset,151,'confirmation saved newer pending source position')
+    eq(f.values.books[id].pending_upload_account,f.sync:_account_key(),'newer pending source belongs to the current account')
     eq(f.sync.source_local_anchor.chapter_offset,150,'confirmation changed the uploaded source anchor')
 end)
 
@@ -697,6 +700,17 @@ test('later local movement remains pending after a confirmed initial snapshot',f
     eq(f.values.books['41'].pending_upload_position.source_position.chapter_offset,151,'newer intent overwritten')
 end)
 
+test('first-sync confirmation saves a page reached without a checkpoint',function()
+    local f=first_fixture();f.sync:sync_now();f.drain();f.choices[1].initialize();f:plan()
+    f.source.chapter_offset=151;f.document.page=26;f.sync:on_page_update();f:confirmed()
+    local saved=f.values.books['41']
+    eq(saved.last_local_position.source_position.chapter_offset,151,'newer source point did not survive')
+    eq(saved.pending_upload_position and saved.pending_upload_position.source_position.chapter_offset,151,'newer source point is not pending')
+    eq(saved.pending_upload_account,f.sync:_account_key(),'newer source point lost account ownership')
+    eq(f.sync.verified,true,'confirmed baseline was lost')
+    eq(f.sync.dirty,true,'newer source point was marked synchronized')
+end)
+
 test('source comparison binds a missing index to the explicit catalog value',function()
     local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
         file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
@@ -964,8 +978,10 @@ test("busy read report is retried with the immutable snapshot", function()
     f.drain()
     eq(attempts, 2, "busy upload retried")
     eq(uploaded.percent, 25, "retry uses immutable position")
-    eq(f.values.books.book.pending_upload_position, nil,
-        "retry success clears pending snapshot")
+    eq((f.values.books.book.pending_upload_position or {}).percent, 75,
+        "retry success preserves the newer pending page")
+    eq((f.values.books.book.last_local_position or {}).percent, 75,
+        "retry success preserves the newer local page")
 end)
 
 test("suspend parks movement locally without starting network work", function()
@@ -1354,6 +1370,57 @@ test("upload acknowledgement preserves newer movement and pending snapshot", fun
     eq((f.values.books.book.pending_upload_position or {}).percent, 75, "acknowledgement retains newer pending location")
     eq((f.values.books.book.last_local_position or {}).percent, 75, "acknowledgement does not rewind local state")
     eq(f.sync.dirty, true, "movement after dispatch remains dirty")
+end)
+
+test("upload acknowledgement durably checkpoints movement during the request", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    f.document.page = 75
+    f.sync:on_page_update()
+    local original_persist, acknowledged = f.sync._persist
+    f.sync._persist = function(self, id, patch)
+        if patch.last_uploaded_position then
+            acknowledged = patch
+        end
+        return original_persist(self, id, patch)
+    end
+    callbacks[1]()
+    local saved = f.values.books.book
+    eq((saved.last_local_position or {}).percent, 75, "new local page survives acknowledgement")
+    eq((saved.pending_upload_position or {}).percent, 75, "new local page remains pending")
+    eq(saved.pending_upload_account, f.sync:_account_key(), "pending page belongs to the current account")
+    eq(acknowledged.pending_upload_position.percent, 75, "acknowledgement and new pending page are committed together")
+    eq(f.sync.dirty, true, "new local page remains dirty")
+end)
+
+test("upload acknowledgement does not replace another pending intent", function()
+    local callbacks = {}
+    local f = fixture({}, { run_online = function(_kind, callback)
+        callbacks[#callbacks + 1] = callback
+        return true
+    end })
+    f.sync.verified, f.sync.current_book_id = true, "book"
+    local first = assert(f.sync:capture_local())
+    f.sync.local_position = first
+    f.sync:_upload_snapshot(first, "manual_sync", true)
+    local saved = f.values.books.book
+    saved.pending_upload_position = { book_id = "book", percent = 80 }
+    saved.pending_upload_account = "another-account"
+    saved.pending_upload_reason = "upload_readback_unconfirmed"
+    f.document.page = 75
+    f.sync:on_page_update()
+    callbacks[1]()
+    eq(saved.pending_upload_position.percent, 80, "another pending page is retained")
+    eq(saved.pending_upload_account, "another-account", "another pending owner is retained")
+    eq(saved.pending_upload_reason, "upload_readback_unconfirmed", "uncertainty remains visible")
+    eq(saved.last_local_position.percent, 75, "current local page is still saved")
 end)
 
 test("close upload survives document teardown without changing the next session", function()

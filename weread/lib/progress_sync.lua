@@ -655,7 +655,7 @@ function ProgressSync:_unsupported_book(book_id,position,manual)
     return false
 end
 
-function ProgressSync:_mark_verified(book_id, reason, local_position, remote)
+function ProgressSync:_mark_verified(book_id, reason, local_position, remote, resume_position)
     if cb_book(tostring(book_id)) then
         local allowed=reason=='cb_positions_match' or reason=='cb_upload_confirmed' or reason=='cb_interval_positions_match'
         local chapters=self.get_chapters(self.get_book(book_id) or {})
@@ -669,14 +669,14 @@ function ProgressSync:_mark_verified(book_id, reason, local_position, remote)
     self.verified = true
     self.verified_at = self.now()
     self.verified_reason = reason
-    self.local_position = copy(local_position)
+    self.local_position = copy(resume_position or local_position)
     if self.prepare_upload and local_position and local_position.source_position then self.source_local_anchor=copy(local_position.source_position) end
     self.remote_position = copy(remote)
     self.state = "verified"
     self:_persist(book_id, {
         verified_at = self.verified_at,
         verified_source = reason,
-        last_local_position = local_position,
+        last_local_position = resume_position or local_position,
         last_remote_position = remote,
         last_sync_error = false,
     })
@@ -972,6 +972,7 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
     local scope = self:_scope()
     scope.book_id = book_id
     if not scope.account then return false end
+    local start_live = self:_session_current(scope) and (self:capture_local() or self.local_position or position) or nil
     self:_persist(book_id, {
         last_local_position = position,
         pending_upload_position = position,
@@ -1061,6 +1062,13 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             local book = self.get_book(book_id) or {}
             local clear_pending = book.pending_upload_account == scope.account
                 and ProgressReadback.same_intent(book.pending_upload_position, position)
+            local active = self:_session_current(scope)
+            local live = active and (self:capture_local() or self.local_position) or nil
+            local unchanged = active and (job.plan and ProgressReadback.same_intent(live, position)
+                or not job.plan and ProgressReadback.same_wire_position(live, position))
+            local moved = active and live and start_live and not (job.plan
+                and ProgressReadback.same_intent(live, start_live)
+                or not job.plan and ProgressReadback.same_wire_position(live, start_live))
             local uploaded=copy(job.plan and job.plan.position or position)
             if job.plan then
                 uploaded.summary=nil
@@ -1078,6 +1086,17 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
             end
             if clear_pending then
                 patch.pending_upload_position, patch.pending_upload_reason, patch.pending_upload_account = false, false, false
+            end
+            if moved then
+                -- Commit the acknowledgement and the page reached during the
+                -- request together, without deleting another pending intent.
+                patch.last_local_position = live
+                if clear_pending or not book.pending_upload_position and not book.pending_upload_reason
+                    and not book.pending_upload_account then
+                    patch.pending_upload_position = live
+                    patch.pending_upload_reason = 'movement_during_upload'
+                    patch.pending_upload_account = scope.account
+                end
             end
             if initial_remote then
                 patch.verified_at,patch.verified_source=self.now(),'first_sync_confirmed'
@@ -1097,34 +1116,32 @@ function ProgressSync:_upload_snapshot(position, reason, show_result, close_toke
                     error('native_position/local_save_failed',0)
                 end
             else self:_persist(book_id, patch) end
-            local active = self:_session_current(scope)
             if active then
                 if initial_remote then
                     self.verified,self.verified_at,self.verified_reason=true,patch.verified_at,'first_sync_confirmed'
                     self.source_local_anchor=copy(position.source_position)
                 end
-                local live = self:capture_local() or self.local_position
-                local unchanged=job.plan and ProgressReadback.same_intent(live,position)
-                    or not job.plan and ProgressReadback.same_wire_position(live,position)
                 self.dirty = not unchanged or not clear_pending
+                if moved then self.local_position = copy(live) end
                 self.last_uploaded_position = copy(position)
                 if type(patch.last_remote_position)=='table' then self.remote_position=copy(patch.last_remote_position) end
                 if cb_authorized then
                     if cb_first then
-                        local marked=pcall(self._mark_verified,self,book_id,'cb_upload_confirmed',position,self.remote_position)
+                        local marked=pcall(self._mark_verified,self,book_id,'cb_upload_confirmed',position,self.remote_position,
+                            not unchanged and live or nil)
                         if not marked or not self.verified then
                             self.interval:halt();self.verified,self.verified_at,self.verified_reason=false,nil,'local_save_failed'
                             self.dirty,self.state=true,'error'
                             if show_result then pcall(self.notify,'upload_initial_save_failed',{acknowledged=true}) end
                             return
                         end
-                    else self:_mark_verified(book_id,'cb_upload_confirmed',position,self.remote_position) end
+                    else self:_mark_verified(book_id,'cb_upload_confirmed',position,self.remote_position,
+                        not unchanged and live or nil) end
                     if not unchanged and live then
                         -- A reader may turn the page while the request is in
                         -- flight. The confirmed anchor is old, but the local
                         -- resume point must remain the newer one.
                         self.local_position=copy(live)
-                        self:_persist(book_id,{last_local_position=live})
                     end
                 end
                 if not self.pulling and self.state ~= "awaiting_choice" then

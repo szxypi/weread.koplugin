@@ -64,6 +64,32 @@ return function(reader, plugin, pump, shot, clean_popups)
     sync()
     assert(not plugin.settings:get_book(book_id).pending_upload_position and plugin.progress_sync.verified,
         "explicit new comparison did not restore normal synchronization")
+    -- Move while the accepted position is waiting for delayed readback. The
+    -- newer page must already be durable when the confirmation arrives.
+    request("/__control", { progress_confirmation = "delayed" })
+    clean_popups(reader)
+    reader.rolling:onGotoPage(reader:getCurrentPage() == 1 and reader.document:getPageCount() or 1)
+    local before = writes()
+    assert(plugin:onWeReadSyncProgress())
+    pump(function() return not plugin.progress_sync.pulling end)
+    local choice = UI:getTopmostVisibleWidget()
+    if choice and choice.cancel_text == require("weread.lib.plugin_util").tr("Keep KOReader progress") then
+        choice.cancel_callback(); UI:close(choice)
+    end
+    pump(function() return writes() == before + 1 or not plugin.progress_sync.uploading end)
+    assert(plugin.progress_sync.uploading, "delayed confirmation did not remain in flight")
+    reader.rolling:onGotoPage(reader:getCurrentPage() == 1 and reader.document:getPageCount() or 1)
+    plugin.progress_sync:on_page_update()
+    local moved = assert(plugin.progress_sync:capture_local())
+    pump(function() return not plugin.progress_sync.uploading end)
+    assert(writes() == before + 1, "movement during confirmation replayed the upload")
+    local reopened = require("weread.lib.settings"):new():get_book(book_id)
+    local same = require("weread.lib.position_mapper").same_position
+    assert(reopened and same(reopened.last_local_position, moved)
+        and same(reopened.pending_upload_position, moved), "newer page was not committed to durable storage")
+    assert(reopened.pending_upload_account == plugin.progress_sync:_account_key()
+        and plugin.progress_sync.dirty, "newer page lost its pending owner or dirty state")
+    cases[#cases + 1] = { mode = "movement_during_confirmation", report_posts = 1, result = "PASS" }
     local out = assert(io.open(assert(os.getenv("WEREAD_EVIDENCE")) .. "/progress-confirmation-result.json", "wb"))
     out:write(Json.encode{ result = "PASS", synthetic_only = true, account_data_writes_attempted = 0,
         cases = cases, automatic_write_retries = 0, authorization_posts = 0, native_location_preserved = true,
