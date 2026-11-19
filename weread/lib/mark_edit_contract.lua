@@ -72,7 +72,6 @@ function M.validate_body(operation,body)
             allowed.colorStyle=nil
             if body.type~=0 or body.style~=0 or Point.point(body.range)==nil or not preview(body.markText) then return false end
         elseif body.type~=1 or not Style.valid(body.style) or not Color.valid(body.colorStyle)
-            or not Marks.id(body.bookId) and body.style~=1
             or not Base.valid_content(body.markText) or #body.markText>4096 or not range(body) then return false end
     elseif deleting(operation) then
         allowed={bookmarkIds=true}
@@ -118,11 +117,9 @@ function M.make(client,snapshot,operation,reference,metadata,style,color)
             body={bookmarkIds=client:json_decode('[]')};body.bookmarkIds[1]=row.bookmarkId
         elseif operation=='style' then
             if not Style.editable(row) or not Style.valid(style) or style==row.style then fail('style') end
-            if not Marks.id(book) and row.colorStyle~=0 then fail('color') end
             body={bookmarkId=row.bookmarkId,style=style,colorStyle=row.colorStyle}
         else
             if not Color.editable(row) or not Color.valid(color) or color==row.colorStyle then fail('color') end
-            if not Marks.id(book) and row.style~=1 then fail('style') end
             body={bookmarkId=row.bookmarkId,style=row.style,colorStyle=color}
         end
     end

@@ -93,7 +93,9 @@ expect(not Color.editable{type=1,style=99,colorStyle=1} and not Color.editable{t
 host.detectWeReadBook=function() return 'CB_Synthetic' end
 owner=open();local cb_dialog=chooser(owner,'Default highlight color')
 expect(owner.imported and #cb_dialog.buttons==6,'imported book lost default color chooser')
-expect(not pcall(chooser,owner,'Default highlight style'),'unverified imported default style chooser exposed')
 button(cb_dialog,3,'default_highlight_color_').callback()
 expect(preferences.cloud_highlight_color==3,'imported book did not save default color')
+local cb_style=chooser(owner,'Default highlight style')
+expect(#cb_style.buttons==3,'imported book lost default style chooser')
+button(cb_style,2).callback();expect(preferences.cloud_highlight_style==2,'imported book did not save default style')
 print('default_highlight_style_spec: '..checks..' checks')

@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 import resource
 import tempfile
+import time
 from urllib.parse import urlencode
 
 from annotation_experiment_model import digest, marks_state, shelf_state, thoughts_state
@@ -21,7 +22,8 @@ from synthetic_epub_trial import Journal
 from synthetic_upload_epub import TEXT
 from verify_cb_fixture_position_trial import owned
 from verify_cb_progress import cb_id
-from verify_cb_reading import CbReadingProbe
+from verify_cb_reading import CbReadingError, CbReadingProbe
+from verify_cb_metadata import CbMetadataError
 from verify_eink_login import BASE, NativeProbe
 from verify_personal_upload_trial import Probe as UploadProbe
 from verify_reader_progress import project as progress_project
@@ -38,8 +40,9 @@ def make_journal():
 
 
 class ScopedNative(NativeProbe):
+    MAX_GETS = 200
     def __init__(self, book, grant, authority, intent, *, opener=None, max_gets=40):
-        if not cb_id(book) or type(max_gets) is not int or not 1 <= max_gets <= 200: raise ValueError('cb_highlight/scope')
+        if not cb_id(book) or type(max_gets) is not int or not 1 <= max_gets <= self.MAX_GETS: raise ValueError('cb_highlight/scope')
         super().__init__(opener)
         self.book, self.grant_hash, self.authority, self.intent = book, digest(grant), authority, intent
         self.posts, self.gets, self.body, self.pending, self.max_gets = 0, 0, None, None, max_gets
@@ -108,27 +111,42 @@ class ScopedNative(NativeProbe):
 
 def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         uploader=upload_run, upload_factory=UploadProbe, native_factory=ScopedNative, source_factory=CbReadingProbe,
-        prepare_fn=prepare, execute_fn=execute, final_check=None, result_label='CB_FIXTURE_HIGHLIGHT_VERIFIED', expected_posts=2):
+        prepare_fn=prepare, execute_fn=execute, final_check=None, result_label='CB_FIXTURE_HIGHLIGHT_VERIFIED', expected_posts=2,
+        source_sleep=time.sleep):
     report = dict(result='UNVERIFIED', phase='preflight', annotation_posts=0, authentication_posts=0,
                   existing_book_writes=0, fixture_only=True, private_values_in_report=False)
     current = {'saved': saved, 'sample': None, 'native': None, 'trial': None}
     def same_grant(value): return native_store.load(current['saved']['vid']) == value
     def source(target):
-        web = source_factory(); web.vid = current['saved']['vid']; web.allowed = {target}
-        try:
-            for key, value in current['saved']['cookies'].items(): web.set_cookie(key, value)
-            web.verify_account(); sample = web.inspect(target); web.verify_account()
-            if (sample.get('book_id') != target or sample.get('source_format') != 'web_xhtml'
-                    or TEXT not in sample.get('source', '') or set(web.last_checks) != {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
-                    or not all(value is True for value in web.last_checks.values())): return False
-            current['sample'] = sample
-            if save_refreshed_web_session(session, current['saved'], web):
-                old = current['saved']; current['saved'] = session.load()
-                if old['vid'] != current['saved']['vid']: raise ValueError('cb_highlight/owner')
-                old.clear()
-            return True
-        finally:
-            web.samples.clear(); web.close()
+        current['sample']=None
+        for attempt in range(3):
+            web = source_factory(); web.vid = current['saved']['vid']; web.allowed = {target}
+            try:
+                for key, value in current['saved']['cookies'].items(): web.set_cookie(key, value)
+                web.verify_account(); sample = web.inspect(target); web.verify_account()
+                if (sample.get('book_id') != target or sample.get('source_format') != 'web_xhtml'
+                        or TEXT not in sample.get('source', '') or set(web.last_checks) != {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
+                        or not all(value is True for value in web.last_checks.values())):
+                    report['source_failure']='invalid_sample'; return False
+                if save_refreshed_web_session(session, current['saved'], web):
+                    old = current['saved']; current['saved'] = session.load()
+                    if old['vid'] != current['saved']['vid']: raise ValueError('cb_highlight/owner')
+                    old.clear()
+                report.pop('source_failure',None)
+                current['sample'] = sample
+                return True
+            except (CbReadingError, CbMetadataError) as error:
+                known={'cb_catalog_empty','cb_catalog_invalid','cb_catalog_identity','cb_resume_chapter_missing',
+                       'cb_reader_chapter_mismatch','cb_txt_marker_invalid','cb_source_invalid','cb_read_baseline_changed',
+                       'cb_source_anchor_unavailable','cb_content_scope','cb_read_scope','cb_read_repeated'}
+                report['source_failure']=str(error) if str(error) in known else 'other'
+                if str(error) not in ('cb_catalog_empty', 'cb_catalog_invalid') or attempt == 2: raise
+            except Exception:
+                report['source_failure']='other'; raise
+            finally:
+                web.samples.clear(); web.close()
+            source_sleep(2 * (attempt + 1))
+        return False
 
     def trial(upload, receipt, _plan, target):
         owner = current['saved']['vid']; sample = current['sample']

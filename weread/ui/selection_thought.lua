@@ -54,7 +54,7 @@ render=function(host,owner)
         end} end
         if not owner.bookmarks then
             local preferences={}
-            if not owner.imported then preferences[#preferences+1]={model=Style,key='cloud_highlight_style',label='Default highlight style',prefix='default_highlight_style_'} end
+            preferences[#preferences+1]={model=Style,key='cloud_highlight_style',label='Default highlight style',prefix='default_highlight_style_'}
             preferences[#preferences+1]={model=Color,key='cloud_highlight_color',label='Default highlight color',prefix='default_highlight_color_'}
             for _i,preference in ipairs(preferences) do
                 local choice=preference

@@ -16,8 +16,10 @@ local ok,reason=pcall(function()
     local synthetic=os.getenv('WEREAD_FIXTURE_SYNTHETIC')=='1'
     local styles=input.styles==true
     local palette=input.palette==true
+    local matrix=input.matrix==true
     assert((input.styles==nil or type(input.styles)=='boolean') and (input.palette==nil or type(input.palette)=='boolean')
-        and not (styles and palette))
+        and (input.matrix==nil or type(input.matrix)=='boolean') and not (styles and palette)
+        and (not matrix or synthetic and not styles and not palette))
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
     require('gettext').changeLang('zh_CN')
@@ -83,11 +85,14 @@ local ok,reason=pcall(function()
         end
         local operation=({[base..'/book/addBookmark']='create',[base..'/book/removeBookmark']='delete',
             [base..'/book/updateBookmark']=styles and 'style' or palette and 'color' or nil})[options.url]
+        if matrix and options.url==base..'/book/updateBookmark' and gate then
+            operation=gate:read().phase=='style2' and 'style' or gate:read().phase=='color0' and 'color' or nil
+        end
         if native_ok and options.method=='POST' and operation and type(options.body)=='string' and gate then
             assert(tonumber(ffi.C.getpid())~=parent,'highlight write on UI thread')
             local body=self:json_decode(options.body)
             if not gate:claim(operation,body) then counts[3]=counts[3]+1;error('cb_highlight/dry_run',0) end
-            counts[1]=counts[1]+1;assert(counts[1]<=((styles or palette) and 4 or 2));options.persist_response_cookies=false;return request(self,options)
+            counts[1]=counts[1]+1;assert(counts[1]<=((styles or palette or matrix) and 4 or 2));options.persist_response_cookies=false;return request(self,options)
         end
         if web_guard(options,0,function(body) return self:json_decode(body) end)=='read' and counts[0]<80 then
             counts[0]=counts[0]+1;options.persist_response_cookies=false;return request(self,options)
@@ -127,10 +132,11 @@ local ok,reason=pcall(function()
     assert(Content.save_catalog_cache(client,settings,book,input.chapters));settings:set('books',{[input.book]=book});settings:flush()
     local main=host();assert(main.library_db:putChapters(input.book,input.chapters))
     gate=dofile(fixtures..'native_highlight_trial_gate.lua'):new({permit_writes=input.armed,book_id=input.book,
-        original_ids={},create_body=input.body,styles=styles,palette=palette},main.library_db,main.client,home)
+        original_ids={},create_body=input.body,styles=styles,palette=palette,matrix=matrix},main.library_db,main.client,home)
     main:openChapter(book,target);wait(function() return Reader.instance and Reader.instance.weread end)
     reader=Reader.instance;plugin=reader.weread
     if palette then plugin.settings:set('cloud_highlight_color',3);plugin.settings:flush() end
+    if matrix then plugin.settings:set('cloud_highlight_style',0);plugin.settings:set('cloud_highlight_color',3);plugin.settings:flush() end
     plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
     local index=assert(require('weread.lib.source_dom').open(reader.document,input.book,input.chapter))
     local first,last=assert(index:locate(input.first)),assert(index:locate(input.last))
@@ -208,11 +214,43 @@ local ok,reason=pcall(function()
             assert(item)
         end
     end
+    if matrix then
+        result.phase='style2';item.callback();tap('change_highlight_style')
+        UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_2')):onTapSelectButton()
+        submit()
+        if journal:read().phase=='pending' then
+            assert(gate:read().phase=='style2_pending' and counts[1]==2)
+            item.callback();tap('change_highlight_style')
+            UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_style_2')):onTapSelectButton()
+            wait(function() return not owner.mark_editor end)
+            assert(journal:read().phase=='pending' and counts[1]==2 and counts[2]==0)
+            result={result='UNCONFIRMED',phase=result.phase,retained_pending=true,no_retry=true};return
+        end
+        assert(gate:read().phase=='style2_pending' and journal:read().phase=='idle')
+        saved=assert(cache:read(input.book));assert(#saved.updated==1 and saved.updated[1].style==2 and saved.updated[1].colorStyle==3)
+        acknowledge({seq=2,created_id=created});gate:advance_style(created,2)
+        item=nil;for _i,value in ipairs(owner.menu.item_table) do if value.my_note_id==created then item=value end end;assert(item)
+        result.phase='color0';item.callback();tap('change_highlight_color')
+        UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_color_0')):onTapSelectButton()
+        submit()
+        if journal:read().phase=='pending' then
+            assert(gate:read().phase=='color0_pending' and counts[1]==3)
+            item.callback();tap('change_highlight_color')
+            UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_color_0')):onTapSelectButton()
+            wait(function() return not owner.mark_editor end)
+            assert(journal:read().phase=='pending' and counts[1]==3 and counts[2]==0)
+            result={result='UNCONFIRMED',phase=result.phase,retained_pending=true,no_retry=true};return
+        end
+        assert(gate:read().phase=='color0_pending' and journal:read().phase=='idle')
+        saved=assert(cache:read(input.book));assert(#saved.updated==1 and saved.updated[1].style==2 and saved.updated[1].colorStyle==0)
+        acknowledge({seq=3,created_id=created});gate:advance_color(created,0)
+        item=nil;for _i,value in ipairs(owner.menu.item_table) do if value.my_note_id==created then item=value end end;assert(item)
+    end
     item.callback();result.phase='delete';tap('delete_highlight');submit()
-    assert(gate:read().phase=='delete_pending' and journal:read().phase=='idle');acknowledge({seq=(styles or palette) and 4 or 2,created_id=created})
-    saved=assert(cache:read(input.book));assert(#saved.updated==0 and counts[1]==((styles or palette) and 4 or 2) and counts[2]==0)
+    assert(gate:read().phase=='delete_pending' and journal:read().phase=='idle');acknowledge({seq=(styles or palette or matrix) and 4 or 2,created_id=created})
+    saved=assert(cache:read(input.book));assert(#saved.updated==0 and counts[1]==((styles or palette or matrix) and 4 or 2) and counts[2]==0)
     plugin:cancelMyCloudMarks();plugin:onFlushSettings();reader:onClose(false)
-    result={result='PASS',native_controls=true,source_verified=true,writes=(styles or palette) and 4 or 2,denied=0,pending_cleared=true}
+    result={result='PASS',native_controls=true,source_verified=true,writes=(styles or palette or matrix) and 4 or 2,denied=0,pending_cleared=true}
 end)
 if not ok then result.result='UNVERIFIED';result.failure_line=tonumber(type(reason)=='string' and reason:match('cb_fixture_highlight_ui%.lua:(%d+):')) or 0 end
 if input and type(input.token)=='string' and input.token:match('^[a-f0-9]+$') and #input.token==32 then

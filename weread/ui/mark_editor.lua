@@ -62,7 +62,7 @@ function M.start(host,owner,operation,reference,current,redraw,style,color)
         or operation~='create' and operation~='delete' and operation~='style' and operation~='color' and operation~='bookmark_create' and operation~='bookmark_delete') then return false end
     local bookmark=operation=='bookmark_create' or operation=='bookmark_delete'
     if operation=='create' then
-        style=imported and 1 or require('weread.lib.mark_style').default(host.settings)
+        style=require('weread.lib.mark_style').default(host.settings)
         color=require('weread.lib.mark_color').default(host.settings)
     end
     if not host:isNetworkOnline() then host:showOffline(_(bookmark and 'Bookmark' or 'Highlight'));return false end

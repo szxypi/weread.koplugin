@@ -53,7 +53,7 @@ render=function(host,owner)
         if not owner.writable then
             local notice=owner.bookmarks and 'Imported book bookmarks can be saved and deleted; locating requires a unique verified preview.'
                 or owner.thoughts and 'Imported book private thoughts can be edited and deleted after verification.'
-                or 'Imported book highlights support private thoughts, saving, deletion, default-color style changes and marker color changes after verification.'
+                or 'Imported book highlights support private thoughts, saving, deletion, style and color changes after verification.'
             items[#items+1]={text=_(notice),select_enabled=false}
         end
         local filters=owner.bookmarks and {} or owner.thoughts and {{'All my thoughts',nil},{'Thoughts with quoted text',1},{'Other thoughts',0}}
@@ -125,7 +125,7 @@ render=function(host,owner)
                                 stop(host,owner);require('weread.ui.mark_editor').start(host,owner,'delete',row,current,render)
                             end}}
                             local styles=require('weread.lib.mark_style')
-                            if (owner.writable or row.colorStyle==0) and styles.editable(row) then
+                            if styles.editable(row) then
                                 buttons[#buttons+1]={{id='change_highlight_style',text=_('Change highlight style'),callback=function()
                                     if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                     local choices={};local dialog
@@ -141,7 +141,7 @@ render=function(host,owner)
                                 end}}
                             end
                             local colors=require('weread.lib.mark_color')
-                            if (owner.writable or row.style==1) and colors.editable(row) then
+                            if colors.editable(row) then
                                 buttons[#buttons+1]={{id='change_highlight_color',text=_('Change highlight color'),callback=function()
                                     if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                     local choices,dialog={}

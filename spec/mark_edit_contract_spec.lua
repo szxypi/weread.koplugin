@@ -6,35 +6,30 @@ local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.
 local imported_ref=F.clone(ref);imported_ref.source.book_id='CB_Synthetic'
 local imported_plan=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77})
 expect(C.validate_body('create',imported_plan.body) and C.validate_metadata(imported_plan.metadata),'verified imported highlight plan rejected')
-expect(imported_plan.body.style==1 and imported_plan.body.colorStyle==0,'unverified imported style used')
-for _i,choice in ipairs({{0,0},{2,0},{0,3},{2,3}}) do
-    expect(not pcall(C.make,codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77},choice[1],choice[2]),
-        'unverified imported style or color accepted')
-end
+expect(imported_plan.body.style==1 and imported_plan.body.colorStyle==0,'default imported style changed')
 local imported_created=F.created(codec,imported)
 expect(C.check(imported_created,imported_plan.metadata),'imported creation was not independently confirmed')
-for color=0,5 do
-    local initial=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77},1,color)
-    local expected=F.clone(imported_created);expected.marks.updated[2].colorStyle=color
-    expect(C.check(expected,initial.metadata),'imported initial color was not confirmed')
-    if color~=0 then
-        local change=C.make(codec,imported_created,'color',imported_created.marks.updated[2],nil,nil,color)
-        expect(C.validate_metadata(change.metadata) and C.check(expected,change.metadata) and not C.check(imported_created,change.metadata),
+for style=0,2 do
+    for color=0,5 do
+        local initial=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77},style,color)
+        local before=F.clone(imported_created);before.marks.updated[2].style=style;before.marks.updated[2].colorStyle=color
+        expect(C.check(before,initial.metadata),'imported initial style/color was not confirmed')
+        local next_style=(style+1)%3;local changed_style=C.make(codec,before,'style',before.marks.updated[2],nil,next_style)
+        local after_style=F.clone(before);after_style.marks.updated[2].style=next_style
+        expect(C.validate_metadata(changed_style.metadata) and C.check(after_style,changed_style.metadata) and not C.check(before,changed_style.metadata),
+            'imported style update was not confirmed')
+        local next_color=(color+1)%6;local changed_color=C.make(codec,before,'color',before.marks.updated[2],nil,nil,next_color)
+        local after_color=F.clone(before);after_color.marks.updated[2].colorStyle=next_color
+        expect(C.validate_metadata(changed_color.metadata) and C.check(after_color,changed_color.metadata) and not C.check(before,changed_color.metadata),
             'imported color update was not confirmed')
     end
 end
-local imported_straight=F.clone(imported_created);imported_straight.marks.updated[2].style=0
-expect(not pcall(C.make,codec,imported_straight,'color',imported_straight.marks.updated[2],nil,nil,3),
-    'unverified imported non-marker color update accepted')
 for _i,style in ipairs({0,2}) do
     local change=C.make(codec,imported_created,'style',imported_created.marks.updated[2],nil,style)
     local result=F.clone(imported_created);result.marks.updated[2].style=style
     expect(C.validate_metadata(change.metadata) and C.check(result,change.metadata) and not C.check(imported_created,change.metadata),
         'imported style change was not independently confirmed')
 end
-local imported_colored=F.clone(imported_created);imported_colored.marks.updated[2].colorStyle=3
-expect(not pcall(C.make,codec,imported_colored,'style',imported_colored.marks.updated[2],nil,2),
-    'unverified imported colored highlight style update accepted')
 local imported_delete=C.make(codec,imported_created,'delete',imported_created.marks.updated[2])
 expect(C.validate_metadata(imported_delete.metadata) and C.check(imported,imported_delete.metadata),'imported deletion was not independently confirmed')
 local foreign=F.clone(imported_ref);foreign.source.book_id='CB_Other'

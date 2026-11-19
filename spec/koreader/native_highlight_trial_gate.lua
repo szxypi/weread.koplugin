@@ -14,9 +14,10 @@ local function same(a,b)
     for k in pairs(b) do if a[k]==nil then return false end end;return true
 end
 function M:new(input,library,codec,root)
-    assert(not input.bookmarks or input.bookmarks==true and not input.styles and not input.color_style and not input.palette)
-    assert(not input.color_style or input.color_style==true and not input.styles and not input.bookmarks and not input.palette)
-    assert(not input.palette or input.palette==true and not input.styles and not input.color_style and not input.bookmarks)
+    assert(not input.bookmarks or input.bookmarks==true and not input.styles and not input.color_style and not input.palette and not input.matrix)
+    assert(not input.color_style or input.color_style==true and not input.styles and not input.bookmarks and not input.palette and not input.matrix)
+    assert(not input.palette or input.palette==true and not input.styles and not input.color_style and not input.bookmarks and not input.matrix)
+    assert(not input.matrix or input.matrix==true and not input.palette and not input.styles and not input.color_style and not input.bookmarks)
     assert(Contract.validate_body(input.bookmarks and 'bookmark_create' or 'create',input.create_body))
     local value=setmetatable({input=input,library=library,codec=codec,path=root..(input.bookmarks and '/bookmark-trial-gate.db' or '/highlight-trial-gate.db')},self)
     local db=require('lua-ljsqlite3/init').open(value.path);db:exec('PRAGMA synchronous=FULL')
@@ -40,23 +41,23 @@ function M:advance(target)
         db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
         assert(row[1]=='create_pending' and tonumber(row[2])==1 and row[3]=='')
         for _i,id in ipairs(self.input.original_ids) do assert(id~=target) end
-        statement(db,'UPDATE trial SET phase=?,target=? WHERE id=1',self.input.palette and 'color0' or self.input.color_style and 'color3' or self.input.styles and 'style0' or 'delete',target);db:exec('COMMIT')
+        statement(db,'UPDATE trial SET phase=?,target=? WHERE id=1',self.input.matrix and 'style2' or self.input.palette and 'color0' or self.input.color_style and 'color3' or self.input.styles and 'style0' or 'delete',target);db:exec('COMMIT')
     end)
 end
 function M:advance_style(target,style)
-    assert(Key(target) and (self.input.color_style and style==2 or self.input.styles and (style==0 or style==2)))
+    assert(Key(target) and ((self.input.color_style or self.input.matrix) and style==2 or self.input.styles and (style==0 or style==2)))
     self:_run(function(db)
         db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
-        assert(row[1]=='style'..style..'_pending' and tonumber(row[2])==(style==0 and 2 or 3) and row[3]==target)
-        statement(db,'UPDATE trial SET phase=? WHERE id=1',style==0 and 'style2' or 'delete');db:exec('COMMIT')
+        assert(row[1]=='style'..style..'_pending' and tonumber(row[2])==(self.input.matrix and 2 or style==0 and 2 or 3) and row[3]==target)
+        statement(db,'UPDATE trial SET phase=? WHERE id=1',self.input.matrix and 'color0' or style==0 and 'style2' or 'delete');db:exec('COMMIT')
     end)
 end
 function M:advance_color(target,color)
-    assert(Key(target) and (self.input.color_style and color==3 or self.input.palette and (color==0 or color==3)))
+    assert(Key(target) and (self.input.color_style and color==3 or self.input.palette and (color==0 or color==3) or self.input.matrix and color==0))
     self:_run(function(db)
         db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
-        assert(row[1]=='color'..color..'_pending' and tonumber(row[2])==(self.input.palette and color==3 and 3 or 2) and row[3]==target)
-        statement(db,'UPDATE trial SET phase=? WHERE id=1',self.input.palette and (color==0 and 'color3' or 'delete') or 'style2');db:exec('COMMIT')
+        assert(row[1]=='color'..color..'_pending' and tonumber(row[2])==((self.input.matrix or self.input.palette and color==3) and 3 or 2) and row[3]==target)
+        statement(db,'UPDATE trial SET phase=? WHERE id=1',self.input.matrix and 'delete' or self.input.palette and (color==0 and 'color3' or 'delete') or 'style2');db:exec('COMMIT')
     end)
 end
 function M:claim(operation,body)
@@ -64,20 +65,20 @@ function M:claim(operation,body)
     local action=operation
     if self.input.bookmarks then
         assert(operation=='bookmark_create' or operation=='bookmark_delete');action=operation=='bookmark_create' and 'create' or 'delete'
-    else assert(operation=='create' or operation=='delete' or operation=='style' or (self.input.color_style or self.input.palette) and operation=='color') end
+    else assert(operation=='create' or operation=='delete' or operation=='style' or (self.input.color_style or self.input.palette or self.input.matrix) and operation=='color') end
     return self:_run(function(db)
         db:exec('BEGIN IMMEDIATE');local row=assert(statement(db,'SELECT phase,posts,target FROM trial WHERE id=1'))
         local expected=self.input.create_body
-        local phase=action;local posts=action=='create' and 0 or (self.input.styles or self.input.color_style or self.input.palette) and 3 or 1
+        local phase=action;local posts=action=='create' and 0 or (self.input.styles or self.input.color_style or self.input.palette or self.input.matrix) and 3 or 1
         if operation=='style' then
-            assert(Key(row[3]) and (self.input.color_style and row[1]=='style2' or self.input.styles and (row[1]=='style0' or row[1]=='style2')))
-            local style=row[1]=='style0' and 0 or 2;phase=row[1];posts=style==0 and 1 or 2
+            assert(Key(row[3]) and ((self.input.color_style or self.input.matrix) and row[1]=='style2' or self.input.styles and (row[1]=='style0' or row[1]=='style2')))
+            local style=row[1]=='style0' and 0 or 2;phase=row[1];posts=(self.input.matrix or style==0) and 1 or 2
             expected={bookmarkId=row[3],style=style,colorStyle=self.input.color_style and 3 or self.input.create_body.colorStyle}
         end
         if operation=='color' then
-            assert(Key(row[3]) and (self.input.color_style and row[1]=='color3' or self.input.palette and (row[1]=='color0' or row[1]=='color3')))
-            local color=row[1]=='color0' and 0 or 3;phase=row[1];posts=self.input.palette and color==3 and 2 or 1
-            expected={bookmarkId=row[3],style=1,colorStyle=color}
+            assert(Key(row[3]) and (self.input.color_style and row[1]=='color3' or self.input.palette and (row[1]=='color0' or row[1]=='color3') or self.input.matrix and row[1]=='color0'))
+            local color=row[1]=='color0' and 0 or 3;phase=row[1];posts=(self.input.matrix or self.input.palette and color==3) and 2 or 1
+            expected={bookmarkId=row[3],style=self.input.matrix and 2 or 1,colorStyle=color}
         end
         if action=='delete' then
             assert(Key(row[3]));expected={bookmarkIds={row[3]}}

@@ -1,0 +1,21 @@
+{
+  "result": "CB_FIXTURE_STYLE_COLOR_VERIFIED",
+  "fixture": "self-authored XHTML EPUB",
+  "fixture_only": true,
+  "initial_styles_verified": [0, 2],
+  "initial_colors_verified_per_style": [0, 1, 2, 3, 4, 5],
+  "style_transitions_verified_per_color": [[0, 2], [2, 1], [1, 0], [2, 0], [0, 1], [1, 2]],
+  "modified_colors_verified_per_style": [0, 1, 2, 3, 4, 5],
+  "color_update_styles_verified": [0, 2],
+  "annotation_posts": 72,
+  "independent_readbacks": 72,
+  "authentication_posts": 0,
+  "existing_book_writes": 0,
+  "source_and_catalog_unchanged": true,
+  "original_records_restored": true,
+  "fixture_removed": true,
+  "shelf_baseline_restored": true,
+  "no_replay": true,
+  "private_values_in_report": false,
+  "prior_source_unverified_attempt": {"annotation_posts": 0, "fixture_removed": true, "shelf_baseline_restored": true}
+}
