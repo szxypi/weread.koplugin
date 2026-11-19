@@ -280,6 +280,7 @@ jobs:
           python3 scripts/test_annotation_experiment.py
           python3 scripts/test_cb_fixture_thought_trial.py
           python3 scripts/test_verify_cb_fixture_thought_trial.py
+          python3 scripts/test_verify_cb_fixture_thought_native.py
           for case in normal seed_create thought_create thought_edit thought_delete seed_delete; do
             python3 scripts/test_cb_fixture_thought_runtime.py --case "$case"
           done

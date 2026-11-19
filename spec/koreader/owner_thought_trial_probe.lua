@@ -40,7 +40,8 @@ local ok,reason=pcall(function()
     function Settings:new()
         local value=settings_new(self);assert(not value.mock_endpoint)
         if input.mock_port then
-            assert(grant.vid=='900000' and grant.accessToken=='synthetic-native-access' and input.book_id=='41'
+            assert(grant.vid=='900000' and (grant.accessToken=='synthetic-native-access' and input.book_id=='41'
+                or grant.accessToken=='mock-native-access' and input.book_id=='CB_SyntheticResume')
                 and os.getenv('WEREAD_NATIVE_THOUGHT_MOCK')==tostring(input.mock_port))
             value.mock_endpoint='http://127.0.0.1:'..input.mock_port
         else assert(not os.getenv('WEREAD_NATIVE_THOUGHT_MOCK')) end
