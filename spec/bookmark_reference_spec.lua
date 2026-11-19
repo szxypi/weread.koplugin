@@ -42,4 +42,14 @@ end
 bad=Clone(input);bad.metadata='stale';expect(not Ref.capture_native(bad,archive),'stale native metadata accepted')
 bad=Clone(input);bad.chapters={};expect(not Ref.capture_native(bad,archive),'guessed chapter index accepted')
 expect(not Ref.valid(row,'900002'),'foreign account book accepted')
+local cb_book={book_id='CB_Synthetic',bookVersion=7,chapters=chapters,cached_file='/cached.epub'}
+local cb_root=Identity.encode(cb_book,chapters,Identity.capture(cb_book),Crypto.sha256_hex(raw));local cb_identity=assert(Identity.decode(cb_root))
+local cb_meta=assert(Source.bind(assert(Source.capture(cb_book,chapters[1],raw,'web_xhtml')),cb_identity,path,Crypto.sha256_hex(raw)))
+members[Identity.PATH]=cb_root;members[Source.meta_path('2')]=cb_meta;members[Source.path_meta_path(path)]=cb_meta
+local cb_input=Clone(input);cb_input.book_id='CB_Synthetic';cb_input.identity=cb_identity;cb_input.metadata=cb_meta
+local cb_row,cb_why=Ref.capture_native(cb_input,archive);assert(cb_row,cb_why)
+expect(Ref.valid(cb_row,'CB_Synthetic') and Ref.verify(cb_row,cb_book,nil,archive),'imported bookmark reference rejected')
+expect(not Ref.valid(cb_row,'CB_Other') and not Ref.verify(cb_row,book,nil,archive),'foreign imported bookmark reference accepted')
+local cb_bad=Clone(cb_row);cb_bad.markText='Too short'
+expect(not Ref.verify(cb_bad,cb_book,nil,archive),'short imported preview accepted')
 print('bookmark_reference_spec: '..checks..' checks')

@@ -13,13 +13,13 @@ package.preload['weread.ui.mark_editor']=function() return {cancel=function() en
 end} end
 package.preload['weread.lib.bookmark_reference']=function() return {
     capture_native=function(input) assert(input.chapters[1].chapterUid==2);return {bookmark=true,type=0,range='15',markText='Source preview'} end,
-    valid=function(row,id) return row.bookmark and id=='41' end,
+    valid=function(row,id) return row.bookmark and (id=='41' or id=='CB_Synthetic') end,
 } end
 package.preload['weread.lib.source_context']=function() return {
     location=function(document,mode) return {point=document.point,view_mode=mode} end,
     same_location=function(a,b) return a and b and a.point==b.point and a.view_mode==b.view_mode end,
     capture=function(document,id,location,options)
-        assert(options.is_current() and location.point==document.point and id=='41')
+        assert(options.is_current() and location.point==document.point and (id=='41' or id=='CB_Synthetic'))
         return {file=document.file,book_id=id,text='Source preview',point_offset=0}
     end,
 } end
@@ -66,4 +66,8 @@ host,f=fixture();host.ui.highlight.selected_text={text='Active selection'}
 expect(not Selection.open_bookmark(host) and not host._selection_thought_owner and f.cancels==0,'active selection reused as page origin')
 host,f=fixture();host._translation_mode='translation';expect(not Selection.open_bookmark(host) and f.cancels==0,'translated page became original bookmark')
 host,f=fixture();f.account=nil;expect(not Selection.open_bookmark(host),'logged-out page opened bookmark')
+host,f=fixture();host.detectWeReadBook=function() return 'CB_Synthetic' end
+expect(Selection.open_bookmark(host),'imported current-page action rejected');advance();f.done(f.task());owner=host._selection_thought_owner
+expect(owner.imported and owner.reference and find(owner,'Save cloud bookmark'),'imported bookmark owner missing')
+find(owner,'Save cloud bookmark').callback();expect(actions[#actions]=='bookmark_create','imported point used wrong operation')
 print('bookmark_ui_scope_spec: '..checks..' checks')

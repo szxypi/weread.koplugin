@@ -9,8 +9,8 @@ local function fail(reason) error('my_marks/'..reason,0) end
 function M.id(value)
     return type(value)=='string' and #value<=20 and value:match('^[1-9]%d*$') and value or nil
 end
--- Reading imported-book annotations does not authorize editing or interpret
--- their original-text ranges. Mutation contracts continue to use id().
+-- Reading imported-book annotations does not itself authorize editing or
+-- interpret source coordinates; mutation contracts apply separate checks.
 function M.display_id(value)
     return type(value)=='string' and require('weread.lib.read_access').display_book_id(value) or nil
 end

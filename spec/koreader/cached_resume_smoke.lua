@@ -114,7 +114,7 @@ local function check_cb_notes(reader,current,seed)
     end
     local entries={}
     for _i,item in ipairs(current:getMainMenuItems()) do if item.text then entries[item.text]=item end end
-    assert(not entries[tr('Save cloud bookmark')], 'imported book exposed unvalidated bookmark writing')
+    assert(entries[tr('Save cloud bookmark')], 'imported book bookmark entry is missing')
     for _i,case in ipairs({{'My cloud highlights','synthetic-highlight'},
         {'My cloud bookmarks','synthetic-bookmark'},{'My cloud thoughts','synthetic-thought'}}) do
         local item=assert(entries[tr(case[1])]);item.callback()
@@ -125,7 +125,8 @@ local function check_cb_notes(reader,current,seed)
         local popup=assert(owner.menu._shelf_popup)
         local buttons=popup.button_table
         if case[2]=='synthetic-bookmark' then
-            assert(not buttons or not buttons:getButtonById('open_bookmark'),'imported book exposed bookmark navigation')
+            assert(buttons and buttons:getButtonById('delete_bookmark') and not buttons:getButtonById('open_bookmark'),
+                'imported bookmark missing deletion or exposed navigation without a preview')
         else
             assert(buttons and buttons:getButtonById(case[2]=='synthetic-highlight' and 'open_highlight' or 'open_thought_quote'),
                 'imported book did not expose source-verified navigation')
@@ -133,8 +134,7 @@ local function check_cb_notes(reader,current,seed)
         if buttons then
             if case[2]=='synthetic-highlight' then assert(buttons:getButtonById('delete_highlight'),
                 'imported highlight deletion missing') end
-            for _j,name in ipairs({'delete_bookmark','change_highlight_style','change_highlight_color',
-                'thought_create','thought_edit','thought_delete'}) do
+            for _j,name in ipairs({'change_highlight_style','change_highlight_color'}) do
                 assert(not buttons:getButtonById(name),'imported book exposed editing')
             end
         end

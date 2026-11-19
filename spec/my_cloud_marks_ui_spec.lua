@@ -95,14 +95,16 @@ cb.updated[2].range='25'
 host,value=fixture(cb)
 expect(Marks.show(host,'CB_Synthetic','bookmarks') and not value.started,'imported-book bookmarks did not open offline')
 menu=host._my_marks_menu;row(menu,'合成章节').callback()
-expect(not menu._shelf_popup.buttons_table,'imported-book bookmark exposed unverified navigation or deletion')
+expect(#menu._shelf_popup.buttons_table==1 and menu._shelf_popup.buttons_table[1][1].id=='delete_bookmark',
+    'imported-book bookmark exposed unverified navigation or hid deletion')
 Marks.cancel(host)
 cb.updated[2].markText='独一无二的导入书书签原文预览文字。'
 host=fixture(cb)
 expect(Marks.show(host,'CB_Synthetic','bookmarks'),'imported-book bookmarks did not reopen')
 menu=host._my_marks_menu;row(menu,cb.updated[2].markText).callback()
-expect(#menu._shelf_popup.buttons_table==1 and menu._shelf_popup.buttons_table[1][1].id=='open_bookmark',
-    'imported-book preview did not expose only source-verified bookmark navigation')
+expect(#menu._shelf_popup.buttons_table==2 and menu._shelf_popup.buttons_table[1][1].id=='open_bookmark'
+    and menu._shelf_popup.buttons_table[2][1].id=='delete_bookmark',
+    'imported-book bookmark did not expose source-verified navigation and deletion')
 Marks.cancel(host)
 -- Explicit expiry permits one parent-owned renewal and one replayed GET only.
 host,value=fixture(snapshot());value.online=true;Marks.show(host,'900001');menu=host._my_marks_menu

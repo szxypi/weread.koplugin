@@ -36,6 +36,16 @@ expect(not pcall(C.make,codec,added,'bookmark_create',ref,{bookId='900001',versi
 local deletion=C.make(codec,added,'bookmark_delete',target)
 expect(C.validate_body('bookmark_delete',deletion.body) and C.validate_metadata(deletion.metadata),'bookmark deletion invalid')
 expect(C.check(snapshot,deletion.metadata) and not C.check(added,deletion.metadata),'exact deletion not independently confirmed')
+local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.book_id=imported.book_id;imported.thoughts.book_id=imported.book_id
+local cb_ref=F.clone(ref);cb_ref.source.book_id=imported.book_id
+local cb_plan=C.make(codec,imported,'bookmark_create',cb_ref,{bookId=imported.book_id,version=77})
+expect(C.validate_body('bookmark_create',cb_plan.body) and C.validate_metadata(cb_plan.metadata),'imported bookmark plan rejected')
+local cb_added=F.clone(imported);cb_added.marks.updated[2]=F.clone(target)
+expect(C.check(cb_added,cb_plan.metadata),'imported bookmark readback not confirmed')
+local cb_delete=C.make(codec,cb_added,'bookmark_delete',cb_added.marks.updated[2])
+expect(C.validate_metadata(cb_delete.metadata) and C.check(imported,cb_delete.metadata),'imported bookmark deletion failed')
+local foreign=F.clone(cb_ref);foreign.source.book_id='CB_Other'
+expect(not pcall(C.make,codec,imported,'bookmark_create',foreign,{bookId=imported.book_id,version=77}),'foreign imported bookmark accepted')
 expect(not pcall(C.make,codec,added,'delete',target),'point deleted as highlight')
 expect(not pcall(C.make,codec,added,'bookmark_delete',added.marks.updated[1]),'highlight deleted as point')
 expect(not pcall(C.make,codec,added,'bookmark_delete',F.clone(ref)),'draft used as existing record')

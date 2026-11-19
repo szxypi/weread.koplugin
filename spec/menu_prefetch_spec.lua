@@ -332,8 +332,8 @@ local imported_reader_items = host:getMainMenuItems()
 expect(menu_has(imported_reader_items, "My cloud highlights")
         and menu_has(imported_reader_items, "My cloud thoughts")
         and menu_has(imported_reader_items, "My cloud bookmarks")
-        and not menu_has(imported_reader_items, "Save cloud bookmark"),
-    "imported book did not expose only the validated personal-note readers")
+        and menu_has(imported_reader_items, "Save cloud bookmark"),
+    "imported book did not expose its validated personal-note and bookmark entries")
 
 host.detectWeReadBook = function() return "mp-book" end
 local mp_reader_items = host:getMainMenuItems()

@@ -204,6 +204,7 @@ local zh = {
     ["My cloud highlights"] = "我的云端划线",
     ["Imported book notes can be viewed here; editing and opening their location are not yet supported."] = "导入书笔记目前支持查看，暂不支持编辑或跳转原文位置。",
     ["Imported book thought quotes can be located when verified; editing is not yet supported."] = "导入书想法可在核对后定位，暂不支持编辑。",
+    ["Imported book bookmarks can be saved and deleted; locating requires a unique verified preview."] = "导入书书签可保存或删除；定位需核对唯一原文预览。",
     ["Imported book private thoughts can be edited and deleted after verification."] = "导入书私密想法核对后可编辑或删除。",
     ["Imported book highlights support private thoughts, saving and deletion after verification."] = "导入书划线核对后可保存、删除及创建私密想法。",
     ["Imported book highlights can be located when verified; bookmark location and editing are not yet supported."] = "导入书划线可在核对后定位，暂不支持书签定位或编辑。",

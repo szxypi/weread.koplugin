@@ -92,7 +92,7 @@ end
 function M.open(host,selection,bookmark)
     M.cancel(host)
     local document=host.ui and host.ui.document;local id=host:detectWeReadBook()
-    if not document or not Marks.display_id(id) or bookmark and not Marks.id(id) or not bookmark and (type(selection)~='table' or type(selection.text)~='string'
+    if not document or not Marks.display_id(id) or not bookmark and (type(selection)~='table' or type(selection.text)~='string'
         or #selection.text==0 or type(selection.pos0)~='string' or type(selection.pos1)~='string'
         ) or bookmark and host.ui.highlight and host.ui.highlight.selected_text
         or host._translation_mode and host._translation_mode~='original' then return false end

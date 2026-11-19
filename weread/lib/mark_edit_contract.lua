@@ -55,7 +55,7 @@ local function creating(operation) return operation=='create' or operation=='boo
 local function deleting(operation) return operation=='delete' or operation=='bookmark_delete' end
 local function updating(operation) return operation=='style' or operation=='color' end
 local function supported(book,operation)
-    return Marks.id(book)~=nil or Marks.display_id(book)~=nil and (operation=='create' or operation=='delete')
+    return Marks.id(book)~=nil or Marks.display_id(book)~=nil and (creating(operation) or deleting(operation))
 end
 local function preview(value)
     return type(value)=='string' and #value>0 and #value<=4096 and Protocol.utf8_substr(value,#value)==value

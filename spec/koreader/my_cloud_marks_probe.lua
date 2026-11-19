@@ -187,7 +187,7 @@ local ok,reason=pcall(function()
         local popup=assert(menu._shelf_popup);assert(type(popup.text)=='string')
         if imported then
             local buttons=popup.button_table
-            if buttons then for _j,name in ipairs({'delete_bookmark','change_highlight_style',
+            if buttons then for _j,name in ipairs({'change_highlight_style',
                 'change_highlight_color','open_bookmark'}) do
                 assert(not buttons:getButtonById(name),'imported-book unsupported action was exposed')
             end end

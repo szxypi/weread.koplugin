@@ -50,6 +50,14 @@ return function(reader,plugin,pump,clean,offline)
     assert(firsts and #firsts==1 and lasts and #lasts==1)
     local first,last=firsts[1].start,lasts[1]['end'];reader.rolling:onGotoXPointer(first);UI:forceRePaint()
     local selected={pos0=first,pos1=last,text=reader.document:getTextFromXPointers(first,last)}
+    local function same(a,b)
+        if type(a)~=type(b) then return false end
+        if type(a)~='table' then return a==b end
+        for key,value in pairs(a) do if not same(value,b[key]) then return false end end
+        for key in pairs(b) do if a[key]==nil then return false end end
+        return true
+    end
+    dofile('/source/spec/koreader/bookmark_editor_smoke.lua')(reader,plugin,pump,function() end,clean,row,tap,request,same)
     local transport=plugin.client.request;local parent=tonumber(require('ffi').C.getpid())
     function plugin.client:request(options)
         local operation=({['https://i.weread.qq.com/book/addBookmark']='create',
@@ -201,5 +209,5 @@ return function(reader,plugin,pump,clean,offline)
         unknown_result_no_replay=true,read_only_recovery=true,default_style_bound=true,unverified_actions_hidden=true,
         pending_survives_offline_reopen=true,private_thought_create_edit_delete=true,selection_thought_draft_and_writes=true,
         changed_selection_source_keeps_draft=true,selection_pending_offline_no_replay=true,
-        mock_data_posts=11,real_account_posts=0});file:close()
+        imported_bookmark_save_locate_delete=true,mock_data_posts=13,real_account_posts=0});file:close()
 end

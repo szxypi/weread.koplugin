@@ -284,6 +284,11 @@ jobs:
           python3 scripts/test_cb_fixture_selection_trial.py
           python3 scripts/test_verify_cb_fixture_selection_trial.py
           python3 scripts/test_verify_cb_fixture_selection_native.py
+          python3 scripts/test_cb_fixture_bookmark_trial.py
+          python3 scripts/test_verify_cb_fixture_bookmark_trial.py
+          for case in normal seed_create seed_delete; do
+            python3 scripts/test_cb_fixture_bookmark_runtime.py --case "$case"
+          done
           python3 scripts/test_cb_fixture_selection_runtime.py
           python3 scripts/test_cb_fixture_selection_runtime.py --associated
           python3 scripts/test_cb_fixture_selection_runtime.py --associated --auto-remove

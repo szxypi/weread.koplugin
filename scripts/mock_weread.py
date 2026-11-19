@@ -381,14 +381,16 @@ class MockServer(ThreadingHTTPServer):
                     if path=='/book/addBookmark':
                         from bookmark_point import from_mark,project
                         required={'bookId','chapterUid','bookVersion','type','style','range','markText'}
-                        if (set(data)!=required or data['bookId']!=BOOK_ID or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style'))
+                        selection_id=CB_READING_ID if self.cb_reading else BOOK_ID
+                        if (set(data)!=required or data['bookId']!=selection_id or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style'))
                                 or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=700
                                 or data['type']!=0 or data['style']!=0):raise ValueError('invalid bookmark body')
-                        raw=self.chapter_source(data['chapterUid']);point=from_mark(raw,BOOK_ID,str(data['chapterUid']),data)
+                        raw=self.chapter_source(data['chapterUid']);point=from_mark(raw,selection_id,str(data['chapterUid']),data)
                         if project(raw,point['chapter_offset'])['markText']!=data['markText']:raise ValueError('invalid bookmark preview')
                         identity='synthetic-new-bookmark-'+str(self.bookmark_posts+1)
                         # One supported server shape omits the point preview.
                         row=dict(bookmarkId=identity,type=0,style=0,chapterUid=data['chapterUid'],range=data['range'],createTime=1700000001)
+                        if self.cb_reading:row['markText']=data['markText']
                         with self.lock:
                             if control['selection_thought_mode']!='no_change':self.selection_marks[identity]=row
                         result=dict(bookmarkId=identity)

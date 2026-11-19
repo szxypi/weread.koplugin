@@ -51,7 +51,7 @@ render=function(host,owner)
         for _i,item in ipairs(owner.value and owner.value.chapters or {}) do owner.chapter_titles[item.chapterUid]=item.title end
         local items={{text=_(owner.labels.refresh),callback=function() if current(host,owner) then refresh(host,owner) end end}}
         if not owner.writable then
-            local notice=owner.bookmarks and 'Imported book bookmarks can be located when their preview is uniquely verified; editing is not yet supported.'
+            local notice=owner.bookmarks and 'Imported book bookmarks can be saved and deleted; locating requires a unique verified preview.'
                 or owner.thoughts and 'Imported book private thoughts can be edited and deleted after verification.'
                 or 'Imported book highlights support private thoughts, saving and deletion after verification.'
             items[#items+1]={text=_(notice),select_enabled=false}
@@ -113,7 +113,7 @@ render=function(host,owner)
                             end}}}
                         end
                         local editor=require('weread.ui.thought_editor')
-                        if owner.writable and not owner.thoughts and row.type==0 and target.can_locate(row) then
+                        if owner.mark_writable and not owner.thoughts and row.type==0 and target.can_locate(row) then
                             buttons=buttons or {};buttons[#buttons+1]={{id='delete_bookmark',text=_('Delete cloud bookmark'),callback=function()
                                 if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                 stop(host,owner);require('weread.ui.mark_editor').start(host,owner,'bookmark_delete',row,current,render)

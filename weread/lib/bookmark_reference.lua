@@ -10,8 +10,8 @@ local M={}
 local function fail(reason) error('bookmark_reference/'..reason,0) end
 local function key(uid,point,sha) return 'bookmark:'..uid..':'..point..':'..sha end
 function M.valid(row,book)
-    local source=type(row)=='table' and Currentness.expected(row.source)
-    return source~=nil and Marks.id(book)==book and source.book_id==book and row.bookmark==true and row.type==0
+    local source=type(row)=='table' and (Marks.id(book) and Currentness.expected(row.source) or Currentness.expected_cb(row.source))
+    return source~=nil and Marks.display_id(book)==book and source.book_id==book and row.bookmark==true and row.type==0
         and Point.can_locate(row) and tostring(row.chapterUid)==source.chapter_uid and row.chapterIdx==source.chapter_idx
         and row.bookmarkId==key(source.chapter_uid,row.range,source.raw_sha256)
         and type(row.markText)=='string' and #row.markText>0 and #row.markText<=4096

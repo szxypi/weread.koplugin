@@ -3,7 +3,7 @@ local F=require('spec.helpers.mark_edit_fixture');local C=require('weread.lib.ma
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
 local codec=F.codec();local snapshot=F.snapshot(codec);local ref=F.reference()
 local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.book_id='CB_Synthetic';imported.thoughts.book_id='CB_Synthetic'
-for _i,operation in ipairs({'style','color','bookmark_create','bookmark_delete'}) do
+for _i,operation in ipairs({'style','color'}) do
     expect(not pcall(C.make,codec,imported,operation,ref,{bookId='CB_Synthetic',version=77},1,1),
         'read-only imported book gained mark-write authority: '..operation)
 end

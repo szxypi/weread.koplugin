@@ -107,7 +107,8 @@ class ScopedNative(NativeProbe):
 
 
 def run(saved, session, native_store, grant, journal, intent, *, apply=False,
-        uploader=upload_run, upload_factory=UploadProbe, native_factory=ScopedNative, source_factory=CbReadingProbe):
+        uploader=upload_run, upload_factory=UploadProbe, native_factory=ScopedNative, source_factory=CbReadingProbe,
+        prepare_fn=prepare, execute_fn=execute, final_check=None, result_label='CB_FIXTURE_HIGHLIGHT_VERIFIED'):
     report = dict(result='UNVERIFIED', phase='preflight', annotation_posts=0, authentication_posts=0,
                   existing_book_writes=0, fixture_only=True, private_values_in_report=False)
     current = {'saved': saved, 'sample': None, 'native': None, 'trial': None}
@@ -138,11 +139,12 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         try:
             before = native.observe(grant); version = native.version(grant)
             if native.version(grant) != version: raise ValueError('cb_highlight/version_changed')
-            plan, body = prepare(owner, target, state['attempt'], sample, version, before)
+            plan, body = prepare_fn(owner, target, state['attempt'], sample, version, before)
             native.body = body
-            current['trial'] = execute(plan, body, before, intent, authority,
+            current['trial'] = execute_fn(plan, body, before, intent, authority,
                                        lambda: native.observe(grant), lambda stage, value, permit: native.send(stage, value, permit, grant))
-            if native.posts != 2 or native.observe(grant) != before: return False
+            after_marks=native.observe(grant)
+            if native.posts != 2 or not (final_check(before,after_marks,body) if final_check else after_marks==before): return False
             old = sample; current['sample'] = None
             if not source(target): return False
             after = current['sample']
@@ -162,7 +164,7 @@ def run(saved, session, native_store, grant, journal, intent, *, apply=False,
         report['upload'] = result; report['phase'] = result.get('phase', 'unknown')
         if result.get('result') == 'READ_ONLY_PREVIEW': report['result'] = 'READ_ONLY_PREVIEW'
         elif result.get('result') == 'EPUB_IMPORT_AND_SOURCE_VERIFIED' and current['trial'] and current['trial']['result'] == 'PASS':
-            report.update(result='CB_FIXTURE_HIGHLIGHT_VERIFIED', original_records_restored=True,
+            report.update(result=result_label, original_records_restored=True,
                           fixture_removed=True, no_replay=True)
     except Exception:
         report['result'] = 'UNVERIFIED'
