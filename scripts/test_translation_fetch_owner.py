@@ -1,7 +1,7 @@
 import contextlib,hashlib,io,json,subprocess,unittest
 from unittest.mock import patch
-from run_translation_fetch_owner import ANNOTATION_FLAGS,RANGE_FLAGS,FLAGS,FRAME as NATIVE_FRAME,decode,payload_valid,validate_stage
-from verify_translation_fetch_owner import FRAME,execute,main,observation,synthetic_source
+from run_translation_fetch_owner import ANNOTATION_FLAGS,RANGE_FLAGS,FULL_FLAGS,FLAGS,FRAME as NATIVE_FRAME,decode,payload_valid,validate_stage
+from verify_translation_fetch_owner import FRAME,execute,main,observation,synthetic_source,member_source,readable_catalog
 from translation_owner_excerpt import original_excerpt
 
 
@@ -66,6 +66,44 @@ class TranslationOwnerTest(unittest.TestCase):
         with self.assertRaises(ValueError):validate_stage(value,'live')
         validate_stage(dict(value,requests=64),'live',range_mode=True)
         with self.assertRaises(ValueError):validate_stage(dict(value,requests=65),'live',range_mode=True)
+
+    def test_full_requires_bounded_unique_catalog_and_each_evidence_flag(self):
+        item=payload();item.update(chapter_uids=['1','2','3','4'],source_hashes=[item['source_sha256']]*4,block_counts=[12,0,12,12])
+        payload_valid(item,full_mode=True)
+        for change in (dict(chapter_uids=['1']),dict(chapter_uids=['1']*4),dict(block_counts=[12,0,12,-1]),
+                dict(chapter_uids=[str(i) for i in range(1,17)]),dict(source_hashes=[item['source_sha256']]*3)):
+            with self.subTest(field=list(change)),self.assertRaises(ValueError):payload_valid(dict(item,**change),full_mode=True)
+        with self.assertRaises(ValueError):payload_valid(item,range_mode=True,full_mode=True)
+        value=dict(stage('live'),**{key:True for key in FULL_FLAGS})
+        validate_stage(value,'live',full_mode=True)
+        for flag in FULL_FLAGS:
+            with self.subTest(flag=flag),self.assertRaises(ValueError):validate_stage(dict(value,**{flag:False}),'live',full_mode=True)
+        validate_stage(dict(value,requests=128),'live',full_mode=True)
+        with self.assertRaises(ValueError):validate_stage(dict(value,requests=129),'live',full_mode=True)
+
+    def test_full_catalog_and_membership_read_are_scope_bound(self):
+        rows=[dict(uid=1,wordCount=200),dict(uid=2,wordCount=1),dict(uid=3,wordCount=0)]
+        raw=[dict(chapterUid=1,title='A'),dict(chapterUid=2,title='B'),dict(chapterUid=3,title='封面')]
+        sample=dict(book_id='900001',expected=dict(chapters=rows),source=dict(data=[dict(bookId='900001',updated=raw)]))
+        self.assertEqual(readable_catalog(sample),rows[:2])
+        for bad in (dict(sample,source=dict(data=[])),dict(sample,source=dict(data=[dict(bookId='900001',updated=list(reversed(raw)))])),
+                dict(sample,expected=dict(chapters=rows[:1]))):
+            with self.assertRaises(ValueError):readable_catalog(bad)
+        class Web:
+            def __init__(self):self.stages=[]
+            def request(self,stage,url,body=None,as_json=True):self.stages.append(stage);return 'raw'
+        web=Web()
+        for uid,paying in ((1,False),(1,None),(0,True),(3,True),(4,True)):
+            with self.subTest(uid=uid,paying=paying),self.assertRaises(ValueError):member_source(web,sample,uid,paying)
+        self.assertEqual(web.stages,[])
+        with (patch('verify_translation_fetch_owner.reader_context',return_value=dict(current_chapter=dict(chapterUid=2),psvts='test')),
+                patch('verify_translation_fetch_owner.reader_url_for',return_value='reader'),
+                patch('verify_translation_fetch_owner.make_content_params',return_value={}),
+                patch('verify_translation_fetch_owner.decode_content_shards',return_value='source'),
+                patch('verify_translation_fetch_owner.content_summary',return_value=dict(nonempty_translation_blocks=2))):
+            actual,summary=member_source(web,sample,2,True)
+        self.assertEqual((actual['chapter_uid'],summary['nonempty_translation_blocks']),(2,2))
+        self.assertEqual(web.stages,['reader','e_0','e_1','e_3'])
 
     def test_cookie_owner_and_syntax_checked(self):
         for cookies in ({},dict(wr_vid='other',wr_skey='mock_key'),dict(wr_vid='900000',wr_skey='bad;cookie'),
