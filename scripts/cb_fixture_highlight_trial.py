@@ -79,7 +79,7 @@ def prepare(owner, book, attempt, sample, version, baseline):
     return plan, body
 
 
-def execute(plan, body, baseline, intent, owned, read, send, *, validator=validate_plan):
+def execute(plan, body, baseline, intent, owned, read, send, *, validator=validate_plan, on_created=None):
     """Dispatch at most two ordered writes; exceptions never retry or clean up."""
     validator(plan)
     if digest(body) != plan['request_sha256'] or digest(baseline) != plan['baseline_sha256']:
@@ -96,6 +96,10 @@ def execute(plan, body, baseline, intent, owned, read, send, *, validator=valida
     if not target:
         raise ValueError('cb_highlight/unconfirmed')
     receipt = intent.advance(receipt, 'created', target=target)
+    if on_created is not None:
+        if not owned() or observe(baseline, read(), body, target=target) != target:
+            raise ValueError('cb_highlight/changed')
+        on_created(body, target, read)
     if not owned() or observe(baseline, read(), body, target=target) != target:
         raise ValueError('cb_highlight/changed')
     receipt = intent.advance(receipt, 'delete_pending')

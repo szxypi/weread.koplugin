@@ -72,5 +72,5 @@ def prepare(owner,book,attempt,sample,version,baseline):
     return plan,body
 
 
-def execute(plan,body,baseline,intent,owned,read,send):
-    return execute_base(plan,body,baseline,intent,owned,read,send,validator=validate_plan)
+def execute(plan,body,baseline,intent,owned,read,send,*,on_created=None):
+    return execute_base(plan,body,baseline,intent,owned,read,send,validator=validate_plan,on_created=on_created)

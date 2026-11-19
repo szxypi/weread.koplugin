@@ -183,7 +183,7 @@ local ok,reason=pcall(function()
         for index,sample in ipairs(input.chapters) do
             local uid=sample.chapter_uid;chapters[index]={chapterUid=uid,chapterIdx=index,title='章节 '..index,wordCount=1000}
             local format=sample.format or 'web_xhtml'
-            assert(format=='web_xhtml' or synthetic and format=='web_txt')
+            assert(format=='web_xhtml' or format=='web_txt')
             bodies[uid]=format=='web_txt' and Content.txt_to_xhtml(sample.raw) or sample.raw
             sources[uid]=assert(Source.capture(book,chapters[index],sample.raw,format))
         end
