@@ -30,9 +30,9 @@ function M.parse(value)
 end
 function M.valid(row,book)
     local ref=type(row)=='table' and M.parse(row.bookmarkId)
-    local expected=type(row)=='table' and Currentness.expected(row.source)
+    local expected=type(row)=='table' and (Marks.id(book) and Currentness.expected(row.source) or Currentness.expected_cb(row.source))
     local normalized=type(row)=='table' and type(row.markText)=='string' and Dom.normalize(row.markText)
-    return ref and expected and row.selection==true and row.type==1 and Marks.id(book)==book
+    return ref and expected and row.selection==true and row.type==1 and Marks.display_id(book)==book
         and expected.book_id==book and expected.chapter_uid==ref.chapter_uid and expected.raw_sha256==ref.raw_sha256
         and row.chapterUid==tonumber(ref.chapter_uid) and row.chapterIdx==expected.chapter_idx and row.range==ref.range
         and type(row.markText)=='string' and #row.markText>0 and #row.markText<=Quote.MAX_QUOTE
@@ -54,7 +54,7 @@ local function archive(file,book,uid,read)
     return verified.raw,record,meta
 end
 local function reference(book,uid,index,value)
-    if not Marks.id(book) or not Marks.id(uid) or index==nil then fail('catalog') end
+    if not Marks.display_id(book) or not Marks.id(uid) or index==nil then fail('catalog') end
     local row={selection=true,type=1,bookmarkId=identifier(uid,value.range,value.raw_sha256),range=value.range,
         chapterUid=tonumber(uid),chapterIdx=index,markText=value.abstract,source={book_id=book,chapter_uid=uid,
             chapter_idx=index,raw_sha256=value.raw_sha256,raw_bytes=value.raw_bytes}}
@@ -67,7 +67,7 @@ local function guarded(task)
 end
 function M.capture(input,read)
     return guarded(function()
-        if type(input)~='table' or not Marks.id(input.book_id) or not Marks.id(input.chapter_uid) then fail('scope') end
+        if type(input)~='table' or not Marks.display_id(input.book_id) or not Marks.id(input.chapter_uid) then fail('scope') end
         local raw=archive(input.file,input.book_id,input.chapter_uid,read)
         local value=Quote.project(raw,input.first,input.last,input.text);if not value then fail('selection') end
         return reference(input.book_id,input.chapter_uid,Candidate.chapter_index(input.chapters,input.chapter_uid),value)
@@ -76,7 +76,7 @@ end
 function M.capture_native(input,read)
     return guarded(function()
         local a,b=input.first,input.last
-        if type(a)~='table' or type(b)~='table' or not Marks.id(a.book_id) or not Marks.id(a.chapter_uid)
+        if type(a)~='table' or type(b)~='table' or not Marks.display_id(a.book_id) or not Marks.id(a.chapter_uid)
             or type(a.identity)~='table' or type(b.identity)~='table' then fail('selection') end
         for _i,key in ipairs({'book_id','chapter_uid','file','metadata','render_path'}) do if a[key]~=b[key] then fail('selection') end end
         local raw,record,metadata=archive(a.file,a.book_id,a.chapter_uid,read)
@@ -126,7 +126,7 @@ end
 function M.restore(book,current_file,key,read)
     return guarded(function()
         local parsed=M.parse(key);local id=type(book)=='table' and tostring(book.book_id or book.bookId or '')
-        if not parsed or not Marks.id(id) then fail('scope') end
+        if not parsed or not Marks.display_id(id) then fail('scope') end
         local index=Candidate.chapter_index(book.chapters,parsed.chapter_uid);if index==nil then fail('catalog') end
         local seen={}
         for _i,file in ipairs({current_file or false,book.cached_chapters and book.cached_chapters[parsed.chapter_uid] or false,

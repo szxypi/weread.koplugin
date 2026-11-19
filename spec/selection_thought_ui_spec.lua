@@ -8,7 +8,10 @@ package.preload['ui/uimanager']=function() return {
 package.preload['weread.ui.thought_editor']=function() return {cancel=function() cancelled=cancelled+1 end} end
 package.preload['weread.lib.selection_reference']=function() return {} end
 package.preload['weread.ui.shelf_popup']=function() return {close=function() end} end
-package.preload['weread.lib.my_cloud_marks']=function() return {id=function(v) return type(v)=='string' and v:match('^[1-9]%d*$') and v or nil end} end
+package.preload['weread.lib.my_cloud_marks']=function()
+    local function id(v) return type(v)=='string' and v:match('^[1-9]%d*$') and v or nil end
+    return {id=id,display_id=function(v) return id(v) or type(v)=='string' and v:match('^CB_%w+$') and v or nil end}
+end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(v) return v end} end
 package.preload['weread.lib.source_context']=function() return {
     location=function(document) return document.location end,

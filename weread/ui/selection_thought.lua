@@ -49,10 +49,10 @@ render=function(host,owner)
             if current(host,owner) then Popup.show(owner.menu,require('weread.ui.thought_text').viewer{
                 title=_(owner.bookmarks and 'Bookmark source preview' or 'Quoted text'),text=owner.reference.markText,add_default_buttons=true}) end
         end}
-        if not owner.bookmarks then items[#items+1]={text=_('Write private thought'),callback=function()
+        if not owner.bookmarks and not owner.imported then items[#items+1]={text=_('Write private thought'),callback=function()
             if current(host,owner) then Editor.start(host,owner,'create',owner.reference,current,render) end
         end} end
-        if not owner.bookmarks then
+        if not owner.bookmarks and not owner.imported then
             for _i,preference in ipairs({
                 {model=Style,key='cloud_highlight_style',label='Default highlight style',prefix='default_highlight_style_'},
                 {model=Color,key='cloud_highlight_color',label='Default highlight color',prefix='default_highlight_color_'},
@@ -75,7 +75,7 @@ render=function(host,owner)
             end
         end
     else items[#items+1]={text=_(owner.bookmarks and 'Checking bookmark position…' or 'Checking selected text…'),select_enabled=false} end
-    if not owner.bookmarks then
+    if not owner.bookmarks and not owner.imported then
     items[#items+1]={text=_('Local thought drafts'),callback=function()
         if current(host,owner) then Editor.drafts(host,owner,current,render) end
     end}
@@ -92,7 +92,7 @@ end
 function M.open(host,selection,bookmark)
     M.cancel(host)
     local document=host.ui and host.ui.document;local id=host:detectWeReadBook()
-    if not document or not Marks.id(id) or not bookmark and (type(selection)~='table' or type(selection.text)~='string'
+    if not document or not Marks.display_id(id) or bookmark and not Marks.id(id) or not bookmark and (type(selection)~='table' or type(selection.text)~='string'
         or #selection.text==0 or type(selection.pos0)~='string' or type(selection.pos1)~='string'
         ) or bookmark and host.ui.highlight and host.ui.highlight.selected_text
         or host._translation_mode and host._translation_mode~='original' then return false end
@@ -100,7 +100,7 @@ function M.open(host,selection,bookmark)
     local mode=host.ui.view and host.ui.view.view_mode or 'page'
     local owner={id=id,document=document,source_file=document.file,mode=mode,location=Context.location(document,mode),
         account=host.library_db:accountKey(),scope=host.settings:get_auth_scope(),session=host._reader_session_gen,
-        epoch=host.discovery_epoch or 0,thoughts=false,bookmarks=bookmark==true}
+        epoch=host.discovery_epoch or 0,thoughts=false,bookmarks=bookmark==true,imported=not Marks.id(id)}
     if not owner.location or not owner.account then return false end
     local menu=host:showList(_(bookmark and 'Save cloud bookmark' or 'WeRead highlight or thought'),
         {{text=_(bookmark and 'Checking bookmark position…' or 'Checking selected text…'),select_enabled=false}})
@@ -179,7 +179,7 @@ function M.attach(host)
     if not highlight or type(highlight.addToHighlightDialog)~='function' or type(highlight.removeFromHighlightDialog)~='function' then return false end
     local function factory(this)
         return {id='weread_selection_thought',text=_('WeRead highlight or thought'),show_in_highlight_dialog_func=function()
-            return Marks.id(host._current_weread_book_id)~=nil and this.selected_text and type(this.selected_text.text)=='string'
+            return Marks.display_id(host._current_weread_book_id)~=nil and this.selected_text and type(this.selected_text.text)=='string'
                 and #this.selected_text.text>0 and this.select_mode~=true and host.library_db:accountKey()~=nil
                 and (host._translation_mode==nil or host._translation_mode=='original')
         end,callback=function()

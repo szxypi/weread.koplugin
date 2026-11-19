@@ -42,4 +42,20 @@ local endpoint=F.clone(native);endpoint.point_offset=19
 local result,why=Ref.capture_native({first=native,last=endpoint,text='Unique selected quote',chapters=chapters},archive)
 expect(result and Ref.same(result,row),'native contexts did not map to same source: '..tostring(why))
 endpoint.metadata='changed';expect(not Ref.capture_native({first=native,last=endpoint,text='Unique selected quote',chapters=chapters},archive),'foreign native endpoint accepted')
+local imported_book={book_id='CB_Synthetic',bookVersion=7,chapters=chapters,cached_file='/cached.epub'}
+local imported_identity_raw=Identity.encode(imported_book,chapters,Identity.capture(imported_book),Crypto.sha256_hex(raw))
+local imported_identity=assert(Identity.decode(imported_identity_raw))
+local imported_metadata=assert(Source.bind(assert(Source.capture(imported_book,chapters[1],raw,'web_xhtml')),
+    imported_identity,path,Crypto.sha256_hex(raw)))
+members[Identity.PATH]=imported_identity_raw;members[Source.meta_path('2')]=imported_metadata;members[Source.path_meta_path(path)]=imported_metadata
+local imported=assert(Ref.capture({file='/cached.epub',book_id='CB_Synthetic',chapter_uid='2',first=15,last=36,
+    text='Unique selected quote',chapters=chapters},archive))
+expect(Ref.valid(imported,'CB_Synthetic') and Ref.verify(imported,imported_book,nil,archive),'imported source did not bind and restore')
+expect(not Ref.valid(imported,'CB_Other') and not Ref.verify(imported,book,nil,archive),'foreign imported reference was accepted')
+native.book_id='CB_Synthetic';native.identity=imported_identity;native.metadata=imported_metadata
+endpoint=F.clone(native);endpoint.point_offset=19
+local imported_native=assert(Ref.capture_native({first=native,last=endpoint,text='Unique selected quote',chapters=chapters},archive))
+expect(Ref.same(imported_native,imported),'imported native endpoints mapped to another selection')
+expect(not pcall(Contract.make,codec,F.snapshot(codec),'create',imported,'Thought',nil,{bookId='CB_Synthetic',version=77},'900000'),
+    'imported selection enabled unverified thought writing')
 print('selection_reference_spec: '..checks..' checks')

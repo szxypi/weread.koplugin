@@ -12,6 +12,7 @@ local Device=require('device');require('document/canvascontext'):init(Device)
 assert(require('weread.lib.mock_environment').save{enabled=true,host='127.0.0.1',port=tonumber(os.getenv('WEREAD_MOCK_PORT'))})
 local settings=require('weread.lib.settings'):new();assert(settings.mock_endpoint)
 local cb_resume=os.getenv('WEREAD_TEST_CB_RESUME')=='1'
+local cb_edit=os.getenv('WEREAD_TEST_CB_HIGHLIGHT_EDIT')=='1'
 local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
 local cache=settings:get('cache');cache.auto_prefetch_next_chapter=false;cache.download_book_images=false;cache.download_underlines_and_thoughts=false;settings:set('cache',cache)
 local config=settings:get('read_report');config.enabled=false;settings:set('read_report',config);settings:flush()
@@ -130,7 +131,9 @@ local function check_cb_notes(reader,current,seed)
                 'imported book did not expose source-verified navigation')
         end
         if buttons then
-            for _j,name in ipairs({'delete_bookmark','delete_highlight','change_highlight_style','change_highlight_color',
+            if case[2]=='synthetic-highlight' then assert(buttons:getButtonById('delete_highlight'),
+                'imported highlight deletion missing') end
+            for _j,name in ipairs({'delete_bookmark','change_highlight_style','change_highlight_color',
                 'thought_create','thought_edit','thought_delete'}) do
                 assert(not buttons:getButtonById(name),'imported book exposed editing')
             end
@@ -145,7 +148,8 @@ if offline then
     local reader=read_from_shelf(expected.file)
     assert(reader.document:isXPointerInCurrentPage(expected.xpointer) and reader:getCurrentPage()==expected.page)
     local position=ready(reader);assert(position.chapter_uid==expected.chapter_uid and position.basis==Source.coordinate_basis(format))
-    if cb_resume then check_cb_notes(reader,reader.weread,false) end
+    if cb_edit then dofile('/source/spec/koreader/cb_highlight_edit_smoke.lua')(reader,reader.weread,pump,clean,true)
+    elseif cb_resume then check_cb_notes(reader,reader.weread,false) end
     UI:forceRePaint();Device.screen:shot(evidence..'/cached-resume-offline.png')
     close_reader()
     print('PASS: fresh offline plugin selection -> full cached EPUB -> saved page and chapter; zero HTTP')
@@ -154,6 +158,13 @@ end
 local loaded=false;host:refreshBookshelf(nil,{on_loaded=function(ok) loaded=ok end})
 pump(function() return not host.shelf_refreshing end);assert(loaded)
 local reader,current=read_from_shelf()
+if cb_edit then
+    dofile('/source/spec/koreader/cb_highlight_edit_smoke.lua')(reader,current,pump,clean,false)
+    local position=ready(reader)
+    local file=assert(io.open(evidence..'/cached-resume-checkpoint.json','wb'))
+    file:write(json.encode{file=reader.document.file,page=reader:getCurrentPage(),xpointer=reader.document:getXPointer(),chapter_uid=position.chapter_uid});file:close()
+    close_reader();print('PASS: imported highlight editing and offline checkpoint');os.exit(0)
+end
 if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
 current:showChapterList(book(current))

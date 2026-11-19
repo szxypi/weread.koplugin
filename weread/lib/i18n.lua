@@ -207,6 +207,7 @@ local zh = {
     ["Imported book highlights can be located when verified; bookmark location and editing are not yet supported."] = "导入书划线可在核对后定位，暂不支持书签定位或编辑。",
     ["Imported book bookmarks can be located when their preview is uniquely verified; editing is not yet supported."] = "导入书书签的预览文字通过唯一性核对后可定位，暂不支持编辑。",
     ["Imported book marks can be located when their source is verified; editing is not yet supported."] = "导入书标记通过原文核对后可定位，暂不支持编辑。",
+    ["Imported book highlights can be saved and deleted after verification; other editing is not yet supported."] = "导入书划线核对后可保存或删除，其他编辑暂不支持。",
     ["Highlight"] = "划线",
     ["Bookmark"] = "书签",
     ["Cloud mark"] = "云端标记",

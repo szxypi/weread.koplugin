@@ -81,14 +81,15 @@ local cb=snapshot();cb.book_id='CB_Synthetic'
 host,value=fixture(cb)
 expect(Marks.show(host,'CB_Synthetic') and not value.started,'imported-book highlights did not open offline')
 menu=host._my_marks_menu
-expect(not pcall(row,menu,'Local thought drafts') and not pcall(row,menu,'Check last cloud mark change'),
-    'read-only imported book exposed editing actions')
-expect(row(menu,'Imported book marks can be located when their source is verified; editing is not yet supported.').select_enabled==false,
-    'imported-book read-only limitation was not visible')
+expect(not pcall(row,menu,'Local thought drafts') and row(menu,'Check last cloud mark change'),
+    'imported book exposed thoughts or hid mark recovery')
+expect(row(menu,'Imported book highlights can be saved and deleted after verification; other editing is not yet supported.').select_enabled==false,
+    'imported-book editing limitation was not visible')
 row(menu,'合成引用').callback()
-expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and #menu._shelf_popup.buttons_table==1
-    and menu._shelf_popup.buttons_table[1][1].id=='open_highlight',
-    'imported-book highlight did not expose only verified-source navigation')
+expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and #menu._shelf_popup.buttons_table==2
+    and menu._shelf_popup.buttons_table[1][1].id=='open_highlight'
+    and menu._shelf_popup.buttons_table[2][1].id=='delete_highlight',
+    'imported-book highlight did not expose navigation and verified deletion')
 Marks.cancel(host)
 cb.updated[2].range='25'
 host,value=fixture(cb)

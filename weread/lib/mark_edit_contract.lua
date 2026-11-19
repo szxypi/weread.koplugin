@@ -54,6 +54,9 @@ end
 local function creating(operation) return operation=='create' or operation=='bookmark_create' end
 local function deleting(operation) return operation=='delete' or operation=='bookmark_delete' end
 local function updating(operation) return operation=='style' or operation=='color' end
+local function supported(book,operation)
+    return Marks.id(book)~=nil or Marks.display_id(book)~=nil and (operation=='create' or operation=='delete')
+end
 local function preview(value)
     return type(value)=='string' and #value>0 and #value<=4096 and Protocol.utf8_substr(value,#value)==value
         and not value:find('[%z\1-\8\11\12\14-\31\127]') and require('weread.lib.source_dom').normalize(value)~=''
@@ -63,12 +66,13 @@ function M.validate_body(operation,body)
     local allowed
     if creating(operation) then
         allowed={bookId=true,chapterUid=true,bookVersion=true,type=true,style=true,colorStyle=true,range=true,markText=true}
-        if not Marks.id(body.bookId) or not integer(body.chapterUid,2147483647) or body.chapterUid==0
+        if not supported(body.bookId,operation) or not integer(body.chapterUid,2147483647) or body.chapterUid==0
             or not integer(body.bookVersion,2147483647) or body.bookVersion==0 then return false end
         if operation=='bookmark_create' then
             allowed.colorStyle=nil
             if body.type~=0 or body.style~=0 or Point.point(body.range)==nil or not preview(body.markText) then return false end
         elseif body.type~=1 or not Style.valid(body.style) or not Color.valid(body.colorStyle)
+            or not Marks.id(body.bookId) and (body.style~=1 or body.colorStyle~=0)
             or not Base.valid_content(body.markText) or #body.markText>4096 or not range(body) then return false end
     elseif deleting(operation) then
         allowed={bookmarkIds=true}
@@ -88,7 +92,7 @@ end
 function M.make(client,snapshot,operation,reference,metadata,style,color)
     local book=type(snapshot)=='table' and snapshot.book_id
     snapshot=Data.validate(client,snapshot,book)
-    if not Marks.id(book) or not creating(operation) and not deleting(operation) and not updating(operation) or type(reference)~='table' then fail('operation') end
+    if not supported(book,operation) or not creating(operation) and not deleting(operation) and not updating(operation) or type(reference)~='table' then fail('operation') end
     local row,body
     if creating(operation) then
         if operation=='bookmark_create' then
@@ -145,7 +149,7 @@ function M.make(client,snapshot,operation,reference,metadata,style,color)
         chapter_without_hash=chapters_hash(snapshot.marks.chapters,uid),chapter_uid=uid,chapter_present=present}}
 end
 function M.validate_metadata(value)
-    if type(value)~='table' or not Marks.id(value.book_id) or not Marks.id(value.chapter_uid) or not Base.key(value.target_id)
+    if type(value)~='table' or not supported(value.book_id,value.operation) or not Marks.id(value.chapter_uid) or not Base.key(value.target_id)
         or not creating(value.operation) and not deleting(value.operation) and not updating(value.operation) or not integer(value.chapter_present,1) then return false end
     local allowed={};for _i,k in ipairs(META) do allowed[k]=true;if value[k]==nil then return false end end
     for k in pairs(value) do if not allowed[k] then return false end end

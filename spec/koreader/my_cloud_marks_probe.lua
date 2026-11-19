@@ -164,13 +164,13 @@ local ok,reason=pcall(function()
     if imported then
         local notice=false
         local label=thoughts and 'Imported book thought quotes can be located when verified; editing is not yet supported.'
-            or 'Imported book marks can be located when their source is verified; editing is not yet supported.'
+            or 'Imported book highlights can be saved and deleted after verification; other editing is not yet supported.'
         for _i,item in ipairs(menu.item_table) do
             if item.text==tr(label) then
                 notice=item.select_enabled==false
             end
-            assert(item.text~=tr('Local thought drafts') and item.text~=tr('Check last thought change')
-                and item.text~=tr('Check last cloud mark change'),'imported-book write entry was exposed')
+            assert(item.text~=tr('Local thought drafts') and item.text~=tr('Check last thought change'),
+                'imported-book thought writing was exposed')
         end
         assert(notice,'imported-book read-only notice was missing')
     end
@@ -189,10 +189,12 @@ local ok,reason=pcall(function()
         local popup=assert(menu._shelf_popup);assert(type(popup.text)=='string')
         if imported then
             local buttons=popup.button_table
-            if buttons then for _j,name in ipairs({'delete_bookmark','delete_highlight','change_highlight_style',
+            if buttons then for _j,name in ipairs({'delete_bookmark','change_highlight_style',
                 'change_highlight_color','thought_create','thought_edit','thought_delete','open_bookmark'}) do
                 assert(not buttons:getButtonById(name),'imported-book unsupported action was exposed')
             end end
+            if not thoughts and row.type==1 then assert(buttons and buttons:getButtonById('delete_highlight'),
+                'imported-book highlight deletion was hidden') end
         end
         local content=thoughts and row.content or row.markText
         if content and content~='' then assert(popup.text:find(content,1,true))

@@ -46,6 +46,7 @@ def main():
     parser.add_argument('--chapter-link-preflight', action='store_true', help='Exercise standalone archive link workers without navigation')
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
     parser.add_argument('--cb-resume',action='store_true',help='Use the opt-in synthetic CB_ shelf book for cached reading')
+    parser.add_argument('--cb-highlight-edit',action='store_true',help='Exercise imported-book highlight writes on the isolated mock service')
     parser.add_argument('--cache-cleanup',action='store_true',help='Verify native cache cleanup keeps local reading records')
     parser.add_argument('--download-pacing',action='store_true',help='Cancel a paced source worker and preserve the existing full book')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
@@ -89,6 +90,8 @@ def main():
     if args.cached_resume and (args.footnotes or args.reading_flow):
         parser.error('--cached-resume uses a separate fixture')
     if args.cb_resume and not args.cached_resume:parser.error('--cb-resume requires --cached-resume')
+    if args.cb_highlight_edit and (not args.cached_resume or not args.cb_resume or args.content_format!='epub'):
+        parser.error('--cb-highlight-edit requires --cached-resume --cb-resume with EPUB')
     if args.cache_cleanup and not args.cached_resume:parser.error('--cache-cleanup requires --cached-resume')
     if args.download_pacing and not args.cached_resume:parser.error('--download-pacing requires --cached-resume')
     if args.content_format!='epub' and not args.cached_resume:
@@ -133,9 +136,10 @@ def main():
     if guest_read:server.control['guest_login_pending']=True
     if args.guest_rank_login_read:environment['WEREAD_GUEST_RANK']='1'
     server.finish_fixture=args.finish_change
-    server.selection_fixture=args.selection_thought
+    server.selection_fixture=args.selection_thought or args.cb_highlight_edit
     server.cb_reading=args.cb_resume
     if args.cb_resume:environment['WEREAD_TEST_CB_RESUME']='1'
+    if args.cb_highlight_edit:environment['WEREAD_TEST_CB_HIGHLIGHT_EDIT']='1'
     if args.cache_cleanup:environment['WEREAD_TEST_CACHE_CLEANUP']='1'
     if args.download_pacing:environment['WEREAD_TEST_DOWNLOAD_PACING']='1'
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format

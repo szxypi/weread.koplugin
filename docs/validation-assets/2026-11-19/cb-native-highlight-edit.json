@@ -1,0 +1,52 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runs": [
+    {
+      "width": 600,
+      "height": 800,
+      "native": {
+        "fixture": "synthetic",
+        "create_delete_verified": true,
+        "source_change_refused": true,
+        "unknown_result_no_replay": true,
+        "read_only_recovery": true,
+        "default_style_bound": true,
+        "unverified_actions_hidden": true,
+        "pending_survives_offline_reopen": true,
+        "mock_data_posts": 4,
+        "real_account_posts": 0,
+        "result": "PASS"
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      }
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "native": {
+        "fixture": "synthetic",
+        "result": "PASS",
+        "create_delete_verified": true,
+        "source_change_refused": true,
+        "unknown_result_no_replay": true,
+        "read_only_recovery": true,
+        "default_style_bound": true,
+        "unverified_actions_hidden": true,
+        "pending_survives_offline_reopen": true,
+        "mock_data_posts": 4,
+        "real_account_posts": 0
+      },
+      "offline": {
+        "result": "PASS",
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "progress_or_time_posts": 0
+      }
+    }
+  ]
+}

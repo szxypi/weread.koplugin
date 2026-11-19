@@ -368,9 +368,10 @@ class MockServer(ThreadingHTTPServer):
                 dict(archiveId=3, name="空分组", bookIds=[])])
         if url.hostname == "i.weread.qq.com":
             if self.selection_fixture and path=='/book/bookmarklist' and method=='GET':
-                if query!={'bookId':[BOOK_ID],'synckey':['0']}:raise ValueError('invalid selection mark query')
+                selection_id=CB_READING_ID if self.cb_reading else BOOK_ID
+                if query!={'bookId':[selection_id],'synckey':['0']}:raise ValueError('invalid selection mark query')
                 with self.lock:rows=[row.copy() for row in self.selection_marks.values()]
-                return 200,dict(bookId=BOOK_ID,updated=rows,chapters=[],hasMore=0)
+                return 200,dict(bookId=selection_id,updated=rows,chapters=[],hasMore=0)
             if self.selection_fixture and path in {'/book/addBookmark','/book/removeBookmark','/book/updateBookmark'} and method=='POST':
                 ids=data.get('bookmarkIds')
                 bookmark=path=='/book/addBookmark' and data.get('type')==0 or path=='/book/removeBookmark' and isinstance(ids,list) and any(
@@ -406,7 +407,8 @@ class MockServer(ThreadingHTTPServer):
                 if query or self.highlight_posts>=17:raise ValueError('invalid highlight scope')
                 if path=='/book/addBookmark':
                     required={'bookId','chapterUid','bookVersion','type','style','colorStyle','range','markText'}
-                    if (set(data)!=required or data['bookId']!=BOOK_ID or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style','colorStyle'))
+                    selection_id=CB_READING_ID if self.cb_reading else BOOK_ID
+                    if (set(data)!=required or data['bookId']!=selection_id or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style','colorStyle'))
                             or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=700
                             or data['type']!=1 or data['style'] not in (0,1,2) or data['colorStyle'] not in (0,1,2,3,4,5)):raise ValueError('invalid highlight body')
                     from annotation_source_quotes import SourceQuotes
@@ -434,9 +436,10 @@ class MockServer(ThreadingHTTPServer):
                 with self.lock:self.highlight_posts+=1
                 return 200,'' if control['selection_thought_mode']=='empty' else result
             if self.selection_fixture and path=='/review/list' and method=='GET':
-                if query!={'bookId':[BOOK_ID],'listType':['11'],'listMode':['0'],'mine':['1'],'synckey':['0'],'count':['20']}:
+                selection_id=CB_READING_ID if self.cb_reading else BOOK_ID
+                if query!={'bookId':[selection_id],'listType':['11'],'listMode':['0'],'mine':['1'],'synckey':['0'],'count':['20']}:
                     raise ValueError('invalid selection thought query')
-                with self.lock:rows=[dict(review=dict(row,bookId=BOOK_ID,userVid=900000)) for row in self.selection_thoughts.values()]
+                with self.lock:rows=[dict(review=dict(row,bookId=selection_id,userVid=900000)) for row in self.selection_thoughts.values()]
                 return 200,dict(reviews=rows,totalCount=len(rows),hasMore=0)
             if self.selection_fixture and path in {'/review/add','/review/useredit','/review/delete'} and method=='POST':
                 if query or self.selection_posts>=12:raise ValueError('invalid selection thought scope')

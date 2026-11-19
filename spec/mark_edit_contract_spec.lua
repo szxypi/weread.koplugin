@@ -3,10 +3,24 @@ local F=require('spec.helpers.mark_edit_fixture');local C=require('weread.lib.ma
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
 local codec=F.codec();local snapshot=F.snapshot(codec);local ref=F.reference()
 local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.book_id='CB_Synthetic';imported.thoughts.book_id='CB_Synthetic'
-for _i,operation in ipairs({'create','delete','style','color','bookmark_create','bookmark_delete'}) do
+for _i,operation in ipairs({'style','color','bookmark_create','bookmark_delete'}) do
     expect(not pcall(C.make,codec,imported,operation,ref,{bookId='CB_Synthetic',version=77},1,1),
         'read-only imported book gained mark-write authority: '..operation)
 end
+local imported_ref=F.clone(ref);imported_ref.source.book_id='CB_Synthetic'
+local imported_plan=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77})
+expect(C.validate_body('create',imported_plan.body) and C.validate_metadata(imported_plan.metadata),'verified imported highlight plan rejected')
+expect(imported_plan.body.style==1 and imported_plan.body.colorStyle==0,'unverified imported style used')
+for _i,choice in ipairs({{0,0},{2,0},{1,1}}) do
+    expect(not pcall(C.make,codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77},choice[1],choice[2]),
+        'unverified imported style or color accepted')
+end
+local imported_created=F.created(codec,imported)
+expect(C.check(imported_created,imported_plan.metadata),'imported creation was not independently confirmed')
+local imported_delete=C.make(codec,imported_created,'delete',imported_created.marks.updated[2])
+expect(C.validate_metadata(imported_delete.metadata) and C.check(imported,imported_delete.metadata),'imported deletion was not independently confirmed')
+local foreign=F.clone(imported_ref);foreign.source.book_id='CB_Other'
+expect(not pcall(C.make,codec,imported,'create',foreign,{bookId='CB_Synthetic',version=77}),'foreign imported reference accepted')
 local plan=C.make(codec,snapshot,'create',ref,{bookId='900001',version=77})
 expect(C.validate_body('create',plan.body) and C.validate_metadata(plan.metadata),'valid creation rejected')
 expect(plan.body.chapterIdx==nil and type(plan.body.chapterUid)=='number','guessed native index or wrong UID type')

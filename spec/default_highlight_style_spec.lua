@@ -13,7 +13,8 @@ package.preload['ui/widget/buttondialog']=function() return {new=function(_self,
 package.preload['weread.ui.thought_editor']=function() return {cancel=function() end} end
 package.preload['weread.ui.mark_editor']=function() return {cancel=function() end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
-package.preload['weread.lib.my_cloud_marks']=function() return {id=function(value) return value=='41' end} end
+package.preload['weread.lib.my_cloud_marks']=function() return {id=function(value) return value=='41' and value end,
+    display_id=function(value) return value=='41' and value end} end
 package.preload['weread.lib.source_context']=function() return {
     location=function(document) return document.location end,same_location=function(a,b) return a==b end,capture=function() return {} end,
 } end

@@ -28,7 +28,8 @@ function M.preview(client,settings,selected,input)
         if not reference then error('mark_edit/source',0) end
         local source=require('weread.lib.source_currentness');local access=source.capture(settings)
         if not access or not access.web or access.web.cookies.wr_vid~=selected.scope.vid then error('mark_edit/source_access',0) end
-        source.fetch(client,reference.source,access)
+        if Marks.id(input.book_id) then source.fetch(client,reference.source,access)
+        else source.fetch_cb(client,reference.source,access) end
         local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=function() return current(settings,selected) end})
         local ok,value=pcall(auth.read_book_metadata,auth,selected.credentials,input.book_id);auth:cancel()
         if not ok then error(value,0) end;metadata=value
