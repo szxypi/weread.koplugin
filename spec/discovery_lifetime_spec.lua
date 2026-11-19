@@ -39,7 +39,7 @@ local function host()
         if self.shelf_view then UI:close(self.shelf_view) end
         self.shelf_view=nil;self.discovery_epoch=(self.discovery_epoch or 0)+1
     end
-    local options={title='Home',home={},on_refresh=action,actions={{text='Action',callback=action}}}
+    local options={title='Home',home={},on_refresh=action,actions={{text='Action',callback=action,hold_callback=action}}}
     local books={};for book_index=1,13 do books[#books+1]={bookId=tostring(book_index)} end
     function state.open(tab) plugin:showDiscoveryPage(tab or 'home',books,options);return plugin.shelf_view end
     plugin.homeStatusText=function() return '' end;plugin.homeReadingSummary=plugin.homeStatusText
@@ -63,7 +63,7 @@ for _tab_index,tab in ipairs({'home','store'}) do
         change(plugin,state);local active=plugin.shelf_view
         view.callbacks.on_search();view.callbacks.on_refresh();view.callbacks.on_settings();view.callbacks.on_summary()
         view.callbacks.on_select({bookId='1'});view.callbacks.on_page_changed(2)
-        view.data.actions[1].callback();view.data.navigation[3].callback();cover(1)
+        view.data.actions[1].callback();view.data.actions[1].hold_callback();view.data.navigation[3].callback();cover(1)
         input.getInputText=function() error('stale scoped input accessed') end
         input.buttons[1][2].callback()
         expect(state.calls==0 and plugin.shelf_view==active,'stale discovery action: '..tab..'/'..name)

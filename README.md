@@ -10,7 +10,7 @@
 
 第一阶段界面迁移在 [`feature/eink-home-shelf-store`](https://github.com/szxypi/weread.koplugin/tree/feature/eink-home-shelf-store) 分支，见 [PR #1](https://github.com/szxypi/weread.koplugin/pull/1)：
 
-- 首页：最近阅读与离线继续阅读。
+- 首页：最近阅读与离线继续阅读；长按“书城”可选择搜索微信读书、书架或本机已保存笔记，也可从首页快捷设置进入搜索范围选择。
 - 书架：封面网格、分组及首页／书架／书城导航。
 - 书城：公开榜单与分类、搜索、个性化推荐、分页和离线浏览已保存批次。
 - 阅读笔记：从“我的笔记本”集中查看、搜索和排序有笔记的书籍，进入各书的云端划线、书签和想法；支持跨书搜索本机已保存的笔记及离线浏览缓存，详情见[我的笔记本](docs/notebook-catalog.md)。

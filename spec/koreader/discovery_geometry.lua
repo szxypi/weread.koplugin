@@ -8,8 +8,9 @@ local callbacks = { on_search = function() end, on_refresh = function() end }
 local navigation = {
     { text = "Home", active = true }, { text = "Bookshelf" }, { text = "Bookstore" }, { text = "My WeRead" },
 }
+local holds = 0
 local actions = {
-    { text = "For you" }, { text = "Search" }, { text = "Browse" },
+    { text = "For you", hold_callback = function() holds = holds + 1 end }, { text = "Search" }, { text = "Browse" },
     { text = "Next batch" }, { text = "Previous batch" },
 }
 for _, dimensions in ipairs({ { 320, 480 }, { 600, 800 }, { 800, 600 }, { 1072, 1448 }, { 1440, 1920 } }) do
@@ -33,6 +34,10 @@ for _, dimensions in ipairs({ { 320, 480 }, { 600, 800 }, { 800, 600 }, { 1072, 
         assert(view[1][1]:getSize().w <= width, "home/store chrome exceeds screen width")
         assert(view.scroll[1]:getSize().h <= view.scroll.dimen.h, "cover grid exceeds reserved viewport")
         assert(#view._navigation_buttons == 4 and #view._action_buttons == 5)
+        local previous_holds = holds
+        assert(view._action_buttons[1]:onHoldSelectButton(), "hold event was not handled")
+        assert(holds == previous_holds + 1 and view._action_buttons[1]:onHoldReleaseSelectButton(),
+            "native button did not dispatch its hold action exactly once")
         for _, cell in ipairs(view._item_rows) do
             assert(cell._progress_badge, "progress badge missing")
             local badge = cell._progress_badge

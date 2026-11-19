@@ -34,6 +34,7 @@ function M.entries(current,entries)
     for _entry_index,item in ipairs(entries) do
         local copy={};for key,value in pairs(item) do copy[key]=value end
         copy.callback=M.guard(current,item.callback)
+        copy.hold_callback=M.guard(current,item.hold_callback)
         if item.sub_item_table then copy.sub_item_table=M.entries(current,item.sub_item_table) end
         result[#result+1]=copy
     end

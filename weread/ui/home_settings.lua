@@ -80,9 +80,30 @@ function M:homeShortcuts(preferences)
     }
     local result = {}
     for _i, key in ipairs(preferences.shortcuts) do
-        result[#result + 1] = { text = _(shortcut_labels[key]), callback = actions[key] }
+        result[#result + 1] = { text = _(shortcut_labels[key]), callback = actions[key],
+            hold_callback = key == 'store' and function() self:showHomeSearchOptions() end or nil }
     end
     return result
+end
+
+function M:showHomeSearchOptions()
+    local owner = self.shelf_view
+    local current = Scope.capture(self, owner)
+    local function dismiss() self:closeHomeControls(true) end
+    return self:_showHomeMenu(_('Search options'), {
+        { text = _('Search WeRead'), callback = function()
+            dismiss()
+            self:showDiscoverySearch()
+        end },
+        { text = _('Search shelf'), callback = function()
+            dismiss()
+            self:showShelfSearchDialog(owner, 'books', nil, {}, current)
+        end },
+        { text = _('Search all saved notes'), callback = function()
+            dismiss()
+            require('weread.ui.notebook_catalog').show(self, { search = true })
+        end },
+    })
 end
 
 function M:homeControlsOpen()
@@ -232,6 +253,7 @@ function M:showHomeQuickSettings()
     local cache = self.settings:get("cache")
     local items = {
         { text = _("Home layout"), callback = function() dismiss() self:showHomeLayoutSettings() end },
+        { text = _('Search options'), callback = function() dismiss() self:showHomeSearchOptions() end },
         { text = (cache.download_book_images and "✓ " or "○ ") .. _("Download book images"), callback = function()
             dismiss()
             cache.download_book_images = not cache.download_book_images

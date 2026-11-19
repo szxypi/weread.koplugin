@@ -748,6 +748,7 @@ function LibraryView:actionBar(entries, navigation)
             enabled = entry.enabled ~= false,
             radius = 0, margin = 0, padding = 0, bordersize = 0,
             show_parent = self, callback = after_tap(entry.active and function() end or entry.callback or function() end),
+            hold_callback = entry.hold_callback and after_tap(entry.hold_callback) or nil,
         }
     end
     if navigation then self._navigation_buttons = buttons else self._action_buttons = buttons end

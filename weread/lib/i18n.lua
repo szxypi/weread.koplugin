@@ -1224,6 +1224,7 @@ local zh = {
     ["Pull progress"] = "拉取进度",
     ["Remote progress: %1%"] = "远端进度：%1%",
     ["Search WeRead"] = "搜索微信读书",
+    ["Search options"] = "选择搜索范围",
     ["Search failed:\n%1"] = "搜索失败：\n%1",
     ["Search: %1"] = "搜索：%1",
     ["No search results."] = "没有搜索结果。",

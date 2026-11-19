@@ -55,6 +55,34 @@ local refresh_shortcut=host:homeShortcuts({show_shortcuts=true,shortcuts={'refre
 refresh_shortcut[1].callback()
 expect(refreshes==1,'home refresh shortcut did not use the shared home refresh flow')
 host.shelf_view = { home_layout = preferences }
+local search_route, note_options
+host.showDiscoverySearch=function() search_route='weread' end
+host.showShelfSearchDialog=function(_self,owner,mode,keyword,options,current)
+    expect(owner==host.shelf_view and mode=='books' and keyword==nil and type(options)=='table' and current(),
+        'shelf search did not retain its home owner')
+    search_route='shelf'
+end
+package.loaded['weread.ui.notebook_catalog']={show=function(_host,options) search_route='notes';note_options=options end}
+local store_shortcut=host:homeShortcuts({show_shortcuts=true,shortcuts={'store'}})[1]
+expect(type(store_shortcut.hold_callback)=='function','store shortcut did not expose hold action')
+store_shortcut.hold_callback()
+find(host._home_controls_menu.items,'Search WeRead').callback()
+expect(search_route=='weread' and not host._home_controls_menu,'WeRead search route failed')
+host:showHomeSearchOptions()
+find(host._home_controls_menu.items,'Search shelf').callback()
+expect(search_route=='shelf' and not host._home_controls_menu,'shelf search route failed')
+host:showHomeSearchOptions()
+find(host._home_controls_menu.items,'Search all saved notes').callback()
+expect(search_route=='notes' and note_options.search and not host._home_controls_menu,'saved note search route failed')
+host:showHomeSearchOptions()
+local stale_search=find(host._home_controls_menu.items,'Search WeRead').callback
+host._reader_session_gen=1;search_route=nil;stale_search()
+expect(not search_route,'stale search options dispatched after session change')
+host:closeHomeControls(false)
+host:showHomeQuickSettings()
+find(host._home_controls_menu.items,'Search options').callback()
+expect(host._home_controls_menu.title=='Search options','quick settings search entry failed')
+host:closeHomeControls(false)
 host:showHomeLayoutSettings()
 find(host._home_controls_menu.items, "Home book display").sub_item_table[2].callback()
 expect(preferences.view_mode == "list" and redraws == 1 and saves == 1, "home view preference did not persist and redraw")

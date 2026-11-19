@@ -53,6 +53,11 @@ row(menu,'Synthetic book').callback();local popup=menu._shelf_popup
 expect(popup.buttons[1][1].text=='My cloud highlights (2)' and popup.buttons[2][1].text=='My cloud thoughts (1)' and popup.buttons[3][1].text=='My cloud bookmarks (3)','counts or actions missing')
 popup.buttons[2][1].callback();expect(value.opened[1]=='showMyCloudThoughts' and value.opened[2]=='900001','thought action wrong')
 Catalog.cancel(host);expect(value.child_closed and not host._notebook_menu,'owned child not closed')
+host,value=fixture();value.online=true
+expect(Catalog.show(host,{search=true}),'direct saved note search did not open')
+expect(host._notebook_menu._shelf_popup and host._notebook_menu._shelf_popup.title=='Search all saved notes'
+    and not value.started,'direct search was displaced by an automatic refresh')
+Catalog.cancel(host)
 host,value=fixture(snapshot());Catalog.show(host);menu=host._notebook_menu
 row(menu,'Unsupported').callback();expect(#value.notices==1 and not menu._shelf_popup,'unsupported book opened')
 value.online=true;row(menu,'Refresh my notebooks').callback();local old=menu.item_table

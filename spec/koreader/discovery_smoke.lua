@@ -107,6 +107,26 @@ assert(not plugin.library_db:accountKey())
 plugin.isNetworkConnected=function() return true end
 plugin.requireLogin=function() error('initial public chart requested login') end
 plugin:showHome()
+local home_store
+for _,button in ipairs(plugin.shelf_view._action_buttons) do
+    if button.text==require('weread.lib.plugin_util').tr('Bookstore') then home_store=button end
+end
+assert(home_store and home_store:onHoldSelectButton(), 'home bookstore hold unavailable')
+assert(home_store:onHoldReleaseSelectButton(), 'home bookstore hold release was not consumed')
+flush_tasks()
+local search_menu=assert(plugin._home_controls_menu, 'home search menu did not open')
+local shelf_search
+for _,item in ipairs(search_menu.item_table) do
+    if item.text==require('weread.lib.plugin_util').tr('Search shelf') then shelf_search=item end
+end
+assert(shelf_search, 'home search menu omitted shelf search')
+search_menu:onMenuSelect(shelf_search)
+local input=assert(plugin.shelf_view._shelf_popup, 'home shelf search input did not open')
+input:setInputText('synthetic query')
+input.buttons[1][2].callback()
+assert(plugin.shelf_search_keyword=='synthetic query' and plugin.shelf_view_mode=='books',
+    'home shelf search did not filter the shelf')
+plugin:showHome()
 local store_button
 for _,button in ipairs(plugin.shelf_view._navigation_buttons) do
     if button.text==require('weread.lib.plugin_util').tr('Bookstore') then store_button=button end

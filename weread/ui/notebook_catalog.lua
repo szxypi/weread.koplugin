@@ -188,7 +188,7 @@ refresh=function(host,owner)
     end
     return launch()
 end
-function M.show(host)
+function M.show(host,options)
     if not host.library_db then return false end
     local scope=host.settings:get_auth_scope()
     if not host.library_db:accountKey() or not scope or not host.settings:auth_scope_matches(scope) then
@@ -212,7 +212,9 @@ function M.show(host)
         if on_close then return on_close(instance,...) end
     end
     render(host,owner)
-    if not owner.value and host:isNetworkOnline() then refresh(host,owner) end
+    if options and options.search then
+        require('weread.ui.notebook_search').prompt(host,owner,current)
+    elseif not owner.value and host:isNetworkOnline() then refresh(host,owner) end
     return true
 end
 return M
