@@ -81,18 +81,79 @@ local function guarded(task)
     if ok then return value end
     return nil,type(value)=='string' and value:match('^bookmark_point/[a-z_]+$') and value or 'bookmark_point/unavailable'
 end
-function M.project(raw,co)
+local function txt_project(raw,co)
+    local map=Coordinates.build(raw,{format='web_txt'});if not map then fail('source') end
+    map:_index()
+    local byte=Quote.boundary(map,co);if not byte or byte>#map.flat then fail('boundary') end
+    local canonical=map:_point(byte)
+    local bom=raw:sub(1,3)=='\239\187\191' and 1 or 0
+    local source=raw:gsub('^\239\187\191','');local point=canonical-bom
+    if point<0 then fail('boundary') end
+    local units,start,ending,count=0,nil,nil,0
+    for at,char in source:gmatch('()([%z\1-\127\194-\244][\128-\191]*)') do
+        if units==point then start=at end
+        if start then
+            count=count+1;ending=at+#char-1
+            if count>=140 then break end
+        end
+        units=units+(#char==4 and 2 or 1)
+    end
+    if not start or not ending then fail('boundary') end
+    local text=trim(source:sub(start,ending));local preview=imported_preview({markText=text})
+    if not preview or #text>4096 or map.flat:sub(byte,byte+#preview-1)~=preview
+        or map.flat:find(preview,1,true)~=byte or map.flat:find(preview,byte+1,true) then fail('preview') end
+    if not (map:anchor(canonical,{segment_only=true}) or map:anchor(canonical)) then fail('anchor') end
+    return {range=tostring(point),markText=text,chapter_offset=canonical,raw_sha256=Crypto.sha256_hex(raw),raw_bytes=#raw}
+end
+function M.project(raw,co,format)
     return guarded(function()
+        format=format or 'web_xhtml'
+        if format=='web_txt' then return txt_project(raw,co) end
+        if format~='web_xhtml' then fail('source') end
         local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
         local byte=Quote.boundary(map,co);if not byte or byte>#map.flat then fail('boundary') end
         return scan(raw,map,nil,byte)
     end)
 end
-function M.from_mark(raw,book,chapter,row)
+local function txt_point(raw,book,chapter,row)
+    local preview=imported_preview(row)
+    if not preview then fail('preview') end
+    local map=Coordinates.build(raw,{format='web_txt'});if not map then fail('source') end
+    map:_index()
+    local marker=M.point(row.range);local source=raw:gsub('^\239\187\191','')
+    local bom=raw:sub(1,3)=='\239\187\191' and 1 or 0
+    local units,runes,scalar=0,0,nil
+    for _at,char in source:gmatch('()([%z\1-\127\194-\244][\128-\191]*)') do
+        if runes==marker then scalar=units end
+        units=units+(#char==4 and 2 or 1);runes=runes+1
+    end
+    if runes==marker then scalar=units end
+    local candidates={}
+    local function attempt(co)
+        if not co then return end
+        local byte=Quote.boundary(map,co)
+        if byte and map.flat:sub(byte,byte+#preview-1)==preview and map.flat:find(preview,1,true)==byte
+            and not map.flat:find(preview,byte+1,true) then
+            -- Adjacent whitespace can make two raw boundaries identify the
+            -- same visible start. Canonicalize to the actual next character.
+            local canonical=map:_point(byte)
+            if map:anchor(canonical,{segment_only=true}) or map:anchor(canonical) then candidates[canonical]=true end
+        end
+    end
+    attempt(marker+bom);if scalar then attempt(scalar+bom) end
+    local co,count=nil,0;for point in pairs(candidates) do co,count=point,count+1 end
+    if count~=1 then fail(count==0 and 'preview' or 'ambiguous') end
+    return {book_id=book,chapter_uid=chapter,chapter_offset=co,raw_sha256=Crypto.sha256_hex(raw),
+        raw_bytes=#raw,basis='raw_txt_utf16',upload_verified=false}
+end
+function M.from_mark(raw,book,chapter,row,format)
     return guarded(function()
         local imported=not Marks.id(book)
         if not Marks.display_id(book) or not Marks.id(chapter) or not M.can_locate(row,imported) or tostring(row.chapterUid)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book or row.book_id~=nil and tostring(row.book_id)~=book then fail('scope') end
+        format=format or 'web_xhtml'
+        if format=='web_txt' then return txt_point(raw,book,chapter,row) end
+        if format~='web_xhtml' then fail('source') end
         local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
         local value,byte=scan(raw,map,M.point(row.range))
         if value.range~=row.range then fail('point') end
@@ -110,10 +171,10 @@ function M.from_mark(raw,book,chapter,row)
 end
 -- A reversible unique anchor is also used by the independent reader layer.
 -- No text range is invented for a point bookmark.
-function M.prepare(raw,book,chapter,row)
+function M.prepare(raw,book,chapter,row,format)
     return guarded(function()
-        local point=M.from_mark(raw,book,chapter,row);if not point then fail('point') end
-        local map=Coordinates.build(raw,{allow_multiple_bodies=true});if not map then fail('source') end
+        local point=M.from_mark(raw,book,chapter,row,format);if not point then fail('point') end
+        local map=Coordinates.build(raw,{format=format or 'web_xhtml',allow_multiple_bodies=true});if not map then fail('source') end
         local anchor=map:anchor(point.chapter_offset,{segment_only=true}) or map:anchor(point.chapter_offset)
         if not anchor then fail('anchor') end
         return {anchor=anchor}

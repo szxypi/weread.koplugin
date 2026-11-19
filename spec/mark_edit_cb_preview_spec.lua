@@ -42,4 +42,14 @@ plan=Task.preview(client,settings,selected,input)
 assert(plan.body.bookId==snapshot.book_id and txt_reads==1 and reads==0,'TXT source proof was not selected')
 assert(not pcall(Task.preview,client,settings,selected,input) and txt_reads==2,'changed TXT source produced a preview')
 format='unknown';assert(not pcall(Task.preview,client,settings,selected,input),'unknown source format was accepted')
+local Bookmark=require('weread.lib.bookmark_reference')
+local hash=string.rep('a',64)
+local bookmark={bookmark=true,type=0,bookmarkId='bookmark:2:48:'..hash,range='48',chapterUid=2,chapterIdx=3,
+    markText='Unique synthetic TXT bookmark preview',source={book_id=snapshot.book_id,chapter_uid='2',chapter_idx=3,raw_sha256=hash,raw_bytes=1000}}
+Bookmark.verify=function(row,book,file) assert(book.book_id==snapshot.book_id and file=='/synthetic.epub');return row,'web_txt' end
+Source.fetch_cb_txt=function(_client,expected) assert(expected.book_id==snapshot.book_id);txt_reads=txt_reads+1;return {source_current=true} end
+Auth.new=function() return {read_book_metadata=function(_self,_credentials,id) return {bookId=id,version=0} end,cancel=function() end} end
+input={book_id=snapshot.book_id,operation='bookmark_create',reference=bookmark,source_file='/synthetic.epub'}
+plan=Task.preview(client,settings,selected,input)
+assert(plan.body.type==0 and plan.body.bookVersion==0 and txt_reads==3,'zero-version TXT bookmark source proof was not selected')
 print('mark_edit_cb_preview_spec: source-bound preview and source-change rejection passed')

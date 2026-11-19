@@ -26,7 +26,6 @@ function M.preview(client,settings,selected,input)
         local bookmark=input.operation=='bookmark_create'
         local reference,format=require(bookmark and 'weread.lib.bookmark_reference' or 'weread.lib.selection_reference')
             .verify(input.reference,book,input.source_file)
-        if bookmark then format='web_xhtml' end
         if not reference or format~='web_xhtml' and format~='web_txt' then error('mark_edit/source',0) end
         local source=require('weread.lib.source_currentness');local access=source.capture(settings)
         if not access or not access.web or access.web.cookies.wr_vid~=selected.scope.vid then error('mark_edit/source_access',0) end

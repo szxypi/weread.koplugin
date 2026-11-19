@@ -21,7 +21,7 @@ def main():
     parser.add_argument('--imported',action='store_true',help='exercise imported-book quote navigation')
     parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts','bookmarks']);parser.add_argument('--personal-display',action='store_true');parser.add_argument('--txt',action='store_true');parser.add_argument('--txt-utf16',action='store_true');parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
     if args.imported and args.download_missing:parser.error('imported fixture uses cached navigation')
-    if args.txt and (not args.imported or args.variant=='bookmarks'):parser.error('TXT fixture requires imported highlights or thoughts')
+    if args.txt and not args.imported:parser.error('TXT fixture requires an imported book')
     if args.txt_utf16 and not args.txt:parser.error('UTF-16 range requires TXT')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);repo=Path(__file__).resolve().parent.parent
     candidate=root/'candidate.zip';subprocess.run(['bash',str(repo/'scripts/package_release.sh'),str(candidate)],capture_output=True,check=True)
@@ -45,7 +45,8 @@ def main():
                 row=dict(reviewId=row['bookmarkId'],type=1,chapterUid=index,chapterIdx=index,range=row['range'],abstract=quote,
                          content=f'合成想法 {index}-{number}：这段附注不用于原文定位。',isPrivate=number%2,chapterName='合成章节 '+uid)
             elif args.variant=='bookmarks':
-                row.update(type=0,range=str(start),markText=quote if number<2 else '短引用后面仍有完整的上下文。')
+                point=len(raw[:start].encode('utf-16-le'))//2 if args.txt_utf16 else start
+                row.update(type=0,range=str(point),markText=quote if number<2 else '短引用后面仍有完整的上下文。')
             rows.append(row);source['updated'].append(row)
             if args.txt:
                 targets.append(dict(chapter_offset=len(raw[:start].encode('utf-16-le'))//2,raw_sha256=hashlib.sha256(raw.encode()).hexdigest()))

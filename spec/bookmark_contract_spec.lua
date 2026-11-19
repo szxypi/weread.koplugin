@@ -39,6 +39,9 @@ expect(C.check(snapshot,deletion.metadata) and not C.check(added,deletion.metada
 local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.book_id=imported.book_id;imported.thoughts.book_id=imported.book_id
 local cb_ref=F.clone(ref);cb_ref.source.book_id=imported.book_id
 local cb_plan=C.make(codec,imported,'bookmark_create',cb_ref,{bookId=imported.book_id,version=77})
+local cb_zero=C.make(codec,imported,'bookmark_create',cb_ref,{bookId=imported.book_id,version=0})
+expect(cb_zero.body.bookVersion==0 and C.validate_body('bookmark_create',cb_zero.body),'zero-version imported bookmark rejected')
+expect(not pcall(C.make,codec,snapshot,'bookmark_create',ref,{bookId='900001',version=0}),'zero-version numeric bookmark accepted')
 expect(C.validate_body('bookmark_create',cb_plan.body) and C.validate_metadata(cb_plan.metadata),'imported bookmark plan rejected')
 local cb_added=F.clone(imported);cb_added.marks.updated[2]=F.clone(target)
 expect(C.check(cb_added,cb_plan.metadata),'imported bookmark readback not confirmed')

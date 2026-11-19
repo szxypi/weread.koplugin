@@ -25,7 +25,7 @@ local function archive(file,book,uid,read)
     local identity=data and Identity.decode(data[Identity.PATH]);local meta=data and data[Source.meta_path(uid)]
     local record=Source.decode_metadata(meta)
     if not identity or identity.book_id~=book or not record or record.book_id~=book or record.chapter_uid~=uid
-        or record.file_id~=identity.file_id or record.format~='web_xhtml' then fail('source') end
+        or record.file_id~=identity.file_id or record.format~='web_xhtml' and record.format~='web_txt' then fail('source') end
     local rawpath=Source.raw_path(record.raw_sha256)
     data=read(file,{[rawpath]=Source.MAX_BYTES,[record.render_path]=Source.MAX_RENDERED_BYTES,
         [Source.path_meta_path(record.render_path)]=Source.MAX_META_BYTES})
@@ -49,15 +49,15 @@ end
 function M.capture_native(input,read)
     return guarded(function()
         local captured=require('weread.lib.source_position_worker').capture(input,read)
-        if not captured.position or captured.position.basis~='filtered_xhtml_utf16' then fail('point') end
+        if not captured.position then fail('point') end
         local p=captured.position;local raw,record,meta=archive(input.file,p.book_id,p.chapter_uid,read)
-        if meta~=input.metadata or record.raw_sha256~=p.raw_sha256 then fail('source') end
-        local value=Point.project(raw,p.chapter_offset);if not value then fail('point') end
+        if meta~=input.metadata or record.raw_sha256~=p.raw_sha256 or p.basis~=Source.coordinate_basis(record.format) then fail('source') end
+        local value=Point.project(raw,p.chapter_offset,record.format);if not value then fail('point') end
         return reference(p.book_id,p.chapter_uid,Catalog.chapter_index(input.chapters,p.chapter_uid),value)
     end)
 end
 function M.verify(row,book,current_file,read)
-    return guarded(function()
+    local result,reason=guarded(function()
         local id=type(book)=='table' and tostring(book.book_id or book.bookId or '')
         if not M.valid(row,id) or Catalog.chapter_index(book.chapters,row.source.chapter_uid)~=row.chapterIdx then fail('reference') end
         local seen={}
@@ -67,15 +67,17 @@ function M.verify(row,book,current_file,read)
                 seen[file]=true
                 local ok,raw,record=pcall(archive,file,id,row.source.chapter_uid,read)
                 if ok and record.raw_sha256==row.source.raw_sha256 then
-                    local point=Point.from_mark(raw,id,row.source.chapter_uid,row)
-                    local value=point and Point.project(raw,point.chapter_offset)
+                    local point=Point.from_mark(raw,id,row.source.chapter_uid,row,record.format)
+                    local value=point and Point.project(raw,point.chapter_offset,record.format)
                     local rebuilt=value and reference(id,row.source.chapter_uid,row.chapterIdx,value)
                     if rebuilt and rebuilt.bookmarkId==row.bookmarkId and rebuilt.markText==row.markText
-                        and value.raw_bytes==row.source.raw_bytes then return rebuilt end
+                        and value.raw_bytes==row.source.raw_bytes then return {row=rebuilt,format=record.format} end
                 end
             end
         end
         fail('source_changed')
     end)
+    if result then return result.row,result.format end
+    return nil,reason
 end
 return M

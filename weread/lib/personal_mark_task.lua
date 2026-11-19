@@ -34,8 +34,8 @@ function M.prepare(file,book,metadata,rows,read)
     if not verified then error('personal_marks/source',0) end
     local result={metadata=metadata,rows={}}
     for _i,row in ipairs(rows) do
-        if row.type==0 and record.format=='web_xhtml' then
-            local point=Point.prepare(verified.raw,book,record.chapter_uid,row)
+        if row.type==0 then
+            local point=Point.prepare(verified.raw,book,record.chapter_uid,row,record.format)
             if point then
                 result.rows[#result.rows+1]={bookmarkId=row.bookmarkId,reference_hash=Contract.row_hash(row),bookmark=true,anchor=point.anchor}
             end

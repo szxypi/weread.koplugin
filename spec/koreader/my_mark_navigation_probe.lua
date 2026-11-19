@@ -318,15 +318,24 @@ local ok,reason=pcall(function()
             local bytes=file_bytes(reader.document.file)
             wait(function() return plugin._personal_marks and plugin._personal_marks.complete end)
             local s=plugin._personal_marks;local own
-            for _j,record in ipairs(s.records) do if record.bookmarkId==row.bookmarkId then own=record;break end end
+            for _j,record in ipairs(bookmarks and s.bookmarks or s.records) do if record.bookmarkId==row.bookmarkId then own=record;break end end
             assert(own)
-            local text=reader.document:getTextFromXPointers(own.pos0,own.pos1);reader.document:clearSelection()
-            local Dom=require('weread.lib.source_dom')
-            assert(Dom.normalize(text)==Dom.normalize(row.markText))
+            if bookmarks then
+                assert(not own.pos1 and reader.document:compareXPointers(own.pos0,anchor.xpointer)==0)
+            else
+                local text=reader.document:getTextFromXPointers(own.pos0,own.pos1);reader.document:clearSelection()
+                local Dom=require('weread.lib.source_dom')
+                assert(Dom.normalize(text)==Dom.normalize(row.markText))
+            end
             assert(reader.document:getXPointer()==origin and json.encode(reader.annotation.annotations)==native_notes)
             assert(file_bytes(reader.document.file)==bytes)
-            UI:forceRePaint();assert(s.overlay.enabled)
-            local box;for _j,entry in ipairs(s.overlay.visible) do if entry.record.bookmarkId==row.bookmarkId then box=entry.rect;break end end
+            UI:forceRePaint();assert(bookmarks and s.indicator.enabled or not bookmarks and s.overlay.enabled)
+            local box
+            if bookmarks then
+                for _j,entry in ipairs(s.indicator.visible) do if entry.bookmarkId==row.bookmarkId then box=s.indicator.rect;break end end
+            else
+                for _j,entry in ipairs(s.overlay.visible) do if entry.record.bookmarkId==row.bookmarkId then box=entry.rect;break end end
+            end
             assert(box)
             if synthetic and _i==1 then
                 assert(plugin:_onXPointerOverlayTap{pos={x=box.x+box.w/2,y=box.y+box.h/2}},'personal highlight tap was not routed')

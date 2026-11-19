@@ -101,7 +101,11 @@ members={[Identity.PATH]=txt_root,[Source.meta_path('2')]=txt_meta,[Source.path_
 local txt_row={bookmarkId='synthetic-txt-highlight',type=1,chapterUid=2,range='48-110',markText=txt_quote}
 local txt_output=Task.prepare('/cached.epub','CB_Synthetic',txt_meta,{txt_row,point},archive)
 expect(#txt_output.rows==1 and txt_output.rows[1].first_anchor.co==48 and txt_output.rows[1].last_anchor.co==110,
-    'verified TXT highlight or skipped TXT bookmark changed')
+    'verified TXT highlight or mismatched TXT bookmark changed')
+local txt_point={bookmarkId='synthetic-txt-bookmark',type=0,chapterUid=2,range='48',markText=txt_quote}
+local txt_mixed=Task.prepare('/cached.epub','CB_Synthetic',txt_meta,{txt_row,txt_point},archive)
+expect(#txt_mixed.rows==2 and txt_mixed.rows[2].bookmark and txt_mixed.rows[2].anchor.co==48,
+    'verified TXT bookmark indicator missing')
 wrong=Fixture.clone(txt_row);wrong.range='49-111'
 expect(#Task.prepare('/cached.epub','CB_Synthetic',txt_meta,{wrong},archive).rows==0,'mismatched TXT highlight displayed')
 members[Source.raw_path(Crypto.sha256_hex(txt))]='changed'

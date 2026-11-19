@@ -84,7 +84,7 @@ def main(argv=None):
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     parser.add_argument('--download-missing',action='store_true');parser.add_argument('--variant',choices=['thoughts','bookmarks']);parser.add_argument('--synthetic',action='store_true');parser.add_argument('--screenshots',type=Path)
     parser.add_argument('--personal-display',action='store_true');args=parser.parse_args(argv)
-    if args.personal_display and (args.variant or args.download_missing):parser.error('personal display requires cached own highlights')
+    if args.personal_display and (args.variant=='thoughts' or args.download_missing):parser.error('personal display requires cached own marks')
     if args.screenshots and not args.synthetic:parser.error('screenshots require synthetic input')
     runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('Linux runtime and positive dimensions required')

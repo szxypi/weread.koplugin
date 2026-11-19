@@ -68,7 +68,7 @@ function M.validate_body(operation,body)
         allowed={bookId=true,chapterUid=true,bookVersion=true,type=true,style=true,colorStyle=true,range=true,markText=true}
         if not supported(body.bookId,operation) or not integer(body.chapterUid,2147483647) or body.chapterUid==0
             or not integer(body.bookVersion,2147483647)
-            or body.bookVersion==0 and (operation~='create' or Marks.id(body.bookId)) then return false end
+            or body.bookVersion==0 and Marks.id(body.bookId) then return false end
         if operation=='bookmark_create' then
             allowed.colorStyle=nil
             if body.type~=0 or body.style~=0 or Point.point(body.range)==nil or not preview(body.markText) then return false end

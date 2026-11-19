@@ -155,7 +155,7 @@ function M.update(host)
     if not s.snapshot then return end
     local uid=m.chapter_uid;local rows,ranges,styles={},{},{}
     for _i,row in ipairs(s.snapshot.updated) do
-        if (row.type==1 or row.type==0 and m.record.format=='web_xhtml') and tostring(row.chapterUid)==uid then
+        if (row.type==1 or row.type==0) and tostring(row.chapterUid)==uid then
             rows[#rows+1]=row;ranges[row.bookmarkId]=row.range;styles[row.bookmarkId]=row.style or 0
         end
     end
@@ -255,7 +255,7 @@ function M.available(host)
     local m=metadata(host,s);if not m or not m.record or m.record.format~='web_xhtml' and m.record.format~='web_txt' then return false end
     for _i,row in ipairs(s.snapshot and s.snapshot.updated or {}) do
         if tostring(row.chapterUid)==m.chapter_uid and (require('weread.lib.my_mark_target').can_locate(row)
-            or m.record.format=='web_xhtml' and require('weread.lib.bookmark_point').can_locate(row,not Marks.id(s.book))) then return true end
+            or require('weread.lib.bookmark_point').can_locate(row,not Marks.id(s.book) or m.record.format=='web_txt')) then return true end
     end
     return false
 end

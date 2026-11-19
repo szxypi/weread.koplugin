@@ -21,6 +21,7 @@ local row,why=Ref.capture_native(input,archive);assert(row,why)
 expect(Ref.valid(row,'900001') and row.range=='15' and row.chapterIdx==3,'native reference invalid')
 expect(row.markText:find('\r\n',1,true) and row.source.raw_sha256==Crypto.sha256_hex(raw),'preview/source lost')
 expect(Ref.verify(row,book,nil,archive)~=nil,'valid offline reference refused')
+expect(select(2,Ref.verify(row,book,nil,archive))=='web_xhtml','verified XHTML source format missing')
 local server={type=0,chapterUid=2,range=row.range,bookmarkId='synthetic-point'}
 expect(Target.can_locate(server),'server bookmark without text refused')
 local bound=Target.bind_file('/cached.epub','900001',server,17,archive)
@@ -52,4 +53,29 @@ expect(Ref.valid(cb_row,'CB_Synthetic') and Ref.verify(cb_row,cb_book,nil,archiv
 expect(not Ref.valid(cb_row,'CB_Other') and not Ref.verify(cb_row,book,nil,archive),'foreign imported bookmark reference accepted')
 local cb_bad=Clone(cb_row);cb_bad.markText='Too short'
 expect(not Ref.verify(cb_bad,cb_book,nil,archive),'short imported preview accepted')
+local prefix='A self-authored test begins with one emoji: 😀.\n'
+local text='A unique synthetic passage for testing a plain text bookmark.'
+local txt=prefix..text..'\nA separate sentence provides sufficient extra context.'
+local rendered='<html><body><p>Synthetic rendered TXT.</p></body></html>'
+local txt_root=Identity.encode(cb_book,chapters,Identity.capture(cb_book),Crypto.sha256_hex(rendered))
+local txt_identity=assert(Identity.decode(txt_root))
+local txt_meta=assert(Source.bind(assert(Source.capture(cb_book,chapters[1],txt,'web_txt')),txt_identity,path,Crypto.sha256_hex(rendered)))
+members={[Identity.PATH]=txt_root,[Source.meta_path('2')]=txt_meta,[Source.path_meta_path(path)]=txt_meta,
+    [Source.raw_path(Crypto.sha256_hex(txt))]=txt,[path]=rendered}
+local Dom=require('weread.lib.source_dom')
+local function scalars(value) local n=0;for _char in value:gmatch('[%z\1-\127\194-\244][\128-\191]*') do n=n+1 end;return n end
+local txt_input={file='/cached.epub',book_id='CB_Synthetic',chapter_uid='2',identity=txt_identity,metadata=txt_meta,render_path=path,
+    text=assert(Dom.normalize(txt)),point_offset=scalars(assert(Dom.normalize(prefix))),chapters=chapters}
+local txt_row,txt_why=Ref.capture_native(txt_input,archive);assert(txt_row,txt_why)
+expect(txt_row.range=='48' and txt_row.markText:find(text,1,true)==1,'TXT source bookmark capture shifted')
+local txt_verified,txt_format=Ref.verify(txt_row,cb_book,nil,archive)
+expect(txt_verified and txt_format=='web_txt' and txt_verified.range=='48','TXT bookmark verification lost source format')
+local txt_server={type=0,chapterUid=2,range=txt_row.range,bookmarkId='synthetic-txt-point',markText=txt_row.markText}
+local txt_bound=Target.bind_file('/cached.epub','CB_Synthetic',txt_server,20,archive)
+expect(txt_bound.position and txt_bound.position.chapter_offset==48 and txt_bound.position.basis=='raw_txt_utf16',
+    'TXT bookmark did not bind to exact local source')
+local txt_bad=Clone(txt_row);txt_bad.markText='Changed preview with enough words'
+expect(not Ref.verify(txt_bad,cb_book,nil,archive),'changed TXT bookmark preview accepted')
+members[Source.raw_path(Crypto.sha256_hex(txt))]='changed'
+expect(not Ref.verify(txt_row,cb_book,nil,archive),'changed TXT bookmark source accepted')
 print('bookmark_reference_spec: '..checks..' checks')

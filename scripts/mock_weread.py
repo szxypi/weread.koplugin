@@ -394,8 +394,13 @@ class MockServer(ThreadingHTTPServer):
                         if (set(data)!=required or data['bookId']!=selection_id or any(type(data[k]) is not int for k in ('chapterUid','bookVersion','type','style'))
                                 or data['chapterUid'] not in {row['chapterUid'] for row in CHAPTERS} or data['bookVersion']!=getattr(self,'selection_book_version',700)
                                 or data['type']!=0 or data['style']!=0):raise ValueError('invalid bookmark body')
-                        raw=self.chapter_source(data['chapterUid']);point=from_mark(raw,selection_id,str(data['chapterUid']),data)
-                        if project(raw,point['chapter_offset'])['markText']!=data['markText']:raise ValueError('invalid bookmark preview')
+                        if self.content_format=='txt':
+                            raw=chapter_txt(data['chapterUid']).removeprefix('\ufeff');encoded=raw.encode('utf-16-le')
+                            point=int(data['range']);remaining=encoded[point*2:].decode('utf-16-le')
+                            if not 0<=point<len(encoded)//2 or remaining[:140].strip()!=data['markText']:raise ValueError('invalid TXT bookmark')
+                        else:
+                            raw=self.chapter_source(data['chapterUid']);point=from_mark(raw,selection_id,str(data['chapterUid']),data)
+                            if project(raw,point['chapter_offset'])['markText']!=data['markText']:raise ValueError('invalid bookmark preview')
                         identity='synthetic-new-bookmark-'+str(self.bookmark_posts+1)
                         # One supported server shape omits the point preview.
                         row=dict(bookmarkId=identity,type=0,style=0,chapterUid=data['chapterUid'],range=data['range'],createTime=1700000001)

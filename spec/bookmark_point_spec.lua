@@ -61,4 +61,28 @@ expect(not Point.from_mark('<body><p>Unique imported bookmark preview Unique imp
     'CB_SyntheticNotes','2',{type=0,chapterUid=2,range='9',markText=imported_row.markText}),'repeated imported preview accepted')
 imported_row.bookId='CB_Other'
 expect(not Point.from_mark(imported_raw,'CB_SyntheticNotes','2',imported_row),'foreign imported bookmark accepted')
+local prefix='A self-authored test begins with one emoji: 😀.\n'
+local txt_quote='A unique synthetic passage for testing a plain text bookmark.'
+local txt=prefix..txt_quote..'\nA separate sentence provides context.'
+local txt_row={type=0,chapterUid=2,range='48',markText=txt_quote}
+local created=assert(Point.project(txt,48,'web_txt'))
+expect(created.range=='48' and created.chapter_offset==48 and created.markText:find(txt_quote,1,true)==1,'TXT bookmark creation shifted')
+local generated={type=0,chapterUid=2,range=created.range,markText=created.markText}
+expect(assert(Point.from_mark(txt,'CB_SyntheticNotes','2',generated,'web_txt')).chapter_offset==48,'created TXT bookmark did not roundtrip')
+local created_bom=assert(Point.project('\239\187\191'..txt,49,'web_txt'))
+expect(created_bom.range=='48' and created_bom.markText==created.markText,'TXT BOM affected created bookmark')
+expect(not Point.project(txt,45,'web_txt'),'surrogate midpoint accepted for TXT bookmark')
+expect(not Point.project('😀 short',3,'web_txt'),'short TXT bookmark preview accepted')
+local txt_point=assert(Point.from_mark(txt,'CB_SyntheticNotes','2',txt_row,'web_txt'))
+expect(txt_point.chapter_offset==48 and txt_point.basis=='raw_txt_utf16' and not txt_point.upload_verified,'TXT UTF-16 point changed')
+local prior={type=0,chapterUid=2,range='47',markText=txt_quote}
+expect(assert(Point.from_mark(txt,'CB_SyntheticNotes','2',prior,'web_txt')).chapter_offset==48,'TXT scalar point changed')
+expect(assert(Point.from_mark('\239\187\191'..txt,'CB_SyntheticNotes','2',txt_row,'web_txt')).chapter_offset==49,'TXT BOM changed point')
+expect(assert(Point.prepare(txt,'CB_SyntheticNotes','2',txt_row,'web_txt')).anchor.co==48,'TXT bookmark anchor changed')
+for _i,bad in ipairs({{range='49'},{range='45'},{markText='too short'},{markText='A different sufficiently long preview'},{bookId='CB_Other'}}) do
+    local row={};for k,v in pairs(txt_row) do row[k]=v end;for k,v in pairs(bad) do row[k]=v end
+    expect(not Point.from_mark(txt,'CB_SyntheticNotes','2',row,'web_txt'),'unverified TXT bookmark accepted')
+end
+expect(not Point.from_mark(txt,'CB_SyntheticNotes','2',{type=0,chapterUid=2,range='48'},'web_txt'),'TXT bookmark without preview accepted')
+expect(not Point.from_mark(txt..txt_quote,'CB_SyntheticNotes','2',txt_row,'web_txt'),'duplicate TXT preview accepted')
 print('bookmark_point_spec: '..checks..' checks')

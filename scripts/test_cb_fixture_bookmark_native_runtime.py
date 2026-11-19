@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import threading
 from urllib.parse import urlsplit
+from unittest.mock import patch
 
 from cb_fixture_bookmark_trial import Intent,prepare
 from mock_weread import CB_READING_ID,CHAPTERS,MockServer
@@ -46,26 +47,33 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--koreader',type=Path,required=True)
     p.add_argument('--run-dir',type=Path,required=True);p.add_argument('--width',type=int,default=600)
     p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
-    p.add_argument('--case',choices=('normal','no-create','no-delete','host-mismatch','orchestrated','short-source'),default='normal');args=p.parse_args()
+    p.add_argument('--case',choices=('normal','no-create','no-delete','host-mismatch','orchestrated','short-source'),default='normal');p.add_argument('--txt',action='store_true');args=p.parse_args()
+    if args.txt and args.case=='short-source':p.error('short-source fixture is XHTML')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);candidate=root/'candidate.zip'
     subprocess.run(['bash','scripts/package_release.sh',str(candidate)],check=True,capture_output=True)
     profiles=set(Path('/dev/shm').glob('weread-cb-bookmark-*'))
-    server=Server(args.case);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
+    server=Server(args.case);txt_patch=None
+    if args.txt:
+        from cb_txt_bookmark_trial import BODY,TEXT,prepare as prepare_txt
+        from txt_coordinates import PlainSource
+        server.content_format='txt';server.selection_book_version=0
+        txt_patch=patch('mock_weread.chapter_txt',return_value=BODY.decode());txt_patch.start()
+    thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         grant=credentials();intent=Intent(Backend());observer=Observer(CB_READING_ID,grant,lambda:True,intent,opener=Opener(server))
-        baseline=observer.observe(grant);raw=server.chapter_source(2)
-        sample=dict(book_id=CB_READING_ID,chapter_uid='2',chapters=CHAPTERS,source_format='web_xhtml',source=raw,
+        baseline=observer.observe(grant);raw=BODY.decode() if args.txt else server.chapter_source(2)
+        sample=dict(book_id=CB_READING_ID,chapter_uid='2',chapters=CHAPTERS,source_format='web_txt' if args.txt else 'web_xhtml',source=raw,
                     source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest())
-        plan,body=prepare('900000',CB_READING_ID,'a'*32,sample,700,baseline)
-        point=from_mark(raw,CB_READING_ID,'2',body)
+        version=0 if args.txt else 700
+        plan,body=(prepare_txt if args.txt else prepare)('900000',CB_READING_ID,'a'*32,sample,version,baseline)
+        point=dict(chapter_offset=PlainSource(raw).locate(TEXT)[0]) if args.txt else from_mark(raw,CB_READING_ID,'2',body)
         payload=dict(book=CB_READING_ID,chapter='2',chapter_idx=2,source=raw,chapters=CHAPTERS,
-            cookies={'wr_vid':'900000','wr_skey':'mock_key'},native=grant,owner='900000',book_version=700,
-            body=body,first=point['chapter_offset'])
+            cookies={'wr_vid':'900000','wr_skey':'mock_key'},native=grant,owner='900000',book_version=version,
+            body=body,first=point['chapter_offset'],source_format=sample['source_format'])
         os.environ.update(WEREAD_FIXTURE_SYNTHETIC='1',WEREAD_FIXTURE_MOCK_PORT=str(server.server_port))
         command=['python3','scripts/run_cb_fixture_bookmark_ui.py','--koreader',str(args.koreader),
                  '--candidate',str(candidate),'--width',str(args.width),'--height',str(args.height),'--dpi',str(args.dpi)]
         if args.case=='orchestrated':
-            from unittest.mock import patch
             receipt=object()
             class Journal:
                 imported=False
@@ -86,11 +94,16 @@ def main():
                 assert apply;journal.imported=True;assert source(CB_READING_ID)
                 cleaned=cleanup_gate(journal,receipt,{},CB_READING_ID)
                 if cleaned:journal.imported=False
-                return {'result':'EPUB_IMPORT_AND_SOURCE_VERIFIED' if cleaned else 'UNVERIFIED','phase':'restored' if cleaned else 'imported'}
+                return {'result':('TXT_IMPORT_AND_SOURCE_VERIFIED' if args.txt else 'EPUB_IMPORT_AND_SOURCE_VERIFIED') if cleaned else 'UNVERIFIED','phase':'restored' if cleaned else 'imported'}
+            if args.txt:
+                from verify_cb_txt_bookmark_native import point as txt_point
+                options=dict(source_format='web_txt',source_marker=TEXT,prepare_fn=prepare_txt,point_fn=txt_point,
+                             upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED',allow_zero_version=True)
+            else:options={}
             with patch('verify_cb_fixture_bookmark_native.save_refreshed_web_session',return_value=False):
                 result=run(dict(vid='900000',cookies={'wr_vid':'900000','wr_skey':'mock_key'}),None,NativeStore(),grant,journal,intent,
                     command,apply=True,uploader=uploader,upload_factory=lambda *_:None,source_factory=Source,
-                    observer_factory=lambda book,creds,authority,store:Observer(book,creds,authority,store,opener=Opener(server)))
+                    observer_factory=lambda book,creds,authority,store:Observer(book,creds,authority,store,opener=Opener(server)),**options)
             assert result['result']=='CB_NATIVE_BOOKMARK_VERIFIED' and not journal.imported
             assert result['native_writes']==2 and server.bookmark_posts==2 and intent.read()==(None,None)
             print(json.dumps(dict(result='PASS',case=args.case,width=args.width,height=args.height,
@@ -133,6 +146,7 @@ def main():
                               mock_writes=server.bookmark_posts,no_replay=True)))
     finally:
         server.shutdown();thread.join();server.server_close()
+        if txt_patch:txt_patch.stop()
         assert set(Path('/dev/shm').glob('weread-cb-bookmark-*'))==profiles,'native fixture profile leaked'
 
 
