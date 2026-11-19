@@ -68,3 +68,5 @@ TXT 范围语义、想法引用跳转、更多书号类型、真实缺章下载�
 两种屏幕尺寸下，合成导入书的划线与想法分别经实际 KOReader 界面、章节间跳转及新进程断网重开核对，每组各六条；前置表情使原始字符数与 UTF-16 位置不同，范围见[验证记录](validation-assets/2026-11-19/cb-txt-quote-navigation.json)。另一份真实账号自造书中的一条真实回读划线，也已通过两尺寸原生界面定位和断网重开，测试书及划线已移除，见[记录](validation-assets/2026-11-19/cb-txt-real-note-navigation.json)。这不验证官方阅读器的显示位置；真实 TXT 想法、更多字符及实体 Kindle 仍待验收。
 
 按官方网页观察到的 UTF-16 范围，划线及想法各六条另经两尺寸原生界面和新进程断网重开；旧字符范围及含代理项中点、双重解释歧义的拒绝路径也经回归，见[范围兼容记录](validation-assets/2026-11-19/cb-txt-range-compatibility.json)。
+
+另一份自造 TXT 的 UTF-16 范围划线已在真实账号创建并独立回读，随后在两尺寸原生界面准确定位并断网重开；该条划线及测试书已移除，原有可观察状态恢复，见[真实验证记录](validation-assets/2026-11-19/cb-txt-utf16-real-note-navigation.json)。此试验未核对官方阅读器保存后的划线显示。

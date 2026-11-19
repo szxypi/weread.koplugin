@@ -32,3 +32,5 @@ python3 scripts/verify_cb_txt_highlight_trial.py --saved-session
 第二份自造 TXT 的官方网页选区已明确区分两者：选中文字是原文中的唯一片段，范围之前有表情；该范围按 UTF-16 单位提取时与文字完全一致，按 Unicode 字符数提取则不一致。划线请求被断网拦截，未写入批注，测试书已移除，见[记录](validation-assets/2026-11-19/cb-txt-official-selection-attempt-2.json)。此前原生接口试验提交的字符范围也被原样回读，说明不能把回显视为服务端转换证明。本地候选已改为 UTF-16，已有引用的只读定位会核对两种可能，若对应不同且都吻合则拒绝定位。该样本不能证明其他字符、BOM、官方保存后显示或跨设备行为，因此 TXT 写入仍未开放。
 
 修正验证器后，第三份独立自造 TXT 再次得到相同结果；选区前后读取到的原文和位置一致，拦截请求后移除测试书并确认书架恢复，见[记录](validation-assets/2026-11-19/cb-txt-official-selection-attempt-3.json)。这仍只覆盖两条短选区，保存后的显示、其他字符与 BOM 尚待验证。
+
+后续使用独立自造书将 UTF-16 范围提交到原生接口，逐步核对真实回读、两尺寸插件内原文跳转、断网重开及删除；测试书已移除，见[记录](validation-assets/2026-11-19/cb-txt-utf16-real-note-navigation.json)。该实验不证明官方阅读器保存后会在预期位置显示。
