@@ -39,4 +39,6 @@ python3 scripts/verify_cb_txt_highlight_trial.py --saved-session
 
 首次真实原生划线预演发现新导入 TXT 的书籍版本为零，旧校验在任何批注写入前停止；测试书已移除并确认书架恢复，见[记录](validation-assets/2026-11-19/cb-txt-native-highlight-attempt-1.json)。此前独立原生接口试验允许零版本并验证了 UTF-16 划线创建和删除，但未记录当次版本号。保存校验现允许导入书使用零版本，普通数字书仍要求非零版本；零版本划线和私密想法已通过两尺寸合成原生界面及断网重开，真实服务仍需核对。
 
-随后另一份零版本自造 TXT 已在真实账号的 KO2 模拟尺寸完成原生选区、划线保存与删除；两次写入均独立回读，断网重开通过，测试书已移除，见[记录](validation-assets/2026-11-19/cb-txt-native-highlight-attempt-2.json)。真实零版本私密想法、官方保存后显示和实体 Kindle 仍待验收。
+随后另一份零版本自造 TXT 已在真实账号的 KO2 模拟尺寸完成原生选区、划线保存与删除；两次写入均独立回读，断网重开通过，测试书已移除，见[记录](validation-assets/2026-11-19/cb-txt-native-highlight-attempt-2.json)。
+
+另一份零版本自造 TXT 在真实账号的 KO2 模拟尺寸完成原生选区私密想法的新增、编辑、删除及逐步回读，断网重开通过；没有观察到关联划线，测试书已移除，见[记录](validation-assets/2026-11-19/cb-txt-native-thought.json)。官方保存后显示、更多正文和实体 Kindle 仍待验收。
