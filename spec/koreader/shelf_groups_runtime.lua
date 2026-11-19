@@ -40,6 +40,7 @@ local function reset()
     plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books')
 end
 if mode=='reopen' then
+    assert(plugin.settings:get('shelf').sort_order=='author_desc','author sort did not survive a fresh process')
     reset();local remembered=assert(plugin.shelf_view)
     assert(#remembered.group_keys==2 and #remembered.books==21,'multi-group selection not restored in fresh offline process')
     remembered.on_select_group(nil);pump(function() return plugin.shelf_view~=remembered end)
@@ -138,6 +139,38 @@ end
 shelf_options.sort_order='name_desc';plugin.settings:set('shelf',shelf_options)
 plugin:showShelfView('books',nil,tied_view,{page=1});tied_view=plugin.shelf_view
 for index,book in ipairs(expected) do assert(tied_view.books[index]==book,'equal title changed shelf order') end
+UI:forceRePaint()
+-- Author sorting uses Unicode folding, retains pin precedence and keeps
+-- missing authors last. Exercise actual selector callbacks and group search.
+local authors={
+    {bookId='SYN-AP',title='置顶',isTop=1},
+    {bookId='SYN-B',title='乙',author='Bob'},
+    {bookId='SYN-A1',title='甲',author=' Alice '},
+    {bookId='SYN-A2',title='丙',author='ＡＬＩＣＥ'},
+    {bookId='SYN-C',title='丁',authors='Carol'},
+    {bookId='SYN-M',title='未知作者'},
+}
+plugin:applyShelfSnapshot(authors,{{archiveId=95,name='合成作者分组',bookIds={'SYN-AP','SYN-B','SYN-A1','SYN-A2','SYN-C','SYN-M'}}})
+plugin.shelf_group_key='archive:95';plugin:showShelfView('books');local author_view=assert(plugin.shelf_view)
+author_view.on_sort();local author_dialog=assert(author_view._shelf_popup)
+UI:forceRePaint();Device.screen:shot(evidence..'/author-sort.png')
+author_dialog.buttons[6][1].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=author_view end)
+author_view=plugin.shelf_view
+for index,id in ipairs({'SYN-AP','SYN-A1','SYN-A2','SYN-B','SYN-C','SYN-M'}) do
+    assert(author_view.books[index].bookId==id,'ascending author order incorrect')
+end
+author_view.on_sort();author_dialog=assert(author_view._shelf_popup)
+author_dialog.buttons[7][1].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=author_view end)
+author_view=plugin.shelf_view
+for index,id in ipairs({'SYN-AP','SYN-C','SYN-B','SYN-A1','SYN-A2','SYN-M'}) do
+    assert(author_view.books[index].bookId==id,'descending author order incorrect')
+end
+author_view.on_search();local author_search=assert(author_view._shelf_popup)
+author_search:setInputText('CAROL');author_search.buttons[1][2].callback()
+pump(function() return plugin.shelf_view and plugin.shelf_view~=author_view end)
+assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='SYN-C',
+    'alternate author field escaped group search')
+assert(authors[2].bookId=='SYN-B' and authors[3].bookId=='SYN-A1','author sort changed the source shelf')
 UI:forceRePaint()
 -- Old or malformed cached timestamps must not stop list rendering or promote
 -- an out-of-range value to the top of the shelf.
@@ -289,10 +322,12 @@ if mode=='live' then
     local ephemeral={books={{bookId='SYN-RESTART',title='合成未保存书籍',readUpdateTime=2000000000}},archives={}}
     assert(require('weread.lib.volatile_shelf').remember(plugin,ephemeral,{_shelf_source='native'}))
     plugin:showHome();assert(plugin.shelf_view.books[1].bookId=='SYN-RESTART')
+    local saved=plugin.settings:get('shelf');saved.sort_order='author_desc'
+    plugin.settings:set('shelf',saved);plugin.settings:flush()
 end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
-report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
+report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
 report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

@@ -228,6 +228,8 @@ local SHELF_SORT_OPTIONS = {
     { key = "default",   label = _("Default order"), short = _("Default") },
     { key = "name_asc",  label = _("Title A-Z"), short = "A–Z" },
     { key = "name_desc", label = _("Title Z-A"), short = "Z–A" },
+    { key = "author_asc", label = _("Author A-Z"), short = _("Author A-Z") },
+    { key = "author_desc", label = _("Author Z-A"), short = _("Author Z-A") },
 }
 
 local function shelfSortLabel(sort_key)

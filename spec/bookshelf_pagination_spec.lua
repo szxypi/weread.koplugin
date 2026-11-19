@@ -620,7 +620,7 @@ end
 local stable={};for _,book in ipairs(pinned) do stable[#stable+1]=book end
 for _,book in ipairs(rest) do stable[#stable+1]=book end
 host.shelf_regular=tied;host.shelf_groups={};host.shelf_group_key=nil;host.shelf_multi_groups={}
-for _,order in ipairs({'time_desc','time_asc','name_asc','name_desc'}) do
+for _,order in ipairs({'time_desc','time_asc','name_asc','name_desc','author_asc','author_desc'}) do
     shelf_settings.sort_order=order
     for _=1,2 do
         host:showShelfView('books',nil,nil,{page=2})
@@ -652,4 +652,24 @@ expect(#legacy_items==8 and legacy_items[3].text=='E'
     and legacy_items[3].mandatory==os.date('%Y-%m-%d',12),
     'legacy shelf failed to render a numeric-string timestamp')
 for index=5,8 do expect(legacy_items[index].mandatory=='','legacy shelf displayed an invalid date') end
+local authors={
+    {bookId='missing-pin',title='Pinned without author',isTop=1},
+    {bookId='b',title='Book B',author='Bob'},
+    {bookId='a1',title='Book A',author=' Alice '},
+    {bookId='a2',title='Book C',author='ALICE'},
+    {bookId='fallback',title='Book D',author='',authors='Carol'},
+    {bookId='missing',title='Book E',author=true},
+}
+host.shelf_regular=authors;host.bookMatchesFilters=function() return true end
+for _,case in ipairs({{'author_asc',{'missing-pin','a1','a2','b','fallback','missing'}},
+                      {'author_desc',{'missing-pin','fallback','b','a1','a2','missing'}}}) do
+    shelf_settings.sort_order=case[1];host:showShelfView('books')
+    for index,id in ipairs(case[2]) do
+        expect(shown[#shown].data.books[index].bookId==id,'author sort lost a stable, pinned or unknown author')
+    end
+end
+host:showShelfView('books','carol')
+expect(#shown[#shown].data.books==1 and shown[#shown].data.books[1].bookId=='fallback',
+    'search did not match the alternate author field')
+expect(authors[2].bookId=='b' and authors[3].bookId=='a1','author sorting changed the source shelf')
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

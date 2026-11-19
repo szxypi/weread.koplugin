@@ -1009,13 +1009,19 @@ sortBooks = function(books, sort_order)
     end
     local by_time = sort_order == "time_desc" or sort_order == "time_asc"
     local by_name = sort_order == "name_asc" or sort_order == "name_desc"
-    if not by_time and not by_name then return ShelfFlags.pinned_first(books) end
-    local descending = sort_order == "time_desc" or sort_order == "name_desc"
+    local by_author = sort_order == "author_asc" or sort_order == "author_desc"
+    if not by_time and not by_name and not by_author then return ShelfFlags.pinned_first(books) end
+    local descending = sort_order == "time_desc" or sort_order == "name_desc" or sort_order == "author_desc"
     local entries, sorted = {}, {}
+    local trim = by_author and require("weread.lib.search_query").trim
     for i, book in ipairs(books) do
         local value
         if by_time then
             value = ShelfTime.value(book.readUpdateTime) or 0
+        elseif by_author then
+            local author = trim(book.author)
+            if author == "" then author = trim(book.authors) end
+            if author ~= "" then value = ShelfSearch.prepare(author) end
         else
             value = type(book.title) == "string" and book.title or ""
         end
@@ -1025,6 +1031,10 @@ sortBooks = function(books, sort_order)
     -- values, including the many books with no recent-reading timestamp.
     table.sort(entries, function(a, b)
         if a.value == b.value then return a.index < b.index end
+        if by_author then
+            if a.value == nil then return false end
+            if b.value == nil then return true end
+        end
         if descending then return a.value > b.value end
         return a.value < b.value
     end)

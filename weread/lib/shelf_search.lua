@@ -30,7 +30,7 @@ end
 function Search.matches(book, needle)
     if not needle then return true end
     if type(book) ~= "table" then return false end
-    for _, field in ipairs({ "title", "author", "bookId", "book_id" }) do
+    for _, field in ipairs({ "title", "author", "authors", "bookId", "book_id" }) do
         local value = book[field]
         if type(value) == "number" and (field == "bookId" or field == "book_id") then value = tostring(value) end
         if Search.contains(value, needle) then return true end
