@@ -113,4 +113,39 @@ expect(Search.discover({book=input.book,file='/full.epub'},archive,function() re
 local tampered={{name=metadata[1].name,metadata=metadata[2].metadata}}
 expect(Search.discover({book=input.book,file='/full.epub'},archive,function() return tampered end).incomplete,
     'mismatched metadata name was accepted')
+-- Chapter IDs are identifiers, not arithmetic values. Keep large adjacent
+-- decimal IDs distinct through search, archive binding and cache lookup.
+local Access=require('weread.lib.read_access')
+for _i,uid in ipairs({'2147483648','9007199254740992','9007199254740993','18446744073709551615'}) do
+    local file='/large-'..uid..'.epub';files[file]=fixture(input.book,uid,raw)
+    local hit=assert(Search.scan({book=input.book,chapter=uid,paths={file},keyword='needle',from=1},archive).hits[1])
+    local large_row=assert(Target.row(input.book,'needle',hit))
+    expect(large_row.chapterUid==uid and Target.can_locate(large_row),'large chapter ID lost its exact digits')
+    local target=Target.resolve({book_id=input.book,cached_chapters={[uid]=file}},nil,large_row,19,archive)
+    expect(target.position and target.position.chapter_uid==uid and target.position.upload_verified==false,
+        'large chapter could not be located in its own cached file')
+end
+expect(Access.cached_chapter({[9007199254740992]='/wrong.epub'},'9007199254740993')==nil,
+    'rounded numeric key aliased an adjacent chapter')
+expect(Access.cached_chapter({[2147483648]='/legacy.epub'},'2147483648')=='/legacy.epub',
+    'exact legacy numeric chapter key stopped working')
+expect(not Target.can_locate({type=1,bookId=input.book,chapterUid=9007199254740992,markText='x',range='1',
+    abstract=string.rep('a',64),bookmarkId=string.rep('b',64),reviewId=string.rep('c',64)}),
+    'imprecise numeric chapter identity was accepted')
+local large_chapters={{chapterUid='9007199254740992'},{chapterUid='9007199254740993'}}
+local large_identity_text=Identity.encode(full_book,large_chapters,Identity.capture(full_book),Crypto.sha256_hex(raw))
+local large_identity=assert(Identity.decode(large_identity_text));local large_members={[Identity.PATH]=large_identity_text};local large_meta={}
+for index,chapter in ipairs(large_chapters) do
+    local source=assert(Source.capture(full_book,chapter,raw,'web_xhtml'))
+    local rendered=string.format('OEBPS/text/chapter-%03d.xhtml',index)
+    local value=assert(Source.bind(source,large_identity,rendered,Crypto.sha256_hex(raw)))
+    local name=Source.meta_path(chapter.chapterUid)
+    large_members[name],large_members[Source.path_meta_path(rendered)]=value,value
+    large_members[Source.raw_path(source.raw_sha256)],large_members[rendered]=raw,raw
+    large_meta[index]={name=name,metadata=value}
+end
+files['/large-full.epub']=large_members
+local indexed=Search.discover({book=input.book,file='/large-full.epub'},archive,function() return large_meta end)
+expect(not indexed.incomplete and #indexed.entries==2 and indexed.entries[1].uid=='9007199254740992'
+    and indexed.entries[2].uid=='9007199254740993','large adjacent chapter IDs collapsed during discovery')
 print(('cached_book_search_spec: %d checks'):format(checks))

@@ -2008,8 +2008,7 @@ function M:openBookForReading(book, quiet, options)
             chapters=Content.load_catalog_cache(self.client,self.settings,book)
         end
         if cloud_hint or type(chapters)~='table' or #chapters==0 then
-            local mapped=type(book.cached_chapters)=='table' and (book.cached_chapters[hint.chapter_uid]
-                or book.cached_chapters[tonumber(hint.chapter_uid)])
+            local mapped=require('weread.lib.read_access').cached_chapter(book.cached_chapters,hint.chapter_uid)
             local paths={}
             if file_exists(mapped) then paths[#paths+1]=mapped end
             if full_path~=mapped and file_exists(full_path) then paths[#paths+1]=full_path end

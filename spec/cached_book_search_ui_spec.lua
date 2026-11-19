@@ -44,7 +44,9 @@ package.preload['weread.lib.cached_book_search']=function() return {MAX_HITS=30,
     end} end
 package.preload['weread.lib.cached_search_target']=function() return {row=function(book,keyword,hit)
     if not hit.offset then return nil end
-    return {bookId=book,chapterUid=tonumber(hit.chapter_uid),markText=keyword,type=1,range='1'}
+    local chapter=tonumber(hit.chapter_uid)
+    if chapter>2147483647 then chapter=hit.chapter_uid end
+    return {bookId=book,chapterUid=chapter,markText=keyword,type=1,range='1'}
 end} end
 local navigations=0
 package.preload['weread.ui.my_mark_navigation']=function() return {
@@ -111,6 +113,17 @@ expect(owner.menu.items[1].text=='Downloaded search: 2 of 3 chapters checked; 1 
 hit_item(owner,2).callback()
 expect(navigations==1 and owner.navigation.row.chapterUid==2,'cached result did not start guarded navigation')
 Cached.cancel(host)
+
+-- The queue must retain the exact string rather than rounding a large UID.
+book.cached_chapters['9007199254740993']='/large.epub'
+local large_chapters={{chapterUid='9007199254740993',title='Large identifier'}}
+owner=open(large_chapters);worker:complete();task=scheduled;scheduled=nil;task()
+expect(owner.finished and #owner.value==1 and owner.value[1].chapter_uid=='9007199254740993',
+    'large chapter was skipped or rounded in the search queue')
+hit_item(owner,1).callback()
+expect(owner.navigation and owner.navigation.row.chapterUid=='9007199254740993',
+    'large chapter identity was lost before navigation')
+Cached.cancel(host);book.cached_chapters['9007199254740993']=nil
 
 owner=open(chapters,true);worker:complete()
 expect(last_case==true and owner.ignore_ascii_case and #owner.value==1,'case-insensitive mode was not sent to the worker')
@@ -186,7 +199,7 @@ worker:complete();task=scheduled;scheduled=nil;task();worker:complete();task=sch
 expect(owner.finished and find_item(owner.menu,'Chapter list unavailable; only mapped downloads were searched.'),
     'missing catalog coverage was not disclosed')
 hit_item(owner,1).callback()
-expect(navigations==2 and owner.navigation.row.chapterUid==1,
+expect(navigations==3 and owner.navigation.row.chapterUid==1,
     'a mapped downloaded result without a catalog did not start guarded local navigation')
 Cached.cancel(host)
 scope={vid='123',epoch=1};account='account';catalog_rows=chapters

@@ -14,18 +14,23 @@ end
 local function number(value,maximum)
     return type(value)=='number' and value==value and value%1==0 and value>=0 and value<=maximum
 end
+local function chapter_id(value)
+    if type(value)=='number' and (not number(value,2147483647) or value==0) then return nil end
+    return Access.book_id(value)
+end
 function M.row(book,keyword,hit)
     if type(book)~='string' or not Access.display_book_id(book) or type(keyword)~='string'
         or keyword=='' or #keyword>160 or type(hit)~='table' then return nil end
-    local uid=Access.book_id(hit.chapter_uid);local chapter=uid and tonumber(uid)
-    if not chapter or chapter>2147483647 or not number(hit.offset,Source.MAX_BYTES*8)
+    local uid=Access.book_id(hit.chapter_uid)
+    if not uid or not number(hit.offset,Source.MAX_BYTES*8)
         or not hash(hit.source_hash) or not hash(hit.file_id) or not hash(hit.metadata_hash) then return nil end
+    local chapter=#uid<=10 and tonumber(uid)<=2147483647 and tonumber(uid) or uid
     return {type=1,bookId=book,chapterUid=chapter,markText=keyword,range=string.format('%.0f',hit.offset),
         abstract=hit.source_hash,bookmarkId=hit.file_id,reviewId=hit.metadata_hash}
 end
 function M.can_locate(row)
     if type(row)~='table' or row.type~=1 or type(row.bookId)~='string' or not Access.display_book_id(row.bookId)
-        or not number(row.chapterUid,2147483647) or row.chapterUid==0 or type(row.markText)~='string'
+        or not chapter_id(row.chapterUid) or type(row.markText)~='string'
         or row.markText=='' or #row.markText>160 or type(row.range)~='string' or not row.range:match('^%d+$')
         or #row.range>10 or not number(tonumber(row.range),Source.MAX_BYTES*8)
         or not hash(row.abstract) or not hash(row.bookmarkId) or not hash(row.reviewId) then return false end
@@ -58,7 +63,7 @@ function M.resolve(book,current_file,row,request_id,read_archive)
     local id=tostring(book.book_id or book.bookId or '')
     if id~=row.bookId then return {error='cached_search/scope',request_id=request_id} end
     local uid=tostring(row.chapterUid);local seen={}
-    local mapped=type(book.cached_chapters)=='table' and (book.cached_chapters[uid] or book.cached_chapters[tonumber(uid)])
+    local mapped=Access.cached_chapter(book.cached_chapters,uid)
     for _i,file in ipairs({current_file or false,mapped or false,
         book.cached_full_book or false,book.cached_file or false}) do
         if type(file)=='string' and not seen[file] then

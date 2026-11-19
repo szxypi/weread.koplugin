@@ -69,10 +69,7 @@ function M.discover(input,read_archive,list_metadata)
             local index=record and record.render_path:match('^OEBPS/text/chapter%-(%d+)%.xhtml$')
             if not index and identity.chapter_count==1 and record and record.render_path=='OEBPS/text/chapter.xhtml' then index='1' end
             index=tonumber(index)
-            -- The search navigator uses numeric 32-bit chapter IDs. Consumers
-            -- that only verify source identity can explicitly keep the full
-            -- validated decimal string without converting it to a Lua number.
-            if not record or not uid or input.allow_large_chapter_ids~=true and tonumber(uid)>2147483647 or record.book_id~=input.book
+            if not record or not uid or record.book_id~=input.book
                 or record.file_id~=identity.file_id or record.book_version~=identity.book_version
                 or Source.meta_path(uid)~=member.name or not index or index<1 or index>identity.chapter_count then
                 incomplete=true

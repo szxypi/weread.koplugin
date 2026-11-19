@@ -52,7 +52,7 @@ local function queue(book,chapters,file,full)
         local keys,seen={},{}
         for uid in pairs(type(book.cached_chapters)=='table' and book.cached_chapters or {}) do
             uid=Access.book_id(uid)
-            if uid and tonumber(uid)<=2147483647 and not seen[uid] then
+            if uid and not seen[uid] then
                 keys[#keys+1]=uid;seen[uid]=true
                 if #keys>10000 then return nil end
             end
@@ -64,13 +64,13 @@ local function queue(book,chapters,file,full)
     local result,missing={},0
     for _i,chapter in ipairs(chapters) do
         local uid=tostring(chapter.chapterUid);local paths,seen={},{}
-        local mapped=type(book.cached_chapters)=='table' and (book.cached_chapters[uid] or book.cached_chapters[tonumber(uid)])
+        local mapped=Access.cached_chapter(book.cached_chapters,uid)
         local function add(value)
             if type(value)=='string' and value~='' and not seen[value] then paths[#paths+1]=value;seen[value]=true end
         end
         if file==full then add(full);add(mapped) else add(mapped);add(full) end
         if #chapters==1 then add(file) end
-        if #paths>0 and tonumber(uid) and tonumber(uid)<=2147483647 then
+        if #paths>0 and Access.book_id(uid) then
             result[#result+1]={uid=uid,title=chapter.title,paths=paths}
         else missing=missing+1 end
     end
@@ -171,7 +171,7 @@ start=function(host,owner)
                 local seen,last={},0
                 if valid then for _i,row in ipairs(result.entries) do
                     if type(row)~='table' or type(row.uid)~='string' or not Access.book_id(row.uid)
-                        or tonumber(row.uid)>2147483647 or type(row.index)~='number' or row.index%1~=0
+                        or type(row.index)~='number' or row.index%1~=0
                         or row.index<=last or row.index>100000 or seen[row.uid] then valid=false;break end
                     seen[row.uid]=true;last=row.index
                 end end

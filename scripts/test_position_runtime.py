@@ -106,6 +106,7 @@ def main():
     parser.add_argument('--cached-canonical-case', choices=('source','query'))
     parser.add_argument('--cached-restore-catalog', action='store_true')
     parser.add_argument('--cached-limit', action='store_true')
+    parser.add_argument('--cached-large-uid', action='store_true')
     parser.add_argument('--cb-cloud-single', action='store_true')
     parser.add_argument('--cb-sync-noack', action='store_true')
     parser.add_argument('--cb-sync-cloud', action='store_true')
@@ -135,7 +136,7 @@ def main():
     if args.search_local_restart and not args.search_local_interrupt:
         parser.error('local restart fixture requires local interruption')
     if (args.cached_signed_out or args.cached_no_catalog or args.cached_full or args.cached_incomplete or args.cached_dual
-            or args.cached_ignore_case or args.cached_restore_catalog or args.cached_limit) and args.probe!='cached-search':
+            or args.cached_ignore_case or args.cached_restore_catalog or args.cached_limit or args.cached_large_uid) and args.probe!='cached-search':
         parser.error('cached search options require --probe cached-search')
     if args.cached_restore_catalog and (not args.cached_no_catalog or args.cached_signed_out or args.cached_full or args.search_cb):
         parser.error('catalog restore fixture requires signed-in ordinary cached search without a catalog')
@@ -208,6 +209,7 @@ def main():
                                         WEREAD_TEST_CACHED_CANONICAL_CASE=args.cached_canonical_case or '',
                                         WEREAD_TEST_CACHED_RESTORE_CATALOG='1' if args.cached_restore_catalog else '0',
                                         WEREAD_TEST_CACHED_LIMIT='1' if args.cached_limit else '0',
+                                        WEREAD_TEST_CACHED_LARGE_UID='1' if args.cached_large_uid else '0',
                                         WEREAD_TEST_CB_CLOUD_SINGLE='1' if args.cb_cloud_single else '0',
                                         WEREAD_TEST_CB_SYNC_NOACK='1' if args.cb_sync_noack else '0',
                                         WEREAD_TEST_CB_SYNC_CLOUD='1' if args.cb_sync_cloud else '0',

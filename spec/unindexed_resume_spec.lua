@@ -19,5 +19,9 @@ hint.extra='unexpected';expect(not Resume.valid(hint,'41',owner,3),'unknown fiel
 hint.chapter_uid=22;expect(not Resume.valid(hint,'41',owner,3),'noncanonical chapter identifier was accepted');hint.chapter_uid='22'
 point.upload_verified=true;expect(not Resume.make(point,'41',owner,3),'cloud-authorized point was accepted');point.upload_verified=false
 point.chapter_uid='0';expect(not Resume.make(point,'41',owner,3),'invalid chapter was accepted');point.chapter_uid='22'
+point.chapter_uid='9007199254740993'
+local large=assert(Resume.make(point,'41',owner,3))
+expect(large.chapter_uid=='9007199254740993' and Resume.valid(large,'41',owner,3),
+    'large chapter identity did not survive local-only resume')
 point.raw_sha256='bad';expect(not Resume.make(point,'41',owner,3),'invalid source hash was accepted')
 print(('unindexed_resume_spec: %d checks'):format(checks))

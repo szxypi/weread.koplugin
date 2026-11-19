@@ -11,8 +11,8 @@ local function epoch(value)
 end
 function M.make(point,book,account,auth_epoch)
     local uid=type(point)=='table' and Access.book_id(point.chapter_uid)
-    if type(book)~='string' or Access.display_book_id(book)~=book or not uid or not tonumber(uid)
-        or tonumber(uid)>2147483647 or point.book_id~=book or point.upload_verified~=false
+    if type(book)~='string' or Access.display_book_id(book)~=book or not uid
+        or point.book_id~=book or point.upload_verified~=false
         or not Source.is_coordinate_basis(point.basis) or not hash(point.file_id,64) or not hash(point.raw_sha256,64)
         or account~=nil and not hash(account,20) or not epoch(auth_epoch) then return nil end
     return {schema=1,book_id=book,chapter_uid=uid,file_id=point.file_id,raw_sha256=point.raw_sha256,

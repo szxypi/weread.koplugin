@@ -17,6 +17,17 @@ function M.display_book_id(value)
     if type(value) == "string" and #value <= 67 and value:match("^CB_[A-Za-z0-9]+$") then return value end
 end
 
+-- Older caches may use numeric table keys. Never round a decimal chapter ID
+-- through a floating-point number: adjacent IDs above 2^53 can alias.
+function M.cached_chapter(chapters, value)
+    local id = M.book_id(value)
+    if type(chapters) ~= 'table' or not id then return nil end
+    if chapters[id] ~= nil then return chapters[id] end
+    if #id < 16 or #id == 16 and id <= '9007199254740991' then
+        return chapters[tonumber(id)]
+    end
+end
+
 function M.capture(settings)
     if not settings then return end
     local scope = settings.get_auth_scope and settings:get_auth_scope()

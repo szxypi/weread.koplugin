@@ -38,7 +38,7 @@ function M.inspect(selection,file,chapters,options)
             or identity.file_id~=selection.file_id or identity.chapter_count<2 or identity.chapter_count>#chapters
             or not Identity.has_text_digest(raw) then return nil end
         local listed=list(file)
-        local discovery={book=selection.book_id,file=file,allow_large_chapter_ids=true}
+        local discovery={book=selection.book_id,file=file}
         local discovered=Search.discover(discovery,read,function() return listed end)
         if type(discovered)~='table' or discovered.error or discovered.incomplete
             or not C.array(discovered.entries,identity.chapter_count,identity.chapter_count) then return nil end

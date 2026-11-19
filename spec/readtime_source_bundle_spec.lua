@@ -253,7 +253,10 @@ local long_proof=Reader.observe({}, {},long_selection,{long_page.reference},nil,
 expect(long_proof.chapter_count==4 and long_calls==4,'long IDs prevented source verification')
 local found_for_search=require('weread.lib.cached_book_search').discover({book=book.bookId,file='/long.epub'},
     long_options.read_archive,long_options.list_metadata)
-expect(found_for_search.incomplete and #found_for_search.entries==0,'search navigation limit changed')
+expect(not found_for_search.incomplete and #found_for_search.entries==4
+    and found_for_search.entries[1].uid==long_chapters[1].chapterUid
+    and found_for_search.entries[4].uid==long_chapters[4].chapterUid,
+    'search discovery lost long chapter identifiers')
 if os.getenv('WEREAD_REAL_RUNTIME')=='1' then
     local ffi=require('ffi');require('ffi/posix_h')
     local path=os.tmpname();local fd=ffi.C.open(path,ffi.C.O_WRONLY+ffi.C.O_TRUNC);assert(fd>=0)

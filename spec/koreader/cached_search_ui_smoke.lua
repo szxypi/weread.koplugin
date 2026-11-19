@@ -16,7 +16,9 @@ assert(not txt_source or unicode_case)
 assert(not unicode_case or ignore_case)
 local restore_catalog=os.getenv('WEREAD_TEST_CACHED_RESTORE_CATALOG')=='1'
 local limit_test=os.getenv('WEREAD_TEST_CACHED_LIMIT')=='1'
-local target_uid=incomplete and '1' or '2'
+local large_uid=os.getenv('WEREAD_TEST_CACHED_LARGE_UID')=='1'
+local second_uid=large_uid and '9007199254740993' or '2'
+local target_uid=incomplete and '1' or second_uid
 local imported=os.getenv('WEREAD_TEST_SEARCH_CB')=='1'
 local book_id=imported and 'CB_SyntheticCached' or '900001'
 G_defaults=require('luadefaults'):open()
@@ -61,7 +63,7 @@ end
 if os.getenv('WEREAD_TEST_CACHED_REOPEN')=='1' or os.getenv('WEREAD_TEST_CACHED_STALE')=='1' then
     local stale=os.getenv('WEREAD_TEST_CACHED_STALE')=='1'
     local persisted=assert(settings:get_book(book_id))
-    local path=assert(full and persisted.cached_full_book or persisted.cached_chapters['2'])
+    local path=assert(full and persisted.cached_full_book or persisted.cached_chapters[second_uid])
     if stale then
         assert(persisted.unindexed_resume.raw_sha256~=string.rep('f',64))
         persisted.unindexed_resume.raw_sha256=string.rep('f',64)
@@ -133,7 +135,7 @@ if not signed_out then
         cookies={wr_vid='900000',wr_skey='synthetic-search-session'}},{replace_cookies=true})
 end
 local chapters={{chapterUid='1',chapterIdx=1,title='合成第一章',wordCount=1000},
-    {chapterUid='2',chapterIdx=2,title='合成第二章',wordCount=1000},
+    {chapterUid=second_uid,chapterIdx=2,title='合成第二章',wordCount=1000},
     {chapterUid='3',chapterIdx=3,title='未下载章节',wordCount=1000}}
 local book={book_id=book_id,bookId=book_id,bookVersion=7,title='合成本地搜索',chapters=chapters,cached_chapters={}}
 local bodies,sources={},{}
@@ -314,7 +316,7 @@ wait(function()
     local instance=require('apps/reader/readerui').instance
     if instance and instance.weread then reader=instance;plugin=instance.weread end
     local held=reader and plugin.progress_sync and plugin.progress_sync:current_source_target()
-    return reader and reader.document and reader.document.file==(full and book.cached_full_book or book.cached_chapters['2'])
+    return reader and reader.document and reader.document.file==(full and book.cached_full_book or book.cached_chapters[second_uid])
         and plugin.source_navigation and plugin.source_navigation.state=='ready'
         and held and held.chapter_uid==target_uid and held.chapter_offset==expected
 end)
