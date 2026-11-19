@@ -66,6 +66,12 @@ def main():
                         value = json.loads(out.split(marker, 1)[1].splitlines()[0])
                         if value.get('phase') in ('decode', 'prepare', 'choice', 'upload', 'reopen'): report['failure_phase'] = value['phase']
                         if type(value.get('failure_line')) is int: report['failure_line'] = value['failure_line']
+                        if value.get('result')=='UNVERIFIED':
+                            for key in ('dry_notice_unconfirmed','dry_zero_writes','dry_one_denied','dry_not_verified',
+                                        'dry_pending_position','dry_pending_dispatch'):
+                                if type(value.get(key)) is bool:report[key]=value[key]
+                            for key in ('dry_denied_count','dry_denied_writes','dry_denied_other','dry_denied_bookmarks'):
+                                if type(value.get(key)) is int and 0<=value[key]<=10:report[key]=value[key]
                     if child.returncode or len(out) > 8 * 1024 * 1024 or out.count(marker) != 1 or b'[WeRead] forceRePaint failed:' in out + err:
                         raise ValueError('native')
                     expected = (dict(result='PASS', fresh_process=True, offline=True, pending_cleared=True, journal_cleared=True, requests=0)

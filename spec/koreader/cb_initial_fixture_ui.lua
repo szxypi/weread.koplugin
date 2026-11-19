@@ -47,7 +47,7 @@ local ok,reason=pcall(function()
         local sync=value:get('sync',{});sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;value:set('sync',sync)
         local report=value:get('read_report',{});report.enabled=false;value:set('read_report',report)
         local cache=value:get('cache',{});cache.auto_prefetch_next_chapter=false;cache.download_underlines_and_thoughts=false
-        cache.download_book_images=false;value:set('cache',cache)
+        cache.download_book_images=false;cache.show_annotations=false;value:set('cache',cache)
         return value
     end
     local NativeStore=require('weread.lib.native_credentials');local make_native=NativeStore.new
@@ -61,12 +61,19 @@ local ok,reason=pcall(function()
     local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
     local Client=require('weread.lib.client');local Protocol=require('weread.lib.protocol');local Cookie=require('weread.lib.cookie')
     local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
-    local counts=ffi.cast('int *',memory);counts[0],counts[1],counts[2]=0,0,0
+    local counts=ffi.cast('int *',memory);counts[0],counts[1],counts[2],counts[3],counts[4],counts[5]=0,0,0,0,0,0
     local guard=dofile(fixtures..'cb_initial_fixture_ui_guard.lua').new(input,Protocol,Cookie)
     local request=Client.request
     function Client:request(options)
         local kind=not reopening and guard(options,counts[1],function(body) return self:json_decode(body) end)
-        if not kind then counts[2]=counts[2]+1;error('cb_first_fixture_scope',0) end
+        if not kind then
+            counts[2]=counts[2]+1
+            local write=options and options.method=='POST' and options.url=='https://weread.qq.com/web/book/read'
+            counts[write and 3 or 4]=counts[write and 3 or 4]+1
+            if not write and type(options)=='table' and type(options.url)=='string'
+                and options.url:match('^https://i%.weread%.qq%.com/book/bookmarklist%?') then counts[5]=counts[5]+1 end
+            error('cb_first_fixture_scope',0)
+        end
         if kind=='write' then counts[1]=counts[1]+1
         else if counts[0]>=80 then counts[2]=counts[2]+1;error('cb_first_fixture_scope',0) end;counts[0]=counts[0]+1 end
         options.persist_response_cookies=false
@@ -129,6 +136,13 @@ local ok,reason=pcall(function()
     wait(function() return notice~=nil end)
     local saved=assert(plugin.settings:get_book(input.book))
     if not input.armed then
+        result.dry_notice_unconfirmed=notice.code=='upload_unconfirmed'
+        result.dry_zero_writes=counts[1]==0;result.dry_one_denied=counts[2]==1
+        result.dry_denied_count=math.min(tonumber(counts[2]),10)
+        result.dry_denied_writes=math.min(tonumber(counts[3]),10);result.dry_denied_other=math.min(tonumber(counts[4]),10)
+        result.dry_denied_bookmarks=math.min(tonumber(counts[5]),10)
+        result.dry_not_verified=not sync.verified;result.dry_pending_position=not not saved.pending_upload_position
+        result.dry_pending_dispatch=not not plugin.source_dispatch:pending(input.book)
         assert(notice.code=='upload_unconfirmed' and counts[1]==0 and counts[2]==1 and not sync.verified
             and saved.pending_upload_position and plugin.source_dispatch:pending(input.book),'first dry run did not block write')
         result={result='DRY_RUN',native_choice=true,write_blocked=true,writes=0,denied=1};return

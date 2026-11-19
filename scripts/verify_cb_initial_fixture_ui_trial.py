@@ -14,6 +14,7 @@ import tempfile
 from urllib.parse import urlencode
 
 from cb_cloud_position import observed, state
+from cb_existing_position_intent import digest as intent_digest
 from cb_fixture_position import plan as position_plan
 from cb_initial_fixture_flow import _classify
 from cb_initial_fixture_intent import Intent
@@ -79,11 +80,22 @@ def xhtml_summary(sample, plan):
     return ''.join(c for c in model.anchor_at(plan['first'], size=96) if not c.isspace())[:20]
 
 
+def resume_reservation(intent,owner,target,attempt,baseline):
+    raw=intent.backend.load()
+    if not isinstance(raw,bytes) or not 0<len(raw)<=8192:raise ValueError('cb_first_ui/resume')
+    try:reserved=json.loads(raw)
+    except (TypeError,ValueError,UnicodeError):raise ValueError('cb_first_ui/resume') from None
+    expected=dict(schema=1,scope=ACCOUNT,owner=intent_digest(owner),book=intent_digest(target),attempt=attempt,baseline=baseline,claimed=0)
+    if (not isinstance(reserved,dict) or type(reserved.get('schema')) is not int or type(reserved.get('claimed')) is not int
+            or reserved!=expected or not intent.verify(reserved,raw)):raise ValueError('cb_first_ui/resume')
+    return reserved
+
+
 def run(saved, session, native_store, grant, journal, intent, command, *, apply=False,
         upload_factory=UploadProbe, uploader=upload_run, ui_runner=run_ui, attest=ui_command,
         source_format='web_xhtml', source_marker=TEXT, position_planner=position_plan,
         summary_planner=xhtml_summary, upload_success='EPUB_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=None,
-        after_verified=None):
+        after_verified=None, resume_fixture=False):
     report = dict(result='UNVERIFIED', phase='preflight', position_writes_known=0,
                   position_writes_uncertain=False, account_data_writes_known=0, authentication_posts=0,
                   existing_book_writes=0, fixture_only=True, private_data_in_report=False)
@@ -155,7 +167,8 @@ def run(saved, session, native_store, grant, journal, intent, command, *, apply=
         summary = summary_planner(sample, plan)
         if not summary: return False
         bound = hashlib.sha256((current['source_hash'] + ':' + str(plan['first'])).encode()).hexdigest()
-        reservation = intent.reserve(owner, target, attempt, bound)
+        reservation = (resume_reservation(intent,owner,target,attempt,bound) if resume_fixture
+                       else intent.reserve(owner, target, attempt, bound))
         chapters = []
         for row in sample['chapters']:
             item = dict(row)
@@ -205,9 +218,17 @@ def run(saved, session, native_store, grant, journal, intent, command, *, apply=
         return current['completed']
 
     try:
-        if journal.read()[0] is not None or intent.backend.load() is not None: raise ValueError('cb_first_ui/consumed')
-        before = shelf()
-        if shelf() != before: raise ValueError('cb_first_ui/shelf_changed')
+        upload_state,upload_receipt=journal.read()
+        if resume_fixture:
+            if (not apply or not upload_state or upload_state['phase']!='imported' or fixture_authorized is None
+                    or not same_grant(grant) or not fixture_authorized(journal,upload_receipt,upload_state['target'],current['saved']['vid'])):
+                raise ValueError('cb_first_ui/resume')
+            shelf_target=upload_state['target']
+        else:
+            if upload_state is not None or intent.backend.load() is not None:raise ValueError('cb_first_ui/consumed')
+            shelf_target=None
+        before = shelf(shelf_target)
+        if shelf(shelf_target) != before: raise ValueError('cb_first_ui/shelf_changed')
         current['shelf'] = before
         upload = upload_factory(journal, same_grant)
         result = uploader(upload, journal, grant, same_grant, source, apply=apply, cleanup_gate=trial)

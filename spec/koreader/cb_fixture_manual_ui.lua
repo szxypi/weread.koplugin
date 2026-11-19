@@ -56,7 +56,7 @@ local ok,reason=pcall(function()
         local sync=value:get('sync',{});sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;value:set('sync',sync)
         local report=value:get('read_report',{});report.enabled=false;value:set('read_report',report)
         local cache=value:get('cache',{});cache.auto_prefetch_next_chapter=false;cache.download_underlines_and_thoughts=false
-        cache.download_book_images=false;value:set('cache',cache)
+        cache.download_book_images=false;cache.show_annotations=false;value:set('cache',cache)
         return value
     end
     local Network=require('ui/network/manager');Network.isOnline=function() return not reopening end;Network.isConnected=Network.isOnline

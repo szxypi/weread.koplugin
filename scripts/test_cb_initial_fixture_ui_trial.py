@@ -1,4 +1,5 @@
 import copy
+import hashlib
 from contextlib import redirect_stdout
 import io
 import json
@@ -26,10 +27,16 @@ class Backend:
     def read(self): return (self.state, self.receipt) if self.imported else (None, None)
 
 
-def run_case(*, fail=None, apply=True, txt=False, fixture_authorized=None, after_verified=None):
+def run_case(*, fail=None, apply=True, txt=False, fixture_authorized=None, after_verified=None, resume=False):
     backend = Backend(txt); grant = {'vid': backend.owner}
     saved = dict(vid=backend.owner, cookies={'wr_vid': backend.owner, 'wr_skey': 'synthetic'})
     intent = Intent(backend=MemoryBackend()); command = ['synthetic-runner']
+    if resume:
+        from cb_txt_initial_fixture_plan import plan
+        first=plan(backend.book,backend.sample)['first']
+        fingerprint=hashlib.sha256((backend.sample['source_raw_sha256']+':'+str(first)).encode()).hexdigest()
+        intent.reserve(backend.owner,backend.book,backend.state['attempt'],fingerprint);backend.imported=True
+        fixture_authorized=fixture_authorized or (lambda _j,_r,target,owner:target==backend.book and owner==backend.owner)
     class NativeStore:
         def load(self, _owner): return grant
     class BaseWeb:
@@ -86,11 +93,16 @@ def run_case(*, fail=None, apply=True, txt=False, fixture_authorized=None, after
                            upload_success='TXT_IMPORT_AND_SOURCE_VERIFIED', fixture_authorized=fixture_authorized)
         result = task.run(saved, None, NativeStore(), grant, backend, intent, command, apply=apply,
                           upload_factory=lambda *_: None, uploader=uploader, ui_runner=ui_runner, attest=attest,
-                          after_verified=after_verified, **options)
+                          after_verified=after_verified, resume_fixture=resume, **options)
     return result, backend, intent
 
 
 class TrialTest(unittest.TestCase):
+    def test_resume_consumes_only_unclaimed_owned_initial_scope(self):
+        result,backend,intent=run_case(txt=True,resume=True)
+        self.assertEqual(result['result'],'CB_FIRST_NATIVE_UI_VERIFIED');self.assertEqual(backend.calls,[False,True])
+        self.assertTrue(backend.cleanup);self.assertEqual(json.loads(intent.backend.load())['claimed'],1)
+
     def test_offline_default_does_not_open_session_or_runtime(self):
         with patch.object(task, 'SessionStore') as session, patch.object(task, 'ui_command') as command, redirect_stdout(io.StringIO()) as out:
             self.assertEqual(task.main([]), 0)
