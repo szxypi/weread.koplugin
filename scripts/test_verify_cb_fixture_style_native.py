@@ -8,14 +8,15 @@ import unittest
 from unittest.mock import patch
 
 from cb_fixture_style_trial import Intent, prepare
+from verify_cb_fixture_color_native import prepare as prepare_color
 from test_cb_fixture_highlight_trial import fixture
 from test_secure_native_session import Backend
 from verify_cb_fixture_style_native import main, run_ui
 
 
 class Frames:
-    def __init__(self, body, state, armed, fault=None):
-        self.body = body; self.state = state; self.armed = armed; self.fault = fault; self.step = 0
+    def __init__(self, body, state, armed, fault=None, palette=False):
+        self.body = body; self.state = state; self.armed = armed; self.fault = fault; self.step = 0; self.palette=palette
     def next(self):
         self.step += 1; seq = self.step
         if not self.armed:
@@ -23,7 +24,8 @@ class Frames:
         marks = self.state['marks']['updated']
         if seq == 1: marks['synthetic-new'] = dict(self.body, bookmarkId='synthetic-new')
         elif seq in (2, 3):
-            marks['synthetic-new']['style'] = {2: 0, 3: 2}[seq]
+            if self.palette: marks['synthetic-new']['colorStyle'] = {2: 0, 3: 3}[seq]
+            else: marks['synthetic-new']['style'] = {2: 0, 3: 2}[seq]
             if self.fault == 'changed-field' and seq == 2: marks['synthetic-new']['markText'] = 'changed'
         elif seq == 4: marks.clear()
         else: return 'RESULT', self.result(True)
@@ -40,15 +42,15 @@ class Tests(unittest.TestCase):
             self.assertEqual(main([]), 0)
         store.assert_not_called(); self.assertEqual(json.loads(output.getvalue())['result'], 'OFFLINE_ONLY')
 
-    def run_case(self, armed, fault=None):
-        sample, baseline, _, _ = fixture(); plan, body = prepare('900000', sample['book_id'], 'a'*32, sample, 1, baseline)
+    def run_case(self, armed, fault=None, palette=False):
+        sample, baseline, _, _ = fixture(); plan, body = (prepare_color if palette else prepare)('900000', sample['book_id'], 'a'*32, sample, 1, baseline)
         state = deepcopy(baseline); intent = Intent(Backend())
         process = SimpleNamespace(stdin=io.BytesIO(), stdout=io.BytesIO(), wait=lambda **_kwargs: 0)
-        frames = Frames(body, state, armed, fault)
+        frames = Frames(body, state, armed, fault, palette)
         with patch('verify_cb_fixture_style_native.subprocess.Popen', return_value=process), \
              patch('verify_cb_fixture_style_native.Frames', return_value=frames), \
              patch('verify_cb_fixture_style_native.stop'):
-            def execute(): return run_ui(['synthetic'], {}, plan, body, baseline, intent, lambda: True, lambda: deepcopy(state), armed=armed)
+            def execute(): return run_ui(['synthetic'], {}, plan, body, baseline, intent, lambda: True, lambda: deepcopy(state), armed=armed, palette=palette)
             if fault:
                 with self.assertRaises(ValueError): execute()
                 self.assertEqual(intent.read()[0]['phase'], 'straight_pending')
@@ -63,6 +65,10 @@ class Tests(unittest.TestCase):
 
     def test_wrong_target_and_unrelated_change_stop_without_retry(self):
         self.run_case(True, 'wrong-id'); self.run_case(True, 'changed-field')
+
+    def test_native_color_scope_and_no_replay(self):
+        self.run_case(False, palette=True); self.run_case(True, palette=True)
+        self.run_case(True, 'wrong-id', palette=True); self.run_case(True, 'changed-field', palette=True)
 
     def test_unowned_fixture_never_starts_child(self):
         sample, baseline, _, _ = fixture(); plan, body = prepare('900000', sample['book_id'], 'a'*32, sample, 1, baseline)

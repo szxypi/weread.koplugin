@@ -14,7 +14,9 @@ import subprocess
 import tempfile
 
 from cb_fixture_style_trial import Intent, prepare
+from annotation_experiment_model import digest
 from highlight_trial_model import observe
+from mark_color_model import observe_color
 from mark_style_trial_model import observe_change
 from native_trial_pipe import Frames, reply, stop, write_initial
 from secure_native_session import NativeSessionStore, project_lock
@@ -39,12 +41,15 @@ class TrialFailure(ValueError):
         super().__init__('cb_native_style/runner'); self.stage = stage
 
 
-def run_ui(command, payload, plan, body, baseline, intent, authority, read, *, armed=False):
-    if type(armed) is not bool or not command or any(not isinstance(v, str) or not v for v in command):
+def run_ui(command, payload, plan, body, baseline, intent, authority, read, *, armed=False, palette=False):
+    if type(armed) is not bool or type(palette) is not bool or not command or any(not isinstance(v, str) or not v for v in command):
         raise ValueError('cb_native_style/command')
-    if intent.read() != (None, None) or not authority() or read() != baseline:
+    if (digest(body) != plan['request_sha256'] or digest(baseline) != plan['baseline_sha256']
+            or type(body['style']) is not int or body['style'] != 1 or type(body['colorStyle']) is not int
+            or body['colorStyle'] != (3 if palette else 0)
+            or intent.read() != (None, None) or not authority() or read() != baseline):
         raise ValueError('cb_native_style/preflight')
-    value = dict(payload, styles=True, armed=armed, token=secrets.token_hex(16))
+    value = dict(payload, styles=not palette, palette=palette, armed=armed, token=secrets.token_hex(16))
     receipt = intent.reserve(plan) if armed else None
     child = None; steps = 0; target = row = None
     try:
@@ -67,13 +72,14 @@ def run_ui(command, payload, plan, body, baseline, intent, authority, read, *, a
             if seq == 1:
                 target = observe(baseline, current, body); row = current['marks']['updated'][target['id']]
             elif seq in (2, 3):
-                target, row = observe_change(baseline, current, body, target, row, {2: 0, 3: 2}[seq])
+                target, row = (observe_color(baseline, current, body, target, row, {2: 0, 3: 3}[seq]) if palette
+                               else observe_change(baseline, current, body, target, row, {2: 0, 3: 2}[seq]))
             else:
-                observe(baseline, current, dict(body, style=2), deleted=True, target=target)
+                observe(baseline, current, dict(body, style=1 if palette else 2), deleted=True, target=target)
             if event['created_id'] != target['id'] or not authority(): raise ValueError('cb_native_style/target')
             if seq < 4:
                 receipt = intent.advance(receipt, {1: 'created', 2: 'straight', 3: 'wave'}[seq], target=target)
-                if not authority() or observe(baseline, read(), dict(body, style=row['style']), target=target) != target:
+                if not authority() or observe(baseline, read(), dict(body, style=row['style'], colorStyle=row['colorStyle']), target=target) != target:
                     raise ValueError('cb_native_style/changed')
                 receipt = intent.advance(receipt, {1: 'straight_pending', 2: 'wave_pending', 3: 'delete_pending'}[seq])
             if not authority(): raise ValueError('cb_native_style/ownership')
@@ -86,12 +92,12 @@ def run_ui(command, payload, plan, body, baseline, intent, authority, read, *, a
             stage = result.get('stage') if isinstance(result, dict) else None
             if (not isinstance(stage, dict) or set(stage) != {'result', 'phase', 'failure_line'}
                     or stage['result'] not in ('PASS', 'UNVERIFIED', 'DRY_RUN')
-                    or stage['phase'] not in ('decode', 'prepare', 'create', 'style0', 'style2', 'delete', 'reopen')
+                    or stage['phase'] not in ('decode', 'prepare', 'create', 'style0', 'style2', 'color0', 'color3', 'delete', 'reopen')
                     or type(stage['failure_line']) is not int or not 0 <= stage['failure_line'] <= 1000): stage = None
             raise TrialFailure(stage)
         if status or steps != (4 if armed else 1) or not authority(): raise ValueError('cb_native_style/result')
         if armed:
-            observe(baseline, read(), dict(body, style=2), deleted=True, target=target)
+            observe(baseline, read(), dict(body, style=1 if palette else 2), deleted=True, target=target)
             if not authority(): raise ValueError('cb_native_style/ownership')
             receipt = intent.advance(receipt, 'verified'); intent.finish(receipt)
             if intent.read() != (None, None): raise ValueError('cb_native_style/intent')

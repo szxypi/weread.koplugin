@@ -160,7 +160,7 @@ def run(saved,session,native_store,grant,journal,intent,command,*,apply=False,
             detail=getattr(error,'stage',None)
             if (isinstance(detail,dict) and set(detail)=={'result','phase','failure_line'}
                     and detail['result'] in ('PASS','UNVERIFIED','DRY_RUN')
-                    and detail['phase'] in ('decode','prepare','create','style0','style2','delete','reopen')
+                    and detail['phase'] in ('decode','prepare','create','style0','style2','color0','color3','delete','reopen')
                     and type(detail['failure_line']) is int and 0<=detail['failure_line']<=1000):report['native_stage']=detail
             return bool(report['native_writes_allocated']==0 and intent.read()[0] is None and authority())
     try:

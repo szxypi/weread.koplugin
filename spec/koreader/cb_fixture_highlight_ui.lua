@@ -17,7 +17,7 @@ local ok,reason=pcall(function()
     local styles=input.styles==true
     local palette=input.palette==true
     assert((input.styles==nil or type(input.styles)=='boolean') and (input.palette==nil or type(input.palette)=='boolean')
-        and not (styles and palette) and (not palette or synthetic))
+        and not (styles and palette))
     G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('language','zh_CN');G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
     require('gettext').changeLang('zh_CN')
@@ -193,7 +193,7 @@ local ok,reason=pcall(function()
             result.phase='color'..color;item.callback();tap('change_highlight_color')
             UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_color_'..color)):onTapSelectButton()
             submit()
-            if journal:read().phase=='pending' then
+            if synthetic and journal:read().phase=='pending' then
                 assert(gate:read().phase=='color'..color..'_pending' and counts[1]==step+1)
                 item.callback();tap('change_highlight_color')
                 UI:forceRePaint();assert(owner.menu._shelf_popup.buttontable:getButtonById('highlight_color_'..color)):onTapSelectButton()

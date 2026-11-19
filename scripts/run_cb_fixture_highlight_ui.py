@@ -32,8 +32,7 @@ def run(payload, runtime, candidate, width, height, dpi):
         armed = payload['armed']; token = payload.get('token')
         styles = payload.get('styles', False)
         palette = payload.get('palette', False)
-        if (type(styles) is not bool or type(palette) is not bool or styles and palette
-                or palette and os.environ.get('WEREAD_FIXTURE_SYNTHETIC') != '1'):
+        if type(styles) is not bool or type(palette) is not bool or styles and palette:
             raise ValueError('cb_highlight/style_scope')
         writes = 4 if styles or palette else 2
         if not isinstance(token, str) or len(token) != 32 or any(c not in '0123456789abcdef' for c in token):
