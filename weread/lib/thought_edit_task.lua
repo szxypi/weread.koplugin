@@ -27,7 +27,8 @@ function M.preview(client,settings,selected,input)
                 local source=require('weread.lib.source_currentness')
                 local access=source.capture(settings)
                 if not access or not access.web or access.web.cookies.wr_vid~=selected.scope.vid then error('thought_edit/source_access',0) end
-                source.fetch(client,reference.source,access)
+                if require('weread.lib.my_cloud_marks').id(input.book_id) then source.fetch(client,reference.source,access)
+                else source.fetch_cb(client,reference.source,access) end
             else marks=auth:read_my_cloud_marks(selected.credentials,input.book_id) end
             metadata=auth:read_book_metadata(selected.credentials,input.book_id)
         end)

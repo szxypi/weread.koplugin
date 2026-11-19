@@ -56,6 +56,8 @@ native.book_id='CB_Synthetic';native.identity=imported_identity;native.metadata=
 endpoint=F.clone(native);endpoint.point_offset=19
 local imported_native=assert(Ref.capture_native({first=native,last=endpoint,text='Unique selected quote',chapters=chapters},archive))
 expect(Ref.same(imported_native,imported),'imported native endpoints mapped to another selection')
-expect(not pcall(Contract.make,codec,F.snapshot(codec),'create',imported,'Thought',nil,{bookId='CB_Synthetic',version=77},'900000'),
-    'imported selection enabled unverified thought writing')
+local cb_snapshot=F.snapshot(codec);cb_snapshot.book_id='CB_Synthetic'
+local cb_plan=Contract.make(codec,cb_snapshot,'create',imported,'Thought',nil,{bookId='CB_Synthetic',version=77},'900000')
+expect(Contract.validate_body('create',cb_plan.body) and cb_plan.body.chapterIdx==nil and cb_plan.body.isPrivate==1
+    and cb_plan.body.abstract==imported.markText,'imported selection did not preserve verified private context')
 print('selection_reference_spec: '..checks..' checks')

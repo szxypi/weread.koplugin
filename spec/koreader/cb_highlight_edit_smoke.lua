@@ -12,6 +12,9 @@ return function(reader,plugin,pump,clean,offline)
             'offline reopen lost the unconfirmed imported highlight')
         local cached=assert(require('weread.lib.my_cloud_marks_store'):new(plugin.library_db,plugin.client):read(id))
         for _i,row in ipairs(cached.updated) do assert(not row.bookmarkId:match('^synthetic%-new%-highlight%-')) end
+        local thought_pending=assert(thought_journal:read())
+        assert(thought_pending.phase=='pending' and thought_pending.metadata.book_id==id and #thought_journal:drafts()==1,
+            'offline reopen lost imported selection thought or its draft')
         return
     end
     local function request(path,value)
@@ -77,12 +80,53 @@ return function(reader,plugin,pump,clean,offline)
         pump(function() owner=plugin._selection_thought_owner or owner;return owner and (owner.reference or owner.error) end)
         assert(owner.reference,'imported selection was not bound to source')
         for _i,item in ipairs(owner.menu.item_table) do
-            assert(item.text~=tr('Write private thought') and item.text~=tr('Default highlight style')
+            assert(item.text~=tr('Default highlight style')
                 and item.text~=tr('Default highlight color'),'unverified imported edit action was exposed')
         end
         return owner
     end
-    local before=request('/__state');local owner=open();row(owner,'Save highlight');preview(owner)
+    local before=request('/__state');local owner=open();row(owner,'Write private thought')
+    local online=plugin.isNetworkOnline;plugin.isNetworkOnline=function() return false end
+    owner.editor.input:setInputText('导入书选区私密想法');tap(owner,'save_thought_draft')
+    assert(#thought_journal:drafts()==1 and request('/__state').selection_posts==0,'offline imported draft failed')
+    Selection.cancel(plugin);clean(reader);owner=open();row(owner,'Local thought drafts')
+    owner.editor.dialog.item_table[1].callback();tap(owner,'resume_thought_draft')
+    pump(function() return owner.editor and owner.editor.input end)
+    assert(owner.editor.input:getInputText()=='导入书选区私密想法','imported draft could not resume')
+    plugin.isNetworkOnline=online;tap(owner,'submit_thought')
+    pump(function() return owner.editor and owner.editor.service.preview end)
+    request('/__control',{selection_source_revision=2});tap(owner,'confirm_thought_change')
+    pump(function() return not owner.editor end)
+    assert(request('/__state').selection_posts==0 and thought_journal:read().phase=='idle'
+        and #thought_journal:drafts()==1,'changed imported source dispatched or lost draft')
+    request('/__control',{selection_source_revision=1});Selection.cancel(plugin);clean(reader)
+    owner=open();row(owner,'Write private thought')
+    assert(owner.editor.input:getInputText()=='导入书选区私密想法','changed-source draft was not retained')
+    tap(owner,'submit_thought');pump(function() return owner.editor and owner.editor.service.preview end)
+    tap(owner,'confirm_thought_change');pump(function() return not owner.editor end)
+    local direct_state=request('/__state');local direct
+    for key,value in pairs(direct_state.selection_thoughts) do
+        if not before.selection_thoughts[key] then
+            assert(not direct and value.isPrivate==1 and value.content=='导入书选区私密想法');direct=key
+        end
+    end
+    assert(direct and direct_state.selection_posts==1 and thought_journal:read().phase=='idle'
+        and #thought_journal:drafts()==0,'imported selection thought creation failed')
+    Selection.cancel(plugin);clean(reader)
+    for _i,op in ipairs({'edit','delete'}) do
+        assert(plugin:showMyCloudThoughts(id));owner=assert(plugin._my_marks_owner)
+        local item;for _j,value in ipairs(owner.menu.item_table) do if value.my_note_id==direct then item=value end end
+        assert(item);item.callback();tap(owner,'thought_'..op)
+        if op=='edit' then owner.editor.input:setInputText('导入书选区想法已修改');tap(owner,'submit_thought') end
+        pump(function() return owner.editor and owner.editor.service.preview end)
+        tap(owner,'confirm_thought_change');pump(function() return not owner.editor end)
+        direct_state=request('/__state')
+        assert(thought_journal:read().phase=='idle' and (op=='edit' and direct_state.selection_thoughts[direct].content=='导入书选区想法已修改'
+            or op=='delete' and not direct_state.selection_thoughts[direct]),'imported selection thought change failed')
+        plugin:cancelMyCloudMarks();clean(reader)
+    end
+    assert(direct_state.selection_posts==3 and direct_state.selection_thoughts['synthetic-existing-thought'],'original thought changed')
+    owner=open();row(owner,'Save highlight');preview(owner)
     tap(owner,'confirm_highlight_change');notice(owner)
     local state=request('/__state');local created
     for key,value in pairs(state.selection_marks) do
@@ -107,7 +151,7 @@ return function(reader,plugin,pump,clean,offline)
             assert(not thought and value.isPrivate==1 and value.content=='合成导入书私密想法');thought=key
         end
     end
-    assert(thought and thought_journal:read().phase=='idle' and state.selection_posts==1,'imported private thought was not confirmed')
+    assert(thought and thought_journal:read().phase=='idle' and state.selection_posts==4,'imported private thought was not confirmed')
     plugin:cancelMyCloudMarks();clean(reader)
     for _i,op in ipairs({'edit','delete'}) do
         assert(plugin:showMyCloudThoughts(id));owner=assert(plugin._my_marks_owner)
@@ -121,7 +165,7 @@ return function(reader,plugin,pump,clean,offline)
             or op=='delete' and not state.selection_thoughts[thought]),'imported private thought change failed')
         plugin:cancelMyCloudMarks();clean(reader)
     end
-    assert(state.selection_posts==3 and state.selection_thoughts['synthetic-existing-thought'],'original thought changed')
+    assert(state.selection_posts==6 and state.selection_thoughts['synthetic-existing-thought'],'original thought changed')
     assert(plugin:showMyCloudMarks(id));owner=assert(plugin._my_marks_owner)
     for _i,item in ipairs(owner.menu.item_table) do if item.my_note_id==created then item.callback();break end end
     tap(owner,'delete_highlight');preview(owner);tap(owner,'confirm_highlight_change');notice(owner)
@@ -142,10 +186,20 @@ return function(reader,plugin,pump,clean,offline)
     Selection.cancel(plugin);clean(reader)
     owner=open();row(owner,'Save highlight');preview(owner);tap(owner,'confirm_highlight_change');notice(owner)
     assert(journal:read().phase=='pending' and request('/__state').highlight_posts==4,'offline pending fixture was not retained')
+    Selection.cancel(plugin);clean(reader)
+    owner=open();row(owner,'Write private thought');owner.editor.input:setInputText('导入书待核对选区想法')
+    tap(owner,'submit_thought');pump(function() return owner.editor and owner.editor.service.preview end)
+    tap(owner,'confirm_thought_change');pump(function() return not owner.editor end)
+    assert(request('/__state').selection_posts==7 and thought_journal:read().phase=='pending'
+        and #thought_journal:drafts()==1,'unconfirmed imported thought or draft was lost')
+    row(owner,'Write private thought');tap(owner,'submit_thought');assert(not owner.editor)
+    assert(request('/__state').selection_posts==7 and thought_journal:read().phase=='pending','unconfirmed thought was resent')
     request('/__control',{selection_thought_mode='plain'});Selection.cancel(plugin);clean(reader)
     plugin.client.request=transport
     local file=assert(io.open(os.getenv('WEREAD_EVIDENCE')..'/cb-highlight-edit.json','wb'))
     file:write(Json.encode{result='PASS',fixture='synthetic',create_delete_verified=true,source_change_refused=true,
         unknown_result_no_replay=true,read_only_recovery=true,default_style_bound=true,unverified_actions_hidden=true,
-        pending_survives_offline_reopen=true,private_thought_create_edit_delete=true,mock_data_posts=7,real_account_posts=0});file:close()
+        pending_survives_offline_reopen=true,private_thought_create_edit_delete=true,selection_thought_draft_and_writes=true,
+        changed_selection_source_keeps_draft=true,selection_pending_offline_no_replay=true,
+        mock_data_posts=11,real_account_posts=0});file:close()
 end

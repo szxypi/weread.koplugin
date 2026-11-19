@@ -49,7 +49,7 @@ render=function(host,owner)
             if current(host,owner) then Popup.show(owner.menu,require('weread.ui.thought_text').viewer{
                 title=_(owner.bookmarks and 'Bookmark source preview' or 'Quoted text'),text=owner.reference.markText,add_default_buttons=true}) end
         end}
-        if not owner.bookmarks and not owner.imported then items[#items+1]={text=_('Write private thought'),callback=function()
+        if not owner.bookmarks then items[#items+1]={text=_('Write private thought'),callback=function()
             if current(host,owner) then Editor.start(host,owner,'create',owner.reference,current,render) end
         end} end
         if not owner.bookmarks and not owner.imported then
@@ -75,7 +75,7 @@ render=function(host,owner)
             end
         end
     else items[#items+1]={text=_(owner.bookmarks and 'Checking bookmark position…' or 'Checking selected text…'),select_enabled=false} end
-    if not owner.bookmarks and not owner.imported then
+    if not owner.bookmarks then
     items[#items+1]={text=_('Local thought drafts'),callback=function()
         if current(host,owner) then Editor.drafts(host,owner,current,render) end
     end}

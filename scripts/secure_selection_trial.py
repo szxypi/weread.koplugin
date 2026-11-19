@@ -27,6 +27,8 @@ class SelectionTrialStore:
         path=Path(tempfile.gettempdir())/('codex-selection-trial-'+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
 
+    def validate_plan(self,value):return validate_plan(value)
+
     def _load(self):
         raw=self.backend.load()
         if raw is None:return None,None
@@ -39,7 +41,7 @@ class SelectionTrialStore:
                     or not isinstance(v['created_at'],str) or not 1<=len(v['created_at'])<=64
                     or type(v['reserved_posts']) is not int or type(v['native_steps']) is not int or not 0<=v['native_steps']<=3
                     or type(v['cleanup_pending']) is not bool or type(v['cleanup_verified']) is not bool):raise ValueError()
-            validate_plan(v['plan'])
+            self.validate_plan(v['plan'])
             if v['phase']=='prepared':
                 if v['reserved_posts'] or v['native_steps'] or v['created_id'] is not None or v['mark'] is not None or v['cleanup_pending'] or v['cleanup_verified']:raise ValueError()
             elif v['reserved_posts']!=4:raise ValueError()
@@ -68,7 +70,7 @@ class SelectionTrialStore:
         self._load();return Receipt(raw)
 
     def prepare(self,plan):
-        validate_plan(plan)
+        self.validate_plan(plan)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('selection_trial/intent_exists')
             return self._write(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),created_at=datetime.now(timezone.utc).isoformat(),

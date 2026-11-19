@@ -60,7 +60,6 @@ end
 function M.context(client,marks,metadata,book,owner,reference)
     local row
     if reference.selection then
-        if not Marks.id(book) then fail('selection') end
         if not require('weread.lib.selection_reference').valid(reference,book) then fail('selection') end
         row=reference
     else
