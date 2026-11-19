@@ -20,7 +20,8 @@ def main():
     source=dict(bookId=book_id,updated=[],chapters=[dict(chapterUid=7,title='合成章节：长名称与中文分页')])
     for index in range(45):
         kind=0 if index%10==0 else 2 if index==44 else 1
-        row=dict(bookmarkId=f'synthetic-mark-{index}',type=kind,chapterUid=7,style=1,colorStyle=0,createTime=1000+index)
+        row=dict(bookmarkId=f'synthetic-mark-{index}',type=kind,chapterUid=7,style=1,colorStyle=0,createTime=0 if index==44 else 1000+index)
+        if index!=44:row['chapterIdx']=(index*7)%11
         if kind!=0:row['markText']=f'合成划线 {index+1}：原生文字显示与中文分页 😀。'+('这是长引用，点开后应完整显示。\n'*40 if index==1 else '第二句。')
         else:row['abstract']='合成书签的章节摘要。'
         if index==3:row['markText']+=' Straße Café'
@@ -29,7 +30,8 @@ def main():
         source=dict(bookId=book_id,reviews=[],totalCount=45,hasMore=0)
         for index in range(45):
             row=dict(reviewId=f'synthetic-thought-{index}',bookId=book_id,userVid=900000,content=f'合成想法 {index+1}：原生文字、中文分页 😀。',
-                chapterUid='7' if index==0 else 7,chapterIdx=1,type=1,isPrivate=index%2,chapterName='合成想法章节',createTime=1000+index)
+                chapterUid='7' if index==0 else 7,type=1,isPrivate=index%2,chapterName='合成想法章节',createTime=0 if index==44 else 1000+index)
+            if index!=44:row['chapterIdx']=(index*7)%11
             if index==44:row['content']=''
             if index==3:row['content']+=' Straße Café'
             if index%10:row['abstract']='合成引用原文。'+('长引用保持完整。\n'*40 if index==1 else '第二句。')

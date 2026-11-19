@@ -6,6 +6,7 @@ local Popup=require('weread.ui.shelf_popup')
 local Protocol=require('weread.lib.protocol')
 local Search=require('weread.lib.shelf_search')
 local SearchQuery=require('weread.lib.search_query')
+local Order=require('weread.lib.personal_notes_order')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
@@ -78,10 +79,27 @@ local function matches(owner,row)
         or Search.contains(row.abstract,owner.needle) or Search.contains(chapter_title(owner,row),owner.needle)
 end
 
+local sort_labels={original='Original order',newest='Newest first',oldest='Oldest first',chapter='Chapter order'}
+local function sort_dialog(host,owner)
+    local dialog
+    local function choice(mode)
+        return {text=_(sort_labels[mode])..(owner.sort==mode and ' ✓' or ''),callback=function()
+            if not current(host,owner) or not Popup.current(owner.menu,dialog) then return end
+            owner.sort=mode;Popup.close(owner.menu);render(host,owner)
+        end}
+    end
+    dialog=require('ui/widget/buttondialog'):new{title=_('Sort saved notes'),buttons={
+        {choice('original')},{choice('newest')},{choice('oldest')},{choice('chapter')},
+    }}
+    Popup.show(owner.menu,dialog)
+end
+
 render=function(host,owner)
     if not current(host,owner) then return end
     Popup.redraw(owner.menu,function()
         if not current(host,owner) then return end
+        owner.generation=(owner.generation or 0)+1
+        local generation=owner.generation
         owner.chapter_titles={}
         for _i,item in ipairs(owner.value and owner.value.chapters or {}) do owner.chapter_titles[item.chapterUid]=item.title end
         local items={{text=_(owner.labels.refresh),callback=function() if current(host,owner) then refresh(host,owner) end end}}
@@ -103,6 +121,9 @@ render=function(host,owner)
             mandatory=owner.search and search_summary(owner.search) or '',callback=function()
                 if current(host,owner) then search_dialog(host,owner) end
             end} end
+        if owner.value then items[#items+1]={text=_('Sort saved notes'),mandatory=_(sort_labels[owner.sort]),callback=function()
+            if current(host,owner) and owner.generation==generation then sort_dialog(host,owner) end
+        end} end
         if owner.value then items[#items+1]={text=_('Export saved cloud notes'),callback=function()
             if current(host,owner) then require('weread.ui.cloud_notes_export').show(host,owner,current) end
         end} end
@@ -122,7 +143,7 @@ render=function(host,owner)
             local date=stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp) or _('Time unavailable')
             items[#items+1]={text=_(owner.labels.saved),mandatory=date,select_enabled=false}
             local count=0
-            for _i,row in ipairs(owner.thoughts and owner.value.reviews or owner.value.updated) do
+            for _i,row in ipairs(Order.rows(owner.thoughts and owner.value.reviews or owner.value.updated,owner.sort)) do
                 local has_quote=row.abstract~=nil and row.abstract~=''
                 local row_type=owner.thoughts and (has_quote and 1 or 0) or row.type
                 if (owner.filter==nil or row_type==owner.filter) and matches(owner,row) then
@@ -132,7 +153,7 @@ render=function(host,owner)
                     if not content or content=='' then content=chapter(owner,row) end
                     items[#items+1]={text=preview(content or chapter(owner,row)),mandatory=kind(row,owner),
                         my_note_id=owner.thoughts and row.reviewId or row.bookmarkId,callback=function()
-                        if not current(host,owner) then return end
+                        if not current(host,owner) or owner.generation~=generation then return end
                         local parts={chapter(owner,row)}
                         if owner.thoughts then
                             if has_quote then parts[#parts+1]=_('Quoted text')..'\n'..row.abstract end
@@ -283,7 +304,7 @@ function M.show(host,id,variant)
     end
     M.cancel(host)
     local thoughts=variant=='thoughts'
-    local owner={id=id,scope=scope,thoughts=thoughts,writable=Data.id(id)~=nil,mark_writable=Data.display_id(id)~=nil,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,
+    local owner={id=id,scope=scope,thoughts=thoughts,writable=Data.id(id)~=nil,mark_writable=Data.display_id(id)~=nil,bookmarks=variant=='bookmarks',filter=variant=='bookmarks' and 0 or nil,sort='original',
         data=thoughts and require('weread.lib.my_cloud_thoughts') or Data,account=host.library_db:accountKey(),epoch=host.discovery_epoch or 0,
         session=host._reader_session_gen,document=host.ui and host.ui.document,parent=host._book_detail_view,
         store=Store:new(host.library_db,host.client,thoughts and 'thoughts' or nil)}

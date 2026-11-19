@@ -5,7 +5,7 @@ local ffi,json=require('ffi'),require('json');require('ffi/posix_h')
 local mode=arg[1]
 local report={result='UNVERIFIED',mode=mode,phase='init',anonymous_credentials=false,transport_guard=false,worker_heartbeat=false,
     native_filemanager=false,file_sqlite=false,account_isolation=false,cache_session_free=false,all_quotes=false,
-    workers_reaped=false,credential_audit=false,search_checked=false,screenshots=0,pages=0,quotes=0,requests=0,forbidden=0,failed_line=0,fault_cases=0}
+    workers_reaped=false,credential_audit=false,search_checked=false,sort_checked=false,screenshots=0,pages=0,quotes=0,requests=0,forbidden=0,failed_line=0,fault_cases=0}
 local plugin,memory,counters,output;local descriptors={}
 local ok,reason=pcall(function()
     local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/weread%-marks%-[%w_]+/profile$'))
@@ -227,8 +227,26 @@ local ok,reason=pcall(function()
             menu:onMenuSelect(item('Search saved notes'));local dialog=assert(menu._shelf_popup)
             dialog:setInputText(text);dialog.buttons[1][2].callback();tick()
         end
+        local function sort(index)
+            menu:onMenuSelect(item('Sort saved notes'));local dialog=assert(menu._shelf_popup)
+            if index==2 then UI:forceRePaint();shot('sort-menu') end
+            dialog.buttons[index][1].callback();tick()
+        end
+        local function ids()
+            local result={};for _,row in ipairs(menu.item_table) do if row.my_note_id then result[#result+1]=row.my_note_id end end
+            return result
+        end
         local before_requests=counters[0]
         assert(not owner.search and not owner.needle)
+        local prefix=thoughts and 'synthetic-thought-' or 'synthetic-mark-'
+        sort(2);local ordered=ids()
+        assert(ordered[1]==prefix..'43' and ordered[#ordered]==prefix..'44')
+        sort(3);ordered=ids()
+        assert(ordered[1]==prefix..'0' and ordered[#ordered]==prefix..'44')
+        sort(4);ordered=ids()
+        assert(ordered[1]==prefix..'0' and ordered[2]==prefix..'11' and ordered[3]==prefix..'22'
+            and ordered[4]==prefix..'33' and ordered[#ordered]==prefix..'44')
+        assert(counters[0]==before_requests);report.sort_checked=true
         search('　STRASSE　')
         local results={};for _,row in ipairs(menu.item_table) do if row.my_note_id then results[#results+1]=row end end
         assert(#results==1 and results[1].my_note_id==(thoughts and 'synthetic-thought-3' or 'synthetic-mark-3'))
@@ -276,12 +294,44 @@ local ok,reason=pcall(function()
         menu:onMenuSelect(item('Search saved notes'));local dialog=assert(menu._shelf_popup)
         dialog.buttons[1][1].callback();tick()
         assert(not owner.search and not owner.needle)
+        assert(owner.sort=='chapter');sort(1);assert(owner.sort=='original')
         local restored=0;for _,row in ipairs(menu.item_table) do if row.my_note_id then restored=restored+1 end end
         assert(restored==#(thoughts and expected.reviews or expected.updated) and counters[0]==before_requests)
         UI:forceRePaint();report.search_checked=true
     else
         -- Real text stays in this private process; no query or screenshot is exported.
         local Search=require('weread.lib.shelf_search');local Query=require('weread.lib.search_query');local Protocol=require('weread.lib.protocol')
+        local function action(label)
+            for _,row in ipairs(menu.item_table) do if row.text==tr(label) then return row end end
+            error('missing private sort action')
+        end
+        local records,indexes={},{}
+        for index,row in ipairs(thoughts and expected.reviews or expected.updated) do
+            local id=thoughts and row.reviewId or row.bookmarkId
+            records[id],indexes[id]=row,index
+        end
+        local before_sort=counters[0]
+        for index=2,4 do
+            menu:onMenuSelect(action('Sort saved notes'));local dialog=assert(menu._shelf_popup)
+            dialog.buttons[index][1].callback();tick();UI:forceRePaint()
+            local seen,previous,previous_index,count={},nil,nil,0
+            for _,entry in ipairs(menu.item_table) do if entry.my_note_id then
+                local id=entry.my_note_id;local row=assert(records[id]);assert(not seen[id]);seen[id]=true;count=count+1
+                local value
+                if index==4 then value=row.chapterIdx else value=row.createTime;if value==0 then value=nil end end
+                if previous_index then
+                    if previous==nil then assert(value==nil)
+                    elseif value~=nil then
+                        if value==previous then assert(indexes[id]>previous_index)
+                        elseif index==2 then assert(previous>value) else assert(previous<value) end
+                    end
+                end
+                previous,previous_index=value,indexes[id]
+            end end
+            assert(count==#(thoughts and expected.reviews or expected.updated) and counters[0]==before_sort)
+        end
+        menu:onMenuSelect(action('Sort saved notes'));menu._shelf_popup.buttons[1][1].callback();tick()
+        report.sort_checked=true
         local chosen,query
         for _,row in ipairs(thoughts and expected.reviews or expected.updated) do
             for _,value in ipairs({row.content or '',row.markText or '',row.abstract or '',row.chapterName or ''}) do

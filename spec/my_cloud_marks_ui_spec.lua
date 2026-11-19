@@ -9,6 +9,7 @@ package.preload['ui/widget/inputdialog']=function() return {new=function(_self,d
     function data:getInputText() return self.input end
     return data
 end} end
+package.preload['ui/widget/buttondialog']=function() return {new=function(_self,data) return data end} end
 local Data=require('weread.lib.my_cloud_marks');local Store=require('weread.lib.my_cloud_marks_store')
 local Marks=require('weread.ui.my_cloud_marks')
 local checks=0
@@ -90,6 +91,45 @@ active.buttons[1][1].callback();expect(row(menu,'Alpha quotation') and row(menu,
 row(menu,'Search saved notes').callback();local stale_search=menu._shelf_popup
 Marks.cancel(host);stale_search.input='alpha';stale_search.buttons[1][2].callback()
 expect(not host._my_marks_menu and not menu._shelf_popup,'stale search reopened a closed owner')
+
+-- Ordering is local to this window, stable for ties and composes with search
+-- and the mark-type filter without changing the saved snapshot.
+local ordered=snapshot();ordered.updated={
+    {bookmarkId='a',type=1,markText='Match A',createTime=200,chapterIdx=2},
+    {bookmarkId='b',type=0,markText='Match B',createTime=100,chapterIdx=3},
+    {bookmarkId='c',type=1,markText='Match C',createTime=0},
+    {bookmarkId='d',type=1,markText='Match D',createTime=200,chapterIdx=1},
+    {bookmarkId='e',type=1,markText='Match E',chapterIdx=1},
+}
+host,value=fixture(ordered);Marks.show(host,'900001');menu=host._my_marks_menu
+local function visible_ids()
+    local ids={};for _,item in ipairs(menu.item_table) do if item.my_note_id then ids[#ids+1]=item.my_note_id end end
+    return table.concat(ids,',')
+end
+local function sort(index)
+    row(menu,'Sort saved notes').callback();local dialog=menu._shelf_popup
+    dialog.buttons[index][1].callback()
+end
+local stale_note=row(menu,'Match A').callback
+sort(2);expect(visible_ids()=='a,d,b,c,e','newest order or stable ties were wrong')
+stale_note();expect(not menu._shelf_popup,'old note action survived a new ordering')
+sort(3);expect(visible_ids()=='b,a,d,c,e','oldest order or missing dates were wrong')
+sort(4);expect(visible_ids()=='d,e,a,b,c','chapter order or missing chapter was wrong')
+row(menu,'Highlights only').callback();expect(visible_ids()=='d,e,a,c','sort ignored the selected type')
+row(menu,'Search saved notes').callback();local sorted_search=menu._shelf_popup
+sorted_search.input='match a';sorted_search.buttons[1][2].callback()
+expect(visible_ids()=='a' and row(menu,'Sort saved notes').mandatory=='Chapter order','search reset the ordering')
+expect(ordered.updated[1].bookmarkId=='a' and ordered.updated[2].bookmarkId=='b' and value.writes==0 and not value.started,
+    'sorting changed saved order or accessed network')
+row(menu,'Sort saved notes').callback();local stale_sort=menu._shelf_popup
+Marks.cancel(host);stale_sort.buttons[1][1].callback()
+expect(not host._my_marks_menu and not menu._shelf_popup,'old sort dialog reopened a closed owner')
+ordered.updated[#ordered.updated+1]={bookmarkId='f',type=0,markText='Match F',createTime=300,chapterIdx=2}
+host,value=fixture(ordered);Marks.show(host,'900001','bookmarks');menu=host._my_marks_menu
+sort(2);expect(visible_ids()=='f,b','bookmark-only view did not sort within its filter')
+sort(4);expect(visible_ids()=='f,b','bookmark chapter ordering failed')
+expect(value.writes==0 and not value.started,'bookmark sorting accessed storage or network')
+Marks.cancel(host)
 
 for _,change in ipairs({'account','epoch','session','document','parent','scope','revision','close','cancel'}) do
     host,value=fixture(snapshot());value.online=true;Marks.show(host,'900001');menu=host._my_marks_menu
@@ -176,12 +216,16 @@ host,value=fixture(snapshot());value.online=true;value.native_missing=true;Marks
 row(menu,'Refresh my cloud marks').callback();expect(not value.started and #value.notices==1,'missing grant started worker')
 -- The thought adapter shares ownership while keeping its rows and filters separate.
 host,value=fixture();value.saved={schema=1,book_id='900001',fetched_at=1000,reviews={
-    {reviewId='synthetic-thought-a',content='My quoted thought',abstract='Quoted source',isPrivate=1,chapterName='Chapter',type=1,chapterUid=7,range='12-25'},
-    {reviewId='synthetic-thought-b',content='My standalone thought',abstract='',chapterName='Chapter'},
+    {reviewId='synthetic-thought-a',content='My quoted thought',abstract='Quoted source',isPrivate=1,chapterName='Chapter',type=1,chapterUid=7,range='12-25',createTime=100,chapterIdx=3},
+    {reviewId='synthetic-thought-b',content='My standalone thought',abstract='',chapterName='Chapter',createTime=200,chapterIdx=1},
     {reviewId='synthetic-thought-c',content='',abstract='Only source'}}}
 package.loaded['weread.lib.my_cloud_thoughts']={capture=Data.capture,matches=Data.matches,validate=Data.validate,EXPIRED='my_thoughts/native_expired'}
 expect(Marks.show(host,'900001','thoughts'),'thought adapter did not open')
 menu=host._my_marks_menu;expect(menu.title=='My cloud thoughts','thought mode retained the highlight title')
+row(menu,'Sort saved notes').callback();menu._shelf_popup.buttons[2][1].callback()
+expect(visible_ids()=='synthetic-thought-b,synthetic-thought-a,synthetic-thought-c','thought time ordering failed')
+row(menu,'Sort saved notes').callback();menu._shelf_popup.buttons[4][1].callback()
+expect(visible_ids()=='synthetic-thought-b,synthetic-thought-a,synthetic-thought-c','thought chapter ordering failed')
 row(menu,'Search saved notes').callback();local thought_search=menu._shelf_popup
 thought_search.input='quoted SOURCE';thought_search.buttons[1][2].callback()
 expect(row(menu,'My quoted thought') and not pcall(row,menu,'My standalone thought'),'thought search missed quote or leaked unrelated entry')
