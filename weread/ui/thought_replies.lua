@@ -26,6 +26,21 @@ function M.open(host, info, shown, item, popup)
     local index
     for i, value in ipairs(shown) do if value == item then index = i; break end end
     if not index or not UI:isWidgetShown(popup) or popup.items ~= shown then return false end
+    local snapshot = {}
+    for i, value in ipairs(shown) do
+        if type(value) ~= 'table' then return false end
+        snapshot[i] = {item = value, abstract = value.abstract, author = value.author,
+            content = value.content, likes_count = value.likes_count}
+    end
+    local function unchanged()
+        if #shown ~= #snapshot then return false end
+        for i, saved in ipairs(snapshot) do
+            local value = shown[i]
+            if value ~= saved.item or value.abstract ~= saved.abstract or value.author ~= saved.author
+                or value.content ~= saved.content or value.likes_count ~= saved.likes_count then return false end
+        end
+        return true
+    end
     local selected = Source.capture(host.settings)
     if not selected or not selected.native then
         if host.native_authorization then host.native_authorization:showMenu()
@@ -44,7 +59,7 @@ function M.open(host, info, shown, item, popup)
         return host._thought_reply_owner == owner and not owner.closed and host.ui and host.ui.document == document
             and host._reader_session_gen == owner.session and (host.discovery_epoch or 0) == owner.epoch
             and host.library_db and host.library_db:accountKey() == account and host._annotation_context == context
-            and UI:isWidgetShown(popup) and popup.items == shown
+            and UI:isWidgetShown(popup) and popup.items == shown and unchanged()
     end
     local function current()
         return current_view() and Source.matches(host.settings, owner.parent and owner.parent.selected or selected)

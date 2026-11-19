@@ -61,6 +61,8 @@ Replies.open(host, info, items, items[2], popup); schedule(); valid = false; tic
 expect(opens == 1 and not host._thought_reply_owner, 'stale authorization opened replies')
 Replies.open(host, info, items, items[2], popup); schedule(); popup.items = {}; tick(); popup.items = items
 expect(opens == 1 and not host._thought_reply_owner, 'recycled popup opened stale replies')
+Replies.open(host, info, items, items[2], popup); schedule(); items[2].content = 'changed'; tick(); items[2].content = 'two'
+expect(opens == 1 and not host._thought_reply_owner, 'mutated displayed thought opened stale replies')
 Replies.open(host, info, items, items[2], popup); schedule(); row.pageReviews[2].review.reviewId = 'other'; tick()
 row.pageReviews[2].review.reviewId = 'r2'
 expect(opens == 1 and infos[#infos] == 'Could not match this thought. Refresh the chapter and try again.', 'mismatched source was accepted')
