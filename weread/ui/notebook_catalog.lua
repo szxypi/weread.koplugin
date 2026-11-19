@@ -4,6 +4,9 @@ local Store=require('weread.lib.notebook_catalog_store')
 local Recovery=require('weread.lib.native_read_recovery')
 local Popup=require('weread.ui.shelf_popup')
 local Marks=require('weread.lib.my_cloud_marks')
+local Search=require('weread.lib.shelf_search')
+local Query=require('weread.lib.search_query')
+local Protocol=require('weread.lib.protocol')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local M={}
@@ -31,6 +34,56 @@ function M.cancel(host)
     if menu then menu._shelf_closed=true;Popup.close(menu);UI:close(menu) end
 end
 local render,refresh
+local function search_dialog(host,owner)
+    local dialog
+    local function valid() return current(host,owner) and Popup.current(owner.menu,dialog) end
+    local function apply(value)
+        if not valid() then return end
+        local query=Query.trim(value)
+        if #query>1024 then host:showInfo(_('Search text is too long.'));return end
+        owner.search=query~='' and query or nil;owner.needle=Search.prepare(owner.search)
+        Popup.close(owner.menu);render(host,owner)
+    end
+    dialog=require('ui/widget/inputdialog'):new{title=_('Search notebooks'),input=owner.search or '',input_type='text',buttons={{
+        {text=_('Clear'),callback=function() apply('') end},
+        {text=_('Search'),is_enter_default=true,callback=function() apply(dialog:getInputText()) end},
+    }}}
+    Popup.show(owner.menu,dialog,function(widget) host:showInputDialog(widget) end)
+end
+local function ordered_books(owner)
+    local entries={}
+    for index,book in ipairs(owner.value.books) do
+        if Search.matches(book,owner.needle) then
+            local total
+            if book.noteCount~=nil and book.reviewCount~=nil and book.bookmarkCount~=nil then
+                total=book.noteCount+book.reviewCount+book.bookmarkCount
+            end
+            entries[#entries+1]={book=book,index=index,total=total}
+        end
+    end
+    if owner.sort=='count' then
+        table.sort(entries,function(a,b)
+            if a.total==b.total then return a.index<b.index end
+            if a.total==nil then return false end
+            if b.total==nil then return true end
+            return a.total>b.total
+        end)
+    end
+    return entries
+end
+local function sort_dialog(host,owner)
+    local dialog
+    local function choice(label,sort)
+        return {text=_(label)..(owner.sort==sort and ' ✓' or ''),callback=function()
+            if not current(host,owner) or not Popup.current(owner.menu,dialog) then return end
+            owner.sort=sort;Popup.close(owner.menu);render(host,owner)
+        end}
+    end
+    dialog=require('ui/widget/buttondialog'):new{title=_('Sort notebooks'),buttons={
+        {choice('Original order','original')},{choice('Most notes first','count')},
+    }}
+    Popup.show(owner.menu,dialog)
+end
 local function open_book(host,owner,book)
     if not current(host,owner) then return end
     if not Marks.display_id(book.bookId) then host:showInfo(_('This book type is not supported for cloud notes.'));return end
@@ -54,15 +107,29 @@ render=function(host,owner)
     if not current(host,owner) then return end
     Popup.redraw(owner.menu,function()
         if not current(host,owner) then return end
+        owner.generation=(owner.generation or 0)+1
+        local generation=owner.generation
         local items={{text=_('Refresh my notebooks'),callback=function() if current(host,owner) then refresh(host,owner) end end}}
         if owner.value then
+            local search_text=owner.search and Protocol.utf8_substr(owner.search,16) or ''
+            if owner.search and #search_text<#owner.search then search_text=search_text..'…' end
+            items[#items+1]={text=_('Search notebooks'),mandatory=search_text,callback=function()
+                if current(host,owner) then search_dialog(host,owner) end
+            end}
+            items[#items+1]={text=_('Sort notebooks'),mandatory=_(owner.sort=='count' and 'Most notes first' or 'Original order'),callback=function()
+                if current(host,owner) then sort_dialog(host,owner) end
+            end}
             local stamp=owner.value.fetched_at
             local date=stamp<=4102444800 and os.date('%Y-%m-%d %H:%M',stamp) or _('Time unavailable')
             items[#items+1]={text=_('Saved notebooks'),mandatory=date,select_enabled=false}
-            for _,book in ipairs(owner.value.books) do
-                items[#items+1]={text=book.title,mandatory=book.author,callback=function() open_book(host,owner,book) end}
+            local entries=ordered_books(owner)
+            for _,entry in ipairs(entries) do
+                local book=entry.book
+                items[#items+1]={text=book.title,mandatory=book.author,notebook_id=book.bookId,callback=function()
+                    if owner.generation==generation then open_book(host,owner,book) end
+                end}
             end
-            if #owner.value.books==0 then items[#items+1]={text=_('No notebooks yet.'),select_enabled=false} end
+            if #entries==0 then items[#items+1]={text=_(owner.needle and 'No matching notebooks.' or 'No notebooks yet.'),select_enabled=false} end
         else items[#items+1]={text=_('No saved notebooks. Refresh while online.'),select_enabled=false} end
         owner.menu:switchItemTable(nil,items)
     end)
@@ -126,7 +193,7 @@ function M.show(host)
     if not host.settings:auth_scope_matches(scope) then return false end
     local account=host.library_db:accountKey()
     if not account then return false end
-    local owner={scope=scope,account=account,epoch=host.discovery_epoch or 0,session=host._reader_session_gen,
+    local owner={scope=scope,account=account,epoch=host.discovery_epoch or 0,session=host._reader_session_gen,sort='original',
         document=host.ui and host.ui.document,store=Store:new(host.library_db,host.client,account)}
     local ok,value=pcall(owner.store.read,owner.store);owner.value=ok and value or nil
     if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end

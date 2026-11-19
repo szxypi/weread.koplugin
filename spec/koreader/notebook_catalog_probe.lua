@@ -4,7 +4,7 @@ require('setupkoenv')
 local ffi,json=require('ffi'),require('json');require('ffi/posix_h')
 local mode=arg[1]
 local report={result='UNVERIFIED',mode=mode,phase='init',anonymous_credentials=false,transport_guard=false,
-    worker_heartbeat=false,native_filemanager=false,menu_navigation=false,file_sqlite=false,account_isolation=false,
+    worker_heartbeat=false,native_filemanager=false,menu_navigation=false,search_sort=false,file_sqlite=false,account_isolation=false,
     cache_session_free=false,workers_reaped=false,credential_audit=false,pages=0,books=0,requests=0,forbidden=0,failed_line=0}
 local plugin,memory,counters,output;local descriptors={}
 local ok,reason=pcall(function()
@@ -128,15 +128,15 @@ local ok,reason=pcall(function()
     assert(same(owner.value,expected))
     report.phase='views'
     for page=1,menu.page_num do menu:onGotoPage(page);UI:forceRePaint();report.pages=report.pages+1 end
-    assert(#menu.item_table==#expected.books+2)
+    assert(#menu.item_table==#expected.books+4)
     for index,book in ipairs(expected.books) do
-        local item=menu.item_table[index+2];assert(item.text==book.title and item.mandatory==book.author)
-        menu:onGotoPage(menu:getPageNumber(index+2));report.books=report.books+1
+        local item=menu.item_table[index+4];assert(item.text==book.title and item.mandatory==book.author)
+        menu:onGotoPage(menu:getPageNumber(index+4));report.books=report.books+1
     end
     -- Exercise each per-book destination without additional network requests.
     local chosen,position
     local Marks=require('weread.lib.my_cloud_marks')
-    for index,book in ipairs(expected.books) do if Marks.display_id(book.bookId) then chosen=book;position=index+2;break end end
+    for index,book in ipairs(expected.books) do if Marks.display_id(book.bookId) then chosen=book;position=index+4;break end end
     assert(chosen);plugin.isNetworkOnline=function() return false end
     for index,variant in ipairs({'highlights','thoughts','bookmarks'}) do
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(menu.item_table[position])
@@ -146,6 +146,40 @@ local ok,reason=pcall(function()
             and (variant~='bookmarks' or child.bookmarks));plugin:cancelMyCloudMarks()
     end
     report.menu_navigation=true
+    local function item(label)
+        for _,row in ipairs(menu.item_table) do if row.text==tr(label) then return row end end
+        error('missing notebook control')
+    end
+    local Query=require('weread.lib.search_query');local Protocol=require('weread.lib.protocol')
+    local query=Query.trim(Protocol.utf8_substr(Query.trim(chosen.title),4));assert(query~='')
+    local request_count=counters[0]
+    menu:onMenuSelect(item('Search notebooks'));local input_dialog=assert(menu._shelf_popup)
+    input_dialog:setInputText(query);input_dialog.buttons[1][2].callback();tick()
+    local found=false
+    for _,row in ipairs(menu.item_table) do if row.notebook_id==chosen.bookId then found=true end end
+    assert(found and owner.search==query and counters[0]==request_count);UI:forceRePaint()
+    menu:onMenuSelect(item('Search notebooks'));input_dialog=assert(menu._shelf_popup)
+    input_dialog.buttons[1][1].callback();tick();assert(not owner.search)
+    menu:onMenuSelect(item('Sort notebooks'));local sort=assert(menu._shelf_popup)
+    sort.buttons[2][1].callback();tick();assert(owner.sort=='count')
+    local by_id={};for index,book in ipairs(expected.books) do by_id[book.bookId]={book=book,index=index} end
+    local previous_total,previous_index,seen_unknown=nil,nil,false;local count=0
+    for _,row in ipairs(menu.item_table) do if row.notebook_id then
+        local value=assert(by_id[row.notebook_id]);local book=value.book
+        local total=book.noteCount~=nil and book.reviewCount~=nil and book.bookmarkCount~=nil
+            and book.noteCount+book.reviewCount+book.bookmarkCount or nil
+        if total then
+            assert(not seen_unknown and (not previous_total or previous_total>=total))
+            if previous_total==total then assert(previous_index<value.index) end
+            previous_total,previous_index=total,value.index
+        else seen_unknown=true end
+        count=count+1
+    end end
+    assert(count==#expected.books and counters[0]==request_count);UI:forceRePaint()
+    menu:onMenuSelect(item('Sort notebooks'));sort=assert(menu._shelf_popup)
+    sort.buttons[1][1].callback();tick();assert(owner.sort=='original')
+    for index,book in ipairs(expected.books) do assert(menu.item_table[index+4].notebook_id==book.bookId) end
+    report.search_sort=true
     local Store=require('weread.lib.notebook_catalog_store')
     assert(same(Store:new(plugin.library_db,plugin.client,plugin.library_db:accountKey()):read(),expected))
     local db=assert(plugin.library_db:open());local _,name,path=db:rowexec('PRAGMA database_list')

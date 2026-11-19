@@ -12,7 +12,7 @@ import zipfile
 from run_persistent_ui_probe import extract_candidate,run_child
 
 FRAME=b'\nWEREAD_NOTEBOOK_RESULT='
-FLAGS={'anonymous_credentials','transport_guard','worker_heartbeat','native_filemanager','menu_navigation','file_sqlite',
+FLAGS={'anonymous_credentials','transport_guard','worker_heartbeat','native_filemanager','menu_navigation','search_sort','file_sqlite',
        'account_isolation','cache_session_free','workers_reaped','credential_audit'}
 
 

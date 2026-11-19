@@ -3,6 +3,10 @@ local UI={close=function(_self,view) view.closed=true;if view.onCloseWidget then
     show=function(self,view) self.top=view end,nextTick=function(_self,callback) callback() end}
 package.preload['ui/uimanager']=function() return UI end
 package.preload['ui/widget/buttondialog']=function() return {new=function(_self,data) return data end} end
+package.preload['ui/widget/inputdialog']=function() return {new=function(_self,data)
+    function data:getInputText() return self.input end
+    return data
+end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 local Data=require('weread.lib.notebook_catalog');local Store=require('weread.lib.notebook_catalog_store')
 local Catalog=require('weread.ui.notebook_catalog')
@@ -23,6 +27,7 @@ local function fixture(saved)
     end
     host.isNetworkOnline=function() return value.online end
     host.showInfo=function(_self,text) value.notices[#value.notices+1]=text end;host.showOffline=host.showInfo
+    host.showInputDialog=function(_self,dialog) UI:show(dialog) end
     host.showList=function(_self,title,items) return {item_table=items,title=title,switchItemTable=function(self,_title,rows) self.item_table=rows end} end
     host.showBusy=function(self,_text,cancel) self.busy_message={cancel=cancel} end
     host.closeBusy=function(self) self.busy_message=nil end
@@ -51,6 +56,45 @@ row(menu,'Synthetic book').callback();local changed=snapshot();changed.books[1].
 expect(value.writes==1 and menu.item_table==old and menu._shelf_popup,'refresh disturbed popup')
 UI:close(menu._shelf_popup);expect(row(menu,'Updated'),'deferred refresh missing')
 local stale=row(menu,'Updated').callback;Catalog.cancel(host);stale();expect(not menu._shelf_popup,'stale row opened')
+local search_snapshot={schema=1,fetched_at=1000,books={
+    {bookId='900001',title='Alpha book',author='Other',noteCount=1,reviewCount=0,bookmarkCount=0},
+    {bookId='900002',title='Beta book',author='ALPHA author',noteCount=0,reviewCount=3,bookmarkCount=0},
+    {bookId='900003',title='Gamma book',author='Writer',noteCount=1,reviewCount=2,bookmarkCount=0},
+    {bookId='900004',title='Unknown count',author='Writer'},
+}}
+host,value=fixture(search_snapshot);Catalog.show(host);menu=host._notebook_menu
+local hidden_callback=row(menu,'Gamma book').callback
+local function search(text)
+    row(menu,'Search notebooks').callback();local dialog=menu._shelf_popup
+    dialog.input=text;dialog.buttons[1][2].callback()
+end
+search('  alpha  ')
+expect(row(menu,'Alpha book') and row(menu,'Beta book') and not pcall(row,menu,'Gamma book'),'search missed title/author or retained unrelated book')
+hidden_callback();expect(not menu._shelf_popup,'stale row escaped search filter')
+expect(not value.started and value.writes==0,'offline search accessed network or saved query')
+row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[2][1].callback()
+expect(menu.item_table[5].text=='Beta book' and menu.item_table[6].text=='Alpha book','sort did not compose with search')
+search('writer');expect(menu.item_table[5].text=='Gamma book' and menu.item_table[6].text=='Unknown count','unknown count sorted ahead of known count')
+search('missing');expect(row(menu,'No matching notebooks.').select_enabled==false,'empty search did not show message')
+row(menu,'Search notebooks').callback();popup=menu._shelf_popup;popup.buttons[1][1].callback()
+expect(menu.item_table[5].text=='Beta book' and menu.item_table[6].text=='Gamma book'
+    and menu.item_table[7].text=='Alpha book' and menu.item_table[8].text=='Unknown count','count sort or stable ties changed')
+expect(host._notebook_owner.value.books[1].title=='Alpha book' and host._notebook_owner.value.books[2].title=='Beta book',
+    'sorting mutated the saved list')
+row(menu,'Sort notebooks').callback();popup=menu._shelf_popup;popup.buttons[1][1].callback()
+expect(menu.item_table[5].text=='Alpha book' and menu.item_table[6].text=='Beta book','original order not restored')
+search('a long search query longer than display')
+expect(row(menu,'Search notebooks').mandatory=='a long search qu…','long search occupied entire row')
+row(menu,'Search notebooks').callback();popup=menu._shelf_popup;popup.input=string.rep('x',1025);popup.buttons[1][2].callback()
+expect(menu._shelf_popup==popup and #value.notices==1,'too-long query closed input')
+Catalog.cancel(host);popup.input='Alpha';popup.buttons[1][2].callback();expect(not host._notebook_menu,'stale search reopened closed menu')
+host,value=fixture(search_snapshot);value.online=true;Catalog.show(host);menu=host._notebook_menu
+row(menu,'Refresh my notebooks').callback();row(menu,'Search notebooks').callback();popup=menu._shelf_popup
+local refreshed={schema=1,fetched_at=1001,books={{bookId='900005',title='New alpha',author='Writer',noteCount=3,reviewCount=0,bookmarkCount=0}}}
+value.complete(refreshed);expect(menu._shelf_popup==popup and row(menu,'Alpha book'),'refresh displaced search input')
+popup.input='alpha';popup.buttons[1][2].callback()
+expect(row(menu,'New alpha') and not pcall(row,menu,'Alpha book') and value.writes==1,'search did not apply to refreshed snapshot')
+Catalog.cancel(host)
 for _,change in ipairs({'account','epoch','session','document','scope','revision','close','cancel'}) do
     host,value=fixture(snapshot());value.online=true;Catalog.show(host);menu=host._notebook_menu
     row(menu,'Refresh my notebooks').callback();local callback=value.complete
