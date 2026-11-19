@@ -58,7 +58,7 @@ function M.open(host, book, selected)
             on_switch = function(next_mode) if current_view() and not owner.detail then load(next_mode, view, false) end end,
             on_select = function(review, selected_mode)
                 if not current_view() or owner.context or owner.detail then return end
-                local can_reply = owner.selected.native and require('weread.lib.native_book_reviews').book_id(id)
+                local can_reply = (owner.selected.native or owner.account) and require('weread.lib.native_book_reviews').book_id(id)
                     and require('weread.lib.native_review_replies').review_id(review.review_id)
                 local detail
                 detail = host:showBookReviewDetail(book, review, selected_mode, {

@@ -86,7 +86,7 @@ function M.open(host, book, selected)
                 if not current_view() or owner.context or owner.detail then return end
                 local detail
                 detail = host:showBookReviewDetail(book, review, 'latest', {
-                    on_replies = not from_cache and function()
+                    on_replies = function()
                         if current_view() and owner.detail == detail then
                             require('weread.ui.native_review_replies').open(host, owner, book, review, detail, current_view)
                         end

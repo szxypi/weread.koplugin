@@ -1,6 +1,15 @@
 package.path = './?.lua;' .. package.path
 local pending, started, views, closed = {}, {}, {}, 0
 local source_error, valid, recovery_callback, allow_recovery = nil, true, nil, false
+local saved,reads,writes=nil,0,0
+package.preload['weread.lib.native_review_replies_cache']=function() return {validate=function(_codec,page)
+    assert(type(page)=='table' and type(page.items)=='table');return page
+end,new=function()
+    return {write=function(_self,_book,_id,_kind,page) writes=writes+1;saved=page;return true end,
+        read=function() reads=reads+1;if not saved then return nil end
+            return {items=saved.items,ids=saved.ids,limit=saved.limit,saved_at=1000,
+                has_more=saved.has_more,limited=false} end}
+end} end
 local selected = {native = {scope = {vid = '123'}, revision = 1}}
 local source = {capture = function() return selected end, matches = function(_, value) return valid and value == selected end}
 source.fetch_replies = function(_, book, review, limit, previous, access)
@@ -24,7 +33,8 @@ package.preload['weread.lib.native_read_recovery'] = function()
             return true
         end}
 end
-package.preload['weread.lib.plugin_util'] = function() return {tr = function(v) return v end} end
+package.preload['weread.lib.plugin_util'] = function() return {tr = function(v) return v end,
+    T=function(value,arg) return value:gsub('%%1',arg) end} end
 package.preload['ui/widget/textviewer'] = function() return {new = function(_, value) return value end} end
 package.preload['ui/uimanager'] = function()
     return {show = function() end, close = function(_, view)
@@ -43,9 +53,10 @@ package.preload['weread.lib.memory_worker'] = function()
     end, cancel = function() end} end}
 end
 local Replies = require('weread.ui.native_review_replies')
-local info, current = nil, true
+local info, current, account, online = nil, true, 'a', true
 local parent = {selected = selected, detail = {}}
 local host = {settings = {}, client = {}, _native_reviews_owner = parent,
+    library_db={accountKey=function() return account end},isNetworkOnline=function() return online end,
     showBusy = function(self, _, cancel) self.busy_message = {}; self.cancel_busy = cancel end,
     closeBusy = function(self) self.busy_message = nil end,
     showInfo = function(_, value) info = value end,
@@ -85,4 +96,26 @@ source_error = nil; recovery_callback(true); tick()
 expect(host._native_review_replies_owner.view ~= nil, 'successful renewal did not retry')
 Replies.cancel(host)
 expect(not Replies.open(host, parent, book, {review_id = 'bad id'}, parent.detail, parent_current), 'invalid id accepted')
+saved={items={{review_id='saved',author='Reader',content='Cached reply',rating=0,create_time=1000}},
+    ids={'saved'},limit=20,has_more=true}
+online=false;parent.selected=nil;local before_views=#views;local before_pending=#pending
+expect(open() and #pending==before_pending and #started==1,'offline reply requested network')
+tick();local cached=views[#views]
+expect(#views==before_views+1 and cached.data.tab_text=='Saved replies' and not cached.result.has_more
+    and cached.data.incomplete_text:find('replies may be incomplete.',1,true),'saved replies were not labeled')
+cached.callbacks.on_select(cached.result.items[1])
+expect(host._native_review_replies_owner.viewer.text:find('Cached reply',1,true),'cached reply did not open')
+host._native_review_replies_owner.viewer.close_callback();Replies.cancel(host)
+online=true;parent.selected=selected;source_error='native_reviews/unavailable'
+open();schedule();tick();expect(#started==1,'failed request did not check saved replies')
+tick();expect(views[#views].data.tab_text=='Saved replies','failed request lost saved replies')
+source_error=nil;Replies.cancel(host)
+online=false;parent.selected=nil;before_views=#views;open();host.cancel_busy();tick()
+expect(#views==before_views and not host._native_review_replies_owner,'cancelled cache read reopened replies')
+open();account='b';tick();account='a'
+expect(#views==before_views and not host._native_review_replies_owner,'cached replies crossed accounts')
+saved=nil;open();tick()
+expect(not host._native_review_replies_owner and info=='No saved replies. Connect and try again.',
+    'missing reply cache was not explained')
+expect(reads>=4 and writes>0,'reply cache was not exercised')
 print('native_review_replies_ui_spec: ' .. checks .. ' checks')

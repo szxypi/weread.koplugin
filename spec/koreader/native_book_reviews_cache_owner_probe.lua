@@ -45,7 +45,7 @@ local ok=pcall(function()
     function host:showInfo() error('review_cache/info',0) end
     function host:runOnlineTask(_label,fn) UI:scheduleIn(.01,fn);return true end
     function host:showBookReviewDetail(_book,item,_mode,options)
-        assert(not options.on_replies);self.chosen=item.review_id;return {options=options}
+        assert(type(options.on_replies)=='function');self.chosen=item.review_id;return {options=options}
     end
     local function wait(predicate)
         local deadline=socket.gettime()+40

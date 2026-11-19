@@ -114,7 +114,8 @@ expect(#views==before_views+1 and cached.data.tab_text=='Saved latest reviews'
     and cached.data.incomplete_text:find('reviews may be incomplete.',1,true) and not cached.result.has_more,
     'saved reviews lacked offline scope or offered remote pagination')
 cached.callbacks.on_select(cached.result.items[1]);detail=host._native_reviews_owner.detail
-expect(host.selected_review.review_id=='saved' and not detail.options.on_replies,'offline review opened remote replies')
+expect(host.selected_review.review_id=='saved' and detail.options.on_replies,'saved review did not offer saved replies')
+detail.options.on_replies();expect(reply_opens==2,'saved review did not open its reply view')
 detail.options.on_close();UI.cancel(host)
 online=true;source_error='native_reviews/unavailable';UI.open(host,{book_id='42'},selected);schedule();tick()
 expect(host._native_reviews_owner.context and #started==1,'failed initial read did not check cached reviews')

@@ -15,6 +15,7 @@ def main():
     parser.add_argument('--width',type=int,default=600)
     parser.add_argument('--height',type=int,default=800)
     parser.add_argument('--dpi',type=int,default=167)
+    parser.add_argument('--thought',action='store_true')
     args=parser.parse_args()
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False)
     repo=Path(__file__).resolve().parent.parent;runtime=args.koreader.resolve()
@@ -29,7 +30,8 @@ def main():
             assert not path.is_absolute() and '..' not in path.parts and path.parts[0]=='weread.koplugin'
             target=plugins/path;target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(archive.read(entry))
             assert target.read_bytes()==archive.read(entry)
-    probe=repo/'spec/koreader/native_book_reviews_cache_ui_probe.lua'
+    probe=repo/('spec/koreader/thought_replies_cache_ui_probe.lua' if args.thought
+                else 'spec/koreader/native_book_reviews_cache_ui_probe.lua')
     env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),EMULATE_READER='1',EMULATE_BW_SCREEN='1',
         EMULATE_BB_TYPE='BB8',EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),
         EMULATE_READER_DPI=str(args.dpi))
@@ -40,7 +42,8 @@ def main():
         (root/(mode+'.log')).write_bytes(result.stdout)
         assert result.returncode==0 and result.stdout.count(marker)==1,mode
         report=json.loads(result.stdout.split(marker,1)[1].splitlines()[0])
-        assert report==dict(result='PASS',mode=mode,items=40,requests=requests),mode
+        assert report==dict(result='PASS',mode=mode,items=40,requests=0 if args.thought else requests,
+                            reply_requests=requests),mode
     print('PASS: packaged native reviews, saved offline and failure fallback')
 
 

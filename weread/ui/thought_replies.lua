@@ -42,27 +42,35 @@ function M.open(host, info, shown, item, popup)
         return true
     end
     local selected = Source.capture(host.settings)
-    if not selected or not selected.native then
-        if host.native_authorization then host.native_authorization:showMenu()
-        else host:showInfo(_('Thought replies need E-Ink authorization.')) end
-        return false
-    end
     local document = host.ui and host.ui.document
     local account = host.library_db and host.library_db:accountKey()
-    if not document or not account then return false end
+    if not document or not account then
+        if not selected or not selected.native then
+            if host.native_authorization then host.native_authorization:showMenu()
+            else host:showInfo(_('Thought replies need E-Ink authorization.')) end
+        end
+        return false
+    end
     local context = host._annotation_context
     local store = context and context.store or require('weread.lib.annotation_store'):new(host.settings)
     local owner = {popup = popup, document = document, account = account, context = context,
-        session = host._reader_session_gen, epoch = host.discovery_epoch or 0, selected = selected}
+        session = host._reader_session_gen, epoch = host.discovery_epoch or 0, selected = selected,
+        auth_epoch = type(host.settings.get)=='function' and host.settings:get('auth_epoch',0) or nil,
+        auth_scope = type(host.settings.get_auth_scope)=='function' and host.settings:get_auth_scope() or nil}
     host._thought_reply_owner = owner
     local function current_view()
         return host._thought_reply_owner == owner and not owner.closed and host.ui and host.ui.document == document
             and host._reader_session_gen == owner.session and (host.discovery_epoch or 0) == owner.epoch
             and host.library_db and host.library_db:accountKey() == account and host._annotation_context == context
             and UI:isWidgetShown(popup) and popup.items == shown and unchanged()
+            and (owner.auth_epoch==nil or host.settings:get('auth_epoch',0)==owner.auth_epoch)
+            and (type(host.settings.get_auth_scope)~='function'
+                or owner.auth_scope and host.settings:auth_scope_matches(owner.auth_scope)
+                or not owner.auth_scope and not host.settings:get_auth_scope())
     end
     local function current()
-        return current_view() and Source.matches(host.settings, owner.parent and owner.parent.selected or selected)
+        local access=owner.parent and owner.parent.selected or selected
+        return current_view() and (not access or not access.native or Source.matches(host.settings,access))
     end
     local function finish()
         if owner.busy and host.busy_message == owner.busy then host:closeBusy() end
@@ -83,7 +91,7 @@ function M.open(host, info, shown, item, popup)
             current_view, {review_type = 1})
         if not opened then M.cancel(host); host:showInfo(_('Could not open thought replies.')) end
     end
-    local scheduled = host:runOnlineTask(_('Thought replies'), function()
+    UI:scheduleIn(.01, function()
         if not current() then if host._thought_reply_owner == owner then M.cancel(host) end return end
         local ok, worker = pcall(function()
             return require('weread.lib.memory_worker'):new{scheduler = UI, codec = host.client, max_bytes = 65536}
@@ -99,7 +107,6 @@ function M.open(host, info, shown, item, popup)
         end, complete)
         if not started_ok or not started then complete(nil) end
     end)
-    if scheduled == false and host._thought_reply_owner == owner then M.cancel(host) end
-    return scheduled ~= false
+    return true
 end
 return M

@@ -9,7 +9,8 @@ package.preload['weread.lib.native_book_reviews_source'] = function()
 end
 package.preload['weread.lib.plugin_util'] = function() return {tr = function(value) return value end} end
 package.preload['weread.lib.annotation_store'] = function() return {new = function() return fallback_store end} end
-package.preload['ui/uimanager'] = function() return {isWidgetShown = function() return visible end} end
+package.preload['ui/uimanager'] = function() return {isWidgetShown = function() return visible end,
+    scheduleIn=function(_self,_delay,callback) pending[#pending+1]=callback end} end
 package.preload['weread.lib.memory_worker'] = function()
     return {new = function() return {start = function(_, task, callback)
         started[#started + 1] = {task = task, callback = callback}; return true
@@ -71,8 +72,10 @@ expect(Replies.open(host, info, items, items[2], popup), 'legacy popup could not
 schedule(); tick(); expect(opens == 2, 'legacy popup did not resolve the saved source')
 Replies.cancel(host); host._annotation_context = context
 native_available = false
-expect(not Replies.open(host, info, items, items[2], popup)
-    and infos[#infos] == 'Thought replies need E-Ink authorization.', 'missing native grant was ignored')
+host.runOnlineTask=function() error('local thought matching requested network') end
+expect(Replies.open(host, info, items, items[2], popup),'saved thought could not open without native grant')
+schedule();tick();expect(opens==3,'saved thought was not matched without network or authorization')
+Replies.cancel(host)
 native_available = true; visible = false
 expect(not Replies.open(host, info, items, items[2], popup), 'closed popup accepted action')
 print('thought_replies_ui_spec: ' .. checks .. ' checks')
