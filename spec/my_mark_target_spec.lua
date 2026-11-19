@@ -107,4 +107,33 @@ eq(bound.position.book_id,'CB_Synthetic');eq(bound.position.chapter_offset,15);e
 resolved=Target.resolve_search(imported,'/cached.epub',imported_row,22,archive)
 eq(resolved.position.book_id,'CB_Synthetic');eq(resolved.position.chapter_offset,15)
 eq(Target.bind_search_file('/cached.epub','CB_Other',imported_row,21,archive).position,nil)
+local txt_prefix='A self-authored test begins with one emoji: 😀.\n'
+local txt_quote='A unique synthetic passage for testing a plain text highlight.'
+local txt=txt_prefix..txt_quote..'\nA different following sentence provides extra context.'
+local txt_row={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='47-109'}
+local txt_target,txt_reason=Target.project(txt,'CB_Synthetic','2',txt_row,'web_txt')
+assert(txt_target,txt_reason)
+eq(txt_target.chapter_offset,48);eq(txt_target.basis,'raw_txt_utf16');eq(txt_target.upload_verified,false)
+local bom_target=assert(Target.project('\239\187\191'..txt,'CB_Synthetic','2',txt_row,'web_txt'))
+eq(bom_target.chapter_offset,49)
+-- No alternative offset may be accepted without the exact source quotation.
+local wrong={type=1,chapterUid=2,bookId='CB_Synthetic',markText=txt_quote,range='48-110'}
+eq(Target.project(txt,'CB_Synthetic','2',wrong,'web_txt'),nil)
+eq(Target.project(txt,'CB_Other','2',txt_row,'web_txt'),nil)
+eq(Target.project(txt,'CB_Synthetic','2',txt_row,'unsupported'),nil)
+local txt_render='<html><body><p>Synthetic rendered text.</p></body></html>'
+local txt_capture=assert(Source.capture(imported,chapter,txt,'web_txt'))
+local txt_root=Identity.encode(imported,{chapter},Identity.capture(imported),Crypto.sha256_hex(txt_render))
+local txt_identity=assert(Identity.decode(txt_root))
+local txt_meta=assert(Source.bind(txt_capture,txt_identity,path,Crypto.sha256_hex(txt_render)))
+members={[Identity.PATH]=txt_root,[Source.meta_path('2')]=txt_meta,[Source.path_meta_path(path)]=txt_meta,
+    [Source.raw_path(Crypto.sha256_hex(txt))]=txt,[path]=txt_render}
+local txt_bound=Target.bind_file('/cached.epub','CB_Synthetic',txt_row,23,archive)
+assert(txt_bound.position,txt_bound.error)
+eq(txt_bound.position.chapter_offset,48);eq(txt_bound.position.basis,'raw_txt_utf16')
+eq(txt_bound.position.upload_verified,false);eq(txt_bound.metadata,txt_meta)
+local before_txt=members[Source.raw_path(Crypto.sha256_hex(txt))]
+members[Source.raw_path(Crypto.sha256_hex(txt))]='changed'
+eq(Target.bind_file('/cached.epub','CB_Synthetic',txt_row,23,archive).position,nil)
+members[Source.raw_path(Crypto.sha256_hex(txt))]=before_txt
 print('my_mark_target_spec: '..checks..' source-bound target checks passed')

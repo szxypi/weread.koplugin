@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "sample": "synthetic imported TXT with emoji before selected text",
+  "source_format": "web_txt",
+  "screens": ["600x800@167", "1264x1680@300"],
+  "selection": {"native_reader": true, "exact_local_candidate": true, "offline_reopen": true},
+  "navigation": {"highlights_per_screen": 6, "thought_quotes_per_screen": 6, "native_buttons": true, "offline_reopen": true},
+  "xhtml_navigation_regression": "600x800@167",
+  "network_requests": 0,
+  "cloud_writes": 0,
+  "limitations": ["synthetic texts only", "official visual range semantics not established", "TXT annotation writes not enabled", "physical Kindle not tested"]
+}

@@ -38,8 +38,10 @@ local function can_locate(row,search)
 end
 function M.can_locate(row) return can_locate(row,false) end
 function M.can_locate_search(row) return can_locate(row,true) end
-local function project(raw,book,chapter,row,search)
+local function project(raw,book,chapter,row,search,format)
     local ok,value=pcall(function()
+        format=format or 'web_xhtml'
+        if format~='web_xhtml' and format~='web_txt' then fail('source_unsupported') end
         if not Data.display_id(book) or not Data.id(chapter) or type(row)~='table' or row.type~=1
             or chapter_id(row,search)~=chapter
             or row.bookId~=nil and tostring(row.bookId)~=book then fail('scope') end
@@ -52,11 +54,11 @@ local function project(raw,book,chapter,row,search)
         if not first or #first>10 or #last>10 then fail('range') end
         first,last=tonumber(first),tonumber(last)
         if not first or not last or first>=last or last>2147483647 then fail('range') end
-        local map=Coordinates.build(raw,{allow_multiple_bodies=true})
+        local map=Coordinates.build(raw,{format=format,allow_multiple_bodies=true})
         if not map then fail('source_unsupported') end
         local source=raw:gsub('^\239\187\191','');local length=count(source)
         if last>length then fail('quote_changed') end
-        local spans=Raw.index(raw,{body_only=true})
+        local spans=format=='web_txt' and Raw.plain(raw) or Raw.index(raw,{body_only=true})
         if trim(Raw.quote(spans,row.range))~=trim(quote) then fail('quote_changed') end
         local selected=Protocol.utf8_substr(needle,1024)
         local long=count(needle)>1024
@@ -85,13 +87,13 @@ local function project(raw,book,chapter,row,search)
         local anchor=map:anchor(offset,{segment_only=true}) or map:anchor(offset)
         if not anchor then fail('boundary') end
         return {book_id=book,chapter_uid=chapter,chapter_offset=offset,raw_sha256=Crypto.sha256_hex(raw),
-            raw_bytes=#raw,basis='filtered_xhtml_utf16',upload_verified=false}
+            raw_bytes=#raw,basis=format=='web_txt' and 'raw_txt_utf16' or 'filtered_xhtml_utf16',upload_verified=false}
     end)
     if ok then return value end
     return nil,type(value)=='string' and value:match('^my_mark_target/[a-z_]+$') and value or 'my_mark_target/unavailable'
 end
-function M.project(raw,book,chapter,row) return project(raw,book,chapter,row,false) end
-function M.project_search(raw,book,chapter,row) return project(raw,book,chapter,row,true) end
+function M.project(raw,book,chapter,row,format) return project(raw,book,chapter,row,false,format) end
+function M.project_search(raw,book,chapter,row,format) return project(raw,book,chapter,row,true,format) end
 -- Independent worker-only archive reads. No raw text or path from the mark
 -- becomes a filename; candidates come from the reader and this book's cache.
 local function bind_file(file,book,row,request_id,read_archive,projection,search)
@@ -109,13 +111,14 @@ local function bind_file(file,book,row,request_id,read_archive,projection,search
         local metadata=members and members[path]
         local record=Source.decode_metadata(metadata)
         if not identity or identity.book_id~=book or not record or record.book_id~=book
-            or record.chapter_uid~=uid or record.file_id~=identity.file_id or record.format~='web_xhtml' then fail('source_changed') end
+            or record.chapter_uid~=uid or record.file_id~=identity.file_id
+            or record.format~='web_xhtml' and record.format~='web_txt' then fail('source_changed') end
         local raw_path=Source.raw_path(record.raw_sha256)
         local data=read(file,{[raw_path]=Source.MAX_BYTES,[record.render_path]=Source.MAX_RENDERED_BYTES})
         local verified=Source.verify_snapshot({metadata=metadata,identity=identity,book_id=book,chapter_uid=uid,
             raw=data and data[raw_path],rendered=data and data[record.render_path]})
         if not verified then fail('source_changed') end
-        local remote,reason=(projection or (search and M.project_search or M.project))(verified.raw,book,uid,row)
+        local remote,reason=(projection or (search and M.project_search or M.project))(verified.raw,book,uid,row,record.format)
         if not remote then error(reason,0) end
         local bound=require('weread.lib.source_cloud').bind({file=file,identity=identity,book_id=book,request_id=request_id},remote,read)
         if not bound.position or bound.metadata~=metadata then fail('source_changed') end

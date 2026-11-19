@@ -182,7 +182,10 @@ local ok,reason=pcall(function()
         book={book_id=id,bookId=id,title='所选书籍',bookVersion=0,cached_chapters={}}
         for index,sample in ipairs(input.chapters) do
             local uid=sample.chapter_uid;chapters[index]={chapterUid=uid,chapterIdx=index,title='章节 '..index,wordCount=1000}
-            bodies[uid]=sample.raw;sources[uid]=assert(Source.capture(book,chapters[index],sample.raw,'web_xhtml'))
+            local format=sample.format or 'web_xhtml'
+            assert(format=='web_xhtml' or synthetic and format=='web_txt')
+            bodies[uid]=format=='web_txt' and Content.txt_to_xhtml(sample.raw) or sample.raw
+            sources[uid]=assert(Source.capture(book,chapters[index],sample.raw,format))
         end
         book.chapters=chapters
         book.cached_full_book=Content.save_book_epub(plugin.settings,book,chapters,bodies,'navigation-full',{},nil,nil,Identity.capture(book),sources)
@@ -207,7 +210,7 @@ local ok,reason=pcall(function()
     local expected={}
     for _i,sample in ipairs(input.chapters) do
         for index,row in ipairs(sample.rows) do
-            local target=assert(Target.project(sample.raw,id,sample.chapter_uid,row))
+            local target=assert(Target.project(sample.raw,id,sample.chapter_uid,row,sample.format))
             assert(target.chapter_offset==sample.targets[index].chapter_offset and target.raw_sha256==sample.targets[index].raw_sha256)
             expected[note_id(row)]=target
         end

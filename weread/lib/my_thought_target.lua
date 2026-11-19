@@ -27,10 +27,10 @@ local function reference(book,chapter,row)
     if not Target.can_locate(mark(row)) then return nil,'my_thought_target/range' end
     local out=mark(row);out.bookId=book;return out
 end
-function M.project(raw,book,chapter,row)
+function M.project(raw,book,chapter,row,format)
     local value,reason=reference(book,chapter,row)
     if not value then return nil,reason end
-    return Target.project(raw,book,chapter,value)
+    return Target.project(raw,book,chapter,value,format)
 end
 function M.bind_file(file,book,row,request_id,read_archive)
     local value,reason=reference(book,type(row)=='table' and tostring(row.chapterUid),row)
