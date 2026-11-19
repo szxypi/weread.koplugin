@@ -109,6 +109,9 @@ local function open_and_submit()
     input.input='term';input.buttons[1][2].callback()
     return assert(host._book_search_owner)
 end
+local function downloaded_action(owner)
+    for _i,item in ipairs(owner.menu.items) do if item.text=='Search downloaded chapters' then return item end end
+end
 
 online=false;expect(Search.open(host,'100',chapters) and cached_calls==1 and cached_request.id=='100'
     and cached_request.rows==chapters and not host._book_search_owner,'offline entry did not open downloaded search')
@@ -134,6 +137,16 @@ cached_available=true;cached_calls=0;account='123';has_scope=true
 local web_access=access.web;access.web=nil
 expect(Search.open(host,'100',chapters) and cached_calls==1,'missing Web credentials did not open downloaded chapters')
 cached_calls=0;access.web=web_access
+local cancelled_owner=open_and_submit();local cancelled_worker=active_worker
+host.busy_message.cancel()
+local cancelled_local=downloaded_action(cancelled_owner)
+expect(not cancelled_owner.job and cancelled_local,'cancelled first search did not offer downloaded chapters')
+cancelled_local.callback()
+expect(cached_calls==1 and cached_request.id=='100' and cached_request.rows==chapters and cached_request.keyword=='term',
+    'cancelled first search did not preserve its query and chapter list')
+cancelled_worker:complete()
+expect(cancelled_owner.state.pages==0 and #cancelled_owner.value==0,'cancelled first search accepted a late response')
+cached_calls=0;Search.cancel(host)
 local owner=open_and_submit()
 expect(owner.state.pages==0 and owner.job~=nil,'first page did not start asynchronously')
 active_worker:complete()
@@ -226,6 +239,12 @@ Search.cancel(host)
 owner=open_and_submit();active_worker:complete();renewal=pending_renewal;local cancelled_before=cancellations
 host.busy_message.cancel()
 expect(not owner.recovery and cancellations==cancelled_before+1,'cancel did not stop pending renewal')
+local cancelled_renewal_local=downloaded_action(owner)
+expect(cancelled_renewal_local~=nil,'cancelled renewal did not offer downloaded chapters')
+cancelled_renewal_local.callback()
+expect(cached_request.id=='100' and cached_request.rows==chapters and cached_request.keyword=='term',
+    'cancelled renewal did not preserve its query and chapter list')
+cached_calls=0
 before=fetches;renewal.callback(true)
 expect(fetches==before and not owner.job,'cancelled renewal restarted the search')
 Search.cancel(host)
@@ -339,6 +358,17 @@ expect(fetches==before+1 and not cb_owner.fallback_attempted and not cb_owner.jo
     'fallback exceeded the overall page limit')
 Search.cancel(host)
 fetch_mode='ok'
+expect(Search.open(host,'CB_Synthetic',nil,'2'),'cancelled catalog search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+cancelled_worker=active_worker;host.busy_message.cancel()
+local cancelled_catalog_local=downloaded_action(cb_owner)
+expect(not cb_owner.job and cancelled_catalog_local,'cancelled catalog loading did not offer downloaded chapters')
+cancelled_catalog_local.callback()
+expect(cached_request.id=='CB_Synthetic' and cached_request.rows==nil and cached_request.keyword=='term',
+    'cancelled catalog loading lost its local search scope')
+local cancelled_saves=saved_catalogs;cancelled_worker:complete()
+expect(not cb_owner.state and saved_catalogs==cancelled_saves,'cancelled catalog loading accepted a late response')
+Search.cancel(host)
 expect(Search.open(host,'CB_Synthetic',nil,'2'),'missing-catalog search did not open')
 cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
 local before_stored,before_saved=saved_catalogs,catalog_saves

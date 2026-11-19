@@ -130,7 +130,7 @@ local function begin_work(host,owner,task,done)
     if not current(host,owner) or owner.job or owner.recovery or owner.navigation then return false end
     local job={};owner.job=job
     host:showBusy(_('Searching this book…\nTap or press a key to cancel.'),function()
-        if owner.job==job then stop_work(host,owner);render(host,owner) end
+        if owner.job==job then stop_work(host,owner);owner.local_available=true;render(host,owner) end
     end)
     job.busy=host.busy_message
     local ok,worker=pcall(function()
@@ -174,7 +174,7 @@ fetch_page=function(host,owner,recovered)
             owner.recovery_state=previous
             local recovery={};owner.recovery=recovery
             host:showBusy(_('Renewing WeRead login…\nTap or press a key to cancel.'),function()
-                if owner.recovery==recovery then stop_recovery(host,owner);render(host,owner) end
+                if owner.recovery==recovery then stop_recovery(host,owner);owner.local_available=true;render(host,owner) end
             end)
             recovery.busy=host.busy_message
             local called,started,request=pcall(renewal.run,host,{is_current=function()

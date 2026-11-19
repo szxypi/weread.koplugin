@@ -10,6 +10,8 @@ local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
 local no_login_fallback=os.getenv('WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK')=='1'
 local empty_local=os.getenv('WEREAD_TEST_SEARCH_EMPTY_LOCAL')=='1'
+local cancel_only=os.getenv('WEREAD_TEST_SEARCH_CANCEL_ONLY')=='1'
+local cancel_resume=os.getenv('WEREAD_TEST_SEARCH_CANCEL_RESUME')=='1'
 local local_download=os.getenv('WEREAD_TEST_SEARCH_LOCAL_DOWNLOAD')=='1'
 local local_interrupt=os.getenv('WEREAD_TEST_SEARCH_LOCAL_INTERRUPT')=='1'
 local local_restart=os.getenv('WEREAD_TEST_SEARCH_LOCAL_RESTART')=='1'
@@ -200,6 +202,27 @@ wait(function() return require('ffi/util').isSubProcessDone(cancelled_pid) end)
 assert(not owner.job and tonumber(network[0])==before_cancel,'cancelled search dispatched a request')
 Search.fetch=original_fetch
 Content.ensure_reader_state=original_reader
+local cancelled_local
+for _i,item in ipairs(owner.menu.item_table) do
+    if item.text==require('weread.lib.i18n').tr('Search downloaded chapters') then cancelled_local=item end
+end
+assert(cancelled_local,'cancelled search did not offer downloaded chapters')
+if cancel_only or cancel_resume then
+    owner.menu:onMenuSelect(cancelled_local)
+    wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
+    local cancelled_cached=assert(plugin._cached_book_search_owner)
+    assert(not plugin._book_search_owner and cancelled_cached.input:getInputText()=='amberneedle')
+    cancelled_cached.input.buttons[1][2].callback()
+    wait(function() return cancelled_cached.finished and not cancelled_cached.job end)
+    assert(#cancelled_cached.value==2 and tonumber(network[0])==before_cancel,
+        'cancelled search fallback lost downloaded results or made a request')
+    plugin:cancelBookSearch()
+    if cancel_only then
+        print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',cancelled_search=true,
+            catalog_missing=catalog_missing,local_results=2,network_requests=0}))
+        os.exit(0)
+    end
+end
 local control,count
 if renewal_test then
     local http,ltn12=require('socket.http'),require('ltn12')
@@ -220,7 +243,18 @@ if renewal_test then
     end
     control{match='/web/book/search_v2',times=1,status=401,web_renewal_mode='rotate'}
 end
-owner.menu:onMenuSelect(owner.menu.item_table[1])
+if cancel_resume then
+    local restart_chapters
+    if not catalog_missing then restart_chapters=chapters end
+    assert(require('weread.ui.book_search').open(plugin,book_id,restart_chapters))
+    owner=assert(plugin._book_search_owner);owner.input:setInputText('amberneedle');owner.input.buttons[1][2].callback()
+else
+    local retry
+    for _i,item in ipairs(owner.menu.item_table) do
+        if item.text==require('weread.lib.i18n').tr(catalog_missing and 'Retry search' or 'Load more results') then retry=item end
+    end
+    assert(retry,'cancelled search could not be retried');owner.menu:onMenuSelect(retry)
+end
 if current_fallback then
     wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
     assert(#owner.value==1 and owner.value[1].chapter_uid==second_uid and owner.state.finished)
@@ -397,5 +431,6 @@ local result={result='PASS',pages=2,results=2,
     verified_navigation=true,network_worker=worker_used,downloaded=missing,catalog_downloaded=catalog_missing}
 if renewal_test then result.renewal_scenarios=true end
 if imported then result.imported_search=true end
+if cancel_resume then result.cancel_resume=true end
 print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(result))
 os.exit(0)
