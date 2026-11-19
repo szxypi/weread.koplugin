@@ -97,6 +97,22 @@ local ok,reason=pcall(function()
     local function tick() UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
     local function wait(test) local until_=socket.gettime()+65;while not test() do assert(socket.gettime()<until_);tick() end end
     local function shot(name) UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_FINISH_SHOTS'))..'/'..mode..'-'..name..'.png');report.screenshots=report.screenshots+1 end
+    local function hold_action(label,list_mode)
+        local display=plugin.settings:get('shelf');display.view_mode=list_mode and 'list' or 'cover';display.paginated=true
+        plugin.settings:set('shelf',display);plugin.settings:flush()
+        plugin:closeWeReadUI();plugin:showBookshelf();UI:forceRePaint()
+        local view=assert(plugin.shelf_view);local index
+        for i,book in ipairs(view.books) do if tostring(book.bookId or book.book_id)=='41' then index=i;break end end
+        local cell=assert(index and view._item_rows[index]);local event=require('ui/event')
+        local pos=require('ui/geometry'):new{x=cell.dimen.x+math.floor(cell.dimen.w/2),y=cell.dimen.y+math.floor(cell.dimen.h/2)}
+        expect(cell:handleEvent(event:new('Gesture',{ges='hold',pos=pos})))
+        local dialog=assert(view._shelf_popup)
+        expect(cell:handleEvent(event:new('Gesture',{ges='hold_release',pos=pos})))
+        local action
+        for _,row in ipairs(dialog.buttons) do for _,button in ipairs(row) do if button.text==tr(label) then action=button end end end
+        expect(action);action.callback()
+        return view
+    end
     local function open(resolving)
         plugin:showBookMenu{book_id='41',title='合成测试书籍：读完标记',chapters={}}
         local detail=assert(plugin._book_detail_view)
@@ -126,6 +142,11 @@ local ok,reason=pcall(function()
     local function saved(value) expect(require('weread.lib.shelf_flags').display(plugin.library_db:getShelfStatus('41').book,'finished')==value) end
     if mode=='live' then
         report.phase='login-and-mutual-exclusion'
+        local owner=hold_action('Change cloud membership')
+        wait(function() return plugin._shelf_membership_ui and plugin._shelf_membership_ui.dialog end)
+        expect(owner._shelf_popup==plugin._shelf_state_menu and plugin._shelf_membership_ui.dialog.ok_text==tr('Remove from cloud bookshelf'))
+        plugin._shelf_membership_ui.dialog.cancel_callback();expect(state().posts==0)
+        plugin:closeWeReadUI()
         plugin:showShelfState('41');local capture=plugin.settings.get_auth_scope;plugin.settings.get_auth_scope=function() return nil end
         require('weread.ui.finish_change').open(plugin,'41')
         expect(not plugin._finish_change_ui and UI:getTopmostVisibleWidget().text==tr('Authorize or renew E-Ink login in settings, then try again.'))
@@ -137,8 +158,17 @@ local ok,reason=pcall(function()
         local member_scope=plugin.settings:get_auth_scope();local pending=assert(member_journal:begin(member_scope,'41','remove'))
         require('weread.ui.finish_change').open(plugin,'41');expect(not plugin._finish_change_ui and state().posts==0)
         UI:close(UI:getTopmostVisibleWidget());expect(member_journal:finish(member_scope,pending))
-        report.phase='mark';local view=open();expect(view.ok_text==tr('Mark as finished') and state().posts==0);shot('mark-confirmation');confirm(view)
+        report.phase='mark';local before=hold_action('Change finished mark')
+        wait(function() return plugin._finish_change_ui and plugin._finish_change_ui.dialog end)
+        local view=plugin._finish_change_ui.dialog
+        expect(view.ok_text==tr('Mark as finished') and state().posts==0);shot('mark-confirmation');confirm(view)
         expect(state().posts==1 and journal:read().phase=='idle');saved(true)
+        expect(plugin.shelf_view==before and before._shelf_popup==plugin._shelf_state_menu)
+        UI:close(plugin._shelf_state_menu);wait(function() return plugin.shelf_view~=before end)
+        local found
+        for _,book in ipairs(plugin.shelf_view.books) do if book.bookId=='41' then found=book end end
+        expect(found and require('weread.lib.shelf_flags').display(found,'finished')==true)
+        expect(plugin.shelf_view.on_select and plugin.shelf_view._item_rows[1].hold_callback)
         report.phase='unmark';fault('lost_ack');view=open();expect(view.ok_text==tr('Mark as unfinished'));confirm(view)
         expect(state().posts==2 and journal:read().phase=='idle');saved(false);fault('normal')
         report.phase='cancel'
@@ -173,10 +203,9 @@ local ok,reason=pcall(function()
         local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
         local function queue_offline(list_mode)
             plugin.isNetworkConnected=function() return false end
-            plugin:showShelfState('41')
-            local menu=assert(plugin._shelf_state_menu);local action
-            for _,item in ipairs(menu.item_table) do if item.text==tr('Change finished mark') then action=item end end
-            expect(action);menu:onMenuSelect(action)
+            local owner=hold_action('Change finished mark',list_mode)
+            wait(function() return plugin._finish_offline_dialog~=nil end)
+            expect(owner._shelf_popup==plugin._shelf_state_menu)
             local dialog=assert(plugin._finish_offline_dialog);dialog.ok_callback()
             expect(queue:get('41') and queue:get('41').phase=='queued')
             local top=UI:getTopmostVisibleWidget();if top~=plugin._shelf_state_menu then UI:close(top) end

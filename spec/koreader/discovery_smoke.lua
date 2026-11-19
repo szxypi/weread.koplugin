@@ -428,6 +428,22 @@ assert(plugin.shelf_view.books[1]._shelf_progress == 83, "home lost account-boun
 paint("home-recent")
 local home_owner=held_book('Cancel')
 assert(not home_owner._shelf_popup, 'home cover hold cancel left its menu open')
+home_owner=held_book('Shelf status')
+local home_status=assert(plugin._shelf_state_menu)
+local changed_books={}
+for i,book in ipairs(books) do
+    local copy={};for key,value in pairs(book) do copy[key]=value end
+    if tostring(copy.bookId or copy.book_id)==seed_id then copy.finishReading=1 end
+    changed_books[i]=copy
+end
+assert(plugin.library_db:cacheShelf(changed_books,response.archive))
+plugin:applyShelfSnapshot(changed_books,response.archive);flush_tasks()
+assert(plugin.shelf_view==home_owner and home_owner._shelf_popup==home_status,
+    'home snapshot refresh displaced an open status menu')
+UIManager:close(home_status);flush_tasks()
+assert(plugin.shelf_view~=home_owner and plugin.shelf_view.books[1].finishReading==1,
+    'home did not refresh the updated status after dismissing the menu')
+assert(plugin.library_db:cacheShelf(books,response.archive));plugin:showHome()
 assert(plugin.shelf_view.settings_button and plugin._home_status_task, "home controls/status timer missing")
 plugin:onSuspend()
 assert(plugin._home_status_task == nil, "suspend retained the status timer")

@@ -8,6 +8,11 @@ package.preload['ui/uimanager']=function() return {
 package.preload['ui/widget/buttondialog']=function() return {new=function(_self,options) return options end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end} end
 package.preload['weread.lib.protocol']=function() return {is_mp_book=function(id) return tostring(id):match('^MP_WXS_')~=nil end} end
+package.preload['weread.lib.shelf_membership_write']=function() return {book_id=function(id)
+    return id:match('^[1-9]%d*$') and #id<=20 and id or nil
+end} end
+package.preload['weread.ui.shelf_membership_write']=function() return {open=function(host,id) host.membership=id end} end
+package.preload['weread.ui.finish_change']=function() return {open=function(host,id) host.finished=id end} end
 local Quick=require('weread.ui.book_quick_actions')
 local Popup=require('weread.ui.shelf_popup')
 local function flush() while #queue>0 do table.remove(queue,1)() end end
@@ -60,4 +65,40 @@ expect(not Quick.open(host,owner,{bookId='\n'},current),'invalid id got book act
 expect(Quick.open(host,owner,book,current),'valid book menu missing')
 local dialog=owner._shelf_popup
 expect(not Quick.open(host,owner,book,current) and owner._shelf_popup==dialog,'second hold replaced active menu')
+local function by_label(menu,label)
+    for _,row in ipairs(menu.buttons) do for _,button in ipairs(row) do
+        if button.text==label then return button end
+    end end
+end
+local function managed(present)
+    local h,o,c,revoke=fixture()
+    h.client={};h.shelf_membership={};h.library_db={open=function() end,accountKey=function() return 'owner' end,
+        getShelfStatus=function() return {present=present} end}
+    function h:showShelfState(id)
+        self.status=id;self._shelf_state_menu={};Popup.show(o,self._shelf_state_menu)
+        return true
+    end
+    return h,o,c,revoke
+end
+for _,entry in ipairs({{'Change cloud membership','membership'},{'Change finished mark','finished'}}) do
+    local h,o,c=managed(true)
+    expect(Quick.open(h,o,book,c),'managed menu missing')
+    local button=assert(by_label(o._shelf_popup,entry[1]));button.callback();flush()
+    expect(h[entry[2]]=='42' and h.status=='42' and o._shelf_popup==h._shelf_state_menu,
+        'shortcut did not open its owned status and controller')
+    button.callback();flush();expect(h[entry[2]]=='42','stale shortcut ran again')
+end
+do
+    local h,o,c=managed(false);Quick.open(h,o,book,c)
+    expect(by_label(o._shelf_popup,'Change cloud membership') and not by_label(o._shelf_popup,'Change finished mark'),
+        'off-shelf book offered finished-mark change')
+    Popup.close(o);h.library_db.accountKey=function() return nil end;Quick.open(h,o,book,c)
+    expect(not by_label(o._shelf_popup,'Change cloud membership') and not by_label(o._shelf_popup,'Change finished mark'),
+        'guest was offered account-specific writes')
+end
+do
+    local h,o,c,revoke=managed(true);Quick.open(h,o,book,c)
+    by_label(o._shelf_popup,'Change finished mark').callback();revoke();flush()
+    expect(not h.finished and not h.status,'stale shortcut opened a controller')
+end
 print('PASS: book quick actions ('..checks..' checks)')

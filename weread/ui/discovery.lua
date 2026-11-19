@@ -100,6 +100,17 @@ function M:showDiscoveryPage(tab, books, options)
     scope = Scope.capture(self, view)
     view._discovery_current = current
     view._finish_current = current
+    view._shelf_snapshot_redraw = function()
+        local updated=books
+        if home then
+            local prefs=self:homePreferences()
+            updated=Data.recent(self.shelf_regular,self.settings:get('books',{}),
+                self.library_db and self.library_db:accountKey(),prefs.recent_limit)
+        end
+        require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
+            options.page=view.page;self:showDiscoveryPage(tab,updated,options)
+        end)
+    end
     view._finish_redraw = function()
         if not current() then return end
         require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()

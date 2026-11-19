@@ -58,7 +58,32 @@ return function(reader,plugin,pump,shot,clean_popups)
         view.ok_callback();pump(function() return not plugin._shelf_membership_ui end)
     end
     local function present(target,value) assert(plugin.library_db:getShelfStatus(target or id).present==value,'saved membership differs from native readback') end
-    local before=writes();local view=preview()
+    -- The shelf's direct hold shortcut must refresh the underlying shelf only
+    -- after its owned status menu closes, while retaining normal write guards.
+    local before=writes();clean_popups(reader);plugin:showBookshelf();UI:forceRePaint()
+    local owner=assert(plugin.shelf_view);local index
+    for i,book in ipairs(owner.books) do if tostring(book.bookId or book.book_id)==id then index=i;break end end
+    local cell=assert(index and owner._item_rows[index]);local gesture_event=require('ui/event')
+    local pos=require('ui/geometry'):new{x=cell.dimen.x+math.floor(cell.dimen.w/2),y=cell.dimen.y+math.floor(cell.dimen.h/2)}
+    assert(cell:handleEvent(gesture_event:new('Gesture',{ges='hold',pos=pos})))
+    local dialog=assert(owner._shelf_popup)
+    assert(cell:handleEvent(gesture_event:new('Gesture',{ges='hold_release',pos=pos})))
+    local shortcut
+    for _,buttons in ipairs(dialog.buttons) do for _,button in ipairs(buttons) do
+        if button.text==tr('Change cloud membership') then shortcut=button end
+    end end
+    assert(shortcut);shortcut.callback()
+    pump(function() return plugin._shelf_membership_ui and plugin._shelf_membership_ui.dialog end)
+    local view=plugin._shelf_membership_ui.dialog
+    assert(view.ok_text==tr('Remove from cloud bookshelf') and writes()==before)
+    confirm(view);present(id,false);assert(writes()==before+1 and plugin.shelf_view==owner)
+    local notice=UI:getTopmostVisibleWidget();if notice~=plugin._shelf_state_menu then UI:close(notice) end
+    UI:close(assert(plugin._shelf_state_menu));pump(function() return plugin.shelf_view and plugin.shelf_view~=owner end)
+    for _,book in ipairs(plugin.shelf_view.books) do assert(tostring(book.bookId or book.book_id)~=id,'removed book remains on shelf') end
+    view=preview();assert(view.ok_text==tr('Add to cloud bookshelf'));confirm(view);present(id,true)
+    assert(writes()==before+2,'shortcut round trip did not write once per confirmed change')
+
+    before=writes();view=preview()
     assert(view.ok_text==tr('Remove from cloud bookshelf') and writes()==before,'preview inferred stale membership or posted')
     shot('shelf-membership-remove-confirmation');confirm(view)
     assert(writes()==before+1 and not plugin.shelf_membership:pending());present(id,false)

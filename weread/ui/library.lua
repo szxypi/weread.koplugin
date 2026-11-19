@@ -255,6 +255,9 @@ function M:onWeReadAccountChanged()
 end
 
 function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
+    local owner=self.shelf_view
+    local owned_status=owner and self._shelf_state_menu and owner._shelf_popup==self._shelf_state_menu
+        and not self._book_detail_view and owner._shelf_snapshot_redraw
     if not preserve_volatile then VolatileShelf.clear(self) end
     load_group_selection(self)
     local shelf = self.settings:get("shelf")
@@ -284,6 +287,16 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
     if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups, self.shelf_group_key) then
         self.shelf_group_key = nil
         if self.shelf_view_pages then self.shelf_view_pages.books = 1 end
+    end
+    if owned_status and self.shelf_view==owner and not owner._shelf_closed then
+        -- Account data changed beneath an owned status popup. Wait for it to
+        -- close, then rebuild from the new snapshot rather than stale rows.
+        local current=require('weread.ui.page_scope').capture(self,owner)
+        require('weread.ui.shelf_popup').redraw(owner,function()
+            if current() and not self._book_detail_view and not self._shelf_state_menu then
+                owner._shelf_snapshot_redraw()
+            end
+        end)
     end
 end
 
@@ -936,6 +949,14 @@ function M:showShelfView(mode, keyword, old_view, options)
     self.shelf_view = view
     view._finish_dirty=carry_dirty
     view._finish_current=current
+    view._shelf_snapshot_redraw=function()
+        local next_options={};for key,value in pairs(options) do next_options[key]=value end
+        next_options.prepared_shelf=nil;next_options.page=view.page
+        next_options.scroll_offset=view:getScrollOffset()
+        require('weread.ui.finish_offline').redraw_preserving_focus(self,view,function()
+            self:showShelfView(mode,keyword,view,next_options)
+        end)
+    end
     view._finish_redraw = function()
         if not current() then return end
         local next_options={};for key,value in pairs(options) do next_options[key]=value end
