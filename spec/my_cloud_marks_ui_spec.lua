@@ -83,7 +83,7 @@ expect(Marks.show(host,'CB_Synthetic') and not value.started,'imported-book high
 menu=host._my_marks_menu
 expect(row(menu,'Local thought drafts') and row(menu,'Check last thought change') and row(menu,'Check last cloud mark change'),
     'imported book hid draft or recovery')
-expect(row(menu,'Imported book highlights support private thoughts, saving, deletion and default-color style changes after verification.').select_enabled==false,
+expect(row(menu,'Imported book highlights support private thoughts, saving, deletion, default-color style changes and marker color changes after verification.').select_enabled==false,
     'imported-book editing limitation was not visible')
 row(menu,'合成引用').callback()
 expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and #menu._shelf_popup.buttons_table==3
@@ -94,13 +94,20 @@ Marks.cancel(host)
 cb.updated[1].style=1;cb.updated[1].colorStyle=0
 host=fixture(cb);expect(Marks.show(host,'CB_Synthetic'),'imported styled highlight did not open')
 menu=host._my_marks_menu;row(menu,'合成引用').callback()
-expect(#menu._shelf_popup.buttons_table==4 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_style',
+expect(#menu._shelf_popup.buttons_table==5 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_style'
+    and menu._shelf_popup.buttons_table[4][1].id=='change_highlight_color',
     'verified imported style action was hidden')
 Marks.cancel(host)
 cb.updated[1].colorStyle=3
 host=fixture(cb);expect(Marks.show(host,'CB_Synthetic'),'imported colored highlight did not open')
 menu=host._my_marks_menu;row(menu,'合成引用').callback()
-expect(#menu._shelf_popup.buttons_table==3,'unverified imported color or colored-style action was exposed')
+expect(#menu._shelf_popup.buttons_table==4 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_color',
+    'imported colored marker lost color editing or exposed unverified style editing')
+Marks.cancel(host)
+cb.updated[1].style=2
+host=fixture(cb);expect(Marks.show(host,'CB_Synthetic'),'imported colored wavy highlight did not open')
+menu=host._my_marks_menu;row(menu,'合成引用').callback()
+expect(#menu._shelf_popup.buttons_table==3,'unverified colored style or non-marker color change was exposed')
 Marks.cancel(host)
 cb.updated[2].range='25'
 host,value=fixture(cb)

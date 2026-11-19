@@ -14,7 +14,7 @@ package.preload['weread.ui.thought_editor']=function() return {cancel=function()
 package.preload['weread.ui.mark_editor']=function() return {cancel=function() end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
 package.preload['weread.lib.my_cloud_marks']=function() return {id=function(value) return value=='41' and value end,
-    display_id=function(value) return value=='41' and value end} end
+    display_id=function(value) return (value=='41' or value=='CB_Synthetic') and value end} end
 package.preload['weread.lib.source_context']=function() return {
     location=function(document) return document.location end,same_location=function(a,b) return a==b end,capture=function() return {} end,
 } end
@@ -90,4 +90,10 @@ for _i,value in ipairs({-1,6,'3',true,.5}) do
     preferences.cloud_highlight_color=value;expect(Color.default(host.settings)==0,'invalid color did not fall back')
 end
 expect(not Color.editable{type=1,style=99,colorStyle=1} and not Color.editable{type=0,style=0,colorStyle=0},'unknown style or point bookmark exposed color editing')
+host.detectWeReadBook=function() return 'CB_Synthetic' end
+owner=open();local cb_dialog=chooser(owner,'Default highlight color')
+expect(owner.imported and #cb_dialog.buttons==6,'imported book lost default color chooser')
+expect(not pcall(chooser,owner,'Default highlight style'),'unverified imported default style chooser exposed')
+button(cb_dialog,3,'default_highlight_color_').callback()
+expect(preferences.cloud_highlight_color==3,'imported book did not save default color')
 print('default_highlight_style_spec: '..checks..' checks')

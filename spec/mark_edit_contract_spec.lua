@@ -3,17 +3,29 @@ local F=require('spec.helpers.mark_edit_fixture');local C=require('weread.lib.ma
 local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
 local codec=F.codec();local snapshot=F.snapshot(codec);local ref=F.reference()
 local imported=F.clone(snapshot);imported.book_id='CB_Synthetic';imported.marks.book_id='CB_Synthetic';imported.thoughts.book_id='CB_Synthetic'
-expect(not pcall(C.make,codec,imported,'color',ref,nil,nil,1),'unverified imported color update accepted')
 local imported_ref=F.clone(ref);imported_ref.source.book_id='CB_Synthetic'
 local imported_plan=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77})
 expect(C.validate_body('create',imported_plan.body) and C.validate_metadata(imported_plan.metadata),'verified imported highlight plan rejected')
 expect(imported_plan.body.style==1 and imported_plan.body.colorStyle==0,'unverified imported style used')
-for _i,choice in ipairs({{0,0},{2,0},{1,1}}) do
+for _i,choice in ipairs({{0,0},{2,0},{0,3},{2,3}}) do
     expect(not pcall(C.make,codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77},choice[1],choice[2]),
         'unverified imported style or color accepted')
 end
 local imported_created=F.created(codec,imported)
 expect(C.check(imported_created,imported_plan.metadata),'imported creation was not independently confirmed')
+for color=0,5 do
+    local initial=C.make(codec,imported,'create',imported_ref,{bookId='CB_Synthetic',version=77},1,color)
+    local expected=F.clone(imported_created);expected.marks.updated[2].colorStyle=color
+    expect(C.check(expected,initial.metadata),'imported initial color was not confirmed')
+    if color~=0 then
+        local change=C.make(codec,imported_created,'color',imported_created.marks.updated[2],nil,nil,color)
+        expect(C.validate_metadata(change.metadata) and C.check(expected,change.metadata) and not C.check(imported_created,change.metadata),
+            'imported color update was not confirmed')
+    end
+end
+local imported_straight=F.clone(imported_created);imported_straight.marks.updated[2].style=0
+expect(not pcall(C.make,codec,imported_straight,'color',imported_straight.marks.updated[2],nil,nil,3),
+    'unverified imported non-marker color update accepted')
 for _i,style in ipairs({0,2}) do
     local change=C.make(codec,imported_created,'style',imported_created.marks.updated[2],nil,style)
     local result=F.clone(imported_created);result.marks.updated[2].style=style

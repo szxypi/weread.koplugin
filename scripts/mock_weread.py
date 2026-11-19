@@ -406,7 +406,7 @@ class MockServer(ThreadingHTTPServer):
                 # Two fresh initial-style roundtrips plus the original six
                 # composite dispatches, six color updates and one unknown
                 # color receipt. Specialized trial servers bound less.
-                if query or self.highlight_posts>=17:raise ValueError('invalid highlight scope')
+                if query or self.highlight_posts>=getattr(self,'max_highlight_posts',17):raise ValueError('invalid highlight scope')
                 if path=='/book/addBookmark':
                     required={'bookId','chapterUid','bookVersion','type','style','colorStyle','range','markText'}
                     selection_id=CB_READING_ID if self.cb_reading else BOOK_ID

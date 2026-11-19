@@ -1,0 +1,18 @@
+{
+  "result": "CB_FIXTURE_PALETTE_VERIFIED",
+  "fixture": "self-authored XHTML EPUB",
+  "fixture_only": true,
+  "annotation_posts": 18,
+  "initial_colors_verified": [0, 1, 2, 3, 4, 5],
+  "modified_colors_verified": [0, 1, 2, 3, 4, 5],
+  "marker_style_preserved": true,
+  "independent_readbacks": 18,
+  "existing_book_writes": 0,
+  "authentication_posts": 0,
+  "source_and_catalog_unchanged": true,
+  "original_records_restored": true,
+  "fixture_removed": true,
+  "shelf_baseline_restored": true,
+  "no_replay": true,
+  "private_values_in_report": false
+}

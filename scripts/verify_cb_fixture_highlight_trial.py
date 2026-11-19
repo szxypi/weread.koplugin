@@ -39,7 +39,7 @@ def make_journal():
 
 class ScopedNative(NativeProbe):
     def __init__(self, book, grant, authority, intent, *, opener=None, max_gets=40):
-        if not cb_id(book) or type(max_gets) is not int or not 1 <= max_gets <= 80: raise ValueError('cb_highlight/scope')
+        if not cb_id(book) or type(max_gets) is not int or not 1 <= max_gets <= 200: raise ValueError('cb_highlight/scope')
         super().__init__(opener)
         self.book, self.grant_hash, self.authority, self.intent = book, digest(grant), authority, intent
         self.posts, self.gets, self.body, self.pending, self.max_gets = 0, 0, None, None, max_gets

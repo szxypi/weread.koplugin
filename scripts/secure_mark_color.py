@@ -15,6 +15,9 @@ SERVICE='org.codex.weread.goal-mark-color-trial'
 
 
 class MarkColorStore:
+    steps=STEPS
+    validate_plan=staticmethod(validate_plan)
+    dispatch_hash=staticmethod(dispatch_hash)
     def __init__(self,backend=None,lock=None):
         self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
         path=Path(tempfile.gettempdir())/('codex-mark-color-'+ACCOUNT+'.lock')
@@ -28,14 +31,14 @@ class MarkColorStore:
             v=json.loads(raw)
             if (set(v)!={'schema','scope','attempt','plan','step','phase','target','dispatch_sha256','reserved_posts'}
                     or type(v['schema']) is not int or v['schema']!=1 or v['scope']!=ACCOUNT
-                    or type(v['step']) is not int or not 0<=v['step']<=len(STEPS)
-                    or type(v['reserved_posts']) is not int or v['reserved_posts']!=len(STEPS)
+                    or type(v['step']) is not int or not 0<=v['step']<=len(self.steps)
+                    or type(v['reserved_posts']) is not int or v['reserved_posts']!=len(self.steps)
                     or not isinstance(v['attempt'],str) or len(v['attempt'])!=32 or any(c not in '0123456789abcdef' for c in v['attempt'])):raise ValueError()
-            validate_plan(v['plan'])
-            if v['step']==len(STEPS):
+            self.validate_plan(v['plan'])
+            if v['step']==len(self.steps):
                 if v['phase']!='complete' or v['target'] is not None or v['dispatch_sha256'] is not None:raise ValueError()
             else:
-                expected=dispatch_hash(v['plan'],v['step'],v['target'])
+                expected=self.dispatch_hash(v['plan'],v['step'],v['target'])
                 if v['phase'] not in ('pending','claimed') or v['dispatch_sha256']!=(expected if v['phase']=='claimed' else None):raise ValueError()
             return v,raw
         except (TypeError,ValueError,KeyError):raise StoreError('mark_color/intent_invalid') from None
@@ -52,28 +55,28 @@ class MarkColorStore:
             value,raw=self._load();return value,Receipt(raw) if raw else None
 
     def reserve(self,plan):
-        validate_plan(plan)
+        self.validate_plan(plan)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('mark_color/intent_exists')
             return self._write(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),plan=plan,step=0,phase='pending',
-                target=None,dispatch_sha256=None,reserved_posts=len(STEPS)))
+                target=None,dispatch_sha256=None,reserved_posts=len(self.steps)))
 
     def claim(self,receipt,body_hash):
         with self.lock():
             v,raw=self._load()
             if (not isinstance(receipt,Receipt) or raw!=receipt.raw or v is None or v['phase']!='pending'
-                    or body_hash!=dispatch_hash(v['plan'],v['step'],v['target'])):raise StoreError('mark_color/claim')
+                    or body_hash!=self.dispatch_hash(v['plan'],v['step'],v['target'])):raise StoreError('mark_color/claim')
             v['phase']='claimed';v['dispatch_sha256']=body_hash;return self._write(v)
 
     def advance(self,receipt,target):
         with self.lock():
             v,raw=self._load()
             if not isinstance(receipt,Receipt) or raw!=receipt.raw or v is None or v['phase']!='claimed':raise StoreError('mark_color/replaced')
-            operation,_color=STEPS[v['step']]
+            operation,_color=self.steps[v['step']]
             if operation=='delete':
                 if target is not None:raise StoreError('mark_color/target')
             elif not target_valid(target) or v['target'] is not None and v['target']['id']!=target['id']:raise StoreError('mark_color/target')
-            v['step']+=1;v['phase']='complete' if v['step']==len(STEPS) else 'pending';v['target']=target;v['dispatch_sha256']=None
+            v['step']+=1;v['phase']='complete' if v['step']==len(self.steps) else 'pending';v['target']=target;v['dispatch_sha256']=None
             return self._write(v)
 
     def finish(self,receipt):

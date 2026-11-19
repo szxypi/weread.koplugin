@@ -164,7 +164,7 @@ local ok,reason=pcall(function()
     if imported then
         local notice=false
         local label=thoughts and 'Imported book private thoughts can be edited and deleted after verification.'
-            or 'Imported book highlights support private thoughts, saving, deletion and default-color style changes after verification.'
+            or 'Imported book highlights support private thoughts, saving, deletion, default-color style changes and marker color changes after verification.'
         for _i,item in ipairs(menu.item_table) do
             if item.text==tr(label) then
                 notice=item.select_enabled==false

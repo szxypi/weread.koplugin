@@ -52,11 +52,11 @@ render=function(host,owner)
         if not owner.bookmarks then items[#items+1]={text=_('Write private thought'),callback=function()
             if current(host,owner) then Editor.start(host,owner,'create',owner.reference,current,render) end
         end} end
-        if not owner.bookmarks and not owner.imported then
-            for _i,preference in ipairs({
-                {model=Style,key='cloud_highlight_style',label='Default highlight style',prefix='default_highlight_style_'},
-                {model=Color,key='cloud_highlight_color',label='Default highlight color',prefix='default_highlight_color_'},
-            }) do
+        if not owner.bookmarks then
+            local preferences={}
+            if not owner.imported then preferences[#preferences+1]={model=Style,key='cloud_highlight_style',label='Default highlight style',prefix='default_highlight_style_'} end
+            preferences[#preferences+1]={model=Color,key='cloud_highlight_color',label='Default highlight color',prefix='default_highlight_color_'}
+            for _i,preference in ipairs(preferences) do
                 local choice=preference
                 items[#items+1]={text=_(choice.label),mandatory=_(choice.model.labels[choice.model.default(host.settings)]),callback=function()
                     if not current(host,owner) then return end
