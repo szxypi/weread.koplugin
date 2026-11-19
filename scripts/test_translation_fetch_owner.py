@@ -1,6 +1,6 @@
 import contextlib,hashlib,io,json,subprocess,unittest
 from unittest.mock import patch
-from run_translation_fetch_owner import ANNOTATION_FLAGS,FLAGS,FRAME as NATIVE_FRAME,decode,payload_valid,validate_stage
+from run_translation_fetch_owner import ANNOTATION_FLAGS,RANGE_FLAGS,FLAGS,FRAME as NATIVE_FRAME,decode,payload_valid,validate_stage
 from verify_translation_fetch_owner import FRAME,execute,main,observation,synthetic_source
 from translation_owner_excerpt import original_excerpt
 
@@ -46,6 +46,26 @@ class TranslationOwnerTest(unittest.TestCase):
                 dict(book_id='../other'),dict(vid=True),dict(blocks=True),dict(blocks=0),dict(blocks=20001),
                 dict(source='x'*204801),dict(title='x'*4097),dict(author='a\0b'),dict(extra='unexpected')):
             with self.subTest(update=list(update)),self.assertRaises(ValueError):payload_valid(dict(payload(),**update))
+
+    def test_range_requires_three_distinct_bound_chapters_and_sources(self):
+        item=payload();item.update(chapter_uids=['1','2','3'],source_hashes=[item['source_sha256']]*3,block_counts=[12]*3)
+        payload_valid(item,range_mode=True)
+        for update in (dict(chapter_uids=['1','2','2']),dict(chapter_uids=['2','1','3']),dict(chapter_uids=['1',{},'3']),
+                dict(chapter_uids=['1','2','2147483648']),dict(source_hashes=['0'*64]*3),
+                dict(source_hashes=[item['source_sha256'],'bad','0'*64]),dict(block_counts=[12,0,12]),
+                dict(block_counts=[12,True,12]),dict(block_counts=[11,12,12])):
+            with self.subTest(field=list(update)),self.assertRaises(ValueError):payload_valid(dict(item,**update),range_mode=True)
+        with self.assertRaises(ValueError):payload_valid(item)
+
+    def test_range_requires_each_native_evidence_flag(self):
+        value=dict(stage('live'),**{key:True for key in RANGE_FLAGS})
+        validate_stage(value,'live',range_mode=True)
+        for key in RANGE_FLAGS:
+            with self.subTest(flag=key),self.assertRaises(ValueError):
+                validate_stage(dict(value,**{key:False}),'live',range_mode=True)
+        with self.assertRaises(ValueError):validate_stage(value,'live')
+        validate_stage(dict(value,requests=64),'live',range_mode=True)
+        with self.assertRaises(ValueError):validate_stage(dict(value,requests=65),'live',range_mode=True)
 
     def test_cookie_owner_and_syntax_checked(self):
         for cookies in ({},dict(wr_vid='other',wr_skey='mock_key'),dict(wr_vid='900000',wr_skey='bad;cookie'),

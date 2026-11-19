@@ -33,7 +33,7 @@ def snapshot(api,web,grant):
         web_shelf=state_hash(web.request('generation_shelf',WEB+'/web/shelf/sync')))
 
 
-def execute(command,payload,annotations=False):
+def execute(command,payload,annotations=False,range_mode=False):
     child=subprocess.run(command,input=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode(),capture_output=True,timeout=360)
     if len(child.stdout)>1024*1024 or child.stdout.count(FRAME)!=1:raise ValueError('translation_owner/frame')
     value=json.loads(child.stdout.split(FRAME)[1])
@@ -49,17 +49,18 @@ def execute(command,payload,annotations=False):
             or not isinstance(value['installed'],dict) or set(value['installed'])!={'files','bytes_match'}
             or type(value['installed']['files']) is not int or not 1<=value['installed']['files']<=1000
             or value['installed']['bytes_match'] is not True):raise ValueError('translation_owner/stages')
-    for stage,mode in zip(value['stages'],('live','reopen')):validate_stage(stage,mode,annotations)
+    for stage,mode in zip(value['stages'],('live','reopen')):validate_stage(stage,mode,annotations,range_mode)
     validate_cookies(value['cookies'],payload['vid'])
     return value
 
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);access=p.add_mutually_exclusive_group();access.add_argument('--saved-session',action='store_true');access.add_argument('--mock',action='store_true')
-    p.add_argument('--annotations',action='store_true')
+    p.add_argument('--annotations',action='store_true');p.add_argument('--range',action='store_true')
     p.add_argument('--native-ui-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
+    if a.range and a.annotations:p.error('range and annotations are separate scenarios')
     if bool(a.saved_session or a.mock)!=bool(a.native_ui_command):p.error('explicit access and private native UI command required')
-    r=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),synthetic_only=a.mock,annotation_test=a.annotations,account_data_posts=0,
+    r=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),synthetic_only=a.mock,annotation_test=a.annotations,range_test=a.range,account_data_posts=0,
         authentication_posts=0,generation_requests=0,translation_mode_requests=0,real_screenshots=0,private_data_on_regular_disk=False)
     api=web=saved=grant=server=None;phase='init'
     try:
@@ -71,30 +72,55 @@ def main(argv=None):
                 threading.Thread(target=server.serve_forever,daemon=True).start()
                 raw=synthetic_source();payload=dict(vid='900000',cookies=dict(wr_vid='900000',wr_skey='mock_key'),book_id='900001',chapter_uid='1',
                     title='Synthetic translation acceptance',author='Synthetic',source=raw,source_sha256=hashlib.sha256(raw.encode()).hexdigest(),blocks=12,mock_port=server.server_port)
+                if a.range:payload.update(chapter_uids=['1','2','3'],source_hashes=[payload['source_sha256']]*3,block_counts=[12]*3)
                 command+=['--mock-port',str(server.server_port)]
             else:
                 capture=NativeCaptureStore();generation=TranslationGenerationStore();retained=(capture.read(),generation.read())
-                saved=SessionStore().load();grant=NativeSessionStore().load(saved['vid']);api=Native();phase='discover';api.inspect(grant,1,True)
+                saved=SessionStore().load();grant=NativeSessionStore().load(saved['vid']);api=Native();phase='discover';api.inspect(grant,2 if a.range else 1,True)
                 sample=api.samples[0];web=Web();web.vid=saved['vid']
                 for k,v in saved['cookies'].items():web.set_cookie(k,v)
-                web.verify_account();phase='source';content=web.inspect_content(sample);source=web.content_sample
+                web.verify_account();phase='source'
+                if a.range:
+                    chosen=None
+                    for candidate in api.samples:
+                        rows=candidate['expected']['chapters']
+                        runs=[rows[i:i+3] for i in range(len(rows)-2) if all(x['uid']>0 and x.get('wordCount',0)>=200 and x['free_or_owned'] for x in rows[i:i+3])]
+                        for chunk in runs[:2]:
+                            sources=[];summaries=[]
+                            for row in chunk:
+                                summary=web.inspect_content(candidate,row['uid']);item=web.content_sample
+                                if not item or not summary.get('nonempty_translation_blocks') or summary.get('attempts',[{}])[-1].get('representation')!='download':break
+                                sources.append(item);summaries.append(summary)
+                            if len(sources)==3 and 200<=len(sources[0]['source'].encode())<=200*1024:
+                                chosen=(candidate,sources,summaries);break
+                        if chosen:break
+                    if not chosen:raise ValueError('translation_owner/no_range_content')
+                    sample,sources,summaries=chosen;source=sources[0];content=summaries[0]
+                else:
+                    content=web.inspect_content(sample);source=web.content_sample
                 if not source or content.get('nonempty_translation_blocks',0)<1:raise ValueError('translation_owner/no_existing_content')
                 phase='baseline';baseline=snapshot(api,web,grant)
                 payload=dict(vid=saved['vid'],cookies={c.name:c.value for c in web.cookies if c.name in COOKIE_NAMES
                     and c.domain in ('.weread.qq.com','weread.qq.com') and c.path=='/'},book_id=source['book_id'],chapter_uid=str(source['chapter_uid']),
                     title=sample['info'].get('title',''),author=sample['info'].get('author') or '',source=source['source'],
                     source_sha256=hashlib.sha256(source['source'].encode()).hexdigest(),blocks=content['nonempty_translation_blocks'])
+            if a.range and not a.mock:
+                payload.update(chapter_uids=[str(x['chapter_uid']) for x in sources],source_hashes=[hashlib.sha256(x['source'].encode()).hexdigest() for x in sources],block_counts=[x['nonempty_translation_blocks'] for x in summaries])
+            if a.range:command+=['--range']
             if a.annotations:payload['original_source']=original_excerpt(payload['source'])
-            payload_valid(payload,server.server_port if server else None,a.annotations)
-            phase='native';result=execute(command,payload,a.annotations)
+            payload_valid(payload,server.server_port if server else None,a.annotations,a.range)
+            phase='native';result=execute(command,payload,a.annotations,a.range)
             r.update(native_stages=result['stages'],installed=result['installed'],profile_removed=result['profile_removed'])
             if a.saved_session:
                 validate_cookies(result['cookies'],saved['vid'])
                 for k,v in result['cookies'].items():web.set_cookie(k,v)
                 phase='final_snapshot'
                 if snapshot(api,web,grant)!=baseline:raise ValueError('translation_owner/cloud_changed')
-                web.inspect_content(sample,source['chapter_uid'])
-                if web.content_sample['source']!=payload['source']:raise ValueError('translation_owner/source_changed')
+                for index,uid in enumerate(payload['chapter_uids'] if a.range else [source['chapter_uid']]):
+                    web.inspect_content(sample,int(uid))
+                    observed=web.content_sample
+                    expected=payload['source_hashes'][index] if a.range else payload['source_sha256']
+                    if not observed or hashlib.sha256(observed['source'].encode()).hexdigest()!=expected:raise ValueError('translation_owner/source_changed')
                 web.verify_account();save_refreshed_web_session(SessionStore(),saved,web)
                 if (capture.read(),generation.read())!=retained or NativeSessionStore().load(saved['vid'])!=grant:raise ValueError('translation_owner/scope_changed')
                 r.update(cloud_position_presence_and_shelf_unchanged=True,reported_counter_values_and_presence_unchanged=True,
@@ -106,7 +132,7 @@ def main(argv=None):
         r.update(result='UNVERIFIED',phase=phase)
         if str(error) in ('initial_position/counts','progress_not_found','progress_ambiguous','progress_invalid',
                 'progress_book_mismatch','progress_rejected','translation_owner/cloud_changed','translation_owner/source_changed',
-                'translation_owner/scope_changed','translation_owner/no_existing_content','translation_owner/unknown_absence',
+                'translation_owner/scope_changed','translation_owner/no_range_content','translation_owner/no_existing_content','translation_owner/unknown_absence',
                 'translation_owner/counters'):r['reason']=str(error)
         if hasattr(error,'diagnostic'):r['diagnostic']=error.diagnostic
     finally:

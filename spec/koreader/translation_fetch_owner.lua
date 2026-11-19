@@ -5,6 +5,7 @@ local ffi=require('ffi');require('ffi/posix_h')
 local json=require('json')
 local home=assert(os.getenv('KO_HOME'));local mode=assert(arg[1])
 local annotation_test=os.getenv('WEREAD_TRANSLATION_OWNER_ANNOTATIONS')=='1'
+local range_test=os.getenv('WEREAD_TRANSLATION_OWNER_RANGE')=='1'
 local report={result='UNVERIFIED',mode=mode,phase='input',screenshots=0,requests=0,forbidden=0,failed_line=0,
     native_reader=false,downloaded=false,bilingual=false,translated_text_visible=false,original_kept=false,
     bookmark_kept=false,cache_path_kept=false,source_exact=false,shortcut=false,credential_audit=false,workers_reaped=false}
@@ -13,11 +14,14 @@ if annotation_test then
     report.annotation_original_preserved=false;report.annotation_stage_complete=false
     report.annotation_changed_source=false;report.annotation_shifted=false
 end
+if range_test then report.range_catalog_verified=false;report.range_sources_verified=false;report.range_chapters_visible=false end
 local latest,fd,counters
 local ok,reason=pcall(function()
     local raw=assert(io.stdin:read(256*1024+1));assert(#raw<=256*1024)
     local input=json.decode(raw);latest=input.cookies
     local root=home..'/plugins/weread.koplugin';package.path=root..'/?.lua;'..package.path
+    local ids=range_test and input.chapter_uids or {input.chapter_uid};local idset={}
+    for _,uid in ipairs(ids) do assert(not idset[uid]);idset[uid]=true end
     G_defaults=require('luadefaults'):open()
     G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
     G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
@@ -59,19 +63,24 @@ local ok,reason=pcall(function()
     function Client:request(options)
         local method=options.method or (options.body and 'POST' or 'GET');local allowed=false
         if mode=='live' then
-            allowed=method=='GET' and not options.body and (options.url==Protocol.reader_url(input.book_id) or options.url==Protocol.reader_url(input.book_id,input.chapter_uid))
+            allowed=method=='GET' and not options.body and options.url==Protocol.reader_url(input.book_id)
+            for _,uid in ipairs(ids) do if method=='GET' and not options.body and options.url==Protocol.reader_url(input.book_id,uid) then allowed=true end end
             if method=='POST' then
                 local parsed,body=pcall(self.json_decode,self,options.body or '')
                 if parsed and options.url=='https://weread.qq.com/web/book/chapterInfos' then
                     allowed=type(body.bookIds)=='table' and #body.bookIds==1 and body.bookIds[1]==input.book_id
                     for key in pairs(body) do if key~='bookIds' then allowed=false end end
                 elseif parsed and options.url:match('^https://weread%.qq%.com/web/book/chapter/e_[0-3]$') then
-                    allowed=body.b==Protocol.e(input.book_id) and body.c==Protocol.e(input.chapter_uid) and body.sc==1
+                    for index,uid in ipairs(ids) do
+                        if body.b==Protocol.e(input.book_id) and body.c==Protocol.e(uid) and body.sc==1 then
+                            allowed=true;if options.url:match('/e_0$') then counters[index+1]=counters[index+1]+1 end
+                        end
+                    end
                 end
             end
         end
         if not allowed then counters[1]=counters[1]+1;error('translation acceptance request rejected',0) end
-        counters[0]=counters[0]+1;assert(counters[0]<=32)
+        counters[0]=counters[0]+1;assert(counters[0]<=(range_test and 64 or 32))
         options.sensitive=true;options.diagnostic_api='translation_acceptance'
         return request(self,options)
     end
@@ -93,7 +102,10 @@ local ok,reason=pcall(function()
         local client=Fetch and require('weread.lib.translation_fetch').client(Client:new(settings),book,input.chapter_uid)
         Content.ensure_reader_state(client,book)
         local chapters,version=Content.fetch_catalog(client,book);local selected
-        for _,chapter in ipairs(chapters) do if tostring(chapter.chapterUid)==input.chapter_uid then assert(not selected);selected=chapter end end
+        for index,chapter in ipairs(chapters) do if tostring(chapter.chapterUid)==input.chapter_uid then
+            assert(not selected);selected=chapter
+            if range_test then for chapter_offset,uid in ipairs(ids) do assert(chapters[index+chapter_offset-1] and tostring(chapters[index+chapter_offset-1].chapterUid)==uid,'catalog scope mismatch') end;report.range_catalog_verified=true end
+        end end
         assert(selected and Crypto.sha256_hex(input.source)==input.source_sha256)
         book.bookVersion=version
         local original_source=annotation_test and input.original_source or input.source
@@ -106,6 +118,7 @@ local ok,reason=pcall(function()
         before=Crypto.sha256_hex(bytes(original))
     else
         local state=json.decode(bytes(state_path));original,copy,bookmark,before=state.original,state.copy,state.bookmark,state.sha256
+        if range_test then assert(state.range_catalog_verified==true);report.range_catalog_verified=true end
     end
     report.phase='reader'
     local reader=Reader:new{dimen=Device.screen:getSize(),document=require('document/documentregistry'):openDocument(original)}
@@ -154,17 +167,20 @@ local ok,reason=pcall(function()
     if annotation_test then assert(original_notes()) end
     plugin:showReadingLanguage();pump(function() return not plugin.translation_job end)
     local menu=assert(plugin._translation_menu);local entry
-    local label=require('weread.lib.i18n').tr(mode=='live' and 'Download existing translation' or 'Open saved translated copy')
+    local label=require('weread.lib.i18n').tr(mode=='live' and (range_test and 'Download existing translations for next chapters' or 'Download existing translation') or 'Open saved translated copy')
     for _,item in ipairs(menu.item_table) do if item.text==label then entry=item end end
     assert(entry);report.phase='download';menu:onMenuSelect(entry)
     if mode=='live' then
         assert(plugin.translation_fetch_job and plugin.translation_fetch_worker.job)
         pump(function() return not plugin.translation_fetch_job end)
         local dialog=assert(plugin._translation_fetch_result)
-        local saved=assert(reader.doc_settings:readSetting('weread_translation_copies')[input.chapter_uid])
+        local copies=assert(reader.doc_settings:readSetting('weread_translation_copies'))
+        local saved=assert(copies[range_test and '__range_'..input.chapter_uid or input.chapter_uid])
+        if range_test then for _,uid in ipairs(ids) do assert(copies['__range_'..uid] and copies['__range_'..uid].path==saved.path) end end
         -- Provenance is content-derived: an unchanged source may correctly
         -- retain its file_id. The new physical file must still be distinct.
-        assert(saved.blocks==input.blocks and #saved.file_id==64 and saved.path~=original)
+        local total_blocks=input.blocks;if range_test then total_blocks=0;for _,n in ipairs(input.block_counts) do total_blocks=total_blocks+n end end
+        assert(saved.blocks==total_blocks and #saved.file_id==64 and saved.path~=original)
         local fs=require('libs/libkoreader-lfs');local old_stat,new_stat=assert(fs.symlinkattributes(original)),assert(fs.symlinkattributes(saved.path))
         assert(old_stat.ino~=new_stat.ino or old_stat.dev~=new_stat.dev)
         copy=saved.path
@@ -177,7 +193,21 @@ local ok,reason=pcall(function()
     assert(plugin._translation_mode=='bilingual' and not plugin.progress_sync.verified);report.bilingual=true
     local metadata=assert(Source.document_metadata(document,input.book_id,input.chapter_uid))
     assert(metadata.record.raw_sha256==input.source_sha256);report.source_exact=true
-    local profile=assert(require('weread.lib.translation_archive').inspect(copy,input.book_id));assert(profile.blocks==input.blocks)
+    local profile=assert(require('weread.lib.translation_archive').inspect(copy,input.book_id))
+    local total=input.blocks;if range_test then total=0;for _,n in ipairs(input.block_counts) do total=total+n end end
+    assert(profile.blocks==total)
+    if range_test then
+        assert(#profile.chapters==3)
+        for index,uid in ipairs(ids) do
+            local record=assert(Source.read_document(document,input.book_id,uid));assert(record.raw_sha256==input.source_hashes[index])
+            local chapter=assert(profile.chapters[index]);assert(chapter.blocks==input.block_counts[index] and chapter.pairs[1])
+            local point='/body/DocFragment['..index..']'..chapter.pairs[1].translation_path
+            reader.rolling:onGotoXPointer(point);local normalized=document:getNormalizedXPointer(point);local char=document:getNextVisibleChar(point)
+            assert(type(char)=='string' and document:getNormalizedXPointer(char):sub(1,#normalized)==normalized)
+        end
+        if mode=='live' then for index=1,3 do assert(counters[index+1]>0) end end
+        report.range_sources_verified=true;report.range_chapters_visible=true
+    end
     local pair=assert(profile.chapters[1].pairs[1]);local target='/body/DocFragment[1]'..pair.translation_path
     reader.rolling:onGotoXPointer(target)
     local normalized=document:getNormalizedXPointer(target)
@@ -218,7 +248,7 @@ local ok,reason=pcall(function()
     end
     reader:onClose(false)
     if mode=='live' then
-        local f=assert(io.open(state_path,'wb'));f:write(json.encode{original=original,copy=copy,bookmark=bookmark,sha256=before});f:close()
+        local f=assert(io.open(state_path,'wb'));f:write(json.encode{original=original,copy=copy,bookmark=bookmark,sha256=before,range_catalog_verified=report.range_catalog_verified});f:close()
     end
     local status=ffi.new('int[1]');pump(function()
         local child=tonumber(ffi.C.waitpid(-1,status,ffi.C.WNOHANG))
