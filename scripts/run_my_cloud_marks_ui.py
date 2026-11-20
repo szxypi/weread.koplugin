@@ -24,6 +24,9 @@ def native_budget(total):
 
 def validate_stage(value,mode,count,*,synthetic=False,shots=False,thoughts=False):
     keys=FLAGS|{'result','mode','phase','screenshots','pages','quotes','requests','forbidden','failed_line','fault_cases','search_checked'}
+    if isinstance(value,dict) and 'excerpt_checked' in value:
+        keys=keys|{'excerpt_checked'}
+        if value['excerpt_checked'] is not True:raise ValueError('ui_excerpt')
     if not isinstance(value,dict) or set(value)!=keys:raise ValueError('ui_schema')
     if any(type(value[key]) is not bool or not value[key] for key in FLAGS):raise ValueError('ui_flags')
     if type(value['search_checked']) is not bool or synthetic and not value['search_checked']:raise ValueError('ui_search')

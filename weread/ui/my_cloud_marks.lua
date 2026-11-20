@@ -18,6 +18,8 @@ local function current(host,owner)
         and host.settings:auth_scope_matches(owner.scope)
 end
 local function stop(host,owner)
+    local card=package.loaded['weread.ui.excerpt_card']
+    if card then card.close_owner(host,owner) end
     require('weread.ui.cloud_notes_export').cancel(host,owner)
     require('weread.ui.my_mark_navigation').cancel(host,owner)
     require('weread.ui.thought_editor').cancel(host,owner)
@@ -228,6 +230,11 @@ render=function(host,owner)
                                     if not current(host,owner) or not Popup.current(owner.menu,viewer) then return end
                                     stop(host,owner);editor.start(host,owner,operation,row,current,render)
                                 end}}
+                        end
+                        if require('weread.ui.excerpt_notes').text(owner,row) then
+                            buttons=buttons or {};buttons[#buttons+1]={{id='excerpt_card',text=_('Excerpt card'),callback=function()
+                                require('weread.ui.excerpt_notes').open(host,owner,row,viewer,current,generation)
+                            end}}
                         end
                         viewer=require('weread.ui.thought_text').viewer{title=kind(row,owner),text=table.concat(parts,'\n\n'),
                             buttons_table=buttons,add_default_buttons=true}

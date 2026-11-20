@@ -214,6 +214,84 @@ local ok,reason=pcall(function()
         UI:close(popup);tick();assert(not menu._shelf_popup)
     end
     assert(report.quotes==#(thoughts and expected.reviews or expected.updated));report.all_quotes=true
+    if not synthetic and os.getenv('WEREAD_EXCERPT_OWNER_READONLY')=='1' then
+        local excerpt=require('weread.ui.excerpt_notes');local chosen,text
+        for _,row in ipairs(thoughts and expected.reviews or expected.updated) do
+            local value=excerpt.text(owner,row)
+            if type(value)=='string' and #value>0 and #value<=4096 and require('weread.lib.search_query').trim(value)~='' then
+                chosen,text=row,value;break
+            end
+        end
+        assert(chosen,'no eligible saved note')
+        local id=thoughts and chosen.reviewId or chosen.bookmarkId
+        local item;for _,candidate in ipairs(menu.item_table) do if candidate.my_note_id==id then item=candidate;break end end
+        assert(item);local before=counters[0];item.callback();local viewer=assert(menu._shelf_popup);UI:forceRePaint()
+        assert(viewer.button_table:getButtonById('excerpt_card')):onTapSelectButton()
+        wait(function() return plugin._excerpt_card_editor~=nil end)
+        local card=assert(plugin._excerpt_card_editor)
+        assert(card.context.text==require('weread.lib.search_query').trim(text) and menu._shelf_popup==card)
+        UI:forceRePaint();UI:close(card);tick()
+        assert(not menu._shelf_popup and not plugin._excerpt_card_editor and counters[0]==before)
+        report.excerpt_checked=true
+    end
+    if synthetic then
+        local original_requests=counters[0]
+        local rows=thoughts and {expected.reviews[1],expected.reviews[2]} or {expected.updated[2]}
+        local directory=plugin.settings.data_dir..'/exports/cards'
+        local lfs=require('libs/libkoreader-lfs')
+        local function png_count()
+            if lfs.attributes(directory,'mode')~='directory' then return 0 end
+            local n=0;for name in lfs.dir(directory) do if name:match('%.png$') then n=n+1 end end;return n
+        end
+        for index,row in ipairs(rows) do
+            local id=thoughts and row.reviewId or row.bookmarkId
+            local item;for _,candidate in ipairs(menu.item_table) do if candidate.my_note_id==id then item=candidate;break end end
+            assert(item);item.callback();local viewer=assert(menu._shelf_popup)
+            UI:forceRePaint()
+            local action=assert(viewer.button_table:getButtonById('excerpt_card'))
+            assert(action.dimen and action.dimen.y>=0 and action.dimen.y+action.dimen.h<=Device.screen:getHeight(),
+                'excerpt action is outside the screen')
+            action:onTapSelectButton()
+            wait(function() return plugin._excerpt_card_editor~=nil end)
+            local card=assert(plugin._excerpt_card_editor)
+            assert(menu._shelf_popup==card and card.context.book_title=='所选书籍')
+            local wanted=thoughts and (row.abstract and row.abstract~='' and row.abstract or row.content) or row.markText
+            assert(card.context.text==require('weread.lib.search_query').trim(wanted),'wrong note used for excerpt')
+            assert(card.frame:getSize().w<=Device.screen:getWidth() and card.frame:getSize().h<=Device.screen:getHeight())
+            if mode=='live' and index==1 then
+                local before=png_count();card:_save_png();assert(png_count()==before+1)
+                local info=UI:getTopmostVisibleWidget();assert(info~=card);UI:close(info)
+                local account=plugin.library_db.accountKey;plugin.library_db.accountKey=function() return 'foreign' end
+                card:_save_png();plugin.library_db.accountKey=account
+                assert(png_count()==before+1,'old account saved an excerpt')
+            end
+            UI:close(card);tick();assert(not menu._shelf_popup and not plugin._excerpt_card_editor)
+        end
+        if not thoughts then
+            local item;for _,candidate in ipairs(menu.item_table) do if candidate.my_note_id==expected.updated[1].bookmarkId then item=candidate;break end end
+            assert(item);item.callback();local viewer=assert(menu._shelf_popup)
+            assert(not viewer.button_table or not viewer.button_table:getButtonById('excerpt_card'),'bookmark preview offered as an excerpt')
+            UI:close(viewer);tick()
+        end
+        -- Replacing the viewer before its queued action executes must not
+        -- open a stale card over the replacement popup.
+        local selected=rows[1];local selected_id=thoughts and selected.reviewId or selected.bookmarkId
+        local item;for _,candidate in ipairs(menu.item_table) do if candidate.my_note_id==selected_id then item=candidate;break end end
+        assert(item);item.callback();local viewer=assert(menu._shelf_popup);UI:forceRePaint()
+        assert(viewer.button_table:getButtonById('excerpt_card')):onTapSelectButton()
+        local replacement=require('ui/widget/buttondialog'):new{buttons={{{text='Synthetic close',callback=function() end}}}}
+        require('weread.ui.shelf_popup').show(menu,replacement);tick()
+        assert(menu._shelf_popup==replacement and not plugin._excerpt_card_editor,'stale card replaced a newer popup')
+        require('weread.ui.shelf_popup').close(menu)
+        item.callback();viewer=assert(menu._shelf_popup);UI:forceRePaint()
+        assert(viewer.button_table:getButtonById('excerpt_card')):onTapSelectButton()
+        wait(function() return plugin._excerpt_card_editor~=nil end)
+        plugin:cancelMyCloudMarks()
+        assert(not plugin._excerpt_card_editor and not plugin._my_marks_owner,'closing notes left card open')
+        open();owner=assert(plugin._my_marks_owner);menu=assert(plugin._my_marks_menu)
+        assert(same(owner.value,expected),'reopening notes changed the saved snapshot')
+        assert(png_count()==1 and counters[0]==original_requests,'excerpt changed cache or used network')
+    end
     for _,filter in ipairs(thoughts and {'Thoughts with quoted text','Other thoughts','All my thoughts'} or {'Highlights only','Bookmarks only','All cloud marks'}) do
         for _,item in ipairs(menu.item_table) do if item.text==tr(filter) then menu:onMenuSelect(item);break end end
         UI:forceRePaint()
@@ -414,6 +492,12 @@ end)
 if plugin then pcall(plugin.closeWeReadUI,plugin) end
 if counters then report.requests,report.forbidden=tonumber(counters[0]),tonumber(counters[1]);ffi.C.munmap(memory,4096) end
 for _,fd in ipairs(descriptors) do ffi.C.close(fd) end
-if not ok then report.failed_line=tonumber(type(reason)=='string' and reason:match('my_cloud_marks_probe%.lua:(%d+):')) or 0 end
+if not ok then
+    report.failed_line=tonumber(type(reason)=='string' and reason:match('my_cloud_marks_probe%.lua:(%d+):')) or 0
+    if os.getenv('WEREAD_MARKS_SYNTHETIC')=='1' and os.getenv('WEREAD_MARKS_SHOTS') then
+        local file=io.open(os.getenv('WEREAD_MARKS_SHOTS')..'/synthetic-failure.txt','wb')
+        if file then file:write(tostring(reason));file:close() end
+    end
+end
 io.stdout:write('\nWEREAD_MY_MARKS_RESULT='..json.encode(output or {ui=report})..'\n')
 os.exit(ok and 0 or 1)

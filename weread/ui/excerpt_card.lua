@@ -668,9 +668,14 @@ end
 
 function M.current(host, editor)
     local owner=editor and editor.owner
-    return host and owner and host._excerpt_card_editor==editor and host.ui and host.ui.document==owner.document
-        and owner.document and owner.document.file==owner.file and host._reader_session_gen==owner.session
-        and (host.library_db and host.library_db:accountKey())==owner.account
+    if not host or not owner or host._excerpt_card_editor~=editor or type(owner.is_current)~='function' then return false end
+    local ok,valid=pcall(owner.is_current)
+    if not ok or valid~=true then return false end
+    if owner.is_visible then
+        local visible_ok,visible=pcall(owner.is_visible,editor)
+        return visible_ok and visible==true
+    end
+    return true
 end
 
 function M.close(host)
@@ -680,12 +685,20 @@ function M.close(host)
     UIManager:close(editor)
 end
 
+function M.close_owner(host, owner)
+    local editor=host and host._excerpt_card_editor
+    if editor and editor.owner and editor.owner.parent==owner then M.close(host) end
+end
+
 function M.show(host, context, owner)
-    if not host or not host.ui or not host.ui.document or type(context)~='table' then return false end
+    if not host or not host.ui or type(context)~='table' or type(owner)~='table'
+        or type(owner.is_current)~='function' then return false end
+    local ok,valid=pcall(owner.is_current)
+    if not ok or valid~=true then return false end
     M.close(host)
     local editor=Editor:new{host=host,context=context,selection=copy_selection(current_selection()),owner=owner}
     host._excerpt_card_editor=editor
-    UIManager:show(editor)
+    if owner.show then owner.show(editor) else UIManager:show(editor) end
     return true
 end
 return M

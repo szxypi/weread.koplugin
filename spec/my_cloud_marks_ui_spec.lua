@@ -157,28 +157,29 @@ expect(row(menu,'Local thought drafts') and row(menu,'Check last thought change'
 expect(row(menu,'Imported book highlights support private thoughts, saving, deletion, style and color changes after verification.').select_enabled==false,
     'imported-book editing limitation was not visible')
 row(menu,'合成引用').callback()
-expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and #menu._shelf_popup.buttons_table==3
+expect(menu._shelf_popup.text=='合成章节\n\n合成引用' and #menu._shelf_popup.buttons_table==4
     and menu._shelf_popup.buttons_table[1][1].id=='open_highlight'
-    and menu._shelf_popup.buttons_table[2][1].id=='delete_highlight' and menu._shelf_popup.buttons_table[3][1].id=='thought_create',
+    and menu._shelf_popup.buttons_table[2][1].id=='delete_highlight' and menu._shelf_popup.buttons_table[3][1].id=='thought_create'
+    and menu._shelf_popup.buttons_table[4][1].id=='excerpt_card',
     'imported-book highlight did not expose verified actions')
 Marks.cancel(host)
 cb.updated[1].style=1;cb.updated[1].colorStyle=0
 host=fixture(cb);expect(Marks.show(host,'CB_Synthetic'),'imported styled highlight did not open')
 menu=host._my_marks_menu;row(menu,'合成引用').callback()
-expect(#menu._shelf_popup.buttons_table==5 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_style'
+expect(#menu._shelf_popup.buttons_table==6 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_style'
     and menu._shelf_popup.buttons_table[4][1].id=='change_highlight_color',
     'verified imported style action was hidden')
 Marks.cancel(host)
 cb.updated[1].colorStyle=3
 host=fixture(cb);expect(Marks.show(host,'CB_Synthetic'),'imported colored highlight did not open')
 menu=host._my_marks_menu;row(menu,'合成引用').callback()
-expect(#menu._shelf_popup.buttons_table==5 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_style'
+expect(#menu._shelf_popup.buttons_table==6 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_style'
     and menu._shelf_popup.buttons_table[4][1].id=='change_highlight_color','imported colored marker lost style or color editing')
 Marks.cancel(host)
 cb.updated[1].style=2
 host=fixture(cb);expect(Marks.show(host,'CB_Synthetic'),'imported colored wavy highlight did not open')
 menu=host._my_marks_menu;row(menu,'合成引用').callback()
-expect(#menu._shelf_popup.buttons_table==5 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_style'
+expect(#menu._shelf_popup.buttons_table==6 and menu._shelf_popup.buttons_table[3][1].id=='change_highlight_style'
     and menu._shelf_popup.buttons_table[4][1].id=='change_highlight_color','imported colored wavy highlight lost editing')
 Marks.cancel(host)
 cb.updated[2].range='25'
@@ -237,7 +238,8 @@ expect(menu._shelf_popup.title=='Private thought' and menu._shelf_popup.text=='C
 expect(menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote','supported thought quote lost native original-text action')
 UI:close(menu._shelf_popup);row(menu,'Only source').callback()
 expect(menu._shelf_popup.text:find('No thought text was returned.',1,true),'quoted-only thought hid its missing body')
-expect(not menu._shelf_popup.buttons_table,'missing thought source range exposed a locate action')
+expect(#menu._shelf_popup.buttons_table==1 and menu._shelf_popup.buttons_table[1][1].id=='excerpt_card',
+    'quote without source range should only expose the local excerpt action')
 UI:close(menu._shelf_popup);row(menu,'Other thoughts').callback()
 expect(row(menu,'My standalone thought') and not pcall(row,menu,'My quoted thought'),'standalone thought filter failed')
 local old_refresh=row(menu,'Refresh my cloud thoughts').callback
@@ -252,7 +254,7 @@ expect(Marks.show(host,'CB_Synthetic','thoughts'),'imported-book thoughts did no
 menu=host._my_marks_menu
 expect(row(menu,'Check last thought change'),'imported-book thought recovery missing')
 row(menu,'Imported thought').callback()
-expect(#menu._shelf_popup.buttons_table==3 and menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote'
+expect(#menu._shelf_popup.buttons_table==4 and menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote'
     and menu._shelf_popup.buttons_table[2][1].id=='thought_edit' and menu._shelf_popup.buttons_table[3][1].id=='thought_delete'
     and menu._shelf_popup.text:find('Imported thought',1,true),
     'imported-book private thought did not expose verified actions')
@@ -261,7 +263,8 @@ host,value=fixture();value.saved={schema=1,book_id='CB_Synthetic',fetched_at=100
     {reviewId='synthetic-public',content='Imported public thought',abstract='Quote',isPrivate=0,type=1,chapterUid=7,range='12-25'}}}
 expect(Marks.show(host,'CB_Synthetic','thoughts'),'imported public thought did not open')
 menu=host._my_marks_menu;row(menu,'Imported public thought').callback()
-expect(#menu._shelf_popup.buttons_table==1 and menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote',
+expect(#menu._shelf_popup.buttons_table==2 and menu._shelf_popup.buttons_table[1][1].id=='open_thought_quote'
+    and menu._shelf_popup.buttons_table[2][1].id=='excerpt_card',
     'unverified imported public thought write was exposed')
 Marks.cancel(host)
 local bookmark_view=snapshot();bookmark_view.updated[2].range='25'

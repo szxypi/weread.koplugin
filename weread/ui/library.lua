@@ -1624,6 +1624,7 @@ function M:showBookMenu(book)
             end
         end,
     })
+    view._excerpt_book={book_id=book_id,title=book.title,author=book.author or book.authors}
     self._book_detail_view = view
     cache_scope=require('weread.ui.page_scope').capture(self,self.shelf_view)
     return view

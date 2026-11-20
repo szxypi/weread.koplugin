@@ -1,0 +1,23 @@
+{
+  "date": "2026-11-20",
+  "result": "PASS",
+  "scope": "saved-note excerpt preview in isolated native UI",
+  "screen_sizes": [[600, 800], [1264, 1680]],
+  "marks": {"saved_count": 52, "chapter_count": 5, "selected_per_screen": 1},
+  "thoughts": {"saved_count": 3, "selected_per_screen": 1},
+  "each_screen": {
+    "live_preview": true,
+    "fresh_offline_process_preview": true,
+    "native_read_requests_live": 1,
+    "native_read_requests_offline": 0,
+    "account_data_posts": 0,
+    "screenshots": 0
+  },
+  "preflight_position_reads_unchanged": true,
+  "real_image_saved": false,
+  "private_values_saved_to_regular_disk": false,
+  "profile_removed": true,
+  "detail_title": "synthetic",
+  "authorization": {"independent_expiry_reads": 2, "renewal_posts": 1, "same_account_and_keychain_readback": true},
+  "not_verified": ["real image export", "real notebook metadata", "device hardware", "all notes"]
+}

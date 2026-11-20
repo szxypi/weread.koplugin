@@ -15,7 +15,7 @@ local count=0
 for i=1,#Card.TEMPLATES do
     for color=1,10 do
         local image,size=Card.renderBB{
-            text='这是合成书摘。\nA synthetic excerpt with punctuation.',
+            text='这是合成书摘😀。\nA synthetic excerpt with punctuation.',
             book_title='测试书名',book_author='测试作者',date_str=1700000000,
             template_idx=i,color_idx=color,background_idx=color,
         }

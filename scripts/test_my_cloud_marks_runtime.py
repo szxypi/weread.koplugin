@@ -24,6 +24,7 @@ def main():
         if index!=44:row['chapterIdx']=(index*7)%11
         if kind!=0:row['markText']=f'合成划线 {index+1}：原生文字显示与中文分页 😀。'+('这是长引用，点开后应完整显示。\n'*40 if index==1 else '第二句。')
         else:row['abstract']='合成书签的章节摘要。'
+        if index==1:row['range']='12-24'
         if index==3:row['markText']+=' Straße Café'
         source['updated'].append(row)
     if args.variant=='thoughts':
