@@ -27,7 +27,13 @@ from verify_native_time_bundle_ui_rpc import seed_evidence
 from verify_native_time_guarded_mock import Capture,Server
 
 
-def scenario(args,mode):
+def worker_command(args,port,*,live=False):
+    worker='run_native_time_independent_ui_mock_worker.py' if live else 'run_native_time_independent_ui_worker.py'
+    return [sys.executable,str(args.source/'scripts'/worker),'--width','1264','--height','1680','--dpi','300',
+            '--koreader',str(args.koreader),'--source',str(args.source),'--candidate',str(args.candidate),'--mock-port',str(port)]
+
+
+def scenario(args,mode,*,live=False):
     bundle,grant,before,_samples,_old_now=example();now=int(time.time())
     raw='<html><body>'+''.join('<p>Unique chapter passage %03d passes through forests and rivers.</p>'%i for i in range(30))+'</body></html>'
     plan=capture('web_xhtml',raw_override=raw.encode());plan['device_sha256']=digest(grant['deviceId']);bundle['plan']=plan
@@ -53,8 +59,7 @@ def scenario(args,mode):
     prepared=Prepared(deepcopy(bundle),store.receipt,deepcopy(grant),evidence)
     server.fault=mode
     if mode=='source_changed':server.chapter_source=lambda _uid,_revision=None:raw+'changed'
-    command=[sys.executable,str(args.source/'scripts/run_native_time_guarded_worker.py'),'--koreader',str(args.koreader),
-             '--source',str(args.source),'--candidate',str(args.candidate),'--mock-port',str(server.server_port)]
+    command=worker_command(args,server.server_port,live=live)
     existing={item.name for item in Path('/dev/shm').glob('weread-native-time-*')}
     original=NativeTimeBridge.handle
     def change_archive(bridge,event):
@@ -76,12 +81,27 @@ def scenario(args,mode):
                   'malicious_approval':('UNVERIFIED',None,0),'success':('INDEPENDENT_NATIVE_ACKNOWLEDGED','acknowledged',1),
                   'source_changed':('UNVERIFIED',None,0),'position_changed':('UNVERIFIED',None,0),
                   'missing_ack':('UNVERIFIED','claimed',1),'archive_changed':('UNVERIFIED','claimed',0),
-                  'interrupted':('UNVERIFIED','claimed',0)}[mode]
+                  'interrupted':('UNVERIFIED','claimed',0),'success_readback':('INDEPENDENT_NATIVE_ACKNOWLEDGED','acknowledged',1)}[mode]
         state,_=gate.read();phase=state['phase'] if state else None
         if (result['result'],phase,server.writes)!=expected:
             raise ValueError('independent_mock/result '+json.dumps({'mode':mode,'broker':result,'phase':phase,'writes':server.writes}))
         if result['dispatch_may_have_occurred'] is not (phase is not None):raise ValueError('independent_mock/gate')
         if (audit.read()[0] is not None)!=(phase is not None):raise ValueError('independent_mock/audit')
+        if mode=='success_readback':
+            from native_time_independent_readback import run as readback,BoundNative
+            from native_time_bundle_readback import StatisticsReads,ShelfRead
+            from verify_fresh_time_capture_readonly import BoundSource
+            from test_uploaded_epub_native_reading_runtime import Opener
+            saved={'vid':plan['owner'],'cookies':{'wr_vid':'900000','wr_skey':'mock_key'}}
+            class Web(BoundSource):
+                def __init__(self,book):super().__init__(book);self.opener=Opener(server)
+            checked=readback(saved=saved,grant=grant,store=store,gate=gate,audit=audit,current=lambda:True,
+                web_factory=Web,native_factory=lambda grant,plan,current,clock:BoundNative(grant,plan,current,clock,Opener(server)),
+                statistics_factory=lambda grant,months,current:StatisticsReads(grant,months,current,Opener(server)),
+                shelf_factory=lambda grant,current:ShelfRead(grant,current,Opener(server)),sleep=lambda _:None)
+            if (checked.get('result')!='READBACK_MATCH' or checked.get('independent_samples')!=3
+                    or checked.get('real_accounting_verified') is not False or server.writes!=1):
+                raise ValueError('independent_mock/readback '+json.dumps(checked))
     finally:
         server.shutdown();thread.join();server.server_close();prepared.close()
 

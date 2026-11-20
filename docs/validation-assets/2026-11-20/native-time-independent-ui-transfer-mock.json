@@ -1,0 +1,10 @@
+{
+  "result": "SYNTHETIC_INDEPENDENT_UI_TRANSFER_VERIFIED",
+  "scenarios": 8,
+  "real_account_posts": 0,
+  "synthetic_posts": 2,
+  "native_menu": true,
+  "independent_readback_verified": true,
+  "uncertain_claims_not_replayed": true,
+  "physical_kindle_tested": false
+}
