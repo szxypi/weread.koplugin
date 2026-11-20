@@ -46,6 +46,7 @@ end
 local function clean(reader)
     while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
 end
+local function shot(name) UI:forceRePaint();Device.screen:shot(evidence..'/'..name..'.png') end
 local function close_reader()
     local reader=assert(Reader.instance)
     pump(function() return reader.weread.progress_sync.current_book_id==id end)
@@ -148,6 +149,10 @@ if offline then
     local reader=read_from_shelf(expected.file)
     assert(reader.document:isXPointerInCurrentPage(expected.xpointer) and reader:getCurrentPage()==expected.page)
     local position=ready(reader);assert(position.chapter_uid==expected.chapter_uid and position.basis==Source.coordinate_basis(format))
+    if os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1' then
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
+            reader,reader.weread,pump,shot,clean,true,evidence)
+    end
     if cb_edit then dofile('/source/spec/koreader/cb_highlight_edit_smoke.lua')(reader,reader.weread,pump,clean,true)
     elseif cb_resume then check_cb_notes(reader,reader.weread,false) end
     UI:forceRePaint();Device.screen:shot(evidence..'/cached-resume-offline.png')
@@ -167,9 +172,20 @@ if cb_edit then
 end
 if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
-if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
+local typography=os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1'
+if typography then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
+        reader,current,pump,shot,clean,false,evidence)
+end
+if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' or typography then
+    local function inspect_previous(previous,previous_host)
+        if typography then
+            dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
+                previous,previous_host,pump,shot,clean,true,evidence)
+        end
+    end
     reader,current=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_chapter_smoke.lua')(
-        reader,current,pump,clean,id)
+        reader,current,pump,clean,id,inspect_previous)
     assert(reader.document.file==first)
 end
 if os.getenv('WEREAD_TEST_PREFETCH_CONDITION') then
@@ -375,7 +391,6 @@ local full=assert(book(host).cached_full_book)
 pump(function() return Reader.instance and Reader.instance.document.file==full end)
 reader,current=Reader.instance,Reader.instance.weread;report.full_download=true
 if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
-    local function shot(name) UI:forceRePaint();Device.screen:shot(evidence..'/'..name..'.png') end
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_smoke.lua')(
         reader,current,pump,shot,clean,true)
 end

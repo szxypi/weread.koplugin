@@ -96,6 +96,11 @@ local ok,reason=pcall(function()
         and not input.progress_preview and not input.progress_roundtrip and not input.source_upload_preview
         and not input.native_source_excerpt and not input.selection_preview and not input.off_shelf_home)
     if input.reader_estimate_probe then report.reader_estimate_verified=false;report.reader_estimate_stage=0 end
+    assert(input.reader_typography_probe==nil or input.reader_typography_probe==true and not cb_reading
+        and not input.reader_estimate_probe and not input.full_manifest and input.source_format=='web_xhtml'
+        and not input.annotations and not input.progress_preview and not input.progress_roundtrip
+        and not input.source_upload_preview and not input.native_source_excerpt and not input.selection_preview and not input.off_shelf_home)
+    if input.reader_typography_probe then report.reader_typography_verified=false;report.reader_typography_stage=0 end
     local synthetic_txt_retry=os.getenv('WEREAD_SYNTHETIC_TXT_RETRY')=='1'
     assert(not synthetic_txt_retry or cb_reading and not cb_full and input.cb_mock_port
         and input.vid=='900000' and input.book_id=='CB_SyntheticResume' and input.source_format=='web_txt')
@@ -1106,6 +1111,10 @@ local ok,reason=pcall(function()
     if input.reader_estimate_probe then
         report.reader_estimate_verified=dofile(fixtures..'owner_reader_estimate_case.lua')(input,plugin,reader,pump,report)
     end
+    if input.reader_typography_probe then
+        report.reader_typography_verified=dofile(fixtures..'owner_reader_typography_case.lua')(plugin,reader,pump,report,mode,home)
+        report.pages=reader.document:getPageCount()
+    end
     if annotation_case then
         annotation_case:run(plugin,reader,pump,tick)
         -- Restore the exact validated source target after the overlay tour.
@@ -1244,7 +1253,8 @@ end
 for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
     report.failed_line=tonumber(type(reason)=='string' and (reason:match('owner_reading_probe%.lua:(%d+):')
-        or reason:match('owner_reader_estimate_case%.lua:(%d+):'))) or 0
+        or reason:match('owner_reader_estimate_case%.lua:(%d+):')
+        or reason:match('owner_reader_typography_case%.lua:(%d+):'))) or 0
 end
 if native_recovery_input then
     local value=json.encode{report=report,cookies=latest_cookies or {}};assert(#value<=16384)

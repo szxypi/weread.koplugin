@@ -118,9 +118,13 @@ function M.show(opts, callbacks)
         }})
     end
 
-    if callbacks.on_reader_progress then
-        table.insert(buttons, {{id='reader_progress',text=_('Reading progress'),
-            callback=function() dismiss_then(callbacks.on_reader_progress) end}})
+    if callbacks.on_reader_progress or callbacks.on_reader_typography then
+        local row={}
+        if callbacks.on_reader_progress then row[#row+1]={id='reader_progress',text=_('Reading progress'),
+            callback=function() dismiss_then(callbacks.on_reader_progress) end} end
+        if callbacks.on_reader_typography then row[#row+1]={id='reader_typography',text=_('Reading settings'),
+            callback=function() dismiss_then(callbacks.on_reader_typography) end} end
+        table.insert(buttons,row)
     end
 
     if callbacks.on_delayed_screenshot then

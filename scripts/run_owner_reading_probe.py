@@ -56,6 +56,7 @@ def main(argv=None):
     parser.add_argument('--missing-resume',action='store_true')
     parser.add_argument('--resume-warning',action='store_true')
     parser.add_argument('--reader-estimate',action='store_true')
+    parser.add_argument('--reader-typography',action='store_true')
     parser.add_argument('--off-shelf-home',action='store_true')
     parser.add_argument('--off-shelf-store',action='store_true')
     parser.add_argument('--off-shelf-cover',action='store_true')
@@ -79,6 +80,10 @@ def main(argv=None):
             or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
             or args.selection_thought_preview or args.off_shelf_home):
         parser.error('--reader-estimate requires an ordinary single-chapter reader')
+    if args.reader_typography and (args.reader_estimate or args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
+            or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
+            or args.selection_thought_preview or args.off_shelf_home):
+        parser.error('--reader-typography requires an ordinary single-chapter reader')
     if args.missing_resume and (args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
             or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
             or args.selection_thought_preview or args.mock_port is not None or args.cb_mock_port is not None):
@@ -113,6 +118,7 @@ def main(argv=None):
             raise ValueError('input_limit')
         payload = json.loads(raw)
         if args.reader_estimate != (payload.get('reader_estimate_probe') is True):raise ValueError('input_limit')
+        if args.reader_typography != (payload.get('reader_typography_probe') is True):raise ValueError('input_limit')
         if args.off_shelf_home != (payload.get('off_shelf_home') is True):raise ValueError('input_limit')
         if args.off_shelf_store != (payload.get('off_shelf_store') is True):raise ValueError('input_limit')
         if args.off_shelf_cover != (payload.get('off_shelf_cover') is True):raise ValueError('input_limit')
@@ -269,6 +275,7 @@ def main(argv=None):
                                    **({'missing_resume': True} if args.missing_resume else {}),
                                    **({'resume_warning': True} if args.resume_warning else {}),
                                    **({'reader_estimate': True} if args.reader_estimate else {}),
+                                   **({'reader_typography': True} if args.reader_typography else {}),
                                    **({'off_shelf_home': True} if args.off_shelf_home else {}),
                                    **({'off_shelf_store': True} if args.off_shelf_store else {}),
                                    **({'off_shelf_cover': True} if args.off_shelf_cover else {}),

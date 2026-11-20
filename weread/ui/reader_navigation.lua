@@ -199,6 +199,16 @@ function M:showEndOfBookDialog(book_id)
                     resolve_chapter=resolve_chapter})
             end
         end,
+        on_reader_typography = function()
+            local current_scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+            local same_scope=search_scope and self.settings:auth_scope_matches(search_scope)
+                or not search_scope and not current_scope
+            if self.ui==reader_ui and reader_ui.document==document and document.file==file_path
+                and (self._reader_session_gen or 0)==reader_session and same_scope
+                and self.settings:get('auth_epoch',0)==search_epoch then
+                require('weread.ui.reader_typography').show(self)
+            end
+        end,
         on_delayed_screenshot = function()
             self:onShowWeReadDelayedScreenshot()
         end,

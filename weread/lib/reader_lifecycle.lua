@@ -285,6 +285,7 @@ end
 
 function M:onCloseDocument()
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
+    local typography=package.loaded['weread.ui.reader_typography'];if typography then typography.cancel(self) end
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._prefetch_auth_attempts=nil
     self._resume_chapter_prefetch=nil
@@ -534,6 +535,7 @@ end
 
 function M:onSuspend()
     local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
+    local typography=package.loaded['weread.ui.reader_typography'];if typography then typography.cancel(self) end
     local screenshot=package.loaded['weread.ui.delayed_screenshot'];if screenshot then screenshot.cancel() end
     local renewing=require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._chapter_open_intent=nil

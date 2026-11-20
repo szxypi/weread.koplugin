@@ -82,6 +82,10 @@ if offline then
     assert(reader.weread.settings:get_book(expected.book_id).last_uploaded_position.chapter_uid == expected.chapter_uid,
         "fresh process lost acknowledged progress")
     shot("reading-offline-reopen")
+    if os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1' and reopen then
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
+            reader,current,pump,shot,clean_popups,true,evidence)
+    end
     if os.getenv('WEREAD_TEST_EXCERPT_CARD')=='1' and reopen then
         dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'excerpt_card_reader_smoke.lua')(reader,current,pump,shot,clean_popups,true)
     end
@@ -289,6 +293,10 @@ if screenshot_smoke then screenshot_smoke.reader(reader.weread,reader) end
 if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_smoke.lua')(
         reader,reader.weread,pump,shot,clean_popups,false)
+end
+if os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1' then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
+        reader,reader.weread,pump,shot,clean_popups,false,evidence)
 end
 -- Exercise the actual downloaded book through its bound plugin and native tap
 -- routing, in addition to the standalone layout/preference fixture.

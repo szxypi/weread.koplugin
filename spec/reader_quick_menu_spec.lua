@@ -121,9 +121,16 @@ package.loaded['weread.ui.reader_progress']={show=function(target,options) progr
 dialog_callbacks.on_reader_progress()
 expect(progress_host==context_host and progress_options.native_chapters and not progress_options.single_chapter,
     'quick menu did not open local-file progress')
+local typography_host
+package.loaded['weread.ui.reader_typography']={show=function(target) typography_host=target end}
+dialog_callbacks.on_reader_typography()
+expect(typography_host==context_host,'quick menu did not open reading settings')
+local stale_typography=dialog_callbacks.on_reader_typography
 local stale_progress=dialog_callbacks.on_reader_progress
 context_host.ui.document={file='/books/other.epub'};progress_host=nil;stale_progress()
 expect(not progress_host, 'stale quick menu opened progress in another document')
+typography_host=nil;stale_typography()
+expect(not typography_host,'stale quick menu opened reading settings in another document')
 context_host.ui.document={file='/books/local.epub'}
 
 local original_document=context_host.ui.document

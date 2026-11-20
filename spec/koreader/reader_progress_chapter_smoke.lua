@@ -1,5 +1,5 @@
 -- Exercise actual cross-file reader handoff with the synthetic book and server.
-return function(reader,host,pump,clean,book_id)
+return function(reader,host,pump,clean,book_id,inspect_previous)
     local UI=require('ui/uimanager')
     local Reader=require('apps/reader/readerui')
     local original_path=reader.document.file
@@ -23,6 +23,7 @@ return function(reader,host,pump,clean,book_id)
     end)
     local previous=assert(Reader.instance);local previous_host=assert(previous.weread)
     pump(function() return previous_host.progress_sync.current_book_id==book_id end)
+    if inspect_previous then inspect_previous(previous,previous_host) end
     navigate(previous_host,'progress_next_chapter')
     pump(function() return Reader.instance and Reader.instance~=previous and Reader.instance.document.file==original_path end)
     reader=Reader.instance;host=reader.weread
