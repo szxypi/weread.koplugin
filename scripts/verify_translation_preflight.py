@@ -29,7 +29,8 @@ PUBLIC_QUERIES=(PUBLIC_QUERY,'Moby Dick','The Wonderful Wizard of Oz','The Time 
     'Little Women','Treasure Island','The Invisible Man','A Tale of Two Cities',
     'The Call of the Wild','The Secret Garden','Frankenstein',
     'The Metamorphosis','The Adventures of Sherlock Holmes','The Picture of Dorian Gray',
-    'The Jungle Book','The Legend of Sleepy Hollow','The Happy Prince')
+    'The Jungle Book','The Legend of Sleepy Hollow','The Happy Prince',
+    'The Enchanted Castle','Five Children and It','The Lost World','The House of Souls')
 
 
 class TranslationError(ValueError): pass
