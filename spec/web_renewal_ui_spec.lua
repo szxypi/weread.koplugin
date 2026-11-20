@@ -41,4 +41,13 @@ host,done=fixture();state.start_failed=true;UI.run(host,{busy=true},done)
 expect(state.results[1].reason=='renewal_unconfirmed' and not host._web_renewal_request and not host.busy_message,'start failure kept busy UI')
 host,done=fixture();UI.run(host,{},done);local ok,reason=UI.run(host,{},done)
 expect(not ok and reason=='busy' and state.starts==1,'concurrent renewal replaced current owner')
+host,done=fixture();local previous=package.loaded['weread.ui.prefetch_auth_recovery'];local stopped=0
+host.web_renewal.job={}
+package.loaded['weread.ui.prefetch_auth_recovery']={cancel=function(owner)
+    stopped=stopped+1;owner.web_renewal:cancel(owner.web_renewal.job)
+end}
+UI.run(host,{},done)
+expect(stopped==1 and state.starts==1 and state.cancels==1 and host._web_renewal_request,
+    'foreground renewal did not take precedence over silent prefetch renewal')
+UI.cancel(host);package.loaded['weread.ui.prefetch_auth_recovery']=previous
 print('PASS: shared Web renewal UI and receipt save confirmation ('..checks..' checks)')

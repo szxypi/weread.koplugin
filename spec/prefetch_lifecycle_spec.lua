@@ -164,6 +164,20 @@ starts[1].options.on_complete(false,'rate_limited')
 expect(#scheduled==0 and information and information:find('limiting requests',1,true),
     'promoted rate-limited prefetch reopened download or hid the failure')
 downloader.isPromotedPrefetch=function() return false end
+book.bookVersion=7;starts={};scheduled={}
+local valid_chapter={chapterUid='2',title='Two',wordCount=0,level=1}
+expect(host:maybePrefetchNextChapter('book',{chapter_uid='2',chapter=valid_chapter,previous_version=7,version=0})
+    and #starts==1 and starts[1].book~=book and starts[1].book.bookVersion==0 and book.bookVersion==7,
+    'recovered prefetch did not use an isolated unknown-version book')
+starts={}
+expect(not host:maybePrefetchNextChapter('book',{chapter_uid='3',chapter=valid_chapter,previous_version=7,version=0}) and #starts==0,
+    'recovered prefetch accepted another target chapter')
+expect(not host:maybePrefetchNextChapter('book',{chapter_uid='2',chapter=valid_chapter,previous_version=8,version=0}) and #starts==0,
+    'recovered prefetch accepted an old book version')
+chapters[2].title='Changed'
+expect(not host:maybePrefetchNextChapter('book',{chapter_uid='2',chapter=valid_chapter,previous_version=7,version=0}) and #starts==0,
+    'recovered prefetch accepted changed chapter metadata')
+chapters[2].title='Two'
 local original_finish=package.loaded['weread.ui.finish_offline']
 package.loaded['weread.ui.finish_offline']={pump=function() end}
 local resumed,account_epoch=0,1

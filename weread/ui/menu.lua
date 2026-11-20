@@ -321,6 +321,7 @@ function M:setChapterPrefetchEnabled(enabled, touchmenu_instance)
     self.settings:set("cache", cache)
     self.settings:flush()
     if not enabled then
+        require('weread.ui.prefetch_auth_recovery').cancel(self)
         self:cancelAnnotationPrefetch()
         self.downloader:cancelPrefetch("setting_disabled")
     elseif self._current_weread_book_id then

@@ -123,6 +123,8 @@ function M:onSaveSettings()
 end
 
 function M:onReaderReady()
+    require('weread.ui.prefetch_auth_recovery').cancel(self)
+    self._prefetch_auth_attempts=nil
     local local_file=self.ui and self.ui.document and self.ui.document.file
     if self._personal_original_local_only~=local_file then
         self._personal_original_local_only=require('weread.lib.personal_original').take(local_file) and local_file or nil
@@ -267,6 +269,8 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    require('weread.ui.prefetch_auth_recovery').cancel(self)
+    self._prefetch_auth_attempts=nil
     self._resume_chapter_prefetch=nil
     self._chapter_open_intent=nil
     if self._native_account_location then require('weread.lib.native_account_location').before_close(self) end
@@ -344,6 +348,7 @@ function M:onShowingReader()
 end
 
 function M:onCloseWidget()
+    require('weread.ui.prefetch_auth_recovery').cancel(self)
     require('weread.ui.catalog_request').cancel(self)
     require('weread.ui.download_recovery').cancel(self)
     local offline=package.loaded['weread.ui.finish_offline']
@@ -361,7 +366,7 @@ function M:showPrefetchNotice(text, timeout)
     self:showTransientInfo(text, timeout or 1)
 end
 
-function M:maybePrefetchNextChapter(book_id)
+function M:maybePrefetchNextChapter(book_id, recovered)
     local cache = self.settings:get("cache")
     if cache.auto_prefetch_next_chapter ~= true or not book_id then
         self.downloader:cancelPrefetch("prefetch_not_applicable")
@@ -386,6 +391,12 @@ function M:maybePrefetchNextChapter(book_id)
     end
 
     local next_uid = tostring(next_chapter.chapterUid or next_chapter.chapterId or "")
+    if recovered then
+        if recovered.chapter_uid~=next_uid or FileIdentity.version(book.bookVersion)~=recovered.previous_version
+            or not require('weread.ui.prefetch_auth_recovery').matches(recovered.chapter,next_chapter) then return false end
+        local copied={};for key,value in pairs(book) do copied[key]=value end
+        copied.bookVersion=recovered.version;book=copied
+    end
     local cached = book.cached_chapters and book.cached_chapters[next_uid]
     if file_exists(cached) then
         if self.prefetchChapterAnnotations then self:prefetchChapterAnnotations(book, next_chapter) end
@@ -450,6 +461,8 @@ function M:maybePrefetchNextChapter(book_id)
                 self:showInfo(_('WeRead is limiting requests. Download stopped. Please try again later.'))
                 return
             end
+            if value=='web_expired' and not retry_requested
+                and require('weread.ui.prefetch_auth_recovery').start(self,book,next_chapter) then return end
             local reason = value == "offline" and _("Network is not connected")
                 or value == 'web_expired' and _('WeRead login expired. Please sign in again and retry.')
                 or value == 'rate_limited' and _('WeRead is limiting requests. Please try again later.')
@@ -488,9 +501,10 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local renewing=require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._chapter_open_intent=nil
     self._resume_chapter_prefetch=nil
-    if self.downloader and self.downloader:cancelPrefetch('suspended') then
+    if self.downloader and (self.downloader:cancelPrefetch('suspended') or renewing) then
         self._resume_chapter_prefetch={book_id=self._current_weread_book_id,session=self._reader_session_gen,
             scope=self.settings.get_auth_scope and self.settings:get_auth_scope()}
     end

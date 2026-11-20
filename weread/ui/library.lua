@@ -223,6 +223,8 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    require('weread.ui.prefetch_auth_recovery').cancel(self)
+    self._prefetch_auth_attempts=nil
     self._resume_chapter_prefetch=nil
     self._chapter_open_intent=nil
     if self.downloader then self.downloader:cancelPrefetch('account_changed') end
@@ -2243,6 +2245,7 @@ end
 
 -- Open a chapter, preferring its cached file and falling back to a download.
 function M:openChapter(book, chapter, on_downloaded)
+    require('weread.ui.prefetch_auth_recovery').cancel(self)
     local intent={};self._chapter_open_intent=intent
     local document=self.ui and self.ui.document
     local session=self._reader_session_gen
@@ -2366,6 +2369,7 @@ end
 
 -- Annotation matching is a reading action, shared by all download forms.
 function M:confirmAndDownloadChapters(book, chapters, suffix, options)
+    require('weread.ui.prefetch_auth_recovery').cancel(self)
     options = options or {}
     local reader_context=require('weread.lib.reader_context')
     local valid_id,id=pcall(reader_context.book_id,book)

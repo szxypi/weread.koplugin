@@ -58,7 +58,7 @@ def main():
     parser.add_argument('--download-auth-renewal',choices=('reader','chapter','repeat401'),help='Renew an expired full-book download once')
     parser.add_argument('--catalog-auth-recovery',choices=('reader','catalog','repeat401','limited','refresh'),help='Renew an expired catalog before full download')
     parser.add_argument('--manual-auth-recovery',choices=('single','single-reader','single-repeat','selected'),help='Renew an expired selected chapter download')
-    parser.add_argument('--prefetch-condition',choices=('expired','promoted-expired','promoted-recovery','promoted-success','rate','stale','account','auth-race','before-commit','suspend'),help='Check background chapter failure and selection ownership')
+    parser.add_argument('--prefetch-condition',choices=('expired','promoted-expired','promoted-recovery','promoted-success','rate','stale','account','auth-race','before-commit','suspend','auto-renew','auto-reader','auto-style','auto-txt','auto-repeat','auto-cancel','auto-manual','auto-changed','auto-catalog-cancel'),help='Check background chapter failure and selection ownership')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
     parser.add_argument('--process-loss', choices=('before-state-commit','before-dispatch','after-apply','before-readback'),
@@ -121,6 +121,8 @@ def main():
         parser.error('--prefetch-condition requires the ordinary cached resume fixture')
     if args.content_format!='epub' and not args.cached_resume:
         parser.error('--content-format txt requires --cached-resume')
+    if args.prefetch_condition=='auto-txt' and args.content_format!='txt':
+        parser.error('--prefetch-condition auto-txt requires --content-format txt')
     if args.resume_handoff and not args.cached_resume:
         parser.error('--resume-handoff requires --cached-resume')
     if args.process_loss and (not args.reading_flow or any((args.offline_progress, args.progress_response,

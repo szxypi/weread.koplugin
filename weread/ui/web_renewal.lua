@@ -38,6 +38,8 @@ function M.clear_for_logout(host)
     return not mode or mode~='directory' and os.remove(path)==true
 end
 function M.run(host,options,callback)
+    local background=package.loaded['weread.ui.prefetch_auth_recovery']
+    if background then background.cancel(host) end
     if host._web_renewal_request then return false,'busy' end
     local service=M.service(host)
     local request={};host._web_renewal_request=request

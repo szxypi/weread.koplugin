@@ -36,6 +36,88 @@ return function(reader,host,book,id,evidence)
     local renewals=count('/web/login/renewal')
     local notice,old_info=nil,host.showInfo
     host.showInfo=function(self,text,...) notice=text;return old_info(self,text,...) end
+    if kind:match('^auto%-') then
+        local target=kind=='auto-reader' and '/web/reader/'
+            or kind=='auto-style' and '/web/book/chapter/e_2'
+            or kind=='auto-txt' and '/web/book/chapter/t_0' or '/web/book/chapter/e_0'
+        request('/__control',{match=target,times=kind=='auto-repeat' and -1 or 1,status=401,delay=0,web_renewal_mode='rotate'})
+        assert(host:maybePrefetchNextChapter(id),'automatic renewal prefetch did not start')
+        if kind=='auto-cancel' or kind=='auto-manual' then
+            pump(function() return host._prefetch_auth_recovery and host._prefetch_auth_recovery.task end)
+            request('/__control',{match='/web/login/renewal',times=0,delay=1})
+            pump(function() return host._prefetch_auth_recovery and host._prefetch_auth_recovery.job end)
+            if kind=='auto-manual' then
+                host:showChapterList(book)
+                local view=assert(host._chapter_list_view);view._chapter_rows[3].callback()
+                local prompt=assert(UI:getTopmostVisibleWidget())
+                assert(prompt.ok_text==tr('Download') and prompt.ok_callback,'manual selection did not open its download confirmation')
+                UI:close(prompt);UI:close(view)
+            else host:onSuspend() end
+            assert(not host._prefetch_auth_recovery and (not host.web_renewal or not host.web_renewal.job),
+                'suspend retained automatic renewal')
+            local deadline=socket.gettime()+1.6
+            while socket.gettime()<deadline do UI:handleInput();socket.sleep(.01) end
+            assert(count('/web/login/renewal')-renewals<=1 and Reader.instance==reader,'cancelled renewal retried or opened a book')
+            cache.auto_prefetch_next_chapter=false;settings:set('cache',cache);settings:flush()
+            request('/__control',{match='',times=0,delay=0})
+            if kind=='auto-cancel' then host:onResume() end
+        elseif kind=='auto-changed' or kind=='auto-catalog-cancel' then
+            pump(function() return host._prefetch_auth_recovery and host._prefetch_auth_recovery.task end)
+            request('/__control',{match='/web/book/chapterInfos',times=0,delay=.7})
+            local Content=require('weread.lib.content')
+            local old_catalog=Content.fetch_catalog
+            if kind=='auto-changed' then
+                Content.fetch_catalog=function(...)
+                    local chapters,version=old_catalog(...)
+                    chapters[3].title=chapters[3].title..' changed'
+                    return chapters,version
+                end
+            end
+            pump(function()
+                local owner=host._prefetch_auth_recovery
+                return owner and owner.worker and owner.worker.job
+            end)
+            Content.fetch_catalog=old_catalog
+            if kind=='auto-catalog-cancel' then
+                host:onSuspend()
+                assert(not host._prefetch_auth_recovery and not host._prefetch_auth_recovery_worker.job,
+                    'suspend retained the catalog verification worker')
+                cache.auto_prefetch_next_chapter=false;settings:set('cache',cache);settings:flush()
+                request('/__control',{match='',times=0,delay=0});host:onResume()
+            else
+                pump(function() return not host._prefetch_auth_recovery and not host.downloader._active_job end)
+            end
+            local saved=assert(settings:get_book(id))
+            assert(not saved.cached_chapters or not saved.cached_chapters['3'],'changed or cancelled catalog resumed prefetch')
+            assert(count('/web/book/chapter/e_0')-shards==1 and count('/web/login/renewal')-renewals==1,
+                'catalog change or cancellation unexpectedly retried the chapter')
+        elseif kind=='auto-repeat' then
+            pump(function()
+                return count('/web/book/chapter/e_0')-shards>=2 and not host.downloader._active_job and not host._prefetch_auth_recovery
+            end)
+            local deadline=socket.gettime()+.7
+            while socket.gettime()<deadline do UI:handleInput();socket.sleep(.01) end
+            assert(count('/web/book/chapter/e_0')-shards==2 and count('/web/login/renewal')-renewals==1,
+                'persistent expiry caused repeated background renewals')
+        else
+            pump(function()
+                local saved=settings:get_book(id)
+                return saved and saved.cached_chapters and saved.cached_chapters['3']
+                    and not host.downloader._active_job and not host._prefetch_auth_recovery
+            end)
+            assert(count('/web/login/renewal')-renewals==1,'expired background read did not renew exactly once')
+        end
+        assert(Reader.instance==reader and not notice and not host.busy_message,'automatic renewal interrupted the reader')
+        request('/__control',{match='',times=0,delay=0})
+        cache.auto_prefetch_next_chapter=false;settings:set('cache',cache);settings:flush();host.showInfo=old_info
+        while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
+        local file=assert(io.open(evidence..'/prefetch-condition.json','wb'))
+        file:write(Json.encode{result='PASS',scenario=kind,renewals=count('/web/login/renewal')-renewals,
+            reading_interrupted=false,automatic_retry=kind~='auto-cancel' and kind~='auto-manual' and kind~='auto-repeat'
+                and kind~='auto-changed' and kind~='auto-catalog-cancel',
+            cancelled=kind=='auto-cancel' or kind=='auto-catalog-cancel' or kind=='auto-manual',catalog_changed=kind=='auto-changed'});file:close()
+        return reader,host
+    end
     if kind=='account' or kind=='auth-race' or kind=='before-commit' or kind=='suspend' then
         local lfs=require('libs/libkoreader-lfs')
         local dir=assert(reader.document.file:match('^(.*)/[^/]+$'))

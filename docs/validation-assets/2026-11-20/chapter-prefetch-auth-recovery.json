@@ -1,0 +1,168 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "scenario": "auto-renew",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "c95a97cf4b02d6408dcea5077f407c6c73facce00d00423d39f585c7e18e9a58"
+    },
+    {
+      "scenario": "auto-renew",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "ee4fd1696cbf7b3a7eb28b643c46c140c554beaccee4b6c00f7011999b57b6c2"
+    },
+    {
+      "scenario": "auto-reader",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "8714477ab6b70cce689b66ab698456b3088d497b611301b114697f6fff7ef427"
+    },
+    {
+      "scenario": "auto-reader",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "ee4fd1696cbf7b3a7eb28b643c46c140c554beaccee4b6c00f7011999b57b6c2"
+    },
+    {
+      "scenario": "auto-style",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "59e8b381d7042c8a4ae0641da3eaee5e7b28f8f5c4d347f1f32f89c80451c9e3"
+    },
+    {
+      "scenario": "auto-style",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "176e21d15a75d3d720fe34c23c6bd9adc88c791a383d2f1cf46a7655b4b267c7"
+    },
+    {
+      "scenario": "auto-txt",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "178aceddc892506f301894d691ca4203c60f8970e67bf6cee42a379523d16aca"
+    },
+    {
+      "scenario": "auto-txt",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "176e21d15a75d3d720fe34c23c6bd9adc88c791a383d2f1cf46a7655b4b267c7"
+    },
+    {
+      "scenario": "auto-repeat",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "54bde196e8ba6aea36fa3c299a322d1c032ca74cec096d4c3ec5bf4d3e42a4e1"
+    },
+    {
+      "scenario": "auto-repeat",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "ee4fd1696cbf7b3a7eb28b643c46c140c554beaccee4b6c00f7011999b57b6c2"
+    },
+    {
+      "scenario": "auto-cancel",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 0,
+      "offline_reopen": true,
+      "package_sha256": "f2eb7a96e561258e99621b99f9f01152c560b90ed07165b64d0cb44269ce27d2"
+    },
+    {
+      "scenario": "auto-cancel",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "176e21d15a75d3d720fe34c23c6bd9adc88c791a383d2f1cf46a7655b4b267c7"
+    },
+    {
+      "scenario": "auto-manual",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "abf05101059a7912d4d835a5b63c4eb7cdaa78437ec0c9c9f02d723864773b65"
+    },
+    {
+      "scenario": "auto-manual",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "176e21d15a75d3d720fe34c23c6bd9adc88c791a383d2f1cf46a7655b4b267c7"
+    },
+    {
+      "scenario": "auto-changed",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "eada53aa3de7edb10881f63ffb4f13f4394b1c748f4043a4a4978dd327e65bcf"
+    },
+    {
+      "scenario": "auto-changed",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "176e21d15a75d3d720fe34c23c6bd9adc88c791a383d2f1cf46a7655b4b267c7"
+    },
+    {
+      "scenario": "auto-catalog-cancel",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "d811a597733366f46f0a66f4a56c9bff5eda8fb8bb7bdc14d113c4a68f5b2e51"
+    },
+    {
+      "scenario": "auto-catalog-cancel",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "renewals": 1,
+      "offline_reopen": true,
+      "package_sha256": "ee4fd1696cbf7b3a7eb28b643c46c140c554beaccee4b6c00f7011999b57b6c2"
+    }
+  ],
+  "foreground_regressions": [
+    {
+      "scenario": "promoted-recovery",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "offline_reopen": true
+    },
+    {
+      "scenario": "promoted-success",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "offline_reopen": true
+    }
+  ],
+  "catalog_change_fixture": "mutates the received synthetic chapter title inside the isolated catalog worker",
+  "persistent_expiry": "one renewal; a second 401 stops",
+  "physical_kindle_tested": false
+}
