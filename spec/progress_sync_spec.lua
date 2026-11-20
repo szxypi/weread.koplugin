@@ -103,7 +103,7 @@ local function fixture(remote, options)
         get_book = function() return book end,
         get_chapters = options.get_chapters or function() return chapters end,
         refresh_catalog = options.refresh_catalog,
-        get_file_context = function()
+        get_file_context = options.get_file_context or function()
             return nil, nil, true
         end,
         run_online = options.run_online or function(_kind, callback)
@@ -2367,6 +2367,46 @@ test('successful file resume carries local intent without approving a cloud writ
     eq(f.values.books.book.last_local_position.percent,40,'restored local point was not persisted')
     eq(f.sync.verified,false,'local file restore granted upload verification')
     eq(#f.uploads,0,'local file restore uploaded progress')
+end)
+
+test('reopening a partial combined file never infers a whole-book position',function()
+    local f=fixture({}, {get_file_context=function() return nil,nil,true,true end})
+    local saved=f.values.books.book
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
+    f.sync:on_reader_ready();f.drain()
+    eq(f.notifications[#f.notifications].data.error,'partial_combined_book','reopened partial file did not explain the sync restriction')
+    local point,reason=f.sync:capture_local()
+    eq(point,nil,'partial combined file produced an inferred whole-book position')
+    eq(reason,'partial_combined_book','partial combined-file reason was lost')
+    eq(f.sync:sync_now(),false,'reopened partial file allowed manual sync')
+    eq(f.notifications[#f.notifications].data.error,'partial_combined_book','manual sync did not explain the limitation')
+    f.document.page=60;f.sync:on_page_update();f.sync:on_close_document()
+    eq(saved.last_local_position,old,'reopened partial file changed the prior position')
+    eq(saved.pending_upload_position,old,'reopened partial file changed pending progress')
+    eq(#f.uploads,0,'reopened partial file uploaded inferred progress')
+end)
+
+test('partial combined selection preserves prior intent and suppresses synchronization',function()
+    local f=fixture({})
+    local saved=f.values.books.book
+    local old={book_id='book',chapter_uid=33,chapter_offset=100,percent=50}
+    saved.last_local_position=old;saved.pending_upload_position=old;saved.pending_upload_account=f.sync:_account_key()
+    f.sync:on_reader_ready()
+    local frame=assert(f.sync:begin_file_resume({partial_combined=true}))
+    eq(frame.local_only,true,'partial combined navigation did not block syncing')
+    eq(frame.preserve_only,true,'partial combined navigation could replace prior intent')
+    f.drain();f.document.page=40;f.sync:on_page_update()
+    eq(f.sync:finish_file_resume(frame,true),true,'partial local navigation could not finish')
+    eq(f.sync:checkpoint_local('partial'),nil,'partial file produced a whole-book checkpoint')
+    eq(f.sync:sync_now(),false,'manual synchronization bypassed the partial-file guard')
+    eq(f.sync:_upload_snapshot(old,'guard',false),false,'partial-file guard allowed upload')
+    f.sync:on_suspend();f.sync:on_resume();f.sync:on_close_document()
+    eq(saved.pending_upload_position,old,'partial navigation changed the pending upload')
+    eq(saved.last_local_position,old,'partial navigation changed the prior local position')
+    eq(#f.uploads,0,'partial navigation uploaded an approximate position')
+    local bad=fixture({});bad.document.file=nil
+    eq(bad.sync:begin_file_resume({partial_combined=true}),nil,'missing document accepted as a partial book')
 end)
 
 test('catalog-free file resume keeps prior intent and suppresses synchronization',function()

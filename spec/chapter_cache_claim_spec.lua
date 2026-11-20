@@ -26,7 +26,24 @@ assert(result.kind=='single' and result.uid=='4')
 assert(not Claims.usable(book,'/shared.epub','2') and Claims.usable(book,'/shared.epub','4'))
 files['/shared.epub']={[Identity.PATH]=identity({{chapterUid='2'},{chapterUid='4'}}),
     ['OEBPS/content.opf']=opf(Protocol.reader_url('123'),'<itemref idref="chapter_2"/><itemref idref="chapter_4"/>')}
-assert(Claims.inspect(book,'/shared.epub').kind=='combined')
+local combined=Claims.inspect(book,'/shared.epub')
+assert(combined.kind=='combined')
+assert(Claims.complete(combined,{{chapterUid='2'},{chapterUid='4'}}))
+local actual={};function actual:getDocumentFileContent(path) return files['/shared.epub'][path] end
+assert(Claims.document_complete(combined,actual,'123',{{chapterUid='2'},{chapterUid='4'}}),
+    'matching open archive was not recognized')
+assert(not Claims.complete(combined,{{chapterUid='4'},{chapterUid='2'}}),
+    'reordered catalog was treated as the same book')
+local old_opf=files['/shared.epub']['OEBPS/content.opf']
+files['/shared.epub']['OEBPS/content.opf']=old_opf..'changed'
+assert(not Claims.document_complete(combined,actual,'123',{{chapterUid='2'},{chapterUid='4'}}),
+    'changed open manifest was accepted')
+files['/shared.epub']['OEBPS/content.opf']=old_opf
+assert(not Claims.document_complete({kind='combined',items=combined.items,opf_hash=combined.opf_hash},
+    actual,'123',{{chapterUid='2'},{chapterUid='4'}}),'unsealed archive was trusted for progress')
+assert(not Claims.complete(combined,{{chapterUid='2'},{chapterUid='3'},{chapterUid='4'}})
+    and not Claims.complete(combined,{{chapterUid='2'},{chapterUid='2'}})
+    and not Claims.complete(combined,nil),'partial or ambiguous catalog was treated as complete')
 assert(Claims.usable(book,'/shared.epub','2') and Claims.usable(book,'/shared.epub','4')
     and not Claims.usable(book,'/shared.epub','3'))
 files['/shared.epub']['OEBPS/content.opf']=opf(Protocol.reader_url('123'),

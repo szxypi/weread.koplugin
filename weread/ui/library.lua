@@ -2408,7 +2408,29 @@ function M:openChapter(book, chapter, on_downloaded)
         return true
     end
     local cached = ReadAccess.cached_chapter(book.cached_chapters,chapter_uid)
-    local ambiguous=cached and file_exists(cached) and not require('weread.lib.chapter_cache_claim').usable(book,cached,chapter_uid)
+    local claims=require('weread.lib.chapter_cache_claim')
+    local full=self:getFullBookCachePath(book)
+    local combined,proof
+    if full and file_exists(full) and document and document.file==full then
+        local info=claims.combined(book,full)
+        if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
+    end
+    if not combined and cached and file_exists(cached) then
+        local info=claims.inspect(book,cached)
+        if info.kind=='combined' and info.items['chapter_'..chapter_id] then combined,proof=cached,info end
+    end
+    if not combined and not cached and full and file_exists(full) then
+        local info=claims.combined(book,full)
+        if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
+    end
+    if combined then
+        local catalog=book.chapters
+        if (type(catalog)~='table' or #catalog==0) and self.library_db then catalog=self.library_db:getChapters(book_id) end
+        if type(catalog)~='table' or #catalog==0 then catalog=Content.load_catalog_cache(self.client,self.settings,book) end
+        return require('weread.ui.combined_chapter_navigation').open(self,book,chapter,combined,current,proof,
+            not claims.complete(proof,catalog) or not proof.file_id)
+    end
+    local ambiguous=cached and file_exists(cached) and not claims.usable(book,cached,chapter_uid)
     if cached and file_exists(cached) and not ambiguous then
         self:openFile(cached,nil,book)
     elseif ambiguous then

@@ -178,8 +178,9 @@ if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
 if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
     assert(Source.read_document(reader.document,id,2),'first duplicate-title chapter has wrong source')
-    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'chapter_cache_identity_smoke.lua')(
-        reader,current,book(current),id,pump,clean)
+    reader,current=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'chapter_cache_identity_smoke.lua')(
+        reader,current,book(current),id,pump,clean,function(value) offline=value end)
+    assert(reader.document.file==first,'combined navigation test did not restore the original reader')
 end
 local typography=os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1'
 local margins=os.getenv('WEREAD_TEST_READER_MARGINS')=='1'

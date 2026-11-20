@@ -144,6 +144,47 @@ local function spine(document, path)
     return index,total
 end
 
+-- Resolve a combined EPUB chapter by its source identifier and its actual
+-- rendered spine member. Titles and the saved reading position are not IDs.
+function M.chapter_start(document,book_id,uid,expected)
+    return protected(function()
+        local Context=require('weread.lib.reader_context')
+        book_id=Context.identifier(book_id)
+        uid=Context.identifier(uid,true)
+        local identity=Identity.read_document(document,book_id)
+        if identity.version_source=='book_mismatch' then fail('book_mismatch') end
+        local opf=document:getDocumentFileContent('OEBPS/content.opf')
+        if type(opf)~='string' or #opf>M.MAX_TEXT_BYTES then fail('spine_unavailable') end
+        if expected and (type(expected.opf_hash)~='string'
+            or require('weread.lib.crypto').sha256_hex(opf)~=expected.opf_hash
+            or expected.file_id and identity.file_id~=expected.file_id) then fail('file_changed') end
+        local source,count=opf:match('<dc:source>([^<]+)</dc:source>'),0
+        for _ in opf:gmatch('<dc:source>') do count=count+1 end
+        if count~=1 or source~=require('weread.lib.protocol').reader_url(book_id) then fail('book_mismatch') end
+        local manifest=opf:match('<manifest%s*>(.-)</manifest>')
+        if not manifest then fail('spine_unavailable') end
+        local href,found=nil,0
+        for raw in manifest:gmatch('<item%s+([^>]+)>') do
+            local item=attributes(raw)
+            if item.id=='chapter_'..uid then href=item.href;found=found+1 end
+        end
+        if found~=1 or type(href)~='string' or not href:match('^text/chapter%-%d+%.xhtml$') then
+            fail('chapter_unavailable')
+        end
+        local path='OEBPS/'..href
+        local ordinal=spine(document,path)
+        local root=document:getNormalizedXPointer('/body/DocFragment['..ordinal..']')
+        if type(root)~='string' or fragment(root)~=root then fail('chapter_unavailable') end
+        local member=M.member(document,root..'.0')
+        if not member or member.root~=root or member.render_path~=path then fail('chapter_mismatch') end
+        local snapshot=Source.document_metadata(document,book_id,uid)
+        if snapshot and snapshot.record.render_path~=path then fail('chapter_mismatch') end
+        local first=type(document.getNextVisibleChar)=='function' and document:getNextVisibleChar(root..'.0')
+        if type(first)=='string' and fragment(first)==root then return first end
+        return member.xpointer
+    end)
+end
+
 local function open_index(document,book_id,uid,options,metadata)
     return protected(function()
         local self = setmetatable({ document=document, options=options or {}, book_id=tostring(book_id),

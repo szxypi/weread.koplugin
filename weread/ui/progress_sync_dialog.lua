@@ -108,7 +108,9 @@ function ProgressSyncDialog.notify(code, data)
         else text = T(_("Could not jump to WeRead progress:\n%1"),
             tostring(data.error or "")) end
     elseif code == "local_unavailable" then
-        if data.error=='source_preparation_timeout' or data.error=='source_position_unavailable' then
+        if data.error=='partial_combined_book' then
+            text=_("This combined file cannot be verified against the complete book. Progress sync is paused for this reading session; the previous position is kept.")
+        elseif data.error=='source_preparation_timeout' or data.error=='source_position_unavailable' then
             text=_("Reading position is temporarily unavailable. Please try again shortly.")
         else
             text = T(_("Could not determine the current reading position:\n%1"),

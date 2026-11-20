@@ -10,6 +10,9 @@ local dialog=require('weread.ui.progress_sync_dialog')
 dialog.notify('upload_failed',{error='source_initial_time_unverified'})
 assert(shown and shown.text=='微信读书已记录本书的阅读时长，但尚无章节位置，暂不支持此状态下的首次同步。本机阅读位置已保留，未上传任何进度。',
     'first-sync restriction was not explained in Chinese')
+dialog.notify('local_unavailable',{error='partial_combined_book'})
+assert(shown.text=='无法确认此合并文件与完整书籍一致，本次阅读暂不进行进度同步，原有位置已保留。',
+    'partial combined-book synchronization restriction was not explained')
 package.loaded.gettext.current_lang='en'
 dialog.notify('upload_failed',{error='source_initial_time_unverified'})
 assert(shown.text:find('no chapter position',1,true) and shown.text:find('nothing was uploaded',1,true),

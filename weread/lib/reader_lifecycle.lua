@@ -751,6 +751,7 @@ end
 --   current_idx (number or nil): The index of the current chapter within book.chapters, if it's a single chapter file.
 --   current_ch (table or nil): The chapter object of the current chapter, if it's a single chapter file.
 --   is_full_book (boolean): True if the file maps to multiple chapters (e.g. a combined EPUB), false otherwise.
+--   partial_combined (boolean): The combined file does not match the full catalog, or could not be verified.
 function M:getChapterInfoFromFile(book, file_path)
     if not book or not file_path or not book.chapters then
         return nil, nil, false
@@ -767,16 +768,21 @@ function M:getChapterInfoFromFile(book, file_path)
         end
     end
 
+    local Claims=require('weread.lib.chapter_cache_claim')
+    local function complete(info)
+        local document=self.ui and self.ui.document
+        return Claims.document_complete(info,document,book.book_id or book.bookId,book.chapters)
+    end
     local full_book_path = self:getFullBookCachePath(book)
     if full_book_path == file_path then
-        return nil, nil, true
+        local info=Claims.combined(book,file_path)
+        return nil,nil,true,not complete(info)
     end
 
     local is_full_book = false
-    local Claims=require('weread.lib.chapter_cache_claim')
     if Claims.shared(book,file_path) then
         local info=Claims.inspect(book,file_path)
-        if info.kind=='combined' then return nil,nil,true end
+        if info.kind=='combined' then return nil,nil,true,not complete(info) end
         if info.kind~='single' then return nil,nil,false end
         mapped_count,current_uid=1,info.uid
     end

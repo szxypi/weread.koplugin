@@ -960,6 +960,8 @@ local zh = {
     ["No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again."] = "没有可核实的缓存章节，旧文件和笔记已保留，请重新下载所需章节。",
     ["This cached file cannot be confirmed as the selected chapter. Download it again? The old file and notes are kept."] = "无法确认缓存文件是否为所选章节，是否重新下载？旧文件和笔记会保留。",
     ["The cached file cannot be confirmed as \"%1\". Download it again and open the cloud position? The old file and notes are kept."] = "无法确认缓存文件是否为“%1”。是否重新下载并打开云端位置？旧文件和笔记会保留。",
+    ["Could not verify this chapter in the combined book. Download the chapter again."] = "无法核实合并书籍中的目标章节，请重新下载该章节。",
+    ["This combined file cannot be verified against the complete book. Progress sync is paused for this reading session; the previous position is kept."] = "无法确认此合并文件与完整书籍一致，本次阅读暂不进行进度同步，原有位置已保留。",
 
     ["WeRead · Delayed screenshot"] = "微信读书·延时截图",
     ["Screenshot in %1 seconds."] = "%1 秒后截图，可继续操作。",

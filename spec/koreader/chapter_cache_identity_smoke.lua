@@ -1,5 +1,5 @@
 -- The profile and all books in this fixture are synthetic.
-return function(reader,host,book,id,pump,clean)
+return function(reader,host,book,id,pump,clean,set_offline)
     local Content=require('weread.lib.content')
     local Identity=require('weread.lib.book_file_identity')
     local Source=require('weread.lib.position_source')
@@ -41,4 +41,6 @@ return function(reader,host,book,id,pump,clean)
     end
     assert(bytes(path)==original and reader.document.file==path,'batch changed the open chapter')
     clean(reader)
+    return dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'combined_chapter_navigation_smoke.lua')(
+        reader,host,book,id,pump,clean,set_offline)
 end

@@ -165,14 +165,16 @@ function ProgressSync:begin_file_resume(options)
     self:_begin_source_transition('file_resume')
     local id=tostring(self.detect_book() or '')
     local baseline,reason=self:capture_local()
-    local local_only=not baseline and reason=='catalog_unavailable' and type(options)=='table'
+    local preserve_only=type(options)=='table' and options.partial_combined==true
+    if preserve_only and not baseline and reason~='catalog_unavailable' and reason~='partial_combined_book' then return nil end
+    local local_only=preserve_only or not baseline and reason=='catalog_unavailable' and type(options)=='table'
         and options.allow_missing_catalog==true
     if not baseline and not local_only then return nil end
     local saved=self.get_book(id) or {}
     local owner=saved.pending_upload_account or saved.recent_read_account
     local frame={scope=self:_scope(),baseline=copy(baseline),marker=self:_navigation_marker(),
         had_pending=type(saved.pending_upload_position)=='table' and owner==self:_account_key(),local_only=local_only or nil,
-        auth_epoch=self.settings:get('auth_epoch',0)}
+        auth_epoch=self.settings:get('auth_epoch',0),preserve_only=preserve_only or nil}
     self.current_book_id,self.checkpoint_account=id,self:_account_key()
     self.local_position,self.dirty=copy(baseline),false
     self.file_resume=frame
@@ -193,6 +195,7 @@ function ProgressSync:finish_file_resume(frame, applied, source_position)
     -- rest of this reader session. KOReader still owns this file's page state.
     if frame.local_only then
         self.state='unverified'
+        if frame.preserve_only then return true end
         if applied then
             if frame.auth_epoch~=self.settings:get('auth_epoch',0) then return false end
             local hint=require('weread.lib.unindexed_resume').make(source_position,frame.scope.book_id,
@@ -575,8 +578,8 @@ function ProgressSync:capture_local()
         if type(chapters) ~= "table" or #chapters == 0 then
             return nil, "catalog_unavailable"
         end
-        local _index
-        _index, current_chapter, is_full_book =
+        local _index,partial_combined
+        _index, current_chapter, is_full_book,partial_combined =
             self.get_file_context(book, path)
         self.document_context = {
             book_id = book_id,
@@ -585,10 +588,12 @@ function ProgressSync:capture_local()
             position_catalog = PositionMapper.catalog(chapters),
             current_chapter = current_chapter,
             is_full_book = is_full_book == true,
+            partial_combined = partial_combined == true,
             path = path,
         }
         cached = self.document_context
     end
+    if cached.partial_combined then return nil,'partial_combined_book' end
     local fraction = self:_local_fraction()
     if fraction == nil then return nil, "position_unavailable" end
     local position, reason = PositionMapper.local_to_remote(
@@ -1538,7 +1543,7 @@ end
 function ProgressSync:_pull(options)
     options = options or {}
     if self.file_resume and self.file_resume.local_only then
-        if options.manual then self.notify('local_unavailable',{error='catalog_unavailable'}) end
+        if options.manual then self.notify('local_unavailable',{error=self.file_resume.preserve_only and 'partial_combined_book' or 'catalog_unavailable'}) end
         return false
     end
     if self.pulling then return false end
@@ -1790,6 +1795,7 @@ function ProgressSync:on_reader_ready()
         if not local_position then
             self.state = "unsafe"
             log("warn", "local position unavailable:", tostring(reason))
+            if reason=='partial_combined_book' then self.notify('local_unavailable',{error=reason}) end
             return
         end
         self.local_position = local_position
@@ -1960,6 +1966,10 @@ function ProgressSync:on_resume()
 end
 
 function ProgressSync:sync_now()
+    if self.file_resume and self.file_resume.preserve_only then
+        self.notify('local_unavailable',{error='partial_combined_book'})
+        return false
+    end
     if self.file_resume and self.file_resume.local_only and not self:capture_local() then
         self.notify('local_unavailable',{error='catalog_unavailable'})
         return false
