@@ -2,6 +2,8 @@
 local Model=require('weread.lib.local_shelf_groups')
 local Identity=require('weread.lib.shelf_snapshot')
 local Popup=require('weread.ui.shelf_popup')
+local ShelfSearch=require('weread.lib.shelf_search')
+local Query=require('weread.lib.search_query')
 local UI=require('ui/uimanager')
 local _=require('weread.lib.plugin_util').tr
 local T=require('weread.lib.plugin_util').T
@@ -61,8 +63,12 @@ function M.open(host,owner,is_current,on_change)
         }
         Popup.show(owner,dialog,function(widget) host:showInputDialog(widget) end)
     end
-    show_books=function(group)
-        local selected={};for _,id in ipairs(group.books) do selected[id]=true end
+    show_books=function(group,state)
+        if not state then
+            state={selected={},query=''}
+            for _,id in ipairs(group.books) do state.selected[id]=true end
+        end
+        local selected=state.selected
         local rows,menu={},nil
         rows[#rows+1]={text=_('Save local group books'),callback=function()
             if not alive() or not Popup.current(owner,menu) then return end
@@ -76,9 +82,30 @@ function M.open(host,owner,is_current,on_change)
             end
             save{kind='books',id=group.id,books=ordered}
         end}
+        rows[#rows+1]={text=state.query~='' and T(_('Search: %1'),state.query) or _('Search shelf'),callback=function()
+            transition(menu,function()
+                local dialog
+                dialog=require('ui/widget/inputdialog'):new{title=_('Search shelf'),input=state.query,input_type='text',
+                    buttons={{{text=_('Cancel'),callback=function() transition(dialog,function() show_books(group,state) end) end},
+                        {text=_('Search'),is_enter_default=true,callback=function()
+                            if not alive() or not Popup.current(owner,dialog) then return end
+                            local value=Query.trim(dialog:getInputText())
+                            transition(dialog,function() state.query=value;show_books(group,state) end)
+                        end}}}}
+                Popup.show(owner,dialog,function(widget) host:showInputDialog(widget) end)
+            end)
+        end}
+        if state.query~='' then
+            rows[#rows+1]={text=_('Show all shelf books'),callback=function()
+                transition(menu,function() state.query='';show_books(group,state) end)
+            end}
+        end
+        local needle=ShelfSearch.prepare(state.query)
+        local matches=0
         for _,book in ipairs(host.shelf_regular or {}) do
             local id=Identity.persisted_id(book)
-            if id then
+            if id and ShelfSearch.matches(book,needle) then
+                matches=matches+1
                 local row={text=type(book.title)=='string' and book.title~='' and book.title or _('Untitled book'),
                     mandatory=selected[id] and '✓' or ''}
                 row.callback=function()
@@ -88,6 +115,7 @@ function M.open(host,owner,is_current,on_change)
                 rows[#rows+1]=row
             end
         end
+        if matches==0 then rows[#rows+1]={text=_('No matching shelf books.')} end
         menu=require('ui/widget/menu'):new{title=T(_('Books in local group: %1'),group.name),item_table=rows,
             subtitle=_('Books missing from the current shelf stay in this local group.'),items_per_page=12}
         Popup.show(owner,menu)

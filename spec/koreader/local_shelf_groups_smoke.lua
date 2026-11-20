@@ -21,7 +21,7 @@ local function auth(id)
 end
 auth('900000')
 local shelf={{bookId='101',title='合成书一',author='作者'}, {bookId='102',title='合成书二',author='作者'},
-             {bookId='103',title='合成书三',author='作者'}}
+             {bookId='103',title='合成书三',author='Writer Three'}}
 local cloud={{archiveId=7,name='云端测试组',bookIds={'101'}}}
 if phase=='live' then assert(host.library_db:cacheShelf(shelf,cloud)) end
 host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
@@ -71,7 +71,28 @@ if phase=='live' then
     pump(function() return host.shelf_view~=view end)
     assert(host.shelf_groups[#host.shelf_groups].key=='local:1')
     view,manager=manage();local actions=choose_group(view,manager,'本机测试');local picker=group_action(view,actions,1)
-    picker:onMenuSelect(entry(picker,'合成书一'));picker:onMenuSelect(entry(picker,'合成书三'))
+    picker:onMenuSelect(entry(picker,'合成书一'))
+    local search=select_row(view,picker,text('Search shelf'))
+    search:setInputText('writer');button(search,text('Search')).callback()
+    pump(function() return view._shelf_popup and view._shelf_popup~=search end)
+    picker=view._shelf_popup
+    assert(entry(picker,'合成书三') and not pcall(entry,picker,'合成书一'),'author search did not filter')
+    picker:onMenuSelect(entry(picker,'合成书三'))
+    search=select_row(view,picker,require('weread.lib.plugin_util').T(text('Search: %1'),'writer'))
+    search:setInputText('无匹配');button(search,text('Search')).callback()
+    pump(function() return view._shelf_popup and view._shelf_popup~=search end)
+    picker=view._shelf_popup;assert(entry(picker,text('No matching shelf books.')))
+    search=select_row(view,picker,require('weread.lib.plugin_util').T(text('Search: %1'),'无匹配'))
+    search:setInputText('合成书一');button(search,text('Cancel')).callback()
+    pump(function() return view._shelf_popup and view._shelf_popup~=search end)
+    picker=view._shelf_popup;assert(entry(picker,text('No matching shelf books.')),'cancel changed the filter')
+    picker=select_row(view,picker,text('Show all shelf books'))
+    assert(entry(picker,'合成书一').mandatory=='✓' and entry(picker,'合成书三').mandatory=='✓',
+        'filtering lost a selection')
+    search=select_row(view,picker,text('Search shelf'));search:setInputText('合成书一')
+    button(search,text('Search')).callback();pump(function() return view._shelf_popup and view._shelf_popup~=search end)
+    picker=view._shelf_popup;assert(entry(picker,'合成书一') and not pcall(entry,picker,'合成书三'),'title search did not filter')
+    picker=select_row(view,picker,text('Show all shelf books'))
     UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_LOCAL_GROUP_EVIDENCE'))..'/choose-books.png')
     picker:onMenuSelect(entry(picker,text('Save local group books')));pump(function() return host.shelf_view~=view end)
     assert_shelf_cloud();local local_group=host.shelf_groups[#host.shelf_groups]
@@ -140,7 +161,8 @@ if phase=='live' then
     assert(picker:getSize().h<=Device.screen:getHeight(),'book picker exceeds screen')
     assert(picker.items_per_page<#picker.item_table)
     local target=entry(picker,'合成第35本')
-    local target_page=math.floor((36-1)/picker.items_per_page)+1
+    local target_index;for i,row in ipairs(picker.item_table) do if row==target then target_index=i;break end end
+    local target_page=math.floor((assert(target_index)-1)/picker.items_per_page)+1
     while picker.page<target_page do picker:onNextPage() end
     picker:onMenuSelect(target)
     while picker.page>1 do picker:onPrevPage() end
