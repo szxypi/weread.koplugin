@@ -29,7 +29,10 @@ local function current(host,owner)
 end
 function M.cancel_dialog(host)
     local dialog=host._membership_offline_dialog;host._membership_offline_dialog=nil
-    if dialog then UI:close(dialog) end
+    if dialog then
+        UI:close(dialog)
+        local finish=package.loaded['weread.ui.finish_offline'];if finish then finish.resume_retry(host) end
+    end
 end
 function M.cancel_sync(host)
     if host._membership_offline_sync then host._membership_offline_sync:cancel() end
@@ -139,14 +142,23 @@ function M.open(host,id,title)
                 saved=queue(host):put(id,before,not before,nil,saved_title)
             end
         end
-        if not saved then host:showInfo(_('Could not save the offline change. Refresh the bookshelf and try again.'));return end
+        local finish=package.loaded['weread.ui.finish_offline']
+        if not saved then
+            host:showInfo(_('Could not save the offline change. Refresh the bookshelf and try again.'))
+            if finish then finish.resume_retry(host) end
+            return
+        end
         require('weread.ui.shelf_state').show(host,id)
         host:showInfo(pending and _('The saved offline change was removed.') or _('Offline bookshelf change saved. It will sync after reconnecting.'))
         if not pending then M.pump(host) end
+        if finish then finish.resume_retry(host) end
     end,cancel_callback=function() if host._membership_offline_dialog==dialog then M.cancel_dialog(host) end end}
     local on_close=dialog.onCloseWidget
     dialog.onCloseWidget=function(widget,...)
-        if host._membership_offline_dialog==widget then host._membership_offline_dialog=nil end
+        if host._membership_offline_dialog==widget then
+            host._membership_offline_dialog=nil
+            local finish=package.loaded['weread.ui.finish_offline'];if finish then finish.resume_retry(host) end
+        end
         if on_close then return on_close(widget,...) end
     end
     host._membership_offline_dialog=dialog;UI:show(dialog);return true

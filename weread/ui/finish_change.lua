@@ -32,6 +32,7 @@ function M.cancel(host)
     service(host):cancel()
     if ctx.dialog then local dialog=ctx.dialog;ctx.dialog=nil;UI:close(dialog) end
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
+    local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.resume_retry(host) end
 end
 local function message(reason)
     if reason=='login' then return _('Authorize or renew E-Ink login in settings, then try again.') end
@@ -41,7 +42,7 @@ end
 function M.open(host,id,resolving)
     local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(host) end
     local offline=require('weread.ui.finish_offline')
-    offline.cancel_sync(host)
+    offline.cancel_sync(host,true)
     M.cancel(host)
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     local private_pending,private_error=require('weread.ui.shelf_flag_change').pending(host)

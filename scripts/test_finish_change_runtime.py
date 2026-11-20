@@ -42,7 +42,8 @@ def main():
                 if len(out)>4*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_frame')
                 stage=json.loads(out.split(FRAME)[1]);report['stages'].append(stage)
                 if code or repaint or stage['result']!='PASS':raise ValueError('native_acceptance')
-                if mode=='reopen' and stage.get('local_storage_retry_verified') is not True:
+                if mode=='reopen' and (stage.get('local_storage_retry_verified') is not True
+                        or stage.get('dialog_retry_verified') is not True):
                     raise ValueError('local_storage_retry')
                 if mode=='retry_reopen' and (stage.get('trace_commit')!='confirmed'
                         or stage.get('trace_attempted') is not True or stage.get('trace_finished') is not True):

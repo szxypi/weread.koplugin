@@ -28,6 +28,7 @@ function M.cancel(host)
     host.shelf_membership:cancel()
     if ctx.dialog then local view=ctx.dialog;ctx.dialog=nil;UI:close(view) end
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
+    local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.resume_retry(host) end
 end
 local function error_text(reason)
     if reason=='login' then return _('Authorize or renew E-Ink login in settings, then try again.') end
@@ -48,7 +49,7 @@ local function redraw_account_shelf(host,account,saved)
     end
 end
 function M.open(host,id,resolving,suggested_title)
-    local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(host) end
+    local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(host,true) end
     local membership_offline=require('weread.ui.membership_offline')
     membership_offline.cancel_sync(host)
     M.cancel(host)

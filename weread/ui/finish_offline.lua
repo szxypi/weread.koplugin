@@ -79,10 +79,15 @@ local function clear_retry(host)
     local retry=host._finish_offline_retry;host._finish_offline_retry=nil
     if retry and retry.timer then UI:unschedule(retry.timer) end
 end
-function M.cancel_sync(host)
-    clear_retry(host)
+function M.cancel_sync(host,preserve_retry)
+    if not preserve_retry then clear_retry(host) end
     if host._finish_offline_sync then host._finish_offline_sync:cancel() end
     host._finish_offline_sync=nil;host._finish_offline_account=nil
+end
+local function ui_blocked(host)
+    return host._finish_change_ui or host._shelf_flag_change_ui or host._shelf_membership_ui
+        or host._finish_offline_dialog or host._membership_offline_dialog
+        or (host._membership_offline_sync and host._membership_offline_sync.job)
 end
 local function retry_later(host,account,entry)
     if type(entry)~='table' or entry.phase~='queued' or type(entry.id)~='string' then return end
@@ -111,15 +116,16 @@ local function retry_later(host,account,entry)
             if not err then M.pump(host) end
             return
         end
-        M.pump(host)
+        if not M.pump(host) and ui_blocked(host) and host._finish_offline_retry==retry then
+            retry.waiting_ui=true
+        end
     end
     retry.timer=timer
     UI:scheduleIn(retry.attempts==1 and 30 or 60,timer)
 end
 local function allowed(host,account)
     if not account or host.library_db:accountKey()~=account or not host:isNetworkConnected()
-        or host._finish_change_ui or host._shelf_flag_change_ui or host._shelf_membership_ui or host._finish_offline_dialog
-        or host._membership_offline_dialog or (host._membership_offline_sync and host._membership_offline_sync.job) then return false end
+        or ui_blocked(host) then return false end
     local private,private_error=require('weread.ui.shelf_flag_change').pending(host)
     if private or private_error then return false end
     if host.shelf_membership then
@@ -138,6 +144,7 @@ function M.pump(host,force)
         if force~=true then return false end
         UI:unschedule(retry.timer);retry.timer=nil
     end
+    if retry then retry.waiting_ui=nil end
     if not host._finish_offline_sync then
         host._finish_offline_account=account
         host._finish_offline_sync=require('weread.lib.finish_queue_sync'):new{
@@ -163,6 +170,21 @@ function M.pump(host,force)
         }
     end
     return host._finish_offline_sync:pump()
+end
+-- A timer which became due while a conflicting dialog was open is resumed
+-- only when that dialog closes, with the original account and queue token.
+function M.resume_retry(host)
+    local retry=host._finish_offline_retry
+    if not retry or not retry.waiting_ui or retry.wake_scheduled then return end
+    retry.wake_scheduled=true
+    UI:nextTick(function()
+        retry.wake_scheduled=nil
+        if host._finish_offline_retry~=retry or not retry.waiting_ui then return end
+        if not host.library_db or host.library_db:accountKey()~=retry.account then clear_retry(host);return end
+        local entry,err=queue(host):get(retry.book_id)
+        if err or not entry or entry.id~=retry.id or entry.phase~='queued' then clear_retry(host);return end
+        M.pump(host)
+    end)
 end
 local function context(host)
     return {account=host.library_db:accountKey(),epoch=host.discovery_epoch or 0,session=host._reader_session_gen,
@@ -211,22 +233,26 @@ function M.open(host,id)
                 saved=queue(host):put(id,before,not before)
             end
         end
-        if not saved then host:showInfo(_('Could not save the offline change. Refresh the bookshelf and try again.'));return end
+        if not saved then
+            host:showInfo(_('Could not save the offline change. Refresh the bookshelf and try again.'))
+            M.resume_retry(host);return
+        end
         require('weread.ui.shelf_state').show(host,id)
         host:showInfo(pending and _('The saved offline change was removed.') or _('Offline finished mark saved. It will sync after reconnecting.'))
         if not pending then M.pump(host) end
+        M.resume_retry(host)
     end,cancel_callback=function()
-        if host._finish_offline_dialog==dialog then host._finish_offline_dialog=nil;UI:close(dialog) end
+        if host._finish_offline_dialog==dialog then host._finish_offline_dialog=nil;UI:close(dialog);M.resume_retry(host) end
     end}
     local on_close=dialog.onCloseWidget
     dialog.onCloseWidget=function(widget,...)
-        if host._finish_offline_dialog==widget then host._finish_offline_dialog=nil end
+        if host._finish_offline_dialog==widget then host._finish_offline_dialog=nil;M.resume_retry(host) end
         if on_close then return on_close(widget,...) end
     end
     host._finish_offline_dialog=dialog;UI:show(dialog);return true
 end
 function M.cancel_dialog(host)
     local dialog=host._finish_offline_dialog;host._finish_offline_dialog=nil
-    if dialog then UI:close(dialog) end
+    if dialog then UI:close(dialog);M.resume_retry(host) end
 end
 return M

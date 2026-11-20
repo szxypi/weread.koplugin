@@ -355,9 +355,16 @@ local ok,reason=pcall(function()
                 local retry=plugin._finish_offline_retry;local timer=retry.timer
                 expect(retry.attempts==1 and queue:get('41').phase=='queued' and state().posts==posts_before)
                 plugin:onNetworkConnected();expect(plugin._finish_offline_retry.timer==timer)
-                fault('local_owns_once')
+                require('weread.ui.finish_change').open(plugin,'41')
+                local dialog=assert(plugin._finish_offline_dialog)
+                expect(plugin._finish_offline_retry==retry and retry.timer==timer)
                 UI:unschedule(timer);UI:scheduleIn(.01,timer)
+                wait(function() return retry.waiting_ui end)
+                expect(queue:get('41').phase=='queued' and state().posts==posts_before)
+                fault('local_owns_once')
+                dialog.cancel_callback()
                 wait(function() return plugin._finish_offline_retry==retry and retry.attempts==2 and retry.timer~=nil end)
+                report.dialog_retry_verified=true
                 expect(queue:get('41').phase=='queued' and journal:read().phase=='idle' and state().posts==posts_before)
                 timer=retry.timer;UI:unschedule(timer);UI:scheduleIn(.01,timer)
                 report.local_storage_retry_verified=true
