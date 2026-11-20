@@ -215,16 +215,18 @@ return function(reader,host,book,id,evidence)
             table.sort(names);return table.concat(names,'\n')
         end
         local Content=require('weread.lib.content')
-        local old_save,sentinel
+        local old_save,sentinel,sentinel_bytes
         local ready_marker=evidence..'/prefetch-before-commit.ready'
         local release_marker=evidence..'/prefetch-before-commit.release'
         if kind=='before-commit' then
             local chapters=assert(host:ensureChaptersLoaded(book))
-            local name=tostring((book.title or 'WeRead')..' - '..(chapters[3].title or tostring(chapters[3].chapterUid)))
-                :gsub('[%z%c/\\:%*%?"<>|]','_'):gsub('^%s+',''):gsub('%s+$',''):gsub('%s+',' ')
-            sentinel=dir..'/'..name..'.epub'
-            local existing=io.open(sentinel,'rb');assert(not existing,'synthetic destination already exists')
-            local file=assert(io.open(sentinel,'wb'));file:write('prior-synthetic-chapter');file:close()
+            local seed={};for key,value in pairs(book) do seed[key]=value end
+            seed.cached_chapters={};seed.cache_dir=dir
+            sentinel=Content.save_chapter_epub(settings,seed,chapters[3],'<p>prior synthetic chapter</p>',{},'',
+                require('weread.lib.book_file_identity').capture(seed))
+            local file=assert(io.open(sentinel,'rb'));sentinel_bytes=file:read('*a');file:close()
+            assert(require('weread.lib.chapter_cache_path').plan(seed,chapters[3],dir).path==sentinel,
+                'synthetic prior chapter would not be reused')
             old_save=Content.save_chapter_epub
             Content.save_chapter_epub=function(a,b,c,d,e,f,g,h,i,guard)
                 local function held()
@@ -264,7 +266,7 @@ return function(reader,host,book,id,evidence)
         assert(Reader.instance==reader and epubs()==before,'stale prefetch changed an EPUB or opened a reader')
         if sentinel then
             local file=assert(io.open(sentinel,'rb'));local text=file:read('*a');file:close()
-            assert(text=='prior-synthetic-chapter' and not io.open(sentinel..'.part','rb'),'stale publication replaced the existing file')
+            assert(text==sentinel_bytes and not io.open(sentinel..'.part','rb'),'stale publication replaced the existing file')
             assert(os.remove(sentinel))
         end
         local saved=assert(settings:get_book(id))

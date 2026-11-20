@@ -176,6 +176,11 @@ if cb_edit then
 end
 if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
+if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
+    assert(Source.read_document(reader.document,id,2),'first duplicate-title chapter has wrong source')
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'chapter_cache_identity_smoke.lua')(
+        reader,current,book(current),id,pump,clean)
+end
 local typography=os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1'
 local margins=os.getenv('WEREAD_TEST_READER_MARGINS')=='1'
 if typography then
@@ -229,6 +234,9 @@ end)
 reader,current=Reader.instance,Reader.instance.weread
 if manual_case and manual_kind~='selected' then manual_case.check_single() end
 local second=reader.document.file
+if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then
+    assert(first~=second and Source.read_document(reader.document,id,4),'duplicate-title chapters shared a file or source')
+end
 local second_checkpoint={page=reader:getCurrentPage(),xpointer=reader.document:getXPointer()}
 current:showChapterList(book(current));view=assert(current._chapter_list_view);view._chapter_rows[2].callback()
 pump(function() return Reader.instance and Reader.instance.document.file==first end)

@@ -1027,7 +1027,9 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     os.execute("mkdir -p " .. string.format("%q", dir))
     book.cache_dir = dir
     local book_title = book.title or "WeRead"
-    local path = output and output.path or dir .. "/" .. filename_safe(book_title .. " - " .. (chapter.title or tostring(chapter.chapterUid or "chapter"))) .. ".epub"
+    local plan=not output and require('weread.lib.chapter_cache_path').plan(book,chapter,dir)
+    local path = output and output.path or plan.path
+    local chapter_uid=chapter.chapterUid or chapter.chapterId
     local title = chapter.title or book.title or "WeRead"
     local author = book.author or "WeRead"
     local manifest_assets = {}
@@ -1058,11 +1060,11 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     local opf = [[<?xml version="1.0" encoding="utf-8"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="bookid" version="3.0" prefix="dcterms: http://purl.org/dc/terms/">
 <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
-<dc:identifier id="bookid">weread-]] .. xml_escape(book_id) .. [[-]] .. xml_escape(chapter.chapterUid or "chapter") .. [[</dc:identifier>
+<dc:identifier id="bookid">weread-]] .. xml_escape(book_id) .. [[-]] .. xml_escape(chapter_uid or "chapter") .. [[</dc:identifier>
 <dc:title>]] .. xml_escape(book_title) .. [[</dc:title>
 <dc:creator>]] .. xml_escape(author) .. [[</dc:creator>
 <dc:publisher>WeRead</dc:publisher>
-<dc:source>]] .. xml_escape(WeRead.reader_url(book_id, chapter.chapterUid)) .. [[</dc:source>
+<dc:source>]] .. xml_escape(WeRead.reader_url(book_id, chapter_uid)) .. [[</dc:source>
 <dc:language>zh-CN</dc:language>
 <meta property="dcterms:modified">]] .. utc_modified() .. [[</meta>
 </metadata>
@@ -1098,7 +1100,15 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     }
     for _, entry in ipairs(position_entries) do entries[#entries + 1] = entry end
     append_asset_entries(entries, assets)
-    write_epub(path, entries, output, before_commit)
+    local guard=before_commit
+    if plan then
+        guard=function()
+            if not require('weread.lib.chapter_cache_path').current(plan) then error('chapter_cache/conflict',0) end
+            if before_commit then return before_commit() end
+            return true
+        end
+    end
+    write_epub(path, entries, output, guard)
     Content.register_annotation_document(book, path, { chapter })
     return path
 end

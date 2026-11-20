@@ -56,6 +56,7 @@ def main():
     parser.add_argument('--chapter-links', action='store_true', help='Exercise standalone chapter taps, downloads and cross-file history')
     parser.add_argument('--chapter-link-preflight', action='store_true', help='Exercise standalone archive link workers without navigation')
     parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
+    parser.add_argument('--duplicate-chapter-titles',action='store_true',help='Exercise independently cached chapters with identical titles')
     parser.add_argument('--cached-resume-numeric-keys',action='store_true',help='Exercise legacy numeric chapter cache keys')
     parser.add_argument('--cb-resume',action='store_true',help='Use the opt-in synthetic CB_ shelf book for cached reading')
     parser.add_argument('--cb-highlight-edit',action='store_true',help='Exercise imported-book highlight writes on the isolated mock service')
@@ -118,6 +119,7 @@ def main():
     if args.cached_resume and (args.footnotes or args.reading_flow):
         parser.error('--cached-resume uses a separate fixture')
     if args.cb_resume and not args.cached_resume:parser.error('--cb-resume requires --cached-resume')
+    if args.duplicate_chapter_titles and not args.cached_resume:parser.error('--duplicate-chapter-titles requires --cached-resume')
     if args.cached_resume_numeric_keys and not args.cached_resume:parser.error('--cached-resume-numeric-keys requires --cached-resume')
     if args.cb_highlight_edit and (not args.cached_resume or not args.cb_resume or args.content_format!='epub'):
         parser.error('--cb-highlight-edit requires --cached-resume --cb-resume with EPUB')
@@ -170,6 +172,10 @@ def main():
                        EMULATE_READER_W=str(args.width),
                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
     target_book_id=BOOK_ID
+    if args.duplicate_chapter_titles:
+        mock_weread.CHAPTERS[1]['title']=mock_weread.CHAPTERS[3]['title']='合成重复章节'
+        mock_weread.CHAPTERS[0]['title']=mock_weread.CHAPTERS[2]['title']='另一组重复章节'
+        environment['WEREAD_TEST_DUPLICATE_CHAPTER_TITLES']='1'
     if args.prefetch_condition=='large-id':
         target_book_id='9007199254740993'
         mock_weread.BOOK_ID=target_book_id
