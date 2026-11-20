@@ -1,0 +1,19 @@
+{
+  "result": "OBSERVED",
+  "numeric_books": 133,
+  "checked": 133,
+  "no_chapter_zero_counts": 43,
+  "no_chapter_nonzero_counts": 0,
+  "no_chapter_missing_counts": 0,
+  "other_or_unverified": 90,
+  "candidate_dual_channel_stable": false,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "inventory_authentication_posts": 0,
+  "renewal_authentication_posts": 1,
+  "same_account_renewed_shelf_verified": true,
+  "private_responses_saved": false,
+  "physical_device": false,
+  "write_protocol_verified": false,
+  "notes": "Initial inventory stopped on a native shelf HTTP 401; independent repeat also observed 401. One saved-session renewal succeeded before the complete read-only inventory."
+}
