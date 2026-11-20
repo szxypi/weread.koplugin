@@ -6,7 +6,7 @@ local json=require('json')
 local mode=arg[1]
 local report={result='UNVERIFIED',phase='init',mode=mode,anonymous_credentials=false,credential_file_audit=false,
     file_backed_sqlite=false,bookstore_readback=false,transport_guard_selftest=false,progress_display_matches=false,
-    covers_visible=false,workers_reaped=false,preferences_readback=false,author_sort_checked=false,paged_shelf=false,
+    covers_visible=false,workers_reaped=false,preferences_readback=false,author_sort_checked=false,progress_sort_checked=false,paged_shelf=false,
     shelf_books=0,shelf_groups=0,painted_views=0,cover_gets=0,progress_gets=0,cover_cells=0,cover_retries=0,
     progress_snapshots=0,known_progress=0,profile_files_audited=0,screenshots=0,forbidden_requests=0,request_counts={0,0},
     failed_line=0,progress_http_status=0,progress_fetch_result=0,progress_parse_result=0,progress_shape=0,
@@ -396,6 +396,7 @@ local ok,reason=pcall(function()
     do
         local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
         report.author_sort_checked=dofile(fixtures..'shelf_author_sort_case.lua')(plugin,pump)
+        report.progress_sort_checked=dofile(fixtures..'shelf_owner_progress_sort_case.lua')(plugin,pump)
     end
     if all_groups then
         report.phase='groups'
