@@ -13,7 +13,7 @@ package.loaded['weread.lib.position_source']={MAX_BYTES=2097152,MAX_META_BYTES=2
         return {chapter_uid='7',format='web_xhtml',raw_sha256=world.local_hash,render_path='render'} end,
     verify_snapshot=function(value)
         if value.raw~='local' or value.rendered~='rendered' or value.metadata~='metadata' then return nil end
-        return {raw_sha256=world.local_hash}
+        return {raw_sha256=world.local_hash,raw=world.local_raw or raw}
     end}
 package.loaded['weread.lib.book_file_identity']={PATH='identity',MAX_BYTES=2048,
     decode=function(value) if value~='identity' then return nil end;return {book_id='456',file_id='file-one',book_version=7} end}
@@ -54,7 +54,9 @@ assert(inspect().kind=='available','existing cloud translation was not recognize
 reset();world.network_raw='<html><body><script>'..string.rep('fake ',100)..'</script><p>short</p></body></html>'
 local _,missing=inspect();assert(missing=='missing_original','script was counted as original text')
 reset();world.network_raw='<html><body><p class="wr-translation">'..string.rep('译文',100)..'</p></body></html>'
-assert(inspect().kind=='available','existing translated text was not recognized')
+local _,without_original=inspect();assert(without_original=='source_changed','translation without the original was accepted')
+reset();world.network_raw=translated:gsub('native source','altered source')
+local _,altered_original=inspect();assert(altered_original=='source_changed','translated content with altered original was accepted')
 reset();world.network_raw=raw:gsub('</p>', '</p><p class=wr-translation>'..string.rep('translated ',20)..'</p>')
 local _,ambiguous=inspect();assert(ambiguous=='unavailable','unknown translated class syntax was admitted as original')
 reset();world.title='Copyright Page';local _,structural=inspect();assert(structural=='structural' and world.fetches==0,'copyright page admitted')

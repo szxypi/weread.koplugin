@@ -4,7 +4,8 @@ import argparse,json,resource,subprocess
 from datetime import datetime,timezone
 from secure_weread_session import SessionStore,COOKIE_NAMES
 from secure_native_session import NativeSessionStore
-from verify_translation_preflight import TranslationProbe,TranslationWebProbe,save_refreshed_web_session
+from verify_translation_preflight import save_refreshed_web_session
+from verify_translation_generation import Native,Web,snapshot
 from verify_owner_reading import validate_cookies
 
 FRAME=b'\nTRANSLATION_SOURCE='
@@ -13,8 +14,10 @@ FRAME=b'\nTRANSLATION_SOURCE='
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true')
+    parser.add_argument('--task',action='store_true')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER)
     args=parser.parse_args(argv)
+    if args.task and not args.saved_session:parser.error('task requires saved session')
     if args.saved_session!=bool(args.lua_command):parser.error('saved session and private Lua command required together')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
         authentication_posts=0,translation_mode_requests=0,generation_requests=0,purchases=0,trial_activations=0,
@@ -24,17 +27,18 @@ def main(argv=None):
         if args.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0))
             saved=SessionStore().load();grant=NativeSessionStore().load(saved['vid'])
-            api=TranslationProbe();api.inspect(grant,1,True);sample=api.samples[0]
-            web=TranslationWebProbe();web.vid=saved['vid']
+            api=Native();api.inspect(grant,1,True);sample=api.samples[0]
+            web=Web();web.vid=saved['vid']
             for key,value in saved['cookies'].items():web.set_cookie(key,value)
             web.verify_account();phase='source'
             summary=web.inspect_content(sample);content=web.content_sample
             if not content or not summary.get('nonempty_translation_blocks'):raise ValueError('no_translation')
+            before=snapshot(api,web,grant) if args.task else None
             cookies={c.name:c.value for c in web.cookies if c.name in COOKIE_NAMES
                 and c.domain in ('.weread.qq.com','weread.qq.com') and c.path=='/'}
             validate_cookies(cookies,saved['vid'])
             payload=dict(credentials=grant,cookies=cookies,book_id=sample['book_id'],uid=str(content['chapter_uid']),
-                version=sample['expected']['version'],source=content['source'])
+                version=sample['expected']['version'],source=content['source'],task=args.task)
             encoded=json.dumps(payload,ensure_ascii=False,separators=(',',':')).encode()
             if len(encoded)>3*1024*1024:raise ValueError('input_limit')
             phase='lua';child=subprocess.run(args.lua_command,input=encoded,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,timeout=180)
@@ -44,16 +48,19 @@ def main(argv=None):
                 if isinstance(result,dict) and result.get('reason') in ('session_changed','local_source','catalog','catalog_changed','version',
                     'source_changed','missing_original','structural','unavailable'):
                     report['native_reason']=result['reason']
-                if isinstance(result,dict) and type(result.get('native_reads')) is int and 0<=result['native_reads']<=12:report['native_reads']=result['native_reads']
+                if isinstance(result,dict) and type(result.get('native_reads')) is int and 0<=result['native_reads']<=16:report['native_reads']=result['native_reads']
                 if isinstance(result,dict) and type(result.get('web_reads')) is int and 0<=result['web_reads']<=32:report['web_reads']=result['web_reads']
                 raise ValueError('native_mismatch')
-            if result.get('native_reads')!=12 or type(result.get('web_reads')) is not int or not 1<=result['web_reads']<=32:
+            if (result.get('native_reads')!=(16 if args.task else 12) or type(result.get('web_reads')) is not int or not 1<=result['web_reads']<=32
+                    or args.task and (result.get('mode_attempted') is not False or result.get('generation_attempted') is not False)):
                 raise ValueError('native_read_count')
             validate_cookies(result.get('cookies'),saved['vid'])
             for key,value in result['cookies'].items():web.set_cookie(key,value)
-            phase='final_account';web.verify_account();save_refreshed_web_session(SessionStore(),saved,web)
+            phase='final_account'
+            if args.task and snapshot(api,web,grant)!=before:raise ValueError('baseline_changed')
+            web.verify_account();save_refreshed_web_session(SessionStore(),saved,web)
             if NativeSessionStore().load(saved['vid'])!=grant:raise ValueError('grant_changed')
-            report.update(result='NATIVE_SOURCE_EXISTING_TRANSLATION_VERIFIED',native_reads=result['native_reads'],
+            report.update(result='NATIVE_TASK_EXISTING_TRANSLATION_VERIFIED' if args.task else 'NATIVE_SOURCE_EXISTING_TRANSLATION_VERIFIED',native_reads=result['native_reads'],
                 web_reads=result['web_reads'],repeated_catalog_and_source=True,actual_epub_archive_verified=False)
     except (Exception,KeyboardInterrupt):report.update(result='UNVERIFIED',stage=phase)
     finally:

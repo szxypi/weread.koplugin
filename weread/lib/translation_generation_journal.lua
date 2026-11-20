@@ -60,6 +60,42 @@ local function read(self,db,plan)
     assert(row[2]~='response_received' or row[3]~=nil)
     return {phase=row[2],result=row[3]}
 end
+-- Inspect the record by account/book/chapter before deciding whether a stale
+-- pre-dispatch plan may be replaced. Claimed operations are never deleted.
+local function lookup(self,db,plan)
+    local row=query(db,'SELECT plan FROM translation_generation_claims WHERE book_id=? AND uid=?',plan.book_id,plan.chapter_uid)[1]
+    if not row then return nil end
+    assert(type(row[1])=='string' and #row[1]<=2048)
+    local saved=self.codec:json_decode(row[1])
+    assert(Model.valid(saved) and saved.owner==plan.owner and saved.book_id==plan.book_id and saved.chapter_uid==plan.chapter_uid)
+    local state=assert(read(self,db,saved));state.same=true
+    for _,key in ipairs(fields) do if saved[key]~=plan[key] then state.same=false end end
+    return state
+end
+function M:lookup(plan)
+    return access(self,plan,function(db) return lookup(self,db,plan) end)
+end
+function M:discard_stale_prepared(plan)
+    return access(self,plan,function(db)
+        local state=lookup(self,db,plan)
+        if not state or state.same or state.phase~='prepared' then return false end
+        query(db,'DELETE FROM translation_generation_claims WHERE book_id=? AND uid=?',plan.book_id,plan.chapter_uid)
+        return true
+    end)==true
+end
+-- A confirmed mode change can be followed by a freshly checked plan after
+-- cancellation or ordinary progress changes. A claimed generation cannot.
+function M:rebase_confirmed(plan)
+    return access(self,plan,function(db)
+        local state=lookup(self,db,plan)
+        if not state or state.same or state.phase~='mode_confirmed' then return false end
+        local encoded=self.codec:json_encode(plan);assert(type(encoded)=='string' and #encoded<=2048)
+        query(db,'UPDATE translation_generation_claims SET plan=? WHERE book_id=? AND uid=?',
+            encoded,plan.book_id,plan.chapter_uid)
+        local updated=assert(read(self,db,plan))
+        return updated.phase=='mode_confirmed'
+    end)==true
+end
 function M:prepare(plan)
     return access(self,plan,function(db)
         if read(self,db,plan) then return nil end

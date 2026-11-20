@@ -22,6 +22,9 @@ local function current(settings,selected,options)
     if type(options.is_current)~='function' or not Native.matches(settings,selected) then return false end
     local ok,value=pcall(options.is_current);return ok and value==true
 end
+local function document(raw)
+    return raw:match('<body[%s>]') and raw or '<html><body>'..raw..'</body></html>'
+end
 local function local_snapshot(input)
     local path=Source.meta_path(input.chapter_uid)
     local headers=Archive.read(input.path,{[Identity.PATH]=Identity.MAX_BYTES,[path]=Source.MAX_META_BYTES})
@@ -35,11 +38,11 @@ local function local_snapshot(input)
     if not contents then fail('local_source') end
     local record=Source.verify_snapshot{identity=identity,book_id=input.book_id,chapter_uid=input.chapter_uid,
         metadata=metadata,raw=contents[raw_path],rendered=contents[meta.render_path]}
-    if not record then fail('local_source') end
-    return {raw_sha256=record.raw_sha256,file_id=identity.file_id,book_version=identity.book_version}
-end
-local function document(raw)
-    return raw:match('<body[%s>]') and raw or '<html><body>'..raw..'</body></html>'
+    if not record or type(record.raw)~='string' then fail('local_source') end
+    local profile=Model.analyze(document(record.raw),input.chapter_uid,1,false,true)
+    if not profile or profile.recoveries>0 or profile.ambiguous_translation or (profile.original_text_bytes or 0)<100 then fail('local_source') end
+    return {raw_sha256=record.raw_sha256,original_text_sha256=profile.original_text_sha256,
+        file_id=identity.file_id,book_version=identity.book_version}
 end
 local function structural(title)
     if type(title)~='string' then return false end
@@ -88,9 +91,10 @@ function M.inspect(client,settings,selected,input,options)
             local profile=Model.analyze(document(raw),input.chapter_uid,1,false,true)
             if not profile or profile.recoveries>0 or profile.ambiguous_translation then fail('unavailable') end
             local found=profile.blocks>0
+            if not found and (profile.original_text_bytes or 0)<100 then fail('missing_original') end
+            if profile.original_text_sha256~=local_before.original_text_sha256 then fail('source_changed') end
             if digest and (digest~=source.raw_sha256 or available~=found) then fail('source_changed') end
             digest,available=source.raw_sha256,found
-            if not found and (profile.original_text_bytes or 0)<100 then fail('missing_original') end
         end
         local again,later=Content.fetch_catalog(proxy,book)
         if later~=version or not same(chapters,again) then fail('catalog_changed') end

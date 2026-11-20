@@ -38,6 +38,7 @@ local function close_result(host)
     if dialog then UIManager:close(dialog) end
 end
 function M.cancel(host)
+    local generation=package.loaded['weread.ui.translation_generation'];if generation then generation.cancel(host) end
     local annotations=package.loaded['weread.ui.translation_annotations'];if annotations then annotations.cancel(host) end
     local prompt=host._translation_resume_prompt;host._translation_resume_prompt=nil;host._translation_resume_owner=nil
     if prompt then UIManager:close(prompt) end
@@ -50,6 +51,7 @@ function M.cancel(host)
     if job.busy and host.busy_message==job.busy then host:closeBusy() end
 end
 function M.view_changed(host)
+    local generation=package.loaded['weread.ui.translation_generation'];if generation then generation.view_changed(host) end
     local annotations=package.loaded['weread.ui.translation_annotations'];if annotations then annotations.view_changed(host) end
     local job=host.translation_fetch_job
     if job and not current(host,job.owner) then M.cancel(host) end
@@ -110,6 +112,7 @@ local function open_copy(host,o,path,result,after_open)
 end
 M.open_copy=open_copy
 M.is_current=current
+M.capture_owner=owner
 function M.saved_entry(host)
     local good,o=pcall(owner,host)
     if not good or not o or not o.doc_settings then return nil end

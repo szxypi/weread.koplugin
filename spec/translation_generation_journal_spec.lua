@@ -35,6 +35,25 @@ assert(not reopened:state(changed) and not reopened:prepare(changed),'changed so
 local function chapter(uid)
     local result={};for k,v in pairs(plan) do result[k]=v end;result.chapter_uid=uid;return result
 end
+local outdated=chapter(20);assert(reopened:prepare(outdated))
+local updated=chapter(20);updated.source_sha256=string.rep('b',64)
+assert(not reopened:discard_stale_prepared(outdated),'matching prepared intent was discarded')
+assert(reopened:lookup(updated).phase=='prepared' and not reopened:lookup(updated).same,'stale prepared intent not identified')
+assert(reopened:discard_stale_prepared(updated) and reopened:prepare(updated),'unsent stale plan could not be replaced')
+assert(reopened:claim_mode(updated),'replacement could not be claimed')
+local newest=chapter(20);newest.source_sha256=string.rep('c',64)
+assert(reopened:lookup(newest).phase=='mode_claimed' and not reopened:discard_stale_prepared(newest)
+    and not reopened:prepare(newest),'claimed intent was erased or replaced')
+local acknowledged=chapter(21);assert(reopened:prepare(acknowledged) and reopened:claim_mode(acknowledged))
+assert(reopened:record_mode(acknowledged,{succ=1},wire))
+local refreshed=chapter(21);refreshed.baseline_sha256=string.rep('b',64)
+assert(reopened:lookup(refreshed).phase=='mode_confirmed' and not reopened:lookup(refreshed).same)
+assert(reopened:rebase_confirmed(refreshed) and reopened:state(refreshed).phase=='mode_confirmed',
+    'confirmed mode could not bind a freshly checked baseline')
+assert(reopened:claim_generation(refreshed))
+local later=chapter(21);later.baseline_sha256=string.rep('c',64)
+assert(not reopened:rebase_confirmed(later) and not reopened:prepare(later),
+    'claimed generation was replaced after baseline change')
 local pending=chapter(8);assert(reopened:prepare(pending))
 local original_open=library.open
 library.open=function()

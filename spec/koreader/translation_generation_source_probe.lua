@@ -21,10 +21,11 @@ local good,result=pcall(function()
     local request=client.request
     client.request=function(self,options)
         if options.url:match('^https://i%.weread%.qq%.com/') then
-            native_count=native_count+1;assert(native_count<=12 and options.skip_cookie)
+            native_count=native_count+1;assert(native_count<=(input.task and 16 or 12) and options.skip_cookie)
             local base='https://i.weread.qq.com'
             if options.url==base..'/pay/memberCardSummary?pf=wechat_wx-2001-android-100-weread'
-                or options.url==base..'/book/info?bookId='..input.book_id then
+                or options.url==base..'/book/info?bookId='..input.book_id
+                or input.task and (options.url==base..'/book/getProgress?bookId='..input.book_id or options.url==base..'/shelf/sync') then
                 assert(options.method=='GET' and options.body==nil)
             else
                 assert(options.url==base..'/book/chapterInfos' and options.method=='POST')
@@ -34,6 +35,13 @@ local good,result=pcall(function()
             end
         else
             web_count=web_count+1;assert(web_count<=32 and options.url:match('^https://weread%.qq%.com/'))
+            local reader=options.url:match('^https://weread%.qq%.com/web/reader/')
+            local progress=options.url:match('^https://weread%.qq%.com/web/book/getProgress%?')
+            local shelf=options.url=='https://weread.qq.com/web/shelf/sync'
+            local catalog=options.url=='https://weread.qq.com/web/book/chapterInfos'
+            local shard=options.url:match('^https://weread%.qq%.com/web/book/chapter/e_[0-3]$')
+            assert((reader or input.task and (progress or shelf)) and options.method=='GET' and not options.body
+                or (catalog or shard) and options.method=='POST')
         end
         return request(self,options)
     end
@@ -51,10 +59,16 @@ local good,result=pcall(function()
     package.loaded['weread.lib.source_archive']={read=function(_path,wanted)
         local entries={};for name in pairs(wanted) do assert(values[name]);entries[name]=values[name] end;return entries
     end}
-    local result,reason=require('weread.lib.translation_generation_source').inspect(client,settings,selected,
-        {book_id=input.book_id,chapter_uid=input.uid,path='/memory-fixture.epub',metadata=meta,file_id=identity.file_id},
-        {is_current=function() return true end})
-    return {kind=result and result.kind or 'unavailable',reason=reason,native_reads=native_count,web_reads=web_count,cookies=cookies}
+    local target={book_id=input.book_id,chapter_uid=input.uid,path='/memory-fixture.epub',metadata=meta,file_id=identity.file_id}
+    local options={is_current=function() return true end}
+    local result,reason
+    if input.task then
+        local web=assert(require('weread.lib.read_access').capture(settings))
+        result=require('weread.lib.translation_generation_task').run(client,settings,selected,web,target,{},options)
+    else result,reason=require('weread.lib.translation_generation_source').inspect(client,settings,selected,target,options) end
+    return {kind=result and result.kind or 'unavailable',reason=reason,native_reads=native_count,web_reads=web_count,cookies=cookies,
+        mode_attempted=result and result.mode_attempted,generation_attempted=result and result.generation_attempted}
+
 end)
 io.write('\nTRANSLATION_SOURCE='..json.encode(good and result or {kind='error',native_reads=native_count,web_reads=web_count})..'\n')
 io.flush();os.exit(good and 0 or 1)

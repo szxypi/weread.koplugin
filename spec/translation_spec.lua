@@ -19,6 +19,10 @@ end
 local evidence=assert(Model.analyze('<html><body><p>Original text</p><p class="wr-translation">'..string.rep('translated',40)
     ..'</p><script>'..string.rep('script',40)..'</script><style>'..string.rep('style',40)..'</style></body></html>','chapter',1,false,true))
 expect(evidence.original_text_bytes==#'Originaltext','translation or script was counted as original source')
+local plain=assert(Model.analyze('<html><body><p>Original text</p></body></html>','chapter',1,false,true))
+local altered=assert(Model.analyze('<html><body><p>Different text</p><p class="wr-translation">Translated</p></body></html>','chapter',1,false,true))
+expect(evidence.original_text_sha256==plain.original_text_sha256 and altered.original_text_sha256~=plain.original_text_sha256,
+    'original text digest changed with translation or ignored changed original')
 expect(analyze('<p>Normal text</p>').original_text_bytes==nil,'source counting changed ordinary display analysis')
 local a=analyze('<p id="pair">Original</p><p id="pair" class="wr-translation">译文</p>')
 expect(a.blocks==1 and #a.pairs==1 and a.pairs[1].kind=='id','matching ID siblings not paired')

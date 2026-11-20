@@ -85,7 +85,10 @@ local function notice_text(stack, value, result)
         for _,ancestor in ipairs(stack) do
             if ancestor.name=='script' or ancestor.name=='style' then excluded=true;break end
         end
-        if not excluded then result.original_text_bytes=result.original_text_bytes+#text end
+        if not excluded then
+            result.original_text_bytes=result.original_text_bytes+#text
+            result._original_text_parts[#result._original_text_parts+1]=value:gsub('&nbsp;', ' '):gsub(utf8_char(160),' ')
+        end
     end
     if node and node.in_body and node.name~="script" and node.name~="style" then
         result.has_body_content=true
@@ -145,7 +148,7 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions, collect
         relations={same_tag=0,source_id=0,translation_id=0,same_id=0,previous_missing=0},
         chapter_uid=tostring(chapter_uid or ""), fragment_index=fragment_index or 1}
     if collect_positions then out.original_nodes={} end
-    if collect_source then out.original_text_bytes=0 end
+    if collect_source then out.original_text_bytes=0;out._original_text_parts={} end
     local stack, ids, pending, translated_nodes, font_pending = {}, {}, {}, {}, {}
     local cursor, body = 1, nil
     while true do
@@ -327,6 +330,11 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions, collect
             pair.source=nil; pair.node=nil
             out.typography[#out.typography+1]=pair
         end
+    end
+    if collect_source then
+        local original=table.concat(out._original_text_parts):gsub('%s+',' '):match('^%s*(.-)%s*$')
+        out.original_text_sha256=require('weread.lib.crypto').sha256_hex(original)
+        out._original_text_parts=nil
     end
     out.separable = out.blocks > 0 and #out.pairs == out.blocks
     if collect_positions then

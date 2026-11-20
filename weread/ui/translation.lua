@@ -1,4 +1,4 @@
--- Local display choices; no translation generation, HTTP, or EPUB rewriting.
+-- Local reading-language choices and explicit translation actions.
 local Model=require('weread.lib.translation')
 local Archive=require('weread.lib.translation_archive')
 local Identity=require('weread.lib.book_file_identity')
@@ -237,6 +237,10 @@ local function show_choices(host,profile,owner)
     items[#items+1]={text=T(_('Verified translated blocks: %1; unpaired blocks kept: %2'),profile.blocks,status.unpaired),callback=function()
         if host._translation_menu~=menu or not current(host,owner) then return end
         host:showInfo(_('Only verified pairs hide their original text. Unpaired paragraphs, illustrations and links remain visible.'))
+    end}
+    items[#items+1]={text=_('Request official translation for this chapter (experimental)'),callback=function()
+        if host._translation_menu~=menu or not current(host,owner) then return end
+        require('weread.ui.translation_generation').start(host)
     end}
     items[#items+1]={text=_('Download existing translation'),callback=function()
         if host._translation_menu~=menu or not current(host,owner) then return end
