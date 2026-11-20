@@ -147,7 +147,9 @@ function M:showDiscoveryPage(tab, books, options)
         local force = options.refresh_progress
         options.refresh_progress = nil
         self:refreshVisibleShelfProgress(view, visible, snapshots, {
-            force = force, on_redraw = function() redraw(self.shelf_view and self.shelf_view.page or page) end,
+            force = force, on_redraw = function()
+                Popup.redrawForMetadata(self,view,function() redraw(view.page or page) end)
+            end,
         })
     elseif self.cancelShelfProgress then self:cancelShelfProgress() end
     if cover_mode then self:fetchVisibleShelfCovers(view, books, { on_redraw = redraw }) end

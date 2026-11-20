@@ -57,6 +57,22 @@ return function(host,response,cover,evidence)
         host:showShelfView('books',nil,view);view=host.shelf_view
         local path=assert(cache:pathFor(book));local source=cache.dir..'/'..cache:key(book)..'.png'
         local file=assert(io.open(source,'wb'));assert(file:write(cover));file:close();assert(os.remove(path))
+        local metadata={};host.book_metadata_context=metadata
+        host:fetchVisibleShelfCovers(view,view.books,{mode='books',prepared_books=view.books,prepared_accounts=view.accounts})
+        local job=assert(host.shelf_cover_job);local pid=assert(job.pid)
+        pump(function() return not host.shelf_cover_job and not host.shelf_cover_pending end)
+        assert(require('ffi/util').isSubProcessDone(pid))
+        assert(host.shelf_view==view and metadata.pending_shelf_redraw,
+            'thumbnail replaced the shelf while metadata was loading')
+        host:cancelBookMetadata();pump(function() return host.shelf_view~=view end)
+        assert(cache:pathFor(book),'metadata cancellation lost the thumbnail')
+    end
+    do
+        local view=show(false,false)
+        local book=assert(view:getVisibleBooks()[1]);assert(cache:store(book,cover))
+        host:showShelfView('books',nil,view);view=host.shelf_view
+        local path=assert(cache:pathFor(book));local source=cache.dir..'/'..cache:key(book)..'.png'
+        local file=assert(io.open(source,'wb'));assert(file:write(cover));file:close();assert(os.remove(path))
         host:showBookMenu(book);local detail=assert(host._book_detail_view)
         local current=require('weread.ui.page_scope').capture(host,view)
         host:fetchVisibleShelfCovers(view,view.books,{mode='books',prepared_books=view.books,prepared_accounts=view.accounts})

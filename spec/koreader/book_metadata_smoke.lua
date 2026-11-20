@@ -31,6 +31,31 @@ return function(plugin,count,flush_tasks,home,pump_until)
         for index=1,#widget do if has_text(widget[index],text) then return true end end
         return false
     end
+    -- The request must not open stale details after the user changes pages.
+    plugin:closeWeReadUI()
+    local refresh_progress=plugin.refreshVisibleShelfProgress
+    plugin.refreshVisibleShelfProgress=function() end
+    plugin:showShelfView('books')
+    local owner=assert(plugin.shelf_view)
+    control{match='/web/reader/',times=0,delay=0.5}
+    assert(plugin:refreshBookRecord(cached(),nil,{automatic=true}) and plugin.book_metadata_context)
+    plugin:showShelfView('books',nil,owner,{page=2})
+    local replacement=assert(plugin.shelf_view);assert(replacement~=owner)
+    wait()
+    assert(not plugin._book_detail_view,'late automatic metadata opened over a different shelf page')
+    assert(not cached().detail_updated_at,'late automatic metadata saved after page change')
+    assert(plugin.shelf_view and plugin.shelf_view.page==replacement.page,
+        'background refresh lost the selected shelf page')
+    plugin:closeWeReadUI();plugin:showShelfView('books');owner=assert(plugin.shelf_view)
+    assert(plugin:refreshBookRecord(cached(),nil,{automatic=true}) and plugin.book_metadata_context)
+    local redrawn=false
+    require('weread.ui.shelf_popup').redrawForMetadata(plugin,owner,function() redrawn=true end)
+    assert(not redrawn and plugin.shelf_view==owner,'background redraw interrupted metadata')
+    wait()
+    assert(plugin._book_detail_view and plugin.shelf_view==owner and not redrawn,
+        'metadata did not open on its original shelf')
+    plugin.refreshVisibleShelfProgress=refresh_progress
+    control{match='',times=0,delay=0}
     plugin:closeWeReadUI()
     plugin:showBookMenu(cached())
     control{match="/web/reader/",times=0,delay=0.5}

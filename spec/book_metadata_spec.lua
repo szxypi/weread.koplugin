@@ -142,6 +142,20 @@ host,state=fixture();local changing_selected_book={book_id='900001',bookId='9000
 UI.refresh(host,changing_selected_book,nil,{automatic=true});job=state();changing_selected_book.bookId='900002';job.cb(job.task())
 expect(select(4,state())==0 and not host.book_metadata_context,
     'metadata ignored a changed secondary book identity')
+for _,change in ipairs({'page_replaced','page_closed','document','session','detail'}) do
+    host,state=fixture();host.shelf_view={};host.ui={document={}};host._reader_session_gen=1
+    expect(UI.refresh(host,{book_id='900001'},nil,{automatic=true}),'metadata scope fixture did not start')
+    job=state()
+    if change=='page_replaced' then host.shelf_view={}
+    elseif change=='page_closed' then host.shelf_view._shelf_closed=true
+    elseif change=='document' then host.ui.document={}
+    elseif change=='session' then host._reader_session_gen=2
+    else host._book_detail_view={} end
+    job.cb(job.task())
+    local _,_,late_book,late_saves=state()
+    expect(not late_book and late_saves==0 and not host.book_metadata_context and not host.busy_message,
+        'late metadata crossed a changed '..change)
+end
 for _,change in ipairs({"cookie","epoch","owner","cancel"}) do
     local alter
     host,state,alter=fixture()

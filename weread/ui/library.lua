@@ -660,7 +660,7 @@ function M:fetchVisibleShelfCovers(view, items, options)
             }
             next_options.page = view.page
             next_options.skip_cover_fetch_once = true
-            require('weread.ui.shelf_popup').redraw(view,function()
+            require('weread.ui.shelf_popup').redrawForMetadata(self,view,function()
                 if generation~=self.shelf_cover_generation or self.shelf_view~=view then return end
                 -- Closing book details rebuilds the parent from its cached
                 -- data. Replacing it now would cancel that detail's actions.
@@ -1094,7 +1094,7 @@ function M:showShelfView(mode, keyword, old_view, options)
             self:refreshVisibleShelfProgress(view, paged and progress_books or view:getVisibleBooks(), progress_snapshots, {
                 force = refresh,
                 on_redraw = function()
-                    require('weread.ui.shelf_popup').redraw(view,function()
+                    require('weread.ui.shelf_popup').redrawForMetadata(self,view,function()
                         if not current() or self._book_detail_view then return end
                         local next_options = {}
                         for key, value in pairs(options) do next_options[key] = value end

@@ -111,4 +111,28 @@ parent=deferred_fixture();rendered=0
 Popup.redraw(parent,function() rendered=rendered+1 end)
 require('ui/uimanager'):close(parent._shelf_popup);flush()
 expect(rendered==1 and not parent._shelf_popup,'native dismissal did not release deferred redraw')
+do
+    local host={};local view={};host.shelf_view=view;host.book_metadata_context={}
+    local context=host.book_metadata_context;local value=0
+    Popup.redrawForMetadata(host,view,function() value=1 end)
+    Popup.redrawForMetadata(host,view,function() value=2 end)
+    expect(value==0,'metadata loading did not defer shelf redraw')
+    host.book_metadata_context=nil;Popup.resumeMetadata(host,context);flush()
+    expect(value==2,'metadata cancellation did not restore the latest redraw')
+    host.book_metadata_context={};context=host.book_metadata_context
+    Popup.redrawForMetadata(host,view,function() value=3 end)
+    host.book_metadata_context=nil;host._book_detail_view={};Popup.resumeMetadata(host,context);flush()
+    expect(value==2,'metadata completion redrew beneath book details')
+    host._book_detail_view=nil;host.book_metadata_context={};context=host.book_metadata_context
+    Popup.redrawForMetadata(host,view,function() value=4 end)
+    host.book_metadata_context=nil;Popup.resumeMetadata(host,context)
+    host.book_metadata_context={};local next_context=host.book_metadata_context
+    Popup.redrawForMetadata(host,view,function() value=5 end)
+    flush();host.book_metadata_context=nil;Popup.resumeMetadata(host,next_context);flush()
+    expect(value==5,'old metadata completion replaced a newer redraw')
+    host.book_metadata_context={};context=host.book_metadata_context
+    Popup.redrawForMetadata(host,view,function() value=6 end)
+    host.book_metadata_context=nil;Popup.resumeMetadata(host,context);host.shelf_view={};flush()
+    expect(value==5,'metadata redraw crossed into another shelf page')
+end
 print(('shelf_popup_spec: %d checks'):format(checks))

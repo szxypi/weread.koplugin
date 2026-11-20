@@ -5,6 +5,28 @@ function M.redraw(owner,callback)
     if owner._shelf_closed then return end
     if owner._shelf_popup then owner._shelf_redraw=callback else callback() end
 end
+-- A background result must not replace the page that owns an in-flight
+-- automatic book-detail request. Its latest redraw can resume on cancellation.
+function M.redrawForMetadata(host,owner,callback)
+    if host.shelf_view~=owner or owner._shelf_closed then return end
+    host._metadata_redraw_generation=(host._metadata_redraw_generation or 0)+1
+    local context=host.book_metadata_context
+    if context then
+        context.pending_shelf_redraw={owner=owner,callback=callback,generation=host._metadata_redraw_generation}
+        return
+    end
+    M.redraw(owner,callback)
+end
+function M.resumeMetadata(host,context)
+    local pending=context.pending_shelf_redraw
+    context.pending_shelf_redraw=nil
+    if not pending then return end
+    UI:nextTick(function()
+        if host.shelf_view~=pending.owner or pending.owner._shelf_closed or host._book_detail_view
+            or host._metadata_redraw_generation~=pending.generation then return end
+        M.redrawForMetadata(host,pending.owner,pending.callback)
+    end)
+end
 local function flush(owner)
     local callback=owner._shelf_redraw;owner._shelf_redraw=nil
     if callback and not owner._shelf_closed then

@@ -11,6 +11,10 @@ local M = {}
 local function close_busy(host, context)
     if context.busy and host.busy_message == context.busy then host:closeBusy() end
 end
+local function resume_shelf(host, context)
+    local popup=package.loaded['weread.ui.shelf_popup']
+    if popup and popup.resumeMetadata then popup.resumeMetadata(host,context) end
+end
 
 function M.cancel(host)
     local context = host.book_metadata_context
@@ -20,6 +24,7 @@ function M.cancel(host)
     Recovery.cancel(host, context)
     if context.web_request then require('weread.ui.web_renewal').cancel(host, context.web_request) end
     close_busy(host, context)
+    resume_shelf(host, context)
 end
 
 function M.refresh(host, book, old_view, options)
@@ -54,8 +59,10 @@ function M.refresh(host, book, old_view, options)
         had_saved_record = initial~=nil,
         account = host.library_db and host.library_db:accountKey(), view = old_view }
     host.book_metadata_context = context
+    local page_current=require('weread.ui.page_scope').capture(host,host.shelf_view)
     local function current_view()
         return host.book_metadata_context == context and (host.discovery_epoch or 0) == context.epoch
+            and page_current()
             and Access.display_book_id(ShelfSnapshot.persisted_id(book)) == id
             and (not host.library_db or host.library_db:accountKey() == context.account)
             and (not old_view or host._book_detail_view == old_view)
@@ -72,6 +79,7 @@ function M.refresh(host, book, old_view, options)
     local function finish()
         host.book_metadata_context = nil
         close_busy(host, context)
+        resume_shelf(host, context)
     end
     local function failed()
         if options.automatic then host:showBookMenu(book) end
