@@ -16,6 +16,10 @@ end
 for _,body in ipairs({'<p>Original</p>','<img src="image.png"/>','<svg></svg>','<math></math>'}) do
     expect(analyze(body).has_body_content,'text or visual chapter content was rejected')
 end
+local evidence=assert(Model.analyze('<html><body><p>Original text</p><p class="wr-translation">'..string.rep('translated',40)
+    ..'</p><script>'..string.rep('script',40)..'</script><style>'..string.rep('style',40)..'</style></body></html>','chapter',1,false,true))
+expect(evidence.original_text_bytes==#'Originaltext','translation or script was counted as original source')
+expect(analyze('<p>Normal text</p>').original_text_bytes==nil,'source counting changed ordinary display analysis')
 local a=analyze('<p id="pair">Original</p><p id="pair" class="wr-translation">译文</p>')
 expect(a.blocks==1 and #a.pairs==1 and a.pairs[1].kind=='id','matching ID siblings not paired')
 local b=analyze('<p>Original <em>text</em></p> \n <p class="wr-translation">译文</p>',2)

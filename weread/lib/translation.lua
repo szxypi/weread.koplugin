@@ -80,6 +80,13 @@ local function notice_text(stack, value, result)
     end
     local text=value:gsub("&nbsp;", " "):gsub(utf8_char(160), " "):gsub("%s+", "")
     if text=="" then return end
+    if result.original_text_bytes and node and node.in_body and not node.in_translation then
+        local excluded=false
+        for _,ancestor in ipairs(stack) do
+            if ancestor.name=='script' or ancestor.name=='style' then excluded=true;break end
+        end
+        if not excluded then result.original_text_bytes=result.original_text_bytes+#text end
+    end
     if node and node.in_body and node.name~="script" and node.name~="style" then
         result.has_body_content=true
     end
@@ -128,7 +135,7 @@ end
 -- containers, illustrations and links must not hide unverified original text.
 -- Native migration collects DOM signatures instead of font statistics; it
 -- never retains copies of the source markup for nested original nodes.
-function M.analyze(html, chapter_uid, fragment_index, collect_positions)
+function M.analyze(html, chapter_uid, fragment_index, collect_positions, collect_source)
     if type(html)~="string" or #html>M.MAX_HTML_BYTES then return nil,"html_limit" end
     if fragment_index==nil then fragment_index=1 end
     if type(fragment_index)~="number" or fragment_index<1 or fragment_index>20000 or fragment_index%1~=0 then return nil,"fragment_identity" end
@@ -138,6 +145,7 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions)
         relations={same_tag=0,source_id=0,translation_id=0,same_id=0,previous_missing=0},
         chapter_uid=tostring(chapter_uid or ""), fragment_index=fragment_index or 1}
     if collect_positions then out.original_nodes={} end
+    if collect_source then out.original_text_bytes=0 end
     local stack, ids, pending, translated_nodes, font_pending = {}, {}, {}, {}, {}
     local cursor, body = 1, nil
     while true do
@@ -226,6 +234,11 @@ function M.analyze(html, chapter_uid, fragment_index, collect_positions)
                         node.id = attribute(raw, "id")
                         if node.id=="" then node.id=nil end
                         node.translation = has_class(attribute(raw, "class"), "wr-translation")
+                        -- Unknown class syntax must never make a translated node
+                        -- look like untranslated original text to a writer.
+                        if collect_source and not node.translation and raw:lower():find('wr%-translation') then
+                            out.ambiguous_translation=true
+                        end
                         node.in_translation = node.translation or (parent and parent.in_translation) or false
                         if not collect_positions then
                             node.font_rem=inline_font_rem(attribute(raw,"style"),parent and parent.font_rem)
