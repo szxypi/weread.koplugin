@@ -199,6 +199,52 @@ class GuardTest(unittest.TestCase):
             with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
 
 
+    def test_shelf_offsets_are_read_only_and_bounded(self):
+        for args in (['--shelf-offset','0'],['--saved-session','--prepare','--shelf-offset','0'],
+                ['--saved-session','--dry-run','--shelf-offset','0'],['--saved-session','--shelf-offset','5000'],
+                ['--saved-session','--shelf-offset','-1'],['--saved-session','--shelf-offset','0','--book-offset','1'],
+                ['--saved-session','--shelf-offset','0','--query','Moby Dick']):
+            with self.subTest(args=args),contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
+
+
+class ShelfDiscoveryTest(unittest.TestCase):
+    def setUp(self):
+        self.api=Native();self.calls=[]
+        self.rows=[{'bookId':'900001'},{'bookId':'900002'},{'bookId':'900002'},{'bookId':'CB_X'},
+            {'bookId':'900003'},{'bookId':'900004'},{'bookId':'900005'}]
+        def request(stage,url,body=None,credentials=None):
+            self.calls.append((stage,url,body));self.api.guard(stage,url,body)
+            if stage=='shelf':return {'books':self.rows}
+            if stage=='member':return {'isPaying':1}
+            if stage=='book':return {'bookId':url.rsplit('=',1)[1],'format':'epub','version':7}
+            if stage=='catalog':
+                key=body['bookIds'][0]
+                return {'data':[{'bookId':key,'updated':[{'chapterUid':1,'wordCount':400,'price':0}]}]}
+            raise AssertionError('unexpected request')
+        self.api.request=request
+    def test_bounded_distinct_shelf_candidates_and_scope(self):
+        self.assertEqual(self.api.inspect_shelf({'vid':'900000'},1),3)
+        self.assertEqual([sample['book_id'] for sample in self.api.samples],['900002','900003','900004'])
+        self.assertEqual(self.api.allowed_ids,{'900002','900003','900004'})
+        self.assertEqual(sum(stage=='catalog' for stage,*_ in self.calls),3)
+        with self.assertRaises(TranslationError):self.api.guard('book',BASE+'/book/info?bookId=900005',None)
+    def test_errors_clear_old_scope_and_partial_samples(self):
+        self.api.inspect_shelf({'vid':'900000'},0)
+        with self.assertRaises(ValueError):self.api.inspect_shelf({'vid':'900000'},True)
+        self.assertEqual(self.api.allowed_ids,set());self.assertEqual(self.api.samples,[]);self.assertIsNone(self.api.member)
+        original=self.api.request
+        def broken(stage,*args,**kwargs):
+            if stage=='catalog':raise ValueError('synthetic')
+            return original(stage,*args,**kwargs)
+        self.api.request=broken
+        with self.assertRaises(ValueError):self.api.inspect_shelf({'vid':'900000'},1)
+        self.assertEqual(self.api.allowed_ids,set());self.assertEqual(self.api.samples,[]);self.assertIsNone(self.api.member)
+    def test_exhausted_shelf_never_reuses_old_sample(self):
+        self.api.inspect_shelf({'vid':'900000'},0)
+        with self.assertRaisesRegex(ValueError,'no_shelf_sample'):self.api.inspect_shelf({'vid':'900000'},20)
+        self.assertEqual(self.api.allowed_ids,set());self.assertEqual(self.api.samples,[])
+
+
 class InspectionTest(unittest.TestCase):
     def setUp(self):
         self.grant={'vid':'900000','accessToken':'synthetic'}
@@ -211,6 +257,14 @@ class InspectionTest(unittest.TestCase):
         self.web.content_sample=dict(book_id='900001',chapter_uid=1,source='<p>'+'Original content '*80+'</p>')
         self.web.inspect_content.return_value=dict(content_decoded=True,nonempty_translation_blocks=0)
         self.baseline=dict(counts=0,position='synthetic')
+    def test_non_epub_is_skipped_before_reading_source(self):
+        self.model['format']='txt';report={}
+        with self.assertRaisesRegex(ValueError,'no_missing_sample'):inspect(self.api,self.web,self.grant,report)
+        self.assertEqual(report['unsupported_books_skipped'],1);self.web.inspect_content.assert_not_called()
+    def test_shelf_selection_does_not_accept_existing_write_plan(self):
+        with self.assertRaisesRegex(ValueError,'shelf_offset'):
+            inspect(self.api,self.web,self.grant,{},expected={},shelf_offset=0)
+        self.api.inspect_shelf.assert_not_called()
     def test_two_observations_are_required_before_plan(self):
         report={}
         with patch('verify_translation_generation.snapshot',return_value=self.baseline) as observed:

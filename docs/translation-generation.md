@@ -116,7 +116,10 @@ python3 scripts/verify_translation_generation.py --saved-session
 python3 scripts/verify_translation_generation.py --saved-session --chapter-offset 12
 python3 scripts/verify_translation_generation.py --saved-session --query 'Moby Dick' --chapter-offset 4
 python3 scripts/verify_translation_generation.py --saved-session --query 'The Wonderful Wizard of Oz' --book-offset 2
+python3 scripts/verify_translation_generation.py --saved-session --shelf-offset 0
 ```
+
+书架批次仅用于只读发现，每次最多三本书、每本最多四章，不可用于准备已有写入计划。三批完整抽查发现的 33 个缺少译文的章节均不符合英文正文条件；另一批读取七章后未完成。该抽查不能代表整个书架，没有发送模式切换、生成、购买或试用请求。
 
 `--prepare` 只在两轮原文、目录、位置、计数及书架一致后保存不可覆盖计划；
 `--dry-run` 重新核对已经准备的同一计划，均不能派发模式或生成操作。
