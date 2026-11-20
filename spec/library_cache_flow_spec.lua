@@ -511,5 +511,41 @@ host._chapter_list_view._catalog_closed=true;expect(not first_intent(),'closed c
 selected_chapter.chapterUid=3;expect(not first_intent(),'changed selected chapter retained old promotion');selected_chapter.chapterUid=2
 host:openChapter(selected_book,selected_chapter)
 expect(not first_intent() and promoted(),'later chapter selection did not supersede old promotion')
+
+local old_claims=package.loaded['weread.lib.chapter_cache_claim']
+local old_navigation=package.loaded['weread.ui.combined_chapter_navigation']
+local proof={kind='combined',items={chapter_2=true},file_id='sealed'}
+local single_valid=false
+package.loaded['weread.lib.chapter_cache_claim']={
+    combined=function(_,path) if path=='/cache/full.epub' then return proof end end,
+    inspect=function() return {kind='unknown'} end,
+    usable=function() return single_valid end,
+    complete=function() return true end,
+}
+local navigated
+package.loaded['weread.ui.combined_chapter_navigation']={open=function(_,_,_,path,guard,actual,is_partial)
+    navigated={path=path,current=guard(),proof=actual,partial=is_partial};return true
+end}
+selected_book.full_path='/cache/full.epub'
+selected_book.cached_chapters={['2']='/cache/missing.epub'}
+selected_book.chapters={selected_chapter}
+existing_paths['/cache/full.epub']=true
+host:openChapter(selected_book,selected_chapter)
+expect(navigated and navigated.path==selected_book.full_path and navigated.current and navigated.proof==proof,
+    'missing single-chapter cache hid a verified combined book')
+navigated=nil;existing_paths['/cache/missing.epub']=true
+host:openChapter(selected_book,selected_chapter)
+expect(navigated and navigated.path==selected_book.full_path,
+    'unusable single-chapter cache hid a verified combined book')
+navigated=nil;opened_path=nil;single_valid=true
+host:openChapter(selected_book,selected_chapter)
+expect(not navigated and opened_path=='/cache/missing.epub',
+    'verified single chapter lost priority to a different combined book')
+navigated=nil;single_valid=false;proof.items={chapter_4=true};single_download_options=nil
+host:openChapter(selected_book,selected_chapter)
+expect(not navigated and single_download_options and single_download_options.single_chapter,
+    'combined book without the target bypassed the ambiguous-cache warning')
+package.loaded['weread.lib.chapter_cache_claim']=old_claims
+package.loaded['weread.ui.combined_chapter_navigation']=old_navigation
 package.loaded['weread.lib.source_context']=old_context
 print(("library_cache_flow_spec: %d checks"):format(checks))

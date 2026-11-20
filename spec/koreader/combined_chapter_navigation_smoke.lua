@@ -15,7 +15,9 @@ return function(reader,host,book,id,pump,clean,set_offline)
     local text4='<p>'..string.rep('这是第四章的合成正文。',100)..'</p>'
     local combined=Content.save_book_epub(host.settings,copy,selected,{['2']=text2,['4']=text4},
         'synthetic-navigation',{},'',png,Identity.capture(copy))
-    copy.cached_full_book=combined;copy.cached_file=combined;copy.cached_chapters={['2']=combined,['4']=combined}
+    -- A stale single-chapter mapping must not hide the verified combined EPUB.
+    copy.cached_full_book=combined;copy.cached_file=combined
+    copy.cached_chapters={['2']=combined,['4']=combined..'.missing'}
     copy.chapters=selected
     local saved=host.settings:get('books',{});saved[id]=copy;host.settings:set('books',saved);host.settings:flush()
     assert(host.library_db:putChapters(id,selected))

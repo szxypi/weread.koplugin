@@ -2409,17 +2409,20 @@ function M:openChapter(book, chapter, on_downloaded)
     end
     local cached = ReadAccess.cached_chapter(book.cached_chapters,chapter_uid)
     local claims=require('weread.lib.chapter_cache_claim')
+    local cached_exists=cached and file_exists(cached)
     local full=self:getFullBookCachePath(book)
     local combined,proof
+    local claim_cache={}
     if full and file_exists(full) and document and document.file==full then
         local info=claims.combined(book,full)
         if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
     end
-    if not combined and cached and file_exists(cached) then
-        local info=claims.inspect(book,cached)
+    if not combined and cached_exists then
+        local info=claims.inspect(book,cached,claim_cache)
         if info.kind=='combined' and info.items['chapter_'..chapter_id] then combined,proof=cached,info end
     end
-    if not combined and not cached and full and file_exists(full) then
+    local ambiguous=not combined and cached_exists and not claims.usable(book,cached,chapter_uid,claim_cache)
+    if not combined and (not cached_exists or ambiguous) and full and file_exists(full) then
         local info=claims.combined(book,full)
         if info and info.items['chapter_'..chapter_id] then combined,proof=full,info end
     end
@@ -2430,8 +2433,7 @@ function M:openChapter(book, chapter, on_downloaded)
         return require('weread.ui.combined_chapter_navigation').open(self,book,chapter,combined,current,proof,
             not claims.complete(proof,catalog) or not proof.file_id)
     end
-    local ambiguous=cached and file_exists(cached) and not claims.usable(book,cached,chapter_uid)
-    if cached and file_exists(cached) and not ambiguous then
+    if cached_exists and not ambiguous then
         self:openFile(cached,nil,book)
     elseif ambiguous then
         self:confirmAndDownloadChapters(book,{chapter},'chapter',{
