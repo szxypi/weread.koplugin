@@ -192,7 +192,7 @@ local ok,reason=pcall(function()
         local Saved=require('weread.lib.my_cloud_marks_store')
         local array=function() return plugin.client:json_decode('[]') end
         local marks={schema=1,book_id='900001',fetched_at=1000,chapters=array(),updated=array()}
-        marks.updated[1]={bookmarkId='saved-mark-a',type=1,markText='Synthetic needle in first book'}
+        marks.updated[1]={bookmarkId='saved-mark-a',type=1,markText=string.rep('前',100)..' Synthetic needle in first book'}
         assert(Saved:new(plugin.library_db,plugin.client):write(marks))
         marks.book_id='900099';marks.updated[1].bookmarkId='saved-mark-extra'
         marks.updated[1].markText='Synthetic needle in an extra cached book'
@@ -217,6 +217,35 @@ local ok,reason=pcall(function()
     for _,row in ipairs(results.item_table) do if row.saved_note_id then found_notes[row.saved_note_id]=row end end
     if synthetic then
         assert(found_notes['saved-mark-a'] and found_notes['saved-mark-extra'] and found_notes['saved-thought-b'])
+        assert(found_notes['saved-mark-a'].text:find('Synthetic needle',1,true)
+            and found_notes['saved-mark-a'].text:sub(1,3)=='…')
+        for index,row in ipairs(results.item_table) do if row.saved_note_id=='saved-mark-a' then
+            results:onGotoPage(results:getPageNumber(index));break
+        end end
+        local preview=assert(FontSmoke.menu_text(results,'Synthetic needle'))
+        local chars=require('util').splitToChars(preview.text);local shown={}
+        for _,glyph in ipairs(preview._xtext:shapeLine(preview._shape_start,preview._shape_end,preview._shape_idx_to_substitute_with_ellipsis)) do
+            if not glyph.no_drawing and glyph.text_index~=preview._shape_idx_to_substitute_with_ellipsis then
+                shown[glyph.text_index]=true
+            end
+        end
+        local first
+        for index,char in ipairs(chars) do if char=='S' then first=index;break end end
+        assert(first and shown[first] and shown[first+1] and shown[first+2], 'matched text not visible in search result')
+        local Model=require('weread.lib.notebook_search')
+        local note=string.rep('前',100)..' ＨＥＬＬＯ café Straße '..string.rep('后',90)
+        local store={list_ids=function() return {'900001'} end,read=function() return {
+            chapters={},updated={{bookmarkId='normalized',markText=note}}} end}
+        local empty={list_ids=function() return {} end}
+        for _,case in ipairs({{'hello','ＨＥＬＬＯ'},{'café','café'},{'STRASSE','Straße'}}) do
+            local match=Model.search({{bookId='900001'}},store,empty,case[1]).items[1]
+            assert(match and match.preview:find(case[2],1,true) and match.preview:sub(1,3)=='…')
+        end
+        local combined=string.rep('文',125)..'é'..string.rep('文',94)..'e'..string.rep('文',30)
+        local tricky={list_ids=store.list_ids,read=function() return {chapters={},updated={{bookmarkId='tricky',markText=combined}}} end}
+        local match=Model.search({{bookId='900001'}},tricky,empty,'e').items[1]
+        assert(match and require('weread.lib.shelf_search').contains(match.preview,'e'),
+            'preview stopped at a transient combining-character match')
         for index,row in ipairs(results.item_table) do if row.saved_note_id=='saved-thought-b' then
             results:onGotoPage(results:getPageNumber(index));break
         end end

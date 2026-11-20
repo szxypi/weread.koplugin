@@ -1,13 +1,63 @@
 -- Search validated account-local notebook snapshots without network or writes.
 local Marks=require('weread.lib.my_cloud_marks')
 local Search=require('weread.lib.shelf_search')
-local Protocol=require('weread.lib.protocol')
 local M={MAX_RESULTS=200}
 
-local function preview(value)
-    value=value:gsub('[%z%c]',' ')
-    local short=Protocol.utf8_substr(value,80)
-    return #short<#value and short..'…' or short
+local function preview(value,needle)
+    -- Keep enough context before the match to understand it, even when the
+    -- saved note is much longer than a menu row. Offsets are UTF-8 boundaries.
+    local offsets={}
+    for pos in value:gmatch('()[^\128-\191]') do offsets[#offsets+1]=pos end
+    local count=#offsets
+    offsets[count+1]=#value+1
+    local first=1
+    if count>80 then
+        -- Only use bytewise matching for ASCII text. A combining character
+        -- can change the normalized meaning of an otherwise identical byte.
+        local direct=not value:find('[\128-\255]') and string.lower(value):find(needle,1,true)
+        if direct then
+            local lo,hi=1,count
+            while lo<hi do
+                local mid=math.floor((lo+hi+1)/2)
+                if offsets[mid]<=direct then lo=mid else hi=mid-1 end
+            end
+            first=lo
+        else
+            -- The match may involve case folding, compatibility characters or
+            -- combining marks. Locate it with the same normalizer as search.
+            local lo,hi=1,count
+            while lo<hi do
+                local mid=math.floor((lo+hi)/2)
+                if Search.contains(value:sub(1,offsets[mid+1]-1),needle) then hi=mid else lo=mid+1 end
+            end
+            local ending=offsets[lo+1]-1
+            lo,hi=1,lo
+            while lo<hi do
+                local mid=math.floor((lo+hi+1)/2)
+                if Search.contains(value:sub(offsets[mid],ending),needle) then lo=mid else hi=mid-1 end
+            end
+            if Search.contains(value:sub(offsets[lo],ending),needle) then first=lo end
+        end
+    end
+    local start=math.max(1,first-3)
+    local ending=math.min(count,start+79)
+    if count>80 and not Search.contains(value:sub(offsets[start],offsets[ending+1]-1),needle) then
+        -- Prefix normalization can transiently match a base character before
+        -- its combining mark arrives. Fall back to a verified suffix of the
+        -- full source, so a later real match is preferred over that fragment.
+        local lo,hi=1,count
+        while lo<hi do
+            local mid=math.floor((lo+hi+1)/2)
+            if Search.contains(value:sub(offsets[mid]),needle) then lo=mid else hi=mid-1 end
+        end
+        local candidate=math.max(1,lo-3)
+        local candidate_end=math.min(count,candidate+79)
+        if Search.contains(value:sub(offsets[candidate],offsets[candidate_end+1]-1),needle) then
+            start,ending=candidate,candidate_end
+        end
+    end
+    local short=value:sub(offsets[start] or 1,offsets[ending+1]-1):gsub('[%z%c]',' ')
+    return (start>1 and '…' or '')..short..(ending<count and '…' or '')
 end
 
 function M.search(catalog,marks,thoughts,query)
@@ -55,7 +105,7 @@ function M.search(catalog,marks,thoughts,query)
                         if matched then
                             if #out.items>=M.MAX_RESULTS then out.truncated=true;return out end
                             out.items[#out.items+1]={book_id=id,kind=source.kind,
-                                item_id=source.kind=='marks' and row.bookmarkId or row.reviewId,preview=preview(matched)}
+                                item_id=source.kind=='marks' and row.bookmarkId or row.reviewId,preview=preview(matched,needle)}
                         end
                     end
                 end

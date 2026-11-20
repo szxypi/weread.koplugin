@@ -54,8 +54,8 @@ local function show(host,owner,current,catalog,result)
     local menu
     for _i,item in ipairs(result.items) do
         local record=item
-        rows[#rows+1]={text=title(record.book_id)..' · '..record.preview,saved_note_id=record.item_id,saved_book_id=record.book_id,
-            mandatory=_(record.kind=='thoughts' and 'Thought' or 'Cloud mark'),callback=function()
+        rows[#rows+1]={text=record.preview,saved_note_id=record.item_id,saved_book_id=record.book_id,
+            mandatory=_(record.kind=='thoughts' and 'Thought' or 'Cloud mark')..' · '..title(record.book_id),callback=function()
             if not current(host,owner) or owner.value~=catalog or not Popup.current(owner.menu,menu) then return end
             local variant=record.kind=='thoughts' and 'thoughts' or nil
             local ok,snapshot=pcall(function() return Store:new(host.library_db,host.client,variant):read(record.book_id) end)

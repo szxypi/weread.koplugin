@@ -18,6 +18,17 @@ assert(#out.items==4 and out.items[1].item_id=='m1' and out.items[2].item_id=='t
     and out.items[3].item_id=='m3' and out.items[4].item_id=='t3')
 assert(out.available==4 and out.checked==4 and out.failed==0 and out.not_cached==4 and not out.truncated)
 assert(out.items[1].preview=='A Needle in a chapter' and out.items[2].preview=='Needle in a quotation')
+local long='😀'..string.rep('前',150)..' NEEdlE '..string.rep('后',100)
+out=Search.search({{bookId='1'}},store({'1'},{['1']={updated={{bookmarkId='long',markText=long}},chapters={}}}),store({},{}),'needle')
+local snippet=out.items[1].preview
+assert(snippet:find('NEEdlE',1,true) and snippet:sub(1,3)=='…' and snippet:sub(-3)=='…')
+assert(not snippet:find('😀',1,true) and #require('weread.lib.protocol').utf8_substr(snippet,82)==#snippet)
+local at_end=string.rep('前',150)..'Needle'
+out=Search.search({{bookId='1'}},store({'1'},{['1']={updated={{bookmarkId='end',markText=at_end}},chapters={}}}),store({},{}),'needle')
+assert(out.items[1].preview:sub(-6)=='Needle' and out.items[1].preview:sub(1,3)=='…')
+out=Search.search({{bookId='1'}},store({'1'},{['1']={updated={{bookmarkId='chapter',chapterUid=7}},
+    chapters={{chapterUid=7,title=string.rep('章',90)..' needle\n标题'}}}}),store({},{}),'needle')
+assert(out.items[1].preview:find('needle 标题',1,true) and not out.items[1].preview:find('\n',1,true))
 out=Search.search(catalog,marks,thoughts,'synthetic chapter')
 assert(#out.items==1 and out.items[1].item_id=='m1')
 out=Search.search(catalog,store({'1'},{}),thoughts,'needle')
