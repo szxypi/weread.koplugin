@@ -28,7 +28,7 @@ from native_time_bundle_gate import day
 from shelf_flag_change_contract import state_hash
 
 
-def setup_case(ack=True):
+def setup_case(phase='acknowledged'):
     bundle,grant,before,report,now,pairs,_old=evidence_fixture();plan=bundle['plan']
     shelf=source();shelf['books'].append({'bookId':plan['book_id'],'title':'Synthetic book','finishReading':0})
     shelfhash=digest(project(shelf));components=make(project(shelf))
@@ -37,10 +37,11 @@ def setup_case(ack=True):
     gate=IndependentGate(Backend(),capture=Capture(bundle),clock=lambda:now,zone=lambda:'+08:00')
     audit=IndependentAudit(Backend(),clock=lambda:now)
     reservation=gate.reserve(bundle,grant);audit.seal(bundle,grant,gate,proof)
-    if ack:
+    if phase in ('claimed','acknowledged'):
         rows=[{key:row[key] for key in ('start_time','duration','time_zone','book_version')} for row in plan['rows']]
         body=batch(grant,plan['book_id'],rows,'synthetic-guest','synthetic-config',now,123,now*1000,456,current_zone='+08:00')
-        claimed=gate.claim(reservation,bundle,grant,body,'synthetic-guest','synthetic-config');gate.acknowledge(claimed,{'succ':1})
+        claimed=gate.claim(reservation,bundle,grant,body,'synthetic-guest','synthetic-config')
+        if phase=='acknowledged':gate.acknowledge(claimed,{'succ':1})
     store=Mock();store.backend=object();store.read.return_value=(bundle,Receipt(b'synthetic-capture'))
     after=deepcopy(before['snapshot']);after['counts']['readingTime']+=plan['seconds']
     months=deepcopy(before['months']);month=str(period('monthly',plan['start_time'])[0]);bucket=str(day(plan['start_time']))
@@ -71,8 +72,9 @@ class ReadbackTests(unittest.TestCase):
                 self.assertEqual(len(opener.requests),1)
 
     def test_observations_and_fail_closed_cases(self):
-        for mode in ('match','partial','unstable_shelf','changed_accounting','changed_catalog','stale_session','expired','unacknowledged'):
-            bundle,grant,now,pairs,gate,audit,store,shelf,after,months=setup_case(ack=mode!='unacknowledged');plan=bundle['plan']
+        for mode in ('match','partial','unstable_shelf','changed_accounting','changed_catalog','stale_session','expired','unacknowledged','claimed'):
+            phase='prepared' if mode=='unacknowledged' else 'claimed' if mode=='claimed' else 'acknowledged'
+            bundle,grant,now,pairs,gate,audit,store,shelf,after,months=setup_case(phase=phase);plan=bundle['plan']
             before_gate=gate.read();before_audit=audit.read();current=Mock(return_value=True)
             web=Mock();web.shards={};web.book_id=plan['book_id'];web.chapter=plan['chapter_uid']
             web._time_catalog_pair=deepcopy(pairs[0]);web.inspect.return_value={'cloud_position_stable':True,'catalog_stable':True}
@@ -111,7 +113,8 @@ class ReadbackTests(unittest.TestCase):
                     with self.assertRaises(ValueError):run(**args)
                 self.assertEqual(gate.read(),before_gate);self.assertEqual(audit.read(),before_audit)
                 self.assertTrue(all(req.data is None for req in native_open.requests+stats_open.requests+shelf_open.requests))
-                if mode in ('expired','unacknowledged'):self.assertEqual(len(native_open.requests)+len(stats_open.requests)+len(shelf_open.requests),0)
+                if mode in ('expired','unacknowledged','claimed'):
+                    self.assertEqual(len(native_open.requests)+len(stats_open.requests)+len(shelf_open.requests),0)
 
     def test_real_scope_refuses_transport_overrides_before_any_read(self):
         import native_time_independent_readback as module
