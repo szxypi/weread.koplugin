@@ -97,7 +97,8 @@ report,plan,posts=fixture('normal');plan.basis='raw_txt_utf16';plan.source_posit
 ok,result=report:upload_position(id,position,0,plan)
 expect(ok and result.position_confirmed and #posts==1 and posts[1].sm==position.summary,'TXT first position lost raw summary')
 report,plan,posts=fixture('prior_time')
-expect(not report:upload_position(id,position,0,plan) and #posts==0,'unverified XHTML prior time was accepted')
+ok,result=report:upload_position(id,position,0,plan)
+expect(ok and result.position_confirmed and #posts==1,'XHTML first position did not preserve prior reading time')
 report,plan,posts=fixture('prior_time');plan.basis='raw_txt_utf16';plan.source_position.basis=plan.basis
 ok,result=report:upload_position(id,position,0,plan)
 expect(ok and result.position_confirmed and #posts==1,'TXT first position did not preserve prior reading time')

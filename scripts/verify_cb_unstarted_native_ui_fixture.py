@@ -37,7 +37,17 @@ def stores():
             Evidence(backend=backend('position-baseline'),lock=lock('position-baseline')))
 
 
-def ui_trial(context,report,grant,intent,evidence,command,*,runner=run_ui,attest=ui_command):
+def ui_trial(context,report,grant,intent,evidence,command,*,runner=run_ui,attest=ui_command,fixture='txt'):
+    if fixture=='epub':
+        from cb_fixture_position import plan as planner
+        from synthetic_upload_epub import TEXT as marker
+        from verify_cb_initial_fixture_ui_trial import xhtml_summary as summarize
+        source_format='web_xhtml';version=context.get('version')
+        if type(version) is not int or version<=0:raise ValueError('unstarted_native/version')
+    elif fixture=='txt':
+        planner=position_plan;marker=MARKER;source_format='web_txt';version=0
+        summarize=lambda sample,plan:PlainSource(sample['source']).excerpt(plan['first'])['text']
+    else:raise ValueError('unstarted_native/format')
     if intent.backend.load() is not None or evidence.backend.load() is not None:
         raise ValueError('unstarted_native/consumed')
     owner,target_id=context['owner'],context['target']
@@ -46,14 +56,14 @@ def ui_trial(context,report,grant,intent,evidence,command,*,runner=run_ui,attest
         web=context['connect'](CbReadingProbe,target_id)
         try:
             sample=web.inspect(target_id);web.verify_account()
-            if (sample.get('book_id')!=target_id or sample.get('source_format')!='web_txt'
-                    or sample.get('source_raw_sha256')!=context['source_hash'] or MARKER not in sample.get('source','')
+            if (sample.get('book_id')!=target_id or sample.get('source_format')!=source_format
+                    or sample.get('source_raw_sha256')!=context['source_hash'] or marker not in sample.get('source','')
                     or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
                     or not all(web.last_checks.values())):raise ValueError('unstarted_native/source')
             context['persist'](web);return sample
         finally:web.samples.clear();web.close()
-    sample=source();plan=position_plan(target_id,sample)
-    summary=PlainSource(sample['source']).excerpt(plan['first'])['text']
+    sample=source();plan=planner(target_id,sample)
+    summary=summarize(sample,plan)
     expected=dict(book=target_id,chapter=plan['chapter'],index=plan['index'],offset=plan['first'],percent=None,summary=summary)
     def pair():return context['pair'](sample['chapters'])
     before=_baseline(pair());stats=context['stats']()
@@ -64,13 +74,13 @@ def ui_trial(context,report,grant,intent,evidence,command,*,runner=run_ui,attest
         if type(item.get('wordCount')) not in (int,float) or item['wordCount']<=0:item['wordCount']=1000
         chapters.append(item)
     payload=dict(book=target_id,chapter=plan['chapter'],chapter_idx=plan['index'],offset=plan['first'],expected_summary=summary,
-                 source=sample['source'],source_format='web_txt',chapters=chapters,book_version=0,
+                 source=sample['source'],source_format=source_format,chapters=chapters,book_version=version,
                  owner=owner,cookies=context['cookies'](),native=grant,armed=False)
     if attest()!=command or not runner(command,payload):raise ValueError('unstarted_native/preview')
     report['native_dry_run_verified']=True
     if (_baseline(pair())!=before or context['stats']()!=stats or not context['authority']()
             or not context['shelf_current']() or attest()!=command):raise ValueError('unstarted_native/changed')
-    again=source();current_plan=position_plan(target_id,again)
+    again=source();current_plan=planner(target_id,again)
     if any(current_plan[k]!=plan[k] for k in ('book','chapter','index','first')):raise ValueError('unstarted_native/source_changed')
     snapshot=dict(source=context['source_hash'],position=before['web']['projection'],updated_at=context['latest']['updated'],
                   counters={k:before['native']['counters'][k]['value'] for k in ('readingTime','recordReadingTime','ttsTime')},
@@ -109,7 +119,7 @@ def ui_trial(context,report,grant,intent,evidence,command,*,runner=run_ui,attest
 def execute(saved,session,native,grant,journal,receipt,time_intent,time_evidence,position_intent,position_evidence,command,*,apply=False,**kwargs):
     if position_intent.backend.load() is not None or position_evidence.backend.load() is not None:
         return dict(result='UNVERIFIED',phase='preflight',account_data_writes_known=0,position_write_uncertain=False)
-    def after(context,report):return ui_trial(context,report,grant,position_intent,position_evidence,command)
+    def after(context,report):return ui_trial(context,report,grant,position_intent,position_evidence,command,fixture=kwargs.get('fixture','txt'))
     result=time_fixture(saved,session,native,grant,journal,receipt,time_intent,time_evidence,apply=apply,after_time=after,**kwargs)
     if (result.get('result')=='UNSTARTED_TIME_FIXTURE_VERIFIED' and result.get('position_probe',{}).get('result')=='PASS'):
         result['result']='UNSTARTED_TIME_NATIVE_UI_VERIFIED'

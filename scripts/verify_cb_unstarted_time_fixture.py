@@ -54,7 +54,17 @@ def stores():
 def run(saved, session, native_store, grant, journal, receipt, intent, evidence, *, apply=False,
         upload_factory=UploadProbe, uploader=upload_run, api_factory=ZeroBatchProbe,
         inspector=inspect_fixture, clock=time.time, monotonic=time.monotonic, sleep=time.sleep, random=secrets.randbelow,
-        after_time=None):
+        after_time=None, fixture='txt'):
+    if fixture not in ('txt', 'epub'): raise ValueError('unstarted_fixture/format')
+    if fixture == 'epub':
+        from synthetic_upload_epub import TEXT, build
+        from synthetic_epub_trial import prepare as epub_prepare, check as epub_check
+        from verify_cb_unstarted_epub_time_fixture import EpubBatchProbe, inspect_epub, positive_batch
+        marker, source_format, builder, planner, checker = TEXT, 'web_xhtml', build, epub_prepare, epub_check
+        if api_factory is ZeroBatchProbe: api_factory = EpubBatchProbe
+        if inspector is inspect_fixture: inspector = inspect_epub
+    else:
+        marker, source_format, builder, planner, checker = MARKER, 'web_txt', lambda: BODY, prepare_plan, check_plan
     report = dict(result='UNVERIFIED', phase='preflight', account_data_writes_known=0,
                   authentication_posts=0, existing_book_writes=0, fixture_only=True,
                   private_data_in_report=False, time_posts=0, time_write_uncertain=False)
@@ -88,8 +98,8 @@ def run(saved, session, native_store, grant, journal, receipt, intent, evidence,
         web = connect(CbReadingProbe, target)
         try:
             sample = web.inspect(target); web.verify_account()
-            ok = (sample.get('book_id') == target and sample.get('source_format') == 'web_txt'
-                  and MARKER in sample.get('source', '') and sample.get('baseline') == dict(chapter='0', offset=0, percent=0)
+            ok = (sample.get('book_id') == target and sample.get('source_format') == source_format
+                  and marker in sample.get('source', '') and sample.get('baseline') == dict(chapter='0', offset=0, percent=0)
                   and set(web.last_checks) == {'catalog_unchanged', 'versions_unchanged', 'position_unchanged'}
                   and all(value is True for value in web.last_checks.values()))
             if ok: current.update(sample=sample, source_hash=sample['source_raw_sha256'])
@@ -129,11 +139,17 @@ def run(saved, session, native_store, grant, journal, receipt, intent, evidence,
         def version_check():
             result = {}
             session_view = dict(vid=owner, cookies=current['saved']['cookies'])
-            if (not inspector(session_view, grant, target, lambda value: authority() and value == grant,
-                              result, expected_source=current['source_hash'])
-                    or result.get('native_version_category') != 'zero'
-                    or any(result.get(key) != 'absent' for key in ('catalog_root_version_category', 'catalog_book_version_category'))):
+            if not inspector(session_view, grant, target, lambda value: authority() and value == grant,
+                             result, expected_source=current['source_hash']):
                 raise ValueError('unstarted_fixture/version')
+            if fixture == 'txt':
+                if (result.get('native_version_category') != 'zero' or any(result.get(key) != 'absent'
+                        for key in ('catalog_root_version_category', 'catalog_book_version_category'))):
+                    raise ValueError('unstarted_fixture/version')
+            elif (type(result.get('version')) is not int or result['version'] <= 0
+                  or result.get('web_and_native_positive_match') is not True):
+                raise ValueError('unstarted_fixture/version')
+            current['version'] = result.get('version', 0)
             return result
 
         def prepare(before, stats):
@@ -151,7 +167,12 @@ def run(saved, session, native_store, grant, journal, receipt, intent, evidence,
             if (now < start + 2 or now > start + 30 or (start + 28800) // 86400 != (now + 28800) // 86400
                     or period('monthly', start)[0] != period('monthly', now)[0]):
                 raise ValueError('unstarted_fixture/clock')
-            payload = zero_batch(grant, target, start, now, guest, config.get('token'), None, random(1000), random(1000), zone)
+            if fixture == 'txt':
+                payload = zero_batch(grant, target, start, now, guest, config.get('token'), None, random(1000), random(1000), zone)
+            else:
+                payload = positive_batch(grant, target, start, now, guest, config.get('token'), version['version'],
+                                         random(1000), random(1000), zone)
+                api.version = version['version']
             targets = []
             for delta in (0, 1):
                 value = expected_statistics(stats, start, 2, time_zone=zone); value['readDays'] = stats['readDays'] + delta
@@ -183,7 +204,8 @@ def run(saved, session, native_store, grant, journal, receipt, intent, evidence,
         if after_time is not None and result['result'] == 'PASS':
             context = dict(owner=owner, target=target, attempt=attempt, sample=sample, source_hash=current['source_hash'],
                 pair=pair, stats=api.stats, authority=authority, shelf_current=lambda: shelf(target)==current['before_shelf'],
-                connect=connect, persist=persist, cookies=lambda: current['saved']['cookies'], latest=latest)
+                connect=connect, persist=persist, cookies=lambda: current['saved']['cookies'], latest=latest,
+                version=current['version'])
             try:
                 followup = after_time(context, report)
                 if (not isinstance(followup, dict) or type(followup.get('attempted')) is not int
@@ -211,15 +233,15 @@ def run(saved, session, native_store, grant, journal, receipt, intent, evidence,
         probe = upload_factory(journal, same_grant)
         report['phase'] = 'upload_active'
         upload = uploader(probe, journal, grant, same_grant, source, apply=apply, cleanup_gate=gate,
-                          fixture_builder=lambda: BODY, prepare_plan=prepare_plan, check_plan=check_plan,
-                          fixture_extension='txt', readback_tries=7, notify_receipt=receipt.record)
+                          fixture_builder=builder, prepare_plan=planner, check_plan=checker,
+                          fixture_extension=fixture, readback_tries=7, notify_receipt=receipt.record)
         report['upload'] = upload; report['phase'] = upload.get('phase', 'unknown')
         position_posts=report.get('position_posts',0)
         report['account_data_writes_known'] = ((upload.get('cos_put_attempts', 0) + upload.get('notify_posts', 0)
                                                + upload.get('cleanup_posts', 0) + report['time_posts'] + position_posts)
                                               if type(position_posts) is int else None)
         if upload.get('result') == 'READ_ONLY_PREVIEW': report['result'] = 'READ_ONLY_PREVIEW'
-        elif (upload.get('result') == 'TXT_IMPORT_AND_SOURCE_VERIFIED' and current['flow']
+        elif (upload.get('result') == fixture.upper() + '_IMPORT_AND_SOURCE_VERIFIED' and current['flow']
               and current['flow']['result'] == 'PASS' and shelf() == first):
             report.update(result='UNSTARTED_TIME_FIXTURE_VERIFIED', shelf_restored=True)
     except Exception:

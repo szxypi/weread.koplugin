@@ -72,8 +72,8 @@ def main():
         raw = log.read_bytes(); marker = b'\nWEREAD_CB_FIRST_UI='
         if raw.count(marker) != 1 or b'[WeRead] forceRePaint failed:' in raw: raise ValueError('first UI result')
         value = json.loads(raw.split(marker, 1)[1].splitlines()[0])
-        success = args.mode in ('normal', 'delayed') or args.mode == 'native_time' and args.format == 'txt'
-        blocked = args.mode in ('changed', 'native_time_before', 'native_record', 'native_tts', 'no_native') or args.mode == 'native_time' and args.format != 'txt'
+        success = args.mode in ('normal', 'delayed', 'native_time')
+        blocked = args.mode in ('changed', 'native_time_before', 'native_record', 'native_tts', 'no_native')
         expected = dict(result='PASS', mode=args.mode, cancelled=True, explicit_choice=True, verified=success,
                         journal_pending=not success and not blocked, pending=not success and args.mode != 'verify_save_failed')
         if value != expected or server.first_posts != (0 if blocked else 1): raise ValueError('first UI mismatch')

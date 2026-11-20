@@ -44,7 +44,7 @@ local function fixture()
         json_decode=function(_self,value)
             if value=='native-progress' then
                 return {book={bookId=id,chapterUid=0,chapterIdx=0,chapterOffset=state.native_offset or 0,progress=0,
-                    summary='',updateTime=1,readingTime=state.native_time or 0,recordReadingTime=0,ttsTime=0}}
+                    summary='',updateTime=1,readingTime=state.native_time or 0,recordReadingTime=state.native_record or 0,ttsTime=state.native_tts or 0}}
             end
             assert(value=='{reader}');return initial
         end,
@@ -64,6 +64,7 @@ local function fixture()
             'window.__INITIAL_STATE__={reader};(function(){})();','part0','part1','part3','catalog','account'})[count]
         if state.change_progress_at==count then state.offset=26 end
         if state.change_native_at==count then state.native_offset=1 end
+        if state.change_time_at==count then state.native_time=2 end
         options.sink(text);options.sink(nil)
         if state.changed_at==count then state.valid=false end
         return 1,state.fail_at==count and 401 or state.code,{}
@@ -146,8 +147,16 @@ for _i,index in ipairs({3,10}) do
     expect(result.error=='source_remote_changed' and #state.requests==index,'changed native initial state was not stopped')
 end
 client,state,selected=first_fixture();state.native_time=1
-expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_remote_changed' and #state.requests==3,
-    'existing native time permitted first-position proof')
+expect(Check.packet_cb(Check.fetch_cb_initial(client,expected,nil,initial,selected),expected) and #state.requests==12,
+    'stable existing native time blocked first-position proof')
+client,state,selected=first_fixture();state.native_time=1;state.change_time_at=10
+expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_remote_changed' and #state.requests==10,
+    'changed native time permitted first-position proof')
+for _,field in ipairs({'native_record','native_tts'}) do
+    client,state,selected=first_fixture();state[field]=1
+    expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_remote_changed' and #state.requests==3,
+        'unsupported native time permitted first-position proof')
+end
 client,state,selected=first_fixture();state.native_pending=true
 expect(Check.run_cb_initial(client,expected,nil,initial,selected).error=='source_currentness_unavailable' and #state.requests==0,
     'pending native renewal permitted first-position proof')

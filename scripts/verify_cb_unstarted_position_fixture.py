@@ -74,7 +74,17 @@ class PositionProbe(WebSourceProbe):
         finally:self.permit=None
 
 
-def position_trial(context, report, intent, evidence, *, probe_factory=PositionProbe, sleep=time.sleep, payload_check=None):
+def position_trial(context, report, intent, evidence, *, probe_factory=PositionProbe, sleep=time.sleep, payload_check=None,
+                   fixture='txt'):
+    if fixture == 'epub':
+        from cb_fixture_position import plan as planner
+        from verify_cb_initial_fixture_ui_trial import xhtml_summary as summarize
+        source_format = 'web_xhtml'
+    elif fixture == 'txt':
+        planner = position_plan
+        summarize = lambda sample, plan: PlainSource(sample['source']).excerpt(plan['first'])['text']
+        source_format = 'web_txt'
+    else: raise ValueError('unstarted_position/format')
     if intent.backend.load() is not None or evidence.backend.load() is not None:
         raise ValueError('unstarted_position/consumed')
     sample=context['sample']; source_hash=context['source_hash']; owner=context['owner']; target_id=context['target']
@@ -85,15 +95,15 @@ def position_trial(context, report, intent, evidence, *, probe_factory=PositionP
         web=context['connect'](CbReadingProbe,target_id)
         try:
             current=web.inspect(target_id);web.verify_account()
-            if (current.get('source_raw_sha256')!=source_hash or current.get('source_format')!='web_txt'
+            if (current.get('source_raw_sha256')!=source_hash or current.get('source_format')!=source_format
                     or current.get('chapters')!=sample['chapters'] or current.get('book_id')!=target_id
                     or set(web.last_checks)!={'catalog_unchanged','versions_unchanged','position_unchanged'}
                     or not all(web.last_checks.values())):
                 raise ValueError('unstarted_position/source')
             context['persist'](web);return current
         finally:web.samples.clear();web.close()
-    fresh=source();plan=position_plan(target_id,fresh)
-    summary=PlainSource(fresh['source']).excerpt(plan['first'])['text']
+    fresh=source();plan=planner(target_id,fresh)
+    summary=summarize(fresh,plan)
     target=dict(book=target_id,chapter=plan['chapter'],index=plan['index'],offset=plan['first'],
                 percent=plan['percent'],summary=summary)
     probe=probe_factory(plan,owner,lambda:context['authority']() and context['shelf_current'](),intent)
@@ -101,7 +111,7 @@ def position_trial(context, report, intent, evidence, *, probe_factory=PositionP
         for key,value in context['cookies']().items():probe.set_cookie(key,value)
         probe.verify_account(); reservation={}
         def prepare(_before,_stats):
-            current=source();again=position_plan(target_id,current)
+            current=source();again=planner(target_id,current)
             for key in ('book','chapter','index','first','percent'):
                 if again[key]!=plan[key]:raise ValueError('unstarted_position/source_changed')
             value=fixture_body(again,'enter');value['sm']=summary
@@ -139,7 +149,7 @@ def position_trial(context, report, intent, evidence, *, probe_factory=PositionP
 def execute(saved,session,native,grant,journal,receipt,time_intent,time_evidence,position_intent,position_evidence,*,apply=False,**kwargs):
     if position_intent.backend.load() is not None or position_evidence.backend.load() is not None:
         return dict(result='UNVERIFIED',phase='preflight',account_data_writes_known=0,position_write_uncertain=False)
-    def after(context,report):return position_trial(context,report,position_intent,position_evidence)
+    def after(context,report):return position_trial(context,report,position_intent,position_evidence,fixture=kwargs.get('fixture','txt'))
     result=time_fixture(saved,session,native,grant,journal,receipt,time_intent,time_evidence,
                         apply=apply,after_time=after,**kwargs)
     if (result.get('result')=='UNSTARTED_TIME_FIXTURE_VERIFIED'

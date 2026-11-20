@@ -12,10 +12,8 @@ local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
 local Settings=require('weread.lib.settings');local Client=require('weread.lib.client');local Content=require('weread.lib.content')
 local socket=require('socket');local settings=Settings:new();local id='CB_SyntheticResume'
 local mode=assert(os.getenv('WEREAD_CB_FIRST_MODE'))
-local source_format=os.getenv('WEREAD_CB_FIRST_FORMAT')
-local succeeds=mode=='normal' or mode=='delayed' or mode=='native_time' and source_format=='txt'
+local succeeds=mode=='normal' or mode=='delayed' or mode=='native_time'
 local blocked=mode=='changed' or mode=='native_time_before' or mode=='native_record' or mode=='native_tts' or mode=='no_native'
-    or mode=='native_time' and source_format~='txt'
 local function wait(predicate)
     local deadline=socket.gettime()+45
     while not predicate() do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)

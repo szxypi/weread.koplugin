@@ -1510,7 +1510,7 @@ function ReadReport:_upload_cb_initial(book_id,position,plan)
     local attempt={enter_attempted=false,report_attempted=false}
     local initial_counts
     local ok,result,code=pcall(function()
-        local allow_reading_time=plan.basis=='raw_txt_utf16'
+        local allow_reading_time=plan.basis=='raw_txt_utf16' or plan.basis=='filtered_xhtml_utf16'
         local before,counts=Initial.before(self.client,self.settings,access,plan.initial_remote,current,allow_reading_time)
         local again,checked_counts=Initial.before(self.client,self.settings,access,plan.initial_remote,current,allow_reading_time)
         assert(before and again and State.equal(before,again) and Native.same_counts(counts,checked_counts),'cb_initial/baseline')
