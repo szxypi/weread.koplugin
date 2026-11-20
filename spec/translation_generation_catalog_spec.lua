@@ -17,6 +17,8 @@ expect_failure(function() Catalog.chapter(result,9) end,'paid chapter admitted w
 expect_failure(function() Catalog.chapter(result,1) end,'absent chapter admitted')
 assert(Catalog.membership({isPaying=true}).paying and not Catalog.membership({isPaying='0'}).paying)
 expect_failure(function() Catalog.membership({isPaying='yes'}) end,'ambiguous membership accepted')
+expect_failure(function() Catalog.membership({isPaying=true,errcode=1}) end,'error membership accepted')
+expect_failure(function() Catalog.membership({isPaying=true,succ=false}) end,'rejected membership accepted')
 local copy_info,copy_raw=source()
 assert(Catalog.catalog(copy_raw,'456',copy_info).digest==result.digest,'equivalent catalogue changed digest')
 for _,mutate in ipairs({function(v) v.data[1].updated[2].price=1 end,
@@ -28,6 +30,8 @@ for _,mutate in ipairs({function(v) v.data[1].updated[2].price=1 end,
 end
 local invalid={
     function(i) i.bookId='999' end,
+    function(i) i.errcode=1 end,
+    function(_,v) v.succ=false end,
     function(i) i.version=-1 end,
     function(i) i.format='pdf' end,
     function(_,v) v.data[1].book={format=false,version=7} end,

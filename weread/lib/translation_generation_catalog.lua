@@ -29,8 +29,15 @@ end
 local function text(value,maximum)
     return type(value)=='string' and #value<=maximum and not value:find('[%z%c]')
 end
+local function successful(raw)
+    if type(raw)~='table' then return false end
+    for _,key in ipairs({'errcode','errCode','code'}) do
+        if raw[key]~=nil and raw[key]~=0 then return false end
+    end
+    return raw.succ==nil or raw.succ==true or raw.succ==1
+end
 function M.membership(raw)
-    if type(raw)~='table' or raw.isPaying==nil then fail('membership') end
+    if not successful(raw) or raw.isPaying==nil then fail('membership') end
     return {paying=flag(raw.isPaying)}
 end
 function M.catalog_body(book_id)
@@ -48,8 +55,8 @@ local function scalar(value)
     fail('scalar')
 end
 function M.catalog(raw,book_id,info)
-    if type(book_id)~='string' or id(book_id)~=book_id or type(info)~='table' or id(info.bookId)~=book_id then fail('book') end
-    if type(raw)~='table' or array(raw.data,4)<1 then fail('catalog') end
+    if type(book_id)~='string' or id(book_id)~=book_id or not successful(info) or id(info.bookId)~=book_id then fail('book') end
+    if not successful(raw) or array(raw.data,4)<1 then fail('catalog') end
     local selected
     for _,row in ipairs(raw.data) do
         if type(row)~='table' then fail('catalog') end
