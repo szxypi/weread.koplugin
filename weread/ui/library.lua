@@ -6,6 +6,7 @@ local Content = require("weread.lib.content")
 local ShelfGroups = require("weread.lib.shelf_groups")
 local ShelfFlags = require("weread.lib.shelf_flags")
 local ShelfSearch = require("weread.lib.shelf_search")
+local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local ShelfTime = require("weread.lib.shelf_time")
 local VolatileShelf = require("weread.lib.volatile_shelf")
 local InputDialog = require("ui/widget/inputdialog")
@@ -1142,7 +1143,6 @@ function M:showShelfPage()
         self._shelf_saved_books = saved_books
         for _i, book in ipairs(sorted) do
             if self:bookMatchesFilters(book, saved_books, downloaded_cache) then
-                local book_id = book.book_id or book.bookId
                 local is_cached = self:isBookDownloaded(book, saved_books, downloaded_cache)
                 local right_text
                 if ShelfFlags.display(book,'finished')==true then
@@ -1165,8 +1165,7 @@ function M:showShelfPage()
                     text = book.title or book.bookId or _("Untitled"),
                     mandatory = rightStatus(is_cached),
                     mandatory_func = function()
-                        local current = self._shelf_saved_books and self._shelf_saved_books[book_id]
-                        return rightStatus(self:bookRecordHasDownload(current))
+                        return rightStatus(self:isBookDownloaded(book,self._shelf_saved_books or {}))
                     end,
                     callback = self:safeCallback(book.title or book.bookId or _("Untitled"), function()
                         self:showBookRecord(book)
@@ -1193,15 +1192,22 @@ end
 
 function M:showBookRecord(book, options)
     local books = self.settings:get("books", {})
-    local book_id = book.book_id or book.bookId
+    local book_id = ShelfSnapshot.persisted_id(book)
+    if not book_id then self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return end
     if WeRead.is_mp_book(book_id) then
         self:showMPAccount(book)
         return
     end
-    if not book_id then return end
-
     local account_key = self.library_db and self.library_db:accountKey() or nil
-    local saved = books[book_id] or {}
+    local saved,conflict=ReadAccess.cached_book(books,book_id)
+    local numeric=ReadAccess.book_id(book_id) and tonumber(book_id)
+    if conflict or numeric and numeric<=9007199254740991 and books[numeric]~=nil and books[book_id]~=nil then
+        self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return
+    end
+    -- Safely migrate a legacy numeric index to its exact string key, avoiding
+    -- duplicate entries that could overwrite the same stored book on flush.
+    if saved and books[book_id]==nil and numeric and books[numeric]==saved then books[numeric]=nil end
+    saved=saved or {}
     if account_key and saved._library_account_key
         and saved._library_account_key ~= account_key then
         local previous=saved
@@ -1261,8 +1267,12 @@ function M:cancelBookMetadata()
 end
 
 function M:showBookMenu(book)
+    local book_id = ShelfSnapshot.persisted_id(book)
+    if not book_id then self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return end
+    local saved,conflict=ReadAccess.cached_book(self.settings:get("books", {}),book_id)
+    if conflict then self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return end
+    saved=saved or book
     local BookDetailView = require("weread.ui.book_detail_view")
-    local book_id = book.book_id or book.bookId
     if type(book.chapters) ~= "table" then
         book.chapters = self.library_db and self.library_db:getChapters(book_id) or nil
         if type(book.chapters) ~= "table" then
@@ -1272,7 +1282,6 @@ function M:showBookMenu(book)
             end
         end
     end
-    local saved = self.settings:get("books", {})[book_id] or book
     local cached_path = self:getFullBookCachePath(saved)
     local is_full_cached = file_exists(cached_path)
     local has_cache = self:bookRecordHasDownload(saved)
@@ -1283,7 +1292,7 @@ function M:showBookMenu(book)
         local uid=chapter.chapterUid or chapter.chapterId
         if uid~=nil then catalog_uids[tostring(uid)]=true end
     end
-    for uid, path in pairs(saved.cached_chapters or {}) do
+    for uid, path in pairs(type(saved.cached_chapters)=='table' and saved.cached_chapters or {}) do
         if file_exists(path) then
             any_cached_chapter=true
             if (type(book.chapters)~='table' or catalog_uids[tostring(uid)]) and not seen_paths[path] then

@@ -101,6 +101,52 @@ end
 plugin:closeWeReadUI()
 recent_options.sort_order=old_sort;recent_options.view_mode=old_view;plugin.settings:set('shelf',recent_options)
 plugin.settings.account_state_scope=state_scope;plugin.library_db.accountKey=account_key
+-- Download indicators, filters and home selection use the same exact identity
+-- check, including legacy numeric keys and changes after a page was drawn.
+local downloaded_path=evidence..'/synthetic-identity.epub'
+local downloaded_file=assert(io.open(downloaded_path,'wb'));assert(downloaded_file:write('fixture'));downloaded_file:close()
+local cache_owner=string.rep('c',20)
+local cached_records={[42]={book_id='42',cached_file=downloaded_path,recent_read_at=100,recent_read_account=cache_owner},
+    ['43']={book_id='44',cached_file=downloaded_path},[9007199254740992]={cached_file=downloaded_path}}
+local cache_shelf={{bookId='42',title='旧格式书籍',readUpdateTime=1},
+    {bookId='43',title='错误归属',readUpdateTime=2},{bookId='9007199254740993',title='大编号',readUpdateTime=3}}
+local old_filters=plugin.shelf_filters
+plugin.library_db.accountKey=function() return cache_owner end
+plugin.library_db.getShelf=function() return cache_shelf end;plugin.library_db.getShelfArchives=function() return {} end
+plugin.settings.get=function(self,key,default) if key=='books' then return cached_records end return settings_read(self,key,default) end
+plugin.shelf_filters={};plugin:applyShelfSnapshot(cache_shelf,{});plugin.shelf_multi_groups={};plugin:showShelfView('books')
+local cache_view=assert(plugin.shelf_view);local states={}
+for _,book in ipairs(cache_view.books) do states[book.bookId]=book._cached end
+assert(states['42']==true and states['43']==false and states['9007199254740993']==false,
+    'downloaded indicators used a foreign or rounded identity')
+plugin.shelf_filters={download='downloaded'};plugin:showShelfView('books')
+assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='42','downloaded filter lost legacy cache')
+plugin.shelf_filters={download='not_downloaded'};plugin:showShelfView('books')
+assert(#plugin.shelf_view.books==2,'not-downloaded filter hid mismatched or rounded records')
+plugin.shelf_filters={};plugin:showHome();local home_view=assert(plugin.shelf_view);local target
+for _,book in ipairs(home_view.books) do if book.bookId=='42' then target=book end end
+assert(target and target._cached,'legacy book not shown as downloaded on home')
+local read,detail=plugin.startBookReading,plugin.showBookRecord;local opened,shown
+plugin.startBookReading=function(_,book) opened=book end
+plugin.showBookRecord=function(_,book) shown=book end
+home_view.on_select(target,'books');assert(opened==cached_records[42],'home opened a different cached book')
+opened=nil;cached_records[42].book_id='44';home_view.on_select(target,'books')
+assert(not opened and shown==target,'home opened a record whose identity changed after drawing')
+local show_info=plugin.showInfo;local notice
+local set_settings=plugin.settings.set
+plugin.showInfo=function(_,message) notice=message end
+plugin.settings.set=function(self,key,value)
+    assert(key~='books','conflicting cache was written while opening book details')
+    return set_settings(self,key,value)
+end
+plugin.showBookRecord=detail;plugin:showBookRecord(target)
+assert(notice and cached_records[42].book_id=='44','book details did not preserve conflicting cache')
+plugin.showInfo=show_info;plugin.settings.set=set_settings;plugin.showBookRecord=function(_,book) shown=book end
+cached_records[42].book_id='42';shown=nil;assert(os.remove(downloaded_path));home_view.on_select(target,'books')
+assert(not opened and shown==target,'home opened a cache file removed after drawing')
+plugin.startBookReading=read;plugin.showBookRecord=detail;plugin:closeWeReadUI()
+plugin.settings.get=settings_read;plugin.library_db.accountKey=account_key
+plugin.library_db.getShelf=shelf_read;plugin.library_db.getShelfArchives=archives_read;plugin.shelf_filters=old_filters
 -- The same safe book identity rule protects prefetch and annotation lookup.
 local cache_path=evidence..'/synthetic-prefetch.epub'
 local cache_file=assert(io.open(cache_path,'wb'));assert(cache_file:write('synthetic'));cache_file:close()
@@ -552,5 +598,6 @@ report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=tr
 report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
 report.mixed_group_identities=true
 report.uncertain_group_membership=true
+report.download_identity=true
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

@@ -191,6 +191,18 @@ plugin:showDiscoveryPage("home", { { bookId = "a" } }, { title = "Home" })
 expect(shown.data.portal and #shown.data.navigation == 4, "home navigation missing")
 shown.callbacks.on_select({ bookId = "a", _cached = true })
 expect(opened and opened.cached_chapters, "offline continue did not use saved chapter cache")
+local selected_detail
+plugin.showBookRecord=function(_self,book) selected_detail=book end
+local home_saved={[42]={book_id='42',cached_chapters={['1']='/synthetic/book.epub'}}}
+plugin.settings.get=function() return home_saved end
+opened=nil;shown.callbacks.on_select({bookId='42',_cached=true})
+expect(opened==home_saved[42],'home resume did not resolve a safe legacy numeric key')
+home_saved['42']={book_id='43',cached_chapters={['1']='/synthetic/wrong.epub'}}
+opened=nil;shown.callbacks.on_select({bookId='42',_cached=true})
+expect(not opened and selected_detail.bookId=='42','home resume opened a conflicting cached book')
+home_saved['42']=nil;home_saved[42]=nil
+selected_detail=nil;shown.callbacks.on_select({bookId='42',_cached=true})
+expect(not opened and selected_detail.bookId=='42','home resume ignored a removed cached record')
 fetched.on_redraw(1)
 expect(shown.data.title == "Home", "cover completion lost home context")
 shown.callbacks.on_close()

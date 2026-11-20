@@ -4,6 +4,8 @@ local PluginUtil = require("weread.lib.plugin_util")
 local UIManager = require("ui/uimanager")
 local Scope = require("weread.ui.page_scope")
 local Popup = require("weread.ui.shelf_popup")
+local ReadAccess = require("weread.lib.read_access")
+local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local VolatileShelf = require("weread.lib.volatile_shelf")
 local _ = PluginUtil.tr
 local M = {}
@@ -84,8 +86,11 @@ function M:showDiscoveryPage(tab, books, options)
         on_summary = home and Scope.guard(current, function() self:closeWeReadUI() self:showProfile() end) or nil,
         on_select = Scope.guard(current, function(book)
             if tab == "home" and book._cached then
-                local stored = self.settings:get("books", {})[book.bookId or book.book_id] or book
-                self:startBookReading(stored)
+                local saved_books=self.settings:get("books", {})
+                local id=ShelfSnapshot.persisted_id(book)
+                local stored=id and ReadAccess.cached_book(saved_books,id)
+                if stored and self:isBookDownloaded(book,saved_books) then self:startBookReading(stored)
+                else self:showBookRecord(book) end
             else self:showBookRecord(book) end
         end),
         on_hold = Scope.guard(current, function(book)

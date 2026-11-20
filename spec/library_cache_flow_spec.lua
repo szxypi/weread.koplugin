@@ -110,6 +110,33 @@ for key, value in pairs(Library) do
     if host[key] == nil then host[key] = value end
 end
 
+local notices={}
+host.showInfo=function(_,message) notices[#notices+1]=message end
+local conflict={book_id='wrong',cached_file='/cache/foreign.epub'}
+books['47']=conflict
+host:showBookRecord({bookId='47',title='Requested'})
+expect(books['47']==conflict and conflict.book_id=='wrong' and not written_book and #notices==1,
+    'opening details rewrote a conflicting saved book')
+Library.showBookMenu(host,{bookId='47',title='Requested'})
+expect(books['47']==conflict and conflict.book_id=='wrong' and #notices==2,
+    'opening a menu accepted a conflicting saved book')
+books['47']=nil
+host:showBookRecord({bookId='47',book_id='48'})
+expect(#notices==3 and not written_book,'conflicting incoming identifiers were accepted')
+local legacy={book_id='49',title='Old',cached_file='/cache/legacy.epub'}
+books[49]=legacy
+host:showBookRecord({bookId='49',title='New'})
+expect(books['49']==legacy and books[49]==nil and legacy.cached_file=='/cache/legacy.epub',
+    'opening a safe legacy numeric key lost the book or kept duplicate indices')
+local duplicate_one={book_id='50',title='String'};local duplicate_two={book_id='50',title='Numeric'}
+books['50'],books[50]=duplicate_one,duplicate_two
+local old_written=written_book
+host:showBookRecord({bookId='50',title='Requested'})
+expect(books['50']==duplicate_one and books[50]==duplicate_two and written_book==old_written and #notices==4,
+    'opening duplicate indices changed an ambiguous saved book')
+books['49'],books['50'],books[50]=nil,nil,nil
+written_book=nil
+
 host:showBookRecord({ bookId = "42", title = "First open" })
 expect(auto_refresh and auto_refresh.book_id == "42",
     "first open without a detail snapshot did not auto-refresh")

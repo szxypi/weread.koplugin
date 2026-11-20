@@ -5,7 +5,9 @@ local Content = require("weread.lib.content")
 local logger = require("weread.lib.logger")
 local PathChooser = require("ui/widget/pathchooser")
 local Scan = require("weread.lib.scan")
+local ReadAccess = require("weread.lib.read_access")
 local ShelfFlags = require("weread.lib.shelf_flags")
+local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local UIManager = require("ui/uimanager")
 local WeRead = require("weread.lib.protocol")
 
@@ -390,21 +392,21 @@ function M:bookRecordHasDownload(record)
     if file_exists(record.cached_full_book) or file_exists(record.cached_file) then
         return true
     end
-    for _uid, path in pairs(record.cached_chapters or {}) do
+    for _uid, path in pairs(type(record.cached_chapters)=='table' and record.cached_chapters or {}) do
         if file_exists(path) then return true end
     end
     return false
 end
 
 function M:isBookDownloaded(book, saved_books, downloaded_cache)
-    local book_id = book.book_id or book.bookId
+    local book_id = ShelfSnapshot.persisted_id(book)
     if not book_id then
         return false
     end
     if downloaded_cache and downloaded_cache[book_id] ~= nil then
         return downloaded_cache[book_id]
     end
-    local record = (saved_books or self.settings:get("books", {}))[book_id]
+    local record = ReadAccess.cached_book(saved_books or self.settings:get("books", {}),book_id)
     local is_downloaded = self:bookRecordHasDownload(record)
     if downloaded_cache then
         downloaded_cache[book_id] = is_downloaded
