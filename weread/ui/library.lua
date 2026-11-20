@@ -27,12 +27,38 @@ local file_exists = PluginUtil.file_exists
 local M = {}
 local sortBooks
 local GROUP_SELECTION_KEY = 'shelf_multi_groups_v1'
+local LOCAL_GROUPS_KEY = 'shelf_local_groups_v1'
+local group_owner
 
-local function group_owner(host)
+local function load_local_groups(host)
+    local model=require('weread.lib.local_shelf_groups')
+    local account=group_owner(host)
+    local db=host.library_db
+    if not account or not db or type(db.getProfileState)~='function' then
+        host.shelf_local_state,host.shelf_local_original,host.shelf_local_owner=nil,nil,nil;return
+    end
+    local ok,state=pcall(db.getProfileState,db,LOCAL_GROUPS_KEY)
+    if not ok or group_owner(host)~=account or state~=nil and not model.valid(state) then
+        host.shelf_local_state,host.shelf_local_original,host.shelf_local_owner=nil,nil,nil;return
+    end
+    host.shelf_local_state,host.shelf_local_original,host.shelf_local_owner=state or model.empty(),state,account
+end
+
+group_owner=function(host)
     local db=host.library_db
     if not db or type(db.accountKey)~='function' then return nil end
     local ok,account=pcall(db.accountKey,db)
     return ok and type(account)=='string' and account~='' and account or nil
+end
+
+local function project_local_groups(host)
+    local groups={};for _,group in ipairs(host.shelf_cloud_groups or {}) do groups[#groups+1]=group end
+    if host.shelf_local_state and host.shelf_local_owner==group_owner(host) then
+        local local_groups=require('weread.lib.local_shelf_groups').project(host.shelf_local_state,host.shelf_regular,
+            function(label) return T(_('Local · %1'),label) end)
+        for _,group in ipairs(local_groups or {}) do groups[#groups+1]=group end
+    end
+    host.shelf_groups=groups
 end
 
 local function load_group_selection(host)
@@ -256,6 +282,8 @@ function M:onWeReadAccountChanged()
     self.shelf_mp = nil
     self.shelf_books = nil
     self.shelf_groups = nil
+    self.shelf_cloud_groups = nil
+    self.shelf_local_state,self.shelf_local_original,self.shelf_local_owner=nil,nil,nil
     self.shelf_ungrouped_known = nil
     self.shelf_group_key = nil
     self.shelf_multi_groups = nil
@@ -297,6 +325,9 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
             self.shelf_groups[#self.shelf_groups+1]={key='__ungrouped__',label=_('Uncategorized'),books={}}
         end
     end
+    self.shelf_cloud_groups=self.shelf_groups
+    load_local_groups(self)
+    project_local_groups(self)
     if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups, self.shelf_group_key) then
         self.shelf_group_key = nil
         if self.shelf_view_pages then self.shelf_view_pages.books = 1 end
@@ -722,6 +753,9 @@ function M:showShelfView(mode, keyword, old_view, options)
     if old_view and old_view._finish_dirty and old_view._finish_current and old_view._finish_current()
         and not require('weread.ui.finish_offline').reconcile_view(self,old_view) then carry_dirty=old_view._finish_dirty end
     options = options or {}
+    if self.shelf_local_owner~=group_owner(self) then
+        load_local_groups(self);project_local_groups(self)
+    end
     mode = mode or "books"
     options.mode = mode
     options.keyword = keyword
@@ -912,6 +946,22 @@ function M:showShelfView(mode, keyword, old_view, options)
             next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
             self:showShelfView('books',keyword,view,next_options)
         end,
+        on_manage_local_groups = self.shelf_local_state and self.library_db and self.library_db.compareProfileState and function()
+            if not current() then return end
+            require('weread.ui.local_shelf_groups').open(self,view,current,function()
+                if not current() then return end
+                project_local_groups(self)
+                if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups,self.shelf_group_key) then self.shelf_group_key=nil end
+                local selected={}
+                for _,key in ipairs(self.shelf_multi_groups or {}) do
+                    if key:sub(1,6)~='local:' or ShelfGroups.unique(self.shelf_groups,key) then selected[#selected+1]=key end
+                end
+                if #selected~=#(self.shelf_multi_groups or {}) then save_group_selection(self,selected) end
+                local next_options={};for name,value in pairs(options) do next_options[name]=value end
+                next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
+                self:showShelfView('books',keyword,view,next_options)
+            end)
+        end or nil,
         on_display_change = function(key, value)
             if not current() then return end
             local shelf = self.settings:get("shelf")

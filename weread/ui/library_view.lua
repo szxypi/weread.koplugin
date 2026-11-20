@@ -770,6 +770,7 @@ local LibraryView = FocusManager:extend{
     group_label = nil,
     on_select_group = nil,
     on_select_groups = nil,
+    on_manage_local_groups = nil,
     on_display_change = nil,
     scroll_offset = nil,
     on_switch = nil,
@@ -1026,6 +1027,9 @@ function LibraryView:showSourceMenu(menu_mode)
         end
         if self.group_membership_incomplete then
             items[#items+1]={text=_('Some group memberships are unknown. Refresh the bookshelf.'),select_enabled=false}
+        end
+        if self.on_manage_local_groups then
+            items[#items+1]={text=_('Manage local groups'),callback=select(function() self.on_manage_local_groups() end)}
         end
     else
         items[1] = {
@@ -1588,6 +1592,7 @@ function M.show(data, callbacks)
         on_switch = callbacks.on_switch,
         on_select_group = callbacks.on_select_group,
         on_select_groups = callbacks.on_select_groups,
+        on_manage_local_groups = callbacks.on_manage_local_groups,
         on_display_change = callbacks.on_display_change,
         on_search = callbacks.on_search,
         on_refresh = callbacks.on_refresh,

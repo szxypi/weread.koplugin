@@ -486,7 +486,11 @@ end
 dofile(fixtures..'shelf_groups_ui_case.lua')(plugin,input,mode,report,pump,paint,manifest)
 reset();local all_view=plugin.shelf_view;plugin:applyShelfSnapshot(books,{})
 plugin:showShelfView('books',nil,all_view);all_view=plugin.shelf_view;all_view:showSourceMenu('books')
-local all_picker=assert(all_view._shelf_popup);assert(#all_picker.item_table==1,'empty group shelf offered an unavailable multi-group picker')
+local all_picker=assert(all_view._shelf_popup)
+assert(#all_picker.item_table==1+(all_view.on_manage_local_groups and 1 or 0),'empty group shelf offered an unavailable multi-group picker')
+if all_view.on_manage_local_groups then
+    assert(all_picker.item_table[2].text==require('weread.lib.i18n').tr('Manage local groups'))
+end
 UI:close(all_picker)
 reset();local initial=plugin.shelf_view
 local duplicate_archives={{archiveId=777,name='重复甲',bookIds={books[1].bookId}},

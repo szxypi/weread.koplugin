@@ -37,7 +37,8 @@ return function(plugin,input,mode,report,pump,paint,manifest)
         local view=assert(plugin.shelf_view)
         view:showSourceMenu('books')
         local picker=assert(view._shelf_popup);assert(UI:getTopmostVisibleWidget()==picker)
-        assert(#picker.item_table==#expected+1+((#expected>0 or #(view.group_keys or {})>0) and 1 or 0))
+        assert(#picker.item_table==#expected+1+((#expected>0 or #(view.group_keys or {})>0) and 1 or 0)
+            +(view.on_manage_local_groups and 1 or 0))
         local row=assert(picker.item_table[index]);assert(row.callback)
         if index>2 then
             local expected_group=expected[index-2]

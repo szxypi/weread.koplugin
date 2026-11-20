@@ -335,6 +335,41 @@ function LibraryDB:putProfileState(name, value)
     return ok
 end
 
+-- Replace only the state the caller actually reviewed. A corrupt existing
+-- row is never treated as an absent row, and the account is checked again
+-- before commit. This is for local metadata, not cloud mutations.
+function LibraryDB:compareProfileState(name, expected, value)
+    if type(name)~='string' or name=='' or expected~=nil and type(expected)~='table' or type(value)~='table' then return false end
+    local account=self:accountKey();local payload=encode(value)
+    if not account or not payload then return false end
+    local function equal(a,b)
+        if type(a)~=type(b) then return false end
+        if type(a)~='table' then return a==b end
+        for k,v in pairs(a) do if not equal(v,b[k]) then return false end end
+        for k in pairs(b) do if a[k]==nil then return false end end
+        return true
+    end
+    local db=self:open();if not db then return false end
+    local stmt,transaction,changed
+    local ok=pcall(function()
+        assert(self:accountKey()==account)
+        db:exec('BEGIN IMMEDIATE');transaction=true
+        stmt=db:prepare('SELECT payload FROM profile_state WHERE name=?')
+        local row=stmt:reset():bind(name):step();local previous=row and decode(row[1])
+        close_statement(stmt);stmt=nil
+        if (not row and expected==nil) or (row and type(previous)=='table' and expected~=nil and equal(previous,expected)) then
+            stmt=db:prepare('INSERT INTO profile_state (name,payload) VALUES (?,?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload')
+            stmt:reset():bind(name,payload):step();close_statement(stmt);stmt=nil;changed=true
+        end
+        assert(self:accountKey()==account)
+        db:exec('COMMIT');transaction=false
+    end)
+    close_statement(stmt)
+    if transaction then pcall(function() db:exec('ROLLBACK') end) end
+    pcall(function() db:close() end)
+    return ok and changed==true
+end
+
 -- Delete only the exact profile value the user reviewed. The immediate
 -- transaction prevents a concurrent update from being removed accidentally.
 function LibraryDB:deleteProfileStateIf(name, expected)
