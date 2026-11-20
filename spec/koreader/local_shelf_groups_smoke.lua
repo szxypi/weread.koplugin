@@ -17,7 +17,7 @@ local host=assert(FileManager.instance.weread);local settings=host.settings
 host.isNetworkOnline=function() return false end;host.isNetworkConnected=host.isNetworkOnline
 host.client.request=function() error('unexpected local group network request') end
 local function auth(id)
-    settings:update_auth({account={user_vid=id,name='Synthetic'},cookies={wr_vid=id,wr_skey='synthetic-session'}},{replace_cookies=true})
+    settings:update_auth({account={user_vid=id,name='Synthetic'},cookies={wr_vid = id,wr_skey='synthetic-session'}},{replace_cookies=true})
 end
 auth('900000')
 local shelf={{bookId='101',title='合成书一',author='作者'}, {bookId='102',title='合成书二',author='作者'},
