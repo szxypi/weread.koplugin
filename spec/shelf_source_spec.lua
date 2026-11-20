@@ -168,6 +168,15 @@ result=f.fetch()
 expect(result.books[1]==gateway_book and result.books[1].readerLink==gateway_book.readerLink
     and result.books[1].bookVersion==42 and result.archive==nil and result.mp.bookId=='MP_WXS_1',
     'gateway validation discarded original metadata or changed incomplete-group semantics')
+f=fixture('gateway')
+local large_book={bookId=100000000000000,title='Large number',readerLink='synthetic-reader'}
+local large_group={archiveId=100000000000001,name='Large group',bookIds={'100000000000000'}}
+f.client.get_gateway_shelf=function() return {books={large_book},archive={large_group}},200,{} end
+result=f.fetch()
+expect(result.books[1].bookId=='100000000000000' and result.books[1].readerLink=='synthetic-reader'
+    and result.archive[1].archiveId=='100000000000001' and result.archive[1].bookIds[1]=='100000000000000'
+    and large_book.bookId==100000000000000 and large_group.archiveId==100000000000001,
+    'gateway lost exact large numeric IDs or mutated its input')
 f=fixture();f.change{present=false,api_key="",cookies=jar}
 expect(Source.ready(f.settings,f.store),"verified Web account without key cannot read shelf")
 result=f.fetch()

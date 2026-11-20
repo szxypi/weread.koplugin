@@ -36,6 +36,57 @@ local function decode(value)
     return ok and type(result) == "table" and result or nil
 end
 
+local function copy(value)
+    local result={};for key,item in pairs(value) do result[key]=item end
+    local mt=getmetatable(value);if type(mt)=='table' then setmetatable(result,mt) end
+    return result
+end
+
+-- Older caches retained the exact book identity in the SQLite primary key,
+-- while their JSON numeric field could have lost digits during serialization.
+local function shelf_book(value, key)
+    if type(value)~='table' or type(key)~='string' or not ShelfSnapshot.identity(key) then return nil end
+    local seen=false
+    for _,field in ipairs({'book_id','bookId'}) do
+        local id=value[field]
+        if id~=nil then
+            seen=true
+            if type(id)=='number' then
+                local number=tonumber(key)
+                if not number or not ShelfSnapshot.identity(id) or ShelfSnapshot.identity(number)~=key then return nil end
+                local expected,actual=encode(number),encode(id)
+                if type(expected)~='string' or expected~=actual then return nil end
+                value[field]=key
+            elseif ShelfSnapshot.identity(id)~=key then return nil end
+        end
+    end
+    return seen and value or nil
+end
+
+local function shelf_archives(archives)
+    if type(archives)~='table' then return archives end
+    local result=copy(archives)
+    for i,archive in ipairs(archives) do
+        if type(archive)~='table' then return nil end
+        local row=copy(archive)
+        for _,key in ipairs({'archiveId','archive_id','id'}) do
+            if type(row[key])=='number' then
+                row[key]=ShelfSnapshot.identity(row[key]);if not row[key] then return nil end
+            end
+        end
+        if type(row.bookIds)=='table' then
+            row.bookIds=copy(row.bookIds)
+            for index,id in ipairs(row.bookIds) do
+                if type(id)=='number' then
+                    row.bookIds[index]=ShelfSnapshot.identity(id);if not row.bookIds[index] then return nil end
+                end
+            end
+        end
+        result[i]=row
+    end
+    return result
+end
+
 local function close_statement(stmt)
     if stmt then pcall(function() stmt:close() end) end
 end
@@ -171,7 +222,10 @@ function LibraryDB:cacheShelf(books, archives)
         local now = snapshot.cached_at
         for position, book in ipairs(books) do
             local book_id = ShelfSnapshot.id(book)
-            local payload, encode_err = encode(book)
+            local stored=copy(book)
+            if type(stored.book_id)=='number' then stored.book_id=book_id end
+            if type(stored.bookId)=='number' then stored.bookId=book_id end
+            local payload, encode_err = encode(stored)
             if type(payload) ~= "string" then error(encode_err or "invalid shelf payload") end
             local kind = book_id:match("^MP_WXS_") and "mp" or "book"
             stmt:reset():bind(book_id, kind, payload, position, now):step()
@@ -180,7 +234,9 @@ function LibraryDB:cacheShelf(books, archives)
         stmt = nil
         -- Keep groups and their membership in the same snapshot as the books.
         if archives ~= nil then
-            local payload, encode_err = encode(archives)
+            local stored=shelf_archives(archives)
+            if not stored then error('invalid shelf archive identity') end
+            local payload, encode_err = encode(stored)
             if not payload then error(encode_err) end
             stmt = db:prepare([[
                 INSERT INTO shelf_state (name, payload) VALUES ('archives', ?)
@@ -230,14 +286,15 @@ function LibraryDB:getShelf()
     local stmt
     local ok = pcall(function()
         stmt = db:prepare([[
-            SELECT payload FROM books
+            SELECT book_id, payload FROM books
             WHERE on_shelf=1
             ORDER BY shelf_position, book_id
         ]])
         local row = stmt:reset():step()
         while row do
-            local book = decode(row[1])
-            if book then books[#books + 1] = book end
+            local book = shelf_book(decode(row[2]),row[1])
+            if not book then error('invalid shelf book identity') end
+            books[#books + 1] = book
             row = stmt:step()
         end
     end)
@@ -354,9 +411,13 @@ end
 
 function LibraryDB:putBook(book)
     if type(book) ~= "table" then return false end
-    local book_id = book.book_id or book.bookId
-    local payload = encode(BookStore.without_reading_state(book))
-    if not book_id or not payload then return false end
+    local book_id = ShelfSnapshot.id(book)
+    if not book_id then return false end
+    local stored=BookStore.without_reading_state(book)
+    if type(stored.book_id)=='number' then stored.book_id=book_id end
+    if type(stored.bookId)=='number' then stored.bookId=book_id end
+    local payload = encode(stored)
+    if not payload then return false end
     local db = self:open()
     if not db then return false end
     local stmt
@@ -380,6 +441,7 @@ function LibraryDB:putBook(book)
 end
 
 function LibraryDB:getBook(book_id)
+    book_id=ShelfSnapshot.identity(book_id)
     if not book_id then return nil end
     local db = self:openRead()
     if not db then return nil end
@@ -406,8 +468,8 @@ function LibraryDB:getBook(book_id)
             assert(columns_ok and has_payload and not has_detail, 'library_db/book_schema')
             stmt = db:prepare("SELECT payload FROM books WHERE book_id=?")
         end
-        local row = stmt:reset():bind(tostring(book_id)):step()
-        local decoded = row and decode(row[1]) or nil
+        local row = stmt:reset():bind(book_id):step()
+        local decoded = row and shelf_book(decode(row[1]),book_id) or nil
         -- Older detail rows may contain a checkpoint copied before a sync.
         -- Filter on read as well, without rewriting those legacy rows.
         result = decoded and BookStore.without_reading_state(decoded) or nil
@@ -428,9 +490,8 @@ function LibraryDB:getShelfEntry(book_id)
         stmt=db:prepare([[SELECT CASE WHEN length(CAST(payload AS BLOB))<=262144 THEN payload ELSE NULL END,
             shelf_updated_at FROM books WHERE book_id=? AND on_shelf=1]])
         local row=stmt:bind(book_id):step()
-        local book=row and decode(row[1])
-        if type(book)~='table' or tostring(book.book_id or book.bookId or '')~=book_id
-            or book.bookId~=nil and tostring(book.bookId)~=book_id then return end
+        local book=row and shelf_book(decode(row[1]),book_id)
+        if not book then return end
         result={book=book,cached_at=tonumber(row[2]) or 0}
     end)
     close_statement(stmt);pcall(function() db:close() end)
@@ -456,8 +517,7 @@ function LibraryDB:getShelfStatus(book_id)
         if not row then return end
         local present,stamp=ShelfSnapshot.state(decode(row[1]),tonumber(row[2]),
             tonumber(row[3]),tonumber(row[4]),row[1]==nil)
-        local book=tonumber(row[3])==1 and decode(row[5]) or nil
-        if ShelfSnapshot.id(book)~=book_id then book=nil end
+        local book=tonumber(row[3])==1 and shelf_book(decode(row[5]),book_id) or nil
         result={present=present,cached_at=stamp or (book and tonumber(row[4])),book=book}
     end)
     close_statement(stmt);pcall(function() db:close() end)

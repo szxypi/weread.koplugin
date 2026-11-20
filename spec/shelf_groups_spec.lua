@@ -101,4 +101,21 @@ expect(normalized[1]=='archive:1' and normalized[2]=='archive:2','stored selecti
 expect(not Groups.normalize({'archive:1','archive:1'}) and not Groups.normalize({[1]='archive:1',[3]='archive:2'})
     and not Groups.normalize({'bad\nkey'}),'invalid persisted selection accepted')
 
+local mixed_books={{bookId='10000000000000',title='Text ID'},
+    {bookId=10000000000001,title='Numeric ID'}, {bookId='9007199254740993',title='Exact large ID'}}
+local mixed=Groups.list({{archiveId=10000000000002,name='Mixed IDs',
+    bookIds={10000000000000,'10000000000001',9007199254740992}}},mixed_books)
+expect(mixed[1].key=='archive:10000000000002' and #mixed[1].books==2
+    and mixed[1].books[1]==mixed_books[1] and mixed[1].books[2]==mixed_books[2],
+    'mixed exact IDs did not match, or unsafe numeric ID was accepted')
+expect(mixed[2].key=='__ungrouped__' and #mixed[2].books==1 and mixed[2].books[1]==mixed_books[3],
+    'unsafe adjacent numeric ID incorrectly grouped a string ID')
+local mixed_selected=Groups.selected(mixed,{'archive:10000000000002'},mixed_books)
+expect(#mixed_selected==2 and mixed_selected[1]==mixed_books[1] and mixed_selected[2]==mixed_books[2],
+    'mixed numeric and string member selection lost exact book identities')
+local rounded=Groups.list({{archiveId=99,name='Old',bookIds={100000000000000}}},
+    {{bookId='100000000000000',title='String'}})
+expect(#rounded[1].books==0 and rounded[2].books[1].bookId=='100000000000000',
+    'potentially rounded legacy numeric member was attached to an exact string ID')
+
 print(("shelf_groups_spec: %d checks"):format(checks))

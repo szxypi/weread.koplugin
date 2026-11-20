@@ -1,6 +1,7 @@
 -- Project user-defined WeRead shelf groups onto the current shelf snapshot.
 
 local Groups = {}
+local Identity = require('weread.lib.shelf_snapshot')
 
 local function text(value, fallback)
     if type(value) ~= "string" then return fallback end
@@ -9,8 +10,8 @@ local function text(value, fallback)
 end
 
 local function group_key(archive, label)
-    local id = archive.archiveId or archive.archive_id or archive.id
-    if id ~= nil and tostring(id) ~= "" then return "archive:" .. tostring(id) end
+    local id = Identity.persisted_identity(archive.archiveId or archive.archive_id or archive.id)
+    if id then return "archive:" .. id end
     return "name:" .. label
 end
 
@@ -23,8 +24,8 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
     end
     local by_id = {}
     for _, book in ipairs(type(books) == "table" and books or {}) do
-        local id = book.book_id or book.bookId
-        if id then by_id[tostring(id)] = book end
+        local id = Identity.persisted_id(book)
+        if id then by_id[id] = book end
     end
 
     local groups = {}
@@ -42,9 +43,9 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
         local members, seen = {}, {}
         local mp_only = #ids > 0
         for _, id in ipairs(ids) do
-            id = tostring(id)
-            if id:sub(1,7) ~= 'MP_WXS_' then mp_only = false end
-            local book = by_id[id]
+            id = Identity.persisted_identity(id)
+            if not id or id:sub(1,7) ~= 'MP_WXS_' then mp_only = false end
+            local book = id and by_id[id]
             if book and not seen[id] then
                 members[#members + 1] = book
                 seen[id] = true
@@ -64,8 +65,8 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
     end
     local ungrouped = {}
     for _, book in ipairs(type(books) == "table" and books or {}) do
-        local id = book.book_id or book.bookId
-        if id and not grouped[tostring(id)] then ungrouped[#ungrouped + 1] = book end
+        local id = Identity.persisted_id(book)
+        if id and not grouped[id] then ungrouped[#ungrouped + 1] = book end
     end
     if #groups > 0 and #ungrouped > 0 then
         groups[#groups + 1] = {
@@ -119,13 +120,13 @@ function Groups.selected(groups,keys,books)
         local group=Groups.unique(groups,key)
         if not group then return nil,'unavailable' end
         for _,book in ipairs(group.books or {}) do
-            local id=book.book_id or book.bookId
-            if id~=nil then members[tostring(id)]=true end
+            local id=Identity.persisted_id(book)
+            if id then members[id]=true end
         end
     end
     local result,seen={},{}
     for _,book in ipairs(type(books)=='table' and books or {}) do
-        local id=book.book_id or book.bookId;id=id and tostring(id)
+        local id=Identity.persisted_id(book)
         if id and members[id] and not seen[id] then result[#result+1]=book;seen[id]=true end
     end
     return result,'selected'

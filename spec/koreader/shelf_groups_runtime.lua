@@ -102,6 +102,61 @@ if mode=='reopen' then
     remembered.on_select_group(nil);pump(function() return plugin.shelf_view~=remembered end)
     assert(#plugin.shelf_view.group_keys==0,'all-books selection failed to clear persisted groups')
 end
+-- A standard gateway may mix safe integer IDs with decimal strings. Exercise
+-- both its current canonicalization and a pre-existing mixed SQLite snapshot.
+local previous_multi=plugin.shelf_multi_groups
+for _,case in ipairs({'gateway','legacy'}) do
+    local account='synthetic-mixed-'..case
+    local isolated_settings={data_dir=evidence,get=function(_,key,default)
+        if key=='account' then return {user_vid=account} end
+        if key=='shelf' then return {source='gateway'} end
+        if key=='api_key' then return 'synthetic-key' end
+        return default
+    end}
+    local database=require('weread.lib.library_db'):new(isolated_settings)
+    if mode=='live' then
+        local mixed={books={{bookId='100000000000000',title='Synthetic string'},
+                            {bookId=100000000000001,title='Synthetic number'},
+                            {bookId='9007199254740993',title='Synthetic other'}},
+            archive={{archiveId=100000000000002,name='Synthetic mixed',
+                bookIds={100000000000000,'100000000000001'}}}}
+        if case=='gateway' then
+            local client={settings=isolated_settings,json_decode=function() return {} end,
+                get_gateway_shelf=function() return mixed,200,{} end}
+            mixed=require('weread.lib.shelf_source').fetch(client)
+            assert(mixed.books[2].bookId=='100000000000001' and mixed.archive[1].bookIds[1]=='100000000000000')
+        else
+            mixed.books[1].bookId='10000000000000'
+            mixed.archive[1]={archiveId=77,name='Synthetic legacy',bookIds={10000000000000,'100000000000001'}}
+        end
+        assert(database:cacheShelf(mixed.books,mixed.archive),'mixed shelf snapshot was not saved')
+        if case=='legacy' then
+            -- Reproduce older precision-losing JSON while leaving the SQLite
+            -- primary key intact, as it was in the old writer.
+            local db=assert(database:open())
+            local stmt=db:prepare('UPDATE books SET payload=? WHERE book_id=?')
+            stmt:bind(json.encode({bookId=100000000000001,title='Synthetic number'}),'100000000000001'):step();stmt:close()
+            stmt=db:prepare("UPDATE shelf_state SET payload=? WHERE name='archives'")
+            stmt:bind(json.encode({{archiveId=77,name='Synthetic legacy',
+                bookIds={10000000000000,'100000000000001',100000000000001}}})):step();stmt:close();db:close()
+        end
+    end
+    local saved_books,saved_archives=assert(database:getShelf()),assert(database:getShelfArchives())
+    plugin:closeWeReadUI();plugin:applyShelfSnapshot(saved_books,saved_archives)
+    plugin.shelf_multi_groups={}
+    plugin.shelf_group_key=case=='gateway' and 'archive:100000000000002' or 'archive:77';plugin:showShelfView('books')
+    local view=assert(plugin.shelf_view)
+    local identity=require('weread.lib.shelf_snapshot')
+    local found={};for _,book in ipairs(view.books) do found[identity.id(book)]=true end
+    assert(#view.books==2 and found[case=='gateway' and '100000000000000' or '10000000000000']
+        and found['100000000000001'],
+        'native group did not retain both exact mixed-format IDs: '..case..' '..tostring(#view.books))
+    UI:forceRePaint()
+    plugin.shelf_group_key='__ungrouped__';plugin:showShelfView('books')
+    assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='9007199254740993',
+        'mixed-format group changed the adjacent ungrouped book')
+end
+plugin:closeWeReadUI();plugin.shelf_group_key=nil;plugin.shelf_multi_groups=previous_multi
 local popup_cases=0
 local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
 local portal=dofile(fixtures..'discovery_lifetime_case.lua')(plugin,evidence)
@@ -411,5 +466,6 @@ assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
 report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.recent_identity=true;report.prefetch_identity=true;report.annotation_identity=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
 report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
+report.mixed_group_identities=true
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

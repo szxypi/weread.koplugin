@@ -132,6 +132,41 @@ function M.normalize(data, kind)
     return { books = books, archive = data.archive ~= nil and archives or nil }
 end
 
+-- Gateway metadata is richer than the normalized projection. Keep every field
+-- while publishing canonical exact identifiers to all downstream consumers.
+-- Copy only changed tables so callers never mutate the received snapshot.
+local function canonical_gateway(data, normalized)
+    local changed=false
+    local books={}
+    for i,book in ipairs(data.books) do
+        if book.bookId~=normalized.books[i].bookId then
+            local copy={};for key,value in pairs(book) do copy[key]=value end
+            copy.bookId=normalized.books[i].bookId;books[i]=copy;changed=true
+        else books[i]=book end
+    end
+    local archives
+    if data.archive then
+        archives={}
+        for i,archive in ipairs(data.archive) do
+            local projection=normalized.archive[i]
+            local members_changed=false
+            for j,value in ipairs(archive.bookIds) do
+                if value~=projection.bookIds[j] then members_changed=true;break end
+            end
+            if archive.archiveId~=projection.archiveId or members_changed then
+                local copy={};for key,value in pairs(archive) do copy[key]=value end
+                copy.archiveId=projection.archiveId
+                if members_changed then copy.bookIds=projection.bookIds end
+                archives[i]=copy;changed=true
+            else archives[i]=archive end
+        end
+    end
+    if not changed then return data end
+    local copy={};for key,value in pairs(data) do copy[key]=value end
+    copy.books,copy.archive=books,archives
+    return copy
+end
+
 function M.fetch(client, options)
     options = options or {}
     local settings = client.settings
@@ -177,11 +212,14 @@ function M.fetch(client, options)
         local ok, result, code, headers = pcall(client.get_gateway_shelf, client)
         if not current(true) then fail("session_changed") end
         -- Validate members and groups as well as the outer arrays before the
-        -- gateway result can replace a complete local shelf. Keep the original
-        -- result: gateway-only fields are used by other parts of the plugin.
-        local valid = ok and type(result) == "table" and require('weread.lib.shelf_wire').valid(client,result)
-            and pcall(M.normalize, result, "gateway")
+        -- gateway result can replace a complete local shelf. Preserve its
+        -- additional fields, which other parts of the plugin use.
+        local valid,normalized
+        if ok and type(result) == "table" and require('weread.lib.shelf_wire').valid(client,result) then
+            valid,normalized=pcall(M.normalize, result, "gateway")
+        end
         if valid then
+            result=canonical_gateway(result,normalized)
             result._shelf_source, result._native_fallback = "gateway", fallback
             result._native_revision = selected.credentials and selected.revision or nil
             return result, code, headers

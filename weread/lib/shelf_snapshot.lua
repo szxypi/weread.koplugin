@@ -10,6 +10,19 @@ local function identity(value)
     end
     if type(value)=='string' and #value>=1 and #value<=256 and value~='0' and not value:find('[%z%c]') then return value end
 end
+M.identity=identity
+-- Older JSON encoders emitted only 14 significant digits for numeric values.
+-- A decoded larger number could therefore denote an adjacent original ID.
+function M.persisted_identity(value)
+    if type(value)=='number' and value>=100000000000000 then return nil end
+    return identity(value)
+end
+function M.persisted_id(book)
+    if type(book)~='table' then return nil end
+    if book.book_id~=nil and not M.persisted_identity(book.book_id)
+        or book.bookId~=nil and not M.persisted_identity(book.bookId) then return nil end
+    return M.id(book)
+end
 function M.id(book)
     if type(book)~='table' then return nil end
     local first,second=identity(book.book_id),identity(book.bookId)
