@@ -39,6 +39,7 @@ local function message(reason)
     return _('Could not prepare or save this finished-mark change. Check E-Ink login, network and storage, then try again.')
 end
 function M.open(host,id,resolving)
+    local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(host) end
     local offline=require('weread.ui.finish_offline')
     offline.cancel_sync(host)
     M.cancel(host)

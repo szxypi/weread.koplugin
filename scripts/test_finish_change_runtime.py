@@ -29,6 +29,10 @@ def main():
                 str(profile/'plugins/weread.koplugin'),str(Path(temporary)/'queue-smoke')],env,b'',args.koreader.resolve(),timeout=60)
             if code or repaint or b'PASS: offline finished-mark queue SQLite' not in out:raise ValueError('queue_store')
             report['queue_store_verified']=True
+            code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/membership_queue_store_smoke.lua'),
+                str(profile/'plugins/weread.koplugin'),str(Path(temporary)/'membership-queue-smoke')],env,b'',args.koreader.resolve(),timeout=60)
+            if code or repaint or b'PASS: offline membership queue SQLite' not in out:raise ValueError('membership_queue_store')
+            report['membership_queue_store_verified']=True
             for mode in ('live','reopen','offline_reopen','retry_reopen'):
                 code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/finish_change_ui_probe.lua'),mode],env,b'',args.koreader.resolve(),timeout=300)
                 if len(out)>4*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_frame')

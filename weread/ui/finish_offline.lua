@@ -114,7 +114,8 @@ local function retry_later(host,account,entry)
 end
 local function allowed(host,account)
     if not account or host.library_db:accountKey()~=account or not host:isNetworkConnected()
-        or host._finish_change_ui or host._shelf_flag_change_ui or host._shelf_membership_ui or host._finish_offline_dialog then return false end
+        or host._finish_change_ui or host._shelf_flag_change_ui or host._shelf_membership_ui or host._finish_offline_dialog
+        or host._membership_offline_dialog or (host._membership_offline_sync and host._membership_offline_sync.job) then return false end
     local private,private_error=require('weread.ui.shelf_flag_change').pending(host)
     if private or private_error then return false end
     if host.shelf_membership then
@@ -144,7 +145,7 @@ function M.pump(host,force)
                 if (phase=='confirmed' or phase=='unconfirmed') and entry then M.refresh_view(host,entry.book_id) end
                 if phase=='confirmed' then
                     if host.showTransientInfo then host:showTransientInfo(_('Offline finished mark synced.'),3) end
-                    UI:nextTick(function() if host._finish_offline_account==account then M.pump(host) end end)
+                    UI:nextTick(function() if host._finish_offline_account==account then M.pump(host);require('weread.ui.membership_offline').pump(host) end end)
                 elseif phase=='unconfirmed' and host.showTransientInfo then
                     host:showTransientInfo(_('An offline finished mark needs review. It will not be sent again.'),5)
                 elseif phase=='retryable' then

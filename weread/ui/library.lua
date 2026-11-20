@@ -230,6 +230,7 @@ function M:onWeReadAccountChanged()
     if self.downloader then self.downloader:cancelPrefetch('account_changed') end
     local offline=package.loaded['weread.ui.finish_offline']
     if offline then offline.cancel_sync(self);offline.cancel_dialog(self) end
+    local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(self);member.cancel_dialog(self) end
     VolatileShelf.clear(self)
     local personal=package.loaded['weread.ui.personal_marks']
     if personal then personal.detach(self) end
@@ -434,7 +435,10 @@ function M:refreshBookshelf(old_view, view_options)
         local archives = type(result) == "table" and type(result.archive) == "table" and result.archive or {}
         local snapshot_saved=not groups_incomplete and self.library_db~=nil and self.library_db:cacheShelf(all_books, archives)==true
         if snapshot_saved then UIManager:nextTick(function()
-            if still_current() then require('weread.ui.finish_offline').pump(self,true) end
+            if still_current() then
+                require('weread.ui.finish_offline').pump(self,true)
+                require('weread.ui.membership_offline').pump(self)
+            end
         end) end
         self.shelf_active_source = type(result) == "table" and result._shelf_source or "gateway"
         if type(result) == "table" and result._native_fallback then

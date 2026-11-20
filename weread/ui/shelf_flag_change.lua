@@ -38,6 +38,7 @@ local function message(reason)
     return _('Could not prepare or save this private-reading change. Check E-Ink login, network and storage, then try again.')
 end
 function M.open(host,id,resolving)
+    local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(host) end
     local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(host) end
     M.cancel(host)
     if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end

@@ -1,6 +1,18 @@
 local I18n = {}
 
 local zh = {
+    ["Offline bookshelf change synced."] = "离线书架修改已同步。",
+    ["An offline bookshelf change needs review. It will not be sent again."] = "离线书架修改需要核对，不会自动重发。",
+    ["Offline bookshelf change needs E-Ink authorization. Renew it, then refresh the bookshelf."] = "离线书架修改需要墨水屏授权，请续期后刷新书架。",
+    ["Offline bookshelf change could not sync. Refresh the bookshelf to try again."] = "离线书架修改暂未同步，请刷新书架后重试。",
+    ["Could not read offline bookshelf changes."] = "无法读取离线书架修改。",
+    ["The saved bookshelf has no complete membership list. Refresh it online first."] = "本机没有完整的书架成员记录，请先联网刷新书架。",
+    ["This offline change may have been sent. Check the pending bookshelf change first."] = "离线修改可能已经发送，请先核对待确认的书架修改。",
+    ["Cancel this saved offline bookshelf change? No request will be sent."] = "取消已保存的离线书架修改？不会发送请求。",
+    ["Save an offline request to remove this item from the cloud bookshelf? Downloaded files and local reading progress are kept. It will sync after reconnecting."] = "保存离线移出书架请求？已下载文件和本机阅读进度会保留，联网后将同步。",
+    ["Save an offline request to add this item to the cloud bookshelf? It will sync after reconnecting."] = "保存离线加入书架请求？联网后将同步。",
+    ["Offline bookshelf change saved. It will sync after reconnecting."] = "离线书架修改已保存，联网后将同步。",
+    ["Saved cloud bookshelf state"] = "已保存的云端书架状态",
     ["Saved book information does not match. The chapter was not linked; refresh the book and check its cache."] = "本机书籍信息不匹配，章节未关联。请刷新书籍并检查缓存。",
     ["Export saved cloud notes"] = "导出已保存的云端笔记",
     ["WeRead notes"] = "微信读书笔记",

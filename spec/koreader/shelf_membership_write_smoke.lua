@@ -58,6 +58,25 @@ return function(reader,plugin,pump,shot,clean_popups)
         view.ok_callback();pump(function() return not plugin._shelf_membership_ui end)
     end
     local function present(target,value) assert(plugin.library_db:getShelfStatus(target or id).present==value,'saved membership differs from native readback') end
+    -- Queue both directions without a network; only a later reconnect may
+    -- dispatch. The real SQLite queue and production worker must agree.
+    local connected=plugin.isNetworkConnected
+    local function offline_change(expected_before)
+        clean_popups(reader);plugin.isNetworkConnected=function() return false end
+        assert(plugin:showShelfState(id));row('Change cloud membership').callback()
+        local dialog=assert(plugin._membership_offline_dialog)
+        local old=writes();dialog.ok_callback()
+        local queued=assert(require('weread.ui.membership_offline').get(plugin,id))
+        assert(queued.before==expected_before and queued.desired~=expected_before and queued.phase=='queued')
+        assert(writes()==old,'offline change sent before reconnect')
+        clean_popups(reader);plugin.isNetworkConnected=function() return true end
+        require('weread.ui.membership_offline').pump(plugin)
+        pump(function() return not require('weread.ui.membership_offline').get(plugin,id) end)
+        present(id,not expected_before)
+        assert(writes()==old+1 and not plugin.shelf_membership:pending(),'offline change did not sync exactly once')
+    end
+    offline_change(true);offline_change(false);plugin.isNetworkConnected=connected
+
     -- The shelf's direct hold shortcut must refresh the underlying shelf only
     -- after its owned status menu closes, while retaining normal write guards.
     local before=writes();clean_popups(reader);plugin:showBookshelf();UI:forceRePaint()
