@@ -67,6 +67,22 @@ for index,key in ipairs({'progress_desc','progress_asc'}) do
         'progress sort did not save the selected direction')
     expect(not owner._shelf_popup,'progress sort left its popup open')
 end
+for _,event in ipairs({'current','closed','account_changed'}) do
+    local host,owner,origin,revoke=fixture();host.shelf_regular={{bookId='900001'}}
+    local starts,cancels=0,0
+    host.cancelShelfProgress=function() cancels=cancels+1 end
+    package.loaded['weread.ui.shelf_progress_all']={start=function(target,scope,callback)
+        expect(target==host and scope==origin and type(callback)=='function','bulk action lost its owner')
+        starts=starts+1;return true
+    end}
+    host:showShelfSortOptions(function() end,origin)
+    local callback=shown.buttons[10][1].callback;callback()
+    if event=='closed' then Popup.close(owner) elseif event=='account_changed' then revoke() end
+    flush()
+    expect(starts==(event=='current' and 1 or 0) and cancels==(event=='current' and 1 or 0),
+        'bulk action ran after its shelf or account changed')
+end
+package.loaded['weread.ui.shelf_progress_all']=nil
 local _,owner=fixture();local calls=0
 local dialog={onCloseWidget=function() calls=calls+1;return false end}
 Popup.show(owner,dialog);Popup.close(owner);Popup.close(owner)

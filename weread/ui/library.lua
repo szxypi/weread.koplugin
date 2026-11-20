@@ -727,6 +727,8 @@ function M:showShelfView(mode, keyword, old_view, options)
     options.keyword = keyword
     local skip_cover_fetch_once = options.skip_cover_fetch_once == true
     options.skip_cover_fetch_once = nil
+    local skip_progress_fetch_once = options.skip_progress_fetch_once == true
+    options.skip_progress_fetch_once = nil
     self:cancelShelfCovers()
     self.shelf_view_mode = mode
     self.shelf_search_keyword = keyword
@@ -926,11 +928,12 @@ function M:showShelfView(mode, keyword, old_view, options)
         end,
         on_sort = function()
             if not current() then return end
-            self:showShelfSortOptions(function()
+            self:showShelfSortOptions(function(result)
                 if not current() then return end
                 self.shelf_view_pages = { books = 1, public_account = 1 }
                 options.prepared_shelf = nil
                 options.page, options.scroll_offset = 1, nil
+                options.skip_progress_fetch_once=type(result)=='table' and result.skip_progress_fetch_once==true
                 self:showShelfView(mode, keyword, view, options)
             end,{owner=view,is_current=current})
         end,
@@ -1035,7 +1038,9 @@ function M:showShelfView(mode, keyword, old_view, options)
                 end,
             })
         end
-        update_progress(force)
+        if skip_progress_fetch_once then
+            if self.cancelShelfProgress then self:cancelShelfProgress() end
+        else update_progress(force) end
     elseif self.cancelShelfProgress then self:cancelShelfProgress() end
     if cover_mode and not skip_cover_fetch_once then
         local fetch_options = {}

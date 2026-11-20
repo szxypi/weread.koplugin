@@ -26,6 +26,8 @@ function M:prepareShelfProgress(books,saved_books)
 end
 
 function M:cancelShelfProgress()
+    local all=package.loaded['weread.ui.shelf_progress_all']
+    if all then all.cancel(self) end
     local context = self.shelf_progress_context
     self.shelf_progress_context = nil
     if context and context.request and self.shelf_progress_worker then

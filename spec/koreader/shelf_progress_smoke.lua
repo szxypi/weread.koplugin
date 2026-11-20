@@ -148,6 +148,8 @@ return function(plugin, flush_tasks, evidence, paint, wait_progress)
         sqlite_display_verified=true,offline_cached_list_zero_requests=true,gateway_only_cb_skipped=true,
         ordinary_gateway_continued=true,unavailable_progress_not_invented=true,reading_writes_unchanged=true})))
     assert(report:close())
+    local bulk_smoke=dofile(assert(debug.getinfo(1,'S').source:match('^@(.*/)'))..'shelf_progress_all_smoke.lua')
+    bulk_smoke(plugin,books,count,control,wait_progress,evidence)
     plugin:closeWeReadUI()
     settings:update_auth({api_key=old_key,cookies=old_cookies},{replace_cookies=true})
     settings:set("shelf",client:json_decode(old_shelf));settings:flush()

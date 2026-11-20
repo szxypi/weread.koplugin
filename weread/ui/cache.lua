@@ -326,6 +326,16 @@ function M:showShelfSortOptions(on_sorted, origin)
             },
         })
     end
+    if origin and type(self.shelf_regular)=='table' then
+        buttons[#buttons+1]={{text=_('Update all bookshelf progress'),callback=function()
+            UIManager:nextTick(function()
+                if not current() then return end
+                if self.cancelShelfProgress then self:cancelShelfProgress() end
+                Popup.close(origin.owner)
+                require('weread.ui.shelf_progress_all').start(self,origin,on_sorted)
+            end)
+        end}}
+    end
     dialog = ButtonDialog:new{
         title = _("Sort by"),
         title_align = "center",
