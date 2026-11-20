@@ -24,7 +24,7 @@ local ok,reason=pcall(function()
     local function load(db) return json.decode(db:rowexec('SELECT payload FROM remote WHERE id=1')) end
     local function save(db,value) local stmt=db:prepare('UPDATE remote SET payload=? WHERE id=1');stmt:bind(json.encode(value)):step();stmt:close() end
     local function shelf() return {books={{bookId='41',title='合成测试书籍：私密阅读',finishReading=0,secret=0},
-        {bookId='42',title='合成其他书籍',finishReading=1,secret=0}},archive={}} end
+        {bookId='42',title='合成其他书籍',finishReading=1,secret=0}},archive=json.decode('[]')} end
     local function progress() return {book={bookId='41',chapterUid=2,chapterIdx=2,chapterOffset=100,progress=37.5}} end
     if mode=='live' then remote(function(db)
         db:exec('CREATE TABLE remote(id INTEGER PRIMARY KEY,payload TEXT NOT NULL)');db:exec([[INSERT INTO remote VALUES(1,'{}')]])

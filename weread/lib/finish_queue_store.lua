@@ -1,6 +1,7 @@
 -- Account-local offline finished-mark intents. A claimed intent is never
 -- automatically returned to the queue: its write may already have happened.
 local Contract = require('weread.lib.finish_change_contract')
+local Read = require('weread.lib.account_store_read')
 local M = {}; M.__index = M
 local LIMIT = 1000
 
@@ -45,6 +46,10 @@ local function read(db, account, id)
     return row(statement(db, 'SELECT book_id,token,before_value,desired_value,phase,created_at FROM finish_offline_queue WHERE book_id=?', id), account)
 end
 local function run(self, write, callback)
+    if not write then
+        local value,reason,handled=Read.try(self.library,{'finish_offline_queue'},callback)
+        if handled then return value,reason end
+    end
     local account = self.library:accountKey()
     if not account then return nil, 'account' end
     local opened, db = pcall(self.library.open, self.library)

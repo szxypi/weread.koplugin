@@ -1,6 +1,7 @@
 -- One account-local completion intent. No shelf list, position or credentials.
 -- Atomic FULL claims precede possible dispatch; pending never replays.
 local Contract=require('weread.lib.finish_change_contract')
+local Read=require('weread.lib.account_store_read')
 local M={};M.__index=M
 local function integer(value) return type(value)=='number' and value>=0 and value%1==0 and value<=9007199254740990 end
 local function token(value) return type(value)=='string' and #value==32 and value:match('^[a-f0-9]+$') end
@@ -63,27 +64,8 @@ end
 -- library and its WAL mode for every read can fail while another worker saves
 -- the shelf, even though the journal itself remains readable.
 function M:read()
-    local account=self.library:accountKey();if not account then return nil,'account' end
-    if type(self.library.openRead)=='function' then
-        local opened,db=pcall(self.library.openRead,self.library)
-        if opened and db then
-            local ok,value,missing=pcall(function()
-                -- Briefly tolerate a competing schema/cache update without
-                -- blocking the reader indefinitely on a busy database.
-                if db.set_busy_timeout then db:set_busy_timeout(50) end
-                assert(self.library:accountKey()==account,'finish_store/account')
-                local exists=statement(db,"SELECT name FROM sqlite_master WHERE type='table' AND name='finish_write_state'")
-                if not exists then return nil,true end
-                local result=read(self,db,account)
-                assert(self.library:accountKey()==account,'finish_store/account')
-                return result,false
-            end)
-            pcall(db.close,db)
-            if not ok then return nil,'storage' end
-            if not missing then return value end
-        end
-    end
-    if self.library:accountKey()~=account then return nil,'account' end
+    local value,reason,handled=Read.try(self.library,{'finish_write_state'},function(db,account) return read(self,db,account) end)
+    if handled then return value,reason end
     return run(self,function(db,key) return read(self,db,key) end)
 end
 function M:owns(record,phase)

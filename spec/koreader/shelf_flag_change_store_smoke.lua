@@ -29,12 +29,15 @@ local reopened=Store:new(library,codec);expect(reopened:owns(record,'pending') a
 expect(not reopened:finish(record,'prepared'),'pending cleared as unsent')
 account='900099';expect(store:read().phase=='idle' and not store:owns(record),'account intent leaked');account='900000'
 local open=library.open
+local full_checks=0
 function library:open()
     local db=assert(open(self));return {exec=function(_self,sql) return db:exec(sql) end,prepare=function(_self,sql)
+        full_checks=full_checks+1
         expect(tonumber(db:rowexec('PRAGMA synchronous'))==2,'SQLite not FULL');return db:prepare(sql)
     end,close=function() return db:close() end}
 end
-expect(store:owns(record,'pending'),'FULL read failed');library.open=open
+expect(not store:claim(record) and full_checks>0,'pending claim bypassed FULL write guard');library.open=open
+expect(store:owns(record,'pending'),'read-only ownership check failed')
 function library:open()
     local db=assert(open(self));return {exec=function(_self,sql) if sql=='COMMIT' then error('synthetic commit failure') end;return db:exec(sql) end,
         prepare=function(_self,sql) return db:prepare(sql) end,close=function() return db:close() end}

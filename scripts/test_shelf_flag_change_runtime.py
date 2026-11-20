@@ -25,6 +25,10 @@ def main():
             extract_candidate(candidate,profile/'plugins');shots=root/'screenshots';shots.mkdir()
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_PRIVATE_SHOTS=str(shots))
+            code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/shelf_flag_change_store_smoke.lua'),
+                str(profile/'plugins/weread.koplugin'),str(Path(temporary)/'private-store-smoke')],env,b'',args.koreader.resolve(),timeout=60)
+            if code or repaint or b'PASS: private-reading SQLite FULL, rollback and fork claim' not in out:raise ValueError('private_store')
+            report['private_store_verified']=True
             for mode in ('live','reopen'):
                 code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/shelf_flag_change_ui_probe.lua'),mode],env,b'',args.koreader.resolve(),timeout=300)
                 if len(out)>4*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_frame')

@@ -1,6 +1,7 @@
 -- One account-local private-reading intent. No shelf list, position or credentials.
 -- Atomic FULL claims precede possible dispatch; pending never replays.
 local Contract=require('weread.lib.shelf_flag_change_contract')
+local Read=require('weread.lib.account_store_read')
 local M={};M.__index=M
 local function integer(value) return type(value)=='number' and value>=0 and value%1==0 and value<=9007199254740990 end
 local function token(value) return type(value)=='string' and #value==32 and value:match('^[a-f0-9]+$') end
@@ -59,7 +60,11 @@ local function matches(value,record)
     return type(record)=='table' and value.phase~='idle' and value.account==record.account and value.id==record.id
         and value.epoch==record.epoch and Contract.same(value.metadata,record.metadata)
 end
-function M:read() return run(self,function(db,account) return read(self,db,account) end) end
+function M:read()
+    local value,reason,handled=Read.try(self.library,{'shelf_flag_write_state'},function(db,account) return read(self,db,account) end)
+    if handled then return value,reason end
+    return run(self,function(db,account) return read(self,db,account) end)
+end
 function M:owns(record,phase)
     local value=self:read();return value~=nil and matches(value,record) and (phase==nil or value.phase==phase)
 end
