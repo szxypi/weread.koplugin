@@ -28,7 +28,7 @@ function M.change(host,id,module,current,owner,title)
     return require(module).open(host,id,nil,title)
 end
 
-function M.open(host,owner,book,current)
+function M.open(host,owner,book,current,local_groups)
     if not current() or owner._shelf_popup or type(book)~='table' then return false end
     local raw=book.book_id or book.bookId
     if (type(raw)~='string' and type(raw)~='number') or Protocol.is_mp_book(raw) then return false end
@@ -52,6 +52,7 @@ function M.open(host,owner,book,current)
         end)}},
         {{text=_('Book details'),callback=action(function() host:showBookRecord(book) end)}},
     }
+    if type(local_groups)=='function' then buttons[#buttons+1]={{text=_('Local groups for this book'),callback=action(local_groups)}} end
     if membership then buttons[#buttons+1]={{text=_('Change cloud membership'),callback=action(function()
         M.change(host,id,'weread.ui.shelf_membership_write',current,owner,book.title)
     end)}} end

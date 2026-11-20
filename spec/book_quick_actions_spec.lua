@@ -107,4 +107,18 @@ do
     expect(not Quick.change(h,'42','weread.ui.finish_change',c), 'shortcut replaced an active status flow')
     expect(h._shelf_state_menu==existing and not h.status and not h.finished,'duplicate activation cancelled a status flow')
 end
+do
+    local h,o,c=fixture();local calls=0
+    expect(Quick.open(h,o,book,c,function() calls=calls+1 end),'local-group shortcut did not open')
+    local shortcut=o._shelf_popup;local button=assert(by_label(shortcut,'Local groups for this book'))
+    button.callback();flush();expect(calls==1 and not o._shelf_popup,'local-group shortcut did not run once')
+    button.callback();flush();expect(calls==1,'dismissed local-group shortcut ran twice')
+end
+for _,event in ipairs({'account','book'}) do
+    local h,o,c,revoke=fixture();local selected={bookId='42'};local calls=0
+    Quick.open(h,o,selected,c,function() calls=calls+1 end)
+    by_label(o._shelf_popup,'Local groups for this book').callback()
+    if event=='account' then revoke() else selected.bookId='43' end
+    flush();expect(calls==0,'stale local-group shortcut ran after '..event)
+end
 print('PASS: book quick actions ('..checks..' checks)')

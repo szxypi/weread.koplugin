@@ -57,6 +57,32 @@ function M.change(value,action)
     else return nil end
     return M.valid(result) and result or nil
 end
+
+-- Set this one book's memberships without changing any other book, including
+-- members not present in the current shelf snapshot.
+function M.assign(value,book,selected)
+    if not M.valid(value) or type(book)~='string' or Identity.persisted_identity(book)~=book
+        or not array(selected,100) then return nil end
+    local requested,known={},{}
+    for _,id in ipairs(selected) do
+        if type(id)~='number' or id%1~=0 or requested[id] then return nil end
+        requested[id]=true
+    end
+    local result=copy(value)
+    for _,group in ipairs(result.groups) do
+        known[group.id]=true
+        local retained,found={},false
+        for _,member in ipairs(group.books) do
+            if member==book then
+                found=true;if requested[group.id] then retained[#retained+1]=member end
+            else retained[#retained+1]=member end
+        end
+        if requested[group.id] and not found then retained[#retained+1]=book end
+        group.books=retained
+    end
+    for id in pairs(requested) do if not known[id] then return nil end end
+    return M.valid(result) and result or nil
+end
 function M.project(value,books,label)
     if not M.valid(value) then return nil end
     local by_id={}

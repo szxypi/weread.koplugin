@@ -47,11 +47,25 @@ local function group_action(view,dialog,index)
     dialog.buttons[index][1].callback();pump(function() return view._shelf_popup and view._shelf_popup~=dialog end)
     return view._shelf_popup
 end
+local function button(dialog,label)
+    for _,row in ipairs(dialog.buttons or {}) do for _,item in ipairs(row) do if item.text==label then return item end end end
+    error('button missing: '..label)
+end
+local function quick_groups(book)
+    local view=assert(host.shelf_view);view.on_hold(book,'books');local dialog=assert(view._shelf_popup)
+    assert(dialog:getSize().h<=Device.screen:getHeight(),'book actions exceed the screen')
+    button(dialog,text('Local groups for this book')).callback()
+    pump(function() return view._shelf_popup and view._shelf_popup~=dialog end)
+    return view,view._shelf_popup
+end
 local function assert_shelf_cloud()
     local groups=host.shelf_groups;assert(groups[1] and groups[1].key=='archive:7' and #groups[1].books==1)
 end
 if phase=='live' then
     assert_shelf_cloud()
+    local LocalGroups=require('weread.ui.local_shelf_groups')
+    assert(not LocalGroups.available(host,{bookId='999'}),'off-shelf book was offered local grouping')
+    assert(not LocalGroups.available(host,{bookId='101',book_id='102'}),'conflicting book identity was offered local grouping')
     local view,manager=manage();local input=select_row(view,manager,text('Create local group'))
     input:setInputText('本机测试');input.buttons[1][2].callback()
     pump(function() return host.shelf_view~=view end)
@@ -62,6 +76,29 @@ if phase=='live' then
     picker:onMenuSelect(entry(picker,text('Save local group books')));pump(function() return host.shelf_view~=view end)
     assert_shelf_cloud();local local_group=host.shelf_groups[#host.shelf_groups]
     assert(local_group.key=='local:1' and #local_group.books==2 and local_group.books[1].bookId=='101' and local_group.books[2].bookId=='103')
+    -- A long press can add and remove the same book without touching others.
+    view,picker=quick_groups(shelf[2]);assert(entry(picker,'本机测试').mandatory=='')
+    picker:onMenuSelect(entry(picker,'本机测试'));assert(entry(picker,'本机测试').mandatory=='✓')
+    UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_LOCAL_GROUP_EVIDENCE'))..'/quick-groups.png')
+    picker:onMenuSelect(entry(picker,text('Save local groups for this book')));pump(function() return host.shelf_view~=view end)
+    assert(#host.shelf_groups[#host.shelf_groups].books==3)
+    view,picker=quick_groups(shelf[2]);assert(entry(picker,'本机测试').mandatory=='✓')
+    picker:onMenuSelect(entry(picker,'本机测试'))
+    picker:onMenuSelect(entry(picker,text('Save local groups for this book')));pump(function() return host.shelf_view~=view end)
+    assert(#host.shelf_groups[#host.shelf_groups].books==2)
+    -- Cancelling a changed selection must leave the saved groups unchanged.
+    view,picker=quick_groups(shelf[2]);picker:onMenuSelect(entry(picker,'本机测试'))
+    require('weread.ui.shelf_popup').close(view)
+    assert(#assert(host.library_db:getProfileState('shelf_local_groups_v1')).groups[1].books==2)
+    view,picker=quick_groups(shelf[2]);picker:onMenuSelect(entry(picker,'本机测试'))
+    shelf[2].bookId='104';picker:onMenuSelect(entry(picker,text('Save local groups for this book')))
+    shelf[2].bookId='102';require('weread.ui.shelf_popup').close(view)
+    assert(#assert(host.library_db:getProfileState('shelf_local_groups_v1')).groups[1].books==2,'changed book identity was grouped')
+    view=host.shelf_view;view.on_select_groups({'archive:7','local:1'});pump(function() return host.shelf_view~=view end)
+    local mixed=host.shelf_view;assert(#mixed.books==2,'mixed cloud and local groups did not deduplicate')
+    local ids={};for _,book in ipairs(mixed.books) do ids[book.bookId]=true end
+    assert(ids['101'] and ids['103'] and not ids['102'])
+    mixed.on_select_group(nil);pump(function() return host.shelf_view~=mixed end)
     view=manage();UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_LOCAL_GROUP_EVIDENCE'))..'/local-groups.png')
     require('weread.ui.shelf_popup').close(view)
     local partial={shelf[1],shelf[2]}
@@ -111,6 +148,46 @@ if phase=='live' then
     pump(function() return host.shelf_view~=view end)
     local paged=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
     assert(#paged.groups[15].books==1 and paged.groups[15].books[1]=='1035')
+    view,picker=quick_groups(many[35])
+    picker:onMenuSelect(entry(picker,'测试组1'));picker:onMenuSelect(entry(picker,'测试组2'))
+    local group_page=math.floor((17-1)/picker.items_per_page)+1
+    while picker.page<group_page do picker:onNextPage() end
+    picker:onMenuSelect(entry(picker,'测试组15'))
+    while picker.page>1 do picker:onPrevPage() end
+    picker:onMenuSelect(entry(picker,text('Save local groups for this book')))
+    pump(function() return host.shelf_view~=view end)
+    paged=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+    assert(paged.groups[1].books[1]=='1035' and paged.groups[2].books[1]=='1035' and #paged.groups[15].books==0)
+    view,picker=quick_groups(many[35]);picker:onMenuSelect(entry(picker,'测试组1'))
+    picker:onMenuSelect(entry(picker,text('Create local group for this book')))
+    pump(function() return view._shelf_popup and view._shelf_popup~=picker end)
+    local combined_input=assert(view._shelf_popup);combined_input:setInputText('新建兼移动');combined_input.buttons[1][2].callback()
+    pump(function() return host.shelf_view~=view end)
+    paged=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+    assert(#paged.groups[1].books==0 and paged.groups[2].books[1]=='1035' and paged.groups[16].books[1]=='1035')
+    auth('900003');host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
+    view,picker=quick_groups(shelf[1]);local create=entry(picker,text('Create local group for this book'))
+    picker:onMenuSelect(create);pump(function() return view._shelf_popup and view._shelf_popup~=picker end)
+    local quick_input=assert(view._shelf_popup);quick_input:setInputText('长按新建');quick_input.buttons[1][2].callback()
+    pump(function() return host.shelf_view~=view end)
+    local quick_state=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+    assert(#quick_state.groups==1 and quick_state.groups[1].books[1]=='101')
+    -- A stale quick picker cannot overwrite a concurrent local change.
+    view,picker=quick_groups(shelf[1]);picker:onMenuSelect(entry(picker,'长按新建'))
+    local fresh=assert(Model.change(quick_state,{kind='create',name='并发新组'}))
+    assert(host.library_db:compareProfileState('shelf_local_groups_v1',quick_state,fresh))
+    picker:onMenuSelect(entry(picker,text('Save local groups for this book')))
+    local after=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
+    assert(#after.groups==2 and after.groups[1].books[1]=='101','stale book picker overwrote concurrent changes')
+    local top=UI:getTopmostVisibleWidget();if top~=picker then UI:close(top) end
+    require('weread.ui.shelf_popup').close(view)
+    host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
+    -- A picker captured for one account cannot write after switching accounts.
+    view,picker=quick_groups(shelf[1]);picker:onMenuSelect(entry(picker,'长按新建'))
+    auth('900004');host:applyShelfSnapshot(shelf,cloud)
+    picker:onMenuSelect(entry(picker,text('Save local groups for this book')))
+    assert(not host.library_db:getProfileState('shelf_local_groups_v1'),'stale book picker wrote to another account')
+    require('weread.ui.shelf_popup').close(view)
     auth('900000');host:applyShelfSnapshot(shelf,cloud)
     settings:flush()
 else

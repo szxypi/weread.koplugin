@@ -867,6 +867,19 @@ function M:showShelfView(mode, keyword, old_view, options)
         end
         return true
     end
+    local function refresh_local_groups()
+        if not current() then return end
+        project_local_groups(self)
+        if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups,self.shelf_group_key) then self.shelf_group_key=nil end
+        local selected={}
+        for _,key in ipairs(self.shelf_multi_groups or {}) do
+            if key:sub(1,6)~='local:' or ShelfGroups.unique(self.shelf_groups,key) then selected[#selected+1]=key end
+        end
+        if #selected~=#(self.shelf_multi_groups or {}) then save_group_selection(self,selected) end
+        local next_options={};for name,value in pairs(options) do next_options[name]=value end
+        next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
+        self:showShelfView('books',keyword,view,next_options)
+    end
     if navigation then navigation = self:discoveryNavigation("shelf", current) end
     view = LibraryView.show({
         mode = mode,
@@ -948,19 +961,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         end,
         on_manage_local_groups = self.shelf_local_state and self.library_db and self.library_db.compareProfileState and function()
             if not current() then return end
-            require('weread.ui.local_shelf_groups').open(self,view,current,function()
-                if not current() then return end
-                project_local_groups(self)
-                if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups,self.shelf_group_key) then self.shelf_group_key=nil end
-                local selected={}
-                for _,key in ipairs(self.shelf_multi_groups or {}) do
-                    if key:sub(1,6)~='local:' or ShelfGroups.unique(self.shelf_groups,key) then selected[#selected+1]=key end
-                end
-                if #selected~=#(self.shelf_multi_groups or {}) then save_group_selection(self,selected) end
-                local next_options={};for name,value in pairs(options) do next_options[name]=value end
-                next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
-                self:showShelfView('books',keyword,view,next_options)
-            end)
+            require('weread.ui.local_shelf_groups').open(self,view,current,refresh_local_groups)
         end or nil,
         on_display_change = function(key, value)
             if not current() then return end
@@ -1028,7 +1029,13 @@ function M:showShelfView(mode, keyword, old_view, options)
             end
         end,
         on_hold = not options.on_select and function(book)
-            if current() then require('weread.ui.book_quick_actions').open(self, view, book, current) end
+            if current() then
+                local local_groups=require('weread.ui.local_shelf_groups')
+                local action=local_groups.available(self,book) and function()
+                    local_groups.book(self,view,book,current,refresh_local_groups)
+                end or nil
+                require('weread.ui.book_quick_actions').open(self, view, book, current,action)
+            end
         end or nil,
         on_page_changed = function(new_page)
             if not current() then return end
