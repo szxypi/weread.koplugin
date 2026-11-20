@@ -20,7 +20,7 @@ end
 local Dialog = require("weread.ui.end_of_book_dialog")
 
 local bookstore_searches, file_searches, book_searches, cached_searches = 0, 0, 0, 0
-local screenshots,progress,typography = 0,0,0
+local screenshots,progress,typography,display = 0,0,0,0
 local callbacks = {
     on_bookshelf = function() end,
     on_search = function() bookstore_searches = bookstore_searches + 1 end,
@@ -34,6 +34,7 @@ local callbacks = {
     on_delayed_screenshot = function() screenshots = screenshots + 1 end,
     on_reader_progress = function() progress = progress + 1 end,
     on_reader_typography = function() typography = typography + 1 end,
+    on_reader_display = function() display = display + 1 end,
     on_close_book = function() end,
 }
 Dialog.show({
@@ -83,9 +84,9 @@ expect(shown.buttons[3][2].text == "Search bookstore"
 expect(shown.buttons[5][1].text=='Search downloaded chapters' and shown.buttons[5][1].enabled,
     'downloaded chapter search has its own native action')
 for _,row in ipairs(shown.buttons) do for _,item in ipairs(row) do
-    if item.id=='delayed_screenshot' or item.id=='reader_progress' or item.id=='reader_typography' then item.callback() end
+    if item.id=='delayed_screenshot' or item.id=='reader_progress' or item.id=='reader_typography' or item.id=='reader_display' then item.callback() end
 end end
-expect(screenshots==1 and progress==1 and typography==1, 'new actions delegate after closing the quick menu')
+expect(screenshots==1 and progress==1 and typography==1 and display==1, 'new actions delegate after closing the quick menu')
 shown.buttons[3][2].callback();shown.buttons[4][1].callback();shown.buttons[4][2].callback();shown.buttons[5][1].callback()
 expect(bookstore_searches==1 and file_searches==1 and book_searches==1 and cached_searches==1,
     "each search button delegates to the corresponding action")

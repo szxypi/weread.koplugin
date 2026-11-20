@@ -212,6 +212,17 @@ function M:showEndOfBookDialog(book_id)
         on_delayed_screenshot = function()
             self:onShowWeReadDelayedScreenshot()
         end,
+        on_reader_display = function()
+            local function current()
+                local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+                local same=search_scope and self.settings:auth_scope_matches(search_scope) or not search_scope and not scope
+                return self.ui==reader_ui and reader_ui.document==document and document.file==file_path
+                    and (self._reader_session_gen or 0)==reader_session and same
+                    and self.settings:get('auth_epoch',0)==search_epoch
+            end
+            local ok,valid=pcall(current)
+            if ok and valid then require('weread.ui.reader_display').show(self,{is_current=current}) end
+        end,
         on_read_stats = function()
             self:showReadStats()
         end,

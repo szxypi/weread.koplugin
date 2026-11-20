@@ -127,9 +127,13 @@ function M.show(opts, callbacks)
         table.insert(buttons,row)
     end
 
-    if callbacks.on_delayed_screenshot then
-        table.insert(buttons, {{id='delayed_screenshot',text=_('Delayed screenshot'),
-            callback=function() dismiss_then(callbacks.on_delayed_screenshot) end}})
+    if callbacks.on_delayed_screenshot or callbacks.on_reader_display then
+        local row={}
+        if callbacks.on_reader_display then row[#row+1]={id='reader_display',text=_('Page display'),
+            callback=function() dismiss_then(callbacks.on_reader_display) end} end
+        if callbacks.on_delayed_screenshot then row[#row+1]={id='delayed_screenshot',text=_('Delayed screenshot'),
+            callback=function() dismiss_then(callbacks.on_delayed_screenshot) end} end
+        table.insert(buttons,row)
     end
 
     -- Penultimate row: progress sync and the shared annotation visibility
