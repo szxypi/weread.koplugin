@@ -61,6 +61,19 @@ package.preload['weread.lib.book_search']=function() return {
         if fetch_mode=='limited' then return nil,'rate_limited' end
         if fetch_mode=='empty' then state.pages=state.pages+1;state.finished=true;return {hits={},finished=true} end
         if fetch_mode=='last_page' then state.pages=128;state.finished=true;return {hits={},finished=true} end
+        if fetch_mode=='many' then
+            local hits={}
+            for i=1,60 do
+                local start=i*10;local key='2:'..start..':'..(start+4)
+                if not state.seen[key] then
+                    state.seen[key]=true;state.hit_count=state.hit_count+1
+                    hits[#hits+1]={chapter_uid='2',start=start,finish=start+4,text='term',
+                        context='term context',source_verified=false}
+                end
+            end
+            state.pages=state.pages+1;state.finished=false
+            return {hits=hits,finished=false}
+        end
         if fetch_mode=='fallback' and state.cursor.chapter=='1' then
             state.pages=state.pages+1;state.finished=true;return {hits={},finished=true}
         end
@@ -347,8 +360,13 @@ Search.cancel(host);fetch_mode='ok'
 expect(Search.open(host,'CB_Synthetic',chapters),'imported book did not open online search')
 local cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback()
 local cb_owner=assert(host._book_search_owner);active_worker:complete()
-expect(cb_owner.menu.items[#cb_owner.menu.items].text=='Search results may be incomplete for this book.',
-    'imported book results did not disclose indexing limitations')
+local incomplete_index,hit_index
+for index,item in ipairs(cb_owner.menu.items) do
+    if item.text=='Search results may be incomplete for this book.' then incomplete_index=index
+    elseif item.text:find(' · ',1,true) then hit_index=index end
+end
+expect(incomplete_index and hit_index and incomplete_index<hit_index,
+    'imported book indexing limitation was hidden behind results')
 local offline
 for _i,item in ipairs(cb_owner.menu.items) do if item.text=='Search downloaded chapters' then offline=item end end
 expect(offline~=nil,'incomplete imported results did not offer downloaded search')
@@ -488,6 +506,29 @@ expect(cb_owner.job and cb_owner.state.cursor.chapter=='2' and #cb_owner.value==
 active_worker:complete();assert(action('Load more results')).callback();active_worker:complete()
 expect(cb_owner.state.finished and cb_owner.state.pages==5 and #cb_owner.value==4,
     'shared results or global page count changed after resuming both searches')
+Search.cancel(host)
+
+fetch_mode='many';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'long-results search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete()
+local function item_index(label)
+    for index,item in ipairs(cb_owner.menu.items) do if item.text==label then return index end end
+end
+local choose_index=item_index('Search from another chapter')
+local warning_index=item_index('Search results may be incomplete for this book.')
+local first_hit
+for index,item in ipairs(cb_owner.menu.items) do if item.text:find(' · ',1,true) then first_hit=index;break end end
+expect(#cb_owner.value==60 and choose_index and warning_index and first_hit
+    and choose_index<first_hit and warning_index<first_hit,
+    'long results buried the chapter action or incomplete-results warning')
+cb_owner.menu.items[choose_index].callback();picker=assert(cb_owner.menu._shelf_popup)
+picker.item_table[2].callback();active_worker:complete()
+local return_index=item_index('Return to previous search');first_hit=nil
+for index,item in ipairs(cb_owner.menu.items) do if item.text:find(' · ',1,true) then first_hit=index;break end end
+expect(return_index and first_hit and return_index<first_hit and #cb_owner.value==60,
+    'long results buried the return action or duplicated earlier results')
+cb_owner.menu.items[return_index].callback()
+expect(cb_owner.state.pages==2 and #cb_owner.value==60,'return from long results lost the combined search state')
 Search.cancel(host)
 
 local three_chapters={{chapterUid='1',title='First'},{chapterUid='2',title='Second'},{chapterUid='3',title='Third'}}

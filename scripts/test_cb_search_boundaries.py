@@ -13,7 +13,8 @@ class CBBoundarySearchTests(unittest.TestCase):
     def test_default_is_offline(self):
         for args in ([],['--native-ui'],['--native-ui','--nonempty'],['--native-ui','--early'],['--native-ui','--early','--early-resume'],
                      ['--native-ui','--early','--early-resume','--select-chapter'],
-                     ['--native-ui','--early','--early-resume','--select-chapter','--selected-resume']):
+                     ['--native-ui','--early','--early-resume','--select-chapter','--selected-resume'],
+                     ['--native-ui','--early','--early-resume','--select-chapter','--selected-resume','--verify-first-page']):
             output=io.StringIO()
             with patch.object(task,'SessionStore',side_effect=AssertionError('credentials')):
                 with patch.object(task,'BoundaryProbe',side_effect=AssertionError('network')):

@@ -294,6 +294,14 @@ local ok,result=pcall(function()
     if input.current_fallback then
         assert(not missing and #input.allowed==(input.selected_resume and 4 or input.early_resume and 3 or 2))
         local original_cursor
+        local function first_page(label)
+            for position,item in ipairs(owner.menu.item_table) do
+                if item.text==require('weread.lib.i18n').tr(label) then
+                    return owner.menu.page==1 and position<=owner.menu.perpage
+                end
+            end
+            return false
+        end
         local function choose_chapter(resumed)
             local picker=assert(owner.menu._shelf_popup);local chosen,chapter_index
             for i,entry in ipairs(input.chapters) do if entry.chapterUid==input.chapter then chapter_index=i;break end end
@@ -313,6 +321,11 @@ local ok,result=pcall(function()
         if input.early_fallback then
             wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
             assert(not owner.state.finished and owner.fallback_state)
+            if input.verify_first_page then
+                assert(#owner.value>=10 and first_page('Search from another chapter')
+                    and first_page('Search results may be incomplete for this book.'),
+                    'search actions were hidden by the real result list')
+            end
             original_cursor={chapter=owner.state.cursor.chapter,start=owner.state.cursor.start,finish=owner.state.cursor.finish}
             local action
             for _i,item in ipairs(owner.menu.item_table) do
@@ -323,6 +336,11 @@ local ok,result=pcall(function()
             if input.select_chapter then choose_chapter(false) end
         end
         wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
+        if input.verify_first_page then
+            assert(owner.manual_origin and #owner.value>=10 and first_page('Return to previous search')
+                and first_page('Search results may be incomplete for this book.'),
+                'return action was hidden by the real result list')
+        end
         if original_cursor then
             local original=owner.manual_origin and owner.manual_origin.state or owner.primary_state or owner.state
             assert(not original.finished and original.cursor.chapter==original_cursor.chapter
@@ -394,7 +412,10 @@ local ok,result=pcall(function()
     -- Count the available actions before hits; either cursor may be parked.
     local prefix=0
     local actions={['Load more results']=true,['Search downloaded chapters']=true,
-        ['Search from current chapter']=true,['Continue original search']=true}
+        ['Search from current chapter']=true,['Continue original search']=true,
+        ['Search from another chapter']=true,['Return to previous search']=true,
+        ['Search results may be incomplete for this book.']=true,
+        ['Search limit reached; results may be incomplete.']=true}
     for _i,item in ipairs(owner.menu.item_table) do
         local is_action=false
         for label in pairs(actions) do if item.text==translate(label) then is_action=true;break end end

@@ -11,6 +11,7 @@ local fallback_merge=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_MERGE')=='1'
 local fallback_early=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_EARLY')=='1'
 local select_chapter=os.getenv('WEREAD_TEST_SEARCH_SELECT_CHAPTER')=='1'
 local select_resume=os.getenv('WEREAD_TEST_SEARCH_SELECT_RESUME')=='1'
+local many_results=os.getenv('WEREAD_TEST_SEARCH_MANY')=='1'
 local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
 local no_login_fallback=os.getenv('WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK')=='1'
 local empty_local=os.getenv('WEREAD_TEST_SEARCH_EMPTY_LOCAL')=='1'
@@ -58,7 +59,9 @@ local bodies,sources={},{ }
 for _i,chapter in ipairs(chapters) do
     local uid=chapter.chapterUid
     bodies[uid]='<html><body><p>chapter '..uid..' '..string.rep('ordinary synthetic text ',80)..'amberneedle</p></body></html>'
-    if (fallback_merge or select_chapter) and uid=='2' then
+    if many_results and uid=='2' then
+        bodies[uid]=bodies[uid]:gsub('amberneedle</p>',string.rep('amberneedle ',59)..'amberneedle</p>')
+    elseif (fallback_merge or select_chapter) and uid=='2' then
         local suffix='amberneedle more synthetic words amberneedle'
         if fallback_early or select_chapter then suffix=suffix..' more synthetic words amberneedle' end
         bodies[uid]=bodies[uid]:gsub('amberneedle</p>',suffix..'</p>')
@@ -93,6 +96,15 @@ local function wait(predicate)
         UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
         assert(socket.gettime()<deadline,'book search UI timed out')
     end
+end
+local function hit_item(menu,wanted)
+    local count=0
+    for _i,item in ipairs(menu.item_table) do
+        if item.text:find(' · ',1,true) then
+            count=count+1;if count==wanted then return item end
+        end
+    end
+    error('search result not found')
 end
 local plugin=assert(reader.weread)
 plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
@@ -285,7 +297,7 @@ if current_fallback then
         and owner.value[1].chapter_uid==second_uid and owner.state.finished)
     if fallback_merge then assert(owner.value[1].start<owner.value[2].start and owner.state.hit_count==(fallback_early and 3 or 2)) end
     local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[1]))
-    owner.menu:onMenuSelect(owner.menu.item_table[2])
+    owner.menu:onMenuSelect(hit_item(owner.menu,1))
     wait(function()
         local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
         return not owner.navigation and plugin.source_navigation and plugin.source_navigation.state=='ready'
@@ -308,7 +320,18 @@ if select_chapter then
         error('missing search action: '..label)
     end
     wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
-    assert(#owner.value==1 and not owner.state.finished)
+    assert(#owner.value==(many_results and 50 or 1) and not owner.state.finished)
+    local function first_page(label)
+        for index,row in ipairs(owner.menu.item_table) do
+            if row.text==tr(label) then return owner.menu.page==1 and index<=owner.menu.perpage end
+        end
+        return false
+    end
+    if many_results then
+        assert(first_page('Search from another chapter') and first_page('Search results may be incomplete for this book.'),
+            'long results hid the chapter action or warning beyond the first page')
+        UI:forceRePaint();Device.screen:shot(evidence..'/search-actions-first-page.png')
+    end
     local original=owner.state;owner.menu:onMenuSelect(item('Search from another chapter'))
     local picker=assert(owner.menu._shelf_popup)
     assert(picker.title==tr('Choose a chapter to search') and #picker.item_table==2)
@@ -320,7 +343,12 @@ if select_chapter then
     if select_resume then
         wait(function() return owner.manual_origin and owner.state.pages==2 and not owner.job end)
         local cursor=owner.state.cursor.start
-        assert(cursor>0 and #owner.value==2,'selected chapter did not retain its first page')
+        assert(cursor>0 and #owner.value==(many_results and 50 or 2),'selected chapter did not retain its first page')
+        if many_results then
+            assert(first_page('Return to previous search') and first_page('Search results may be incomplete for this book.'),
+                'long selected-chapter results hid the return action or warning')
+            UI:forceRePaint();Device.screen:shot(evidence..'/search-return-first-page.png')
+        end
         owner.menu:onMenuSelect(item('Return to previous search'))
         assert(owner.state==original and owner.manual_cursors[second_uid].state.cursor.start==cursor)
         owner.menu:onMenuSelect(item('Search from another chapter'));picker=assert(owner.menu._shelf_popup)
@@ -329,16 +357,16 @@ if select_chapter then
         picker:onMenuSelect(picker.item_table[2])
         assert(owner.state.cursor.start==cursor,'selected chapter restarted from its beginning')
         wait(function() return owner.state==original and owner.state.pages==3 and not owner.job end)
-        assert(not owner.manual_cursors[second_uid] and #owner.value==3,'completed chapter cursor was retained')
+        assert(not owner.manual_cursors[second_uid] and #owner.value==(many_results and 60 or 3),'completed chapter cursor was retained')
     else wait(function() return owner.state==original and owner.state.pages==2 and not owner.job end) end
-    assert(#owner.value==(select_resume and 3 or 2) and owner.value[1].start<owner.value[2].start
-        and owner.state.hit_count==(select_resume and 3 or 2),
+    local combined=many_results and 60 or select_resume and 3 or 2
+    assert(#owner.value==combined and owner.value[1].start<owner.value[2].start and owner.state.hit_count==combined,
         'selected chapter was not merged or original cursor was lost')
     owner.menu:onMenuSelect(item('Load more results'))
     wait(function() return owner.state.pages==(select_resume and 4 or 3) and owner.state.finished and not owner.job end)
-    assert(#owner.value==3 and owner.value[3].start>owner.value[2].start,'original cursor could not continue')
+    assert(#owner.value==(many_results and 60 or 3) and owner.value[3].start>owner.value[2].start,'original cursor could not continue')
     local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[1]))
-    owner.menu:onMenuSelect(owner.menu.item_table[2])
+    owner.menu:onMenuSelect(hit_item(owner.menu,1))
     wait(function()
         local instance=require('apps/reader/readerui').instance
         if instance and instance.weread then reader=instance;plugin=instance.weread end
@@ -348,16 +376,21 @@ if select_chapter then
     end)
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(not plugin.progress_sync.verified and not plugin.read_report.job)
-    local summary={result='PASS',pages=select_resume and 4 or 3,results=3,
+    local summary={result='PASS',pages=select_resume and 4 or 3,results=many_results and 60 or 3,
         selected_chapter=true,previous_cursor_preserved=true,verified_navigation=true,imported_search=true}
     if select_resume then summary.selected_cursor_resumed=true end
+    if many_results then summary.first_page_actions_visible=true end
     print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(summary))
     os.exit(0)
 end
 wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
 assert(#owner.value==1 and owner.value[1].source_verified==false)
 if imported then
-    assert(owner.menu.item_table[#owner.menu.item_table].text==require('weread.lib.i18n').tr('Search results may be incomplete for this book.'))
+    local warned=false
+    for _i,row in ipairs(owner.menu.item_table) do
+        if row.text==require('weread.lib.i18n').tr('Search results may be incomplete for this book.') then warned=true;break end
+    end
+    assert(warned)
     if local_download then
         local function action(menu,label)
             for _i,item in ipairs(menu.item_table) do
@@ -442,8 +475,7 @@ if not missing and not renewal_test then
         for _i,item in ipairs(owner.menu.item_table) do
             if item.text==require('weread.lib.i18n').tr('Search downloaded chapters') then local_action=item end
         end
-        assert(local_action and owner.menu.item_table[2]==local_action,
-            'online results have no local search action before the hits')
+        assert(local_action,'online results have no local search action')
         local network_before=tonumber(network[0]);owner.menu:onMenuSelect(local_action)
         wait(function() return plugin._cached_book_search_owner and plugin._cached_book_search_owner.input end)
         local cached=plugin._cached_book_search_owner
@@ -486,14 +518,14 @@ assert(owner.state.finished and #owner.value==2 and owner.value[2].chapter_uid==
 UI:forceRePaint();Device.screen:shot(evidence..'/book-search-results.png')
 local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[2]))
 local before_navigation=tonumber(network[0])
-owner.menu:onMenuSelect(owner.menu.item_table[3])
+owner.menu:onMenuSelect(hit_item(owner.menu,2))
 if missing then
     wait(function() return owner.navigation and owner.navigation.confirm end)
     assert(tonumber(network[0])==before_navigation,'lookup requested network before download confirmation')
     local confirmation=owner.navigation.confirm
     assert(confirmation.text==require('weread.lib.i18n').tr('No matching downloaded chapter. Download it and locate this search result?'))
     confirmation.cancel_callback();assert(not owner.navigation and tonumber(network[0])==before_navigation)
-    owner.menu:onMenuSelect(owner.menu.item_table[3])
+    owner.menu:onMenuSelect(hit_item(owner.menu,2))
     wait(function() return owner.navigation and owner.navigation.confirm end)
     assert(tonumber(network[0])==before_navigation,'cancelled confirmation started a download')
     owner.navigation.confirm.ok_callback()

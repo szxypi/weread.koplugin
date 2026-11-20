@@ -94,29 +94,6 @@ render=function(host,owner)
                 end
             end}
         end
-        local cached_added=false
-        local function cached_option()
-            if cached_added then return end
-            cached_added=true
-            items[#items+1]={text=_('Search downloaded chapters'),callback=function()
-                if not current(host,owner) or owner.job or owner.recovery or owner.navigation then return end
-                local opened=open_downloaded(host,owner.id,owner.chapters,owner.keyword)
-                if not opened and current(host,owner) then host:showInfo(_('Could not search downloaded chapters.')) end
-            end}
-        end
-        -- Local source-index search can find matches omitted by the online
-        -- index, including for ordinary books and partially loaded results.
-        if owner.state and owner.state.pages>0 and (#owner.value>0 or not owner.state.finished) then cached_option() end
-        for _i,hit in ipairs(owner.value) do
-            local row=Target.row(owner.id,hit)
-            local title=owner.titles[hit.chapter_uid] or _('Chapter unavailable')
-            local context=preview(hit.context,hit.text)
-            items[#items+1]={text=title..' · '..context,select_enabled=row~=nil,callback=function()
-                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation and row then
-                    Navigation.start(host,owner,row,current)
-                end
-            end}
-        end
         if owner.manual_origin then
             items[#items+1]={text=_('Return to previous search'),callback=function()
                 if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation then
@@ -131,6 +108,19 @@ render=function(host,owner)
                 end
             end}
         end
+        local cached_added=false
+        local function cached_option()
+            if cached_added then return end
+            cached_added=true
+            items[#items+1]={text=_('Search downloaded chapters'),callback=function()
+                if not current(host,owner) or owner.job or owner.recovery or owner.navigation then return end
+                local opened=open_downloaded(host,owner.id,owner.chapters,owner.keyword)
+                if not opened and current(host,owner) then host:showInfo(_('Could not search downloaded chapters.')) end
+            end}
+        end
+        -- Local source-index search can find matches omitted by the online
+        -- index, including for ordinary books and partially loaded results.
+        if owner.state and owner.state.pages>0 and (#owner.value>0 or not owner.state.finished) then cached_option() end
         if #owner.value==0 and owner.state and owner.state.finished then
             items[#items+1]={text=_(owner.cb_book and 'No matches returned. Search may be incomplete for this book.'
                 or 'No matching text found.'),select_enabled=false}
@@ -146,8 +136,18 @@ render=function(host,owner)
             items[#items+1]={text=_('Retry search'),callback=function()
                 if current(host,owner) and not owner.job and not owner.recovery then owner.retry() end
             end}
-        elseif #items==0 then
+        elseif #items==0 and #owner.value==0 then
             items[1]={text=_('Searching this book…\nTap or press a key to cancel.'),select_enabled=false}
+        end
+        for _i,hit in ipairs(owner.value) do
+            local row=Target.row(owner.id,hit)
+            local title=owner.titles[hit.chapter_uid] or _('Chapter unavailable')
+            local context=preview(hit.context,hit.text)
+            items[#items+1]={text=title..' · '..context,select_enabled=row~=nil,callback=function()
+                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation and row then
+                    Navigation.start(host,owner,row,current)
+                end
+            end}
         end
         owner.menu:switchItemTable(nil,items)
     end)
