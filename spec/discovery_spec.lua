@@ -44,6 +44,16 @@ local saved_reading = { c = { recent_read_at = 30, recent_read_account = "a" } }
 expect(Data.recent(books, saved_reading, "a")[1].bookId == "c", "offline reading missing from home")
 expect(#Data.recent(books, saved_reading, "b") == 2, "local reading leaked across accounts")
 expect(books[1]._recent_time == nil, "recent metadata mutated cloud shelf")
+local event={['900001']={book_id='900001',home_recent_at=40,home_recent_account='a'}}
+local event_book={bookId='900001',readUpdateTime=20}
+expect(Data.recent_time(event_book,event,'a')==40 and Data.recent_time(event_book,event,'b')==20
+    and Data.recent_time(event_book,event,nil)==20,'recent time did not isolate local events by account')
+event['900001']._library_account_key='b'
+expect(Data.recent_time(event_book,event,'a')==20,'foreign metadata owner supplied a local time')
+event['900001']._library_account_key='a';event['900001'].book_id='900002'
+expect(Data.recent_time(event_book,event,'a')==20,'mismatched book supplied a local time')
+event['900001'].book_id='900001';event['900001'].home_recent_at=10
+expect(Data.recent_time(event_book,event,'a')==20,'older local time replaced a newer cloud time')
 local off_shelf={
     ['900001']={book_id='900001',title='Local book',author='Local author',recent_read_at=50,recent_read_account='a',_library_account_key='a'},
     ['CB_LocalBook']={book_id='CB_LocalBook',title='Imported local book',recent_read_at=40,recent_read_account='a'},

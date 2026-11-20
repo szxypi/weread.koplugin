@@ -644,6 +644,29 @@ for _,case in ipairs({{'time_desc',{'a','c','e','b','d','f','g','h'}},
         expect(shown[#shown].data.books[index].bookId==id,'mixed time sort changed ordering or rejected an old value')
     end
 end
+-- Offline reads from the same account must update recent sorting, including
+-- after returning to a shelf that was previously paged and prepared.
+local get_settings=host.settings.get
+local local_events={a={book_id='a',home_recent_at=100,home_recent_account='owner'},
+    b={book_id='b',home_recent_at=200,home_recent_account='other'},
+    c={book_id='different',home_recent_at=300,home_recent_account='owner'}}
+host.settings.get=function(self,key,default) if key=='books' then return local_events end return get_settings(self,key,default) end
+host.library_db={accountKey=function() return 'owner' end}
+host.shelf_regular={{bookId='a',title='A',readUpdateTime=10},{bookId='b',title='B',readUpdateTime=20},
+    {bookId='c',title='C',readUpdateTime=30},{bookId='p',title='Pinned',isTop=1,readUpdateTime=1}}
+shelf_settings.sort_order='time_desc';host:showShelfView('books')
+local local_result=shown[#shown].data
+expect(local_result.books[1].bookId=='p' and local_result.books[2].bookId=='a'
+    and local_result.books[3].bookId=='c' and local_result.books[4].bookId=='b',
+    'recent sort ignored offline reading, account scope, book identity or pin')
+expect(local_result.last_read_times[local_result.books[2]]==100 and local_result.books[2].readUpdateTime==10,
+    'local reading time was not passed to the view or changed the cloud snapshot')
+shown[#shown].callbacks.on_page_changed(1)
+local return_to_shelf=host.shelf_view._prepare_detail_return()
+local_events.b={book_id='b',home_recent_at=500,home_recent_account='owner'}
+return_to_shelf()
+expect(shown[#shown].data.books[2].bookId=='b', 'returning from a book reused stale sorted results')
+host.library_db=nil;host.settings.get=get_settings
 local legacy_items
 host.shelf_books=mixed;host.shelfToolbarItems=function() return {} end
 host.showList=function(_self,_title,items) legacy_items=items;return {} end

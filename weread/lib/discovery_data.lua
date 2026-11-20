@@ -27,6 +27,24 @@ local function recent_event(book)
     return book.recent_read_account,ShelfTime.value(book.recent_read_at)
 end
 
+-- A local event belongs to one account and one exact book. The cloud value
+-- remains usable when there is no trustworthy local event.
+function M.recent_time(book,saved,account)
+    if type(book)~='table' then return nil end
+    local cloud=ShelfTime.value(book.readUpdateTime)
+    local id=text(book.bookId or book.book_id)
+    local local_book=id~='' and Access.cached_book(saved,id)
+    local event_account,event_time
+    if type(local_book)=='table' then event_account,event_time=recent_event(local_book) end
+    local owned=type(local_book)=='table' and account~=nil and account~=''
+        and event_account==account
+        and (local_book._library_account_key==nil or local_book._library_account_key==account)
+        and (local_book.book_id==nil or text(local_book.book_id)==id)
+        and (local_book.bookId==nil or text(local_book.bookId)==id)
+    local latest=math.max(cloud or 0,owned and (event_time or 0) or 0)
+    return latest>0 and latest or nil
+end
+
 function M.book(row)
     if type(row) ~= "table" then return end
     local b = row
@@ -128,17 +146,8 @@ function M.recent(books, saved, account, limit)
         local id=type(book)=='table' and text(book.bookId or book.book_id) or ''
         if id~='' and not seen[id] then
             seen[id]=true
-            local local_book=Access.cached_book(saved,id)
-            local event_account,event_time
-            if type(local_book)=='table' then event_account,event_time=recent_event(local_book) end
-            local owned=type(local_book)=='table' and account~=nil and account~=''
-                and event_account==account
-                and (local_book._library_account_key==nil or local_book._library_account_key==account)
-                and (local_book.book_id==nil or text(local_book.book_id)==id)
-                and (local_book.bookId==nil or text(local_book.bookId)==id)
-            local local_time=owned and (event_time or 0) or 0
-            local recent_time=math.max(ShelfTime.value(book.readUpdateTime) or 0,local_time)
-            if recent_time>0 then
+            local recent_time=M.recent_time(book,saved,account)
+            if recent_time then
                 local copy={};for key,value in pairs(book) do copy[key]=value end
                 copy._recent_time=recent_time;result[#result+1]=copy
             end

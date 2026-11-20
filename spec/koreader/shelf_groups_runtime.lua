@@ -56,6 +56,51 @@ assert(recent_view.books[1].bookId=='9007199254740993' and recent_view.books[1].
 plugin:closeWeReadUI()
 plugin.library_db.accountKey=account_key;plugin.library_db.getShelf=shelf_read;plugin.library_db.getShelfArchives=archives_read
 plugin.settings.get=settings_read
+-- Persist an offline reading event in the real per-account book store, then
+-- verify the native shelf and a fresh process use it without leaking accounts.
+local account_a,account_b=string.rep('a',20),string.rep('b',20)
+local active_account=account_a
+local state_scope=plugin.settings.account_state_scope
+plugin.settings.account_state_scope=function() return active_account end
+plugin.library_db.accountKey=function() return active_account end
+if mode=='live' then
+    plugin.settings:set('books',{['901001']={book_id='901001',title='合成本机阅读'},
+        ['901002']={book_id='901002',title='合成第二本'}})
+    plugin.settings:flush()
+    assert(plugin:recordRecentReading('901001'))
+    assert(plugin.settings:patch_reading_state('901001',{home_recent_at=os.time()-100}))
+end
+local recent_options=plugin.settings:get('shelf')
+local old_sort,old_view=recent_options.sort_order,recent_options.view_mode
+recent_options.sort_order='time_desc';recent_options.view_mode='list'
+plugin.settings:set('shelf',recent_options)
+local local_shelf={{bookId='901001',title='合成本机阅读',readUpdateTime=10},
+    {bookId='901002',title='合成第二本',readUpdateTime=20},
+    {bookId='901003',title='合成云端阅读',readUpdateTime=30}}
+plugin:applyShelfSnapshot(local_shelf,{})
+plugin.shelf_multi_groups={};plugin.shelf_group_key=nil;plugin:showShelfView('books')
+local local_view=assert(plugin.shelf_view)
+local local_records=plugin.settings:get('books',{})
+local expected_time=local_records[mode=='live' and '901001' or '901002'].home_recent_at
+assert(local_view.books[1].bookId==(mode=='live' and '901001' or '901002')
+    and local_view:itemStatus(local_view.books[1])==require('weread.lib.shelf_time').date(expected_time),
+    'offline recent event did not sort or render on native shelf')
+assert(local_shelf[1].readUpdateTime==10,'local event changed the cloud shelf snapshot')
+UI:forceRePaint()
+active_account=account_b;plugin:showShelfView('books')
+assert(plugin.shelf_view.books[1].bookId=='901003','foreign account inherited local reading time')
+active_account=account_a;plugin:showShelfView('books')
+assert(plugin.shelf_view.books[1].bookId==(mode=='live' and '901001' or '901002'),
+    'returning account lost local reading time')
+if mode=='live' then
+    local_view=plugin.shelf_view;local_view.on_page_changed(1);local_view=plugin.shelf_view
+    local reopen=assert(local_view._prepare_detail_return())
+    assert(plugin:recordRecentReading('901002'))
+    reopen();assert(plugin.shelf_view.books[1].bookId=='901002','return from reading kept stale recent sorting')
+end
+plugin:closeWeReadUI()
+recent_options.sort_order=old_sort;recent_options.view_mode=old_view;plugin.settings:set('shelf',recent_options)
+plugin.settings.account_state_scope=state_scope;plugin.library_db.accountKey=account_key
 -- The same safe book identity rule protects prefetch and annotation lookup.
 local cache_path=evidence..'/synthetic-prefetch.epub'
 local cache_file=assert(io.open(cache_path,'wb'));assert(cache_file:write('synthetic'));cache_file:close()

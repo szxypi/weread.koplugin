@@ -14,6 +14,7 @@ local TextViewer = require("ui/widget/textviewer")
 local UIManager = require("ui/uimanager")
 local WeRead = require("weread.lib.protocol")
 local ReadAccess = require("weread.lib.read_access")
+local DiscoveryData = require("weread.lib.discovery_data")
 
 local PluginUtil = require("weread.lib.plugin_util")
 local _ = PluginUtil.tr
@@ -730,11 +731,13 @@ function M:showShelfView(mode, keyword, old_view, options)
     self.shelf_search_keyword = keyword
     self.shelf_view_pages = self.shelf_view_pages or { books = 1, public_account = 1 }
     local saved_books = self.settings:get("books", {})
+    local recent_account = group_owner(self)
     local downloaded_cache = {}
     local needle = ShelfSearch.prepare(keyword)
     local function filtered(source, with_download_state)
         local result = {}
-        local sorted = sortBooks(source or {}, self.settings:get("shelf").sort_order)
+        local sorted = sortBooks(source or {}, self.settings:get("shelf").sort_order,
+            with_download_state and saved_books or nil, recent_account)
         for _i, book in ipairs(sorted) do
             local matches_filters = not with_download_state
                 or self:bookMatchesFilters(book, saved_books, downloaded_cache)
@@ -761,6 +764,8 @@ function M:showShelfView(mode, keyword, old_view, options)
     local group_source=#multi>0 and (grouped or self.shelf_regular) or (group and group.books or self.shelf_regular)
     local books = prepared and prepared.books or filtered(group_source, true)
     local accounts = prepared and prepared.accounts or filtered(self.shelf_mp, false)
+    local last_read_times={}
+    for _,book in ipairs(books) do last_read_times[book]=DiscoveryData.recent_time(book,saved_books,recent_account) end
     local shelf_settings = self.settings:get("shelf")
     local cover_mode = shelf_settings.view_mode == "cover"
     local paged = cover_mode or shelf_settings.paginated ~= false
@@ -820,6 +825,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         title = options.title,
         wp_enable = options.wp_enable,
         books = books,
+        last_read_times = last_read_times,
         finish_pending = require('weread.ui.finish_offline').snapshot(self),
         accounts = accounts,
         groups = self.shelf_groups,
@@ -1000,6 +1006,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         return function()
             if self.shelf_view == view and not view._shelf_closed then
                 options.page = view.page
+                options.prepared_shelf = nil
                 self:showShelfView(mode, keyword, view, options)
             end
         end
@@ -1076,7 +1083,7 @@ function M:showShelfSearchDialog(view, mode, keyword, options, is_current)
     Popup.show(view,dialog,function(widget) self:showInputDialog(widget) end)
 end
 
-sortBooks = function(books, sort_order)
+sortBooks = function(books, sort_order, saved_books, account)
     if sort_order == "default" or not sort_order then
         return ShelfFlags.pinned_first(books)
     end
@@ -1090,7 +1097,7 @@ sortBooks = function(books, sort_order)
     for i, book in ipairs(books) do
         local value
         if by_time then
-            value = ShelfTime.value(book.readUpdateTime) or 0
+            value = DiscoveryData.recent_time(book,saved_books,account) or 0
         elseif by_author then
             local author = trim(book.author)
             if author == "" then author = trim(book.authors) end
@@ -1128,8 +1135,9 @@ function M:showShelfPage()
     end
     buildItems = function()
         local items = self:shelfToolbarItems(true, refresh)
-        local sorted = sortBooks(books, self.settings:get("shelf").sort_order)
         local saved_books = self.settings:get("books", {})
+        local account = group_owner(self)
+        local sorted = sortBooks(books, self.settings:get("shelf").sort_order,saved_books,account)
         local downloaded_cache = {}
         self._shelf_saved_books = saved_books
         for _i, book in ipairs(sorted) do
@@ -1140,7 +1148,7 @@ function M:showShelfPage()
                 if ShelfFlags.display(book,'finished')==true then
                     right_text = _("Done")
                 else
-                    right_text = ShelfTime.date(book.readUpdateTime) or ""
+                    right_text = ShelfTime.date(DiscoveryData.recent_time(book,saved_books,account)) or ""
                 end
                 local labels={}
                 if ShelfFlags.display(book,'pinned')==true then labels[#labels+1]=_('Pinned') end

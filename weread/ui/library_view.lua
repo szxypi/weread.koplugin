@@ -1180,7 +1180,7 @@ function LibraryView:itemStatus(book)
     elseif type(book._shelf_progress) == "number" then
         status = tostring(book._shelf_progress) .. "%"
     else
-        status = ShelfTime.date(book.readUpdateTime) or ""
+        status = ShelfTime.date(self.last_read_times and self.last_read_times[book] or book.readUpdateTime) or ""
     end
     local parts={}
     if ShelfFlags.display(book,'pinned')==true then parts[#parts+1]=_('Pinned') end
@@ -1562,6 +1562,7 @@ function M.show(data, callbacks)
         title = data.title,
         wp_enable = data.wp_enable ~= false,
         books = data.books,
+        last_read_times = data.last_read_times,
         groups = data.groups,
         group_membership_incomplete = data.group_membership_incomplete,
         group_key = data.group_key,
