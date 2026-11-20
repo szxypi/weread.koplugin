@@ -51,6 +51,30 @@ return function(plugin,count,flush_tasks,home,pump_until)
     assert(value.progress==84 and value.chapter_uid==100 and value.chapter_offset==123 and value.bookVersion==47
         and value.pending_upload_position.percent==83 and value.psvts==nil and value.token==nil,
         "metadata changed live reading state, version or credentials")
+    -- Change only the isolated on-disk book identity while the worker is
+    -- waiting. The returned metadata must not overwrite it or the SQLite row.
+    local prior=value;local put=plugin.library_db.putBook;local writes_after_conflict=0
+    plugin.library_db.putBook=function(self,book) writes_after_conflict=writes_after_conflict+1;return put(self,book) end
+    local info=plugin.showInfo;local notice
+    plugin.showInfo=function(_,message) notice=message end
+    control{match='/web/reader/',times=0,delay=0.5};refresh()
+    books=settings:get('books',{});books[id].book_id='900026';settings:set('books',books);settings:flush()
+    local conflict=cached();assert(conflict.book_id=='900026')
+    wait();local after_conflict=cached()
+    assert(notice and writes_after_conflict==0 and after_conflict.book_id=='900026'
+        and after_conflict.title==conflict.title and after_conflict.detail_updated_at==conflict.detail_updated_at,
+        'late metadata rewrote a conflicting on-disk book')
+    plugin.library_db.putBook=put;plugin.showInfo=info
+    books=settings:get('books',{});books[id]=prior;settings:set('books',books);settings:flush()
+    writes_after_conflict=0;notice=nil
+    plugin.library_db.putBook=function(self,book) writes_after_conflict=writes_after_conflict+1;return put(self,book) end
+    plugin.showInfo=function(_,message) notice=message end
+    refresh();books=settings:get('books',{});books[id]=nil;settings:set('books',books);settings:flush()
+    wait();assert(notice and writes_after_conflict==0 and cached()==nil,
+        'late metadata recreated a removed local book')
+    plugin.library_db.putBook=put;plugin.showInfo=info
+    books=settings:get('books',{});books[id]=prior;settings:set('books',books);settings:flush()
+    control{match='',times=0,delay=0}
     local view=assert(plugin._book_detail_view)
     local viewport=view[1][1][2]
     assert(view.data.metadata and #view.data.metadata>=3 and viewport.dimen.h>0

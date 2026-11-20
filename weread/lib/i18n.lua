@@ -30,6 +30,7 @@ local zh = {
     ["Saved cloud bookshelf state"] = "已保存的云端书架状态",
     ["Saved book information does not match. The chapter was not linked; refresh the book and check its cache."] = "本机书籍信息不匹配，章节未关联。请刷新书籍并检查缓存。",
     ["Saved book information does not match. Check the local cache before opening."] = "本机书籍信息不匹配，请检查本地缓存后再打开。",
+    ["Saved book information changed while refreshing. Reopen the book and try again."] = "刷新期间本机书籍信息发生变化，请重新打开书籍后再试。",
     ["Export saved cloud notes"] = "导出已保存的云端笔记",
     ["WeRead notes"] = "微信读书笔记",
     ["Cloud marks"] = "云端划线与书签",

@@ -1199,14 +1199,13 @@ function M:showBookRecord(book, options)
         return
     end
     local account_key = self.library_db and self.library_db:accountKey() or nil
-    local saved,conflict=ReadAccess.cached_book(books,book_id)
-    local numeric=ReadAccess.book_id(book_id) and tonumber(book_id)
-    if conflict or numeric and numeric<=9007199254740991 and books[numeric]~=nil and books[book_id]~=nil then
+    local saved,conflict,legacy_key=ReadAccess.cached_book_for_update(books,book_id)
+    if conflict then
         self:showInfo(_("Saved book information does not match. Check the local cache before opening."));return
     end
     -- Safely migrate a legacy numeric index to its exact string key, avoiding
     -- duplicate entries that could overwrite the same stored book on flush.
-    if saved and books[book_id]==nil and numeric and books[numeric]==saved then books[numeric]=nil end
+    if legacy_key then books[legacy_key]=nil end
     saved=saved or {}
     if account_key and saved._library_account_key
         and saved._library_account_key ~= account_key then

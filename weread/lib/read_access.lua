@@ -53,6 +53,20 @@ function M.cached_book(entries, value)
     return book
 end
 
+-- Writers must not choose between two independently stored legacy indices.
+-- Return the numeric key for an unambiguous migration; do not mutate entries.
+function M.cached_book_for_update(entries,value)
+    local book,reason=M.cached_book(entries,value)
+    if reason then return nil,reason end
+    local id=exact_book_id(value)
+    local numeric=M.book_id(id) and tonumber(id)
+    if numeric and numeric<=9007199254740991 and entries[numeric]~=nil then
+        if entries[id]~=nil or entries[numeric]~=book then return nil,'identity_conflict' end
+        return book,nil,numeric
+    end
+    return book
+end
+
 function M.capture(settings)
     if not settings then return end
     local scope = settings.get_auth_scope and settings:get_auth_scope()

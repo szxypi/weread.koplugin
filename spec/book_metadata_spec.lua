@@ -110,6 +110,38 @@ expect(save_count==1 and flush_count==1 and shown.title==source.title,"metadata 
 expect(shown.progress==84 and shown.chapter_uid==100 and shown.bookVersion==9 and shown.pending_upload_position.percent==83
     and shown.cached_file=="existing.epub" and shown.token==nil,"metadata overwrote current reader/download state")
 expect(not host.busy_message and not host.book_metadata_context,"completion retained busy state")
+host,state=fixture();UI.refresh(host,{book_id='900001'},nil,{automatic=true});job,books=state()
+local wrong={book_id='900002',title='Other',cached_file='other.epub'}
+books['900001']=wrong;job.cb(job.task())
+local _,conflict_books,conflict_shown,conflict_saves,conflict_flushes,conflict_errors=state()
+expect(conflict_books['900001']==wrong and wrong.book_id=='900002' and wrong.title=='Other'
+    and not conflict_shown and conflict_saves==0 and conflict_flushes==0 and conflict_errors==1,
+    'late metadata overwrote a conflicting local book')
+host,state=fixture();UI.refresh(host,{book_id='900001'},nil,{automatic=true});job,books=state()
+books['900001']=nil;job.cb(job.task())
+local _,removed_books,removed_shown,removed_saves,removed_flushes,removed_errors=state()
+expect(removed_books['900001']==nil and not removed_shown and removed_saves==0
+    and removed_flushes==0 and removed_errors==1,'late metadata resurrected a removed book')
+host,state=fixture();books=select(2,state());books['900001']={book_id='900002'}
+expect(not UI.refresh(host,{book_id='900001'},nil,{automatic=true}) and not host.book_metadata_context
+    and select(1,state())==nil and select(6,state())==1,'pre-existing identity conflict started a request')
+host,state=fixture();UI.refresh(host,{book_id='900001'},nil,{automatic=true});job,books=state()
+local string_record=books['900001'];local numeric_record={book_id='900001',title='Legacy'}
+books[900001]=numeric_record;job.cb(job.task())
+local _,duplicate_books,duplicate_shown,duplicate_saves,duplicate_flushes,duplicate_errors=state()
+expect(duplicate_books['900001']==string_record and duplicate_books[900001]==numeric_record
+    and not duplicate_shown and duplicate_saves==0 and duplicate_flushes==0 and duplicate_errors==1,
+    'metadata chose between duplicate legacy indices')
+host,state=fixture();UI.refresh(host,{book_id='900001'},nil,{automatic=true});job,books=state()
+local legacy=books['900001'];books[900001]=legacy;books['900001']=nil;job.cb(job.task())
+local _,migrated,migrated_book,migrated_saves=state()
+expect(migrated_saves==1 and migrated[900001]==nil and migrated['900001']==migrated_book
+    and migrated_book.cached_file=='existing.epub' and migrated_book.progress==83,
+    'metadata refresh lost an unambiguous legacy numeric record')
+host,state=fixture();local changing_selected_book={book_id='900001',bookId='900001'}
+UI.refresh(host,changing_selected_book,nil,{automatic=true});job=state();changing_selected_book.bookId='900002';job.cb(job.task())
+expect(select(4,state())==0 and not host.book_metadata_context,
+    'metadata ignored a changed secondary book identity')
 for _,change in ipairs({"cookie","epoch","owner","cancel"}) do
     local alter
     host,state,alter=fixture()
@@ -177,9 +209,10 @@ expect(failed_public and failed_public.title=='Cached' and guest_errors==1
 host,state=fixture()
 host.library_db.putBook=function() return false end
 UI.refresh(host,{book_id="900001"},nil,{automatic=true})
-job=state();job.cb(job.task())
+job,books=state();local before_failure=books['900001'];job.cb(job.task())
 local _,_,_,_,failed_flushes,save_errors=state()
-expect(failed_flushes==0 and save_errors==1 and not host.book_metadata_context and not host.busy_message,
+expect(failed_flushes==0 and save_errors==1 and before_failure.title=='Old title'
+    and before_failure.detail_updated_at==nil and not host.book_metadata_context and not host.busy_message,
     "failed SQLite save flushed metadata or retained busy state")
 host,state=fixture()
 host.book_metadata_worker.start=function() return false end

@@ -2,6 +2,7 @@
 local Access = require("weread.lib.read_access")
 local Metadata = require("weread.lib.book_metadata")
 local Recovery = require("weread.lib.native_read_recovery")
+local ShelfSnapshot = require("weread.lib.shelf_snapshot")
 local UIManager = require("ui/uimanager")
 local PluginUtil = require("weread.lib.plugin_util")
 local _ = PluginUtil.tr
@@ -25,9 +26,16 @@ function M.refresh(host, book, old_view, options)
     options = options or {}
     if old_view and host._book_detail_view ~= old_view then return false end
     M.cancel(host)
-    local id = Access.display_book_id(book.book_id or book.bookId)
+    local id = Access.display_book_id(ShelfSnapshot.persisted_id(book))
     local access = Metadata.capture(host.settings)
     if not id then return false end
+    local known,initial,initial_error=pcall(function()
+        return Access.cached_book_for_update(host.settings:get('books',{}),id)
+    end)
+    if not known or initial_error then
+        host:showInfo(_("Saved book information does not match. Check the local cache before opening."))
+        return false
+    end
     if not host:isNetworkOnline() then
         if options.automatic then host:showBookMenu(book) else host:showOffline(_("Book info")) end
         return false
@@ -43,11 +51,12 @@ function M.refresh(host, book, old_view, options)
         return false
     end
     local context = { epoch = host.discovery_epoch or 0,auth_epoch=guest and host.settings:get('auth_epoch',0),
+        had_saved_record = initial~=nil,
         account = host.library_db and host.library_db:accountKey(), view = old_view }
     host.book_metadata_context = context
     local function current_view()
         return host.book_metadata_context == context and (host.discovery_epoch or 0) == context.epoch
-            and Access.display_book_id(book.book_id or book.bookId) == id
+            and Access.display_book_id(ShelfSnapshot.persisted_id(book)) == id
             and (not host.library_db or host.library_db:accountKey() == context.account)
             and (not old_view or host._book_detail_view == old_view)
             and (not guest or host.settings:get('auth_epoch',0)==context.auth_epoch
@@ -145,19 +154,31 @@ function M.refresh(host, book, old_view, options)
         -- changed local state while the metadata request was outstanding.
         local committed, latest = pcall(function()
             local books = host.settings:get("books", {})
-            local saved = books[id] or { book_id = id }
+            local original,conflict,legacy_key=Access.cached_book_for_update(books,id)
+            if conflict then error('book_metadata/identity_conflict',0) end
+            if context.had_saved_record and not original then error('book_metadata/record_removed',0) end
+            -- Never mutate a stale in-memory record before identity validation
+            -- or while a storage failure may still reject this refresh.
+            local saved={};for key,value in pairs(original or {}) do saved[key]=value end
             for key, value in pairs(metadata) do saved[key] = value end
             saved.book_id, saved._library_account_key = id, context.account
             saved.detail_updated_at, saved.detail_source = os.time(), result.source
             if not guest and host.library_db and not host.library_db:putBook(saved) then error("metadata_save_failed", 0) end
+            if legacy_key then books[legacy_key]=nil end
             books[id] = saved
             host.settings:set("books", books)
             host.settings:flush()
             return saved
         end)
         if not committed then
-            if guest and options.automatic then host:showBookMenu(book) end
-            host:showInfo(_("Could not save book information. Check storage and try again."))
+            if latest=='book_metadata/identity_conflict' then
+                host:showInfo(_("Saved book information does not match. Check the local cache before opening."))
+            elseif latest=='book_metadata/record_removed' then
+                host:showInfo(_("Saved book information changed while refreshing. Reopen the book and try again."))
+            else
+                if guest and options.automatic then host:showBookMenu(book) end
+                host:showInfo(_("Could not save book information. Check storage and try again."))
+            end
             return
         end
         if old_view then UIManager:close(old_view) end
