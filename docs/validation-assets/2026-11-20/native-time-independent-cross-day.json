@@ -1,0 +1,21 @@
+{
+  "result": "PRIVATE_CROSS_DAY_EVIDENCE_VERIFIED",
+  "account_data_posts": 0,
+  "preflight_authentication_posts": 0,
+  "native_renewal_posts": 1,
+  "renewal_same_owner_and_saved": true,
+  "historical_seconds": 6,
+  "saved_capture_unchanged": true,
+  "both_current_shelves_stable": true,
+  "statistics_reads_stable": true,
+  "observed_months": 1,
+  "catalog_bound": true,
+  "channel_shelves_bound": true,
+  "component_diagnosis_available": true,
+  "capture_time_web_shelf_comparable": false,
+  "dispatch_capability": false,
+  "real_accounting_verified": false,
+  "private_payload_persisted": false,
+  "physical_kindle_tested": false,
+  "independent_native_401_checks": 2
+}

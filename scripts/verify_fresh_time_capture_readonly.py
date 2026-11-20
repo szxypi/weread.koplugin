@@ -5,6 +5,7 @@ No dispatch, token acquisition, clock override, or legacy-trial mutation.
 The Web shelf is checked for stability now; its capture-time state was not saved.
 """
 import argparse
+from copy import deepcopy
 import json
 import re
 import resource
@@ -58,13 +59,13 @@ class TimedNative(Native):
 
 
 def run(store, session, native_session, *, preview=False, clock=time.time, sleep=time.sleep,
-        web_factory=BoundSource, api_factory=TimedNative, statistics_factory=StatisticsProbe):
+        web_factory=BoundSource, api_factory=TimedNative, statistics_factory=StatisticsProbe, private_evidence=False):
     result = dict(result='UNVERIFIED', account_data_posts=0, authentication_posts=0,
                   historical_accounting_verified=False, dispatch_capability=False,
                   captured_web_shelf_comparable=False)
     saved = grant = web = None
     try:
-        if type(preview) is not bool:
+        if type(preview) is not bool or type(private_evidence) is not bool or preview and private_evidence:
             raise ValueError('fresh_capture/mode')
         if isinstance(getattr(store, 'backend', None), MacKeychain) and (
                 clock is not time.time or sleep is not time.sleep or web_factory is not BoundSource
@@ -105,6 +106,8 @@ def run(store, session, native_session, *, preview=False, clock=time.time, sleep
         stats = statistics_factory()
         months = sorted({period('monthly', plan['start_time'])[0], period('monthly', started)[0]})
         observations = []
+        catalog_pairs = []
+        component_pairs = []
         last = started
         for index in range(2):
             if index:
@@ -131,6 +134,11 @@ def run(store, session, native_session, *, preview=False, clock=time.time, sleep
             shelves = [shelf_projection(value) for value in (native_shelf, web_shelf)]
             if any(shelf['members'].count(plan['book_id']) != 1 for shelf in shelves):
                 raise ValueError('fresh_capture/shelf')
+            if private_evidence:
+                from native_time_shelf_components import make
+                catalog_pairs.append(deepcopy(web._time_catalog_pair))
+                components=tuple(make(value) for value in shelves)
+                component_pairs.append(components if all(value is not None for value in components) else None)
             months_read = {}
             for month in months:
                 raw = stats.request('statistics_monthly', BASE + '/readdata/detail?mode=monthly&baseTime=' + str(month), credentials=grant)
@@ -158,12 +166,20 @@ def run(store, session, native_session, *, preview=False, clock=time.time, sleep
                       seconds=plan['seconds'], captured_native_baseline_matches=True,
                       both_current_shelves_stable=True, two_statistics_reads_stable=True,
                       observed_months=len(months), saved_capture_unchanged=True)
+        if private_evidence:
+            from native_time_bundle_evidence import IndependentCaptureEvidence
+            if component_pairs[0]!=component_pairs[1]:raise ValueError('fresh_capture/observations_changed')
+            report=dict(result,completed_at=final_time)
+            return IndependentCaptureEvidence(bundle,grant,report,sample,observations[0][1],catalog_pairs,
+                                              observations[0][0],components=component_pairs[0])
     except (Exception, KeyboardInterrupt) as error:
+        result['result'] = 'UNVERIFIED'
         if isinstance(error, ValueError) and re.fullmatch(r'fresh_capture/[a-z_]+', str(error)):
             result['reason'] = str(error)
     finally:
         if web:
             web.shards.clear()
+            if hasattr(web,'_time_catalog_pair'):web._time_catalog_pair.clear()
             web.close()
         for value in (saved, grant):
             if isinstance(value, dict):

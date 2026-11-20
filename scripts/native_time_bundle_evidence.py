@@ -117,3 +117,46 @@ class FreshShelfEvidence:
             from native_time_shelf_components import validate
             for value,expected in zip(self._components,shelves):validate(value,expected)
         return deepcopy(self._components)
+
+
+class IndependentCaptureEvidence:
+    """Private read-only baseline for the newer, independently saved capture.
+
+    It is deliberately distinct from both earlier evidence types: it cannot
+    satisfy an older trial's dispatch or journal checks. Construction binds
+    the verified capture, device, current shelves and exact source observations.
+    """
+    def __init__(self,bundle,grant,report,snapshot,months,catalog_pairs,shelf_digests,*,components=None):
+        import re
+        fields={'result','seconds','completed_at','captured_native_baseline_matches','both_current_shelves_stable',
+                'two_statistics_reads_stable','observed_months','saved_capture_unchanged','account_data_posts',
+                'authentication_posts','historical_accounting_verified','dispatch_capability','captured_web_shelf_comparable'}
+        if (not isinstance(report,dict) or set(report)!=fields or report['result']!='CROSS_DAY_READONLY_VERIFIED'
+                or type(report['seconds']) is not int or report['seconds']!=bundle['plan']['seconds']
+                or not integer(report['completed_at'],bundle['plan']['not_before'],4102444800)
+                or any(report[key] is not True for key in ('captured_native_baseline_matches','both_current_shelves_stable',
+                        'two_statistics_reads_stable','saved_capture_unchanged'))
+                or any(report[key] is not False for key in ('historical_accounting_verified','dispatch_capability',
+                        'captured_web_shelf_comparable'))
+                or any(type(report[key]) is not int or report[key]!=0 for key in ('account_data_posts','authentication_posts'))
+                or not isinstance(months,dict) or type(report['observed_months']) is not int
+                or report['observed_months']!=len(months) or not isinstance(shelf_digests,tuple) or len(shelf_digests)!=2
+                or any(not isinstance(value,str) or not re.fullmatch('[a-f0-9]{64}',value) for value in shelf_digests)):
+            raise ValueError('bundle_evidence/independent_report')
+        if components is not None:
+            from native_time_shelf_components import validate
+            if not isinstance(components,tuple) or len(components)!=2:raise ValueError('bundle_evidence/components')
+            for value,expected in zip(components,shelf_digests):validate(value,expected)
+        original=baseline(bundle,grant,snapshot,months,report['completed_at'])
+        self._value=deepcopy((report,original,catalog_stamp(bundle,catalog_pairs),shelf_digests,components))
+        self._bundle_hash=digest(bundle);self._grant_hash=digest(grant);self._value_hash=digest(self._value)
+
+    def __repr__(self):return '<IndependentCaptureEvidence private>'
+
+    def for_bundle(self,bundle,grant):
+        if (digest(bundle)!=self._bundle_hash or digest(grant)!=self._grant_hash
+                or digest(self._value)!=self._value_hash):raise ValueError('bundle_evidence/changed')
+        report,original,stamp,shelves,components=deepcopy(self._value)
+        if baseline(bundle,grant,original['snapshot'],original['months'],report['completed_at'])!=original:
+            raise ValueError('bundle_evidence/changed')
+        return report,original['snapshot'],original['months'],stamp,shelves,components
