@@ -289,7 +289,44 @@ return function(reader,host,book,id,evidence)
             resumed=kind=='suspend',renewals=count('/web/login/renewal')-renewals});file:close()
         return reader,host
     end
-    local succeeds=kind=='stale' or kind=='promoted-success'
+    local shadow_checked,annotation_checked,reader_exact=false,false,false
+    if kind=='large-id' then
+        assert(id=='9007199254740993')
+        local foreign={title='adjacent legacy record',annotation_documents={[reader.document.file]={clean=true,chapters={}}}}
+        local records={[9007199254740992]=foreign}
+        local get=settings.get
+        settings.get=function(self,key,default)
+            if key=='books' then return records end
+            return get(self,key,default)
+        end
+        local binding,context,active=host._annotationBinding,host._annotation_context,host._unified_annotations_active
+        host._annotationBinding=function() return {book_id=id,automatic=true} end
+        host._annotation_context=nil;host._unified_annotations_active=nil
+        assert(not host:_usesUnifiedAnnotations(),'reader accepted adjacent legacy annotation')
+        local annotation=assert(host:_prepareAnnotationContext(false))
+        assert(annotation.book==nil and annotation.descriptor==nil,'reader associated adjacent legacy annotation')
+        host._annotationBinding=binding;host._annotation_context=context;host._unified_annotations_active=active
+        settings.get=get;annotation_checked=true
+        local apply=host.downloader._applyPrefetchResult
+        host.downloader._applyPrefetchResult=function(self,job,result)
+            self._applyPrefetchResult=apply
+            assert(result.ok and result.value.book_id==id and result.value.chapter_uid=='3',
+                'worker did not preserve exact large book identity')
+            local shadow_books={[9007199254740992]=foreign}
+            local shadow_settings={get=function(_,key,default) if key=='books' then return shadow_books end return default end,
+                set=function(_,key,value) if key=='books' then shadow_books=value end end,flush=function() end}
+            local shadow=require('weread.lib.downloader'):new{settings=shadow_settings,refresh_shelf=function() end}
+            local shadow_job={book={book_id=id},chapters={{chapterUid='3'}},prefetch=true,
+                prefetch_book_id=id,prefetch_chapter_uid='3'}
+            local value={};for key,item in pairs(result.value) do if key~='auth' then value[key]=item end end
+            shadow._active_job=shadow_job;shadow:_applyPrefetchResult(shadow_job,{ok=true,value=value})
+            assert(not foreign.cached_chapters and shadow_books[id]~=foreign and shadow_books[id].book_id==id
+                and shadow_books[id].cached_chapters['3']==value.path,'worker result aliased adjacent legacy book')
+            shadow_checked=true
+            return apply(self,job,result)
+        end
+    end
+    local succeeds=kind=='stale' or kind=='promoted-success' or kind=='large-id'
     request('/__control',{match='/web/book/chapter/e_0',times=succeeds and 0 or -1,
         status=kind=='rate' and 429 or 401,delay=succeeds and 0.7 or 0})
     assert(host:maybePrefetchNextChapter(id),'next chapter prefetch did not start')
@@ -304,9 +341,14 @@ return function(reader,host,book,id,evidence)
     pump(function() return not host.downloader._active_job end)
     assert(count('/web/book/chapter/e_0')-shards==1,'prefetch repeated the first chapter request')
     assert(count('/web/login/renewal')==renewals,'background prefetch attempted login renewal')
-    if kind=='promoted-success' then
+    if kind=='promoted-success' or kind=='large-id' then
         pump(function() return Reader.instance and Reader.instance~=reader end)
         local selected_reader=Reader.instance
+        if kind=='large-id' then
+            local identity=require('weread.lib.book_file_identity').read_document(selected_reader.document,id)
+            assert(identity.book_id==id,'opened EPUB did not preserve exact large book identity')
+            reader_exact=true
+        end
         assert(selected_reader.weread.settings:get_book(id).cached_chapters['3']==selected_reader.document.file,
             'current promoted prefetch did not open its selected chapter')
         local saved=assert(selected_reader.weread.settings:get_book(id))
@@ -351,11 +393,12 @@ return function(reader,host,book,id,evidence)
     end
     request('/__control',{match='',times=0,delay=0})
     cache.auto_prefetch_next_chapter=false;settings:set('cache',cache);settings:flush()
-    if kind~='promoted-success' and kind~='promoted-recovery' then host.showInfo=old_info end
+    if kind~='promoted-success' and kind~='promoted-recovery' and kind~='large-id' then host.showInfo=old_info end
     while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
     local file=assert(io.open(evidence..'/prefetch-condition.json','wb'))
     file:write(Json.encode{result='PASS',scenario=kind,chapter_requests=1,renewals=0,foreground_renewals=kind=='promoted-recovery' and 1 or 0,
         stale_did_not_open=kind=='stale',rate_message=kind=='rate',promoted_confirmation=kind=='promoted-expired' or kind=='promoted-recovery',
-        promoted_opened=kind=='promoted-success' or kind=='promoted-recovery',foreground_recovery=kind=='promoted-recovery'});file:close()
+        promoted_opened=kind=='promoted-success' or kind=='promoted-recovery' or kind=='large-id',foreground_recovery=kind=='promoted-recovery',
+        shadow_foreign_preserved=shadow_checked,reader_annotation_not_bound=annotation_checked,reader_exact_book_id=reader_exact});file:close()
     return reader,host
 end

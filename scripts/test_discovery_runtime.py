@@ -13,6 +13,7 @@ import subprocess
 import threading
 
 from mock_weread import BOOK_ID, CB_READING_ID, MockServer
+import mock_weread
 import zipfile
 
 REPO = Path(__file__).resolve().parent.parent
@@ -58,7 +59,7 @@ def main():
     parser.add_argument('--download-auth-renewal',choices=('reader','chapter','repeat401'),help='Renew an expired full-book download once')
     parser.add_argument('--catalog-auth-recovery',choices=('reader','catalog','repeat401','limited','refresh'),help='Renew an expired catalog before full download')
     parser.add_argument('--manual-auth-recovery',choices=('single','single-reader','single-repeat','selected'),help='Renew an expired selected chapter download')
-    parser.add_argument('--prefetch-condition',choices=('expired','promoted-expired','promoted-recovery','promoted-success','identity-conflict','identity-change','rate','stale','account','auth-race','before-commit','suspend','auto-renew','auto-reader','auto-style','auto-txt','auto-repeat','auto-cancel','auto-manual','auto-changed','auto-catalog-cancel'),help='Check background chapter failure and selection ownership')
+    parser.add_argument('--prefetch-condition',choices=('expired','promoted-expired','promoted-recovery','promoted-success','large-id','identity-conflict','identity-change','rate','stale','account','auth-race','before-commit','suspend','auto-renew','auto-reader','auto-style','auto-txt','auto-repeat','auto-cancel','auto-manual','auto-changed','auto-catalog-cancel'),help='Check background chapter failure and selection ownership')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
     parser.add_argument('--process-loss', choices=('before-state-commit','before-dispatch','after-apply','before-readback'),
@@ -123,6 +124,8 @@ def main():
         parser.error('--content-format txt requires --cached-resume')
     if args.prefetch_condition=='auto-txt' and args.content_format!='txt':
         parser.error('--prefetch-condition auto-txt requires --content-format txt')
+    if args.prefetch_condition=='large-id' and (args.content_format!='epub' or args.cached_resume_numeric_keys):
+        parser.error('--prefetch-condition large-id requires the ordinary EPUB fixture')
     if args.resume_handoff and not args.cached_resume:
         parser.error('--resume-handoff requires --cached-resume')
     if args.process_loss and (not args.reading_flow or any((args.offline_progress, args.progress_response,
@@ -151,6 +154,12 @@ def main():
                        EMULATE_READER="1", EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8",
                        EMULATE_READER_W=str(args.width),
                        EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
+    target_book_id=BOOK_ID
+    if args.prefetch_condition=='large-id':
+        target_book_id='9007199254740993'
+        mock_weread.BOOK_ID=target_book_id
+        mock_weread.BOOKS[0]['bookId']=target_book_id
+        environment['WEREAD_TEST_LARGE_BOOK_ID']='1'
     if args.process_loss:
         from process_loss_runtime import ProcessLossServer
         server = ProcessLossServer(0, root / 'evidence/requests.jsonl', args.process_loss, args.process_loss_kind)
@@ -180,8 +189,8 @@ def main():
     environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
     if args.resume_handoff:
         environment['WEREAD_TEST_RESUME_HANDOFF']='1'
-    server.progress[BOOK_ID] = dict(chapterUid=2, chapterIdx=2, chapterOffset=120, progress=37, summary="合成进度")
-    if args.cb_resume:server.progress[CB_READING_ID]=server.progress[BOOK_ID].copy()
+    server.progress[target_book_id] = dict(chapterUid=2, chapterIdx=2, chapterOffset=120, progress=37, summary="合成进度")
+    if args.cb_resume:server.progress[CB_READING_ID]=server.progress[target_book_id].copy()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     environment["WEREAD_MOCK_PORT"] = str(server.server_port)
@@ -250,6 +259,11 @@ def main():
                 observed=json.loads((root/'evidence/prefetch-condition.json').read_text())
                 assert observed==dict(result='PASS',scenario='identity-change',record_preserved=True,
                     promoted_not_retried=True,chapter_requests=1)
+            if args.prefetch_condition=='large-id' and result.returncode==0:
+                observed=json.loads((root/'evidence/prefetch-condition.json').read_text())
+                assert observed.get('scenario')=='large-id' and observed.get('result')=='PASS'
+                assert observed.get('promoted_opened') and observed.get('reader_exact_book_id')
+                assert observed.get('shadow_foreign_preserved') and observed.get('reader_annotation_not_bound')
             if args.cached_resume_numeric_keys and result.returncode==0:
                 log.flush(); raw=(root/'evidence/runtime.log').read_bytes(); marker=b'\nWEREAD_NUMERIC_CACHE_RESUME='
                 assert raw.count(marker)==1, 'numeric-cache resume fixture did not run'

@@ -30,7 +30,7 @@ local socket,json=require('socket'),require('json')
 local FM,Reader=require('apps/filemanager/filemanager'),require('apps/reader/readerui')
 local Source,Dom=require('weread.lib.position_source'),require('weread.lib.source_dom')
 local tr=require('weread.lib.plugin_util').tr
-local id=cb_resume and 'CB_SyntheticResume' or '900001'
+local id=cb_resume and 'CB_SyntheticResume' or (os.getenv('WEREAD_TEST_LARGE_BOOK_ID')=='1' and '9007199254740993' or '900001')
 local format=os.getenv('WEREAD_TEST_CONTENT_FORMAT')=='txt' and 'web_txt' or 'web_xhtml'
 local function tick()
     UI:setInputTimeout(0);UI:handleInput()
