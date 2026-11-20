@@ -81,6 +81,33 @@ class SyntheticTxtRetryBoundsTests(unittest.TestCase):
 
 
 class OwnerReadingTests(unittest.TestCase):
+    def test_reader_display_requires_live_and_offline_proof(self):
+        value=envelope()
+        for part in value['report']['stages']:part.update(reader_display_verified=True,reader_display_stage=4)
+        probe.decode_envelope(frame(value),OWNER,reader_display=True)
+        for index in (0,1):
+            bad=deepcopy(value);bad['report']['stages'][index]['reader_display_stage']=3
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,reader_display=True)
+            bad=deepcopy(value);bad['report']['stages'][index]['reader_display_verified']=False
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,reader_display=True)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(value),OWNER)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(envelope()),OWNER,reader_display=True)
+        for scope in ({'cb_reading':True},{'full_chapters':2},{'reader_estimate':True},
+                      {'reader_typography':True},{'reader_margins':True}):
+            with self.assertRaises(ValueError):probe.validate_stage(stage(),'live',reader_display=True,**scope)
+
+    def test_reader_display_rejects_incompatible_modes(self):
+        for args in (['--reader-display'],['--reader-display','--saved-session','--full-book','--lua-command','synthetic'],
+                     ['--reader-display','--saved-session','--book-format','txt','--lua-command','synthetic'],
+                     ['--reader-display','--reader-margins','--saved-session','--lua-command','synthetic']):
+            with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):probe.main(args)
+        from run_owner_reading_probe import main
+        common=['--koreader','/synthetic','--candidate','/synthetic.zip','--reader-display']
+        for extra in (['--cb-reading'],['--cb-full-book'],['--annotations'],['--progress-preview'],
+                      ['--source-upload-preview'],['--off-shelf-home'],['--reader-typography'],
+                      ['--reader-estimate'],['--reader-margins']):
+            with self.subTest(extra=extra),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(common+extra)
+
     def test_reader_margins_require_live_and_offline_proof(self):
         value=envelope()
         for part in value['report']['stages']:part.update(reader_margins_verified=True,reader_margins_stage=4)

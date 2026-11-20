@@ -106,6 +106,12 @@ local ok,reason=pcall(function()
         and input.source_format=='web_xhtml' and not input.annotations and not input.progress_preview and not input.progress_roundtrip
         and not input.source_upload_preview and not input.native_source_excerpt and not input.selection_preview and not input.off_shelf_home)
     if input.reader_margins_probe then report.reader_margins_verified=false;report.reader_margins_stage=0 end
+    assert(input.reader_display_probe==nil or input.reader_display_probe==true and not cb_reading
+        and not input.reader_estimate_probe and not input.reader_typography_probe and not input.reader_margins_probe
+        and not input.full_manifest and input.source_format=='web_xhtml' and not input.annotations
+        and not input.progress_preview and not input.progress_roundtrip and not input.source_upload_preview
+        and not input.native_source_excerpt and not input.selection_preview and not input.off_shelf_home)
+    if input.reader_display_probe then report.reader_display_verified=false;report.reader_display_stage=0 end
     local synthetic_txt_retry=os.getenv('WEREAD_SYNTHETIC_TXT_RETRY')=='1'
     assert(not synthetic_txt_retry or cb_reading and not cb_full and input.cb_mock_port
         and input.vid=='900000' and input.book_id=='CB_SyntheticResume' and input.source_format=='web_txt')
@@ -1124,6 +1130,10 @@ local ok,reason=pcall(function()
         report.reader_margins_verified=dofile(fixtures..'owner_reader_margins_case.lua')(plugin,reader,pump,report,mode,home)
         report.pages=reader.document:getPageCount()
     end
+    if input.reader_display_probe then
+        report.reader_display_verified=dofile(fixtures..'owner_reader_display_case.lua')(plugin,reader,pump,report,mode,home)
+        report.pages=reader.document:getPageCount()
+    end
     if annotation_case then
         annotation_case:run(plugin,reader,pump,tick)
         -- Restore the exact validated source target after the overlay tour.
@@ -1264,6 +1274,7 @@ if not ok then
     report.failed_line=tonumber(type(reason)=='string' and (reason:match('owner_reading_probe%.lua:(%d+):')
         or reason:match('owner_reader_estimate_case%.lua:(%d+):')
         or reason:match('owner_reader_typography_case%.lua:(%d+):')
+        or reason:match('owner_reader_display_case%.lua:(%d+):')
         or reason:match('owner_reader_margins_case%.lua:(%d+):'))) or 0
 end
 if native_recovery_input then
