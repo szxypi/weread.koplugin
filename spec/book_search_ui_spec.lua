@@ -10,7 +10,14 @@ package.preload['ui/widget/inputdialog']=function() return {new=function(_self,o
     return options
 end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(value) return value end} end
-package.preload['weread.ui.shelf_popup']=function() return {redraw=function(_owner,callback) callback() end,close=function() end} end
+package.preload['weread.ui.shelf_popup']=function() return {redraw=function(_owner,callback) callback() end,
+    show=function(owner,dialog) owner._shelf_popup=dialog;return true end,
+    current=function(owner,dialog) return owner._shelf_popup==dialog end,
+    close=function(owner) if owner then owner._shelf_popup=nil end end} end
+package.preload['ui/widget/menu']=function() return {new=function(_self,options)
+    function options:switchItemTable(_title,items) self.item_table=items end
+    return options
+end} end
 local access={web={cookies={}},revision='a'};local access_current=true
 package.preload['weread.lib.read_access']=function() return {capture=function() return access end,
     display_book_id=function(id) return type(id)=='string' and (id:match('^[1-9]%d*$') or id:match('^CB_[A-Za-z0-9]+$')) and id or nil end,
@@ -442,6 +449,66 @@ active_worker:complete();cb_owner.state.pages=127
 assert(action('Search from current chapter')).callback();active_worker:complete()
 expect(cb_owner.state.pages==128 and not cb_owner.job and not action('Load more results')
     and not action('Search from current chapter'),'switching cursors exceeded the shared page limit')
+Search.cancel(host)
+fetch_mode='interleave';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'chapter selection search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete()
+local original,automatic=cb_owner.state,cb_owner.fallback_state
+assert(action('Search from another chapter')).callback()
+local picker=assert(cb_owner.menu._shelf_popup)
+expect(#picker.item_table==2 and picker.item_table[2].text=='2. Second','chapter picker lost its catalog')
+local stale_chapter=picker.item_table[2].callback;stale_chapter()
+expect(cb_owner.manual_origin and cb_owner.state.cursor.chapter=='2' and cb_owner.state.pages==1 and cb_owner.job,
+    'selected chapter did not start with shared budget and a saved original cursor')
+active_worker:complete()
+expect(#cb_owner.value==2 and cb_owner.value[1].start==10 and cb_owner.value[2].start==30
+    and cb_owner.state.pages==2 and cb_owner.state.hit_count==2,
+    'selected chapter failed to merge, order and deduplicate results')
+assert(action('Return to previous search')).callback()
+expect(cb_owner.state==original and cb_owner.fallback_state==automatic and cb_owner.state.pages==2
+    and cb_owner.state.hit_count==2 and not cb_owner.manual_origin,
+    'returning discarded the original or automatic supplemental cursor')
+before=fetches;stale_chapter();expect(fetches==before and not cb_owner.job,'closed chapter picker dispatched stale selection')
+assert(action('Load more results')).callback();active_worker:complete()
+expect(cb_owner.job and cb_owner.state.cursor.chapter=='2' and #cb_owner.value==3,
+    'original cursor did not resume and continue the automatic supplement')
+active_worker:complete();assert(action('Load more results')).callback();active_worker:complete()
+expect(cb_owner.state.finished and cb_owner.state.pages==5 and #cb_owner.value==4,
+    'shared results or global page count changed after resuming both searches')
+Search.cancel(host)
+
+fetch_mode='interleave';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'nested cursor search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();assert(action('Search from current chapter')).callback();active_worker:complete()
+local supplement,original_cursor=cb_owner.state,cb_owner.primary_state
+assert(action('Search from another chapter')).callback();picker=assert(cb_owner.menu._shelf_popup)
+picker.item_table[1].callback();fetch_mode='fail';active_worker:complete()
+expect(cb_owner.manual_origin and cb_owner.state.pages==2 and #cb_owner.value==2 and action('Return to previous search'),
+    'failed selected-chapter search lost results or its return path')
+assert(action('Return to previous search')).callback()
+expect(cb_owner.state==supplement and cb_owner.primary_state==original_cursor and cb_owner.state.pages==2,
+    'failed selected-chapter search discarded the suspended automatic cursor')
+local limited_action=assert(action('Search from another chapter'));cb_owner.state.pages=128
+before=fetches;limited_action.callback()
+expect(not cb_owner.menu._shelf_popup and not cb_owner.job and fetches==before,
+    'stale chapter action bypassed the shared page limit')
+Search.cancel(host)
+
+local many_chapters={};for i=1,43 do many_chapters[i]={chapterUid=tostring(i),title='Chapter '..i} end
+fetch_mode='ok';expect(Search.open(host,'CB_Synthetic',many_chapters,'1'),'paged chapter search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();assert(action('Search from another chapter')).callback();picker=assert(cb_owner.menu._shelf_popup)
+expect(#picker.item_table==41 and picker.item_table[41].text=='Next chapters','chapter picker did not bound its first page')
+local stale_page_item=picker.item_table[1].callback;picker.item_table[41].callback();stale_page_item()
+expect(#picker.item_table==4 and picker.item_table[1].text=='Previous chapters'
+    and picker.item_table[2].text=='41. Chapter 41' and not cb_owner.manual_origin,
+    'chapter picker did not advance correctly or accepted a stale row')
+picker.item_table[2].callback();local chosen=active_worker
+expect(cb_owner.state.cursor.chapter=='41' and cb_owner.manual_origin and cb_owner.job,'chapter on second page was not selected')
+host.busy_message.cancel();assert(action('Return to previous search')).callback()
+chosen:complete()
+expect(cb_owner.state.cursor.chapter=='1' and cb_owner.state.pages==1 and #cb_owner.value==1,
+    'cancelled chapter request changed restored results')
 Search.cancel(host)
 fetch_mode='fallback';expect(Search.open(host,'CB_Synthetic',two_chapters,'99'),'unknown-chapter search did not open')
 cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)

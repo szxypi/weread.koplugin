@@ -300,13 +300,29 @@ local ok,result=pcall(function()
             original_cursor={chapter=owner.state.cursor.chapter,start=owner.state.cursor.start,finish=owner.state.cursor.finish}
             local action
             for _i,item in ipairs(owner.menu.item_table) do
-                if item.text==require('weread.lib.i18n').tr('Search from current chapter') then action=item end
+                local label=input.select_chapter and 'Search from another chapter' or 'Search from current chapter'
+                if item.text==require('weread.lib.i18n').tr(label) then action=item end
             end
             assert(action);owner.menu:onMenuSelect(action)
+            if input.select_chapter then
+                local picker=assert(owner.menu._shelf_popup);local chosen,chapter_index
+                for i,entry in ipairs(input.chapters) do if entry.chapterUid==input.chapter then chapter_index=i;break end end
+                assert(chapter_index)
+                for _i=1,math.floor((chapter_index-1)/40) do
+                    local next_page
+                    for _j,item in ipairs(picker.item_table) do
+                        if item.text==require('weread.lib.i18n').tr('Next chapters') then next_page=item end
+                    end
+                    assert(next_page);picker:onMenuSelect(next_page)
+                end
+                local label=tostring(chapter_index)..'. '..input.chapters[chapter_index].title
+                for _i,item in ipairs(picker.item_table) do if item.text==label then chosen=item end end
+                assert(chosen);picker:onMenuSelect(chosen)
+            end
         end
         wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
         if original_cursor then
-            local original=owner.primary_state or owner.state
+            local original=owner.manual_origin and owner.manual_origin.state or owner.primary_state or owner.state
             assert(not original.finished and original.cursor.chapter==original_cursor.chapter
                 and original.cursor.start==original_cursor.start and original.cursor.finish==original_cursor.finish)
         end
@@ -317,7 +333,8 @@ local ok,result=pcall(function()
             local function action(label)
                 for _i,item in ipairs(owner.menu.item_table) do if item.text==translate(label) then return item end end
             end
-            if owner.primary_state then owner.menu:onMenuSelect(assert(action('Continue original search'))) end
+            if owner.manual_origin then owner.menu:onMenuSelect(assert(action('Return to previous search')))
+            elseif owner.primary_state then owner.menu:onMenuSelect(assert(action('Continue original search'))) end
             assert(owner.state.cursor.chapter==original_cursor.chapter and owner.state.cursor.start==original_cursor.start
                 and owner.state.cursor.finish==original_cursor.finish)
             owner.menu:onMenuSelect(assert(action('Load more results')))

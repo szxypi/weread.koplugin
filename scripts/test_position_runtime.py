@@ -125,6 +125,7 @@ def main():
     parser.add_argument('--search-current-fallback', action='store_true')
     parser.add_argument('--search-fallback-merge', action='store_true')
     parser.add_argument('--search-fallback-early', action='store_true')
+    parser.add_argument('--search-select-chapter', action='store_true')
     parser.add_argument('--search-offline-fallback', action='store_true')
     parser.add_argument('--search-no-login-fallback', action='store_true')
     parser.add_argument('--search-empty-local', action='store_true')
@@ -204,6 +205,11 @@ def main():
         parser.error('merged fallback requires the current fallback fixture')
     if args.search_fallback_early and not args.search_fallback_merge:
         parser.error('early fallback requires the merged fallback fixture')
+    if args.search_select_chapter and (args.probe!='book-search' or not args.search_cb or any((args.search_missing,
+            args.search_catalog_missing,args.search_renewal,args.search_current_fallback,args.search_large_uid,
+            args.search_local_download,args.search_offline_fallback,args.search_no_login_fallback,args.search_empty_local,args.search_cancel_only,
+            args.search_cancel_resume))):
+        parser.error('chapter selection requires the complete imported book-search fixture')
     if args.search_large_uid and (args.probe!='book-search' or not args.search_cb or args.search_missing
                                   or args.search_catalog_missing or args.search_renewal or args.search_current_fallback
                                   or args.search_local_download or args.search_offline_fallback or args.search_no_login_fallback):
@@ -219,7 +225,7 @@ def main():
                                     or args.search_offline_fallback or args.search_no_login_fallback):
         parser.error('empty-result local search requires the ordinary complete cached fixture')
     root, runtime = args.run_dir.resolve(), args.koreader.resolve()
-    server = SearchMockServer(0,args.search_cb,args.search_current_fallback,args.search_empty_local,args.search_large_uid,args.search_fallback_merge,args.search_fallback_early) if args.probe=='book-search' else TimeMockServer(0) if args.cb_sync_time else MockServer(0)
+    server = SearchMockServer(0,args.search_cb,args.search_current_fallback or args.search_select_chapter,args.search_empty_local,args.search_large_uid,args.search_fallback_merge or args.search_select_chapter,args.search_fallback_early or args.search_select_chapter) if args.probe=='book-search' else TimeMockServer(0) if args.cb_sync_time else MockServer(0)
     if args.probe in ('cb-cloud-view','cb-sync'):
         from verify_source_coordinates import FilteredSource
         server.cb_reading=True
@@ -252,6 +258,7 @@ def main():
                                         WEREAD_TEST_SEARCH_CURRENT_FALLBACK='1' if args.search_current_fallback else '0',
                                         WEREAD_TEST_SEARCH_FALLBACK_MERGE='1' if args.search_fallback_merge else '0',
                                         WEREAD_TEST_SEARCH_FALLBACK_EARLY='1' if args.search_fallback_early else '0',
+                                        WEREAD_TEST_SEARCH_SELECT_CHAPTER='1' if args.search_select_chapter else '0',
                                         WEREAD_TEST_SEARCH_OFFLINE_FALLBACK='1' if args.search_offline_fallback else '0',
                                         WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK='1' if args.search_no_login_fallback else '0',
                                         WEREAD_TEST_SEARCH_EMPTY_LOCAL='1' if args.search_empty_local else '0',
@@ -485,6 +492,9 @@ def main():
                 if args.search_current_fallback:expected['current_fallback']=True
                 if args.search_fallback_merge:expected['merged']=True
                 if args.search_fallback_early:expected.update(pages=3,results=3,early=True)
+                if args.search_select_chapter:
+                    expected=dict(result='PASS',pages=3,results=3,selected_chapter=True,
+                                  previous_cursor_preserved=True,verified_navigation=True,imported_search=True)
                 if args.search_cancel_resume:expected['cancel_resume']=True
                 if args.search_offline_fallback:
                     expected=dict(result='PASS',offline_entry=True,disconnect_fallback=True,
@@ -497,9 +507,9 @@ def main():
                     expected=dict(result='PASS',cancelled_search=True,catalog_missing=args.search_catalog_missing,
                                   local_results=2,network_requests=0)
                 assert value==expected, 'online search result mismatch'
-                search_requests=(2 if args.search_local_restart else 1) if args.search_local_download else 7 if args.search_renewal else 2
+                search_requests=(2 if args.search_local_restart else 1) if args.search_local_download else 7 if args.search_renewal else 3 if args.search_select_chapter else 2
                 if args.search_fallback_early:search_requests=3
-                if not args.search_missing and not args.search_renewal and not args.search_current_fallback:
+                if not args.search_missing and not args.search_renewal and not args.search_current_fallback and not args.search_select_chapter:
                     search_requests+=1 # reopen the online results after the offline handoff
                 if args.search_offline_fallback:search_requests=1
                 if args.search_no_login_fallback:search_requests=0

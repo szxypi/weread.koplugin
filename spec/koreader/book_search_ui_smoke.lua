@@ -9,6 +9,7 @@ local second_uid=os.getenv('WEREAD_TEST_SEARCH_LARGE_UID')=='1' and '90071992547
 local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local fallback_merge=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_MERGE')=='1'
 local fallback_early=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_EARLY')=='1'
+local select_chapter=os.getenv('WEREAD_TEST_SEARCH_SELECT_CHAPTER')=='1'
 local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
 local no_login_fallback=os.getenv('WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK')=='1'
 local empty_local=os.getenv('WEREAD_TEST_SEARCH_EMPTY_LOCAL')=='1'
@@ -56,9 +57,9 @@ local bodies,sources={},{ }
 for _i,chapter in ipairs(chapters) do
     local uid=chapter.chapterUid
     bodies[uid]='<html><body><p>chapter '..uid..' '..string.rep('ordinary synthetic text ',80)..'amberneedle</p></body></html>'
-    if fallback_merge and uid=='2' then
+    if (fallback_merge or select_chapter) and uid=='2' then
         local suffix='amberneedle more synthetic words amberneedle'
-        if fallback_early then suffix=suffix..' more synthetic words amberneedle' end
+        if fallback_early or select_chapter then suffix=suffix..' more synthetic words amberneedle' end
         bodies[uid]=bodies[uid]:gsub('amberneedle</p>',suffix..'</p>')
     end
     sources[uid]=assert(Source.capture(book,chapter,bodies[uid],'web_xhtml'))
@@ -297,6 +298,43 @@ if current_fallback then
     if fallback_merge then result.merged=true end
     if fallback_early then result.early=true end
     print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(result))
+    os.exit(0)
+end
+if select_chapter then
+    local tr=require('weread.lib.i18n').tr
+    local function item(label)
+        for _i,row in ipairs(owner.menu.item_table) do if row.text==tr(label) then return row end end
+        error('missing search action: '..label)
+    end
+    wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
+    assert(#owner.value==1 and not owner.state.finished)
+    local original=owner.state;owner.menu:onMenuSelect(item('Search from another chapter'))
+    local picker=assert(owner.menu._shelf_popup)
+    assert(picker.title==tr('Choose a chapter to search') and #picker.item_table==2)
+    UI:forceRePaint();Device.screen:shot(evidence..'/search-chapter-picker.png')
+    require('weread.ui.shelf_popup').close(owner.menu)
+    assert(owner.state==original and not owner.job,'cancelling the chapter picker changed the search')
+    owner.menu:onMenuSelect(item('Search from another chapter'));picker=assert(owner.menu._shelf_popup)
+    picker:onMenuSelect(picker.item_table[2])
+    wait(function() return owner.state==original and owner.state.pages==2 and not owner.job end)
+    assert(#owner.value==2 and owner.value[1].start<owner.value[2].start and owner.state.hit_count==2,
+        'selected chapter was not merged or original cursor was lost')
+    owner.menu:onMenuSelect(item('Load more results'))
+    wait(function() return owner.state.pages==3 and owner.state.finished and not owner.job end)
+    assert(#owner.value==3 and owner.value[3].start>owner.value[2].start,'original cursor could not continue')
+    local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[1]))
+    owner.menu:onMenuSelect(owner.menu.item_table[2])
+    wait(function()
+        local instance=require('apps/reader/readerui').instance
+        if instance and instance.weread then reader=instance;plugin=instance.weread end
+        local held=plugin.progress_sync and plugin.progress_sync:current_source_target()
+        return not owner.navigation and plugin.source_navigation and plugin.source_navigation.state=='ready'
+            and held and held.chapter_uid==second_uid and held.chapter_offset==expected.chapter_offset
+    end)
+    assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
+    assert(not plugin.progress_sync.verified and not plugin.read_report.job)
+    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',pages=3,results=3,
+        selected_chapter=true,previous_cursor_preserved=true,verified_navigation=true,imported_search=true}))
     os.exit(0)
 end
 wait(function() return owner.state and owner.state.pages==1 and not owner.job end)

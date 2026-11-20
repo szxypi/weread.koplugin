@@ -88,10 +88,13 @@ def main(argv=None):
     parser.add_argument('--nonempty',action='store_true',help='choose a matched first-page sample for native deduplication')
     parser.add_argument('--early',action='store_true',help='select a multipage sample for early current-chapter search')
     parser.add_argument('--early-resume',action='store_true',help='also independently check and resume the initial cursor')
+    parser.add_argument('--select-chapter',action='store_true',help='exercise the chapter picker with the read-only early-resume sample')
     parser.add_argument('--runtime',default='/validation/runtime/lib/koreader');parser.add_argument('--source',default='/source')
     parser.add_argument('--candidate',default='/validation/cb-fallback-600-v5/candidate.zip')
     args=parser.parse_args(argv);resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     if args.early_resume and not args.early:parser.error('--early-resume requires --early')
+    if args.select_chapter and not (args.native_ui and args.early and args.early_resume):
+        parser.error('--select-chapter requires --native-ui --early --early-resume')
     if (not re.fullmatch('[A-Za-z0-9_.-]{1,128}',args.container)
             or any(not p.startswith('/') or '\x00' in p for p in (args.runtime,args.source,args.candidate))):parser.error('invalid isolated runtime')
     report={'result':'OFFLINE_ONLY','account_data_posts':0,'authentication_posts':0,'search_gets':0}
@@ -193,7 +196,7 @@ def main(argv=None):
                 allowed.append(next_cursor)
             payload=dict(owner=web.vid,cookies=cookies,book=web.book_id,chapter=web.chapter,chapters=safe,
                 source=sample['source'],keyword=keyword,start=expected[0],finish=expected[1],current_fallback=True,
-                early_fallback=args.early,early_resume=args.early_resume,allowed=allowed)
+                early_fallback=args.early,early_resume=args.early_resume,select_chapter=args.select_chapter,allowed=allowed)
             for catalog_missing in ((False,) if args.early_resume else (False,True)):
                 payload['catalog_missing']=catalog_missing
                 for width,height,dpi in ((600,800,167),(1264,1680,300)):

@@ -70,7 +70,7 @@ function M.cancel(host)
     if menu then menu._shelf_closed=true;Popup.close(menu);UI:close(menu) end
 end
 
-local render,fetch_page,switch_search
+local render,fetch_page,switch_search,choose_chapter,restore_search
 render=function(host,owner)
     if not current(host,owner) or not owner.menu then return end
     Popup.redraw(owner.menu,function()
@@ -117,6 +117,20 @@ render=function(host,owner)
                 end
             end}
         end
+        if owner.manual_origin then
+            items[#items+1]={text=_('Return to previous search'),callback=function()
+                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation then
+                    restore_search(host,owner)
+                end
+            end}
+        elseif owner.cb_book and owner.state and owner.state.pages>0 and owner.state.pages<128
+            and type(owner.chapters)=='table' and #owner.chapters>1 then
+            items[#items+1]={text=_('Search from another chapter'),callback=function()
+                if current(host,owner) and not owner.job and not owner.recovery and not owner.navigation then
+                    choose_chapter(host,owner)
+                end
+            end}
+        end
         if #owner.value==0 and owner.state and owner.state.finished then
             items[#items+1]={text=_(owner.cb_book and 'No matches returned. Search may be incomplete for this book.'
                 or 'No matching text found.'),select_enabled=false}
@@ -156,6 +170,60 @@ switch_search=function(host,owner,to_fallback)
     owner.state=target;render(host,owner)
     if to_fallback then return fetch_page(host,owner) end
     return true
+end
+
+-- An additional chapter search borrows the global page budget and seen set,
+-- while the original and automatic-fallback cursors remain untouched.
+restore_search=function(host,owner)
+    local saved=owner.manual_origin
+    if not saved or not owner.state or owner.job or owner.recovery or owner.navigation then return false end
+    local completed=owner.state
+    saved.state.pages=completed.pages;saved.state.seen=completed.seen;saved.state.hit_count=completed.hit_count
+    owner.state=saved.state;owner.primary_state=saved.primary_state;owner.fallback_state=saved.fallback_state
+    owner.manual_origin=nil;owner.fallback_attempted=true
+    render(host,owner)
+    return true
+end
+
+choose_chapter=function(host,owner)
+    if not current(host,owner) or not owner.menu or owner.manual_origin or not owner.state
+        or owner.state.pages>=128 or owner.job or owner.recovery or owner.navigation then return false end
+    local Menu=require('ui/widget/menu')
+    local source=owner.state
+    local chapters=owner.chapters
+    local page,size,generation=1,40,0
+    local dialog
+    local function valid(version)
+        return current(host,owner) and Popup.current(owner.menu,dialog) and owner.state==source
+            and version==generation and not owner.manual_origin and not owner.job and not owner.recovery and not owner.navigation
+    end
+    local function rows()
+        generation=generation+1;local version=generation
+        local items={}
+        if page>1 then items[#items+1]={text=_('Previous chapters'),callback=function()
+            if valid(version) then page=page-1;dialog:switchItemTable(nil,rows()) end
+        end} end
+        local last=math.min(page*size,#chapters)
+        for index=(page-1)*size+1,last do
+            local chapter=chapters[index]
+            local uid=chapter.chapterUid
+            items[#items+1]={text=tostring(index)..'. '..chapter.title,callback=function()
+                if not valid(version) then return end
+                local target=Search.new(owner.id,owner.keyword,chapters,uid)
+                if not target then host:showInfo(_('Could not load this book\'s chapter list.'));return end
+                target.pages=source.pages;target.seen=source.seen;target.hit_count=source.hit_count
+                owner.manual_origin={state=source,primary_state=owner.primary_state,fallback_state=owner.fallback_state}
+                owner.primary_state=nil;owner.fallback_state=nil;owner.state=target;owner.fallback_attempted=true
+                Popup.close(owner.menu);render(host,owner);fetch_page(host,owner)
+            end}
+        end
+        if last<#chapters then items[#items+1]={text=_('Next chapters'),callback=function()
+            if valid(version) then page=page+1;dialog:switchItemTable(nil,rows()) end
+        end} end
+        return items
+    end
+    dialog=Menu:new{title=_('Choose a chapter to search'),item_table=rows(),is_borderless=true,title_bar_fm_style=true}
+    return Popup.show(owner.menu,dialog)
 end
 
 local function begin_work(host,owner,task,done)
@@ -252,7 +320,9 @@ fetch_page=function(host,owner,recovered)
                 return a.finish<b.finish
             end)
         end
-        if owner.state.finished and owner.primary_state then
+        if owner.state.finished and owner.manual_origin then
+            restore_search(host,owner);return
+        elseif owner.state.finished and owner.primary_state then
             switch_search(host,owner,false);return
         elseif owner.cb_book and owner.state.finished and owner.state.pages<128 and owner.fallback_state then
             switch_search(host,owner,true);return
