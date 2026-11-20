@@ -128,6 +128,9 @@ local ok,reason=pcall(function()
         report.worker_heartbeat=true;wait(function() return not owner.context end)
     else assert(not owner.context and not owner.worker);report.worker_heartbeat=true end
     assert(same(owner.value,expected))
+    if synthetic then
+        dofile('/source/spec/koreader/notebook_bulk_case.lua')(plugin,owner,mode,counters,wait,tick)
+    end
     report.phase='views'
     for page=1,menu.page_num do menu:onGotoPage(page);UI:forceRePaint();report.pages=report.pages+1 end
     local positions={};for index,row in ipairs(menu.item_table) do if row.notebook_id then positions[#positions+1]=index end end

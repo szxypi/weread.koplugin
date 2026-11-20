@@ -75,7 +75,8 @@ function M:list_ids()
         return ids
     end,true,{})
 end
-function M:write(value)
+function M:write(value,options)
+    if options~=nil and (type(options)~='table' or options.preserve_existing~=true) then return false end
     local valid,projected=pcall(self.data.validate,self.codec,value,type(value)=='table' and value.book_id)
     if not valid then return false end
     local encoded,payload=pcall(self.codec.json_encode,self.codec,projected)
@@ -97,6 +98,9 @@ function M:write(value)
             end
         end)
         stmt:close();if not ok then error('my_marks_store/quota',0) end
+        -- A bulk refresh must never evict unrelated saved notes to make room.
+        -- Roll back the insertion or replacement together with its new serial.
+        if options and #remove>0 then error('my_marks_store/preserve_quota',0) end
         for _i,id in ipairs(remove) do statement(db,'DELETE FROM '..self.table_name..' WHERE book_id=?',id) end
         commit();return true
     end)==true

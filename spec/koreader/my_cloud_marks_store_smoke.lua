@@ -31,6 +31,11 @@ expect(not cache:write(oversized) and cache:read('900001').updated[1].markText==
 for i=1,65 do expect(cache:write(snapshot(tostring(910000+i)))) end
 expect(cache:read('910001')==nil and cache:read('910065')~=nil)
 db=library:open();expect(tonumber(db:rowexec('SELECT COUNT(*) FROM my_cloud_marks'))==64)
+expect(not cache:write(snapshot('930001'),{preserve_existing=true}))
+expect(cache:read('930001')==nil and cache:read('910002')~=nil and cache:read('910065')~=nil)
+local kept=snapshot('910002');kept.updated[1].markText='refreshed'
+expect(cache:write(kept,{preserve_existing=true}) and cache:read('910002').updated[1].markText=='refreshed')
+expect(not cache:write(snapshot('930001'),{preserve_existing=false}) and cache:read('930001')==nil)
 db:exec("UPDATE my_cloud_marks SET payload='{}' WHERE book_id='910065'");db:close();expect(cache:read('910065')==nil)
 -- Use actual near-limit snapshots to check the aggregate payload bound.
 oversized=snapshot();oversized.updated={}
@@ -38,4 +43,7 @@ for i=1,30 do oversized.updated[i]={bookmarkId='synthetic-'..i,markText=string.r
 for i=1,10 do oversized.book_id=tostring(920000+i);expect(cache:write(oversized)) end
 db=library:open();expect(tonumber(db:rowexec('SELECT SUM(length(CAST(payload AS BLOB))) FROM my_cloud_marks'))<=Cache.MAX_TOTAL);db:close()
 expect(cache:read('920001')==nil and cache:read('920010')~=nil)
+oversized.book_id='930002'
+expect(not cache:write(oversized,{preserve_existing=true}))
+expect(cache:read('930002')==nil and cache:read('920010')~=nil)
 print('PASS: own cloud marks SQLite ('..checks..' checks)')

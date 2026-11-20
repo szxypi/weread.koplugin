@@ -17,6 +17,7 @@ local function current(host,owner)
         and owner.document==(host.ui and host.ui.document) and host.settings:auth_scope_matches(owner.scope)
 end
 local function stop(host,owner)
+    require('weread.ui.notebook_bulk').cancel(host,owner)
     require('weread.ui.thought_editor').cancel(host,owner)
     require('weread.ui.notebook_search').cancel(host,owner)
     local context=owner.context;owner.context=nil
@@ -119,6 +120,12 @@ render=function(host,owner)
                 if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
             end}}
         if owner.value then
+            items[#items+1]={text=_('Save all notebook notes for offline use'),callback=function()
+                if current(host,owner) then
+                    require('weread.ui.notebook_search').cancel(host,owner)
+                    require('weread.ui.notebook_bulk').start(host,owner,current)
+                end
+            end}
             local search_text=owner.search and Protocol.utf8_substr(owner.search,16) or ''
             if owner.search and #search_text<#owner.search then search_text=search_text..'…' end
             items[#items+1]={text=_('Search notebooks'),mandatory=search_text,callback=function()
@@ -144,6 +151,7 @@ render=function(host,owner)
 end
 refresh=function(host,owner)
     if not current(host,owner) or owner.context then return false end
+    require('weread.ui.notebook_bulk').cancel(host,owner)
     require('weread.ui.notebook_search').cancel(host,owner)
     if not host:isNetworkOnline() then host:showOffline(_('My notebooks'));return false end
     local access=Data.capture(host.settings)
