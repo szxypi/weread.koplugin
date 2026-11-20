@@ -12,6 +12,7 @@ return function(reader,host,book,id,pump,clean)
         local input=assert(io.open(file,'rb'));local value=assert(input:read('*a'));input:close();return value
     end
     local original=bytes(path)
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'chapter_cache_claim_smoke.lua')(reader,host,book,id,path,dir,pump)
     local legacy=dir..'/synthetic-legacy.epub'
     local output=assert(io.open(legacy,'wb'));assert(output:write(original));output:close()
     local sidecar=dir..'/synthetic-legacy.sdr';assert(fs.mkdir(sidecar))

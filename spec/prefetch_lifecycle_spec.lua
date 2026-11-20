@@ -225,8 +225,17 @@ local legacy_single = {
 expect(host:getFullBookCachePath(legacy_single) == nil,
     "legacy single chapter is not mistaken for a full book")
 legacy_single.cached_chapters["2"] = "/cache/one.epub"
-expect(host:getFullBookCachePath(legacy_single) == "/cache/one.epub",
-    "legacy combined EPUB remains a full-book cache")
+expect(host:getFullBookCachePath(legacy_single) == nil,
+    "an unverified shared cache is not assumed to be a full book")
+legacy_single.chapters={{chapterUid=1}}
+legacy_single.cached_chapters={['1']='/cache/one.epub',[1]='/cache/one.epub'}
+local legacy_index,legacy_chapter,legacy_full=host:getChapterInfoFromFile(legacy_single,'/cache/one.epub')
+expect(legacy_index==1 and legacy_chapter==legacy_single.chapters[1] and not legacy_full,
+    'numeric and string aliases of one chapter were mistaken for multiple chapters')
+legacy_single.chapters={{chapterId=1}}
+legacy_index,legacy_chapter,legacy_full=host:getChapterInfoFromFile(legacy_single,'/cache/one.epub')
+expect(legacy_index==1 and legacy_chapter==legacy_single.chapters[1] and not legacy_full,
+    'chapterId-only legacy catalog lost its chapter mapping')
 
 notices = {}
 expect(not host:onWeReadSyncProgress(),

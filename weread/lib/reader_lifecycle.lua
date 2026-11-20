@@ -718,14 +718,15 @@ function M:ensureChaptersLoaded(book)
 end
 
 -- cached_file historically pointed at either a full-book EPUB or the most
--- recently downloaded single chapter. Treat it as a legacy full-book path only
--- when it does not map to exactly one chapter; new downloads use the explicit
--- cached_full_book field.
+-- recently downloaded single chapter. Shared mappings need archive evidence
+-- before the file can be treated as a combined book.
 function M:getFullBookCachePath(book)
     if type(book) ~= "table" then return nil end
+    local Claims=require('weread.lib.chapter_cache_claim')
     if type(book.cached_full_book) == "string"
         and book.cached_full_book ~= "" and file_exists(book.cached_full_book) then
-        return book.cached_full_book
+        if not Claims.shared(book,book.cached_full_book)
+            or Claims.inspect(book,book.cached_full_book).kind=='combined' then return book.cached_full_book end
     end
     local legacy = book.cached_file
     if type(legacy) ~= "string" or legacy == "" then return nil end
@@ -733,7 +734,10 @@ function M:getFullBookCachePath(book)
     for _uid, path in pairs(book.cached_chapters or {}) do
         if path == legacy then mapped_count = mapped_count + 1 end
     end
-    if mapped_count == 1 then return nil end
+    if Claims.shared(book,legacy) then
+        return Claims.inspect(book,legacy).kind=='combined' and legacy or nil
+    end
+    if mapped_count > 0 then return nil end
     return legacy
 end
 
@@ -754,10 +758,12 @@ function M:getChapterInfoFromFile(book, file_path)
 
     local mapped_count = 0
     local current_uid = nil
+    local seen_uid = {}
     for uid, path in pairs(book.cached_chapters or {}) do
         if path == file_path then
-            mapped_count = mapped_count + 1
-            current_uid = uid
+            local key=tostring(uid)
+            if not seen_uid[key] then mapped_count = mapped_count + 1;seen_uid[key]=true end
+            current_uid = key
         end
     end
 
@@ -766,11 +772,18 @@ function M:getChapterInfoFromFile(book, file_path)
         return nil, nil, true
     end
 
-    local is_full_book = (mapped_count > 1)
+    local is_full_book = false
+    local Claims=require('weread.lib.chapter_cache_claim')
+    if Claims.shared(book,file_path) then
+        local info=Claims.inspect(book,file_path)
+        if info.kind=='combined' then return nil,nil,true end
+        if info.kind~='single' then return nil,nil,false end
+        mapped_count,current_uid=1,info.uid
+    end
 
     if mapped_count == 1 and current_uid then
         for i, ch in ipairs(book.chapters) do
-            if tostring(ch.chapterUid) == tostring(current_uid) then
+            if tostring(ch.chapterUid or ch.chapterId or '') == tostring(current_uid) then
                 return i, ch, is_full_book
             end
         end

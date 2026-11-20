@@ -2021,6 +2021,8 @@ function M:showChapterList(book, on_close)
         -- captured when the chapter list was first opened.
         reloadBookCache()
         local rows = {}
+        local claims=require('weread.lib.chapter_cache_claim')
+        local claim_cache={}
         for _i, chapter in ipairs(chapters) do
             local chapter_uid = chapter.chapterUid or chapter.chapterId
             local cached = book.cached_chapters
@@ -2029,6 +2031,7 @@ function M:showChapterList(book, on_close)
                 book.cached_chapters[tostring(chapter_uid)] = nil
                 cached = nil
             end
+            if cached and not claims.usable(book,cached,chapter_uid,claim_cache) then cached=nil end
             rows[#rows + 1] = {
                 title = chapter.title or T(_("Chapter %1"), tostring(chapter_uid)),
                 status = cached and _("Cached")
@@ -2214,6 +2217,16 @@ end
 function M:openBookForReading(book, quiet, options)
     local full_path = self:getFullBookCachePath(book)
     local book_id = book.book_id or book.bookId
+    local claims=require('weread.lib.chapter_cache_claim')
+    local Reading=require('weread.ui.book_reading')
+    local claim_cache={}
+    local unusable_shared=false
+    local function usable(uid,path)
+        if not file_exists(path) then return false end
+        local valid=claims.usable(book,path,uid,claim_cache)
+        if not valid and claims.shared(book,path,claim_cache) then unusable_shared=true end
+        return valid
+    end
     local cloud_hint=type(book_id)=='string' and book_id:sub(1,3)=='CB_' and book.cb_cloud_view_resume
     local hint=cloud_hint or book.unindexed_resume
     local account=self.library_db and self.library_db.accountKey and self.library_db:accountKey()
@@ -2247,6 +2260,13 @@ function M:openBookForReading(book, quiet, options)
         end
     end
     if file_exists(full_path) then
+        if options and options.prefer_exact and claims.inspect(book,full_path,claim_cache).kind=='combined' then
+            local catalog=book.chapters
+            if (type(catalog)~='table' or #catalog==0) and self.library_db then catalog=self.library_db:getChapters(book_id) end
+            if type(catalog)~='table' or #catalog==0 then catalog=Content.load_catalog_cache(self.client,self.settings,book) end
+            local uid=Reading.resume_uid(catalog,book,account)
+            if uid and not claims.usable(book,full_path,uid,claim_cache) then return false,'resume_not_cached',uid end
+        end
         if not (options and options.check_only) then self:openFile(full_path,nil,book) end
         return true
     end
@@ -2262,14 +2282,14 @@ function M:openBookForReading(book, quiet, options)
 
     local candidates = {}
     local target_index
-    local Reading=require('weread.ui.book_reading')
     if options and options.prefer_exact then
         local uid=Reading.resume_uid(chapters,book,account)
         local target=uid and ReadAccess.cached_chapter(book.cached_chapters,uid)
-        if uid and not file_exists(target) then
+        if uid and not usable(uid,target) then
             for _id,path in pairs(book.cached_chapters or {}) do
-                if file_exists(path) then return false,'resume_not_cached',uid end
+                if usable(_id,path) then return false,'resume_not_cached',uid end
             end
+            if file_exists(target) and claims.shared(book,target,claim_cache) then return false,'ambiguous_cache',uid end
         end
     end
     if type(chapters) == "table" then
@@ -2277,7 +2297,7 @@ function M:openBookForReading(book, quiet, options)
         for index, chapter in ipairs(chapters) do
             local uid = tostring(chapter.chapterUid or chapter.chapterId or index)
             local path = ReadAccess.cached_chapter(book.cached_chapters,uid)
-            if file_exists(path) then
+            if usable(uid,path) then
                 candidates[#candidates + 1] = { index = index, path = path }
             end
         end
@@ -2304,7 +2324,7 @@ function M:openBookForReading(book, quiet, options)
 
     local fallback_paths = {}
     for uid, path in pairs(book.cached_chapters or {}) do
-        if file_exists(path) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), chapterUid=tostring(uid), path = path } end
+        if usable(uid,path) then fallback_paths[#fallback_paths + 1] = { uid = tostring(uid), chapterUid=tostring(uid), path = path } end
     end
     table.sort(fallback_paths, function(left, right) return left.uid < right.uid end)
     local fallback=fallback_paths[Reading.resume_index(fallback_paths,book,nil,account) or 1]
@@ -2312,7 +2332,10 @@ function M:openBookForReading(book, quiet, options)
         if not (options and options.check_only) then self:openFile(fallback.path,nil,book) end
         return true
     end
-    if not quiet then self:showInfo(_("No cached file.")) end
+    if not quiet then self:showInfo(_(unusable_shared
+        and 'No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again.'
+        or 'No cached file.')) end
+    if unusable_shared then return false,'ambiguous_cache' end
     return false
 end
 
@@ -2323,6 +2346,7 @@ function M:readCachedCopy(book,view)
     local opened,reason,uid=self:openBookForReading(latest,true,{prefer_exact=true})
     if opened then return true end
     if reason=='resume_not_cached' then return require('weread.ui.missing_resume').show(self,id,view,uid) end
+    if reason=='ambiguous_cache' then self:showInfo(_('No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again.'));return false end
     self:showInfo(_('No cached file.'))
     return false
 end
@@ -2342,6 +2366,9 @@ function M:startBookReading(book, view, origin)
     if opened then return true end
     if reason=='resume_not_cached' and not exact then
         return require('weread.ui.missing_resume').show(self,id,view,uid)
+    end
+    if reason=='ambiguous_cache' and not exact then
+        self:showInfo(_('No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again.'));return false
     end
     return require("weread.ui.book_reading").start(self, latest, view, origin)
 end
@@ -2380,9 +2407,16 @@ function M:openChapter(book, chapter, on_downloaded)
         if document and not Context.same_location(location,Context.location(document,self.ui.view and self.ui.view.view_mode)) then return false end
         return true
     end
-    local cached = book.cached_chapters and book.cached_chapters[tostring(chapter_uid)]
-    if cached and file_exists(cached) then
+    local cached = ReadAccess.cached_chapter(book.cached_chapters,chapter_uid)
+    local ambiguous=cached and file_exists(cached) and not require('weread.lib.chapter_cache_claim').usable(book,cached,chapter_uid)
+    if cached and file_exists(cached) and not ambiguous then
         self:openFile(cached,nil,book)
+    elseif ambiguous then
+        self:confirmAndDownloadChapters(book,{chapter},'chapter',{
+            single_chapter=true,recovery_current=current,
+            confirmation_text=_('This cached file cannot be confirmed as the selected chapter. Download it again? The old file and notes are kept.'),
+            on_complete=function(ok,path) if ok and on_downloaded then on_downloaded(path) end end,
+        })
     elseif self.downloader:promotePrefetch(book, chapter, current) then
         -- The downloader promotes the background task to a visible progress
         -- dialog and opens the chapter as soon as the same task completes.
@@ -2414,9 +2448,9 @@ function M:openProgressTargetChapter(book, chapter)
         return true
     end
     if not current() then return false, "target_chapter_unavailable" end
-    local cached = chapter_uid and book.cached_chapters
-        and book.cached_chapters[tostring(chapter_uid)]
-    if cached and file_exists(cached) then
+    local cached = chapter_uid and ReadAccess.cached_chapter(book.cached_chapters,chapter_uid)
+    local ambiguous=cached and file_exists(cached) and not require('weread.lib.chapter_cache_claim').usable(book,cached,chapter_uid)
+    if cached and file_exists(cached) and not ambiguous then
         return open_target(cached)
     end
 
@@ -2424,7 +2458,7 @@ function M:openProgressTargetChapter(book, chapter)
         or T(_("Chapter %1"), tostring(chapter_uid or ""))
     local confirm
     confirm = ConfirmBox:new{
-        text = T(_(
+        text = ambiguous and T(_('The cached file cannot be confirmed as "%1". Download it again and open the cloud position? The old file and notes are kept.'),title) or T(_(
             "Cloud progress is in \"%1\", but this chapter has not been downloaded.\n\n"
             .. "Download and open it now?"
         ), title),

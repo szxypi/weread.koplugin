@@ -957,6 +957,9 @@ local zh = {
     ["Reading progress is unavailable for this file."] = "当前文件无法显示阅读进度。",
     ["Chapter information changed. Open the progress panel again."] = "章节信息已变化，请重新打开进度面板。",
     ["Chapter information changed. Open the quick menu again."] = "章节信息已变化，请重新打开快捷菜单。",
+    ["No verifiable cached chapter is available. The old files and notes are kept. Download the chapter again."] = "没有可核实的缓存章节，旧文件和笔记已保留，请重新下载所需章节。",
+    ["This cached file cannot be confirmed as the selected chapter. Download it again? The old file and notes are kept."] = "无法确认缓存文件是否为所选章节，是否重新下载？旧文件和笔记会保留。",
+    ["The cached file cannot be confirmed as \"%1\". Download it again and open the cloud position? The old file and notes are kept."] = "无法确认缓存文件是否为“%1”。是否重新下载并打开云端位置？旧文件和笔记会保留。",
 
     ["WeRead · Delayed screenshot"] = "微信读书·延时截图",
     ["Screenshot in %1 seconds."] = "%1 秒后截图，可继续操作。",

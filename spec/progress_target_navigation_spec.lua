@@ -41,6 +41,13 @@ end
 local cached=fixture();book.cached_chapters['22']='/cached.epub';existing['/cached.epub']=true
 expect(cached.host:openProgressTargetChapter(book,chapter),'cached target rejected')
 expect(#cached.opens==1 and type(cached.opens[1].handoff)=='function' and #dialogs==0,'cached target lost after-open handoff')
+local claims=require('weread.lib.chapter_cache_claim')
+local usable=claims.usable;claims.usable=function() return false end
+book.cached_chapters['23']='/cached.epub'
+local ambiguous=fixture();existing['/cached.epub']=true;assert(ambiguous.host:openProgressTargetChapter(book,chapter))
+expect(#ambiguous.opens==0 and dialogs[#dialogs].text:find('cannot be confirmed',1,true),
+    'unverified shared cache was opened as the cloud target')
+claims.usable=usable
 book.cached_chapters={}
 local stale=fixture();assert(stale.host:openProgressTargetChapter(book,chapter))
 local old=dialogs[#dialogs];stale.invalidate();old.ok_callback();old.cancel_callback()
