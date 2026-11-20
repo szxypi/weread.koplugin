@@ -5,18 +5,18 @@ from unittest.mock import patch
 
 import native_time_independent_audit as task
 from cloud_group_contract import project
-from native_time_bundle_accounting import audit
+from native_time_bundle_accounting import day
 from native_time_bundle_evidence import IndependentCaptureEvidence
 from native_time_independent_gate import IndependentGate
 from native_time_shelf_components import make
+from readtime_upload_model import batch
 from secure_weread_session import ACCOUNT,StoreError
 from test_cloud_group_nonempty_contract import source
 from test_independent_time_evidence import fixture as evidence_fixture
-from test_native_time_bundle_accounting import example
-from test_native_time_bundle_gate import fixture as gate_fixture
 from test_native_time_independent_gate import Capture
 from test_secure_native_session import Backend
 from txt_full_summary import digest
+from verify_native_statistics import period
 
 
 def fixture():
@@ -25,9 +25,13 @@ def fixture():
     shelves=(digest(project(native)),digest(project(web)))
     components=(make(project(native)),make(project(web)))
     proof=IndependentCaptureEvidence(bundle,grant,report,before['snapshot'],before['months'],pairs,shelves,components=components)
-    _unused,_grant,body,_now=gate_fixture()
-    _bundle,_grant,before_again,samples,_now=example()
-    assert before_again==before
+    plan=bundle['plan']
+    rows=[{key:row[key] for key in ('start_time','duration','time_zone','book_version')} for row in plan['rows']]
+    body=batch(grant,plan['book_id'],rows,'synthetic-guest','synthetic-config',now,123,now*1000,456,current_zone='+08:00')
+    after=deepcopy(before['snapshot']);after['counts']['readingTime']+=plan['seconds']
+    after_months=deepcopy(before['months']);month=str(period('monthly',plan['start_time'])[0]);bucket=str(day(plan['start_time']))
+    after_months[month]['readTimes'][bucket]+=plan['seconds'];after_months[month]['totalReadTime']+=plan['seconds']
+    samples=[{'snapshot':deepcopy(after),'months':deepcopy(after_months),'server_at':now+i} for i in range(3)]
     gate=IndependentGate(Backend(),capture=Capture(bundle),clock=lambda:now,zone=lambda:'+08:00')
     journal=task.IndependentAudit(Backend(),clock=lambda:now)
     observations=[{'native':deepcopy(native),'web':deepcopy(web)} for _ in range(2)]
