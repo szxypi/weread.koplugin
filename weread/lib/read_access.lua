@@ -32,6 +32,20 @@ function M.cached_key(entries, value)
 end
 M.cached_chapter=M.cached_key
 
+-- A cache can contain both a string and a legacy numeric key for one UID.
+-- Return both candidates so callers that verify file contents can recover
+-- from a stale preferred path without guessing a large numeric identifier.
+function M.cached_chapter_candidates(entries,value)
+    local preferred=M.cached_chapter(entries,value)
+    local id=M.book_id(value)
+    if type(entries)~='table' or not id then return preferred end
+    if #id<16 or #id==16 and id<='9007199254740991' then
+        local legacy=entries[tonumber(id)]
+        if legacy~=preferred then return preferred,legacy end
+    end
+    return preferred
+end
+
 -- A table key alone is not proof of ownership if stored metadata names a
 -- different book. Return a separate conflict so a writer can preserve the entry.
 local function exact_book_id(value)

@@ -164,6 +164,17 @@ expect(not saw_legacy,'cache lookup scanned past first matching candidate')
 saved={cached_chapters={[uid]='/single'},cached_full_book='/full'}
 resolved=Cloud.resolve(client,input,target,selected,candidates)
 expect(resolved.file=='/single','requested chapter cache did not take priority')
+saved={cached_chapters={[tonumber(uid)]='/numeric'}}
+resolved=Cloud.resolve(client,input,target,selected,candidates)
+expect(resolved.file=='/numeric','legacy numeric chapter cache was not resolved')
+saved={cached_chapters={[uid]='/bad',[tonumber(uid)]='/numeric'},cached_full_book='/full'}
+resolved=Cloud.resolve(client,input,target,selected,candidates)
+expect(resolved.file=='/numeric','stale string key hid a valid legacy numeric cache')
+local unsafe=copy(target);unsafe.chapter_uid='9007199254740993'
+saved={cached_chapters={[9007199254740992]='/rounded'}};attempts={}
+resolved=Cloud.resolve(client,input,unsafe,selected,candidates)
+expect(not resolved.position,'large UID was resolved using the wrong cache')
+for _,candidate in ipairs(attempts) do expect(candidate~='/rounded','large UID was rounded onto another cache') end
 saved={cached_chapters={[uid]=input.file},cached_full_book='/bad',cached_file='/bad'};attempts={}
 resolved=Cloud.resolve(client,input,target,selected,candidates)
 local bad_count=0;for _,file in ipairs(attempts) do if file=='/bad' then bad_count=bad_count+1 end end

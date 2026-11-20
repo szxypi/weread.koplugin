@@ -327,6 +327,18 @@ previous_reader=reader
 assert(plugin:showCloudSourcePosition());adopt_target(previous_reader)
 assert(document.file==downloaded,'matching chapter cache was not reused')
 close_info()
+-- Legacy settings may store a safe chapter UID as a numeric key.
+local numeric_saved=plugin.settings:get('books')
+numeric_saved['900001'].cached_chapters={false,false,false,false,false,downloaded}
+numeric_saved['900001'].cached_full_book=nil;numeric_saved['900001'].cached_file=nil
+plugin.settings:set('books',numeric_saved);plugin.settings:flush()
+assert(plugin.settings:get('books')['900001'].cached_chapters[6]==downloaded
+    and not plugin.settings:get('books')['900001'].cached_chapters['6'],'numeric fixture was normalized')
+reader:onClose();open(single)
+previous_reader=reader
+assert(plugin:showCloudSourcePosition());adopt_target(previous_reader)
+assert(document.file==downloaded,'numeric chapter cache was not reused')
+close_info()
 -- Different original bytes cannot use cloud offsets, even in the same chapter.
 clear_candidates();reader:onClose()
 local changed_book={book_id='900001',bookId='900001',bookVersion=7,title='Cloud changed fixture',chapters=chapters}

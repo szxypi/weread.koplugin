@@ -198,7 +198,8 @@ function M.resolve(client,input,remote,selected,read_archive)
     if bound.position then return bound end
     local saved=book(client.settings,input.book_id) or {}
     local visited={[input.file]=true}
-    for _,candidate in ipairs({saved.cached_chapters and saved.cached_chapters[remote.chapter_uid] or false,
+    local cached,legacy=Access.cached_chapter_candidates(saved.cached_chapters,remote.chapter_uid)
+    for _,candidate in ipairs({cached or false,legacy or false,
         saved.cached_full_book or false,saved.cached_file or false}) do
         if valid_path(candidate) and not visited[candidate] then
             visited[candidate]=true
