@@ -672,4 +672,21 @@ host:showShelfView('books','carol')
 expect(#shown[#shown].data.books==1 and shown[#shown].data.books[1].bookId=='fallback',
     'search did not match the alternate author field')
 expect(authors[2].bookId=='b' and authors[3].bookId=='a1','author sorting changed the source shelf')
+local titles={
+    {bookId='missing-pin',title='',isTop=1},
+    {bookId='b',title='beta'},
+    {bookId='a1',title=' Alpha '},
+    {bookId='a2',title='ALPHA'},
+    {bookId='c',title='Charlie'},
+    {bookId='missing',title=true},
+}
+host.shelf_regular=titles
+for _,case in ipairs({{'name_asc',{'missing-pin','a1','a2','b','c','missing'}},
+                      {'name_desc',{'missing-pin','c','b','a1','a2','missing'}}}) do
+    shelf_settings.sort_order=case[1];host:showShelfView('books')
+    for index,id in ipairs(case[2]) do
+        expect(shown[#shown].data.books[index].bookId==id,'title sort lost stable, pinned or unknown title')
+    end
+end
+expect(titles[2].bookId=='b' and titles[3].bookId=='a1','title sorting changed the source shelf')
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

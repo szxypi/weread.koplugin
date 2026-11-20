@@ -140,6 +140,32 @@ shelf_options.sort_order='name_desc';plugin.settings:set('shelf',shelf_options)
 plugin:showShelfView('books',nil,tied_view,{page=1});tied_view=plugin.shelf_view
 for index,book in ipairs(expected) do assert(tied_view.books[index]==book,'equal title changed shelf order') end
 UI:forceRePaint()
+-- Title sorting uses the same Unicode normalization as shelf search and keeps
+-- missing titles last without disturbing pinned books or equal-title order.
+local titles={
+    {bookId='SYN-TP',title='',isTop=1},
+    {bookId='SYN-TB',title='beta'},
+    {bookId='SYN-TA1',title=' Alpha '},
+    {bookId='SYN-TA2',title='ＡＬＰＨＡ'},
+    {bookId='SYN-TC',title='Charlie'},
+    {bookId='SYN-TM',title=''},
+}
+plugin:applyShelfSnapshot(titles,{{archiveId=94,name='合成书名分组',bookIds={'SYN-TP','SYN-TB','SYN-TA1','SYN-TA2','SYN-TC','SYN-TM'}}})
+plugin.shelf_group_key='archive:94';plugin:showShelfView('books');local title_view=assert(plugin.shelf_view)
+title_view.on_sort();local title_dialog=assert(title_view._shelf_popup)
+title_dialog.buttons[4][1].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=title_view end)
+title_view=plugin.shelf_view
+for index,id in ipairs({'SYN-TP','SYN-TA1','SYN-TA2','SYN-TB','SYN-TC','SYN-TM'}) do
+    assert(title_view.books[index].bookId==id,'ascending normalized title order incorrect')
+end
+title_view.on_sort();title_dialog=assert(title_view._shelf_popup)
+title_dialog.buttons[5][1].callback();pump(function() return plugin.shelf_view and plugin.shelf_view~=title_view end)
+title_view=plugin.shelf_view
+for index,id in ipairs({'SYN-TP','SYN-TC','SYN-TB','SYN-TA1','SYN-TA2','SYN-TM'}) do
+    assert(title_view.books[index].bookId==id,'descending normalized title order incorrect')
+end
+assert(titles[2].bookId=='SYN-TB' and titles[3].bookId=='SYN-TA1','title sort changed source order')
+UI:forceRePaint()
 -- Author sorting uses Unicode folding, retains pin precedence and keeps
 -- missing authors last. Exercise actual selector callbacks and group search.
 local authors={
@@ -327,7 +353,7 @@ if mode=='live' then
 end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
-report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
+report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
 report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)
