@@ -62,4 +62,18 @@ state.current=false;late(state.task());assert(not state.result and not host.busy
 host,owner,state,current=setup();assert(Search.prompt(host,owner,current));dialog=owner.menu._shelf_popup
 dialog.input='needle';dialog.buttons[1][2].callback();late=state.callback;host.busy_message.cancel();late(state.task())
 assert(not state.result and not owner.note_search_job and state.cancelled>0,'cancelled search returned late results')
+local many={};for i=1,205 do many[i]={bookmarkId='i'..i,markText='matching note'} end
+snapshots.marks['1']={updated=many,chapters={}};snapshots.thoughts['2']=nil
+host,owner,state,current=setup();menu=start(host,owner,state,current,'matching')
+local function find_row(view,label) for _,row in ipairs(view.item_table) do if row.text==label then return row end end end
+assert(find_row(menu,'More results') and not find_row(menu,'Previous results'))
+find_row(menu,'More results').callback();state.callback(state.task());menu=state.result
+assert(find_row(menu,'Previous results') and not find_row(menu,'More results'))
+local found={};for _,row in ipairs(menu.item_table) do if row.saved_note_id then found[#found+1]=row.saved_note_id end end
+assert(#found==5 and found[1]=='i201' and found[5]=='i205')
+find_row(menu,'Previous results').callback();state.callback(state.task());menu=state.result
+assert(find_row(menu,'More results'))
+find_row(menu,'More results').callback();many[10].markText='no match';state.callback(state.task())
+assert(state.notices[#state.notices]=='Saved notes changed. Search again to see current results.' and not owner.menu._shelf_popup)
+snapshots.marks['1']=mark;snapshots.thoughts['2']=thought
 print('PASS: cross-book note search UI, saved scope and cancellation')

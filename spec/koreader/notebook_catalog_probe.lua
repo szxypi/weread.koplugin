@@ -250,9 +250,12 @@ local ok,reason=pcall(function()
         local array=function() return plugin.client:json_decode('[]') end
         local marks={schema=1,book_id='900001',fetched_at=1000,chapters=array(),updated=array()}
         marks.updated[1]={bookmarkId='saved-mark-a',type=1,markText=string.rep('前',100)..' Synthetic needle in first book'}
+        for index=1,205 do
+            marks.updated[#marks.updated+1]={bookmarkId='page-note-'..index,type=1,markText='Pagination token '..index}
+        end
         assert(Saved:new(plugin.library_db,plugin.client):write(marks))
-        marks.book_id='900099';marks.updated[1].bookmarkId='saved-mark-extra'
-        marks.updated[1].markText='Synthetic needle in an extra cached book'
+        marks.book_id='900099';marks.updated=array()
+        marks.updated[1]={bookmarkId='saved-mark-extra',type=1,markText='Synthetic needle in an extra cached book'}
         assert(Saved:new(plugin.library_db,plugin.client):write(marks))
         local thoughts={schema=1,book_id='900002',fetched_at=1000,reviews=array()}
         thoughts.reviews[1]={reviewId='saved-thought-b',content='😀 Synthetic needle in a thought',isPrivate=1}
@@ -312,6 +315,20 @@ local ok,reason=pcall(function()
         assert(child.id=='900002' and child.thoughts and child_menu._shelf_popup)
         assert(child_menu._shelf_popup.text:find('Synthetic needle in a thought',1,true))
         plugin:cancelMyCloudMarks();assert(not plugin._my_marks_owner)
+        menu:onMenuSelect(item('Search all saved notes'));input_dialog=assert(menu._shelf_popup)
+        input_dialog:setInputText('Pagination token');input_dialog.buttons[1][2].callback()
+        wait(function() return not owner.note_search_job end);results=assert(menu._shelf_popup)
+        local function result_row(label)
+            for _,row in ipairs(results.item_table) do if row.text==tr(label) then return row end end
+        end
+        local more=assert(result_row('More results'));assert(not result_row('Previous results'))
+        results:onMenuSelect(more);wait(function() return not owner.note_search_job end);results=assert(menu._shelf_popup)
+        assert(result_row('Previous results') and not result_row('More results'))
+        local ids={};for _,row in ipairs(results.item_table) do if row.saved_note_id then ids[#ids+1]=row.saved_note_id end end
+        assert(#ids==5 and ids[1]=='page-note-201' and ids[5]=='page-note-205')
+        results:onMenuSelect(result_row('Previous results'));wait(function() return not owner.note_search_job end)
+        results=assert(menu._shelf_popup);assert(result_row('More results'))
+        UI:close(results);tick();assert(not menu._shelf_popup and counters[0]==before_search)
     elseif real_samples then
         UI:close(results);tick()
         local Search=require('weread.lib.shelf_search')

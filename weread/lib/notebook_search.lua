@@ -1,6 +1,7 @@
 -- Search validated account-local notebook snapshots without network or writes.
 local Marks=require('weread.lib.my_cloud_marks')
 local Search=require('weread.lib.shelf_search')
+local Crypto=require('weread.lib.crypto')
 local M={MAX_RESULTS=200}
 
 local function preview(value,needle)
@@ -60,9 +61,29 @@ local function preview(value,needle)
     return (start>1 and '…' or '')..short..(ending<count and '…' or '')
 end
 
-function M.search(catalog,marks,thoughts,query)
+function M.search(catalog,marks,thoughts,query,cursor)
     assert(type(catalog)=='table' and type(marks)=='table' and type(thoughts)=='table', 'notebook_search/input')
     local needle=assert(Search.prepare(query),'notebook_search/query')
+    local offset=0
+    if cursor~=nil then
+        assert(type(cursor)=='table' and type(cursor.offset)=='number' and cursor.offset>0
+            and cursor.offset%M.MAX_RESULTS==0 and cursor.offset<=50000000
+            and type(cursor.digest)=='string' and #cursor.digest==64 and cursor.digest:match('^[0-9a-f]+$'),
+            'notebook_search/cursor')
+        offset=cursor.offset
+    end
+    -- Bind each continuation to the ordered matches already seen. If a cache
+    -- changes in that prefix, stop instead of silently skipping or repeating.
+    local matched_count,digest,block=0,string.rep('0',64),{}
+    local function advance(id,kind,item_id)
+        matched_count=matched_count+1
+        block[#block+1]=#id..':'..id..#kind..':'..kind..#item_id..':'..item_id
+        if matched_count%M.MAX_RESULTS==0 then
+            digest=Crypto.sha256_hex(digest..table.concat(block));block={}
+            if matched_count==offset and digest~=cursor.digest then return false end
+        end
+        return true
+    end
     local mark_ids=assert(marks:list_ids(),'notebook_search/store')
     local thought_ids=assert(thoughts:list_ids(),'notebook_search/store')
     local marked,reviewed={},{}
@@ -103,15 +124,22 @@ function M.search(catalog,marks,thoughts,query)
                             if Search.contains(value,needle) then matched=value;break end
                         end
                         if matched then
-                            if #out.items>=M.MAX_RESULTS then out.truncated=true;return out end
-                            out.items[#out.items+1]={book_id=id,kind=source.kind,
-                                item_id=source.kind=='marks' and row.bookmarkId or row.reviewId,preview=preview(matched,needle)}
+                            local item_id=source.kind=='marks' and row.bookmarkId or row.reviewId
+                            if #out.items>=M.MAX_RESULTS then
+                                out.truncated=true;out.next_cursor={offset=matched_count,digest=digest};return out
+                            end
+                            if not advance(id,source.kind,item_id) then return {changed=true} end
+                            if matched_count>offset then
+                                out.items[#out.items+1]={book_id=id,kind=source.kind,
+                                    item_id=item_id,preview=preview(matched,needle)}
+                            end
                         end
                     end
                 end
             end
         end
     end
+    if matched_count<offset then return {changed=true} end
     return out
 end
 return M

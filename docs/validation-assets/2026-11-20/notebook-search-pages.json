@@ -1,0 +1,51 @@
+{
+  "result": "PASS",
+  "physical_device": false,
+  "private_content_saved_in_repo": false,
+  "synthetic_matching_notes": 205,
+  "first_batch": 200,
+  "second_batch": 5,
+  "previous_batch_checked": true,
+  "search_extra_requests": 0,
+  "cases": {
+    "small": {
+      "profile_removed": true,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "requests": 1,
+          "forbidden": 0,
+          "workers_reaped": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "requests": 0,
+          "forbidden": 0,
+          "workers_reaped": true
+        }
+      ]
+    },
+    "ko2": {
+      "profile_removed": true,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "requests": 1,
+          "forbidden": 0,
+          "workers_reaped": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "requests": 0,
+          "forbidden": 0,
+          "workers_reaped": true
+        }
+      ]
+    }
+  },
+  "earlier_attempt": "Failed because the test looked for an English button label in the Chinese interface; corrected and rerun."
+}

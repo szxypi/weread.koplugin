@@ -36,5 +36,28 @@ assert(out.failed==1 and out.checked==3 and #out.items==2)
 local many={};for i=1,205 do many[i]={bookmarkId='i'..i,markText='matching text'} end
 out=Search.search({{bookId='1'}},store({'1'},{['1']={updated=many,chapters={}}}),store({},{}),'matching')
 assert(#out.items==200 and out.truncated and out.items[200].item_id=='i200')
+local large={};for i=1,405 do large[i]={bookmarkId='id'..i,markText='matching text'} end
+local collection=store({'1'},{['1']={updated=large,chapters={}}})
+local empty=store({},{})
+local first=Search.search({{bookId='1'}},collection,empty,'matching')
+assert(first.truncated and first.next_cursor.offset==200 and first.items[200].item_id=='id200')
+local second=Search.search({{bookId='1'}},collection,empty,'matching',first.next_cursor)
+assert(second.truncated and second.next_cursor.offset==400 and second.items[1].item_id=='id201' and second.items[200].item_id=='id400')
+local third=Search.search({{bookId='1'}},collection,empty,'matching',second.next_cursor)
+assert(not third.truncated and not third.next_cursor and #third.items==5 and third.items[1].item_id=='id401')
+large[20].markText='different'
+assert(Search.search({{bookId='1'}},collection,empty,'matching',first.next_cursor).changed)
+large[20].markText='matching text'
+large[220].bookmarkId='changed'
+assert(Search.search({{bookId='1'}},collection,empty,'matching',second.next_cursor).changed)
+large[220].bookmarkId='id220'
+local exact={};for i=1,400 do exact[i]={bookmarkId='e'..i,markText='matching'} end
+local exact_store=store({'1'},{['1']={updated=exact,chapters={}}})
+local full=Search.search({{bookId='1'}},exact_store,empty,'matching')
+local last=Search.search({{bookId='1'}},exact_store,empty,'matching',full.next_cursor)
+assert(#last.items==200 and not last.truncated and last.next_cursor==nil)
+for i=400,100,-1 do exact[i]=nil end
+assert(Search.search({{bookId='1'}},exact_store,empty,'matching',full.next_cursor).changed)
+assert(not pcall(Search.search,{},empty,empty,'matching',{offset=1,digest=string.rep('0',64)}))
 assert(not pcall(Search.search,catalog,store(nil,{}),thoughts,'needle'))
 print('PASS: cross-book saved notes search, coverage, invalid cache and bound')
