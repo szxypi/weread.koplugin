@@ -15,6 +15,16 @@ local function group_key(archive, label)
     return "name:" .. label
 end
 
+local function members_array(value)
+    if type(value)~='table' then return false end
+    local count=0
+    for key in pairs(value) do
+        if type(key)~='number' or key%1~=0 or key<1 or key>#value then return false end
+        count=count+1
+    end
+    return count==#value
+end
+
 function Groups.list(archives, books, unnamed_label, ungrouped_label)
     local system_identity_count = 0
     for _, archive in ipairs(type(archives) == "table" and archives or {}) do
@@ -30,6 +40,7 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
 
     local groups = {}
     local grouped = {}
+    local ungrouped_known = true
     for _, source_archive in ipairs(type(archives) == "table" and archives or {}) do
         local archive = type(source_archive) == "table" and source_archive or {}
         local ids = type(archive.bookIds) == "table" and archive.bookIds or {}
@@ -41,9 +52,11 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
         local identity = archive.archiveId or archive.archive_id or archive.id
         local system_archive = system_identity_count == 1 and tostring(identity) == "1" and label == "归档"
         local members, seen = {}, {}
+        local incomplete = not members_array(archive.bookIds)
         local mp_only = #ids > 0
         for _, id in ipairs(ids) do
             id = Identity.persisted_identity(id)
+            if not id then incomplete = true end
             if not id or id:sub(1,7) ~= 'MP_WXS_' then mp_only = false end
             local book = id and by_id[id]
             if book and not seen[id] then
@@ -52,14 +65,16 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
                 if not system_archive then grouped[id] = true end
             end
         end
+        if incomplete and not system_archive then ungrouped_known = false end
         -- Public-account archives contain no regular books. The original
         -- bookshelf already exposes those separately, so do not add a ghost
         -- group for them. Empty user-created groups stay visible.
-        if #members > 0 or not mp_only then
+        if incomplete or #members > 0 or not mp_only then
             groups[#groups + 1] = {
                 key = group_key(archive, label),
                 label = label,
                 books = members,
+                incomplete = incomplete or nil,
             }
         end
     end
@@ -68,14 +83,14 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
         local id = Identity.persisted_id(book)
         if id and not grouped[id] then ungrouped[#ungrouped + 1] = book end
     end
-    if #groups > 0 and #ungrouped > 0 then
+    if ungrouped_known and #groups > 0 and #ungrouped > 0 then
         groups[#groups + 1] = {
             key = "__ungrouped__",
             label = ungrouped_label or "Uncategorized",
             books = ungrouped,
         }
     end
-    return groups
+    return groups, ungrouped_known
 end
 
 function Groups.find(groups, key)

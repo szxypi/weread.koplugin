@@ -1,0 +1,14 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "legacy_rounded_group_membership": true,
+  "incomplete_group_and_refresh_message_shown": true,
+  "uncertain_books_not_called_ungrouped": true,
+  "saved_single_selection_falls_back_to_all": true,
+  "saved_multi_selection_preserved_with_all_books": true,
+  "complete_refresh_restores_ungrouped": true,
+  "fresh_offline_process": true,
+  "http_requests": 0,
+  "physical_kindle_tested": false
+}

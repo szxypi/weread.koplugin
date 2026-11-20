@@ -152,9 +152,48 @@ for _,case in ipairs({'gateway','legacy'}) do
         and found['100000000000001'],
         'native group did not retain both exact mixed-format IDs: '..case..' '..tostring(#view.books))
     UI:forceRePaint()
-    plugin.shelf_group_key='__ungrouped__';plugin:showShelfView('books')
-    assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='9007199254740993',
-        'mixed-format group changed the adjacent ungrouped book')
+    if case=='gateway' then
+        plugin.shelf_group_key='__ungrouped__';plugin:showShelfView('books')
+        assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='9007199254740993',
+            'mixed-format group changed the adjacent ungrouped book')
+    else
+        local tr=require('weread.lib.i18n').tr
+        assert(view.group_membership_incomplete and view.group_label=='Synthetic legacy（信息不完整）',
+            'incomplete group was not identified in the reading view')
+        view:showSourceMenu('books');local picker=assert(view._shelf_popup)
+        local warned,uncategorized=false,false
+        for _,item in ipairs(picker.item_table) do
+            if item.text==tr('Some group memberships are unknown. Refresh the bookshelf.') then
+                warned=item.select_enabled==false
+            end
+            if item.text==tr('Uncategorized') then uncategorized=true end
+        end
+        assert(warned and not uncategorized,'uncertain membership was offered as ungrouped')
+        require('weread.ui.shelf_popup').close(view)
+        plugin.shelf_multi_groups={'__ungrouped__'};plugin.shelf_group_key=nil;plugin:showShelfView('books')
+        assert(#plugin.shelf_view.books==3 and #plugin.shelf_view.group_keys==1
+            and plugin.shelf_view.group_label==tr('Selected groups unavailable; showing all books'),
+            'saved ungrouped selection hid books when membership was unknown')
+        local multi_view=plugin.shelf_view;multi_view:showMultiGroupMenu()
+        local multi_picker=assert(multi_view._shelf_popup);local multi_warning,unavailable=false,false
+        for _,item in ipairs(multi_picker.item_table) do
+            if item.text==tr('Some group memberships are unknown. Refresh the bookshelf.') then
+                multi_warning=item.select_enabled==false
+            elseif item.text==tr('Unavailable saved group') then unavailable=item.select_enabled~=false end
+        end
+        assert(multi_warning and unavailable,'multi-group menu did not explain the preserved unavailable selection')
+        require('weread.ui.shelf_popup').close(multi_view)
+        plugin.shelf_multi_groups={};plugin.shelf_group_key='__ungrouped__'
+        plugin:applyShelfSnapshot(saved_books,saved_archives);plugin:showShelfView('books')
+        assert(plugin.shelf_group_key==nil and #plugin.shelf_view.books==3,
+            'single ungrouped selection narrowed an uncertain shelf')
+        local refreshed={{archiveId='77',name='Synthetic legacy',bookIds={'10000000000000','100000000000001'}}}
+        plugin:applyShelfSnapshot(saved_books,refreshed)
+        assert(plugin.shelf_ungrouped_known,'a complete refresh did not restore ungrouped status')
+        plugin.shelf_group_key='__ungrouped__';plugin:showShelfView('books')
+        assert(#plugin.shelf_view.books==1 and plugin.shelf_view.books[1].bookId=='9007199254740993',
+            'complete refresh did not restore the ungrouped view')
+    end
 end
 plugin:closeWeReadUI();plugin.shelf_group_key=nil;plugin.shelf_multi_groups=previous_multi
 local popup_cases=0
@@ -467,5 +506,6 @@ report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_d
 report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.recent_identity=true;report.prefetch_identity=true;report.annotation_identity=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
 report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
 report.mixed_group_identities=true
+report.uncertain_group_membership=true
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

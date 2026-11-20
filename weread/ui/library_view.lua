@@ -764,6 +764,7 @@ local LibraryView = FocusManager:extend{
     sort_label = nil,
     filter_label = nil,
     groups = nil,
+    group_membership_incomplete = false,
     group_key = nil,
     group_keys = nil,
     group_label = nil,
@@ -1019,7 +1020,11 @@ function LibraryView:showSourceMenu(menu_mode)
         for _index, group in ipairs(self.groups or {}) do
             local label = group.label
             if not ShelfGroups.unique(self.groups, group.key) then label = T(_('Unavailable: %1'), label) end
+            if group.incomplete then label = T(_('%1 (incomplete)'),label) end
             add_group(group.key, label, #group.books)
+        end
+        if self.group_membership_incomplete then
+            items[#items+1]={text=_('Some group memberships are unknown. Refresh the bookshelf.'),select_enabled=false}
         end
     else
         items[1] = {
@@ -1095,8 +1100,12 @@ function LibraryView:showMultiGroupMenu()
     for key in pairs(selected) do if not ShelfGroups.unique(self.groups,key) then missing[#missing+1]=key end end
     table.sort(missing)
     for _i,key in ipairs(missing) do add_group(key,_('Unavailable saved group'),true) end
-    for _,group in ipairs(self.groups or {}) do
-        add_group(group.key,group.label,ShelfGroups.unique(self.groups,group.key)~=nil)
+    for _index,group in ipairs(self.groups or {}) do
+        local label=group.incomplete and T(_('%1 (incomplete)'),group.label) or group.label
+        add_group(group.key,label,ShelfGroups.unique(self.groups,group.key)~=nil)
+    end
+    if self.group_membership_incomplete then
+        items[#items+1]={text=_('Some group memberships are unknown. Refresh the bookshelf.'),select_enabled=false}
     end
     local row_height=Screen:scaleBySize(54)
     local perpage=math.max(1,math.min(#items,math.floor((self.screen_h-Screen:scaleBySize(120))/row_height)))
@@ -1550,6 +1559,7 @@ function M.show(data, callbacks)
         wp_enable = data.wp_enable ~= false,
         books = data.books,
         groups = data.groups,
+        group_membership_incomplete = data.group_membership_incomplete,
         group_key = data.group_key,
         group_keys = data.group_keys,
         group_label = data.group_label,

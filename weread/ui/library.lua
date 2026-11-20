@@ -251,6 +251,7 @@ function M:onWeReadAccountChanged()
     self.shelf_mp = nil
     self.shelf_books = nil
     self.shelf_groups = nil
+    self.shelf_ungrouped_known = nil
     self.shelf_group_key = nil
     self.shelf_multi_groups = nil
     self._shelf_multi_loaded = nil
@@ -279,10 +280,10 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
         end
     end
     self.shelf_books = self.shelf_regular
-    self.shelf_groups = ShelfGroups.list(archives, self.shelf_regular, _("Unnamed group"), _("Uncategorized"))
+    self.shelf_groups, self.shelf_ungrouped_known = ShelfGroups.list(archives, self.shelf_regular, _("Unnamed group"), _("Uncategorized"))
     -- Keep an active uncategorized selection empty when its last book is
     -- assigned to a group, rather than unexpectedly showing the full shelf.
-    if #self.shelf_groups>0 and not ShelfGroups.find(self.shelf_groups,'__ungrouped__') then
+    if self.shelf_ungrouped_known and #self.shelf_groups>0 and not ShelfGroups.find(self.shelf_groups,'__ungrouped__') then
         local selected=self.shelf_group_key=='__ungrouped__'
         for _i,key in ipairs(self.shelf_multi_groups or {}) do
             if key=='__ungrouped__' then selected=true;break end
@@ -816,9 +817,10 @@ function M:showShelfView(mode, keyword, old_view, options)
         finish_pending = require('weread.ui.finish_offline').snapshot(self),
         accounts = accounts,
         groups = self.shelf_groups,
+        group_membership_incomplete = self.shelf_ungrouped_known == false,
         group_key = self.shelf_group_key,
         group_keys = multi,
-        group_label = multi_label or group and group.label,
+        group_label = multi_label or group and (group.incomplete and T(_('%1 (incomplete)'),group.label) or group.label),
         total_books = #(self.shelf_regular or {}),
         scroll_offset = options.scroll_offset,
         keyword = keyword,
