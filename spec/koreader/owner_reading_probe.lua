@@ -91,6 +91,11 @@ local ok,reason=pcall(function()
     local cb_reading=input.cb_reading==true
     local cb_full=input.cb_full_book==true
     local single_page=input.cb_single_page==true
+    assert(input.reader_estimate_probe==nil or input.reader_estimate_probe==true and not cb_reading
+        and not input.full_manifest and input.source_format=='web_xhtml' and not input.annotations
+        and not input.progress_preview and not input.progress_roundtrip and not input.source_upload_preview
+        and not input.native_source_excerpt and not input.selection_preview and not input.off_shelf_home)
+    if input.reader_estimate_probe then report.reader_estimate_verified=false;report.reader_estimate_stage=0 end
     local synthetic_txt_retry=os.getenv('WEREAD_SYNTHETIC_TXT_RETRY')=='1'
     assert(not synthetic_txt_retry or cb_reading and not cb_full and input.cb_mock_port
         and input.vid=='900000' and input.book_id=='CB_SyntheticResume' and input.source_format=='web_txt')
@@ -486,7 +491,10 @@ local ok,reason=pcall(function()
     do
         local shelf_id
         for _i,id in ipairs(input.shelf_ids) do
-            if id:match('^[1-9]%d*$') or id:match('^CB_[A-Za-z0-9]+$') then shelf_id=id;break end
+            if (id:match('^[1-9]%d*$') or id:match('^CB_[A-Za-z0-9]+$'))
+                and (id~=input.book_id or not (input.progress_roundtrip or input.native_source_excerpt or missing_resume)) then
+                shelf_id=id;break
+            end
         end
         if shelf_id then
             local check={url='https://weread.qq.com/web/book/getProgress?bookId='..shelf_id..'&_='..tostring(os.time()*1000),
@@ -1095,6 +1103,9 @@ local ok,reason=pcall(function()
     assert(plugin._source_position_message.text:find('已定位到当前页正文',1,true)
         and plugin._source_position_message.text:find('精确云端同步仍在验证中',1,true))
     UI:forceRePaint();plugin:closeReadingPositionMessage();report.source_dialog_verified=true
+    if input.reader_estimate_probe then
+        report.reader_estimate_verified=dofile(fixtures..'owner_reader_estimate_case.lua')(input,plugin,reader,pump,report)
+    end
     if annotation_case then
         annotation_case:run(plugin,reader,pump,tick)
         -- Restore the exact validated source target after the overlay tour.
@@ -1232,7 +1243,8 @@ if counters then
 end
 for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
-    report.failed_line=tonumber(type(reason)=='string' and reason:match('owner_reading_probe%.lua:(%d+):')) or 0
+    report.failed_line=tonumber(type(reason)=='string' and (reason:match('owner_reading_probe%.lua:(%d+):')
+        or reason:match('owner_reader_estimate_case%.lua:(%d+):'))) or 0
 end
 if native_recovery_input then
     local value=json.encode{report=report,cookies=latest_cookies or {}};assert(#value<=16384)

@@ -19,7 +19,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--koreader',type=Path,required=True);parser.add_argument('--run-dir',type=Path,required=True)
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800)
-    parser.add_argument('--dpi',type=int,default=167);args=parser.parse_args()
+    parser.add_argument('--dpi',type=int,default=167);parser.add_argument('--reader-estimate',action='store_true');args=parser.parse_args()
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);repo=Path(__file__).resolve().parent.parent
     archive=root/'candidate.zip';subprocess.run(['bash',str(repo/'scripts/package_release.sh'),str(archive)],check=True,capture_output=True)
     server=MockServer(0,root/'requests.jsonl');server.cb_reading=True
@@ -33,11 +33,13 @@ def main():
             source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest(),
             shelf_ids=[str(row['bookId']) for row in shelf if cb_id(row['bookId']) or identifier(str(row['bookId']))],shelf_books=len(shelf),
             cookies=dict(wr_vid='900000',wr_skey='mock_key'),missing_resume_probe=True,resume_warning_probe=True,resume_mock_port=server.server_port)
+        if args.reader_estimate:payload['reader_estimate_probe']=True
         command=['python3',str(repo/'scripts/run_owner_reading_probe.py'),'--koreader',str(args.koreader),'--candidate',str(archive),
             '--width',str(args.width),'--height',str(args.height),'--dpi',str(args.dpi),
             '--missing-resume','--resume-warning','--resume-mock-port',str(server.server_port)]
+        if args.reader_estimate:command.append('--reader-estimate')
         child=subprocess.run(command,input=json.dumps(payload).encode(),capture_output=True,timeout=400,env=os.environ.copy())
-        envelope=decode_envelope(child.stdout,'900000',missing_resume=True,resume_warning=True);report=envelope['report']
+        envelope=decode_envelope(child.stdout,'900000',missing_resume=True,resume_warning=True,reader_estimate=args.reader_estimate);report=envelope['report']
         (root/'result.json').write_text(json.dumps(report,indent=2)+'\n')
         if child.returncode or report['result']!='PASS':raise ValueError('missing_resume_native_unverified')
         for (path,_body),count in server.request_totals.items():

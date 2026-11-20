@@ -56,7 +56,9 @@ CB_SOURCE_REASONS = {'none', 'walk_diverged', 'anchor_ambiguous', 'anchor_missin
                      'sample_start_mismatch', 'source_anchor_missing', 'source_anchor_unavailable'}
 
 
-def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False, synthetic_txt_retry=False):
+def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False, synthetic_txt_retry=False, reader_estimate=False):
+    if type(reader_estimate) is not bool or reader_estimate and (full_chapters!=1 or cb_reading or selection_preview or single_page or combined_profile or off_shelf_home):
+        raise ValueError('reading_scope')
     if type(synthetic_txt_retry) is not bool or synthetic_txt_retry and (not cb_reading or cb_full_book or full_chapters!=1 or single_page or selection_preview or combined_profile):raise ValueError('reading_scope')
     if type(off_shelf_marks) is not bool or off_shelf_marks and not off_shelf_store:raise ValueError('reading_scope')
     if type(off_shelf_cover) is not bool or off_shelf_cover and not off_shelf_store:raise ValueError('reading_scope')
@@ -77,6 +79,7 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
             or cb_full_book and (not cb_reading or full_chapters < 2) or cb_reading and not cb_full_book and full_chapters != 1):
         raise ValueError('reading_scope')
     expected = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'requests'}
+    if reader_estimate: expected.update(('reader_estimate_verified','reader_estimate_stage'))
     if missing_resume: expected.add('missing_resume_verified')
     if off_shelf_home: expected.add('home_recent_verified')
     if off_shelf_store: expected.update(('store_search_verified','store_metadata_verified','store_search_requests','store_metadata_requests'))
@@ -91,6 +94,10 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
                      'reader_python_projection', 'reader_cookie_snapshot'}
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError('reading_schema')
+    if reader_estimate and (type(value['reader_estimate_verified']) is not bool
+                            or type(value['reader_estimate_stage']) is not int or not 0<=value['reader_estimate_stage']<=5
+                            or value['result']=='PASS' and (not value['reader_estimate_verified'] or value['reader_estimate_stage']!=5)):
+        raise ValueError('reading_incomplete')
     if off_shelf_home and (type(value['home_recent_verified']) is not bool or value['result']=='PASS' and not value['home_recent_verified']):
         raise ValueError('reading_incomplete')
     if off_shelf_store:
@@ -210,7 +217,7 @@ def validate_full_book(value, chapters, *, complete=True, cb_full_book=False):
     return value
 
 
-def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False, synthetic_txt_retry=False):
+def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False, synthetic_txt_retry=False, reader_estimate=False):
     """The private cookie envelope is consumed here; never print this value."""
     if not isinstance(raw, bytes) or len(raw) > (8 if full_chapters>1 else 2) * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('reading_frame')
@@ -226,7 +233,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
         raise ValueError('reading_envelope')
     validate_cookies(value['cookies'], owner)
     if mode is not None:
-        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks,synthetic_txt_retry=synthetic_txt_retry)
+        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks,synthetic_txt_retry=synthetic_txt_retry,reader_estimate=reader_estimate)
     else:
         report = value['report']
         fields = {'result', 'tmpfs_profile', 'profile_removed', 'stages', 'runner_error'}
@@ -239,7 +246,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
                 or not isinstance(report['stages'], list) or len(report['stages']) > 2):
             raise ValueError('reading_runner')
         for phase, stage in zip(('live', 'reopen'), report['stages']):
-            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks,synthetic_txt_retry=synthetic_txt_retry)
+            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks,synthetic_txt_retry=synthetic_txt_retry,reader_estimate=reader_estimate)
         if report['result'] == 'PASS' and (not report['tmpfs_profile'] or not report['profile_removed']
                 or report['runner_error'] != 'none' or len(report['stages']) != 2
                 or any(stage['result'] != 'PASS' for stage in report['stages'])
@@ -600,6 +607,7 @@ def main(argv=None):
     parser.add_argument('--full-book', action='store_true', help='Verify all chapters of one bounded EPUB shelf book')
     parser.add_argument('--missing-resume', action='store_true', help='Verify downloading a missing resume chapter with an isolated synthetic cached fallback')
     parser.add_argument('--resume-warning',action='store_true',help='Also verify cancellation of the offline fallback warning')
+    parser.add_argument('--reader-estimate',action='store_true',help='Verify native whole-book estimate and offline reopen')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if bool(args.saved_session) != bool(args.lua_command):
@@ -609,6 +617,8 @@ def main(argv=None):
     if args.missing_resume and (not args.saved_session or args.full_book or args.book_format!='epub'):
         parser.error('--missing-resume requires the saved session and a single EPUB chapter')
     if args.resume_warning and not args.missing_resume:parser.error('--resume-warning requires --missing-resume')
+    if args.reader_estimate and (not args.saved_session or args.full_book or args.book_format!='epub'):
+        parser.error('--reader-estimate requires a saved session and a single EPUB chapter')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(), book_format=args.book_format,
                   account_data_writes_attempted=0, authentication_posts_attempted=0,
                   private_data_on_regular_disk=False, screenshots=0)
@@ -632,6 +642,7 @@ def main(argv=None):
             payload.update(vid=probe.vid, cookies=saved['cookies'])
             if args.missing_resume: payload['missing_resume_probe']=True
             if args.resume_warning: payload['resume_warning_probe']=True
+            if args.reader_estimate: payload['reader_estimate_probe']=True
             full_chapters = len(payload['full_manifest']) if args.full_book else 1
             if args.full_book:
                 report.update(reading_scope='full', chapters=full_chapters,
@@ -640,7 +651,7 @@ def main(argv=None):
             if len(raw) > 256 * 1024:
                 raise ValueError('reading_input_limit')
             child = subprocess.run(args.lua_command, input=raw, capture_output=True, timeout=920 if args.full_book else 320)
-            envelope = decode_envelope(child.stdout, probe.vid, full_chapters=full_chapters,missing_resume=args.missing_resume,resume_warning=args.resume_warning)
+            envelope = decode_envelope(child.stdout, probe.vid, full_chapters=full_chapters,missing_resume=args.missing_resume,resume_warning=args.resume_warning,reader_estimate=args.reader_estimate)
             if args.full_book and envelope['report']['result'] == 'PASS':
                 if envelope['report']['full_book']['source_image_references'] != report['source_image_references']:
                     raise ValueError('full_image_scope_changed')
@@ -662,6 +673,7 @@ def main(argv=None):
                           source_text_matched=True, fresh_offline_process=True)
             if args.missing_resume: report['missing_resume_verified']=True
             if args.resume_warning: report['resume_warning_verified']=True
+            if args.reader_estimate: report['reader_estimate_verified']=True
     except (StoreError, PreflightError) as exc:
         report.update(result='UNVERIFIED', reason='owner_reading_preflight_failed')
         known = {'identity_invalid','position_book_mismatch','position_has_no_chapter','position_offset_invalid',

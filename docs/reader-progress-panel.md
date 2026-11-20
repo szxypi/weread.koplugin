@@ -12,4 +12,6 @@
 
 合成内容界面：[单章及全书估算 600×800](validation-assets/2026-11-20/reader-progress-estimate-600.png)、[单章及全书估算 KO2 尺寸](validation-assets/2026-11-20/reader-progress-estimate-ko2.png)、[多章节文件](validation-assets/2026-11-20/reader-progress-panel-full-600.png)。另对真实账号的三本书只读抽样，每本重复读取目录，所得目录投影一致且章节均有正字数；抽样不足以证明所有书籍或任何一本目录完整。没有修改账号数据或保存书籍目录。
 
-此功能参考 [MiuRead](https://github.com/miumiupy98-art/miuread-koreader) 的原生阅读进度界面，来源和许可证见 [NOTICE](../NOTICE)。实体 Kindle、真实账号和其他书籍格式仍需验收。
+真实账号的单章 EPUB 也已在 600×800 和 KO2 模拟尺寸分别从插件书架进入阅读，在实际原生面板中独立核对目录加权结果、明确的估算提示及当前章节进度条，并以全新离线进程重新核对。云端位置前后不变，账号数据写入、续期请求和私密页面截图均为零；见[600×800 报告](validation-assets/2026-11-20/owner-progress-estimate-600.json)和 [KO2 尺寸报告](validation-assets/2026-11-20/owner-progress-estimate-ko2.json)。这不证明目录完整或服务端精确百分比一致，也不代表所有书籍与格式均已验证。
+
+此功能参考 [MiuRead](https://github.com/miumiupy98-art/miuread-koreader) 的原生阅读进度界面，来源和许可证见 [NOTICE](../NOTICE)。实体 Kindle 和其他书籍格式仍需验收。

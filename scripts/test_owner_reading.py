@@ -81,6 +81,32 @@ class SyntheticTxtRetryBoundsTests(unittest.TestCase):
 
 
 class OwnerReadingTests(unittest.TestCase):
+    def test_reader_estimate_requires_independent_live_and_offline_proof(self):
+        value=envelope()
+        for part in value['report']['stages']:part.update(reader_estimate_verified=True,reader_estimate_stage=5)
+        probe.decode_envelope(frame(value),OWNER,reader_estimate=True)
+        for index in (0,1):
+            bad=deepcopy(value);bad['report']['stages'][index]['reader_estimate_verified']=False
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,reader_estimate=True)
+            bad=deepcopy(value);bad['report']['stages'][index]['reader_estimate_stage']=4
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,reader_estimate=True)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(value),OWNER)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(envelope()),OWNER,reader_estimate=True)
+        for scope in ({'cb_reading':True},{'full_chapters':2},{'off_shelf_home':True}):
+            with self.assertRaises(ValueError):probe.validate_stage(stage(),'live',reader_estimate=True,**scope)
+
+    def test_reader_estimate_requires_explicit_single_epub_session(self):
+        for args in (['--reader-estimate'],['--reader-estimate','--saved-session','--full-book','--lua-command','synthetic'],
+                     ['--reader-estimate','--saved-session','--book-format','txt','--lua-command','synthetic']):
+            with self.subTest(args=args),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):probe.main(args)
+
+    def test_reader_estimate_runner_rejects_other_reading_modes(self):
+        from run_owner_reading_probe import main
+        common=['--koreader','/synthetic','--candidate','/synthetic.zip','--reader-estimate']
+        for extra in (['--cb-reading'],['--cb-full-book'],['--annotations'],['--progress-preview'],
+                      ['--source-upload-preview'],['--off-shelf-home']):
+            with self.subTest(extra=extra),redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(common+extra)
+
     def test_off_shelf_home_requires_both_live_and_offline_evidence(self):
         value=envelope()
         for part in value['report']['stages']:part['home_recent_verified']=True
