@@ -36,6 +36,8 @@ assert(not Card.renderBB{text='valid',book_title='\0'},'invalid title was accept
 local long, long_size=Card.renderBB{text=string.rep('合成书摘的一段文字。',70),template_idx=1}
 assert(long and long_size.truncated==true,'long selection was not flagged as truncated');long:free()
 local opts={text='保存测试',book_title='合成书名',book_author='作者'}
+local bytes,dimensions=Card.encode(opts)
+assert(bytes and bytes:sub(1,8)=='\137PNG\r\n\26\n' and dimensions.w==1125,'memory-only PNG encoding failed')
 local first=assert(Card.save(opts,evidence));local second=assert(Card.save(opts,evidence))
 assert(first~=second,'saving overwrote an existing card')
 for _,path in ipairs({first,second}) do

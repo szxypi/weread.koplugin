@@ -65,6 +65,12 @@ local fake_settings = {
     end,
 }
 
+local firewall_cleaned = false
+package.preload['device'] = function() return { isKindle = function() return true end } end
+package.preload['weread.lib.excerpt_firewall'] = function()
+    return { cleanup = function(root) firewall_cleaned = root == fake_settings.data_dir; return true end }
+end
+
 local migrations_ran = false
 local dispatcher_registered = false
 local menu_registered = false
@@ -220,6 +226,7 @@ expect(plugin.downloader.settings == fake_settings,
 expect(plugin.qr_login.kind == "qr_login", "QR login service was not initialized")
 expect(plugin.native_authorization.kind == "native_authorization", "native authorization was not initialized")
 expect(migrations_ran, "migrations did not run during initialization")
+expect(firewall_cleaned, "Kindle startup did not clean an interrupted excerpt transfer")
 expect(dispatcher_registered, "dispatcher actions were not registered")
 expect(menu_registered, "plugin was not registered in KOReader's main menu")
 expect(backup_cleaned,

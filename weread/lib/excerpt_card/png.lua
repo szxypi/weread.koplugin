@@ -9,7 +9,7 @@ local BB=require('ffi/blitbuffer')
 local Output=require('weread.lib.notes_export_file')
 local M={}
 
-function M.write(image,directory,title)
+function M.encode(image)
     if not image or image:getType()~=BB.TYPE_BBRGB32 then return nil,'invalid_image' end
     local w,h=image:getWidth(),image:getHeight()
     if w<1 or h<1 or w>4096 or h>12000 then return nil,'invalid_size' end
@@ -25,6 +25,12 @@ function M.write(image,directory,title)
     if ptr[0]~=nil then ffi.C.free(ptr[0]) end
     buffer:free()
     if not ok or not value then return nil,'encode_failed' end
+    return value
+end
+
+function M.write(image,directory,title)
+    local value,reason=M.encode(image)
+    if not value then return nil,reason end
     local output=Output.create(directory,title,'png')
     if not output then return nil,'create_failed' end
     if not output:write(value) or not output:sync() or not output:accept(#value) then

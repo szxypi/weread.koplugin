@@ -423,7 +423,10 @@ function Editor:_save_png()
 end
 
 function Editor:_make_export_buttons(width)
-    local buttons={{{text=_('Save PNG'),callback=function() self:_save_png() end}}}
+    local buttons={{{text=_('Save PNG'),callback=function() self:_save_png() end},
+        {id='share_excerpt',text=_('Send to phone'),callback=function()
+            require('weread.ui.excerpt_share').start(self.host,self,render_options(self.context,self.selection),M.current)
+        end}}}
     if Device.input and type(Device.input.setClipboardText)=='function' then
         buttons[#buttons+1]={{id='copy_excerpt_text',text=_('Copy selected text'),callback=function()
             if not M.current(self.host,self) then return end
@@ -644,6 +647,7 @@ function Editor:onShow()
 end
 
 function Editor:onCloseWidget()
+    local share=package.loaded['weread.ui.excerpt_share'];if share then share.close(self.host) end
     if self.host and self.host._excerpt_card_editor == self then self.host._excerpt_card_editor = nil end
     self:clear()
     self.preview_image = nil
@@ -679,6 +683,7 @@ function M.current(host, editor)
 end
 
 function M.close(host)
+    local share=package.loaded['weread.ui.excerpt_share'];if share then share.close(host) end
     local editor=host and host._excerpt_card_editor
     if not editor then return end
     host._excerpt_card_editor=nil

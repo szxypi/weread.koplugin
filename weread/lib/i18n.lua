@@ -893,6 +893,13 @@ local zh = {
     ["Search"] = "搜索",
     ["Excerpt card"] = "书摘卡片",
     ["Save PNG"] = "保存图片",
+    ["Send to phone"] = "手机取图",
+    ["Could not prepare the excerpt card."] = "无法生成书摘图片。",
+    ["Could not start temporary phone transfer."] = "无法开启手机取图，请检查网络和设备设置。",
+    ["Connect the reader and phone to the same Wi-Fi network."] = "请将阅读器和手机连接至同一 Wi-Fi。",
+    ["Scan with a phone on the same Wi-Fi. The link closes after 3 minutes or when this window closes."] = "请用同一 Wi-Fi 下的手机扫码。关闭窗口或 3 分钟后链接失效。",
+    ["Could not remove temporary network access. Restart KOReader to retry cleanup."] = "无法清理临时网络规则，请重启 KOReader 后重试。",
+
     ["Could not save the excerpt card."] = "无法保存书摘卡片，请检查存储空间。",
     ["Could not open the excerpt card."] = "无法打开书摘卡片。",
     ["Could not update the excerpt card preview."] = "无法更新书摘预览，请重试。",

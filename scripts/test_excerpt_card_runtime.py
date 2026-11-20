@@ -41,6 +41,17 @@ def main():
             raise ValueError('invalid synthetic PNG')
     if len(list(evidence.glob('excerpt-*.png'))) != 60:
         raise ValueError('missing synthetic PNG')
+    firewall_root = evidence/'firewall-simulation'
+    firewall_root.mkdir(mode=0o700)
+    for name, marker_text in [('excerpt_transfer_probe.lua', 'WEREAD_TRANSFER=PASS'),
+                              ('excerpt_firewall_probe.lua', 'WEREAD_FIREWALL=PASS')]:
+        test_env = env | {'WEREAD_FIREWALL_TEST_DIR': str(firewall_root)}
+        test_probe = probe.parent/name
+        completed = subprocess.run([str(runtime/'luajit'), str(test_probe)], cwd=runtime,
+                                   env=test_env, capture_output=True, text=True, timeout=30)
+        (evidence/(name+'.log')).write_text(completed.stdout+completed.stderr)
+        if completed.returncode or marker_text not in completed.stdout:
+            raise ValueError(f'{name} failed; inspect synthetic log')
     print(json.dumps({'result': 'PASS', 'width': args.width, 'height': args.height, 'images': 60}))
 
 

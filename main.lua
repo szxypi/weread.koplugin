@@ -53,6 +53,9 @@ end
 function WeReadPlugin:init()
     math.randomseed(os.time())
     self.settings = Settings:new()
+    if require('device'):isKindle() then
+        require('weread.lib.excerpt_firewall').cleanup(self.settings.data_dir)
+    end
     self.external_annotations_db = ExternalAnnotationsDB:new(self.settings)
     self.library_db = LibraryDB:new(self.settings)
     self.readtime_coverage = ReadtimeCoverage:new(self.settings.data_dir)

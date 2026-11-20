@@ -129,3 +129,9 @@ Official translation research and display model:
   Display/position model and synthetic native rendering validation are local;
   reader-menu integration, persistence and generation remain separate work.
 Source: https://github.com/miumiupy98-art/miuread-koreader
+
+Excerpt phone transfer:
+- weread/lib/excerpt_transfer.lua and weread/lib/excerpt_firewall.lua adapt the
+  local transfer concept from MiuRead book_excerpt_transfer.lua at
+  c1893562aa25a870b8dd076d7be062a3348f823e (MiuRead contributors,
+  AGPL-3.0-only): https://github.com/miumiupy98-art/miuread-koreader

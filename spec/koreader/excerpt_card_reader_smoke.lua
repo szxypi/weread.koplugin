@@ -35,6 +35,29 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
     assert(editor.frame:getSize().w<=Device.screen:getWidth() and editor.frame:getSize().h<=Device.screen:getHeight(),
         'excerpt editor exceeds the screen')
     shot('excerpt-editor')
+    local transfer=require('weread.lib.excerpt_transfer');local start=transfer.start
+    transfer.start=function(png,options)
+        options.address='127.0.0.1';options.allow_loopback=true
+        return start(png,options)
+    end
+    assert(editor.export_buttons:getButtonById('share_excerpt')):onTapSelectButton()
+    local share=assert(plugin._excerpt_share,'phone transfer did not open')
+    UI:forceRePaint();shot('excerpt-phone-qr')
+    assert(share.dialog:getContentSize().h<=Device.screen:getHeight(),'phone QR dialog exceeds the screen')
+    local socket=require('socket');local connection=assert(socket.tcp());connection:settimeout(1)
+    local port=tonumber(share.server.url:match(':(%d+)/'));assert(connection:connect('127.0.0.1',port))
+    connection:settimeout(0);local path=assert(share.server.url:match('^http://[^/]+(/.+)$'))
+    assert(connection:send('GET '..path..'card.png HTTP/1.1\r\nHost: local\r\n\r\n'))
+    local answer=''
+    for _=1,1000 do
+        share.server:poll()
+        local data,err,partial=connection:receive(65536);answer=answer..(data or partial or '')
+        if err=='closed' then break end
+    end
+    assert(answer:find('200 OK',1,true) and answer:find('\137PNG\r\n\26\n',1,true),'phone did not receive PNG')
+    connection:close();share.dialog:onClose();assert(not plugin._excerpt_share and share.server.stopped)
+    assert(plugin._excerpt_card_editor==editor,'closing phone transfer closed editor')
+    transfer.start=start
     assert(editor.export_buttons:getButtonById('copy_excerpt_text')):onTapSelectButton()
     assert(copied==text,'clipboard did not receive the selected text')
     local copied_message=UI:getTopmostVisibleWidget();assert(copied_message~=editor);UI:close(copied_message)
@@ -68,7 +91,15 @@ return function(reader,plugin,pump,shot,clean_popups,reopen)
     plugin.library_db.accountKey=identity
     local files=0;for name in lfs.dir(directory) do if name:match('%.png$') then files=files+1 end end
     assert(files==1,'stale account editor saved a card')
-    plugin:onSuspend();assert(not plugin._excerpt_card_editor,'suspend left card editor open')
+    transfer.start=function(png,options)
+        options.address='127.0.0.1';options.allow_loopback=true
+        return start(png,options)
+    end
+    assert(editor.export_buttons:getButtonById('share_excerpt')):onTapSelectButton()
+    local suspended_share=assert(plugin._excerpt_share)
+    plugin:onSuspend();assert(not plugin._excerpt_card_editor and not plugin._excerpt_share and suspended_share.server.stopped,
+        'suspend left excerpt transfer open')
+    transfer.start=start
     plugin:onResume();clean_popups(reader)
     select();Selection.cancel(plugin)
     UI:shiftScheduledTasksBy(-1e9);UI:handleInput()

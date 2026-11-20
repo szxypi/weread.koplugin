@@ -84,6 +84,14 @@ BookExcerptCard.save = function(opts, directory)
     if not ok then return nil, 'save_failed' end
     return path, path and dimensions or reason
 end
+BookExcerptCard.encode = function(opts)
+    local image, dimensions = BookExcerptCard.renderBB(opts)
+    if not image then return nil, dimensions end
+    local ok, value, reason = pcall(require('weread.lib.excerpt_card.png').encode, image)
+    image:free()
+    if not ok then return nil, 'encode_failed' end
+    return value, value and dimensions or reason
+end
 -- 暴露给调用方/测试的辅助
 BookExcerptCard.footerBrandText = Device.footerBrandText
 BookExcerptCard.backgroundImagePath = Assets.backgroundImagePath
