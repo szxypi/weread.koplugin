@@ -77,14 +77,54 @@ function M:list_ids()
         return ids
     end,true,{})
 end
-function M:write(value,options)
-    if options~=nil and (type(options)~='table' or options.preserve_existing~=true) then return false end
+-- Return only snapshots that can actually be decoded and validated. A corrupt
+-- or inaccessible existing row is an error, not proof that it is missing.
+function M:valid_ids(ids)
+    if type(ids)~='table' or #ids>M.MAX_BOOKS then return nil end
+    local seen,count={},0
+    for key in pairs(ids) do
+        if type(key)~='number' or key%1~=0 or key<1 or key>#ids then return nil end
+        count=count+1
+    end
+    if count~=#ids then return nil end
+    for _,id in ipairs(ids) do
+        if not Data.display_id(id) or seen[id] then return nil end
+        seen[id]=true
+    end
+    return run(self,function(db)
+        local stmt=db:prepare('SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END FROM '
+            ..self.table_name..' WHERE book_id=?')
+        local result={}
+        local ok=pcall(function()
+            for _,id in ipairs(ids) do
+                local row=stmt:reset():bind(M.MAX_PAYLOAD,id):step()
+                if row then
+                    if type(row[1])~='string' then error('my_marks_store/invalid_snapshot',0) end
+                    self.data.validate(self.codec,self.codec:json_decode(row[1]),id)
+                    result[id]=true
+                end
+            end
+        end)
+        stmt:close();if not ok then error('my_marks_store/invalid_snapshot',0) end
+        return result
+    end,true,{})
+end
+local function save(self,value,options)
     local valid,projected=pcall(self.data.validate,self.codec,value,type(value)=='table' and value.book_id)
-    if not valid then return false end
+    if not valid then return nil end
     local encoded,payload=pcall(self.codec.json_encode,self.codec,projected)
-    if not encoded or type(payload)~='string' or #payload>M.MAX_PAYLOAD then return false end
+    if not encoded or type(payload)~='string' or #payload>M.MAX_PAYLOAD then return nil end
     return run(self,function(db,begin,commit)
         begin()
+        if options and options.only_if_absent then
+            local existing=statement(db,'SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END FROM '
+                ..self.table_name..' WHERE book_id=?',M.MAX_PAYLOAD,projected.book_id)
+            if existing then
+                if type(existing[1])~='string' then error('my_marks_store/invalid_snapshot',0) end
+                self.data.validate(self.codec,self.codec:json_decode(existing[1]),projected.book_id)
+                commit();return 'exists'
+            end
+        end
         statement(db,[[INSERT INTO ]]..self.table_name..[[(book_id,payload,serial)
             VALUES(?,?,(SELECT COALESCE(MAX(serial),0)+1 FROM ]]..self.table_name..[[))
             ON CONFLICT(book_id) DO UPDATE SET payload=excluded.payload,serial=excluded.serial]],projected.book_id,payload)
@@ -105,6 +145,14 @@ function M:write(value,options)
         if options and #remove>0 then error('my_marks_store/preserve_quota',0) end
         for _i,id in ipairs(remove) do statement(db,'DELETE FROM '..self.table_name..' WHERE book_id=?',id) end
         commit();return true
-    end)==true
+    end)
+end
+function M:write(value,options)
+    if options~=nil and (type(options)~='table' or options.preserve_existing~=true) then return false end
+    return save(self,value,options)==true
+end
+-- Atomically preserve a row that another task saved after the missing scan.
+function M:writeIfMissing(value)
+    return save(self,value,{preserve_existing=true,only_if_absent=true})
 end
 return M

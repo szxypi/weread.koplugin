@@ -29,6 +29,22 @@ local catalog={};for i=1,130 do catalog[#catalog+1]={bookId=tostring(940000+i)} 
 local search=require('weread.lib.notebook_search').search(catalog,cache,thoughts,'bulk-130-only')
 expect(search.checked==260 and search.not_cached==0 and #search.items==1
     and search.items[1].book_id=='940130','cross-book search missed a saved book beyond the old cap')
+local valid=assert(cache:valid_ids({'940001','940130','999999'}))
+expect(valid['940001'] and valid['940130'] and not valid['999999'])
+expect(not cache:valid_ids({'940001','940001'}) and not cache:valid_ids({[1]='940001',[3]='940130'}))
+local other=snapshot('940130');other.updated[1].markText='should-not-overwrite'
+expect(cache:writeIfMissing(other)=='exists' and cache:read('940130').updated[1].markText=='bulk-130-only')
+expect(cache:writeIfMissing(snapshot('940131'))==true and cache:writeIfMissing(snapshot('940131'))=='exists')
+local corrupt=assert(library:open());local raw130=corrupt:rowexec("SELECT payload FROM my_cloud_marks WHERE book_id='940130'")
+corrupt:exec("UPDATE my_cloud_marks SET payload='{}' WHERE book_id='940130'");corrupt:close()
+expect(cache:valid_ids({'940130'})==nil and cache:writeIfMissing(other)==nil and cache:read('940130')==nil)
+corrupt=assert(library:open());local restore=corrupt:prepare('UPDATE my_cloud_marks SET payload=? WHERE book_id=?')
+restore:bind(raw130,'940130'):step();restore:close();corrupt:close()
+expect(cache:read('940130').updated[1].markText=='bulk-130-only')
+account='900011'
+local empty=assert(cache:valid_ids({'940001'}));expect(not next(empty))
+local fresh=assert(library:open());fresh:close()
+empty=assert(cache:valid_ids({'940001'}));expect(not next(empty))
 account='900000';Cache.MAX_BOOKS=64 -- Exercise both quota boundaries with a small fixture.
 expect(cache:write(snapshot()));expect(cache:read('900001').updated[1].markText=='合成引用')
 expect(cache:write(snapshot('CB_SyntheticNotes')))
@@ -64,5 +80,5 @@ db=library:open();expect(tonumber(db:rowexec('SELECT SUM(length(CAST(payload AS 
 expect(cache:read('920001')==nil and cache:read('920010')~=nil)
 oversized.book_id='930002'
 expect(not cache:write(oversized,{preserve_existing=true}))
-expect(cache:read('930002')==nil and cache:read('920010')~=nil)
+expect(cache:writeIfMissing(oversized)==nil and cache:read('930002')==nil and cache:read('920010')~=nil)
 print('PASS: own cloud marks SQLite ('..checks..' checks)')

@@ -1,0 +1,140 @@
+{
+  "result": "PASS",
+  "physical_device": false,
+  "private_content_saved_in_repo": false,
+  "scenario": "all-cached scan made no note request; one isolated local mark snapshot removed and reread once; offline hashes matched",
+  "synthetic_sqlite": "empty cache, invalid payload, quota rollback and atomic no-overwrite verified",
+  "cases": {
+    "small": {
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "transport_guard": true,
+          "credential_audit": true,
+          "workers_reaped": true,
+          "forbidden": 0,
+          "bulk_notes": {
+            "resume_requests": 1,
+            "skipped": 0,
+            "menu_started": true,
+            "cache_verified": true,
+            "resume_checked": true,
+            "books": 15,
+            "requests": 31,
+            "saved": 30
+          }
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "transport_guard": true,
+          "credential_audit": true,
+          "workers_reaped": true,
+          "forbidden": 0,
+          "bulk_notes": {
+            "books": 15,
+            "skipped": 0,
+            "menu_started": false,
+            "cache_verified": true,
+            "resume_checked": false,
+            "resume_requests": 0,
+            "saved": 30,
+            "requests": 0
+          }
+        }
+      ]
+    },
+    "ko2": {
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "transport_guard": true,
+          "credential_audit": true,
+          "workers_reaped": true,
+          "forbidden": 0,
+          "bulk_notes": {
+            "cache_verified": true,
+            "resume_checked": true,
+            "resume_requests": 1,
+            "books": 15,
+            "requests": 31,
+            "saved": 30,
+            "skipped": 0,
+            "menu_started": true
+          }
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "transport_guard": true,
+          "credential_audit": true,
+          "workers_reaped": true,
+          "forbidden": 0,
+          "bulk_notes": {
+            "saved": 30,
+            "resume_requests": 0,
+            "books": 15,
+            "requests": 0,
+            "resume_checked": false,
+            "skipped": 0,
+            "menu_started": false,
+            "cache_verified": true
+          }
+        }
+      ]
+    }
+  },
+  "synthetic_native": {
+    "completed_missing_sets": 3,
+    "already_saved_sets": 1,
+    "repeat_note_reads": 0,
+    "large_collection_books": 65,
+    "offline_reopen": true,
+    "cases": {
+      "small": {
+        "profile_removed": true,
+        "stages": [
+          {
+            "mode": "live",
+            "result": "PASS",
+            "forbidden": 0,
+            "workers_reaped": true
+          },
+          {
+            "mode": "reopen",
+            "result": "PASS",
+            "forbidden": 0,
+            "workers_reaped": true
+          }
+        ]
+      },
+      "ko2": {
+        "profile_removed": true,
+        "stages": [
+          {
+            "mode": "live",
+            "result": "PASS",
+            "forbidden": 0,
+            "workers_reaped": true
+          },
+          {
+            "mode": "reopen",
+            "result": "PASS",
+            "forbidden": 0,
+            "workers_reaped": true
+          }
+        ]
+      }
+    }
+  }
+}

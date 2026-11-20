@@ -126,6 +126,12 @@ render=function(host,owner)
                     require('weread.ui.notebook_bulk').start(host,owner,current)
                 end
             end}
+            items[#items+1]={text=_('Save only missing notebook notes'),callback=function()
+                if current(host,owner) then
+                    require('weread.ui.notebook_search').cancel(host,owner)
+                    require('weread.ui.notebook_bulk').start(host,owner,current,true)
+                end
+            end}
             local search_text=owner.search and Protocol.utf8_substr(owner.search,16) or ''
             if owner.search and #search_text<#owner.search then search_text=search_text..'…' end
             items[#items+1]={text=_('Search notebooks'),mandatory=search_text,callback=function()

@@ -73,15 +73,17 @@ class NotebookCatalogTest(unittest.TestCase):
     def test_bulk_report_requires_complete_sets_and_no_offline_reads(self):
         stage=dict.fromkeys(FLAGS,True)
         stage.update(result='PASS',mode='live',phase='complete',pages=1,books=1,requests=1,forbidden=0,failed_line=0,
-                     bulk_notes=dict(books=1,saved=2,skipped=0,requests=2,menu_started=True,cache_verified=True))
+                     bulk_notes=dict(books=1,saved=2,skipped=0,requests=3,menu_started=True,cache_verified=True,
+                                     resume_checked=True,resume_requests=1))
         validate_stage(stage,'live',1,bulk_notes=True)
-        for key,bad in (('books',0),('saved',1),('skipped',True),('requests',1),('requests',11),
-                        ('menu_started',False),('cache_verified',False),('title','private')):
+        for key,bad in (('books',0),('saved',1),('skipped',True),('requests',2),('requests',12),
+                        ('menu_started',False),('cache_verified',False),('resume_checked',False),('resume_requests',0),('title','private')):
             row=dict(stage,bulk_notes=dict(stage['bulk_notes'],**{key:bad}))
             with self.subTest(key=key),self.assertRaises(ValueError):validate_stage(row,'live',1,bulk_notes=True)
         with self.assertRaises(ValueError):validate_stage(dict(stage,bulk_notes=dict(stage['bulk_notes'],skipped=1)),
                                                           'live',1,bulk_notes=True)
-        offline=dict(stage,mode='reopen',requests=0,bulk_notes=dict(stage['bulk_notes'],menu_started=False,requests=0))
+        offline=dict(stage,mode='reopen',requests=0,bulk_notes=dict(stage['bulk_notes'],menu_started=False,requests=0,
+                                                                    resume_checked=False,resume_requests=0))
         validate_stage(offline,'reopen',1,bulk_notes=True)
         offline['bulk_notes']['requests']=1
         with self.assertRaises(ValueError):validate_stage(offline,'reopen',1,bulk_notes=True)
@@ -115,8 +117,10 @@ class NotebookCatalogTest(unittest.TestCase):
         expected=project(raw,1);grant={'vid':'123','accessToken':'private-access'};saved={'vid':'123'}
         stage=dict.fromkeys(FLAGS,True)
         stage.update(result='PASS',mode='live',phase='complete',pages=1,books=1,requests=1,forbidden=0,failed_line=0,
-                     bulk_notes=dict(books=1,saved=2,skipped=0,requests=2,menu_started=True,cache_verified=True))
-        reopen=dict(stage,mode='reopen',requests=0,bulk_notes=dict(stage['bulk_notes'],requests=0,menu_started=False))
+                     bulk_notes=dict(books=1,saved=2,skipped=0,requests=3,menu_started=True,cache_verified=True,
+                                     resume_checked=True,resume_requests=1))
+        reopen=dict(stage,mode='reopen',requests=0,bulk_notes=dict(stage['bulk_notes'],requests=0,menu_started=False,
+                                                                   resume_checked=False,resume_requests=0))
         ui=dict(result='PASS',profile_removed=True,installed_bytes_match=True,installed_files=1,stages=[stage,reopen])
         result=dict(model=expected,native=expected,requests=1,ui=ui)
         child=SimpleNamespace(returncode=0,stdout=FRAME+json.dumps(result).encode())

@@ -28,14 +28,15 @@ def validate_stage(value,mode,count,*,bulk_notes=False):
         raise ValueError('ui_incomplete')
     if bulk_notes:
         bulk=value['bulk_notes']
-        if (not isinstance(bulk,dict) or set(bulk)!={'books','saved','skipped','requests','menu_started','cache_verified'}
-                or any(type(bulk[k]) is not int or not 0<=bulk[k]<=640 for k in ('books','saved','requests'))
+        if (not isinstance(bulk,dict) or set(bulk)!={'books','saved','skipped','requests','menu_started','cache_verified','resume_checked','resume_requests'}
+                or any(type(bulk[k]) is not int or not 0<=bulk[k]<=641 for k in ('books','saved','requests','resume_requests'))
                 or type(bulk['skipped']) is not int or not 0<=bulk['skipped']<=5000
-                or any(type(bulk[k]) is not bool for k in ('menu_started','cache_verified'))
+                or any(type(bulk[k]) is not bool for k in ('menu_started','cache_verified','resume_checked'))
                 or not 1<=bulk['books']<=64 or bulk['saved']!=bulk['books']*2
                 or bulk['books']+bulk['skipped']!=count
                 or bulk['menu_started']!=(mode=='live') or not bulk['cache_verified']
-                or mode=='live' and not bulk['books']*2<=bulk['requests']<=bulk['books']*10
+                or bulk['resume_checked']!=(mode=='live') or bulk['resume_requests']!=int(mode=='live')
+                or mode=='live' and not bulk['books']*2+1<=bulk['requests']<=bulk['books']*10+1
                 or mode=='reopen' and bulk['requests']!=0):raise ValueError('ui_bulk_incomplete')
 
 

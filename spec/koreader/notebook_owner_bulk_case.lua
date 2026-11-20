@@ -15,6 +15,13 @@ return function(plugin,owner,mode,ids,counters,report,home)
         end
         error('notebook bulk menu missing')
     end
+    local function same(a,b)
+        if type(a)~=type(b) then return false end
+        if type(a)~='table' then return a==b end
+        for key,value in pairs(a) do if key~='fetched_at' and not same(value,b[key]) then return false end end
+        for key in pairs(b) do if key~='fetched_at' and a[key]==nil then return false end end
+        return true
+    end
     local function hashes()
         local db=assert(plugin.library_db:openRead());local result=json.decode('[]')
         for _,id in ipairs(ids) do
@@ -42,8 +49,26 @@ return function(plugin,owner,mode,ids,counters,report,home)
         assert(#job.ids==#ids and job.skipped==report.skipped and job.dialog.progress_max==#ids*2)
         for index,id in ipairs(ids) do assert(job.ids[index]==id) end
         pump(function() return not owner.bulk_context end,480)
-        report.saved=job.done;report.requests=tonumber(counters[2])
+        report.saved=job.done
         assert(job.done==#ids*2 and counters[1]==0)
+        local before=tonumber(counters[2])
+        owner.menu:onMenuSelect(item('Save only missing notebook notes'))
+        pump(function() return owner.bulk_context~=nil end,10);job=owner.bulk_context
+        pump(function() return not owner.bulk_context end,120)
+        assert(job.done==0 and job.saved==0 and job.already==#ids*2 and counters[2]==before)
+        local first_id=ids[1]
+        local old=assert(cache:new(plugin.library_db,plugin.client):read(first_id))
+        local db=assert(plugin.library_db:open());db:exec('BEGIN IMMEDIATE')
+        local stmt=db:prepare('DELETE FROM my_cloud_marks WHERE book_id=?')
+        stmt:bind(first_id):step();stmt:close();db:exec('COMMIT');db:close()
+        counters[3]=1
+        owner.menu:onMenuSelect(item('Save only missing notebook notes'))
+        pump(function() return owner.bulk_context~=nil end,10);job=owner.bulk_context
+        pump(function() return not owner.bulk_context end,120)
+        local restored=assert(cache:new(plugin.library_db,plugin.client):read(first_id))
+        assert(job.done==1 and job.saved==1 and job.already==#ids*2-1
+            and counters[2]==before+1 and counters[4]==1 and counters[1]==0 and same(old,restored))
+        report.resume_checked=true;report.resume_requests=1;report.requests=tonumber(counters[2])
         local digest=hashes();local file=assert(io.open(filename,'wb'))
         assert(file:write(digest) and file:close());report.cache_verified=true
         plugin.showTransientInfo,plugin.native_renewal=transient,renewal

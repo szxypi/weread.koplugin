@@ -80,7 +80,7 @@ local ok,reason=pcall(function()
         end
         assert(#bulk_ids>0 and slot<1024)
         report.bulk_notes={books=#bulk_ids,saved=0,skipped=#expected.books-#bulk_ids,requests=0,
-            menu_started=false,cache_verified=false}
+            menu_started=false,cache_verified=false,resume_checked=false,resume_requests=0}
     end
     local function allowed(options)
         local headers=options.headers or {}
@@ -132,8 +132,11 @@ local ok,reason=pcall(function()
             return request(self,options)
         end
         local slot=allowed_bulk(options)
-        if slot and counters[slot]==0 and counters[2]<640 and tonumber(ffi.C.getpid())~=parent then
+        local first=slot and counters[slot]==0
+        local resume=slot==16 and counters[slot]==1 and counters[3]==1 and counters[4]==0
+        if slot and (first or resume) and counters[2]<641 and tonumber(ffi.C.getpid())~=parent then
             counters[slot]=counters[slot]+1;counters[2]=counters[2]+1
+            if resume then counters[4]=counters[4]+1 end
             return request(self,options)
         end
         counters[1]=counters[1]+1;error('notebook read scope rejected',0)

@@ -23,7 +23,8 @@ function M.cancel(host,owner,closed)
     if host.busy_message==job.dialog then host.busy_message=nil end
 end
 
-function M.start(host,owner,is_current)
+function M.start(host,owner,is_current,missing_only)
+    missing_only=missing_only==true
     if not is_current(host,owner) or owner.bulk_context or owner.context or not owner.value then return false end
     if not host:isNetworkOnline() then host:showOffline(_('My notebooks'));return false end
     local access=Marks.capture(host.settings)
@@ -36,6 +37,7 @@ function M.start(host,owner,is_current)
     end
     if #ids==0 then host:showInfo(_('No notebooks are available to save.'));return false end
     local job={account=owner.account,db=host.library_db,value=owner.value,access=access,ids=ids,skipped=skipped,done=0,
+        saved=0,already=0,total=#ids*2,missing_only=missing_only==true,preparing=missing_only==true,
         data_dir=host.settings.data_dir,cache_dir=host.settings.cache_dir}
     owner.bulk_context=job
     local function valid()
@@ -47,15 +49,25 @@ function M.start(host,owner,is_current)
     end
     local function finish(outcome)
         if not valid() then M.cancel(host,owner);return end
-        local done,total,skipped_count=job.done,#job.ids*2,job.skipped
+        local done,total,skipped_count=job.done,job.total,job.skipped
+        local saved,already,preparing=job.saved,job.already,job.preparing
         M.cancel(host,owner)
+        if missing_only then
+            local text=preparing and (outcome=='cancelled' and _('Checking saved notes was cancelled.')
+                or _('Could not check saved notes. Previous saved notes are kept.'))
+                or outcome=='cancelled' and _('Missing-note save cancelled: %1 new sets; %2 already saved; %3 books skipped.')
+                or outcome=='failed' and _('Missing-note save stopped: %1 new sets; %2 already saved; %3 books skipped.')
+                or _('Missing notes saved: %1 new sets; %2 already saved; %3 books skipped.')
+            if is_current(host,owner) then host:showTransientInfo(T(text,tostring(saved),tostring(already),tostring(skipped_count)),4) end
+            return
+        end
         local text=outcome=='cancelled' and _('Saving notes cancelled: %1/%2 sets saved; %3 books skipped.')
             or outcome=='failed' and _('Saving notes stopped: %1/%2 sets saved; %3 books skipped. Previous saved notes are kept.')
             or _('Notes saved: %1/%2 sets saved; %3 books skipped.')
         if is_current(host,owner) then host:showTransientInfo(T(text,tostring(done),tostring(total),tostring(skipped_count)),4) end
     end
     local shown,dialog=pcall(function() return require('weread.ui.download_dialog'):new{
-        title=T(_('Saving cloud notes: %1/%2 sets'),'0',tostring(#ids*2)),
+        title=missing_only and _('Checking saved notes…') or T(_('Saving cloud notes: %1/%2 sets'),'0',tostring(#ids*2)),
         description=_('Each book has marks and thoughts. Saved sets are kept if you cancel.'),progress_max=#ids*2,
         buttons={{{text=_('Cancel'),callback=function() finish('cancelled') end}}},
     } end)
@@ -68,7 +80,7 @@ function M.start(host,owner,is_current)
     end
     if not Popup.show(owner.menu,dialog,function(widget) widget:show() end) then M.cancel(host,owner);return false end
     local created,worker=pcall(function() return require('weread.lib.memory_worker'):new{
-        scheduler=UI,codec=host.client,max_bytes=Store.MAX_PAYLOAD+65536} end)
+        scheduler=UI,codec=host.client,max_bytes=Store.MAX_PAYLOAD+65536,timeout=600} end)
     if not created or not worker then M.cancel(host,owner);host:showInfo(_('Could not start saving cloud notes.'));return false end
     job.worker=worker
     local launch
@@ -81,8 +93,9 @@ function M.start(host,owner,is_current)
     end
     launch=function()
         if not valid() or not host:isNetworkOnline() then finish('failed');return end
-        local id=ids[math.floor(job.done/2)+1]
-        local thoughts=job.done%2==1
+        local ordinal=job.plan and job.plan[job.done+1] or job.done+1
+        local id=ids[math.floor((ordinal-1)/2)+1]
+        local thoughts=ordinal%2==0
         local data=thoughts and Thoughts or Marks
         local delivered=false
         local started,ok=pcall(worker.start,worker,function()
@@ -106,18 +119,54 @@ function M.start(host,owner,is_current)
             local verified,value=pcall(data.validate,host.client,result.value,id)
             if not verified then finish('failed');return end
             local saved,success=pcall(function()
-                return Store:new(job.db,host.client,thoughts and 'thoughts' or nil):write(value,{preserve_existing=true})
+                local store=Store:new(job.db,host.client,thoughts and 'thoughts' or nil)
+                if job.missing_only then return store:writeIfMissing(value) end
+                return store:write(value,{preserve_existing=true})
             end)
             if not valid() then if owner.bulk_context==job then M.cancel(host,owner) end;return end
-            if not saved or not success then finish('failed');return end
+            if not saved or success~=true and success~='exists' then finish('failed');return end
+            if success=='exists' then job.already=job.already+1 else job.saved=job.saved+1 end
             local display=not thoughts and package.loaded['weread.ui.personal_marks']
-            if display and type(display.changed)=='function' then pcall(display.changed,host,value) end
+            if success==true and display and type(display.changed)=='function' then pcall(display.changed,host,value) end
             job.done=job.done+1;dialog:reportProgress(job.done)
-            dialog:setTitle(T(_('Saving cloud notes: %1/%2 sets'),tostring(job.done),tostring(#ids*2)))
-            if job.done==#ids*2 then finish('complete') else later() end
+            dialog:setTitle(T(_('Saving cloud notes: %1/%2 sets'),tostring(job.done),tostring(job.total)))
+            if job.done==job.total then finish('complete') else later() end
         end)
         if (not started or not ok) and not delivered then finish('failed') end
     end
-    launch();return true
+    if not job.missing_only then launch();return true end
+    local delivered=false
+    local started,ok=pcall(worker.start,worker,function()
+        local marks=assert(Store:new(job.db,host.client):valid_ids(ids))
+        local thoughts=assert(Store:new(job.db,host.client,'thoughts'):valid_ids(ids))
+        local indices={}
+        for index,id in ipairs(ids) do
+            if not marks[id] then indices[#indices+1]=index*2-1 end
+            if not thoughts[id] then indices[#indices+1]=index*2 end
+        end
+        return {indices=indices}
+    end,function(result)
+        if delivered then return end;delivered=true
+        if not valid() then if owner.bulk_context==job then M.cancel(host,owner) end;return end
+        local indices=type(result)=='table' and result.indices
+        if type(indices)~='table' or #indices>#ids*2 then finish('failed');return end
+        local count,previous=0,0
+        for key in pairs(indices) do
+            if type(key)~='number' or key%1~=0 or key<1 or key>#indices then finish('failed');return end
+            count=count+1
+        end
+        if count~=#indices then finish('failed');return end
+        for _,index in ipairs(indices) do
+            if type(index)~='number' or index%1~=0 or index<=previous or index>#ids*2 then finish('failed');return end
+            previous=index
+        end
+        job.plan=indices;job.total=#indices;job.already=#ids*2-#indices;job.preparing=false
+        if #indices==0 then finish('complete');return end
+        dialog.progress_max=#indices
+        dialog:setTitle(T(_('Saving cloud notes: %1/%2 sets'),'0',tostring(job.total)))
+        launch()
+    end)
+    if (not started or not ok) and not delivered then finish('failed') end
+    return true
 end
 return M

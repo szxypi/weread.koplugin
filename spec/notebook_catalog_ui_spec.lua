@@ -52,6 +52,8 @@ expect(not value.started and row(menu,'Synthetic book').mandatory=='Author','cac
 expect(row(menu,'Save all notebook notes for offline use'),'offline notebook-save entry missing')
 row(menu,'Save all notebook notes for offline use').callback()
 expect(not value.started and #value.notices==1 and not menu._shelf_popup,'offline save attempted a request')
+row(menu,'Save only missing notebook notes').callback()
+expect(not value.started and #value.notices==2 and not menu._shelf_popup,'offline missing-only save attempted a request')
 row(menu,'Synthetic book').callback();local popup=menu._shelf_popup
 expect(popup.buttons[1][1].text=='My cloud highlights (2)' and popup.buttons[2][1].text=='My cloud thoughts (1)' and popup.buttons[3][1].text=='My cloud bookmarks (3)','counts or actions missing')
 popup.buttons[2][1].callback();expect(value.opened[1]=='showMyCloudThoughts' and value.opened[2]=='900001','thought action wrong')

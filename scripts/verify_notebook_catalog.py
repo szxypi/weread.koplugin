@@ -114,8 +114,8 @@ def main(argv=None):
                         if type(row.get(key)) is int and 0<=row[key]<=100000} for row in ui.get('stages',[])[:2] if isinstance(row,dict)]
                     if args.bulk_notes:
                         report['bulk_diagnostics']=[{key:value for key,value in row.get('bulk_notes',{}).items()
-                            if key in ('books','saved','skipped','requests') and type(value) is int and 0<=value<=5000
-                            or key in ('menu_started','cache_verified') and type(value) is bool}
+                            if key in ('books','saved','skipped','requests','resume_requests') and type(value) is int and 0<=value<=5000
+                            or key in ('menu_started','cache_verified','resume_checked') and type(value) is bool}
                             for row in ui.get('stages',[])[:2] if isinstance(row,dict) and isinstance(row.get('bulk_notes'),dict)]
                 if child.returncode or actual.get('model')!=expected or actual.get('native')!=expected or actual.get('requests')!=1:
                     raise ValueError('notebook/ui_result')

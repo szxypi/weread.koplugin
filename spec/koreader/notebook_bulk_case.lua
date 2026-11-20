@@ -7,7 +7,9 @@ return function(plugin,owner,mode,counters,wait,tick)
     local all=owner.value.books;assert(#all>=4)
     local a,b=all[3].bookId,all[4].bookId
     assert(a=='900003' and b=='900004')
-    local large,permitted={}, {[a]=true,[b]=true}
+    local c,d=assert(all[5]).bookId,assert(all[6]).bookId
+    assert(c=='900005' and d=='900006')
+    local large,permitted={}, {[a]=true,[b]=true,[c]=true,[d]=true}
     for i=1,65 do
         local id=tostring(910000+i);large[#large+1]={bookId=id,title='Synthetic large '..i}
         permitted[id]=true
@@ -55,13 +57,32 @@ return function(plugin,owner,mode,counters,wait,tick)
         wait(function() return job.done==1 end)
         job.dialog.buttons[1][1].callback();tick()
         assert(not owner.bulk_context and job.done==1 and counters[10]==5 and counters[11]==0)
+        -- Cancel one new book after its first set, then resume only the three
+        -- missing sets; repeat once to verify the all-cached no-request path.
+        owner.value.books={all[5],all[6]}
+        owner.menu:onMenuSelect(item('Save all notebook notes for offline use'))
+        wait(function() return owner.bulk_context~=nil end);job=owner.bulk_context
+        wait(function() return job.done==1 end);job.dialog.buttons[1][1].callback();tick()
+        assert(not owner.bulk_context and counters[10]==6)
+        owner.menu:onMenuSelect(item('Save only missing notebook notes'))
+        wait(function() return owner.bulk_context~=nil end);job=owner.bulk_context
+        wait(function() return not owner.bulk_context end)
+        assert(job.done==3 and job.saved==3 and job.already==1 and counters[10]==9 and counters[11]==0)
+        owner.menu:onMenuSelect(item('Save only missing notebook notes'))
+        wait(function() return owner.bulk_context~=nil end);job=owner.bulk_context
+        wait(function() return not owner.bulk_context end)
+        assert(job.done==0 and job.saved==0 and job.already==4 and counters[10]==9)
+        assert(read(c,'marks').updated[1].bookmarkId=='bulk-mark-'..c)
+        assert(read(c,'thoughts').reviews[1].reviewId=='bulk-thought-'..c)
+        assert(read(d,'marks').updated[1].bookmarkId=='bulk-mark-'..d)
+        assert(read(d,'thoughts').reviews[1].reviewId=='bulk-thought-'..d)
         owner.value.books=large
         owner.menu:onMenuSelect(item('Save all notebook notes for offline use'))
         wait(function() return owner.bulk_context~=nil end);job=owner.bulk_context
         assert(#job.ids==65 and job.skipped==0 and job.dialog.progress_max==130)
         local deadline=socket.gettime()+150
         while owner.bulk_context do assert(socket.gettime()<deadline,'large notebook update deadline');tick() end
-        assert(job.done==130 and counters[10]==135 and counters[11]==0)
+        assert(job.done==130 and counters[10]==139 and counters[11]==0)
         for _,book in ipairs(large) do
             assert(read(book.bookId,'marks').updated[1].bookmarkId=='bulk-mark-'..book.bookId)
             assert(read(book.bookId,'thoughts').reviews[1].reviewId=='bulk-thought-'..book.bookId)
@@ -72,6 +93,10 @@ return function(plugin,owner,mode,counters,wait,tick)
         assert(read(a,'thoughts').reviews[1].reviewId=='bulk-thought-'..a)
         assert(read(b,'marks').updated[1].bookmarkId=='bulk-mark-'..b)
         assert(read(b,'thoughts').reviews[1].reviewId=='bulk-thought-'..b)
+        assert(read(c,'marks').updated[1].bookmarkId=='bulk-mark-'..c)
+        assert(read(c,'thoughts').reviews[1].reviewId=='bulk-thought-'..c)
+        assert(read(d,'marks').updated[1].bookmarkId=='bulk-mark-'..d)
+        assert(read(d,'thoughts').reviews[1].reviewId=='bulk-thought-'..d)
         for _,book in ipairs(large) do
             assert(read(book.bookId,'marks').updated[1].bookmarkId=='bulk-mark-'..book.bookId)
             assert(read(book.bookId,'thoughts').reviews[1].reviewId=='bulk-thought-'..book.bookId)
