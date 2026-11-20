@@ -59,7 +59,33 @@ local function matches(value,record)
     return type(record)=='table' and value.phase~='idle' and value.account==record.account and value.id==record.id
         and value.epoch==record.epoch and Contract.same(value.metadata,record.metadata)
 end
-function M:read() return run(self,function(db,account) return read(self,db,account) end) end
+-- An existing journal only needs a read-only connection. Reinitializing the
+-- library and its WAL mode for every read can fail while another worker saves
+-- the shelf, even though the journal itself remains readable.
+function M:read()
+    local account=self.library:accountKey();if not account then return nil,'account' end
+    if type(self.library.openRead)=='function' then
+        local opened,db=pcall(self.library.openRead,self.library)
+        if opened and db then
+            local ok,value,missing=pcall(function()
+                -- Briefly tolerate a competing schema/cache update without
+                -- blocking the reader indefinitely on a busy database.
+                if db.set_busy_timeout then db:set_busy_timeout(50) end
+                assert(self.library:accountKey()==account,'finish_store/account')
+                local exists=statement(db,"SELECT name FROM sqlite_master WHERE type='table' AND name='finish_write_state'")
+                if not exists then return nil,true end
+                local result=read(self,db,account)
+                assert(self.library:accountKey()==account,'finish_store/account')
+                return result,false
+            end)
+            pcall(db.close,db)
+            if not ok then return nil,'storage' end
+            if not missing then return value end
+        end
+    end
+    if self.library:accountKey()~=account then return nil,'account' end
+    return run(self,function(db,key) return read(self,db,key) end)
+end
 function M:owns(record,phase)
     local value,reason=self:read()
     if not value then return false,reason end

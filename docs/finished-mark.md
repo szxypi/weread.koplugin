@@ -125,3 +125,7 @@ KO2 尺寸另验证离线期间云端已变为目标状态时不发送重复修�
 两种尺寸均以合成账号在真实 KOReader 界面、后台工作进程和 SQLite 中验证了读取期间打开窗口、窗口打开时不发送、关闭后恢复同步；书架加入与移除各验证一次。记录见[读完标记 600×800](validation-assets/2026-11-21/finish-paused-600.json)、[读完标记 KO2 尺寸](validation-assets/2026-11-21/finish-paused-ko2.json)、[书架成员 600×800](validation-assets/2026-11-21/membership-paused-600.json)和[书架成员 KO2 尺寸](validation-assets/2026-11-21/membership-paused-ko2.json)。
 
 一次并行运行的 KO2 合成测试在派发权已领取后读取本地记录失败，传输保护拒绝了该模拟请求，记录仍为待核对；[失败记录](validation-assets/2026-11-21/finish-paused-ko2-storage-error.json)予以保留。单独重跑通过，但未查明该存储错误的根因，因此不能据此认定问题已经消除。本轮没有真实账号写入，仍需实体设备验收。
+
+后续通过合成账号和真实 SQLite 并发测试复现了一种可能导致同类错误的路径：缓存写入期间，旧版每次读取意图都会重新设置 WAL，偶发遇到锁。现有意图改由只读连接读取，遇锁时每次 SQLite 等待最多 50 毫秒；首次建库仍使用原初始化，写入和领取仍使用原来的 FULL 同步与原子事务。损坏记录、账号改变或持续锁定都不能被当作空记录，可能已派发的意图仍不得自动重发。
+
+三组交替对照各读取 5,000 次，均核实书架缓存写入确实与读取重叠：旧版分别出现 34、43、26 次 WAL 设置遇锁，新版三组均为零；[对照记录](validation-assets/2026-11-21/finish-store-contention-paired.json)包括候选与测试文件摘要。独占锁测试确认超时后保留待核对记录并在解锁后可读取；首次从非 WAL 数据库初始化及两种屏幕尺寸的完整合成原生流程也通过，见 [600×800](validation-assets/2026-11-21/finish-readonly-600.json) 和 [KO2 尺寸](validation-assets/2026-11-21/finish-readonly-ko2.json)。这验证了一个可复现的故障机制和修复效果，不能证明之前偶发异常必然由同一机制造成；实体设备和真实账号写后读取未在此轮测试。

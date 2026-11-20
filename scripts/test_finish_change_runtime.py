@@ -37,6 +37,15 @@ def main():
                 str(profile/'plugins/weread.koplugin'),str(Path(temporary)/'membership-queue-smoke')],env,b'',args.koreader.resolve(),timeout=60)
             if code or repaint or b'PASS: offline membership queue SQLite' not in out:raise ValueError('membership_queue_store')
             report['membership_queue_store_verified']=True
+            for mode in ('guard','exclusive'):
+                code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/finish_store_contention_probe.lua'),
+                    str(profile/'plugins/weread.koplugin'),str(Path(temporary)/('contention-'+mode)),mode],
+                    env,b'',args.koreader.resolve(),timeout=60)
+                if code or repaint:raise ValueError('journal_contention_'+mode)
+                counts=json.loads(out.splitlines()[-1])
+                if counts.get('success')!=(1 if mode=='guard' else 0) or counts.get('storage')!=(0 if mode=='guard' else 1):
+                    raise ValueError('journal_contention_'+mode)
+                report['journal_contention_'+mode+'_verified']=True
             for mode in ('live','reopen','offline_reopen','retry_reopen'):
                 code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/finish_change_ui_probe.lua'),mode],env,b'',args.koreader.resolve(),timeout=300)
                 if len(out)>4*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_frame')
