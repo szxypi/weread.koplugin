@@ -22,6 +22,7 @@ local FileIdentity = require("weread.lib.book_file_identity")
 local DownloadDialog = require("weread.ui.download_dialog")
 local Footnotes = require("weread.lib.footnotes")
 local I18n = require("weread.lib.i18n")
+local ReadAccess = require("weread.lib.read_access")
 local StandbyGuard = require("weread.lib.standby_guard")
 local WeRead = require("weread.lib.protocol")
 local WorkerSettings = require("weread.lib.worker_settings")
@@ -448,7 +449,7 @@ function Downloader:_applyPrefetchResult(dl, result)
     local uid = tostring(value.chapter_uid or chapter.chapterUid
         or chapter.chapterId or "1")
     local books = self.settings:get("books", {})
-    local record = books[book_id] or books[tonumber(book_id)] or {}
+    local record = ReadAccess.cached_key(books,book_id) or {}
     local function apply(target)
         target.cached_chapters = target.cached_chapters or {}
         target.cached_chapters[uid] = value.path

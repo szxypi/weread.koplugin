@@ -56,6 +56,32 @@ assert(recent_view.books[1].bookId=='9007199254740993' and recent_view.books[1].
 plugin:closeWeReadUI()
 plugin.library_db.accountKey=account_key;plugin.library_db.getShelf=shelf_read;plugin.library_db.getShelfArchives=archives_read
 plugin.settings.get=settings_read
+-- The same safe book identity rule protects prefetch and annotation lookup.
+local cache_path=evidence..'/synthetic-prefetch.epub'
+local cache_file=assert(io.open(cache_path,'wb'));assert(cache_file:write('synthetic'));cache_file:close()
+local foreign={title='Other book',cached_chapters={['1']='/synthetic/original.epub'}}
+local prefetch_books={[9007199254740992]=foreign}
+local fake_settings={get=function() return prefetch_books end,set=function() end,flush=function() end}
+local downloader=require('weread.lib.downloader'):new{settings=fake_settings,refresh_shelf=function() end}
+local download={book={book_id='9007199254740993'},chapters={{chapterUid='2'}},prefetch=true}
+downloader._active_job=download
+downloader:_applyPrefetchResult(download,{ok=true,value={path=cache_path,chapter_uid='2'}})
+assert(foreign.cached_chapters['2']==nil and prefetch_books['9007199254740993']~=foreign
+    and prefetch_books['9007199254740993'].book_id=='9007199254740993','prefetch modified a different legacy book')
+local Controller=require('weread.ui.annotation_sync_controller')
+local annotation_path='/synthetic/document.epub'
+foreign.annotation_documents={[annotation_path]={clean=true,chapters={}}}
+local annotation_store={documentKey=function(value) return value end,get=function() return nil end,
+    importLegacy=function() end,reconcileRanges=function() return {} end}
+local annotation_host={ui={document={file=annotation_path,getToc=function() return {} end}},
+    settings={get=function() return {[9007199254740992]=foreign} end},
+    _annotationBinding=function() return {book_id='9007199254740993',automatic=true} end,
+    _annotationStore=function() return annotation_store end,_xpointerOverlayPrototypeAvailable=function() return true end}
+for key,value in pairs(Controller) do if annotation_host[key]==nil then annotation_host[key]=value end end
+assert(not annotation_host:_usesUnifiedAnnotations(),'foreign annotation descriptor activated')
+local annotation_context=assert(annotation_host:_prepareAnnotationContext(false))
+assert(annotation_context.book==nil and annotation_context.descriptor==nil and #annotation_context.catalog==0,
+    'foreign annotation data was associated with a different book')
 local function tick() UI:setInputTimeout(0);UI:handleInput();socket.sleep(.005) end
 local function pump(predicate)
     local deadline=socket.gettime()+20
@@ -382,7 +408,7 @@ if mode=='live' then
 end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
-report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.recent_identity=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
+report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.recent_identity=true;report.prefetch_identity=true;report.annotation_identity=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
 report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

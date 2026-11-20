@@ -240,6 +240,27 @@ for _,valid in ipairs({true,false}) do
     expect(completed==1 and opened==(valid and 1 or 0) and test_book.cached_chapters['2']==temp_path,
         'late promoted prefetch did not cache safely or opened a stale selection')
 end
+do
+    local foreign={title='other legacy book',cached_chapters={['1']='/original.epub'}}
+    local books={[9007199254740992]=foreign}
+    local settings=fake_settings();settings:set('books',books)
+    local instance=Downloader:new{settings=settings,refresh_shelf=function() end}
+    local job={book={book_id='9007199254740993'},chapters={chapter_2},prefetch=true}
+    instance._active_job=job
+    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,chapter_uid='2'}})
+    expect(foreign.cached_chapters['2']==nil and foreign.title=='other legacy book'
+        and books['9007199254740993']~=foreign and books['9007199254740993'].book_id=='9007199254740993',
+        'large book ID aliased a different legacy cache during prefetch')
+end
+do
+    local legacy={book_id='42',title='legacy',cached_chapters={}}
+    local books={[42]=legacy};local settings=fake_settings();settings:set('books',books)
+    local instance=Downloader:new{settings=settings,refresh_shelf=function() end}
+    local job={book={book_id='42'},chapters={chapter_2},prefetch=true};instance._active_job=job
+    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,chapter_uid='2'}})
+    expect(books['42']==legacy and legacy.cached_chapters['2']==temp_path,
+        'prefetch lost a safe legacy numeric book key')
+end
 os.remove(temp_path)
 for _,case in ipairs({{'book_reading/web_expired\nstack traceback:','web_expired'},
     {'download_read/rate_limited\nstack traceback:','rate_limited'}}) do

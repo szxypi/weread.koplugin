@@ -1,0 +1,13 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "native_processes_per_size": 2,
+  "prefetch_result_application_checked": true,
+  "annotation_descriptor_lookup_checked": true,
+  "adjacent_large_id_not_aliased": true,
+  "safe_legacy_numeric_key_supported": true,
+  "background_download_and_reader_interaction_tested": false,
+  "network_requests": 0,
+  "physical_kindle_tested": false
+}
