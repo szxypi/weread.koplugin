@@ -250,6 +250,17 @@ local ok,reason=pcall(function()
         assert(plugin.library_db:cacheShelf(snapshot.books,snapshot.archive))
         dialog.cancel_callback()
         save_offline(false)
+        local queued=assert(offline.get(plugin,id))
+        assert(queued.title==input.expected_metadata.title)
+        plugin:cancelShelfState()
+        assert(require('weread.ui.offline_changes').show(plugin))
+        local menu=assert(plugin._offline_changes_menu)
+        local item
+        for _,entry in ipairs(menu.item_table) do
+            if entry.text==queued.title and entry.mandatory:find(tr('Pending sync'),1,true) then item=entry end
+        end
+        assert(item and item.mandatory:find(tr('Add to shelf'),1,true))
+        item.callback();assert(plugin._shelf_state_menu and not plugin._offline_changes_menu)
     end
     if input.permit_writes then
         report.phase='add'

@@ -20,12 +20,12 @@ function M.available(host,id)
     return membership and true or false,finished==true
 end
 
-function M.change(host,id,module,current,owner)
+function M.change(host,id,module,current,owner,title)
     -- A second activation must not cancel an existing status/change flow.
     if not current() or host._shelf_state_menu or not host:showShelfState(id) then return false end
     local menu=host._shelf_state_menu
     if not current() or not menu or owner and not Popup.current(owner,menu) then return false end
-    return require(module).open(host,id)
+    return require(module).open(host,id,nil,title)
 end
 
 function M.open(host,owner,book,current)
@@ -53,7 +53,7 @@ function M.open(host,owner,book,current)
         {{text=_('Book details'),callback=action(function() host:showBookRecord(book) end)}},
     }
     if membership then buttons[#buttons+1]={{text=_('Change cloud membership'),callback=action(function()
-        M.change(host,id,'weread.ui.shelf_membership_write',current,owner)
+        M.change(host,id,'weread.ui.shelf_membership_write',current,owner,book.title)
     end)}} end
     if finished then buttons[#buttons+1]={{text=_('Change finished mark'),callback=action(function()
         M.change(host,id,'weread.ui.finish_change',current,owner)

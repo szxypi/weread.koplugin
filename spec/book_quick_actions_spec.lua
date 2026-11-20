@@ -11,7 +11,7 @@ package.preload['weread.lib.protocol']=function() return {is_mp_book=function(id
 package.preload['weread.lib.shelf_membership_write']=function() return {book_id=function(id)
     return id:match('^[1-9]%d*$') and #id<=20 and id or nil
 end} end
-package.preload['weread.ui.shelf_membership_write']=function() return {open=function(host,id) host.membership=id end} end
+package.preload['weread.ui.shelf_membership_write']=function() return {open=function(host,id,_resolving,title) host.membership=id;host.saved_title=title end} end
 package.preload['weread.ui.finish_change']=function() return {open=function(host,id) host.finished=id end} end
 local Quick=require('weread.ui.book_quick_actions')
 local Popup=require('weread.ui.shelf_popup')
@@ -86,6 +86,7 @@ for _,entry in ipairs({{'Change cloud membership','membership'},{'Change finishe
     local button=assert(by_label(o._shelf_popup,entry[1]));button.callback();flush()
     expect(h[entry[2]]=='42' and h.status=='42' and o._shelf_popup==h._shelf_state_menu,
         'shortcut did not open its owned status and controller')
+    if entry[2]=='membership' then expect(h.saved_title=='Test','selected title was not passed to membership flow') end
     button.callback();flush();expect(h[entry[2]]=='42','stale shortcut ran again')
 end
 do

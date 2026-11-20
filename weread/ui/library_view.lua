@@ -780,6 +780,7 @@ local LibraryView = FocusManager:extend{
     on_import_mp_link = nil,
     on_imported_mp_links = nil,
     on_manage_mp_accounts = nil,
+    on_offline_changes = nil,
     on_select = nil,
     on_hold = nil,
     store_details = false,
@@ -1149,6 +1150,9 @@ function LibraryView:showOptions()
         if self.on_manage_mp_accounts then
             buttons[#buttons + 1] = {{text = _("Manage public account subscriptions"), callback = action(self.on_manage_mp_accounts)}}
         end
+    end
+    if self.on_offline_changes then
+        buttons[#buttons+1]={{text=_('Offline changes'),callback=action(self.on_offline_changes)}}
     end
     if not self.cover_mode then
         local row = {}
@@ -1593,6 +1597,7 @@ function M.show(data, callbacks)
         on_import_mp_link = callbacks.on_import_mp_link,
         on_imported_mp_links = callbacks.on_imported_mp_links,
         on_manage_mp_accounts = callbacks.on_manage_mp_accounts,
+        on_offline_changes = callbacks.on_offline_changes,
         on_select = callbacks.on_select,
         on_hold = callbacks.on_hold,
         on_page_changed = callbacks.on_page_changed,

@@ -10,6 +10,10 @@ local function queue(host)
     end
     return host._finish_offline_queue
 end
+function M.list(host)
+    if not host.library_db or not host.library_db.open then return nil,'storage' end
+    return queue(host):list()
+end
 function M.get(host,id)
     if not host.library_db or not host.library_db.open then return nil end
     return queue(host):get(id)

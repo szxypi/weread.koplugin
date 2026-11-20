@@ -10,6 +10,10 @@ local function queue(host)
     end
     return host._membership_offline_queue
 end
+function M.list(host)
+    if not host.library_db or not host.library_db.open then return nil,'storage' end
+    return queue(host):list()
+end
 function M.get(host,id)
     if not host.library_db or not host.library_db.open then return nil end
     return queue(host):get(id)
@@ -87,7 +91,7 @@ function M.pump(host)
     end
     return host._membership_offline_sync:pump()
 end
-function M.open(host,id)
+function M.open(host,id,title)
     local owner=scope(host)
     if not current(host,owner) then return false end
     local pending,reason=queue(host):get(id)
@@ -119,7 +123,16 @@ function M.open(host,id)
         if pending then saved=queue(host):remove(pending)
         else
             local valid,fresh=pcall(host.library_db.getShelfStatus,host.library_db,id)
-            if valid and type(fresh)=='table' and fresh.present==before and current(host,owner) then saved=queue(host):put(id,before,not before) end
+            if valid and type(fresh)=='table' and fresh.present==before and current(host,owner) then
+                local ok_book,book=pcall(function()
+                    return host.library_db.getBook and host.library_db:getBook(id)
+                end)
+                local saved_title=title
+                if type(saved_title)~='string' or saved_title=='' then
+                    saved_title=ok_book and type(book)=='table' and book.title or nil
+                end
+                saved=queue(host):put(id,before,not before,nil,saved_title)
+            end
         end
         if not saved then host:showInfo(_('Could not save the offline change. Refresh the bookshelf and try again.'));return end
         require('weread.ui.shelf_state').show(host,id)

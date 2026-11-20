@@ -1,6 +1,7 @@
 -- Account-local offline bookshelf membership intents. A claimed intent is never
 -- automatically returned to the queue: its write may already have happened.
 local Contract = require('weread.lib.shelf_membership_write')
+local Protocol = require('weread.lib.protocol')
 local M = {}; M.__index = M
 local LIMIT = 1000
 
@@ -25,10 +26,14 @@ end
 local function valid_integer(value)
     return type(value) == 'number' and value >= 0 and value % 1 == 0 and value <= 9007199254740990
 end
+local function valid_title(value)
+    return type(value)=='string' and #value<=1024 and not value:find('[%z%c]')
+        and Protocol.utf8_substr(value,#value+1)==value
+end
 local function row(value, account)
     if not value then return nil end
     local result = {book_id=value[1], id=value[2], before=tonumber(value[3]), desired=tonumber(value[4]),
-        phase=value[5], created_at=tonumber(value[6]), account=account}
+        phase=value[5], created_at=tonumber(value[6]), account=account, title=valid_title(value[7]) and value[7] or ''}
     assert(Contract.book_id(result.book_id) and token(result.id) and (result.before==0 or result.before==1)
         and (result.desired==0 or result.desired==1) and result.before~=result.desired
         and (result.phase=='queued' or result.phase=='dispatching' or result.phase=='conflict')
@@ -41,8 +46,10 @@ local function matches(value, expected, phase)
         and value.id==expected.id and value.before==expected.before and value.desired==expected.desired
         and value.created_at==expected.created_at and value.phase==expected.phase and (not phase or value.phase==phase)
 end
+local SELECT=[[SELECT q.book_id,q.token,q.before_value,q.desired_value,q.phase,q.created_at,l.title
+    FROM membership_offline_queue q LEFT JOIN membership_offline_labels l ON l.book_id=q.book_id AND l.token=q.token]]
 local function read(db, account, id)
-    return row(statement(db, 'SELECT book_id,token,before_value,desired_value,phase,created_at FROM membership_offline_queue WHERE book_id=?', id), account)
+    return row(statement(db, SELECT..' WHERE q.book_id=?', id), account)
 end
 local function run(self, write, callback)
     local account = self.library:accountKey()
@@ -55,6 +62,9 @@ local function run(self, write, callback)
         db:exec([[CREATE TABLE IF NOT EXISTS membership_offline_queue (
             book_id TEXT PRIMARY KEY, token TEXT NOT NULL, before_value INTEGER NOT NULL,
             desired_value INTEGER NOT NULL, phase TEXT NOT NULL, created_at INTEGER NOT NULL
+        ) WITHOUT ROWID]])
+        db:exec([[CREATE TABLE IF NOT EXISTS membership_offline_labels (
+            book_id TEXT PRIMARY KEY, token TEXT NOT NULL, title TEXT NOT NULL
         ) WITHOUT ROWID]])
         if write then db:exec('BEGIN IMMEDIATE'); transaction = true end
         assert(self.library:accountKey()==account, 'membership_queue/account')
@@ -77,7 +87,7 @@ function M:get(id)
 end
 function M:list()
     return run(self, false, function(db, account)
-        local query=db:prepare('SELECT book_id,token,before_value,desired_value,phase,created_at FROM membership_offline_queue ORDER BY created_at,book_id LIMIT 1001')
+        local query=db:prepare(SELECT..' ORDER BY q.created_at,q.book_id LIMIT 1001')
         local ok, result=pcall(function()
             local entries={}; local value=query:step()
             while value do
@@ -92,7 +102,8 @@ function M:list()
 end
 -- New intent requires no existing row. Replacing a queued/conflict intent or
 -- discarding any intent uses its exact token and phase as a compare-and-swap.
-function M:put(id, before, desired, expected)
+function M:put(id, before, desired, expected, title)
+    title=valid_title(title) and title or ''
     if not Contract.book_id(id) or type(before)~='boolean' or type(desired)~='boolean' or before==desired then return nil, 'invalid' end
     local id_token=self.nonce(); local created=self.now()
     if not token(id_token) or not valid_integer(created) then return nil, 'storage' end
@@ -110,8 +121,12 @@ function M:put(id, before, desired, expected)
             VALUES(?,?,?,?,?,?) ON CONFLICT(book_id) DO UPDATE SET token=excluded.token,before_value=excluded.before_value,
             desired_value=excluded.desired_value,phase=excluded.phase,created_at=excluded.created_at]],
             id,id_token,before and 1 or 0,desired and 1 or 0,'queued',created)
+        statement(db, 'DELETE FROM membership_offline_labels WHERE book_id=?',id)
+        if title~='' then
+            statement(db, 'INSERT INTO membership_offline_labels(book_id,token,title) VALUES(?,?,?)',id,id_token,title)
+        end
         local saved=read(db,account,id)
-        assert(saved and saved.id==id_token and saved.before==before and saved.desired==desired and saved.phase=='queued', 'membership_queue/readback')
+        assert(saved and saved.id==id_token and saved.before==before and saved.desired==desired and saved.phase=='queued' and saved.title==title, 'membership_queue/readback')
         return saved
     end)
 end
@@ -142,6 +157,7 @@ function M:remove(expected)
     return run(self, true, function(db, account)
         local previous=read(db,account,expected and expected.book_id or '')
         assert(matches(previous,expected), 'membership_queue/replaced')
+        statement(db,'DELETE FROM membership_offline_labels WHERE book_id=?',previous.book_id)
         statement(db,'DELETE FROM membership_offline_queue WHERE book_id=?',previous.book_id)
         assert(not read(db,account,previous.book_id), 'membership_queue/readback')
         return true

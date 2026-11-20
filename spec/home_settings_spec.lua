@@ -83,6 +83,11 @@ host:showHomeQuickSettings()
 find(host._home_controls_menu.items,'Search options').callback()
 expect(host._home_controls_menu.title=='Search options','quick settings search entry failed')
 host:closeHomeControls(false)
+local offline_opened
+package.loaded['weread.ui.offline_changes']={show=function(selected) offline_opened=selected end}
+host:showHomeQuickSettings()
+find(host._home_controls_menu.items,'Offline changes').callback()
+expect(offline_opened==host and not host._home_controls_menu,'quick settings offline changes entry failed')
 host:showHomeLayoutSettings()
 find(host._home_controls_menu.items, "Home book display").sub_item_table[2].callback()
 expect(preferences.view_mode == "list" and redraws == 1 and saves == 1, "home view preference did not persist and redraw")

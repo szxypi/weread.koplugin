@@ -69,6 +69,40 @@ return function(reader,plugin,pump,shot,clean_popups)
         local queued=assert(require('weread.ui.membership_offline').get(plugin,id))
         assert(queued.before==expected_before and queued.desired~=expected_before and queued.phase=='queued')
         assert(writes()==old,'offline change sent before reconnect')
+        local extra_member,extra_finish,member_queue,finish_queue
+        local long_title=string.rep('合成长书名',15)
+        if expected_before then
+            member_queue=require('weread.lib.membership_queue_store'):new(plugin.library_db)
+            finish_queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
+            extra_member=assert(member_queue:put('987654321',false,true,nil,long_title))
+            extra_finish=assert(finish_queue:put('987654322',false,true))
+        end
+        clean_popups(reader)
+        assert(require('weread.ui.offline_changes').show(plugin))
+        local changes=assert(plugin._offline_changes_menu)
+        if expected_before then
+            local saw_long,saw_finish=false,false
+            for _,item in ipairs(changes.item_table) do
+                saw_long=saw_long or item.text==long_title and item.mandatory:find(tr('Add to shelf'),1,true)~=nil
+                saw_finish=saw_finish or item.mandatory:find(tr('Mark finished'),1,true)~=nil
+            end
+            assert(#changes.item_table==3 and saw_long and saw_finish,'mixed offline change list lost items or labels')
+            shot('offline-changes')
+            assert(member_queue:remove(extra_member) and finish_queue:remove(extra_finish))
+        end
+        local selected
+        for _,item in ipairs(changes.item_table) do
+            if item.text==queued.title and queued.title~='' and item.mandatory:find(tr('Pending sync'),1,true) then selected=item end
+        end
+        assert(selected and selected.mandatory:find(tr(expected_before and 'Remove from shelf' or 'Add to shelf'),1,true),
+            'offline change was not visible by title and requested action')
+        selected.callback();assert(plugin._shelf_state_menu and not plugin._offline_changes_menu)
+        assert(row('In cloud bookshelf').mandatory:find(tr('Pending sync'),1,true),'selected offline status was not shown')
+        row('Change cloud membership').callback();assert(plugin._membership_offline_dialog).ok_callback()
+        assert(not require('weread.ui.membership_offline').get(plugin,id) and writes()==old,
+            'canceling saved change sent a request or left the intent')
+        row('Change cloud membership').callback();assert(plugin._membership_offline_dialog).ok_callback()
+        assert(require('weread.ui.membership_offline').get(plugin,id) and writes()==old,'offline change could not be saved again')
         clean_popups(reader);plugin.isNetworkConnected=function() return true end
         require('weread.ui.membership_offline').pump(plugin)
         pump(function() return not require('weread.ui.membership_offline').get(plugin,id) end)

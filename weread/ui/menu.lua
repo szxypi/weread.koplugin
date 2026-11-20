@@ -140,6 +140,10 @@ function M:getMainMenuItems()
             end),
         },
         {
+            text = _('Offline changes'),
+            callback = self:safeCallback(_('Offline changes'), function() require('weread.ui.offline_changes').show(self) end),
+        },
+        {
             text = _("Imported books"),
             callback = self:safeCallback(_("Imported books"), function()
                 self:showImportedBooks()

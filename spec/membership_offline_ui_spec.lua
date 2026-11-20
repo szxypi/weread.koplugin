@@ -20,7 +20,8 @@ local function fixture()
     function host.shelf_membership:pending() return s.pending,s.pending_error end
     host._membership_offline_queue={
         get=function() return s.entry end,
-        put=function(_self,id,before,desired)
+        put=function(_self,id,before,desired,_expected,title)
+            s.saved_title=title
             if s.entry then return nil end
             s.entry={book_id=id,before=before,desired=desired,phase='queued'};return s.entry
         end,
@@ -28,9 +29,12 @@ local function fixture()
     }
     return host,s
 end
-local host,s=fixture();expect(Offline.open(host,'41'),'offline add not offered')
+local host,s=fixture();expect(Offline.open(host,'41','Test title'),'offline add not offered')
 expect(not s.entry,'offline action saved before confirmation');UI.top.ok_callback()
-expect(s.entry and not s.entry.before and s.entry.desired and host.shown=='41','offline add not saved')
+expect(s.entry and not s.entry.before and s.entry.desired and host.shown=='41' and s.saved_title=='Test title','offline add or title not saved')
+local titled,st=fixture();function titled.library_db:getBook() return {title='Older cached title'} end
+expect(Offline.open(titled,'41','Fresh selected title'),'selected-title confirmation missing');UI.top.ok_callback()
+expect(st.saved_title=='Fresh selected title','stale cached title replaced selected title')
 expect(Offline.open(host,'41'),'queued action not offered');UI.top.ok_callback();expect(not s.entry,'queued action not cancelled')
 host,s=fixture();s.present=true;expect(Offline.open(host,'41'),'offline removal not offered');UI.top.ok_callback()
 expect(s.entry and s.entry.before and not s.entry.desired,'offline removal not saved')

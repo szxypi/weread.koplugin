@@ -47,7 +47,7 @@ local function redraw_account_shelf(host,account,saved)
         host:showShelfView('public_account',host.shelf_search_keyword,view,{page=view.page})
     end
 end
-function M.open(host,id,resolving)
+function M.open(host,id,resolving,suggested_title)
     local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(host) end
     local membership_offline=require('weread.ui.membership_offline')
     membership_offline.cancel_sync(host)
@@ -55,7 +55,7 @@ function M.open(host,id,resolving)
     if not resolving then
         local pending,reason=membership_offline.get(host,id)
         if reason then host:showInfo(_('Could not read offline bookshelf changes.'));return false end
-        if pending or not host:isNetworkConnected() then return membership_offline.open(host,id) end
+        if pending or not host:isNetworkConnected() then return membership_offline.open(host,id,suggested_title) end
     end
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     local private_pending,private_error=require('weread.ui.shelf_flag_change').pending(host)

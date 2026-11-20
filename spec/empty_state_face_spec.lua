@@ -559,6 +559,17 @@ selector_view:showOptions()
 options_dialog=shown[#shown]
 options_dialog.buttons[4][2].callback()
 expect(display_key == "paginated" and display_value == false, "continuous-list option is missing")
+local offline_opened=false
+selector_view.on_offline_changes=function() offline_opened=true end
+selector_view:showOptions();options_dialog=shown[#shown]
+local offline_button
+for _,row in ipairs(options_dialog.buttons) do for _,button in ipairs(row) do
+    if button.text=='Offline changes' then offline_button=button end
+end end
+expect(offline_button~=nil,'offline changes option missing from shelf')
+offline_button.callback()
+expect(offline_opened,'shelf offline changes option did not open')
+selector_view.on_offline_changes=nil
 selector_view.groups = {}
 for i = 1, 11 do selector_view.groups[i] = { key = tostring(i), label = tostring(i), books = {} } end
 selector_view:showSourceMenu()

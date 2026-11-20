@@ -1,6 +1,16 @@
 local I18n = {}
 
 local zh = {
+    ["Add to shelf"] = "加入书架",
+    ["Remove from shelf"] = "移出书架",
+    ["Offline changes"] = "离线修改",
+    ["Could not read offline changes."] = "无法读取离线修改。",
+    ["Sign in to view offline changes."] = "请登录后查看离线修改。",
+    ["No offline changes."] = "没有离线修改。",
+    ["Book ID: %1"] = "书籍编号：%1",
+    ["Mark finished"] = "标记读完",
+    ["Mark unfinished"] = "标记未读完",
+    ["Offline changes have changed. The list was refreshed."] = "离线修改已发生变化，列表已刷新。",
     ["Offline bookshelf change synced."] = "离线书架修改已同步。",
     ["An offline bookshelf change needs review. It will not be sent again."] = "离线书架修改需要核对，不会自动重发。",
     ["Offline bookshelf change needs E-Ink authorization. Renew it, then refresh the bookshelf."] = "离线书架修改需要墨水屏授权，请续期后刷新书架。",

@@ -158,6 +158,8 @@ function M:closeWeReadUI()
     if gateway_reviews then gateway_reviews.cancel(self) end
     local notebooks=package.loaded['weread.ui.notebook_catalog']
     if notebooks then notebooks.cancel(self) end
+    local offline_changes=package.loaded['weread.ui.offline_changes']
+    if offline_changes then offline_changes.cancel(self) end
     local saved_searches=package.loaded['weread.ui.saved_searches']
     if saved_searches then saved_searches.cancel(self) end
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
@@ -931,6 +933,9 @@ function M:showShelfView(mode, keyword, old_view, options)
                 self:showShelfView(mode, keyword, view, options)
             end,{owner=view,is_current=current})
         end,
+        on_offline_changes = not options.on_select and function()
+            if current() then require('weread.ui.offline_changes').show(self) end
+        end or nil,
         on_import_mp_link = not options.on_select and function()
             if current() then require('weread.ui.mp_link').dialog(self,view,current) end
         end or nil,
