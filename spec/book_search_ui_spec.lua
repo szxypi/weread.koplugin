@@ -64,6 +64,19 @@ package.preload['weread.lib.book_search']=function() return {
         if fetch_mode=='fallback' and state.cursor.chapter=='1' then
             state.pages=state.pages+1;state.finished=true;return {hits={},finished=true}
         end
+        if fetch_mode=='manual_resume' then
+            local uid=state.cursor.chapter
+            local start=uid=='1' and 1 or (state.cursor.start or 0)==0 and 10 or 40
+            local key=uid..':'..start..':'..(start+4)
+            local hits={}
+            if not state.seen[key] then
+                state.seen[key]=true;state.hit_count=state.hit_count+1
+                hits[1]={chapter_uid=uid,start=start,finish=start+4,text='term',context='term context',source_verified=false}
+            end
+            state.pages=state.pages+1;state.cursor={chapter=uid,start=start,finish=start+4}
+            state.finished=uid~='1' and start==40
+            return {hits=hits,finished=state.finished}
+        end
         if fetch_mode=='merge' or fetch_mode=='interleave' then
             local candidates
             if fetch_mode=='interleave' then
@@ -475,6 +488,83 @@ expect(cb_owner.job and cb_owner.state.cursor.chapter=='2' and #cb_owner.value==
 active_worker:complete();assert(action('Load more results')).callback();active_worker:complete()
 expect(cb_owner.state.finished and cb_owner.state.pages==5 and #cb_owner.value==4,
     'shared results or global page count changed after resuming both searches')
+Search.cancel(host)
+
+local three_chapters={{chapterUid='1',title='First'},{chapterUid='2',title='Second'},{chapterUid='3',title='Third'}}
+fetch_mode='manual_resume';expect(Search.open(host,'CB_Synthetic',three_chapters,'1'),'resumable chapter search did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();original=cb_owner.state
+local function choose(index)
+    assert(action('Search from another chapter')).callback()
+    local choice=assert(cb_owner.menu._shelf_popup).item_table[index]
+    assert(choice);choice.callback();return choice
+end
+choose(2);active_worker:complete();local saved_second=cb_owner.state
+assert(action('Return to previous search')).callback()
+expect(cb_owner.manual_cursors['2'].state==saved_second and saved_second.seen==nil
+    and saved_second.cursor.start==10 and saved_second.order==original.order,
+    'unfinished chapter cursor was not parked without duplicating shared search state')
+choose(3);active_worker:complete();assert(action('Return to previous search')).callback()
+expect(cb_owner.manual_cursors['2'] and cb_owner.manual_cursors['3'] and cb_owner.state.pages==3,
+    'second chapter search overwrote the first saved cursor or global page count')
+assert(action('Search from another chapter')).callback();picker=assert(cb_owner.menu._shelf_popup)
+expect(picker.item_table[2].mandatory=='Continue' and picker.item_table[3].mandatory=='Continue',
+    'resumable chapters were not identified in the picker')
+picker.item_table[2].callback()
+expect(cb_owner.state==saved_second and cb_owner.state.cursor.start==10 and cb_owner.state.pages==3
+    and cb_owner.state.seen==original.seen,'resumed chapter did not reuse its cursor and latest deduplication state')
+active_worker:complete()
+expect(not cb_owner.manual_origin and not cb_owner.manual_cursors['2'] and cb_owner.manual_cursors['3']
+    and cb_owner.state==original and cb_owner.state.pages==4 and #cb_owner.value==4,
+    'completed chapter did not return to the original search or clear its saved cursor')
+choose(3);expect(cb_owner.state.cursor.start==10,'another saved chapter lost its own cursor')
+active_worker:complete()
+expect(cb_owner.state==original and cb_owner.state.pages==5 and #cb_owner.value==5
+    and not cb_owner.manual_cursors['3'],'multiple chapter cursors did not resume independently')
+Search.cancel(host)
+
+fetch_mode='manual_resume';expect(Search.open(host,'CB_Synthetic',two_chapters,'1'),'cancelled resume did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();choose(2);active_worker:complete();assert(action('Return to previous search')).callback()
+choose(2);local resumed_worker=active_worker;host.busy_message.cancel();assert(action('Return to previous search')).callback()
+expect(cb_owner.manual_cursors['2'] and cb_owner.manual_cursors['2'].state.cursor.start==10,
+    'cancelling a resumed page lost the previously confirmed cursor')
+resumed_worker:complete();choose(2)
+expect(cb_owner.state.cursor.start==10 and cb_owner.state.pages==2,'late cancelled worker advanced the resumed cursor')
+active_worker:complete();Search.cancel(host)
+
+fetch_mode='manual_resume';expect(Search.open(host,'CB_Synthetic',two_chapters,'1'),'renewal resume did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();choose(2);active_worker:complete();fetch_mode='expired'
+assert(action('Load more results')).callback();local before_manual_renewals=renewals;active_worker:complete()
+expect(renewals==before_manual_renewals+1 and cb_owner.recovery,'expired chapter did not begin one login recovery')
+pending_renewal.callback(false,'unavailable');assert(action('Return to previous search')).callback()
+expect(cb_owner.manual_cursors['2'] and cb_owner.manual_cursors['2'].recovery_attempted,
+    'failed chapter renewal was not retained with its cursor')
+cb_owner.recovery_state={};choose(2);active_worker:complete()
+expect(renewals==before_manual_renewals+1 and not cb_owner.recovery and cb_owner.state.cursor.start==10,
+    'reselecting the same page repeated automatic renewal')
+Search.cancel(host)
+
+fetch_mode='manual_resume';expect(Search.open(host,'CB_Synthetic',two_chapters,'1'),'manual page limit did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();cb_owner.state.pages=127;cb_owner.state.finished=true
+choose(2);active_worker:complete()
+assert(action('Return to previous search')).callback()
+expect(cb_owner.state.pages==128 and cb_owner.state.finished and cb_owner.limit_reached
+    and action('Search limit reached; results may be incomplete.') and not action('Search from another chapter')
+    and not (cb_owner.manual_cursors and cb_owner.manual_cursors['2']),
+    'unfinished selected chapter hid the shared page-limit warning')
+Search.cancel(host)
+
+fetch_mode='manual_resume';expect(Search.open(host,'CB_Synthetic',three_chapters,'1'),'parked page limit did not open')
+cb_input=assert(displayed);cb_input.input='term';cb_input.buttons[1][2].callback();cb_owner=assert(host._book_search_owner)
+active_worker:complete();choose(2);active_worker:complete();assert(action('Return to previous search')).callback()
+choose(3);active_worker:complete();cb_owner.manual_origin.state.finished=true;cb_owner.state.pages=127
+assert(action('Load more results')).callback();active_worker:complete()
+expect(cb_owner.state.pages==128 and cb_owner.state.finished and cb_owner.limit_reached
+    and action('Search limit reached; results may be incomplete.') and not cb_owner.manual_cursors,
+    'global limit hid an unfinished parked chapter or retained unusable cursors')
 Search.cancel(host)
 
 fetch_mode='interleave';expect(Search.open(host,'CB_Synthetic',two_chapters,'2'),'nested cursor search did not open')

@@ -139,7 +139,7 @@ render=function(host,owner)
             items[#items+1]={text=_('Search results may be incomplete for this book.'),select_enabled=false}
         end
         if owner.local_available then cached_option() end
-        if owner.state and not owner.state.finished and owner.state.pages>=128 then
+        if owner.state and owner.state.pages>=128 and (not owner.state.finished or owner.limit_reached) then
             items[#items+1]={text=_('Search limit reached; results may be incomplete.'),select_enabled=false}
         end
         if not owner.state and owner.retry then
@@ -179,6 +179,21 @@ restore_search=function(host,owner)
     if not saved or not owner.state or owner.job or owner.recovery or owner.navigation then return false end
     local completed=owner.state
     saved.state.pages=completed.pages;saved.state.seen=completed.seen;saved.state.hit_count=completed.hit_count
+    local unfinished=not completed.finished
+    if completed.pages>=128 then
+        if unfinished or not saved.state.finished or saved.primary_state and not saved.primary_state.finished
+            or saved.fallback_state and not saved.fallback_state.finished
+            or owner.manual_cursors and next(owner.manual_cursors) then owner.limit_reached=true end
+        owner.manual_cursors=nil
+    end
+    if unfinished and completed.pages<128 and (saved.resumed or completed.pages>saved.start_pages
+            or owner.recovery_state==completed) then
+        owner.manual_cursors=owner.manual_cursors or {}
+        owner.manual_cursors[saved.uid]={state=completed,recovery_attempted=owner.recovery_state==completed}
+        -- The current cursor owns the latest shared set. Parked cursors must
+        -- not retain old copies after later worker results replace that set.
+        completed.seen=nil
+    elseif owner.manual_cursors then owner.manual_cursors[saved.uid]=nil end
     owner.state=saved.state;owner.primary_state=saved.primary_state;owner.fallback_state=saved.fallback_state
     owner.manual_origin=nil;owner.fallback_attempted=true
     render(host,owner)
@@ -207,12 +222,17 @@ choose_chapter=function(host,owner)
         for index=(page-1)*size+1,last do
             local chapter=chapters[index]
             local uid=chapter.chapterUid
-            items[#items+1]={text=tostring(index)..'. '..chapter.title,callback=function()
+            local parked=owner.manual_cursors and owner.manual_cursors[uid]
+            items[#items+1]={text=tostring(index)..'. '..chapter.title,mandatory=parked and _('Continue') or '',callback=function()
                 if not valid(version) then return end
-                local target=Search.new(owner.id,owner.keyword,chapters,uid)
+                local target=parked and parked.state or Search.new(owner.id,owner.keyword,chapters,uid)
                 if not target then host:showInfo(_('Could not load this book\'s chapter list.'));return end
+                if parked and parked.recovery_attempted then owner.recovery_state=target end
+                if parked then owner.manual_cursors[uid]=nil end
                 target.pages=source.pages;target.seen=source.seen;target.hit_count=source.hit_count
-                owner.manual_origin={state=source,primary_state=owner.primary_state,fallback_state=owner.fallback_state}
+                target.order=source.order
+                owner.manual_origin={state=source,primary_state=owner.primary_state,fallback_state=owner.fallback_state,
+                    uid=uid,start_pages=source.pages,resumed=parked~=nil}
                 owner.primary_state=nil;owner.fallback_state=nil;owner.state=target;owner.fallback_attempted=true
                 Popup.close(owner.menu);render(host,owner);fetch_page(host,owner)
             end}
@@ -308,6 +328,9 @@ fetch_page=function(host,owner,recovered)
                 or 'Could not search this book. Check the network and try again.'
             owner.local_available=true;render(host,owner);host:showInfo(_(message));return
         end
+        -- The catalog order is immutable for this owner. Keep one shared map
+        -- rather than retaining a copy for every parked chapter cursor.
+        value.state.order=previous.order
         owner.state=value.state
         for _i,hit in ipairs(value.page.hits) do owner.value[#owner.value+1]=hit end
         if owner.fallback_attempted and #value.page.hits>0 then

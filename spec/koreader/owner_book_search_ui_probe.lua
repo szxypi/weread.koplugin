@@ -292,8 +292,24 @@ local ok,result=pcall(function()
         end
     end
     if input.current_fallback then
-        assert(not missing and #input.allowed==(input.early_resume and 3 or 2))
+        assert(not missing and #input.allowed==(input.selected_resume and 4 or input.early_resume and 3 or 2))
         local original_cursor
+        local function choose_chapter(resumed)
+            local picker=assert(owner.menu._shelf_popup);local chosen,chapter_index
+            for i,entry in ipairs(input.chapters) do if entry.chapterUid==input.chapter then chapter_index=i;break end end
+            assert(chapter_index)
+            for _i=1,math.floor((chapter_index-1)/40) do
+                local next_page
+                for _j,item in ipairs(picker.item_table) do
+                    if item.text==require('weread.lib.i18n').tr('Next chapters') then next_page=item end
+                end
+                assert(next_page);picker:onMenuSelect(next_page)
+            end
+            local label=tostring(chapter_index)..'. '..input.chapters[chapter_index].title
+            for _i,item in ipairs(picker.item_table) do if item.text==label then chosen=item end end
+            assert(chosen and (not resumed or chosen.mandatory==require('weread.lib.i18n').tr('Continue')))
+            picker:onMenuSelect(chosen)
+        end
         if input.early_fallback then
             wait(function() return owner.state and owner.state.pages==1 and not owner.job end)
             assert(not owner.state.finished and owner.fallback_state)
@@ -304,21 +320,7 @@ local ok,result=pcall(function()
                 if item.text==require('weread.lib.i18n').tr(label) then action=item end
             end
             assert(action);owner.menu:onMenuSelect(action)
-            if input.select_chapter then
-                local picker=assert(owner.menu._shelf_popup);local chosen,chapter_index
-                for i,entry in ipairs(input.chapters) do if entry.chapterUid==input.chapter then chapter_index=i;break end end
-                assert(chapter_index)
-                for _i=1,math.floor((chapter_index-1)/40) do
-                    local next_page
-                    for _j,item in ipairs(picker.item_table) do
-                        if item.text==require('weread.lib.i18n').tr('Next chapters') then next_page=item end
-                    end
-                    assert(next_page);picker:onMenuSelect(next_page)
-                end
-                local label=tostring(chapter_index)..'. '..input.chapters[chapter_index].title
-                for _i,item in ipairs(picker.item_table) do if item.text==label then chosen=item end end
-                assert(chosen);picker:onMenuSelect(chosen)
-            end
+            if input.select_chapter then choose_chapter(false) end
         end
         wait(function() return owner.fallback_attempted and owner.state.pages==2 and not owner.job end)
         if original_cursor then
@@ -337,8 +339,18 @@ local ok,result=pcall(function()
             elseif owner.primary_state then owner.menu:onMenuSelect(assert(action('Continue original search'))) end
             assert(owner.state.cursor.chapter==original_cursor.chapter and owner.state.cursor.start==original_cursor.start
                 and owner.state.cursor.finish==original_cursor.finish)
+            if input.selected_resume then
+                local saved=assert(owner.manual_cursors[input.chapter]).state.cursor
+                local expected=input.allowed[4]
+                assert(saved.chapter==expected.chapter and saved.start==expected.start and saved.finish==expected.finish)
+                owner.menu:onMenuSelect(assert(action('Search from another chapter')));choose_chapter(true)
+                wait(function() return owner.state.pages==3 and not owner.job end)
+                if owner.manual_origin then owner.menu:onMenuSelect(assert(action('Return to previous search'))) end
+                assert(owner.state.cursor.chapter==original_cursor.chapter and owner.state.cursor.start==original_cursor.start
+                    and owner.state.cursor.finish==original_cursor.finish)
+            end
             owner.menu:onMenuSelect(assert(action('Load more results')))
-            wait(function() return owner.state.pages==3 and not owner.job end)
+            wait(function() return owner.state.pages==(input.selected_resume and 4 or 3) and not owner.job end)
             assert(not owner.state.finished and (owner.state.cursor.chapter~=original_cursor.chapter
                 or owner.state.cursor.start~=original_cursor.start or owner.state.cursor.finish~=original_cursor.finish))
         end
@@ -420,7 +432,8 @@ local ok,result=pcall(function()
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(not plugin.progress_sync.verified and not plugin.read_report.job and counters[2]==0)
     if input.current_fallback then
-        local expected=input.early_resume and 3 or 2;assert(counters[0]==expected and counters[1]==expected)
+        local expected=input.selected_resume and 4 or input.early_resume and 3 or 2
+        assert(counters[0]==expected and counters[1]==expected)
     end
     wait(function() for _i,pid in ipairs(workers) do if not require('ffi/util').isSubProcessDone(pid) then return false end end;return true end)
     local value={result='PASS',native_menu=true,search_result_verified=true,source_navigation=true,

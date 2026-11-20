@@ -10,6 +10,7 @@ local current_fallback=os.getenv('WEREAD_TEST_SEARCH_CURRENT_FALLBACK')=='1'
 local fallback_merge=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_MERGE')=='1'
 local fallback_early=os.getenv('WEREAD_TEST_SEARCH_FALLBACK_EARLY')=='1'
 local select_chapter=os.getenv('WEREAD_TEST_SEARCH_SELECT_CHAPTER')=='1'
+local select_resume=os.getenv('WEREAD_TEST_SEARCH_SELECT_RESUME')=='1'
 local offline_fallback=os.getenv('WEREAD_TEST_SEARCH_OFFLINE_FALLBACK')=='1'
 local no_login_fallback=os.getenv('WEREAD_TEST_SEARCH_NO_LOGIN_FALLBACK')=='1'
 local empty_local=os.getenv('WEREAD_TEST_SEARCH_EMPTY_LOCAL')=='1'
@@ -316,11 +317,25 @@ if select_chapter then
     assert(owner.state==original and not owner.job,'cancelling the chapter picker changed the search')
     owner.menu:onMenuSelect(item('Search from another chapter'));picker=assert(owner.menu._shelf_popup)
     picker:onMenuSelect(picker.item_table[2])
-    wait(function() return owner.state==original and owner.state.pages==2 and not owner.job end)
-    assert(#owner.value==2 and owner.value[1].start<owner.value[2].start and owner.state.hit_count==2,
+    if select_resume then
+        wait(function() return owner.manual_origin and owner.state.pages==2 and not owner.job end)
+        local cursor=owner.state.cursor.start
+        assert(cursor>0 and #owner.value==2,'selected chapter did not retain its first page')
+        owner.menu:onMenuSelect(item('Return to previous search'))
+        assert(owner.state==original and owner.manual_cursors[second_uid].state.cursor.start==cursor)
+        owner.menu:onMenuSelect(item('Search from another chapter'));picker=assert(owner.menu._shelf_popup)
+        assert(picker.item_table[2].mandatory==tr('Continue'),'unfinished chapter was not marked for continuation')
+        UI:forceRePaint();Device.screen:shot(evidence..'/search-chapter-resume.png')
+        picker:onMenuSelect(picker.item_table[2])
+        assert(owner.state.cursor.start==cursor,'selected chapter restarted from its beginning')
+        wait(function() return owner.state==original and owner.state.pages==3 and not owner.job end)
+        assert(not owner.manual_cursors[second_uid] and #owner.value==3,'completed chapter cursor was retained')
+    else wait(function() return owner.state==original and owner.state.pages==2 and not owner.job end) end
+    assert(#owner.value==(select_resume and 3 or 2) and owner.value[1].start<owner.value[2].start
+        and owner.state.hit_count==(select_resume and 3 or 2),
         'selected chapter was not merged or original cursor was lost')
     owner.menu:onMenuSelect(item('Load more results'))
-    wait(function() return owner.state.pages==3 and owner.state.finished and not owner.job end)
+    wait(function() return owner.state.pages==(select_resume and 4 or 3) and owner.state.finished and not owner.job end)
     assert(#owner.value==3 and owner.value[3].start>owner.value[2].start,'original cursor could not continue')
     local expected=assert(require('weread.lib.book_search_target').project(bodies[second_uid],book_id,owner.value[1]))
     owner.menu:onMenuSelect(owner.menu.item_table[2])
@@ -333,8 +348,10 @@ if select_chapter then
     end)
     assert(reader.document:isXPointerInCurrentPage(assert(plugin.progress_sync.source_anchor).xpointer))
     assert(not plugin.progress_sync.verified and not plugin.read_report.job)
-    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode({result='PASS',pages=3,results=3,
-        selected_chapter=true,previous_cursor_preserved=true,verified_navigation=true,imported_search=true}))
+    local summary={result='PASS',pages=select_resume and 4 or 3,results=3,
+        selected_chapter=true,previous_cursor_preserved=true,verified_navigation=true,imported_search=true}
+    if select_resume then summary.selected_cursor_resumed=true end
+    print('\nWEREAD_BOOK_SEARCH_UI='..require('json').encode(summary))
     os.exit(0)
 end
 wait(function() return owner.state and owner.state.pages==1 and not owner.job end)

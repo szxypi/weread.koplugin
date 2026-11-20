@@ -21,15 +21,18 @@ from verify_owner_book_search_ui import invoke
 class BoundaryProbe(SearchProbe):
     first_chapter=None
     resume_cursor=None
+    selected_cursor=None
     def guard(self,stage,url,body):
-        if stage in {'segment_1_current','segment_1_first','segment_2_current','segment_2_first','early_next'}:
+        if stage in {'segment_1_current','segment_1_first','segment_2_current','segment_2_first','early_next','selected_next'}:
             # Reuse the exact same query validator, while retaining a distinct
             # one-shot budget for each segment and starting chapter.
             if not cb_id(self.book_id) or self.book_id not in self.allowed:raise ValueError('search_scope')
             expected=self.chapter if stage.endswith('_current') else self.first_chapter
             if stage=='early_next':expected=self.resume_cursor and self.resume_cursor.get('chapter')
+            if stage=='selected_next':expected=self.selected_cursor and self.selected_cursor.get('chapter')
             if (not expected or not isinstance(self.search_cursor,dict) or self.search_cursor.get('chapter')!=expected
-                    or stage=='early_next' and self.search_cursor!=self.resume_cursor):
+                    or stage=='early_next' and self.search_cursor!=self.resume_cursor
+                    or stage=='selected_next' and self.search_cursor!=self.selected_cursor):
                 raise ValueError('search_scope')
             synthetic=(self.book_id,'search_long');previous=self.used.pop(synthetic,None)
             try:super().guard('search_long',url,body)
@@ -89,12 +92,14 @@ def main(argv=None):
     parser.add_argument('--early',action='store_true',help='select a multipage sample for early current-chapter search')
     parser.add_argument('--early-resume',action='store_true',help='also independently check and resume the initial cursor')
     parser.add_argument('--select-chapter',action='store_true',help='exercise the chapter picker with the read-only early-resume sample')
+    parser.add_argument('--selected-resume',action='store_true',help='also resume the selected chapter cursor')
     parser.add_argument('--runtime',default='/validation/runtime/lib/koreader');parser.add_argument('--source',default='/source')
     parser.add_argument('--candidate',default='/validation/cb-fallback-600-v5/candidate.zip')
     args=parser.parse_args(argv);resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     if args.early_resume and not args.early:parser.error('--early-resume requires --early')
     if args.select_chapter and not (args.native_ui and args.early and args.early_resume):
         parser.error('--select-chapter requires --native-ui --early --early-resume')
+    if args.selected_resume and not args.select_chapter:parser.error('--selected-resume requires --select-chapter')
     if (not re.fullmatch('[A-Za-z0-9_.-]{1,128}',args.container)
             or any(not p.startswith('/') or '\x00' in p for p in (args.runtime,args.source,args.candidate))):parser.error('invalid isolated runtime')
     report={'result':'OFFLINE_ONLY','account_data_posts':0,'authentication_posts':0,'search_gets':0}
@@ -116,7 +121,7 @@ def main(argv=None):
             queries=(frequent_segment_queries(sample['source']) if args.early else segment_queries(sample['source'])) if sample['source_format']=='web_xhtml' else []
             for index,(keyword,expected) in enumerate(queries,1):
                 if restricted:break
-                pair={};first_cursor=None
+                pair={};first_cursor=None;selected_cursor=None
                 for role,uid in (('current',web.chapter),('first',str(chapters[0]['chapterUid']))):
                     if restricted:break
                     if role=='first' and uid==web.chapter:continue
@@ -140,10 +145,12 @@ def main(argv=None):
                                     matches.append((word.get('posBegin'),word.get('posEnd')))
                         row.update(response_valid=True,rows=len(rows),more=more==1,known_chapters=known,
                             target_found=bool(matches),target_matches_source=expected in matches)
-                        if role=='first' and rows:
+                        if rows:
                             last=rows[-1];uid=str(last.get('chapterUid'));start=last.get('posBegin');finish=last.get('posEnd')
                             if uid in ids and type(start) is int and type(finish) is int and 0<=start<finish:
-                                first_cursor={'chapter':uid,'start':start,'finish':finish}
+                                cursor={'chapter':uid,'start':start,'finish':finish}
+                                if role=='first':first_cursor=cursor
+                                else:selected_cursor=cursor
                     except PreflightError:
                         event=web.report['stages'][-1];row['http_status']=event.get('status',0)
                         if row['http_status'] in (401,429) or event.get('api_code') is not None:restricted=True
@@ -155,8 +162,9 @@ def main(argv=None):
                 if (candidate is None and 'current' in pair and 'first' in pair
                         and pair['current']['response_valid'] and pair['current']['target_matches_source']
                         and pair['first']['response_valid'] and first_usable and (args.early or not pair['first']['more'])
-                        and (not args.early_resume or first_cursor)):
-                    candidate=(sample,keyword,expected,first_cursor)
+                        and (not args.early_resume or first_cursor)
+                        and (not args.selected_resume or selected_cursor and pair['current']['more'])):
+                    candidate=(sample,keyword,expected,first_cursor,selected_cursor)
                 if args.early and candidate:break
             after=baseline_position(web.request('search_progress_after',pos_url),web.book_id)
             later,later_chapters=readable_chapters(web.request('search_catalog_after',BASE+'/web/book/chapterInfos',{'bookIds':[web.book_id]}),web.book_id)
@@ -167,7 +175,7 @@ def main(argv=None):
         if args.native_ui:
             phase='native_ui'
             if not candidate or restricted:raise ValueError('ui_no_sample')
-            sample,keyword,expected,next_cursor=candidate;web.book_id=sample['book_id'];web.chapter=sample['chapter_uid']
+            sample,keyword,expected,next_cursor,selected_cursor=candidate;web.book_id=sample['book_id'];web.chapter=sample['chapter_uid']
             web.psvts=sample['context']['psvts']
             pos_url=BASE+'/web/book/getProgress?'+urlencode({'bookId':web.book_id})
             before=baseline_position(web.request('ui_progress_before',pos_url),web.book_id)
@@ -194,9 +202,20 @@ def main(argv=None):
                         or not isinstance(next_page.get('results'),list)
                         or not 1<=len(next_page['results'])<=200):raise ValueError('ui_no_resume_sample')
                 allowed.append(next_cursor)
+            if args.selected_resume:
+                web.keyword=keyword;web.search_cursor=selected_cursor;web.selected_cursor=dict(selected_cursor)
+                web.search_url=BASE+'/web/book/search_v2?'+urlencode({'bookId':web.book_id,'chapterUid':selected_cursor['chapter'],
+                    'keyword':keyword,'posBegin':selected_cursor['start'],'posEnd':selected_cursor['finish'],'mode':'scrollDown','count':50})
+                report['search_gets']+=1
+                selected_page=web.request('selected_next',web.search_url)
+                if (type(selected_page.get('scrollDownHasMore')) is not int or selected_page['scrollDownHasMore'] not in (0,1)
+                        or not isinstance(selected_page.get('results'),list)
+                        or not 1<=len(selected_page['results'])<=200):raise ValueError('ui_no_resume_sample')
+                allowed.append(selected_cursor)
             payload=dict(owner=web.vid,cookies=cookies,book=web.book_id,chapter=web.chapter,chapters=safe,
                 source=sample['source'],keyword=keyword,start=expected[0],finish=expected[1],current_fallback=True,
-                early_fallback=args.early,early_resume=args.early_resume,select_chapter=args.select_chapter,allowed=allowed)
+                early_fallback=args.early,early_resume=args.early_resume,select_chapter=args.select_chapter,
+                selected_resume=args.selected_resume,allowed=allowed)
             for catalog_missing in ((False,) if args.early_resume else (False,True)):
                 payload['catalog_missing']=catalog_missing
                 for width,height,dpi in ((600,800,167),(1264,1680,300)):
