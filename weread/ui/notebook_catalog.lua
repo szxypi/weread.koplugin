@@ -17,6 +17,7 @@ local function current(host,owner)
         and owner.document==(host.ui and host.ui.document) and host.settings:auth_scope_matches(owner.scope)
 end
 local function stop(host,owner)
+    require('weread.ui.thought_editor').cancel(host,owner)
     require('weread.ui.notebook_search').cancel(host,owner)
     local context=owner.context;owner.context=nil
     if not context then return end
@@ -113,6 +114,9 @@ render=function(host,owner)
         local items={{text=_('Refresh my notebooks'),callback=function() if current(host,owner) then refresh(host,owner) end end},
             {text=_('Search all saved notes'),callback=function()
                 if current(host,owner) then require('weread.ui.notebook_search').prompt(host,owner,current) end
+            end},
+            {text=_('Local thought drafts'),callback=function()
+                if current(host,owner) then stop(host,owner);require('weread.ui.thought_editor').drafts(host,owner,current,render) end
             end}}
         if owner.value then
             local search_text=owner.search and Protocol.utf8_substr(owner.search,16) or ''

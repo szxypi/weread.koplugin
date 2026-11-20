@@ -1,0 +1,109 @@
+package.path='./?.lua;'..package.path
+local UI={}
+function UI:show(widget) self.top=widget end
+function UI:close(widget) if widget.onCloseWidget then widget:onCloseWidget() end end
+package.preload['ui/uimanager']=function() return UI end
+package.preload['ui/widget/menu']=function() return {new=function(_self,v) return v end} end
+package.preload['weread.lib.plugin_util']=function() return {tr=function(v) return v end} end
+package.preload['weread.lib.thought_edit_contract']=function() return {
+    reference_hash=function(_op,row) return row.hash end,valid_content=function(v) return type(v)=='string' and v~='' end,
+    key=function(v) return type(v)=='string' and v~='' end} end
+local state
+local function copy(value) local out={};for k,v in pairs(value) do out[k]=v end;return out end
+package.preload['weread.lib.thought_edit_store']=function() return {new=function() return {
+    draft=function(_self,key) if state.error then return nil,'storage' end;if state.draft and state.draft.draft_key==key then return copy(state.draft) end end,
+    drafts=function() return state.draft and {copy(state.draft)} or {} end,
+    save_draft=function(_self,_book,_operation,_reference,_base,_content,expected)
+        state.save_expected=expected;if state.save_failed then return nil end;return {token='new'} end,
+    delete_draft=function() return false end,
+} end,draft_key=function() return 'draft' end} end
+package.preload['weread.lib.my_cloud_marks_store']=function() return {new=function() return {} end} end
+package.preload['weread.lib.thought_edit_service']=function() return {new=function() return {cancel=function() end} end} end
+package.preload['weread.ui.mark_editor']=function() return {cancel=function() end} end
+package.preload['weread.lib.my_cloud_marks']=function() return {id=function(id) return id end} end
+package.preload['weread.lib.my_mark_target']=function() return {can_locate=function(row) return row and row.bookmarkId~=nil end} end
+package.preload['weread.lib.selection_reference']=function() return {
+    parse=function(v) return v=='selection' and {} or nil end,
+    valid=function(row,id) return row and row.source and row.source.book_id==id end,
+    restore=function() return state.restored end} end
+package.preload['weread.ui.thought_text']=function() return {
+    viewer=function(v) return v end,input=function(v) function v:getInputText() return self.input end;return v end} end
+package.preload['weread.lib.protocol']=function() return {utf8_substr=function(v) return v end} end
+package.preload['weread.lib.memory_worker']=function() return {new=function() return {
+    start=function(_self,task,callback) state.task=task;state.complete=callback;return not state.worker_failed end,
+    cancel=function() state.cancelled=true end} end} end
+package.preload['weread.ui.my_cloud_marks']=function() return {show=function(host,id,variant,options)
+    state.opened={id=id,variant=variant,options=options};host._my_marks_owner={id=id};return true end} end
+local Editor=require('weread.ui.thought_editor')
+local checks=0;local function expect(v,label) checks=checks+1;assert(v,label) end
+local function fixture()
+    state={draft={draft_key='draft',token='v1',book_id='42',operation='create',reference_id='mark',base_hash='original',content='Saved draft'}}
+    local host={client={},settings={},library_db={},ui={document={file='/unrelated'}}}
+    function host.library_db:accountKey() return 'account' end
+    function host.library_db:getChapters() return {} end
+    function host.settings:auth_scope_matches() return true end
+    function host.settings:get_book() return {book_id='42'} end
+    function host:showInfo(message) state.message=message end
+    function host:showInputDialog(widget) UI:show(widget) end
+    local owner={id='42',account='account',scope={},thoughts=false,menu={},value={updated={{bookmarkId='mark',markText='quote',hash='original'}}}}
+    host.owner=owner
+    local function current(h,o) return h.owner==o and not o.menu._shelf_closed end
+    return host,owner,current
+end
+local host,owner,current=fixture()
+expect(Editor.resume(host,owner,'draft','v1',current),'matching draft did not resume')
+expect(owner.editor and owner.editor.input.input=='Saved draft','draft text not restored')
+owner.editor.input.buttons[1][1].callback()
+expect(state.save_expected=='v1' and not owner.editor,'resumed draft did not save against the observed version')
+host,owner,current=fixture();state.draft=nil
+expect(Editor.start(host,owner,'create',owner.value.updated[1],current),'new draft editor did not open')
+owner.editor.input.input='New draft';owner.editor.input.buttons[1][1].callback()
+expect(state.save_expected==false and not owner.editor,'new draft save did not require an empty slot')
+host,owner,current=fixture();Editor.resume(host,owner,'draft','v1',current);state.save_failed=true
+owner.editor.input.buttons[1][1].callback()
+expect(owner.editor and state.message:find('changed elsewhere',1,true),'conflicting save closed the editor or hid the conflict')
+host,owner,current=fixture();state.draft.token='v2'
+expect(not Editor.resume(host,owner,'draft','v1',current) and not owner.editor and state.message:find('changed',1,true),'stale token opened editor')
+host,owner,current=fixture();state.draft.book_id='43'
+expect(not Editor.resume(host,owner,'draft','v1',current) and not owner.editor,'other-book record opened under wrong owner')
+host,owner,current=fixture();owner.value.updated[1].hash='different'
+expect(not Editor.resume(host,owner,'draft','v1',current) and not owner.editor and state.message:find('unavailable',1,true),'changed reference accepted')
+host,owner,current=fixture();state.error=true
+expect(not Editor.resume(host,owner,'draft','v1',current) and not owner.editor,'unreadable draft was opened')
+host,owner,current=fixture();state.draft.reference_id='selection';state.draft.base_hash='source';owner.value=nil
+expect(Editor.resume(host,owner,'draft','v1',current) and state.complete,'selection did not start source validation')
+state.complete({});expect(not owner.editor and state.message:find('unavailable',1,true),'missing source opened editor')
+host,owner,current=fixture();state.draft.reference_id='selection';state.draft.base_hash='source';owner.value=nil
+Editor.resume(host,owner,'draft','v1',current);host.owner={};state.complete({reference={selection=true,source={book_id='42'},bookmarkId='selection',hash='source'}})
+expect(not owner.editor or not owner.editor.input,'stale owner opened selection editor')
+host,owner,current=fixture();state.draft.reference_id='selection';state.draft.base_hash='source';owner.value=nil
+Editor.resume(host,owner,'draft','v1',current);state.complete({reference={selection=true,source={book_id='42'},bookmarkId='selection',hash='source'}})
+expect(owner.editor and owner.editor.input and owner.editor.input.input=='Saved draft','verified selection did not restore')
+host,owner,current=fixture();state.draft.reference_id='selection';state.draft.base_hash='source';owner.value=nil
+Editor.resume(host,owner,'draft','v1',current);state.draft.token='v2'
+state.complete({reference={selection=true,source={book_id='42'},bookmarkId='selection',hash='source'}})
+expect(not owner.editor and state.message:find('changed',1,true),'replacement during source validation opened stale draft')
+host,owner,current=fixture();owner.id='41';host._notebook_owner={child=owner}
+expect(Editor.drafts(host,owner,current),'cross-book draft list did not open')
+expect(owner.editor.dialog.item_table[1].mandatory=='Book ID 42','cross-book draft did not identify its book')
+owner.editor.dialog.item_table[1].callback();local viewer=owner.editor.dialog
+local button=viewer.buttons_table[1][2]
+expect(button.id=='resume_other_book_draft','cross-book resume not offered')
+button.callback()
+expect(state.opened and state.opened.id=='42' and state.opened.variant==nil and state.opened.options.resume_draft.token=='v1'
+    and host._notebook_owner.child==host._my_marks_owner,'cross-book handoff lost target or parent ownership')
+host,owner,current=fixture();state.draft.operation='edit';state.draft.reference_id='review';owner.thoughts=true
+owner.value={reviews={{reviewId='review',isPrivate=1,content='Original',hash='original'}}}
+expect(Editor.resume(host,owner,'draft','v1',current) and owner.editor.input.input=='Saved draft',
+    'matching edited-thought draft did not restore')
+host,owner,current=fixture();state.draft.operation='edit';state.draft.reference_id='review';owner.id='41'
+Editor.drafts(host,owner,current);owner.editor.dialog.item_table[1].callback();viewer=owner.editor.dialog
+viewer.buttons_table[1][2].callback()
+expect(state.opened and state.opened.variant=='thoughts' and state.opened.options.resume_draft.operation=='edit',
+    'cross-book edit draft opened the wrong notes list')
+host,owner,current=fixture();owner.thoughts=true;owner.value={reviews={}}
+Editor.drafts(host,owner,current);owner.editor.dialog.item_table[1].callback();viewer=owner.editor.dialog
+viewer.buttons_table[1][2].callback()
+expect(state.opened and state.opened.id=='42' and state.opened.variant==nil,
+    'same-book mark draft could not switch from the thoughts list')
+print('thought_draft_resume_spec: '..checks..' checks')

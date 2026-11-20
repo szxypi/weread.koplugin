@@ -42,6 +42,20 @@ expect(store:delete_draft(imported_draft),'imported draft could not be removed')
 draft=assert(store:save_draft('900001','edit','synthetic-note',C.row_hash(F.row()),'Draft old'))
 local previous=draft;draft=assert(store:save_draft('900001','edit','synthetic-note',C.row_hash(F.row()),'Draft replacement'))
 expect(not store:delete_draft(previous) and store:draft(draft.draft_key).content=='Draft replacement','old draft callback deleted replacement')
+expect(not store:save_draft('900001','edit','synthetic-note',C.row_hash(F.row()),'Unexpected create',false),
+    'expected-absent save overwrote an existing draft')
+expect(not store:save_draft('900001','edit','synthetic-note',C.row_hash(F.row()),'Stale edit',previous.token),
+    'stale draft token overwrote a newer version')
+expect(store:draft(draft.draft_key).token==draft.token,'rejected save changed the draft')
+counter[0],counter[1]=0,0
+local function save_race()
+    while counter[1]==0 do require('socket').sleep(.001) end
+    if store:save_draft('900001','edit','synthetic-note',C.row_hash(F.row()),'Concurrent edit',draft.token) then counter[0]=counter[0]+1 end
+end
+a=fork(save_race);b=fork(save_race);counter[1]=1;reap(a);reap(b)
+local current=assert(store:draft(draft.draft_key))
+expect(counter[0]==1 and current.token~=draft.token and current.content=='Concurrent edit','draft compare-and-save was not exclusive')
+draft=current
 record=assert(store:begin(metadata,scope,store:read().revision,draft))
 expect(store:finish(record,'prepared') and store:draft(draft.draft_key),'unsent cancellation deleted draft')
 expect(not store:claim(record),'cancelled child claimed later')

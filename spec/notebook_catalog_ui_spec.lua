@@ -127,4 +127,12 @@ row(menu,'Refresh my notebooks').callback();value.complete({native_expired=true}
 expect(renewals==1 and value.started==2 and host._notebook_owner.context,'expiry did not recover once')
 value.complete({native_expired=true})
 expect(renewals==1 and value.writes==0 and not host._notebook_owner.context and #value.notices==1,'repeated expiry renewed again')
+local original_editor=package.loaded['weread.ui.thought_editor'];local draft_owner
+package.loaded['weread.ui.thought_editor']={cancel=function() end,drafts=function(selected,owner,is_current)
+    if is_current(selected,owner) then draft_owner=owner end end}
+host,value=fixture();Catalog.show(host);menu=host._notebook_menu
+local draft_action=row(menu,'Local thought drafts').callback;draft_action()
+expect(draft_owner==host._notebook_owner and not value.started,'notebook did not open local drafts offline')
+draft_owner=nil;Catalog.cancel(host);draft_action();expect(not draft_owner,'closed notebook retained draft action')
+package.loaded['weread.ui.thought_editor']=original_editor
 print('PASS: notebook native UI lifecycle ('..checks..' checks)')

@@ -240,12 +240,12 @@ render=function(host,owner)
         owner.menu:switchItemTable(nil,items)
     end)
 end
-refresh=function(host,owner)
+refresh=function(host,owner,resume_draft)
     if not current(host,owner) or owner.context or owner.editor then return false end
     if not host:isNetworkOnline() then host:showOffline(_(owner.labels.title));return false end
     local access=owner.data.capture(host.settings)
     if not access then host:showInfo(_('Authorize or renew E-Ink login in settings, then try again.'));return false end
-    local context={};owner.context=context
+    local context={resume_draft=resume_draft,generation=owner.generation};owner.context=context
     local function valid()
         return current(host,owner) and owner.context==context
             and (context.renewing and Recovery.current(host.settings,access,owner.data.capture) or owner.data.matches(host.settings,access))
@@ -282,7 +282,11 @@ refresh=function(host,owner)
         if not saved or not success then host:showInfo(_(owner.labels.save_failed));return end
         local display=package.loaded['weread.ui.personal_marks']
         if display and not owner.thoughts then display.changed(host,value) end
+        local resume=context.resume_draft and owner.generation==context.generation and not owner.menu._shelf_popup
         owner.value=value;render(host,owner)
+        if resume and current(host,owner) and not owner.menu._shelf_popup then
+            require('weread.ui.thought_editor').resume(host,owner,context.resume_draft.key,context.resume_draft.token,current,render)
+        end
     end
     launch=function()
         if not valid() then stop(host,owner);return false end
@@ -295,8 +299,14 @@ refresh=function(host,owner)
     end
     return launch()
 end
-function M.show(host,id,variant)
+function M.show(host,id,variant,options)
     if variant~=nil and variant~='thoughts' and variant~='bookmarks' then return false end
+    local request=type(options)=='table' and options.resume_draft or nil
+    if options~=nil and (type(request)~='table' or request.book_id~=id
+        or not require('weread.lib.thought_edit_contract').hash(request.key)
+        or type(request.token)~='string' or #request.token~=32 or not request.token:match('^[a-f0-9]+$')
+        or request.operation~='create' and request.operation~='edit' or type(request.selection)~='boolean'
+        or (request.operation=='edit')~=(variant=='thoughts')) then return false end
     if not Data.display_id(id) or not host.library_db then return false end
     local scope=host.settings:get_auth_scope()
     if not host.library_db:accountKey() or not scope or not host.settings:auth_scope_matches(scope) then
@@ -336,8 +346,12 @@ function M.show(host,id,variant)
         if on_close then return on_close(instance,...) end
     end
     render(host,owner)
-    -- Cached snapshots open immediately, including offline. Refresh is explicit.
-    if not owner.value and host:isNetworkOnline() then refresh(host,owner) end
+    -- Draft selection remains bound to its token while a missing reference is
+    -- loaded; a later user action or popup prevents an unsolicited editor.
+    if request and (owner.value or request.selection) then
+        require('weread.ui.thought_editor').resume(host,owner,request.key,request.token,current,render)
+    elseif not owner.value and host:isNetworkOnline() then refresh(host,owner,request)
+    elseif request then host:showInfo(_('The original thought or highlight is unavailable. Refresh its notes and try again.')) end
     return true
 end
 return M

@@ -128,16 +128,20 @@ function M:finish(record,phase,keep_draft)
         return true
     end,true)==true
 end
-function M:save_draft(book,operation,reference,base_hash,content)
+function M:save_draft(book,operation,reference,base_hash,content,expected)
     if not require('weread.lib.my_cloud_marks').display_id(book) or operation~='create' and operation~='edit'
-        or not Contract.key(reference) or not Contract.hash(base_hash) or not Contract.valid_content(content) then return nil,'invalid' end
+        or not Contract.key(reference) or not Contract.hash(base_hash) or not Contract.valid_content(content)
+        or expected~=nil and expected~=false and not token(expected) then return nil,'invalid' end
     local version=self.nonce();if not token(version) then return nil,'storage' end
     local key=M.draft_key(book,operation,reference)
     return run(self,function(db)
         local count,bytes=db:rowexec('SELECT COUNT(*),COALESCE(SUM(length(CAST(content AS BLOB))),0) FROM thought_drafts')
         count,bytes=tonumber(count),tonumber(bytes)
         if count>M.MAX_DRAFTS or bytes>M.MAX_DRAFT_BYTES then error('thought_store/quota',0) end
-        local previous=statement(db,'SELECT length(CAST(content AS BLOB)) FROM thought_drafts WHERE draft_key=?',key)
+        local previous=statement(db,'SELECT length(CAST(content AS BLOB)),token FROM thought_drafts WHERE draft_key=?',key)
+        if expected~=nil and (expected==false and previous or expected~=false and (not previous or previous[2]~=expected)) then
+            error('thought_store/draft_changed',0)
+        end
         if count+(previous and 0 or 1)>M.MAX_DRAFTS or bytes-(previous and previous[1] or 0)+#content>M.MAX_DRAFT_BYTES then error('thought_store/quota',0) end
         local serial=tonumber(db:rowexec('SELECT COALESCE(MAX(serial),0)+1 FROM thought_drafts'));if not integer(serial) then error('thought_store/serial',0) end
         statement(db,[[INSERT INTO thought_drafts(draft_key,book_id,operation,reference_id,base_hash,content,token,serial) VALUES(?,?,?,?,?,?,?,?)

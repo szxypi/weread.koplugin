@@ -1,6 +1,11 @@
 local I18n = {}
 
 local zh = {
+    ["Could not save this draft. It may have changed elsewhere, or storage is full."] = "无法保存草稿，可能已在其他位置修改，或存储空间不足。",
+    ["Book ID"] = "书籍编号",
+    ["This draft changed or is unavailable. Open local thought drafts again."] = "草稿已变化或不可用，请重新打开本机想法草稿。",
+    ["The original thought or highlight is unavailable. Refresh its notes and try again."] = "原想法或划线不可用，请刷新对应笔记后重试。",
+    ["Open book and resume draft"] = "打开对应书籍并继续草稿",
     ["Add to shelf"] = "加入书架",
     ["Remove from shelf"] = "移出书架",
     ["Offline changes"] = "离线修改",

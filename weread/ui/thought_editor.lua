@@ -21,7 +21,7 @@ end
 local function save(ctx,text)
     if ctx.operation=='delete' then return true end
     if not local_current(ctx) or not Contract.valid_content(text) then return false end
-    local draft=ctx.journal:save_draft(ctx.owner.id,ctx.operation,ctx.reference_id,ctx.base_hash,text)
+    local draft=ctx.journal:save_draft(ctx.owner.id,ctx.operation,ctx.reference_id,ctx.base_hash,text,ctx.draft and ctx.draft.token or false)
     if not draft then return false end
     ctx.draft,ctx.text=draft,text;return true
 end
@@ -36,7 +36,7 @@ function M.cancel(_host,owner)
     if ctx.input and ctx.dialog==ctx.input then
         local text=ctx.input:getInputText()
         if Contract.valid_content(text) and not save(ctx,text) and local_current(ctx) then
-            ctx.host:showInfo(_('Could not save this draft. Free space or remove another local draft.'))
+            ctx.host:showInfo(_('Could not save this draft. It may have changed elsewhere, or storage is full.'))
         end
     end
     local dialog=ctx.dialog;detach(ctx)
@@ -54,7 +54,7 @@ local function show(ctx,dialog,input)
             if ctx.input==instance then
                 local text=instance:getInputText()
                 if Contract.valid_content(text) and not save(ctx,text) and local_current(ctx) then
-                    ctx.host:showInfo(_('Could not save this draft. Free space or remove another local draft.'))
+                    ctx.host:showInfo(_('Could not save this draft. It may have changed elsewhere, or storage is full.'))
                 end
             end
             detach(ctx)
@@ -148,6 +148,7 @@ function M.start(host,owner,operation,reference,current,redraw,restore)
     if draft and draft.base_hash~=ctx.base_hash then
         message(ctx,'This draft refers to an older cloud version. View or delete it in Local thought drafts; refresh before editing again.');return false
     end
+    ctx.draft=draft
     local input=draft and draft.content or operation=='edit' and reference.content or ''
     local dialog
     dialog=require('weread.ui.thought_text').input{title=_(operation=='create' and 'Write private thought' or 'Edit this thought'),input=input,
@@ -155,7 +156,7 @@ function M.start(host,owner,operation,reference,current,redraw,restore)
         buttons={{{id='save_thought_draft',text=_('Save local draft'),callback=function()
             if alive(ctx) and Popup.current(owner.menu,dialog) then
                 if save(ctx,dialog:getInputText()) then message(ctx,'Thought draft saved on this device.')
-                else host:showInfo(_('Could not save this draft. Free space or remove another local draft.')) end
+                else host:showInfo(_('Could not save this draft. It may have changed elsewhere, or storage is full.')) end
             end
         end},{id='submit_thought',text=_('Continue'),callback=function()
             if alive(ctx) and Popup.current(owner.menu,dialog) then submit(ctx) end
@@ -199,6 +200,73 @@ function M.check(host,owner,current,redraw)
     end
     return started
 end
+-- Resume only the exact draft revision shown to the user. Cached references
+-- must still match its original hash; selection drafts re-check source bytes.
+function M.resume(host,owner,key,version,current,redraw)
+    if not current(host,owner) then return false end
+    local ctx=new_context(host,owner,current,redraw)
+    local draft,why=ctx.journal:draft(key)
+    if why or not draft or draft.token~=version or draft.book_id~=owner.id then
+        message(ctx,'This draft changed or is unavailable. Open local thought drafts again.');return false
+    end
+    local selection=draft.operation=='create' and require('weread.lib.selection_reference').parse(draft.reference_id)
+    if not selection and ((draft.operation=='edit')~=owner.thoughts) then
+        message(ctx,'The original thought or highlight is unavailable. Refresh its notes and try again.');return false
+    end
+    local reference
+    for _i,row in ipairs(owner.value and (owner.thoughts and owner.value.reviews or owner.value.updated) or {}) do
+        if (owner.thoughts and row.reviewId or row.bookmarkId)==draft.reference_id then reference=row end
+    end
+    if reference and Contract.reference_hash(draft.operation,reference)==draft.base_hash then
+        return M.start(host,owner,draft.operation,reference,current,redraw,draft)
+    end
+    if not selection then
+        message(ctx,'The original thought or highlight is unavailable. Refresh its notes and try again.');return false
+    end
+    busy(ctx,'Checking selected text…')
+    ctx.restore_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
+    local source_file=host.ui and host.ui.document and host.ui.document.file
+    local started=ctx.restore_worker:start(function()
+        local book=host.settings:get_book(owner.id)
+        if not book then return {} end
+        book.chapters=host.library_db:getChapters(owner.id)
+        local row=require('weread.lib.selection_reference').restore(book,source_file,draft.reference_id)
+        return {reference=row}
+    end,function(result)
+        if not alive(ctx) then return end
+        local latest,error_=ctx.journal:draft(draft.draft_key)
+        if error_ or not latest or latest.token~=draft.token or latest.book_id~=owner.id then
+            message(ctx,'This draft changed or is unavailable. Open local thought drafts again.');return
+        end
+        local row=type(result)=='table' and result.reference
+        if row and Contract.reference_hash('create',row)==latest.base_hash then
+            M.start(host,owner,'create',row,current,redraw,latest)
+        else message(ctx,'The selected source is unavailable or changed. Your local draft is kept.') end
+    end)
+    if not started then message(ctx,'The selected source is unavailable or changed. Your local draft is kept.') end
+    return started
+end
+local function cross_book(host,owner,current,draft,ctx)
+    if not alive(ctx) or not current(host,owner) then return false end
+    local notebook=host._notebook_owner
+    local inherited=notebook and (notebook==owner or notebook.child==owner)
+    local request={book_id=draft.book_id,key=draft.draft_key,token=draft.token,operation=draft.operation,
+        selection=draft.operation=='create' and require('weread.lib.selection_reference').parse(draft.reference_id)~=nil}
+    done(ctx)
+    local opened=require('weread.ui.my_cloud_marks').show(host,draft.book_id,draft.operation=='edit' and 'thoughts' or nil,
+        {resume_draft=request})
+    if opened and inherited and host._notebook_owner==notebook then notebook.child=host._my_marks_owner end
+    return opened
+end
+local function draft_book_label(host,id)
+    local ok,book=pcall(function() return host.library_db.getBook and host.library_db:getBook(id) end)
+    local title=ok and type(book)=='table' and book.title or nil
+    if type(title)~='string' or title=='' or #title>4096 or title:find('[%z%c]') then
+        return _('Book ID')..' '..id
+    end
+    local short=require('weread.lib.protocol').utf8_substr(title,20)
+    return #short<#title and short..'…' or short
+end
 function M.drafts(host,owner,current,redraw)
     if not current(host,owner) then return false end
     local ctx=new_context(host,owner,current,redraw);local values=ctx.journal:drafts()
@@ -206,47 +274,26 @@ function M.drafts(host,owner,current,redraw)
     if #values==0 then message(ctx,'No local thought drafts.');return true end
     local items={}
     for _i,draft in ipairs(values) do
-        items[#items+1]={text=require('weread.lib.protocol').utf8_substr(draft.content:gsub('[%z%c]',' '),60),callback=function()
+        items[#items+1]={text=require('weread.lib.protocol').utf8_substr(draft.content:gsub('[%z%c]',' '),60),
+            mandatory=draft.book_id~=owner.id and draft_book_label(host,draft.book_id) or nil,callback=function()
             if not alive(ctx) then return end
             local dialog
             local buttons={{{id='delete_thought_draft',text=_('Delete local draft'),callback=function()
                 if not alive(ctx) or not Popup.current(owner.menu,dialog) then return end
                 if ctx.journal:delete_draft(draft) then message(ctx,'Local thought draft deleted.') else message(ctx,'Could not load local thought drafts.') end
             end}}}
-            -- A draft can resume only against the exact cloud reference it
-            -- was written for. Other books remain viewable and removable.
+            -- The target list re-reads the draft and checks its exact source.
             local selection_draft=draft.operation=='create' and require('weread.lib.selection_reference').parse(draft.reference_id)
             if draft.book_id==owner.id and ((draft.operation=='edit')==owner.thoughts or selection_draft) then
-                local reference
-                for _j,row in ipairs(owner.value and (owner.thoughts and owner.value.reviews or owner.value.updated) or {}) do
-                    if (owner.thoughts and row.reviewId or row.bookmarkId)==draft.reference_id then reference=row end
-                end
-                if reference and Contract.reference_hash(draft.operation,reference)==draft.base_hash then
-                    buttons[1][#buttons[1]+1]={id='resume_thought_draft',text=_('Resume draft'),callback=function()
-                        if alive(ctx) and Popup.current(owner.menu,dialog) then M.start(host,owner,draft.operation,reference,current,redraw,draft) end
-                    end}
-                elseif selection_draft then
-                    buttons[1][#buttons[1]+1]={id='resume_thought_draft',text=_('Resume draft'),callback=function()
-                        if not alive(ctx) or not Popup.current(owner.menu,dialog) then return end
-                        busy(ctx,'Checking selected text…')
-                        ctx.restore_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client}
-                        local source_file=host.ui and host.ui.document and host.ui.document.file
-                        local started=ctx.restore_worker:start(function()
-                            local book=host.settings:get_book(owner.id)
-                            if not book then return {} end
-                            book.chapters=host.library_db:getChapters(owner.id)
-                            local row=require('weread.lib.selection_reference').restore(book,source_file,draft.reference_id)
-                            return {reference=row}
-                        end,function(result)
-                            if not alive(ctx) then return end
-                            local row=type(result)=='table' and result.reference
-                            if row and Contract.reference_hash('create',row)==draft.base_hash then
-                                M.start(host,owner,'create',row,current,redraw,draft)
-                            else message(ctx,'The selected source is unavailable or changed. Your local draft is kept.') end
-                        end)
-                        if not started then message(ctx,'The selected source is unavailable or changed. Your local draft is kept.') end
-                    end}
-                end
+                buttons[1][#buttons[1]+1]={id='resume_thought_draft',text=_('Resume draft'),callback=function()
+                    if alive(ctx) and Popup.current(owner.menu,dialog) then
+                        M.resume(host,owner,draft.draft_key,draft.token,current,redraw)
+                    end
+                end}
+            else
+                buttons[1][#buttons[1]+1]={id='resume_other_book_draft',text=_('Open book and resume draft'),callback=function()
+                    if alive(ctx) and Popup.current(owner.menu,dialog) then cross_book(host,owner,current,draft,ctx) end
+                end}
             end
             dialog=require('weread.ui.thought_text').viewer{title=_('Local thought draft'),text=draft.content,buttons_table=buttons,add_default_buttons=true}
             show(ctx,dialog)

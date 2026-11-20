@@ -104,6 +104,7 @@ local ok,reason=pcall(function()
     local Cache=require('weread.lib.my_cloud_marks_store');local cache=Cache:new(plugin.library_db,plugin.client,'thoughts')
     local Journal=require('weread.lib.thought_edit_store');local journal=Journal:new(plugin.library_db,plugin.client)
     if mode=='live' then
+        expect(plugin.library_db:putBook{bookId='900001',title='合成测试书籍'})
         expect(cache:write(F.snapshot(codec)))
         expect(Cache:new(plugin.library_db,plugin.client):write(require('weread.lib.my_cloud_marks').project(codec,F.marks(codec),'900001','900000',1000)))
     end
@@ -147,6 +148,20 @@ local ok,reason=pcall(function()
         tap(owner,'save_thought_draft');notice(owner);expect(#journal:drafts()==1 and state().posts==0)
         select(owner,'Local thought drafts');local list=owner.menu._shelf_popup;list:onMenuSelect(list.item_table[1]);tap(owner,'resume_thought_draft')
         expect(owner.editor.input:getInputText():find('合成本机草稿',1,true))
+        -- Reopen the same saved draft through the account-wide notebook with
+        -- no current book and no network. The exact cached mark must match.
+        UI:close(owner.editor.input);expect(not owner.editor and #journal:drafts()==1)
+        online=false;local before=state().requests
+        expect(require('weread.ui.notebook_catalog').show(plugin))
+        local notebook=assert(plugin._notebook_owner)
+        select(notebook,'Local thought drafts');list=notebook.menu._shelf_popup
+        expect(list.item_table[1].mandatory=='合成测试书籍')
+        shot('notebook-drafts')
+        list:onMenuSelect(list.item_table[1]);tap(notebook,'resume_other_book_draft')
+        owner=assert(plugin._my_marks_owner)
+        expect(owner.id=='900001' and notebook.child==owner and owner.editor and owner.editor.input)
+        expect(owner.editor.input:getInputText():find('合成本机草稿',1,true) and state().requests==before)
+        online=true
         owner.editor.input:setInputText('合成私密想法 😀\n原生编辑器第二行。')
         online=false;tap(owner,'submit_thought');expect(owner.editor~=nil and state().posts==0)
         UI:close(UI:getTopmostVisibleWidget());online=true

@@ -279,4 +279,37 @@ expect(menu._shelf_popup.buttons_table[1][1].id=='open_bookmark' and menu._shelf
 expect(menu._shelf_popup.text:find('No saved quote text.',1,true),'missing server preview synthesized')
 Marks.cancel(host)
 expect(not Marks.show(host,'900001','untrusted_table'),'arbitrary personal note mode accepted')
+-- Cross-book draft restoration resumes only after the owned reference is
+-- available; a user action during refresh invalidates the handoff.
+local original_editor=package.loaded['weread.ui.thought_editor']
+local resumes={}
+package.loaded['weread.ui.thought_editor']={cancel=function() end,resume=function(_host,owner,key,token)
+    resumes[#resumes+1]={owner=owner,key=key,token=token};return true end}
+local request={book_id='900001',key=string.rep('a',64),token=string.rep('b',32),operation='create',selection=false}
+host,value=fixture(snapshot());resumes={}
+expect(Marks.show(host,'900001',nil,{resume_draft=request}) and #resumes==1 and resumes[1].key==request.key,
+    'cached reference did not start the requested draft')
+Marks.cancel(host)
+host,value=fixture();resumes={};expect(Marks.show(host,'900001',nil,{resume_draft=request}), 'offline target did not open')
+expect(#resumes==0 and not value.started and #value.notices==1,'missing offline reference was guessed')
+Marks.cancel(host)
+host,value=fixture();resumes={};request.selection=true
+expect(Marks.show(host,'900001',nil,{resume_draft=request}) and #resumes==1 and not value.started,
+    'selection draft did not use local source without network')
+Marks.cancel(host);request.selection=false
+host,value=fixture();value.online=true;resumes={}
+expect(Marks.show(host,'900001',nil,{resume_draft=request}) and value.started==1 and #resumes==0,'missing reference did not refresh')
+value.complete(snapshot());expect(value.writes==1 and #resumes==1 and resumes[1].token==request.token,'fresh reference did not resume draft')
+Marks.cancel(host)
+host,value=fixture();value.online=true;resumes={};Marks.show(host,'900001',nil,{resume_draft=request});menu=host._my_marks_menu
+row(menu,'Highlights only').callback();value.complete(snapshot())
+expect(#resumes==0 and value.writes==1,'late reference refresh displaced a newer user action')
+Marks.cancel(host)
+host,value=fixture();value.online=true;resumes={};Marks.show(host,'900001',nil,{resume_draft=request});menu=host._my_marks_menu
+menu._shelf_popup={};value.complete(snapshot())
+expect(#resumes==0,'late reference refresh opened an editor over another popup')
+Marks.cancel(host)
+host,value=fixture(snapshot());request.book_id='900002'
+expect(not Marks.show(host,'900001',nil,{resume_draft=request}),'another book request was accepted')
+package.loaded['weread.ui.thought_editor']=original_editor
 print('PASS: own marks native UI ownership, filters, cache and cancellation ('..checks..' checks)')
