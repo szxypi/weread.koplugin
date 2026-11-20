@@ -78,6 +78,23 @@ local searches=store:searches()
 expect(#searches==11 and searches[1]=='Query 12' and searches[#searches]=='Query 2')
 account='900099';expect(#store:searches()==0);account='900000'
 expect(store:searches()[1]=='Query 12')
+local entry=assert(store:search_entries()[1]);expect(entry.keyword=='Query 12' and #entry.generation==32)
+local refreshed=state();refreshed.keyword=entry.keyword
+local new_generation=assert(store:write(refreshed));expect(new_generation~=entry.generation)
+expect(store:remove_search(entry.keyword,entry.generation)=='changed' and store:read{kind='search',keyword=entry.keyword})
+account='900099';expect(store:remove_search(entry.keyword,new_generation)=='changed');account='900000'
+expect(store:read{kind='search',keyword=entry.keyword} and store:read{kind='search',keyword='Query 11'})
+function library:open()
+    local db=assert(open(self));local proxy={}
+    function proxy.exec(_proxy,sql) if sql=='COMMIT' then error('synthetic commit failure') end;return db:exec(sql) end
+    function proxy.prepare(_proxy,sql) return db:prepare(sql) end
+    function proxy.close(_proxy) return db:close() end
+    return proxy
+end
+expect(not store:remove_search(entry.keyword,new_generation));library.open=open
+expect(store:read{kind='search',keyword=entry.keyword} and store:remove_search(entry.keyword,new_generation)=='deleted')
+expect(not store:read{kind='search',keyword=entry.keyword} and store:read{kind='search',keyword='Query 11'})
+expect(store:remove_search(entry.keyword,new_generation)=='changed' and not store:remove_search('Query 11','bad'))
 for i=1,10 do oversized.keyword='Budget '..i;assert(store:write(oversized)) end
 rawdb=library:open();expect(tonumber(rawdb:rowexec('SELECT SUM(length(CAST(payload AS BLOB))) FROM discovery_cache'))<=Cache.MAX_TOTAL);rawdb:close()
 expect(store:read{kind='search',keyword='Budget 1'}==nil and store:read{kind='search',keyword='Budget 10'}~=nil)

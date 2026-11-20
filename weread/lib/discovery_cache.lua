@@ -130,7 +130,7 @@ function M:read(query,cursor)
 end
 -- List only validated search queries already stored in this account's cache.
 -- Results remain display-only and are reopened with the ordinary cache path.
-function M:searches()
+function M:search_entries()
     return run(self,function(db)
         local stmt=db:prepare([[SELECT CASE WHEN length(CAST(payload AS BLOB))<=? THEN payload ELSE NULL END,
             cache_key FROM discovery_cache ORDER BY serial DESC LIMIT ?]])
@@ -142,7 +142,7 @@ function M:searches()
                     local valid,value=pcall(function() return M.validate(self.codec:json_decode(row[1])) end)
                     if valid and value.query.kind=='search' and M.key(value.query)==row[2]
                         and not seen[value.query.keyword] then
-                        out[#out+1]=value.query.keyword;seen[value.query.keyword]=true
+                        out[#out+1]={keyword=value.query.keyword,generation=value.generation};seen[value.query.keyword]=true
                     end
                 end
                 row=stmt:step()
@@ -150,6 +150,29 @@ function M:searches()
         end)
         stmt:close();if not ok then error(reason,0) end
         return out
+    end)
+end
+function M:searches()
+    local entries=self:search_entries()
+    if not entries then return nil end
+    local out={};for _,entry in ipairs(entries) do out[#out+1]=entry.keyword end
+    return out
+end
+
+-- Delete only the exact generation shown to the user. A refresh from another
+-- process must not be removed by a delayed confirmation.
+function M:remove_search(keyword,generation)
+    if type(generation)~='string' or #generation~=32 or not generation:match('^[a-f0-9]+$') then return nil end
+    local valid,key=pcall(M.key,{kind='search',keyword=keyword})
+    if not valid then return nil end
+    return run(self,function(db,begin,commit)
+        begin()
+        local saved=read(self,db,key)
+        if not saved or saved.query.kind~='search' or saved.query.keyword~=keyword or saved.generation~=generation then
+            commit();return 'changed'
+        end
+        statement(db,'DELETE FROM discovery_cache WHERE cache_key=?',key)
+        commit();return 'deleted'
     end)
 end
 function M:write(state,previous,continuation)

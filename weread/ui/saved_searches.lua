@@ -20,8 +20,9 @@ local function show(host,owner,scope,items)
     local menu
     local function current() return host._discovery_menu==menu and scope() and Popup.current(owner,menu) end
     local rows={}
-    for _index,keyword in ipairs(items) do
-        rows[#rows+1]={text=keyword,callback=function()
+    for _index,entry in ipairs(items) do
+        local keyword=entry.keyword
+        rows[#rows+1]={text=keyword,saved_entry=entry,callback=function()
             if not current() then return end
             host._discovery_menu=nil;Popup.close(owner)
             if not CacheUI.open(host,{kind='search',keyword=keyword},0) then
@@ -29,12 +30,59 @@ local function show(host,owner,scope,items)
             end
         end}
     end
-    menu=host:showList(_('Saved searches'),rows)
+    menu=host:showList(_('Saved searches'),rows,nil,{subtitle=_('Hold a search to remove its saved results')})
     if not menu then return end
     host._discovery_menu=menu
+    local confirmation
+    function menu:onMenuHold(item)
+        if not current() or type(item)~='table' or not item.saved_entry or host.saved_searches_job or confirmation then return true end
+        local entry=item.saved_entry
+        local dialog
+        dialog=require('ui/widget/confirmbox'):new{
+            text=_('Remove this saved search and its offline results from this device?'),
+            ok_text=_('Remove'),cancel_text=_('Cancel'),keep_dialog_open=true,
+            ok_callback=function()
+                if confirmation~=dialog then return end
+                confirmation=nil
+                UI:close(dialog)
+                if not current() or host.saved_searches_job then return end
+                local account=host.library_db:accountKey()
+                if not account then return end
+                local job={};host.saved_searches_job=job
+                local function live() return host.saved_searches_job==job and current() and account==host.library_db:accountKey() end
+                host:showBusy(_('Removing saved search…'),function() M.cancel(host) end);job.busy=host.busy_message
+                local started,running=pcall(host.saved_searches_worker.start,host.saved_searches_worker,function()
+                    if account~=host.library_db:accountKey() then return {status='changed'} end
+                    return {status=Cache:new(host.library_db,host.client):remove_search(entry.keyword,entry.generation)}
+                end,function(result)
+                    if not live() then if host.saved_searches_job==job then M.cancel(host) end;return end
+                    M.cancel(host)
+                    if type(result)~='table' or result.status~='deleted' and result.status~='changed' then
+                        host:showInfo(_('Could not remove this saved search.'));return
+                    end
+                    local changed=result.status=='changed'
+                    Popup.close(owner)
+                    if changed then host:showInfo(_('This saved search changed. The updated results were kept.')) end
+                    M.open(host)
+                end)
+                if not started or not running then M.cancel(host);host:showInfo(_('Could not remove this saved search.')) end
+            end,
+            cancel_callback=function() if confirmation==dialog then confirmation=nil;UI:close(dialog) end end,
+        }
+        confirmation=dialog
+        local dialog_close=dialog.onCloseWidget
+        dialog.onCloseWidget=function(widget,...)
+            if confirmation==widget then confirmation=nil end
+            if dialog_close then return dialog_close(widget,...) end
+        end
+        UI:show(dialog)
+        return true
+    end
     local closed=menu.onCloseWidget
     menu.onCloseWidget=function(widget,...)
+        if confirmation then UI:close(confirmation);confirmation=nil end
         if host._discovery_menu==widget then host._discovery_menu=nil end
+        M.cancel(host)
         if closed then return closed(widget,...) end
     end
     menu.close_callback=function() if host._discovery_menu==menu then host._discovery_menu=nil end end
@@ -60,7 +108,7 @@ function M.open(host,input)
     if not ok or not worker then M.cancel(host);host:showInfo(_('Could not load saved searches.'));return false end
     host.saved_searches_worker=worker
     local started,running=pcall(worker.start,worker,function()
-        local searches=Cache:new(host.library_db,host.client):searches()
+        local searches=Cache:new(host.library_db,host.client):search_entries()
         return {ok=type(searches)=='table',items=searches}
     end,function(value)
         if not current() then if host.saved_searches_job==job then M.cancel(host) end;return end
@@ -72,9 +120,12 @@ function M.open(host,input)
             end
             local out,seen={},{}
             for index=1,#value.items do
-                local keyword=Cache.query{kind='search',keyword=value.items[index]}.keyword
+                local entry=value.items[index]
+                if type(entry)~='table' or type(entry.generation)~='string' or #entry.generation~=32
+                    or not entry.generation:match('^[a-f0-9]+$') then error('invalid') end
+                local keyword=Cache.query{kind='search',keyword=entry.keyword}.keyword
                 if seen[keyword] then error('invalid') end
-                seen[keyword]=true;out[#out+1]=keyword
+                seen[keyword]=true;out[#out+1]={keyword=keyword,generation=entry.generation}
             end
             return out
         end)
