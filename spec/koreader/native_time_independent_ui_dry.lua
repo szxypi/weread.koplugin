@@ -24,7 +24,7 @@ local worked,reason=pcall(function()
     G_reader_settings:saveSetting('language','zh_CN');require('gettext').changeLang('zh_CN')
     G_reader_settings:saveSetting('color_rendering',false)
     local Position=require('weread.lib.native_position_protocol')
-    assert(Position.id(input.book_id)==input.book_id and input.owner==input.grant.vid and input.cookies.wr_vid==input.owner)
+    assert(Position.id(input.book_id)==input.book_id and input.owner==input.grant.vid and input.cookies.wr_vid == input.owner)
     if input.mock_port~=nil then
         assert(type(input.mock_port)=='number' and input.mock_port%1==0 and input.mock_port>=1 and input.mock_port<=65535
             and input.owner=='900000' and input.book_id=='900001' and input.cookies.wr_skey=='mock_key'
