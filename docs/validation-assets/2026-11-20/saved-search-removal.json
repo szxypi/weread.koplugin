@@ -23,7 +23,7 @@
         "reopen"
       ],
       "offline_requests": 0,
-      "package_sha256": "99569e3c7242a6ea105f6fad19f1b3edbe52245a78b4eb248ab8bac244989afc"
+      "package_sha256": "a5cf68dcf6286689174c8cd8960f659077138812631df8f2f3bc093a6cbe95a8"
     },
     {
       "screen": "1264x1680/300 DPI",
@@ -33,7 +33,7 @@
         "reopen"
       ],
       "offline_requests": 0,
-      "package_sha256": "99569e3c7242a6ea105f6fad19f1b3edbe52245a78b4eb248ab8bac244989afc"
+      "package_sha256": "a5cf68dcf6286689174c8cd8960f659077138812631df8f2f3bc093a6cbe95a8"
     }
   ]
 }

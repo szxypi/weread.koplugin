@@ -83,4 +83,10 @@ expect(Saved.open(host));worker.callback({ok=true,items={entry('Second')}})
 menu:onMenuHold(menu.item_table[1]);confirmation.ok_callback();local deletion=worker.callback
 require('weread.ui.shelf_popup').close(owner);deletion({status='deleted'})
 expect(not host.saved_searches_job and not host._discovery_menu,'closed menu accepted a late deletion result')
+expect(Saved.open(host));worker.callback({ok=true,items={entry('First')}})
+local old_menu=menu;require('weread.ui.shelf_popup').close(owner)
+expect(Saved.open(host));local replacement=host.saved_searches_job
+old_menu:onCloseWidget()
+expect(host.saved_searches_job==replacement,'late old-menu close cancelled a newer search')
+Saved.cancel(host)
 print('saved_searches_ui_spec: '..checks..' checks')

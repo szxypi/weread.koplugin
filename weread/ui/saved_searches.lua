@@ -48,7 +48,7 @@ local function show(host,owner,scope,items)
                 if not current() or host.saved_searches_job then return end
                 local account=host.library_db:accountKey()
                 if not account then return end
-                local job={};host.saved_searches_job=job
+                local job={menu=menu};host.saved_searches_job=job
                 local function live() return host.saved_searches_job==job and current() and account==host.library_db:accountKey() end
                 host:showBusy(_('Removing saved search…'),function() M.cancel(host) end);job.busy=host.busy_message
                 local started,running=pcall(host.saved_searches_worker.start,host.saved_searches_worker,function()
@@ -82,7 +82,7 @@ local function show(host,owner,scope,items)
     menu.onCloseWidget=function(widget,...)
         if confirmation then UI:close(confirmation);confirmation=nil end
         if host._discovery_menu==widget then host._discovery_menu=nil end
-        M.cancel(host)
+        if host.saved_searches_job and host.saved_searches_job.menu==widget then M.cancel(host) end
         if closed then return closed(widget,...) end
     end
     menu.close_callback=function() if host._discovery_menu==menu then host._discovery_menu=nil end end
