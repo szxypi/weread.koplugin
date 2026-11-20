@@ -1,6 +1,7 @@
 local UI=require('ui/uimanager')
 local Confirm=require('ui/widget/confirmbox')
 local Util=require('weread.lib.plugin_util');local _=Util.tr
+local Paused=require('weread.ui.offline_paused')
 local T=require('ffi/util').template
 local M={}
 local function service(host)
@@ -31,7 +32,7 @@ function M.cancel(host)
     service(host):cancel()
     if ctx.dialog then local dialog=ctx.dialog;ctx.dialog=nil;UI:close(dialog) end
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
-    local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.resume_retry(host) end
+    Paused.wake(host)
 end
 local function message(reason)
     if reason=='login' then return _('Authorize or renew E-Ink login in settings, then try again.') end
@@ -39,7 +40,7 @@ local function message(reason)
     return _('Could not prepare or save this private-reading change. Check E-Ink login, network and storage, then try again.')
 end
 function M.open(host,id,resolving)
-    local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(host) end
+    local member=package.loaded['weread.ui.membership_offline'];if member then member.cancel_sync(host,true) end
     local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(host,true) end
     M.cancel(host)
     if host._shelf_membership_ui then require('weread.ui.shelf_membership_write').cancel(host) end

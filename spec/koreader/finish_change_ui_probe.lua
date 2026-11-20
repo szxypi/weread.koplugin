@@ -350,7 +350,16 @@ local ok,reason=pcall(function()
             if read_failure then fault(read_failure=='temporary' and 'preflight_503_once' or 'preflight_429_once') end
             local posts_before=state().posts
             plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
-            if read_failure=='temporary' then
+            if read_failure=='pause_preflight' then
+                local sync=assert(plugin._finish_offline_sync)
+                expect(sync.job and not sync.job.claim and queue:get('41').phase=='queued')
+                require('weread.ui.finish_change').open(plugin,'41')
+                local dialog=assert(plugin._finish_offline_dialog)
+                expect(not sync.job and plugin._offline_paused and plugin._offline_paused.finish)
+                local until_=socket.gettime()+.3;while socket.gettime()<until_ do tick() end
+                expect(state().posts==posts_before and queue:get('41').phase=='queued')
+                dialog.cancel_callback();report.paused_preflight_verified=true
+            elseif read_failure=='temporary' then
                 wait(function() return plugin._finish_offline_retry and plugin._finish_offline_retry.timer end)
                 local retry=plugin._finish_offline_retry;local timer=retry.timer
                 expect(retry.attempts==1 and queue:get('41').phase=='queued' and state().posts==posts_before)
@@ -421,7 +430,7 @@ local ok,reason=pcall(function()
         plugin.prepareShelfProgress=function() return nil end;plugin.fetchVisibleShelfCovers=function() end
         plugin:showHome()
         expect(plugin.shelf_view._discovery_tab=='home' and #plugin.shelf_view.books>0)
-        reconnect(11,false)
+        reconnect(11,false,nil,'pause_preflight')
         report.phase='offline-interrupted';queue_offline();fault('delayed')
         plugin.isNetworkConnected=function() return true end;plugin:onNetworkConnected()
         wait(function() return state().posts==12 end)

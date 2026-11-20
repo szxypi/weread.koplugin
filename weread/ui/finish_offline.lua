@@ -2,6 +2,7 @@
 local UI=require('ui/uimanager')
 local Flags=require('weread.lib.shelf_flags')
 local Util=require('weread.lib.plugin_util')
+local Paused=require('weread.ui.offline_paused')
 local _,T=Util.tr,Util.T
 local M={}
 local function queue(host)
@@ -80,9 +81,13 @@ local function clear_retry(host)
     if retry and retry.timer then UI:unschedule(retry.timer) end
 end
 function M.cancel_sync(host,preserve_retry)
+    local sync,account=host._finish_offline_sync,host._finish_offline_account
+    local job=sync and sync.job
     if not preserve_retry then clear_retry(host) end
-    if host._finish_offline_sync then host._finish_offline_sync:cancel() end
+    if not preserve_retry then Paused.clear(host,'finish') end
+    if sync then sync:cancel() end
     host._finish_offline_sync=nil;host._finish_offline_account=nil
+    if preserve_retry then Paused.capture(host,'finish',account,job) end
 end
 local function ui_blocked(host)
     return host._finish_change_ui or host._shelf_flag_change_ui or host._shelf_membership_ui
@@ -134,6 +139,11 @@ local function allowed(host,account)
     end
     return true
 end
+function M.can_resume_paused(host,account)
+    local retry=host._finish_offline_retry
+    return host.client and host.library_db and host.library_db.open and allowed(host,account)
+        and not (retry and retry.timer) and not (host._finish_offline_sync and host._finish_offline_sync.job)
+end
 function M.pump(host,force)
     if not host.library_db or not host.library_db.open or not host.client then return false end
     local account=host.library_db:accountKey()
@@ -145,6 +155,7 @@ function M.pump(host,force)
         UI:unschedule(retry.timer);retry.timer=nil
     end
     if retry then retry.waiting_ui=nil end
+    Paused.clear(host,'finish')
     if not host._finish_offline_sync then
         host._finish_offline_account=account
         host._finish_offline_sync=require('weread.lib.finish_queue_sync'):new{
@@ -161,6 +172,7 @@ function M.pump(host,force)
                     host:showTransientInfo(_('An offline finished mark needs review. It will not be sent again.'),5)
                 elseif phase=='retryable' then
                     retry_later(host,account,entry)
+                    Paused.wake(host)
                 elseif phase=='login' and host.showTransientInfo then
                     host:showTransientInfo(_('Offline finished mark needs E-Ink authorization. Renew it, then refresh the bookshelf.'),5)
                 elseif phase=='rate_limited' and host.showTransientInfo then
@@ -235,24 +247,24 @@ function M.open(host,id)
         end
         if not saved then
             host:showInfo(_('Could not save the offline change. Refresh the bookshelf and try again.'))
-            M.resume_retry(host);return
+            Paused.wake(host);return
         end
         require('weread.ui.shelf_state').show(host,id)
         host:showInfo(pending and _('The saved offline change was removed.') or _('Offline finished mark saved. It will sync after reconnecting.'))
         if not pending then M.pump(host) end
-        M.resume_retry(host)
+        Paused.wake(host)
     end,cancel_callback=function()
-        if host._finish_offline_dialog==dialog then host._finish_offline_dialog=nil;UI:close(dialog);M.resume_retry(host) end
+        if host._finish_offline_dialog==dialog then host._finish_offline_dialog=nil;UI:close(dialog);Paused.wake(host) end
     end}
     local on_close=dialog.onCloseWidget
     dialog.onCloseWidget=function(widget,...)
-        if host._finish_offline_dialog==widget then host._finish_offline_dialog=nil;M.resume_retry(host) end
+        if host._finish_offline_dialog==widget then host._finish_offline_dialog=nil;Paused.wake(host) end
         if on_close then return on_close(widget,...) end
     end
     host._finish_offline_dialog=dialog;UI:show(dialog);return true
 end
 function M.cancel_dialog(host)
     local dialog=host._finish_offline_dialog;host._finish_offline_dialog=nil
-    if dialog then UI:close(dialog);M.resume_retry(host) end
+    if dialog then UI:close(dialog);Paused.wake(host) end
 end
 return M

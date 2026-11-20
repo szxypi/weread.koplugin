@@ -61,6 +61,7 @@ return function(reader,plugin,pump,shot,clean_popups)
     -- Queue both directions without a network; only a later reconnect may
     -- dispatch. The real SQLite queue and production worker must agree.
     local connected=plugin.isNetworkConnected
+    local paused_preflights=0
     local function offline_change(expected_before)
         clean_popups(reader);plugin.isNetworkConnected=function() return false end
         assert(plugin:showShelfState(id));row('Change cloud membership').callback()
@@ -113,9 +114,20 @@ return function(reader,plugin,pump,shot,clean_popups)
         end
         plugin.isNetworkConnected=function() return true end
         require('weread.ui.membership_offline').pump(plugin)
+        local sync=assert(plugin._membership_offline_sync)
+        assert(sync.job and not sync.job.claim,'membership preparation was not active')
+        require('weread.ui.shelf_membership_write').open(plugin,id)
+        local paused=assert(plugin._membership_offline_dialog)
+        assert(not sync.job and plugin._offline_paused and plugin._offline_paused.membership,
+            'cancelled membership preparation was not retained')
+        local until_=require('socket').gettime()+.3
+        pump(function() return require('socket').gettime()>=until_ end)
+        assert(writes()==old,'membership write sent while its dialog was open')
+        paused.cancel_callback()
         pump(function() return not require('weread.ui.membership_offline').get(plugin,id) end)
         present(id,not expected_before)
         assert(writes()==old+1 and not plugin.shelf_membership:pending(),'offline change did not sync exactly once')
+        paused_preflights=paused_preflights+1
         if metadata then
             pump(function() return metadata.pending_shelf_redraw~=nil or plugin.shelf_view~=owner end)
             assert(metadata.shelf_snapshot_owner==owner and metadata.pending_shelf_redraw and plugin.shelf_view==owner,
@@ -129,6 +141,7 @@ return function(reader,plugin,pump,shot,clean_popups)
         end
     end
     offline_change(true);offline_change(false);plugin.isNetworkConnected=connected
+    assert(paused_preflights==2,'both interrupted membership directions were not verified')
 
     -- The shelf's direct hold shortcut must refresh the underlying shelf only
     -- after its owned status menu closes, while retaining normal write guards.
@@ -262,6 +275,7 @@ return function(reader,plugin,pump,shot,clean_popups)
     plugin.client.request=original_request;clean_popups(reader)
     local output=assert(io.open(assert(os.getenv('WEREAD_EVIDENCE'))..'/shelf-membership-write-result.json','wb'))
     output:write(Json.encode{result='PASS',synthetic_only=true,native_confirmations=true,worker_http=true,durable_intent_before_http=true,
+        paused_preflights_resumed=paused_preflights,
         single_book_remove_add_readback=true,absent_book_add_remove=true,preview_cancel_no_post=true,lifecycle_late_confirmation_cancelled=true,
         status_window_close_cancels_confirmation=true,
         unknown_receipt_retained=true,fresh_service_no_replay=true,explicit_readonly_pending_resolution=true,

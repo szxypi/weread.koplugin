@@ -5,6 +5,7 @@ local _=Util.tr
 local T=require('ffi/util').template
 local Access=require('weread.lib.native_read_access')
 local Recovery=require('weread.lib.native_read_recovery')
+local Paused=require('weread.ui.offline_paused')
 local M={}
 local function capture(settings,store)
     local native=Access.capture(settings,store)
@@ -28,7 +29,7 @@ function M.cancel(host)
     host.shelf_membership:cancel()
     if ctx.dialog then local view=ctx.dialog;ctx.dialog=nil;UI:close(view) end
     if ctx.busy and host.busy_message==ctx.busy then host:closeBusy() end
-    local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.resume_retry(host) end
+    Paused.wake(host)
 end
 local function error_text(reason)
     if reason=='login' then return _('Authorize or renew E-Ink login in settings, then try again.') end
@@ -51,7 +52,7 @@ end
 function M.open(host,id,resolving,suggested_title)
     local offline=package.loaded['weread.ui.finish_offline'];if offline then offline.cancel_sync(host,true) end
     local membership_offline=require('weread.ui.membership_offline')
-    membership_offline.cancel_sync(host)
+    membership_offline.cancel_sync(host,true)
     M.cancel(host)
     if not resolving then
         local pending,reason=membership_offline.get(host,id)

@@ -2,6 +2,7 @@
 -- after a possibly dispatched write.
 local UI=require('ui/uimanager')
 local Util=require('weread.lib.plugin_util')
+local Paused=require('weread.ui.offline_paused')
 local _=Util.tr
 local M={}
 local function queue(host)
@@ -31,12 +32,16 @@ function M.cancel_dialog(host)
     local dialog=host._membership_offline_dialog;host._membership_offline_dialog=nil
     if dialog then
         UI:close(dialog)
-        local finish=package.loaded['weread.ui.finish_offline'];if finish then finish.resume_retry(host) end
+        Paused.wake(host)
     end
 end
-function M.cancel_sync(host)
-    if host._membership_offline_sync then host._membership_offline_sync:cancel() end
+function M.cancel_sync(host,preserve_sync)
+    local sync,account=host._membership_offline_sync,host._membership_offline_account
+    local job=sync and sync.job
+    if not preserve_sync then Paused.clear(host,'membership') end
+    if sync then sync:cancel() end
     host._membership_offline_sync=nil;host._membership_offline_account=nil
+    if preserve_sync then Paused.capture(host,'membership',account,job) end
 end
 local function allowed(host,account)
     if not account or host.library_db:accountKey()~=account or not host:isNetworkConnected()
@@ -47,11 +52,16 @@ local function allowed(host,account)
     local b,be=require('weread.ui.shelf_flag_change').pending(host)
     return not (a or ae or b or be)
 end
+function M.can_resume_paused(host,account)
+    return host.client and host.library_db and host.library_db.open and host.shelf_membership and allowed(host,account)
+        and not (host._membership_offline_sync and host._membership_offline_sync.job)
+end
 function M.pump(host)
     if not host.library_db or not host.library_db.open or not host.client or not host.shelf_membership then return false end
     local account=host.library_db:accountKey()
     if host._membership_offline_sync and host._membership_offline_account~=account then M.cancel_sync(host) end
     if not allowed(host,account) then return false end
+    Paused.clear(host,'membership')
     if not host._membership_offline_sync then
         host._membership_offline_account=account
         host._membership_offline_sync=require('weread.lib.membership_queue_sync'):new{
@@ -142,22 +152,21 @@ function M.open(host,id,title)
                 saved=queue(host):put(id,before,not before,nil,saved_title)
             end
         end
-        local finish=package.loaded['weread.ui.finish_offline']
         if not saved then
             host:showInfo(_('Could not save the offline change. Refresh the bookshelf and try again.'))
-            if finish then finish.resume_retry(host) end
+            Paused.wake(host)
             return
         end
         require('weread.ui.shelf_state').show(host,id)
         host:showInfo(pending and _('The saved offline change was removed.') or _('Offline bookshelf change saved. It will sync after reconnecting.'))
         if not pending then M.pump(host) end
-        if finish then finish.resume_retry(host) end
+        Paused.wake(host)
     end,cancel_callback=function() if host._membership_offline_dialog==dialog then M.cancel_dialog(host) end end}
     local on_close=dialog.onCloseWidget
     dialog.onCloseWidget=function(widget,...)
         if host._membership_offline_dialog==widget then
             host._membership_offline_dialog=nil
-            local finish=package.loaded['weread.ui.finish_offline'];if finish then finish.resume_retry(host) end
+            Paused.wake(host)
         end
         if on_close then return on_close(widget,...) end
     end
