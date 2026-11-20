@@ -956,6 +956,7 @@ local zh = {
     ["Could not open reading progress."] = "无法打开阅读进度。",
     ["Reading progress is unavailable for this file."] = "当前文件无法显示阅读进度。",
     ["Chapter information changed. Open the progress panel again."] = "章节信息已变化，请重新打开进度面板。",
+    ["Chapter information changed. Open the quick menu again."] = "章节信息已变化，请重新打开快捷菜单。",
 
     ["WeRead · Delayed screenshot"] = "微信读书·延时截图",
     ["Screenshot in %1 seconds."] = "%1 秒后截图，可继续操作。",

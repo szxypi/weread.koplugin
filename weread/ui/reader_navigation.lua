@@ -70,6 +70,31 @@ function M:showEndOfBookDialog(book_id)
     local previous_chapter = current_idx and not is_full_book and chapters[current_idx - 1] or nil
     local function chapter_id(ch) return ch and tostring(ch.chapterUid or ch.chapterId or '') or nil end
     local current_id,previous_id,next_id=chapter_id(current_chapter),chapter_id(previous_chapter),chapter_id(next_chapter)
+    local identity={}
+    for _,key in ipairs({'bookVersion','book_version','version','fileId','file_id','cache_dir'}) do
+        identity[key]=book and book[key] or nil
+    end
+    local function reader_current()
+        local scope=self.settings.get_auth_scope and self.settings:get_auth_scope()
+        local same=search_scope and self.settings:auth_scope_matches(search_scope) or not search_scope and not scope
+        return self.ui==reader_ui and reader_ui.document==document and document.file==file_path
+            and (self._reader_session_gen or 0)==reader_session and same
+            and self.settings:get('auth_epoch',0)==search_epoch
+    end
+    local function valid_reader()
+        local ok,current=pcall(reader_current)
+        return ok and current==true
+    end
+    local function matching_book(fresh)
+        if type(fresh)~='table' or tostring(fresh.book_id or fresh.bookId or '')~=tostring(book_id) then return false end
+        for key,value in pairs(identity) do if tostring(fresh[key])~=tostring(value) then return false end end
+        for _,key in ipairs({'bookVersion','book_version','version','fileId','file_id','cache_dir'}) do
+            if identity[key]==nil and fresh[key]~=nil then return false end
+        end
+        return true
+    end
+    local expected_chapter={book=identity,book_id=tostring(book_id),file=file_path,index=current_idx,
+        current=current_id,previous=previous_id,next=next_id}
 
     local function show_context_required()
         self:showTransientInfo(
@@ -112,7 +137,8 @@ function M:showEndOfBookDialog(book_id)
             local same_scope = search_scope and self.settings:auth_scope_matches(search_scope)
                 or not search_scope and not current_scope
             if self.ui == reader_ui and reader_ui.document == document and document.file == file_path
-                and (self._reader_session_gen or 0)==reader_session and same_scope then
+                and (self._reader_session_gen or 0)==reader_session and same_scope
+                and self.settings:get('auth_epoch',0)==search_epoch then
                 local uid
                 if tostring(book_id):sub(1,3)=='CB_' then
                     uid=current_chapter and tostring(current_chapter.chapterUid or current_chapter.chapterId or '') or nil
@@ -145,15 +171,21 @@ function M:showEndOfBookDialog(book_id)
             end
         end,
         on_chapter_list = function()
+            if not valid_reader() then return end
             if chapters then
-                self:showChapterList(book)
+                local ok,fresh=pcall(self.settings.get_book,self.settings,tostring(book_id))
+                if ok and matching_book(fresh) and valid_reader() then self:showChapterList(fresh)
+                else self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
             else
                 show_context_required()
             end
         end,
         on_next = function()
+            if not valid_reader() then return end
             if next_chapter then
-                self:openChapter(book, next_chapter)
+                local ok,fresh,target=pcall(require('weread.lib.reader_progress_chapter').resolve,self,expected_chapter,1)
+                if ok and fresh and target and valid_reader() then self:openChapter(fresh,target)
+                elseif valid_reader() then self:showTransientInfo(_('Chapter information changed. Open the quick menu again.'),3) end
             elseif is_regular_weread_book then
                 self:showTransientInfo(_("You have reached the last chapter."), 1)
             else
@@ -161,6 +193,7 @@ function M:showEndOfBookDialog(book_id)
             end
         end,
         on_book_details = function()
+            if not valid_reader() then return end
             if book then
                 self:showCurrentBookDetails()
             else
@@ -187,10 +220,8 @@ function M:showEndOfBookDialog(book_id)
             end
             local ok,valid=pcall(still_current)
             if ok and valid then
-                local expected={book=book,book_id=tostring(book_id),file=file_path,index=current_idx,
-                    current=current_id,previous=previous_id,next=next_id}
                 local function resolve_chapter(direction)
-                    return require('weread.lib.reader_progress_chapter').resolve(self,expected,direction)
+                    return require('weread.lib.reader_progress_chapter').resolve(self,expected_chapter,direction)
                 end
                 require('weread.ui.reader_progress').show(self,{previous=previous_chapter,next=next_chapter,
                     single_chapter=current_idx~=nil and not is_full_book,
@@ -227,6 +258,7 @@ function M:showEndOfBookDialog(book_id)
             self:showReadStats()
         end,
         on_sync_progress = function()
+            if not valid_reader() then return end
             if is_regular_weread_book then
                 self:onWeReadSyncProgress()
             else
@@ -234,6 +266,7 @@ function M:showEndOfBookDialog(book_id)
             end
         end,
         on_claim_location = function()
+            if not valid_reader() then return end
             local saved=location and location.claim(self)
             self:showTransientInfo(saved and _('Local reading position saved for this account.')
                 or _('Could not save this reading position.'),3)
@@ -242,6 +275,7 @@ function M:showEndOfBookDialog(book_id)
             self:toggleAnnotationVisibility()
         end,
         on_close_book = function()
+            if not valid_reader() then return end
             -- Mirror KOReader's ReaderStatus:openFileBrowser(): closing the
             -- reader alone exits the app when there is no file-manager stack, so
             -- reopen the file browser right after (positioned on the book file).

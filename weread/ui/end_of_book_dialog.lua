@@ -51,6 +51,7 @@ function M.show(opts, callbacks)
     if opts.show_chapter_nav then
         local nav_row = {
             {
+                id = 'chapter_list',
                 text = _("Chapter list"),
                 enabled = opts.enable_chapter_list ~= false,
                 callback = function() dismiss_then(callbacks.on_chapter_list) end,
@@ -58,6 +59,7 @@ function M.show(opts, callbacks)
         }
         if opts.show_next_chapter then
             table.insert(nav_row, {
+                id = 'next_chapter',
                 text = _("Next chapter"),
                 enabled = opts.enable_next_chapter ~= false,
                 callback = function() dismiss_then(callbacks.on_next) end,

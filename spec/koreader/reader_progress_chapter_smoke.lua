@@ -24,7 +24,35 @@ return function(reader,host,pump,clean,book_id,inspect_previous)
     local previous=assert(Reader.instance);local previous_host=assert(previous.weread)
     pump(function() return previous_host.progress_sync.current_book_id==book_id end)
     if inspect_previous then inspect_previous(previous,previous_host) end
-    navigate(previous_host,'progress_next_chapter')
+    -- Return through the quick menu's separate next-chapter action.
+    clean(previous)
+    assert(previous_host:onShowWeReadQuickMenu())
+    local quick=assert(UI:getTopmostVisibleWidget());UI:forceRePaint()
+    local list_button=assert(quick:getButtonById('chapter_list'));assert(list_button.enabled~=false)
+    list_button:onTapSelectButton()
+    pump(function() return previous_host._chapter_list_view~=nil end)
+    assert(previous_host._chapter_list_view)
+    clean(previous)
+    -- The action is deferred after closing the menu. A new reader session
+    -- before it runs must not open any chapter.
+    assert(previous_host:onShowWeReadQuickMenu())
+    quick=assert(UI:getTopmostVisibleWidget());UI:forceRePaint()
+    local original_open=previous_host.openChapter
+    local calls=0
+    previous_host.openChapter=function() calls=calls+1 end
+    assert(quick:getButtonById('next_chapter')):onTapSelectButton()
+    local original_session=previous_host._reader_session_gen
+    previous_host._reader_session_gen=(original_session or 0)+1
+    local finished=false;UI:scheduleIn(.3,function() finished=true end)
+    pump(function() return finished end)
+    previous_host._reader_session_gen=original_session
+    previous_host.openChapter=original_open
+    assert(calls==0 and Reader.instance==previous,'stale next action opened a chapter')
+    clean(previous)
+    assert(previous_host:onShowWeReadQuickMenu())
+    quick=assert(UI:getTopmostVisibleWidget());UI:forceRePaint()
+    local next_button=assert(quick:getButtonById('next_chapter'));assert(next_button.enabled~=false)
+    next_button:onTapSelectButton()
     pump(function() return Reader.instance and Reader.instance~=previous and Reader.instance.document.file==original_path end)
     reader=Reader.instance;host=reader.weread
     pump(function() return host.progress_sync.current_book_id==book_id end)
