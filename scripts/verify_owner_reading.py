@@ -110,7 +110,11 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
     if not isinstance(value, dict) or set(value) != expected:
         raise ValueError('reading_schema')
     if full_cache_status and (value['full_cache_status_diagnostic'] not in
-                              ('none','scope_changed','fingerprint_changed','catalog_cancelled','catalog_unavailable','rate_limited','login_expired')
+                              ('none','scope_changed','fingerprint_changed','page_changed','catalog_cancelled',
+                               'page_owner','page_account','page_epoch','page_session','page_document','page_books',
+                               'page_groups','page_state','page_detail','page_source','page_auth',
+                               'catalog_callback','catalog_unavailable','rate_limited','login_expired','confirmation_shown',
+                               'confirmation_accepted','recovery_started','recovery_rejected','downloader_started')
                               or type(value['full_cache_status_verified']) is not bool
                               or value['result']=='PASS' and not value['full_cache_status_verified']):
         raise ValueError('reading_incomplete')

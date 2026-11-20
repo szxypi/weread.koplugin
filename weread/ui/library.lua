@@ -662,6 +662,9 @@ function M:fetchVisibleShelfCovers(view, items, options)
             next_options.skip_cover_fetch_once = true
             require('weread.ui.shelf_popup').redraw(view,function()
                 if generation~=self.shelf_cover_generation or self.shelf_view~=view then return end
+                -- Closing book details rebuilds the parent from its cached
+                -- data. Replacing it now would cancel that detail's actions.
+                if self._book_detail_view then return end
                 if options.on_redraw then options.on_redraw(view.page)
                 else self:showShelfView(options.mode or "books", options.keyword, view, next_options) end
             end)
@@ -1092,7 +1095,7 @@ function M:showShelfView(mode, keyword, old_view, options)
                 force = refresh,
                 on_redraw = function()
                     require('weread.ui.shelf_popup').redraw(view,function()
-                        if not current() then return end
+                        if not current() or self._book_detail_view then return end
                         local next_options = {}
                         for key, value in pairs(options) do next_options[key] = value end
                         next_options.prepared_shelf = { books = books, accounts = accounts }

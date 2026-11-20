@@ -51,6 +51,36 @@ return function(host,response,cover,evidence)
             assert(host.shelf_view==selected and selected.group_key==group.key,'thumbnail redraw overwrote group selection')
         end
     end
+    do
+        local view=show(false,false)
+        local book=assert(view:getVisibleBooks()[1]);assert(cache:store(book,cover))
+        host:showShelfView('books',nil,view);view=host.shelf_view
+        local path=assert(cache:pathFor(book));local source=cache.dir..'/'..cache:key(book)..'.png'
+        local file=assert(io.open(source,'wb'));assert(file:write(cover));file:close();assert(os.remove(path))
+        host:showBookMenu(book);local detail=assert(host._book_detail_view)
+        local current=require('weread.ui.page_scope').capture(host,view)
+        host:fetchVisibleShelfCovers(view,view.books,{mode='books',prepared_books=view.books,prepared_accounts=view.accounts})
+        local job=assert(host.shelf_cover_job);local pid=assert(job.pid)
+        pump(function() return not host.shelf_cover_job and not host.shelf_cover_pending end)
+        assert(require('ffi/util').isSubProcessDone(pid))
+        assert(host.shelf_view==view and host._book_detail_view==detail and current(),
+            'thumbnail replaced the shelf while book details were open')
+        UI:close(detail);pump(function() return host.shelf_view~=view end)
+        assert(cache:pathFor(book),'return from details lost the thumbnail')
+    end
+    do
+        local view=show(true,true)
+        local worker=assert(host.shelf_progress_worker);assert(worker.job and worker.job.pid)
+        host:showBookMenu(assert(view:getVisibleBooks()[1]));local detail=assert(host._book_detail_view)
+        local current=require('weread.ui.page_scope').capture(host,view)
+        pump(function()
+            local context=host.shelf_progress_context
+            return not context or not context.request and not context.renewing
+        end)
+        assert(host.shelf_view==view and host._book_detail_view==detail and current(),
+            'progress replaced the shelf while book details were open')
+        UI:close(detail);pump(function() return host.shelf_view~=view end)
+    end
     local view=show(true,true)
     local worker=assert(host.shelf_progress_worker);assert(worker.job and worker.job.pid)
     view:showSourceMenu();local picker=assert(view._shelf_popup)
@@ -90,6 +120,17 @@ return function(host,response,cover,evidence)
     assert(host.shelf_view==view and view._shelf_popup==quick and view._shelf_redraw,'home HTTP progress interrupted quick settings')
     UI:forceRePaint();require('device').screen:shot(evidence..'/portal-home-progress-settings.png')
     quick:onCloseAllMenus();pump(function() return host.shelf_view~=view end)
+    host:closeWeReadUI();host:showHome(true);view=assert(host.shelf_view)
+    worker=assert(host.shelf_progress_worker);assert(worker.job and worker.job.pid)
+    host:showBookMenu(assert(view:getVisibleBooks()[1]));local detail=assert(host._book_detail_view)
+    local current=require('weread.ui.page_scope').capture(host,view)
+    pump(function()
+        local context=host.shelf_progress_context
+        return not context or not context.request and not context.renewing
+    end)
+    assert(host.shelf_view==view and host._book_detail_view==detail and current(),
+        'home progress replaced the page while book details were open')
+    UI:close(detail);pump(function() return host.shelf_view~=view end)
     host:closeWeReadUI();host.settings:set('shelf',original);host.settings:flush()
     host.isNetworkOnline,host.isNetworkConnected=online,connected
     host.shelf_group_key=original_group

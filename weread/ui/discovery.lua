@@ -64,7 +64,7 @@ function M:showDiscoveryPage(tab, books, options)
         if not current() then return end
         options.page = next_page
         Popup.redraw(view, function()
-            if current() then self:showDiscoveryPage(tab, books, options) end
+            if current() and not self._book_detail_view then self:showDiscoveryPage(tab, books, options) end
         end)
     end
     view = LibraryView.show({

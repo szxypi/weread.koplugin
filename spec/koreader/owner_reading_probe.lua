@@ -804,12 +804,19 @@ local ok,reason=pcall(function()
         end
     end
     local status_at=0
+    local diagnostic_at=socket.gettime()
+    local function diagnostic(value)
+        if input.full_cache_status_probe then
+            report.full_cache_status_diagnostic=value;diagnostic_at=socket.gettime()
+        end
+    end
     local function tick()
         UI:setInputTimeout(0);UI:handleInput()
         if full then
             local dialog=UI:getTopmostVisibleWidget()
             local tr=require('weread.lib.plugin_util').tr
             if dialog and dialog.ok_callback and (dialog.ok_text==tr('Download') or dialog.ok_text==tr('Read now')) then
+                diagnostic('confirmation_accepted')
                 UI:close(dialog);dialog.ok_callback()
             end
             if socket.gettime()-status_at>=2 then
@@ -820,6 +827,7 @@ local ok,reason=pcall(function()
                     reader_open=Reader.instance and Reader.instance.document~=nil or false,
                     confirmation=dialog and dialog.ok_callback~=nil or false,last_http_status=tonumber(counters[7]),
                     context_failure=tonumber(counters[11]),requests={}}
+                if input.full_cache_status_probe then snapshot.catalog_diagnostic=report.full_cache_status_diagnostic end
                 for _i=1,7 do snapshot.requests[_i]=tonumber(counters[_i-1]) end
                 local file=assert(io.open(home..'/probe-status.json','wb'));file:write(json.encode(snapshot));file:close()
             end
@@ -834,6 +842,10 @@ local ok,reason=pcall(function()
             assert(not (input.full_cache_status_probe and report.phase=='prepare'
                 and ({catalog_unavailable=true,rate_limited=true,login_expired=true,scope_changed=true,
                     fingerprint_changed=true})[report.full_cache_status_diagnostic]),'full catalog stopped')
+            assert(not (input.full_cache_status_probe and report.phase=='prepare'
+                and report.full_cache_status_diagnostic~='none' and socket.gettime()-diagnostic_at>10
+                and plugin and not plugin.busy_message and not plugin.downloader._active_job),
+                'full catalog made no progress')
             assert(not (full and report.phase=='prepare' and counters[11]>0 and plugin
                 and not plugin.downloader._active_job),'full catalog context rejected')
             assert(socket.gettime()<deadline);tick();socket.sleep(.01)
@@ -843,16 +855,56 @@ local ok,reason=pcall(function()
     FM:showFiles(home);plugin=assert(FM.instance.weread)
     if input.full_cache_status_probe then
         -- Only retain fixed diagnostic categories, never book data or messages.
+        local Page=require('weread.ui.page_scope')
+        local capture=Page.capture
+        Page.capture=function(host,owner,field)
+            field=field or 'shelf_view'
+            local function account() return host.library_db and host.library_db:accountKey() end
+            local function document() return host.ui and host.ui.document end
+            local function shelf_source() local shelf=host.settings:get('shelf');return shelf and shelf.source or 'auto' end
+            local saved={account=account(),epoch=host.discovery_epoch or 0,session=host._reader_session_gen,
+                document=document(),books=host.shelf_regular,groups=host.shelf_groups,state=host.discovery_state,
+                detail=host._book_detail_view,source=shelf_source()}
+            local current=capture(host,owner,field)
+            return function()
+                local active=current()
+                if not active and host==plugin and report.phase=='prepare' then
+                    diagnostic((host[field]~=owner or owner and owner._shelf_closed) and 'page_owner'
+                        or saved.account~=account() and 'page_account'
+                        or saved.epoch~=(host.discovery_epoch or 0) and 'page_epoch'
+                        or saved.session~=host._reader_session_gen and 'page_session'
+                        or saved.document~=document() and 'page_document'
+                        or saved.books~=host.shelf_regular and 'page_books'
+                        or saved.groups~=host.shelf_groups and 'page_groups'
+                        or saved.state~=host.discovery_state and 'page_state'
+                        or saved.detail~=host._book_detail_view and 'page_detail'
+                        or saved.source~=shelf_source() and 'page_source' or 'page_auth')
+                end
+                return active
+            end
+        end
         local Catalog=require('weread.ui.catalog_request')
+        local start=Catalog.start
+        local page_current
+        Catalog.start=function(host,book,callback,options)
+            page_current=options and options.current
+            return start(host,book,function(...)
+                diagnostic('catalog_callback');return callback(...)
+            end,options)
+        end
         local cancel=Catalog.cancel
         Catalog.cancel=function(host,view)
             local ctx=host._catalog_request
             if host==plugin and ctx and report.phase=='prepare' then
                 if not host.settings:auth_scope_matches(ctx.scope) then
-                    report.full_cache_status_diagnostic='scope_changed'
+                    diagnostic('scope_changed')
                 elseif require('weread.lib.worker_settings').fingerprint(host.settings)~=ctx.fingerprint then
-                    report.full_cache_status_diagnostic='fingerprint_changed'
-                else report.full_cache_status_diagnostic='catalog_cancelled' end
+                    diagnostic('fingerprint_changed')
+                elseif page_current then
+                    local checked,current=pcall(page_current)
+                    if checked and current then diagnostic('catalog_cancelled')
+                    elseif not report.full_cache_status_diagnostic:match('^page_') then diagnostic('page_changed') end
+                else diagnostic('catalog_cancelled') end
             end
             return cancel(host,view)
         end
@@ -861,14 +913,30 @@ local ok,reason=pcall(function()
             if report.phase=='prepare' then
                 local tr=require('weread.lib.plugin_util').tr
                 if message==tr('Could not load this book’s chapter list. Check your connection and login, then try again.') then
-                    report.full_cache_status_diagnostic='catalog_unavailable'
+                    diagnostic('catalog_unavailable')
                 elseif message==tr('WeRead is limiting requests. Download stopped. Please try again later.') then
-                    report.full_cache_status_diagnostic='rate_limited'
+                    diagnostic('rate_limited')
                 elseif message==tr('WeRead login expired. Please sign in again and retry.') then
-                    report.full_cache_status_diagnostic='login_expired'
+                    diagnostic('login_expired')
                 end
             end
             return show(host,message,...)
+        end
+        local confirm=plugin.confirmAndDownloadChapters
+        plugin.confirmAndDownloadChapters=function(host,...)
+            diagnostic('confirmation_shown');return confirm(host,...)
+        end
+        local Recovery=require('weread.ui.download_recovery')
+        local recover=Recovery.start
+        Recovery.start=function(...)
+            diagnostic('recovery_started')
+            local result=recover(...)
+            if not result then diagnostic('recovery_rejected') end
+            return result
+        end
+        local download_start=plugin.downloader.start
+        plugin.downloader.start=function(downloader,...)
+            diagnostic('downloader_started');return download_start(downloader,...)
         end
     end
     local host=plugin
