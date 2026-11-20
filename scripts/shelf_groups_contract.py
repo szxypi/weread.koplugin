@@ -18,7 +18,10 @@ def project(shelf, unnamed='Unnamed group', ungrouped='Uncategorized'):
         if key in keys:
             raise ValueError('ambiguous_group_identity')
         keys.add(key)
-        groups.append(dict(key=key,label=label,members=members))
+        row=dict(key=key,label=label,members=members)
+        if any(identity not in known and not identity.startswith('MP_WXS_') for identity in archive['bookIds']):
+            row['incomplete']=True
+        groups.append(row)
         if not system_archive:
             assigned.update(members)
     remaining = [identity for identity in regular if identity not in assigned]

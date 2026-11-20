@@ -47,13 +47,14 @@ class GroupTests(unittest.TestCase):
 
     def test_membership_deduplicates_and_preserves_reference_order(self):
         result=project(shelf())
-        self.assertEqual(result,[dict(key='archive:1',label='A',members=['2','1']),dict(key='archive:2',label='Empty',members=[]),
+        self.assertEqual(result,[dict(key='archive:1',label='A',members=['2','1'],incomplete=True),dict(key='archive:2',label='Empty',members=[]),
                                  dict(key='__ungrouped__',label='Uncategorized',members=['3','4'])])
         self.assertEqual(summary(shelf(),result)['unavailable_references'],1)
 
     def test_unavailable_regular_references_do_not_hide_user_groups(self):
         source=shelf();source['archive']=[dict(archiveId=1,name='Missing',bookIds=['unknown']),dict(archiveId=2,name='Mixed',bookIds=['unknown','MP_WXS_1'])]
         self.assertEqual([group['members'] for group in project(source)],[[],[],['1','2','3','4']])
+        self.assertTrue(all(group.get('incomplete') is True for group in project(source)[:2]))
 
     def test_ungrouped_shelf_and_fallback_labels(self):
         source=shelf();source['archive']=[];self.assertEqual(project(source),[])

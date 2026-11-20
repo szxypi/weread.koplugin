@@ -14,7 +14,7 @@ local ok,result=pcall(function()
         for _group_index,group in ipairs(require('weread.lib.shelf_groups').list(source.archive,books,'Unnamed group','Uncategorized')) do
             local members=json.decode('[]')
             for _book_index,book in ipairs(group.books) do members[#members+1]=book.bookId end
-            rows[#rows+1]={key=group.key,label=group.label,members=members}
+            rows[#rows+1]={key=group.key,label=group.label,members=members,incomplete=group.incomplete}
         end
         output[kind]=rows
     end

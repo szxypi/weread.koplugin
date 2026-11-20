@@ -16,7 +16,8 @@ return function(plugin,input,mode,report,pump,paint,manifest)
     local reference=json.decode('[]')
     for i,group in ipairs(expected) do
         assert(type(group.key)=='string' and type(group.label)=='string' and type(group.members)=='table')
-        local actual=assert(plugin.shelf_groups[i]);assert(actual.key==group.key and actual.label==group.label)
+        local actual=assert(plugin.shelf_groups[i]);assert(actual.key==group.key and actual.label==group.label
+            and (actual.incomplete==true)==(group.incomplete==true))
         assert(#actual.books==#group.members)
         for j,id in ipairs(group.members) do
             assert(type(id)=='string' and input.expected_shelf[id] and id:sub(1,7)~='MP_WXS_')
@@ -24,7 +25,7 @@ return function(plugin,input,mode,report,pump,paint,manifest)
         end
         coverage.memberships=coverage.memberships+#group.members;assert(coverage.memberships<=1600)
         if #group.members==0 then coverage.empty_groups=coverage.empty_groups+1 end
-        reference[#reference+1]={group.key,group.label,group.members}
+        reference[#reference+1]={group.key,group.label,group.members,group.incomplete==true}
     end
     local encoded=json.encode(reference)
     if mode=='live' then manifest.groups=encoded else assert(manifest.groups==encoded) end
@@ -38,7 +39,12 @@ return function(plugin,input,mode,report,pump,paint,manifest)
         local picker=assert(view._shelf_popup);assert(UI:getTopmostVisibleWidget()==picker)
         assert(#picker.item_table==#expected+1+((#expected>0 or #(view.group_keys or {})>0) and 1 or 0))
         local row=assert(picker.item_table[index]);assert(row.callback)
-        if index>2 then assert(row.text==expected[index-2].label) end
+        if index>2 then
+            local expected_group=expected[index-2]
+            local label=expected_group.incomplete and require('weread.lib.plugin_util').T(
+                require('weread.lib.i18n').tr('%1 (incomplete)'),expected_group.label) or expected_group.label
+            assert(row.text==label)
+        end
         local page=math.floor((index-1)/picker.items_per_page)+1
         while picker.page<page do picker:onNextPage() end
         assert(picker.page==page and picker:getSize().h<=view.screen_h and picker:getSize().w<=view.screen_w)
@@ -52,6 +58,10 @@ return function(plugin,input,mode,report,pump,paint,manifest)
     for i,group in ipairs(expected) do
         select(i+2,group.key);coverage.selected_groups=coverage.selected_groups+1
         local view=assert(plugin.shelf_view);assert(view.mode=='books' and view.group_key==group.key and #view.books==#group.members)
+        if group.incomplete then
+            assert(view.group_label==require('weread.lib.plugin_util').T(
+                require('weread.lib.i18n').tr('%1 (incomplete)'),group.label))
+        end
         local members,seen={},{}
         for _id_index,id in ipairs(group.members) do assert(not members[id]);members[id]=true end
         local total=view.page_count
@@ -93,6 +103,18 @@ return function(plugin,input,mode,report,pump,paint,manifest)
         selected.on_select_group(nil);pump(function() return plugin.shelf_view~=selected end)
         assert(#plugin.shelf_view.group_keys==0 and #assert(plugin.library_db:getProfileState('shelf_multi_groups_v1')).keys==0)
         coverage.multi_groups_verified=true
+    end
+    for _,group in ipairs(expected) do
+        if group.incomplete then
+            local source=assert(plugin.shelf_view);source.on_select_groups({group.key})
+            pump(function() return plugin.shelf_view and plugin.shelf_view~=source end)
+            local selected=plugin.shelf_view
+            local util=require('weread.lib.plugin_util');local tr=require('weread.lib.i18n').tr
+            assert(selected.group_label==util.T(tr('%1 (incomplete)'),util.T(tr('%1 groups'),'1')))
+            assert(#selected.books==#group.members)
+            selected.on_select_group(nil);pump(function() return plugin.shelf_view~=selected end)
+            break
+        end
     end
     local view=assert(plugin.shelf_view)
     view:showSourceMenu('books');local picker=assert(view._shelf_popup)

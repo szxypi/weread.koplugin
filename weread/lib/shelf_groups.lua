@@ -52,29 +52,33 @@ function Groups.list(archives, books, unnamed_label, ungrouped_label)
         local identity = archive.archiveId or archive.archive_id or archive.id
         local system_archive = system_identity_count == 1 and tostring(identity) == "1" and label == "归档"
         local members, seen = {}, {}
-        local incomplete = not members_array(archive.bookIds)
+        local invalid_members = not members_array(archive.bookIds)
+        local missing_members = false
         local mp_only = #ids > 0
         for _, id in ipairs(ids) do
             id = Identity.persisted_identity(id)
-            if not id then incomplete = true end
+            if not id then invalid_members = true end
             if not id or id:sub(1,7) ~= 'MP_WXS_' then mp_only = false end
             local book = id and by_id[id]
+            -- Known public-account containers are shown elsewhere. A missing
+            -- ordinary book, however, means the displayed group is partial.
+            if id and not book and id:sub(1,7) ~= 'MP_WXS_' then missing_members = true end
             if book and not seen[id] then
                 members[#members + 1] = book
                 seen[id] = true
                 if not system_archive then grouped[id] = true end
             end
         end
-        if incomplete and not system_archive then ungrouped_known = false end
+        if invalid_members and not system_archive then ungrouped_known = false end
         -- Public-account archives contain no regular books. The original
         -- bookshelf already exposes those separately, so do not add a ghost
         -- group for them. Empty user-created groups stay visible.
-        if incomplete or #members > 0 or not mp_only then
+        if invalid_members or #members > 0 or not mp_only then
             groups[#groups + 1] = {
                 key = group_key(archive, label),
                 label = label,
                 books = members,
-                incomplete = incomplete or nil,
+                incomplete = (invalid_members or missing_members) or nil,
             }
         end
     end

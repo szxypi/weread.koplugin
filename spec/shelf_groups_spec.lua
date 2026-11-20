@@ -20,6 +20,8 @@ local groups = Groups.list({
 expect(#groups == 2, "user-defined groups were dropped")
 expect(groups[1].label == "Reading" and #groups[1].books == 2,
     "group did not retain known members in user order")
+expect(groups[1].incomplete==true and not groups[2].incomplete,
+    'missing ordinary member was not distinguished from a complete group')
 expect(groups[1].books[1].bookId == "two" and groups[1].books[2].bookId == "one",
     "group order or duplicate handling is wrong")
 expect(groups[2].label == "Unnamed group" and groups[2].books[1].bookId == "three",
@@ -49,13 +51,18 @@ expect(Groups.find(reordered, "archive:7").label == "Reading",
 
 expect(#Groups.list({}, books, "Unnamed group", "Uncategorized") == 0,
     "an ungrouped shelf added a duplicate all-books choice")
-local unavailable = Groups.list({
+local unavailable,unavailable_membership_known = Groups.list({
     {archiveId=11,name='Unavailable books',bookIds={'missing'}},
     {archiveId=12,name='Mixed',bookIds={'MP_WXS_123','missing'}},
     {archiveId=13,name='Accounts',bookIds={'MP_WXS_123'}},
 },books)
 expect(#unavailable==3 and #unavailable[1].books==0 and #unavailable[2].books==0
-    and unavailable[3].key=='__ungrouped__','unavailable regular references hid user groups')
+    and unavailable[1].incomplete and unavailable[2].incomplete
+    and unavailable[3].key=='__ungrouped__' and unavailable_membership_known,
+    'unavailable regular references hid groups or corrupted known shelf membership')
+local with_mp=Groups.list({{archiveId=14,name='Mixed visible types',bookIds={'one','MP_WXS_123'}}},books)
+expect(not with_mp[1].incomplete and #with_mp[1].books==1,
+    'a public-account container was misreported as a missing regular book')
 
 local system=Groups.list({
     {archiveId=1,name='归档',bookIds={'one','two'}},
