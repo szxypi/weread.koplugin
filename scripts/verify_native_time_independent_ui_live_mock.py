@@ -11,10 +11,10 @@ def main():
     args=parser.parse_args()
     try:
         modes=('dry','malicious_approval','success_readback','source_changed','position_changed',
-               'missing_ack','archive_changed','interrupted')
+               'missing_ack','archive_changed','interrupted','host_success')
         for mode in modes:scenario(args,mode,live=True)
         report=dict(result='SYNTHETIC_INDEPENDENT_UI_TRANSFER_VERIFIED',scenarios=len(modes),real_account_posts=0,
-                    synthetic_posts=2,native_menu=True,independent_readback_verified=True,
+                    synthetic_posts=3,native_menu=True,independent_readback_verified=True,full_host_sequence_verified=True,
                     uncertain_claims_not_replayed=True,physical_kindle_tested=False)
     except Exception as error:
         if os.getenv('WEREAD_NATIVE_SYNTHETIC_DEBUG')=='1':traceback.print_exc()

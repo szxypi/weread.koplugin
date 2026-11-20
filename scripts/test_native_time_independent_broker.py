@@ -16,6 +16,10 @@ class BrokerTests(unittest.TestCase):
                              '--width','1264','--height','1680','--dpi','300'])
         self.assertNotIn('--allow-live',ui);self.assertEqual(base[2],'scripts/run_native_time_guarded_worker.py')
         with self.assertRaises(ValueError):task.ui_command_from(['untrusted'])
+        live=task.ui_live_command_from(base)
+        self.assertEqual(live[2],'scripts/run_native_time_independent_ui_live_worker.py')
+        self.assertEqual(live[-1],'--allow-live');self.assertNotIn('--mock-port',live)
+        self.assertEqual(task.ui_live_dry_command_from(base),live[:-1])
 
     def setup_case(self):
         bundle,grant,_body,_now,_before,evidence,gate,audit,_samples,_observations=fixture()
@@ -83,6 +87,27 @@ class BrokerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,'independent_broker/command'):
                 task.execute(prepared,signing,cookies,store,gate,audit,FakeBinding(),task.ui_command_from(base),armed=True)
             spawn.assert_not_called()
+
+    def test_real_scope_rejects_modified_live_or_mock_menu_commands(self):
+        class FakeMac:
+            def __init__(self,service):self.service=service;self.account=task.ACCOUNT
+        class FakeBinding:
+            def __call__(self):return True
+            def matches(self,_grant,_cookies):return True
+        base=['docker','exec','scripts/run_native_time_guarded_worker.py']
+        variants=((True,task.ui_live_command_from(base)+['--mock-port','1234']),
+                  (False,task.ui_live_command_from(base)),
+                  (True,task.ui_live_dry_command_from(base)),
+                  (True,task.ui_live_command_from(base)[:-1]+['--allow-live','--width','1']))
+        for armed,command in variants:
+            prepared,signing,cookies,store,gate,audit=self.setup_case();gate._real=True;audit._real=True
+            store.backend=FakeMac(task.CAPTURE_SERVICE);gate.backend=FakeMac(task.GATE_SERVICE);audit.backend=FakeMac(task.AUDIT_SERVICE)
+            with self.subTest(armed=armed,command=command),patch.object(task,'MacKeychain',FakeMac), \
+                 patch.object(task,'AccountBinding',FakeBinding),patch.object(task,'trusted_command',return_value=base), \
+                 patch.object(task.subprocess,'Popen') as spawn:
+                with self.assertRaisesRegex(ValueError,'independent_broker/command'):
+                    task.execute(prepared,signing,cookies,store,gate,audit,FakeBinding(),command,armed=armed)
+                spawn.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

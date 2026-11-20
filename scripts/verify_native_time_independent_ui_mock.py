@@ -5,7 +5,7 @@ from contextlib import nullcontext
 from copy import deepcopy
 import json,os,sys,tempfile,threading,time
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock,patch
 
 from cloud_group_contract import project
 from native_time_bundle_accounting import day
@@ -73,15 +73,46 @@ def scenario(args,mode,*,live=False):
     def malicious(bridge,event):return True if event.get('kind')=='claim' else original(bridge,event)
     override={'archive_changed':change_archive,'interrupted':interrupt,'malicious_approval':malicious}.get(mode)
     try:
-        with patch.object(NativeTimeBridge,'handle',new=override) if override else nullcontext():
-            result=execute(prepared,SigningInputs('synthetic-guest','synthetic-config'),{'wr_vid':'900000','wr_skey':'mock_key'},
-                           store,gate,audit,lambda:True,command,armed=mode not in ('dry','malicious_approval'))
+        if mode=='host_success':
+            from native_time_independent_readback import run as readback,BoundNative
+            from native_time_bundle_readback import StatisticsReads,ShelfRead
+            from verify_fresh_time_capture_readonly import BoundSource
+            from test_uploaded_epub_native_reading_runtime import Opener
+            from test_verify_independent_time_dry import Binding
+            from verify_independent_time_ui_live import run as live_run
+            saved={'vid':plan['owner'],'cookies':{'wr_vid':'900000','wr_skey':'mock_key'}}
+            session=Mock();session.saved=deepcopy(saved);native=Mock();native.grant=deepcopy(grant)
+            olds=[Mock(),Mock(),Mock()]
+            for old in olds:old.read.return_value=(None,None)
+            signer=Mock();signer.return_value.read.return_value=SigningInputs('synthetic-guest','synthetic-config')
+            class Web(BoundSource):
+                def __init__(self,book):super().__init__(book);self.opener=Opener(server)
+            def readback_mock(**values):
+                return readback(**values,web_factory=Web,
+                    native_factory=lambda grant,plan,current,clock:BoundNative(grant,plan,current,clock,Opener(server)),
+                    statistics_factory=lambda grant,months,current:StatisticsReads(grant,months,current,Opener(server)),
+                    shelf_factory=lambda grant,current:ShelfRead(grant,current,Opener(server)),sleep=lambda _:None)
+            def rehearsal(*_args,**options):
+                if options!={'ui':True,'live_worker':True}:raise ValueError('independent_mock/rehearsal')
+                checked=execute(prepared,SigningInputs('synthetic-guest','synthetic-config'),saved['cookies'],
+                                store,gate,audit,lambda:True,command,armed=False)
+                if checked['result']!='INDEPENDENT_NATIVE_DRY_RUN_VERIFIED':raise ValueError('independent_mock/rehearsal')
+                return dict(result='INDEPENDENT_NATIVE_MENU_DRY_VERIFIED',profile_removed=True,
+                            dispatch_may_have_occurred=False,account_data_posts=0,authentication_posts=0,
+                            capture_and_all_journals_unchanged=True)
+            result=live_run(store,session,native,gate,audit,*olds,attest=lambda:command,rehearsal=rehearsal,
+                            preflight=lambda *_a,**_k:evidence,signer=signer,readback=readback_mock,binding_type=Binding)
+        else:
+            with patch.object(NativeTimeBridge,'handle',new=override) if override else nullcontext():
+                result=execute(prepared,SigningInputs('synthetic-guest','synthetic-config'),{'wr_vid':'900000','wr_skey':'mock_key'},
+                               store,gate,audit,lambda:True,command,armed=mode not in ('dry','malicious_approval'))
         if {item.name for item in Path('/dev/shm').glob('weread-native-time-*')}-existing:raise ValueError('independent_mock/cleanup')
         expected={'dry':('INDEPENDENT_NATIVE_DRY_RUN_VERIFIED',None,0),
                   'malicious_approval':('UNVERIFIED',None,0),'success':('INDEPENDENT_NATIVE_ACKNOWLEDGED','acknowledged',1),
                   'source_changed':('UNVERIFIED',None,0),'position_changed':('UNVERIFIED',None,0),
                   'missing_ack':('UNVERIFIED','claimed',1),'archive_changed':('UNVERIFIED','claimed',0),
-                  'interrupted':('UNVERIFIED','claimed',0),'success_readback':('INDEPENDENT_NATIVE_ACKNOWLEDGED','acknowledged',1)}[mode]
+                  'interrupted':('UNVERIFIED','claimed',0),'success_readback':('INDEPENDENT_NATIVE_ACKNOWLEDGED','acknowledged',1),
+                  'host_success':('INDEPENDENT_MENU_READBACK_MATCH','acknowledged',1)}[mode]
         state,_=gate.read();phase=state['phase'] if state else None
         if (result['result'],phase,server.writes)!=expected:
             raise ValueError('independent_mock/result '+json.dumps({'mode':mode,'broker':result,'phase':phase,'writes':server.writes}))

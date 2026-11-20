@@ -63,6 +63,20 @@ def ui_command_from(command):
     return result+['--width','1264','--height','1680','--dpi','300']
 
 
+def ui_live_dry_command_from(command):
+    """Derive the live-capable menu worker without enabling a live send."""
+    result=ui_command_from(command)
+    old='scripts/run_native_time_independent_ui_worker.py'
+    if result.count(old)!=1:raise ValueError('independent_broker/command')
+    result[result.index(old)]='scripts/run_native_time_independent_ui_live_worker.py'
+    return result
+
+
+def ui_live_command_from(command):
+    """Derive the fixed-size, explicitly enabled menu worker from the attested task."""
+    return ui_live_dry_command_from(command)+['--allow-live']
+
+
 def execute(prepared,signing,cookies,store,gate,audit,current,command,*,armed=False):
     if (not isinstance(prepared,Prepared) or not isinstance(prepared.evidence,IndependentCaptureEvidence)
             or not isinstance(signing,SigningInputs) or not isinstance(gate,IndependentGate)
@@ -83,7 +97,8 @@ def execute(prepared,signing,cookies,store,gate,audit,current,command,*,armed=Fa
                 or not current.matches(grant,cookies)):
             raise ValueError('independent_broker/scope')
         attested=trusted_command()
-        allowed=[attested+['--allow-live']] if armed else [attested,ui_command_from(attested)]
+        allowed=([attested+['--allow-live'],ui_live_command_from(attested)] if armed
+                 else [attested,ui_command_from(attested),ui_live_dry_command_from(attested)])
         if command not in allowed:raise ValueError('independent_broker/command')
     if current() is not True or store.read()!=(bundle,prepared.receipt):raise ValueError('independent_broker/stale')
     supervisor=IndependentNativeBoundSupervisor(gate,store,bundle,grant,signing.guest,signing.config_token,current,

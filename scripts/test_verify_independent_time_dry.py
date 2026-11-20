@@ -62,5 +62,13 @@ class DryTests(unittest.TestCase):
         self.assertFalse(broker.call_args.kwargs['armed'])
         self.assertFalse(result['dispatch_may_have_occurred'])
 
+    def test_live_worker_rehearsal_is_also_disarmed(self):
+        args,options,broker,_signer,_proof=self.setup_case()
+        result=task.run(*args,ui=True,live_worker=True,**options)
+        self.assertEqual(result['result'],'INDEPENDENT_NATIVE_MENU_DRY_VERIFIED')
+        self.assertFalse(broker.call_args.kwargs['armed'])
+        result=task.run(*args,ui=False,live_worker=True,**options)
+        self.assertEqual(result['reason'],'independent_dry/input')
+
 
 if __name__=='__main__':unittest.main()

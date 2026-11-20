@@ -18,7 +18,7 @@ from native_time_bundle_gate import DispatchGate,day
 from native_time_bundle_preparation import SigningRead,SigningInputs
 from native_time_capture_fresh_bundle import store as capture_store
 from native_time_independent_audit import IndependentAudit
-from native_time_independent_broker import AccountBinding,Prepared,execute as broker_execute,ui_command_from
+from native_time_independent_broker import AccountBinding,Prepared,execute as broker_execute,ui_command_from,ui_live_dry_command_from
 from native_time_independent_gate import IndependentGate
 from secure_native_session import NativeSessionStore
 from secure_weread_session import MacKeychain,SessionStore
@@ -30,14 +30,18 @@ def trusted_ui_command():
     return ui_command_from(trusted_command())
 
 
+def trusted_ui_live_dry_command():
+    return ui_live_dry_command_from(trusted_command())
+
+
 def run(store,session,native,gate,audit,legacy_gate,legacy_audit,legacy_original,*,clock=time.time,
-        attest=None,preflight=preflight_run,signer=SigningRead,broker=broker_execute,binding_type=AccountBinding,ui=False):
+        attest=None,preflight=preflight_run,signer=SigningRead,broker=broker_execute,binding_type=AccountBinding,ui=False,live_worker=False):
     result=dict(result='UNVERIFIED',account_data_posts=0,authentication_posts=0,dispatch_may_have_occurred=False,
                 real_accounting_verified=False,private_data_in_report=False)
     binding=prepared=None
     try:
-        if type(ui) is not bool:raise ValueError('independent_dry/input')
-        expected_attest=trusted_ui_command if ui else trusted_command
+        if type(ui) is not bool or type(live_worker) is not bool or live_worker and not ui:raise ValueError('independent_dry/input')
+        expected_attest=trusted_ui_live_dry_command if live_worker else trusted_ui_command if ui else trusted_command
         if attest is None:attest=expected_attest
         real=any(isinstance(getattr(item,'backend',None),MacKeychain) for item in (store,gate,audit,legacy_gate,legacy_audit,legacy_original))
         if real and (clock is not time.time or attest is not expected_attest or preflight is not preflight_run
@@ -87,13 +91,14 @@ def run(store,session,native,gate,audit,legacy_gate,legacy_audit,legacy_original
 
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-capture',action='store_true')
-    parser.add_argument('--native-menu',action='store_true');args=parser.parse_args(argv)
+    parser.add_argument('--native-menu',action='store_true');parser.add_argument('--live-worker',action='store_true');args=parser.parse_args(argv)
+    if args.live_worker and not args.native_menu:parser.error('live worker rehearsal requires the native menu')
     if not args.saved_capture:
         print(json.dumps(dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0)));return 0
     resource.setrlimit(resource.RLIMIT_CORE,(0,0))
     try:
         result=run(capture_store(),SessionStore(),NativeSessionStore(),IndependentGate(),IndependentAudit(),
-                   DispatchGate(),FreshAuditStore(),LegacyAudit(),ui=args.native_menu)
+                   DispatchGate(),FreshAuditStore(),LegacyAudit(),ui=args.native_menu,live_worker=args.live_worker)
     except (Exception,KeyboardInterrupt):result=dict(result='UNVERIFIED',account_data_posts=0,authentication_posts=0)
     print(json.dumps(result));return int(result['result']=='UNVERIFIED')
 
