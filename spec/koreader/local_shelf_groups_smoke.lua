@@ -89,10 +89,22 @@ if phase=='live' then
     picker=select_row(view,picker,text('Show all shelf books'))
     assert(entry(picker,'合成书一').mandatory=='✓' and entry(picker,'合成书三').mandatory=='✓',
         'filtering lost a selection')
+    search=select_row(view,picker,text('Search shelf'));search:setInputText('未提交')
+    assert(search:onCloseDialog(),'back action did not cancel search')
+    pump(function() return view._shelf_popup and view._shelf_popup~=search end)
+    picker=view._shelf_popup
+    assert(entry(picker,'合成书一').mandatory=='✓' and entry(picker,'合成书三').mandatory=='✓',
+        'back action lost unsaved selections')
+    search=select_row(view,picker,text('Search shelf'));search:setInputText('未提交')
+    UI:close(search);pump(function() return view._shelf_popup and view._shelf_popup~=search end)
+    picker=view._shelf_popup
+    assert(entry(picker,'合成书一').mandatory=='✓' and entry(picker,'合成书三').mandatory=='✓',
+        'dismissing search lost unsaved selections')
     search=select_row(view,picker,text('Search shelf'));search:setInputText('合成书一')
     button(search,text('Search')).callback();pump(function() return view._shelf_popup and view._shelf_popup~=search end)
     picker=view._shelf_popup;assert(entry(picker,'合成书一') and not pcall(entry,picker,'合成书三'),'title search did not filter')
-    picker=select_row(view,picker,text('Show all shelf books'))
+    assert(entry(picker,'合成书一').mandatory=='✓','visible selection was lost')
+    -- Save while another selected book is hidden by the active filter.
     UI:forceRePaint();Device.screen:shot(assert(os.getenv('WEREAD_LOCAL_GROUP_EVIDENCE'))..'/choose-books.png')
     picker:onMenuSelect(entry(picker,text('Save local group books')));pump(function() return host.shelf_view~=view end)
     assert_shelf_cloud();local local_group=host.shelf_groups[#host.shelf_groups]
@@ -126,9 +138,13 @@ if phase=='live' then
     host:applyShelfSnapshot(partial,cloud);host:showShelfView('books')
     assert(host.shelf_groups[#host.shelf_groups].incomplete)
     view,manager=manage();actions=choose_group(view,manager,'本机测试');picker=group_action(view,actions,1)
+    search=select_row(view,picker,text('Search shelf'));search:setInputText('合成书二')
+    button(search,text('Search')).callback();pump(function() return view._shelf_popup and view._shelf_popup~=search end)
+    picker=view._shelf_popup;assert(not pcall(entry,picker,'合成书一'))
     picker:onMenuSelect(entry(picker,text('Save local group books')));pump(function() return host.shelf_view~=view end)
     local preserved=assert(host.library_db:getProfileState('shelf_local_groups_v1'))
-    assert(#preserved.groups[1].books==2 and preserved.groups[1].books[2]=='103','missing book was removed')
+    assert(#preserved.groups[1].books==2 and preserved.groups[1].books[1]=='101' and preserved.groups[1].books[2]=='103',
+        'filtered or missing book was removed')
     host:applyShelfSnapshot(shelf,cloud);host:showShelfView('books')
     view=host.shelf_view;view:showSourceMenu('books');picker=assert(view._shelf_popup)
     picker:onMenuSelect(entry(picker,'本机 · 本机测试'));pump(function() return host.shelf_view~=view end)
@@ -149,6 +165,14 @@ if phase=='live' then
     assert(#host.shelf_groups==2,'foreign account inherited local group')
     require('weread.ui.shelf_popup').close(view)
     auth('900000');host:applyShelfSnapshot(shelf,cloud);assert(host.shelf_groups[#host.shelf_groups].label=='本机 · 并发新名称')
+    host:showShelfView('books');view,manager=manage();actions=choose_group(view,manager,'并发新名称')
+    picker=group_action(view,actions,1);search=select_row(view,picker,text('Search shelf'))
+    search:setInputText('合成书一');auth('900001');host:applyShelfSnapshot(shelf,cloud)
+    button(search,text('Search')).callback();UI:handleInput()
+    assert(view._shelf_popup==search,'old account search reopened an obsolete picker')
+    assert(not host.library_db:getProfileState('shelf_local_groups_v1'),'old account search wrote to new account')
+    UI:close(search);UI:handleInput()
+    assert(not view._shelf_popup,'dismissing stale search reopened a picker')
     -- Exercise paged management and book picking with a separate account.
     auth('900002')
     local many={};for i=1,40 do many[#many+1]={bookId=tostring(1000+i),title='合成第'..i..'本'} end

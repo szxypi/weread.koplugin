@@ -86,13 +86,24 @@ function M.open(host,owner,is_current,on_change)
             transition(menu,function()
                 local dialog
                 dialog=require('ui/widget/inputdialog'):new{title=_('Search shelf'),input=state.query,input_type='text',
-                    buttons={{{text=_('Cancel'),callback=function() transition(dialog,function() show_books(group,state) end) end},
+                    buttons={{{text=_('Cancel'),id='close',callback=function() transition(dialog,function() show_books(group,state) end) end},
                         {text=_('Search'),is_enter_default=true,callback=function()
                             if not alive() or not Popup.current(owner,dialog) then return end
                             local value=Query.trim(dialog:getInputText())
                             transition(dialog,function() state.query=value;show_books(group,state) end)
                         end}}}}
                 Popup.show(owner,dialog,function(widget) host:showInputDialog(widget) end)
+                -- A hardware back key may dismiss the input without invoking
+                -- either button. Return to the unsaved selection in that case.
+                local close=dialog.onCloseWidget
+                dialog.onCloseWidget=function(widget,...)
+                    local dismissed=Popup.current(owner,widget)
+                    local result=close(widget,...)
+                    if dismissed then UI:nextTick(function()
+                        if alive() and not owner._shelf_popup then show_books(group,state) end
+                    end) end
+                    return result
+                end
             end)
         end}
         if state.query~='' then
