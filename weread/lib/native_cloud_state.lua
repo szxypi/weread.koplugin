@@ -18,8 +18,10 @@ function M.none(value)
 end
 function M.from(raw,id)
     local p,reason,provided=Remote.project(raw,id,'native')
-    if reason or not p or not provided.chapter_uid or tostring(p.chapter_uid)~='0' or p.raw_percent~=0
-        or not provided.chapter_offset or p.chapter_offset~=0 or p.summary~='' or provided.chapter_idx and p.chapter_idx~=0 then return nil end
+    local node=Remote.node(raw,id)
+    if reason or not p or not node or not provided.chapter_uid or tostring(p.chapter_uid)~='0' or p.raw_percent~=0
+        or not provided.chapter_offset or p.chapter_offset~=0 or p.summary~='' or provided.chapter_idx and p.chapter_idx~=0
+        or node.summary~=nil and node.summary~='' or node.chapterTitle~=nil and node.chapterTitle~='' then return nil end
     local value={kind='no_chapter',book_id=id,chapter_uid='0',chapter_offset=0,raw_percent=0,
         index_present=provided.chapter_idx,summary_present=provided.summary}
     if value.index_present then value.chapter_idx=0 end

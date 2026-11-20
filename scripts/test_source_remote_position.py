@@ -22,6 +22,11 @@ class SourceRemoteTests(unittest.TestCase):
             v=dict(progress=0,chapterUid=0,chapterOffset=0);v.update(fields)
             self.assertEqual(outcome(v,BOOK,CAT)['reason'],'progress_source_incomplete')
         self.assertEqual(outcome(dict(progress=0,chapterUid=0),BOOK,CAT)['reason'],'progress_source_incomplete')
+        for title in ('conflicting title', False, 1):
+            value=dict(progress=0,chapterUid=0,chapterOffset=0,summary='',chapterTitle=title)
+            self.assertEqual(outcome(value,BOOK,CAT)['reason'],'progress_source_incomplete')
+        value=dict(progress=0,chapterUid=0,chapterOffset=0,summary='',chapterTitle='')
+        self.assertEqual(outcome(value,BOOK,CAT)['reason'],'progress_no_chapter')
     def test_present_zero_index_cannot_be_replaced_with_a_catalog_index(self):
         self.assertEqual(outcome(raw(chapterIdx=0),BOOK,CAT)['reason'],'progress_source_incomplete')
     def test_zero_offset_is_valid_but_absent_offset_is_not(self):

@@ -713,11 +713,12 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
     local gateway_error
     local web_error
     local web_none
+    local web_conflict
     local function normalize(value,kind)
         if not self.prepare_upload then return PositionMapper.normalize_remote(value,book_id,kind,chapters) end
-        local position,reason=SourceRemote.resolve(value,book_id,chapters,kind)
+        local position,reason,conflict=SourceRemote.resolve(value,book_id,chapters,kind)
         if position then position.summary=nil end
-        return position,reason
+        return position,reason,conflict
     end
     if self.settings:is_api_configured() and not cb_book(tostring(book_id)) then
         local ok,result
@@ -740,7 +741,7 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
         if not access_current() then return nil,'session_changed' end
         if access and ok and not result and kind=='web_expired' then return nil,'progress_web_expired',access end
         if ok then
-            web, web_error = normalize(result,"web")
+            web, web_error, web_conflict = normalize(result,"web")
             if web_error=='progress_no_chapter' then
                 web_none=cb_book(tostring(book_id)) and require('weread.lib.cb_initial_state').from(result,book_id)
                     or CloudState.from(result,book_id)
@@ -749,6 +750,9 @@ function ProgressSync:_fetch_remote(book_id, chapters, is_current)
             web_error = access and 'progress_unavailable' or tostring(result)
         end
     end
+    -- A contradictory Web zero-chapter response is not evidence that an
+    -- older gateway point is current. Preserve local progress and stop.
+    if web_conflict then return nil,web_error end
     -- An explicit Web no-chapter marker is an observed cloud state, not an
     -- unavailable transport. An older gateway point must not replace it.
     if web_error=='progress_no_chapter' then

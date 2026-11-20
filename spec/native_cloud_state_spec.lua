@@ -14,6 +14,13 @@ expect(not pcall(P.point,absent) and not P.equal(absent,absent))
 for _i,change in ipairs({{chapterUid=false},{chapterOffset=false},{chapterOffset=1},{progress=1},{chapterIdx=1},{summary='text'},{bookId='42'}}) do
     local v=F.clone(raw);for k,x in pairs(change) do v.book[k]=x==false and nil or x end;expect(not State.from(v,'41'))
 end
+for _i,title in ipairs({'Chapter already selected',false,1}) do
+    local v=F.clone(raw);v.book.summary='';v.book.chapterTitle=title
+    expect(not State.from(v,'41'))
+    expect(not pcall(State.snapshot,v,'41'))
+end
+local empty_title=F.clone(raw);empty_title.book.summary='';empty_title.book.chapterTitle=''
+expect(State.none(assert(State.from(empty_title,'41'))))
 for _i,change in ipairs({{index_present=true},{summary_present=true},{summary=false},{kind='point'},{book_id='book'},{chapter_uid='1'},{extra=1}}) do
     local v=F.clone(absent);for k,x in pairs(change) do v[k]=x end;expect(not State.valid(v))
 end

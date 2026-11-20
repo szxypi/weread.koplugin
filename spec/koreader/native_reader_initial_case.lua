@@ -6,14 +6,17 @@ return function(reader,plugin,pump,clean,counters,pids,report,reopen)
     local mode=assert(os.getenv('WEREAD_NATIVE_INITIAL_CASE'))
     local confirmed=mode=='accepted' or mode=='delayed'
     local save_failed=mode=='local_save_failed'
+    local blocked=mode=='native_title_conflict' or mode=='web_title_conflict'
     report.initial_case={mode=mode,reopen=reopen,cancelled_locally=false,explicit_choice=false,
         confirmed=false,unknown_kept=false,reviewed=false,local_save_failed=false,offline_preserved=false,
-        no_automatic_write=false,workers_reaped=false,failed_line=0}
+        no_automatic_write=false,workers_reaped=false,blocked_conflict=false,failed_line=0}
     local r=report.initial_case
     local function check_record()
         local journal=plugin.source_upload:_native().service.journal
         local row=journal:read();local saved=assert(plugin.settings:get_book(id))
-        if confirmed then
+        if blocked then
+            assert(row.phase=='idle' and saved.pending_upload_position and not saved.last_uploaded_position)
+        elseif confirmed then
             assert(row.phase=='idle' and saved.last_uploaded_position and not saved.pending_upload_position)
             local db=assert(plugin.library_db:open());local count=tonumber(db:rowexec('SELECT COUNT(*) FROM native_position_write_history'));db:close()
             assert(count==0)
@@ -39,6 +42,17 @@ return function(reader,plugin,pump,clean,counters,pids,report,reopen)
         assert(not sync.verified and not sync.uploading and not sync.interval.task and counters[0]==0 and counters[1]==0)
         return dialog
     end
+    if mode=='web_title_conflict' then
+        clean(reader);assert(plugin:onWeReadSyncProgress());pump(function() return not sync.pulling end)
+        check_record()
+        assert(not sync.verified and not sync.uploading and not sync.interval.task and counters[0]==0 and counters[1]==0)
+        r.blocked_conflict,r.no_automatic_write=true,true
+        config.upload_interval_minutes=0;config.upload_on_close=false;plugin.settings:set('sync',config);sync.interval:reschedule()
+        plugin.settings:flush();clean(reader);reader:onClose(false)
+        for pid in pairs(pids) do pump(function() return require('ffi/util').isSubProcessDone(pid) end) end
+        r.workers_reaped=next(pids)~=nil;assert(r.workers_reaped)
+        return
+    end
     local dialog=choice();dialog.cancel_callback();UI:close(dialog)
     assert(not sync.verified and sync.state=='unverified' and not sync:prepare_close() and counters[0]==0)
     r.cancelled_locally=true
@@ -53,8 +67,10 @@ return function(reader,plugin,pump,clean,counters,pids,report,reopen)
     dialog.ok_callback();UI:close(dialog)
     pump(function() return not sync.uploading end);sync._persist=persist
     check_record()
-    assert(counters[0]==1 and counters[1]==0)
-    if confirmed then
+    assert(counters[0]==(blocked and 0 or 1) and counters[1]==0)
+    if blocked then
+        assert(not sync.verified and not sync.interval.task);r.blocked_conflict=true
+    elseif confirmed then
         assert(sync.verified and sync.verified_reason=='first_sync_confirmed' and not sync.dirty)
         local saved=plugin.settings:get_book(id)
         assert(saved.last_uploaded_position.source_position.chapter_offset==before.source_position.chapter_offset
@@ -74,7 +90,7 @@ return function(reader,plugin,pump,clean,counters,pids,report,reopen)
         if mode=='rejected' then assert(current.text:find(tr('WeRead has no chapter position for “%1”. Archiving keeps the old request result and your local position; it does not resend or undo anything. A delayed cloud change may still arrive.'):match('^(.-)%%1'),1,true)) end
         current.cancel_callback();UI:close(current);check_record();r.reviewed=true
     end
-    assert(counters[0]==1 and counters[1]==0);r.no_automatic_write=true
+    assert(counters[0]==(blocked and 0 or 1) and counters[1]==0);r.no_automatic_write=true
     config.upload_interval_minutes=0;config.upload_on_close=false;plugin.settings:set('sync',config);sync.interval:reschedule()
     plugin.settings:flush();clean(reader);reader:onClose(false)
     for pid in pairs(pids) do pump(function() return require('ffi/util').isSubProcessDone(pid) end) end

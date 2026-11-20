@@ -19,6 +19,10 @@ end
 for _i,fields in ipairs({{progress=1},{chapterOffset=1},{chapterIdx=7},{summary='nonempty'}}) do
     local v={progress=0,chapterUid=0,chapterOffset=0};for k,x in pairs(fields) do v[k]=x end;reject(v)
 end
+for _,title in ipairs({'conflicting title',false,1}) do
+    reject({progress=0,chapterUid=0,chapterOffset=0,summary='',chapterTitle=title})
+end
+reject({progress=0,chapterUid=0,chapterOffset=0,summary='',chapterTitle=''},nil,'progress_no_chapter')
 reject({progress=0,chapterUid=0});reject(raw(0))
 local value=raw();value.book.chapterOffset=nil;reject(value)
 for _i,rows in ipairs({{}, {catalog[1],catalog[1]}, {catalog[1],{chapterUid=33,chapterIdx=7}},

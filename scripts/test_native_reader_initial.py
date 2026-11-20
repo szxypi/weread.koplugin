@@ -5,9 +5,11 @@ from run_native_reader_initial import decode,FRAME,FLAGS,CASE_FLAGS,CASES
 
 
 def stage(mode='accepted',reopen=False):
-    needed={'reopen','offline_preserved'} if reopen else {'cancelled_locally','explicit_choice','no_automatic_write','workers_reaped'}|(
-        {'confirmed'} if mode in ('accepted','delayed') else {'reviewed','local_save_failed' if mode=='local_save_failed' else 'unknown_kept'})
-    return dict(result='PASS',phase='complete',failed_line=0,native_posts=0 if reopen else 1,web_posts=0,
+    needed={'reopen','offline_preserved'} if reopen else {'no_automatic_write','workers_reaped'}|(
+        {'blocked_conflict'} if mode=='web_title_conflict' else {'cancelled_locally','explicit_choice'}|(
+        {'confirmed'} if mode in ('accepted','delayed') else {'blocked_conflict'} if mode=='native_title_conflict'
+        else {'reviewed','local_save_failed' if mode=='local_save_failed' else 'unknown_kept'}))
+    return dict(result='PASS',phase='complete',failed_line=0,native_posts=0 if reopen or mode in ('native_title_conflict','web_title_conflict') else 1,web_posts=0,
                 initial_case=dict(mode=mode,failed_line=0,**{k:k in needed for k in CASE_FLAGS}),**{k:False for k in FLAGS})
 
 

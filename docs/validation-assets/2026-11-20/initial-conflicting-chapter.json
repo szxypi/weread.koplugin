@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "physical_device": false,
+  "account_data_posts": 0,
+  "resolutions": ["600x800", "1264x1680"],
+  "native_conflicting_title": {"first_sync_posts": 0, "pending_local_preserved": true, "offline_reopen": true},
+  "web_conflicting_title": {"first_sync_posts": 0, "pending_local_preserved": true, "offline_reopen": true},
+  "old_gateway_and_incomplete_web_component_checks": "PASS",
+  "normal_first_sync_regression": {"resolution": "600x800", "first_sync_posts": 1, "offline_reopen": true},
+  "installed_candidate_bytes_match": true
+}

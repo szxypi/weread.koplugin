@@ -44,6 +44,9 @@ input.initialize_cloud=true
 result=Snapshot.run({},settings,selected,input,gate);expect(result.kind=='ready' and State.none(result.metadata.before))
 none.book.chapterIdx=0;none.book.summary=''
 expect(Snapshot.run({},settings,selected,input,gate).kind=='ready','cross-channel absent metadata flags wrongly required identical')
+none.book.chapterTitle='A conflicting chapter title'
+expect(Snapshot.run({},settings,selected,input,gate).kind=='unavailable','conflicting chapter title allowed first-position proof')
+none.book.chapterTitle=nil
 for _i,key in ipairs({'readingTime','recordReadingTime','ttsTime'}) do
     none.book[key]=1
     expect(Snapshot.run({},settings,selected,input,gate).kind=='initial_time_unverified','unproven nonzero-time initialization was not identified')

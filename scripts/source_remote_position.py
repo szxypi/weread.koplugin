@@ -30,7 +30,9 @@ def resolve(raw,book_id,chapters,source='web'):
     p=project(raw,book_id,source);node=find_node(raw,book_id)
     present_index=any(k in node for k in ('chapterIdx','chapterIndex','chapter_idx'))
     if (identity(p.get('chapter_uid'))=='0' and p['raw_percent']==0 and p['has_chapter_offset'] and p['chapter_offset']==0
-            and p['summary']=='' and (not present_index or p['chapter_idx']==0)):
+            and p['summary']=='' and (not present_index or p['chapter_idx']==0)
+            and (node.get('summary') is None or node['summary']=='')
+            and (node.get('chapterTitle') is None or node['chapterTitle']=='')):
         raise ProgressError('progress_no_chapter')
     uid=positive(p.get('chapter_uid'))
     if not uid or not p['has_chapter_offset']:raise ProgressError('progress_source_incomplete')

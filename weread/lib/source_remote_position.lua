@@ -33,8 +33,15 @@ end
 function M.resolve(raw,book_id,chapters,source)
     local p,reason,provided=Remote.project(raw,book_id,source)
     if not p then return nil,reason end
-    if tostring(p.chapter_uid)=='0' and p.raw_percent==0 and p.has_chapter_offset and p.chapter_offset==0
-        and p.summary=='' and (not provided.chapter_idx or p.chapter_idx==0) then return nil,'progress_no_chapter' end
+    local node=Remote.node(raw,book_id)
+    if tostring(p.chapter_uid)=='0' then
+        if p.raw_percent==0 and p.has_chapter_offset and p.chapter_offset==0 and p.summary==''
+            and (not provided.chapter_idx or p.chapter_idx==0) and node
+            and (node.summary==nil or node.summary=='') and (node.chapterTitle==nil or node.chapterTitle=='') then
+            return nil,'progress_no_chapter'
+        end
+        return nil,'progress_source_incomplete',true
+    end
     local uid=positive(p.chapter_uid)
     if not uid or not p.has_chapter_offset then return nil,'progress_source_incomplete' end
     local index=catalog_index(chapters,uid)

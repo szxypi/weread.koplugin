@@ -198,6 +198,36 @@ test('source no-chapter marker keeps local intent and overrides an older gateway
     eq(f.notifications[#f.notifications].data.error,'progress_no_chapter','no-chapter status lacked its specific notice')
 end)
 
+test('conflicting Web zero-chapter response cannot fall back to an older gateway position',function()
+    local source={book_id='book',chapter_uid='22',chapter_offset=150,basis='raw_txt_utf16',upload_verified=false,
+        file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=0,render_path='chapter.xhtml'}
+    local f=fixture({progress=0,chapterUid=0,chapterOffset=0,summary='',chapterTitle='Conflicting title'},
+        {get_source_position=function() return source end})
+    f.sync.prepare_upload=function() error('conflicting position reached upload preparation') end
+    f.client.get_progress=function() return {book={progress=25,chapterUid=22,chapterIdx=2,chapterOffset=150,updateTime=999}} end
+    local remote,reason=f.sync:_fetch_remote('book',chapters)
+    eq(remote,nil,'conflicting Web state fell back to the gateway')
+    eq(reason,'progress_source_incomplete','conflicting Web state lost its reason')
+    f.sync:_mark_verified('book','fixture',assert(f.sync:capture_local()),{});f.sync.dirty=true
+    f.sync:checkpoint_local('prior_local')
+    f.sync:sync_now();f.drain()
+    eq(#f.choices,0,'conflicting cloud state offered a choice');eq(#f.uploads,0,'conflicting cloud state uploaded')
+    eq(f.values.books.book.pending_upload_position.source_position.chapter_offset,150,'conflicting cloud state erased local intent')
+end)
+
+test('incomplete Web zero-chapter responses cannot fall back to an older gateway position',function()
+    for _,remote in ipairs({{progress=1,chapterUid=0,chapterOffset=0},
+        {progress=0,chapterUid=0}, {progress=0,chapterUid=0,chapterOffset=0,chapterIdx=1},
+        {progress=0,chapterUid=0,chapterOffset=0,summary='Existing text'}}) do
+        local f=fixture(remote)
+        f.sync.prepare_upload=function() error('incomplete position reached upload preparation') end
+        f.client.get_progress=function() return {book={progress=25,chapterUid=22,chapterIdx=2,chapterOffset=150}} end
+        local point,reason=f.sync:_fetch_remote('book',chapters)
+        eq(point,nil,'incomplete zero-chapter Web state fell back to the gateway')
+        eq(reason,'progress_source_incomplete','incomplete zero-chapter state lost its reason')
+    end
+end)
+
 local function cb_fixture()
     local source={book_id='CB_SyntheticOnly',chapter_uid='22',chapter_offset=150,basis='filtered_xhtml_utf16',upload_verified=false,
         file_id=string.rep('a',64),raw_sha256=string.rep('b',64),book_version=7,render_path='chapter.xhtml'}
