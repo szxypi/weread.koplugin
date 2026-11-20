@@ -186,6 +186,8 @@ local function reset()
     plugin.settings:set('shelf',settings);plugin.settings:flush()
     plugin:applyShelfSnapshot(books,archives);plugin:showShelfView('books')
 end
+local progress_fixture=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+assert(dofile(progress_fixture..'shelf_progress_sort_case.lua')(plugin,mode,pump,evidence))
 if mode=='reopen' then
     assert(plugin.settings:get('shelf').sort_order=='author_desc','author sort did not survive a fresh process')
     reset();local remembered=assert(plugin.shelf_view)
@@ -592,6 +594,10 @@ if mode=='live' then
     local saved=plugin.settings:get('shelf');saved.sort_order='author_desc'
     plugin.settings:set('shelf',saved);plugin.settings:flush()
 end
+if mode=='reopen' then
+    local saved=plugin.settings:get('shelf');saved.sort_order='progress_desc'
+    plugin.settings:set('shelf',saved);plugin.settings:flush()
+end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
 report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.recent_identity=true;report.prefetch_identity=true;report.annotation_identity=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
@@ -599,5 +605,6 @@ report.volatile_restart=true;report.saved_searches=saved_searches;report.incompl
 report.mixed_group_identities=true
 report.uncertain_group_membership=true
 report.download_identity=true
+report.progress_sort=true
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

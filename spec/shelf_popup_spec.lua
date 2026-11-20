@@ -59,6 +59,14 @@ for index,key in ipairs({'author_asc','author_desc'}) do
         'author sort did not save the selected direction')
     expect(not owner._shelf_popup,'author sort left its popup open')
 end
+for index,key in ipairs({'progress_desc','progress_asc'}) do
+    local host,owner,origin=fixture()
+    host:showShelfSortOptions(function() host.changes=host.changes+1 end,origin)
+    shown.buttons[index+7][1].callback();flush()
+    expect(host.settings:get().sort_order==key and host.writes==1 and host.changes==1,
+        'progress sort did not save the selected direction')
+    expect(not owner._shelf_popup,'progress sort left its popup open')
+end
 local _,owner=fixture();local calls=0
 local dialog={onCloseWidget=function() calls=calls+1;return false end}
 Popup.show(owner,dialog);Popup.close(owner);Popup.close(owner)

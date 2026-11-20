@@ -1,15 +1,26 @@
 local Data = require("weread.lib.shelf_progress")
+local Access = require("weread.lib.read_access")
+local Identity = require("weread.lib.shelf_snapshot")
 local M = {}
 
-function M:prepareShelfProgress(books)
+function M:prepareShelfProgress(books,saved_books)
     local ids = {}
-    for _, book in ipairs(books) do ids[#ids + 1] = tostring(book.bookId or book.book_id) end
-    local snapshots = self.library_db and self.library_db.getShelfProgress and self.library_db:getShelfProgress(ids) or {}
-    local saved = self.settings:get("books", {})
+    for _, book in ipairs(books) do
+        local id=Identity.persisted_id(book)
+        if id and Data.book_id(id) then ids[#ids + 1]=id end
+    end
+    local raw = self.library_db and self.library_db.getShelfProgress and self.library_db:getShelfProgress(ids) or {}
+    local snapshots={}
+    for _,id in ipairs(ids) do
+        local snapshot=type(raw)=='table' and raw[id]
+        if type(snapshot)=='table' and Identity.persisted_identity(snapshot.book_id)==id then snapshots[id]=snapshot end
+    end
+    local saved = type(saved_books)=='table' and saved_books or self.settings:get("books", {})
     local account = self.library_db and self.library_db:accountKey()
     for _, book in ipairs(books) do
-        local id = tostring(book.bookId or book.book_id)
-        book._shelf_progress, book._shelf_progress_local = Data.display(saved[id], snapshots[tostring(id)], account, id)
+        local id = Identity.persisted_id(book)
+        local local_book = id and Access.cached_book(saved,id)
+        book._shelf_progress, book._shelf_progress_local = Data.display(local_book, id and snapshots[id], account, id)
     end
     return snapshots
 end
@@ -29,7 +40,8 @@ function M:refreshVisibleShelfProgress(view, books, snapshots, options)
     local ids = {}
     local access = Data.selection(self.settings)
     for _, book in ipairs(books) do
-        local id = Data.book_id(book.bookId or book.book_id)
+        local id = Identity.persisted_id(book)
+        id=id and Data.book_id(id)
         if id and Data.supports(id, access) then ids[#ids + 1] = id end
     end
     local key = tostring(account) .. ":" .. tostring(self.discovery_epoch or 0) .. ":"

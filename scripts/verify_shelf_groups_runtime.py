@@ -44,7 +44,8 @@ def main():
         raw=(root/f'evidence/{mode}.log').read_bytes();frame=b'\nWEREAD_GROUP_UI_RESULT='
         if result.returncode or raw.count(frame)!=1:raise RuntimeError('native synthetic group UI failed; inspect isolated log')
         stage=json.loads(raw.split(frame)[1])
-        assert set(stage)=={'result','mode','http_requests','popup_cases','fresh_db_read','painted_views','group_coverage','portal','search_sparse_fields','sort_ties_stable','author_sort','title_sort','recent_identity','prefetch_identity','annotation_identity','shelf_dates','home_refresh_cases','volatile_restart','saved_searches','incomplete_shelf','mixed_group_identities','uncertain_group_membership','download_identity'}
+        assert set(stage)=={'result','mode','http_requests','popup_cases','fresh_db_read','painted_views','group_coverage','portal','search_sparse_fields','sort_ties_stable','author_sort','title_sort','recent_identity','prefetch_identity','annotation_identity','shelf_dates','home_refresh_cases','volatile_restart','saved_searches','incomplete_shelf','mixed_group_identities','uncertain_group_membership','download_identity','progress_sort'}
+        assert stage['progress_sort'] is True
         assert stage['download_identity'] is True
         assert stage['mixed_group_identities'] is True
         assert stage['uncertain_group_membership'] is True
@@ -59,6 +60,12 @@ def main():
         assert stage['painted_views']==validate(stage['group_coverage'],mode,len(groups),True)
         assert b'[WeRead] forceRePaint failed:' not in raw
         stages.append(stage)
+    with (root/'evidence/progress-reopen.log').open('w') as log:
+        result=subprocess.run([str(runtime/'luajit'),str(repo/'spec/koreader/shelf_progress_sort_reopen.lua')],cwd=runtime,
+                              env=env,stdout=log,stderr=subprocess.STDOUT,timeout=90)
+    raw=(root/'evidence/progress-reopen.log').read_bytes()
+    assert result.returncode==0 and raw.count(b'\nWEREAD_PROGRESS_SORT_REOPEN=PASS')==1
+    assert b'[WeRead] forceRePaint failed:' not in raw
     report=dict(result='PASS',synthetic_only=True,stages=stages,physical_device=False)
     (root/'evidence/result.json').write_text(json.dumps(report,indent=2)+'\n');print(json.dumps(dict(result='PASS',groups=len(groups),popup_cases_per_process=11)))
 

@@ -763,6 +763,10 @@ function M:showShelfView(mode, keyword, old_view, options)
         or _('Selected groups unavailable; showing all books')) or nil
     local prepared = options.prepared_shelf
     local group_source=#multi>0 and (grouped or self.shelf_regular) or (group and group.books or self.shelf_regular)
+    local order=self.settings:get('shelf').sort_order
+    if not prepared and (order=='progress_asc' or order=='progress_desc') and self.prepareShelfProgress then
+        self:prepareShelfProgress(group_source or {},saved_books)
+    end
     local books = prepared and prepared.books or filtered(group_source, true)
     local accounts = prepared and prepared.accounts or filtered(self.shelf_mp, false)
     local last_read_times={}
@@ -780,7 +784,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     local progress_books, progress_snapshots
     if mode == "books" and self.prepareShelfProgress then
         progress_books = paged and shelf_page_items(source, page, page_size) or source
-        progress_snapshots = self:prepareShelfProgress(progress_books)
+        progress_snapshots = self:prepareShelfProgress(progress_books,saved_books)
     end
     local cover_paths, cover_loading
     if cover_mode then
@@ -1091,14 +1095,18 @@ sortBooks = function(books, sort_order, saved_books, account)
     local by_time = sort_order == "time_desc" or sort_order == "time_asc"
     local by_name = sort_order == "name_asc" or sort_order == "name_desc"
     local by_author = sort_order == "author_asc" or sort_order == "author_desc"
-    if not by_time and not by_name and not by_author then return ShelfFlags.pinned_first(books) end
-    local descending = sort_order == "time_desc" or sort_order == "name_desc" or sort_order == "author_desc"
+    local by_progress = sort_order == "progress_asc" or sort_order == "progress_desc"
+    if not by_time and not by_name and not by_author and not by_progress then return ShelfFlags.pinned_first(books) end
+    local descending = sort_order == "time_desc" or sort_order == "name_desc" or sort_order == "author_desc" or sort_order == "progress_desc"
     local entries, sorted = {}, {}
     local trim = (by_author or by_name) and require("weread.lib.search_query").trim
     for i, book in ipairs(books) do
         local value
         if by_time then
             value = DiscoveryData.recent_time(book,saved_books,account) or 0
+        elseif by_progress then
+            local progress=book._shelf_progress
+            if type(progress)=='number' and progress==progress and progress>=0 and progress<=100 then value=progress end
         elseif by_author then
             local author = trim(book.author)
             if author == "" then author = trim(book.authors) end
@@ -1113,7 +1121,7 @@ sortBooks = function(books, sort_order, saved_books, account)
     -- values, including the many books with no recent-reading timestamp.
     table.sort(entries, function(a, b)
         if a.value == b.value then return a.index < b.index end
-        if by_author or by_name then
+        if by_author or by_name or by_progress then
             if a.value == nil then return false end
             if b.value == nil then return true end
         end
@@ -1138,7 +1146,9 @@ function M:showShelfPage()
         local items = self:shelfToolbarItems(true, refresh)
         local saved_books = self.settings:get("books", {})
         local account = group_owner(self)
-        local sorted = sortBooks(books, self.settings:get("shelf").sort_order,saved_books,account)
+        local order=self.settings:get("shelf").sort_order
+        if (order=='progress_asc' or order=='progress_desc') and self.prepareShelfProgress then self:prepareShelfProgress(books,saved_books) end
+        local sorted = sortBooks(books,order,saved_books,account)
         local downloaded_cache = {}
         self._shelf_saved_books = saved_books
         for _i, book in ipairs(sorted) do
@@ -1147,6 +1157,8 @@ function M:showShelfPage()
                 local right_text
                 if ShelfFlags.display(book,'finished')==true then
                     right_text = _("Done")
+                elseif (order=='progress_asc' or order=='progress_desc') and type(book._shelf_progress)=='number' then
+                    right_text = tostring(book._shelf_progress)..'%'
                 else
                     right_text = ShelfTime.date(DiscoveryData.recent_time(book,saved_books,account)) or ""
                 end

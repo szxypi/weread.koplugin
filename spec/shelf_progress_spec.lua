@@ -89,6 +89,20 @@ local books = { { bookId = "900001" }, { bookId = "900002" } }
 host:prepareShelfProgress(books)
 expect(books[1]._shelf_progress == 83 and books[1]._shelf_progress_local and books[2]._shelf_progress == nil,
     "cached/local progress not prepared for display")
+local stable_get=settings.get
+settings.get=function(self,key,default)
+    if key=='books' then return {[900001]={book_id='900001',pending_upload_account='account-a',
+        pending_upload_position={book_id='900001',percent=62}},
+        ['900002']={book_id='wrong',pending_upload_account='account-a',pending_upload_position={percent=99}}} end
+    return stable_get(self,key,default)
+end
+cache['900002']={book_id='900003',percent=98,fetched_at=os.time()}
+local verified=host:prepareShelfProgress(books)
+expect(books[1]._shelf_progress==62 and books[1]._shelf_progress_local,
+    'legacy numeric key did not restore same-account pending progress')
+expect(books[2]._shelf_progress==nil and verified['900002']==nil,
+    'foreign local or cached book progress was displayed')
+settings.get=stable_get;cache['900002']=nil;host:prepareShelfProgress(books)
 host:refreshVisibleShelfProgress(host.shelf_view, books, cache, { on_redraw = function() redrawn = redrawn + 1 end })
 expect(#tasks == 1, "visible batch not queued")
 host:refreshVisibleShelfProgress({}, books, cache, { on_redraw = function() redrawn = redrawn + 10 end })

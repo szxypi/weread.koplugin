@@ -232,6 +232,8 @@ local SHELF_SORT_OPTIONS = {
     { key = "name_desc", label = _("Title Z-A"), short = "Z–A" },
     { key = "author_asc", label = _("Author A-Z"), short = _("Author A-Z") },
     { key = "author_desc", label = _("Author Z-A"), short = _("Author Z-A") },
+    { key = "progress_desc", label = _("Cached progress (highest first)"), short = _("Progress descending") },
+    { key = "progress_asc", label = _("Cached progress (lowest first)"), short = _("Progress ascending") },
 }
 
 local function shelfSortLabel(sort_key)

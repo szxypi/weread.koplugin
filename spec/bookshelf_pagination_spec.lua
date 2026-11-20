@@ -675,6 +675,36 @@ expect(#legacy_items==8 and legacy_items[3].text=='E'
     and legacy_items[3].mandatory==os.date('%Y-%m-%d',12),
     'legacy shelf failed to render a numeric-string timestamp')
 for index=5,8 do expect(legacy_items[index].mandatory=='','legacy shelf displayed an invalid date') end
+local progress_values={a=50,b=0,c=50,e=100}
+host.prepareShelfProgress=function(_self,values)
+    for _,book in ipairs(values) do book._shelf_progress=progress_values[book.bookId] end
+    return {}
+end
+host.refreshVisibleShelfProgress=function() end
+host.shelf_regular={{bookId='p',title='Pinned',isTop=1},{bookId='a',title='A'},{bookId='b',title='B'},
+    {bookId='c',title='C'},{bookId='d',title='D'},{bookId='e',title='E'}}
+for _,case in ipairs({{'progress_desc',{'p','e','a','c','b','d'}},
+                      {'progress_asc',{'p','b','a','c','e','d'}}}) do
+    shelf_settings.sort_order=case[1];host:showShelfView('books')
+    for index,id in ipairs(case[2]) do
+        expect(shown[#shown].data.books[index].bookId==id,'progress sort lost pin, unknown, zero or stable ties')
+    end
+end
+shelf_settings.sort_order='progress_desc';host:showShelfView('books')
+local ordered=shown[#shown].data.books
+progress_values.e=0;shown[#shown].callbacks.on_page_changed(1)
+expect(shown[#shown].data.books==ordered and ordered[2].bookId=='e',
+    'background progress changed the order while browsing')
+host:showShelfView('books')
+expect(shown[#shown].data.books[2].bookId=='a','fresh view did not sort the latest cached progress')
+host:showShelfView('public_account')
+shown[#shown].callbacks.on_switch('books')
+expect(shown[#shown].data.books[2].bookId=='a',
+    'switching from public accounts reused books without progress ordering')
+host.shelf_books=host.shelf_regular;host:showShelfPage()
+expect(legacy_items[2].text=='A' and legacy_items[2].mandatory=='50%',
+    'legacy progress ordering did not show the sorted percentage')
+host.prepareShelfProgress=nil;host.refreshVisibleShelfProgress=nil
 local authors={
     {bookId='missing-pin',title='Pinned without author',isTop=1},
     {bookId='b',title='Book B',author='Bob'},
