@@ -297,6 +297,8 @@ end
 
 function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
     local owner=self.shelf_view
+    local metadata=self.book_metadata_context
+    local rebase=metadata and metadata.begin_shelf_update and metadata.begin_shelf_update()
     local owned_status=owner and self._shelf_state_menu and owner._shelf_popup==self._shelf_state_menu
         and not self._book_detail_view and owner._shelf_snapshot_redraw
     if not preserve_volatile then VolatileShelf.clear(self) end
@@ -332,6 +334,7 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
         self.shelf_group_key = nil
         if self.shelf_view_pages then self.shelf_view_pages.books = 1 end
     end
+    if rebase then rebase() end
     if owned_status and self.shelf_view==owner and not owner._shelf_closed then
         -- Account data changed beneath an owned status popup. Wait for it to
         -- close, then rebuild from the new snapshot rather than stale rows.

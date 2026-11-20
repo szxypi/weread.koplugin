@@ -1,7 +1,9 @@
 -- Deferred page actions retain the originating view and account context.
 local M={}
-function M.capture(host,owner,field)
+function M.capture(host,owner,field,options)
     field=field or 'shelf_view'
+    options=options or {}
+    local allow_shelf_snapshot_change=options.allow_shelf_snapshot_change==true
     local function account() return host.library_db and host.library_db:accountKey() end
     local function document() return host.ui and host.ui.document end
     local function source() local shelf=host.settings:get('shelf');return shelf and shelf.source or 'auto' end
@@ -12,7 +14,7 @@ function M.capture(host,owner,field)
         if host[field]~=owner or owner and owner._shelf_closed
             or saved.account~=account() or saved.epoch~=(host.discovery_epoch or 0)
             or saved.session~=host._reader_session_gen or saved.document~=document()
-            or saved.books~=host.shelf_regular or saved.groups~=host.shelf_groups
+            or not allow_shelf_snapshot_change and (saved.books~=host.shelf_regular or saved.groups~=host.shelf_groups)
             or saved.state~=host.discovery_state or saved.detail~=host._book_detail_view
             or saved.source~=source() then return false end
         if host.settings.get_auth_scope then

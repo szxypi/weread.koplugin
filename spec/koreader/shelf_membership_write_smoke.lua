@@ -103,11 +103,30 @@ return function(reader,plugin,pump,shot,clean_popups)
             'canceling saved change sent a request or left the intent')
         row('Change cloud membership').callback();assert(plugin._membership_offline_dialog).ok_callback()
         assert(require('weread.ui.membership_offline').get(plugin,id) and writes()==old,'offline change could not be saved again')
-        clean_popups(reader);plugin.isNetworkConnected=function() return true end
+        clean_popups(reader)
+        local metadata,owner
+        if expected_before then
+            plugin:showBookshelf();owner=assert(plugin.shelf_view)
+            request('/__control',{match='/book/info',delay=12,times=0})
+            assert(plugin:refreshBookRecord({book_id=id,title='合成测试书籍'},nil,{automatic=true}))
+            metadata=assert(plugin.book_metadata_context)
+        end
+        plugin.isNetworkConnected=function() return true end
         require('weread.ui.membership_offline').pump(plugin)
         pump(function() return not require('weread.ui.membership_offline').get(plugin,id) end)
         present(id,not expected_before)
         assert(writes()==old+1 and not plugin.shelf_membership:pending(),'offline change did not sync exactly once')
+        if metadata then
+            pump(function() return metadata.pending_shelf_redraw~=nil or plugin.shelf_view~=owner end)
+            assert(metadata.shelf_snapshot_owner==owner and metadata.pending_shelf_redraw and plugin.shelf_view==owner,
+                'offline shelf update interrupted pending metadata')
+            pump(function() return not plugin.book_metadata_context end)
+            local detail=assert(plugin._book_detail_view,'shelf update cancelled metadata')
+            assert(plugin.shelf_view==owner,'shelf changed while metadata was loading')
+            UI:close(detail);pump(function() return plugin.shelf_view~=owner end)
+            request('/__control',{match='',delay=0,times=0})
+            plugin:closeWeReadUI()
+        end
     end
     offline_change(true);offline_change(false);plugin.isNetworkConnected=connected
 

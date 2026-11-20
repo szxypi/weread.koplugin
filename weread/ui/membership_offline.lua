@@ -63,7 +63,12 @@ function M.pump(host)
                     UI:nextTick(function()
                         if host.library_db:accountKey()==account and host.shelf_view==view and not view._shelf_closed
                             and not host._book_detail_view and not host._shelf_state_menu then
-                            view._shelf_snapshot_redraw()
+                            require('weread.ui.shelf_popup').redrawForMetadata(host,view,function()
+                                if host.library_db:accountKey()==account and host.shelf_view==view and not view._shelf_closed
+                                    and not host._book_detail_view and not host._shelf_state_menu then
+                                    view._shelf_snapshot_redraw()
+                                end
+                            end)
                         end
                     end)
                 end

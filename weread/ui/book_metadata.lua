@@ -59,7 +59,8 @@ function M.refresh(host, book, old_view, options)
         had_saved_record = initial~=nil,
         account = host.library_db and host.library_db:accountKey(), view = old_view }
     host.book_metadata_context = context
-    local page_current=require('weread.ui.page_scope').capture(host,host.shelf_view)
+    local Page=require('weread.ui.page_scope')
+    local page_current=Page.capture(host,host.shelf_view)
     local function current_view()
         return host.book_metadata_context == context and (host.discovery_epoch or 0) == context.epoch
             and page_current()
@@ -76,13 +77,33 @@ function M.refresh(host, book, old_view, options)
         if context.renewing then return Recovery.current(host.settings, access, Metadata.capture) end
         return Metadata.matches(host.settings, access)
     end
+    -- Called synchronously around an applied shelf snapshot. Only a request
+    -- that was current before the update may adopt the new shelf references.
+    context.begin_shelf_update=function()
+        if not current_view() or not host.shelf_view then return end
+        local owner=host.shelf_view
+        local stable=Page.capture(host,owner,nil,{allow_shelf_snapshot_change=true})
+        return function()
+            if host.book_metadata_context~=context or not stable() then return end
+            page_current=Page.capture(host,owner)
+            context.shelf_snapshot_owner=owner
+        end
+    end
+    local function show_details(value)
+        host:showBookMenu(value)
+        local owner=context.shelf_snapshot_owner
+        if owner and host.shelf_view==owner and not owner._shelf_closed and host._book_detail_view then
+            owner._shelf_snapshot_detail=host._book_detail_view
+            owner._shelf_snapshot_current=Page.capture(host,owner)
+        end
+    end
     local function finish()
         host.book_metadata_context = nil
         close_busy(host, context)
         resume_shelf(host, context)
     end
     local function failed()
-        if options.automatic then host:showBookMenu(book) end
+        if options.automatic then show_details(book) end
         host:showTransientInfo(_("Book information could not be updated. Showing cached details."), 3)
     end
     host:showBusy(_("Loading book info..."), function() M.cancel(host) end)
@@ -184,13 +205,13 @@ function M.refresh(host, book, old_view, options)
             elseif latest=='book_metadata/record_removed' then
                 host:showInfo(_("Saved book information changed while refreshing. Reopen the book and try again."))
             else
-                if guest and options.automatic then host:showBookMenu(book) end
+                if guest and options.automatic then show_details(book) end
                 host:showInfo(_("Could not save book information. Check storage and try again."))
             end
             return
         end
         if old_view then UIManager:close(old_view) end
-        host:showBookMenu(latest)
+        show_details(latest)
         host:showTransientInfo(_("Book information updated."), 2)
     end
     launch = function(skip_native, web_only)

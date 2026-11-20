@@ -156,6 +156,38 @@ for _,change in ipairs({'page_replaced','page_closed','document','session','deta
     expect(not late_book and late_saves==0 and not host.book_metadata_context and not host.busy_message,
         'late metadata crossed a changed '..change)
 end
+host,state=fixture();host.shelf_view={};host.shelf_regular={};host.shelf_groups={}
+local original_show=host.showBookMenu
+host.showBookMenu=function(self,value) original_show(self,value);self._book_detail_view={} end
+UI.refresh(host,{book_id='900001'},nil,{automatic=true});job=state()
+local adopted=host.book_metadata_context.begin_shelf_update()
+expect(type(adopted)=='function','current metadata did not accept a shelf update')
+host.shelf_regular={};host.shelf_groups={};adopted();job.cb(job.task())
+expect(select(4,state())==1 and select(3,state()) and not host.book_metadata_context,
+    'confirmed shelf update cancelled current book metadata')
+expect(host.shelf_view._shelf_snapshot_detail==host._book_detail_view
+    and host.shelf_view._shelf_snapshot_current(),'details lost their refreshed shelf return scope')
+for _,change in ipairs({'page','session','document','detail','epoch','discovery','account','credentials'}) do
+    local alter
+    host,state,alter=fixture();host.shelf_view={};host.shelf_regular={};host.shelf_groups={};host.ui={document={}}
+    UI.refresh(host,{book_id='900001'},nil,{automatic=true});job=state()
+    adopted=host.book_metadata_context.begin_shelf_update();host.shelf_regular={}
+    if change=='page' then host.shelf_view={}
+    elseif change=='session' then host._reader_session_gen=1
+    elseif change=='document' then host.ui.document={}
+    elseif change=='detail' then host._book_detail_view={}
+    elseif change=='epoch' then host.discovery_epoch=2
+    elseif change=='discovery' then host.discovery_state={}
+    elseif change=='account' then alter{owner='account-b'}
+    else cookies={wr_vid='900000',wr_skey='different-synthetic-access'} end
+    adopted();job.cb(job.task())
+    expect(select(4,state())==0 and not select(3,state()) and not host.book_metadata_context,
+        'shelf rebase accepted changed '..change)
+end
+host,state=fixture();host.shelf_view={};host.shelf_regular={};host.shelf_groups={}
+UI.refresh(host,{book_id='900001'},nil,{automatic=true});job=state()
+host.shelf_regular={};job.cb(job.task())
+expect(select(4,state())==0 and not select(3,state()),'unverified shelf replacement was accepted')
 for _,change in ipairs({"cookie","epoch","owner","cancel"}) do
     local alter
     host,state,alter=fixture()
