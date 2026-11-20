@@ -96,6 +96,15 @@ local ok,reason=pcall(function()
         and not input.progress_preview and not input.progress_roundtrip and not input.source_upload_preview
         and not input.native_source_excerpt and not input.selection_preview and not input.off_shelf_home)
     if input.reader_estimate_probe then report.reader_estimate_verified=false;report.reader_estimate_stage=0 end
+    if input.reader_neighbor then
+        local neighbor=input.reader_neighbor
+        assert(input.reader_estimate_probe and type(neighbor)=='table'
+            and type(neighbor.uid)=='string' and neighbor.uid:match('^[1-9]%d*$') and #neighbor.uid<=20
+            and neighbor.uid~=input.chapter_uid and (neighbor.direction==1 or neighbor.direction==-1)
+            and type(neighbor.raw_sha256)=='string' and #neighbor.raw_sha256==64
+            and neighbor.raw_sha256:match('^[a-f0-9]+$'))
+        report.reader_neighbor_verified=false
+    end
     assert(input.reader_typography_probe==nil or input.reader_typography_probe==true and not cb_reading
         and not input.reader_estimate_probe and not input.full_manifest and input.source_format=='web_xhtml'
         and not input.annotations and not input.progress_preview and not input.progress_roundtrip
@@ -184,6 +193,7 @@ local ok,reason=pcall(function()
         end
         assert(chapter_ids[input.chapter_uid])
     else chapter_ids[input.chapter_uid]=true end
+    if input.reader_neighbor then chapter_ids[input.reader_neighbor.uid]=true end
     latest_cookies=input.cookies
     local source=home..'/plugins/weread.koplugin'
     package.path=source..'/?.lua;'..package.path
@@ -1165,6 +1175,11 @@ local ok,reason=pcall(function()
         plugin,reader=dofile(fixtures..'cb_full_handoff_case.lua')(input,report.cb_handoff,plugin,reader,pump,tick,position)
         document=reader.document
     end
+    if input.reader_neighbor then
+        plugin,reader=dofile(fixtures..'owner_reader_neighbor_case.lua')(input,plugin,reader,pump)
+        document=reader.document
+        report.reader_neighbor_verified=true
+    end
     if close_trial_mode then
         assert(candidate_case.closed==true and candidate_case.report.document_closed
             and candidate_case.report.no_closed_document_calls)
@@ -1273,6 +1288,7 @@ for _i,fd in ipairs(descriptors) do ffi.C.close(fd) end
 if not ok then
     report.failed_line=tonumber(type(reason)=='string' and (reason:match('owner_reading_probe%.lua:(%d+):')
         or reason:match('owner_reader_estimate_case%.lua:(%d+):')
+        or reason:match('owner_reader_neighbor_case%.lua:(%d+):')
         or reason:match('owner_reader_typography_case%.lua:(%d+):')
         or reason:match('owner_reader_display_case%.lua:(%d+):')
         or reason:match('owner_reader_margins_case%.lua:(%d+):'))) or 0

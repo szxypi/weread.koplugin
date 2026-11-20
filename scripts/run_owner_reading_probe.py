@@ -56,6 +56,7 @@ def main(argv=None):
     parser.add_argument('--missing-resume',action='store_true')
     parser.add_argument('--resume-warning',action='store_true')
     parser.add_argument('--reader-estimate',action='store_true')
+    parser.add_argument('--reader-neighbor',action='store_true')
     parser.add_argument('--reader-typography',action='store_true')
     parser.add_argument('--reader-margins',action='store_true')
     parser.add_argument('--reader-display',action='store_true')
@@ -82,6 +83,8 @@ def main(argv=None):
             or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
             or args.selection_thought_preview or args.off_shelf_home):
         parser.error('--reader-estimate requires an ordinary single-chapter reader')
+    if args.reader_neighbor and (not args.reader_estimate or args.missing_resume and args.resume_mock_port is None):
+        parser.error('--reader-neighbor requires --reader-estimate; missing-resume is synthetic only')
     if args.reader_typography and (args.reader_estimate or args.cb_reading or args.cb_full_book or args.annotations or args.annotation_recovery
             or args.progress_preview or args.progress_roundtrip or args.source_upload_preview or args.native_source_excerpt
             or args.selection_thought_preview or args.off_shelf_home):
@@ -128,6 +131,15 @@ def main(argv=None):
             raise ValueError('input_limit')
         payload = json.loads(raw)
         if args.reader_estimate != (payload.get('reader_estimate_probe') is True):raise ValueError('input_limit')
+        if args.reader_neighbor != ('reader_neighbor' in payload):raise ValueError('input_limit')
+        if args.reader_neighbor:
+            import re
+            neighbor=payload['reader_neighbor']
+            if (not isinstance(neighbor,dict) or set(neighbor)!={'uid','direction','raw_sha256'}
+                    or not isinstance(neighbor['uid'],str) or not re.fullmatch(r'[1-9]\d{0,19}',neighbor['uid'])
+                    or neighbor['uid']==payload.get('chapter_uid') or type(neighbor['direction']) is not int
+                    or neighbor['direction'] not in (-1,1) or not isinstance(neighbor['raw_sha256'],str)
+                    or not re.fullmatch(r'[0-9a-f]{64}',neighbor['raw_sha256'])):raise ValueError('input_limit')
         if args.reader_typography != (payload.get('reader_typography_probe') is True):raise ValueError('input_limit')
         if args.reader_margins != (payload.get('reader_margins_probe') is True):raise ValueError('input_limit')
         if args.reader_display != (payload.get('reader_display_probe') is True):raise ValueError('input_limit')
@@ -287,6 +299,7 @@ def main(argv=None):
                                    **({'missing_resume': True} if args.missing_resume else {}),
                                    **({'resume_warning': True} if args.resume_warning else {}),
                                    **({'reader_estimate': True} if args.reader_estimate else {}),
+                                   **({'reader_neighbor': True} if args.reader_neighbor else {}),
                                    **({'reader_typography': True} if args.reader_typography else {}),
                                    **({'reader_margins': True} if args.reader_margins else {}),
                                    **({'reader_display': True} if args.reader_display else {}),

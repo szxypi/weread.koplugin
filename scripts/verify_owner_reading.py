@@ -56,7 +56,9 @@ CB_SOURCE_REASONS = {'none', 'walk_diverged', 'anchor_ambiguous', 'anchor_missin
                      'sample_start_mismatch', 'source_anchor_missing', 'source_anchor_unavailable'}
 
 
-def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False, synthetic_txt_retry=False, reader_estimate=False, reader_typography=False, reader_margins=False, reader_display=False):
+def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False, synthetic_txt_retry=False, reader_estimate=False, reader_neighbor=False, reader_typography=False, reader_margins=False, reader_display=False):
+    if type(reader_neighbor) is not bool or reader_neighbor and not reader_estimate:
+        raise ValueError('reading_scope')
     if type(reader_display) is not bool or reader_display and (reader_margins or reader_estimate or reader_typography or full_chapters!=1 or cb_reading or selection_preview or single_page or combined_profile or off_shelf_home):
         raise ValueError('reading_scope')
     if type(reader_margins) is not bool or reader_margins and (reader_estimate or reader_typography or full_chapters!=1 or cb_reading or selection_preview or single_page or combined_profile or off_shelf_home):
@@ -86,6 +88,7 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
         raise ValueError('reading_scope')
     expected = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'requests'}
     if reader_estimate: expected.update(('reader_estimate_verified','reader_estimate_stage'))
+    if reader_neighbor: expected.add('reader_neighbor_verified')
     if reader_typography: expected.update(('reader_typography_verified','reader_typography_stage'))
     if reader_margins: expected.update(('reader_margins_verified','reader_margins_stage'))
     if reader_display: expected.update(('reader_display_verified','reader_display_stage'))
@@ -106,6 +109,9 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
     if reader_estimate and (type(value['reader_estimate_verified']) is not bool
                             or type(value['reader_estimate_stage']) is not int or not 0<=value['reader_estimate_stage']<=5
                             or value['result']=='PASS' and (not value['reader_estimate_verified'] or value['reader_estimate_stage']!=5)):
+        raise ValueError('reading_incomplete')
+    if reader_neighbor and (type(value['reader_neighbor_verified']) is not bool
+                            or value['result']=='PASS' and not value['reader_neighbor_verified']):
         raise ValueError('reading_incomplete')
     if reader_typography and (type(value['reader_typography_verified']) is not bool
                               or type(value['reader_typography_stage']) is not int or not 0<=value['reader_typography_stage']<=4
@@ -238,7 +244,7 @@ def validate_full_book(value, chapters, *, complete=True, cb_full_book=False):
     return value
 
 
-def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False, synthetic_txt_retry=False, reader_estimate=False, reader_typography=False, reader_margins=False, reader_display=False):
+def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False, cb_full_book=False, selection_preview=False, single_page=False, combined_profile=False, missing_resume=False, resume_warning=False, off_shelf_home=False, off_shelf_store=False, off_shelf_cover=False, off_shelf_marks=False, synthetic_txt_retry=False, reader_estimate=False, reader_neighbor=False, reader_typography=False, reader_margins=False, reader_display=False):
     """The private cookie envelope is consumed here; never print this value."""
     if not isinstance(raw, bytes) or len(raw) > (8 if full_chapters>1 else 2) * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('reading_frame')
@@ -254,7 +260,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
         raise ValueError('reading_envelope')
     validate_cookies(value['cookies'], owner)
     if mode is not None:
-        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks,synthetic_txt_retry=synthetic_txt_retry,reader_estimate=reader_estimate,reader_typography=reader_typography,reader_margins=reader_margins,reader_display=reader_display)
+        validate_stage(value['report'], mode, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks,synthetic_txt_retry=synthetic_txt_retry,reader_estimate=reader_estimate,reader_neighbor=reader_neighbor,reader_typography=reader_typography,reader_margins=reader_margins,reader_display=reader_display)
     else:
         report = value['report']
         fields = {'result', 'tmpfs_profile', 'profile_removed', 'stages', 'runner_error'}
@@ -267,7 +273,7 @@ def decode_envelope(raw, owner, *, mode=None, full_chapters=1, cb_reading=False,
                 or not isinstance(report['stages'], list) or len(report['stages']) > 2):
             raise ValueError('reading_runner')
         for phase, stage in zip(('live', 'reopen'), report['stages']):
-            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks,synthetic_txt_retry=synthetic_txt_retry,reader_estimate=reader_estimate,reader_typography=reader_typography,reader_margins=reader_margins,reader_display=reader_display)
+            validate_stage(stage, phase, full_chapters=full_chapters, cb_reading=cb_reading, cb_full_book=cb_full_book, selection_preview=selection_preview, single_page=single_page, combined_profile=combined_profile, missing_resume=missing_resume,resume_warning=resume_warning,off_shelf_home=off_shelf_home,off_shelf_store=off_shelf_store,off_shelf_cover=off_shelf_cover,off_shelf_marks=off_shelf_marks,synthetic_txt_retry=synthetic_txt_retry,reader_estimate=reader_estimate,reader_neighbor=reader_neighbor,reader_typography=reader_typography,reader_margins=reader_margins,reader_display=reader_display)
         if report['result'] == 'PASS' and (not report['tmpfs_profile'] or not report['profile_removed']
                 or report['runner_error'] != 'none' or len(report['stages']) != 2
                 or any(stage['result'] != 'PASS' for stage in report['stages'])
@@ -355,6 +361,55 @@ class ReadingPreflight(WebSourceProbe):
                     shelf_ids=self.shelf_ids, shelf_books=self.report['shelf_book_count'], source_format='web_xhtml',
                     source_raw_sha256=hashlib.sha256(source.encode()).hexdigest(),
                     source_sample_offset=FilteredSource(source).locate(parser.samples[0])[0])
+
+
+class NeighborReadingPreflight(ReadingPreflight):
+    """Capture exactly one adjacent chapter with no account writes."""
+    def request(self, stage, url, body=None, **kwargs):
+        result = super().request(stage, url, body, **kwargs)
+        if stage == 'catalog_after':
+            self._neighbor_catalog = normalize_chapter_infos(result, self.book_id)
+        return result
+
+    def prepare(self):
+        payload = super().prepare()
+        record, chapters = self._neighbor_catalog
+        current = [index for index, row in enumerate(chapters) if str(row.get('chapterUid')) == self.chapter]
+        if len(current) != 1:
+            raise PreflightError('neighbor_catalog_invalid')
+        index = current[0]
+        candidates = [(delta, index + delta) for delta in (1, -1) if 0 <= index + delta < len(chapters)]
+        if not candidates:
+            raise PreflightError('neighbor_catalog_invalid')
+        direction, adjacent = candidates[0]
+        uid = identifier(chapters[adjacent].get('chapterUid'))
+        if uid == self.chapter or sum(str(row.get('chapterUid')) == uid for row in chapters) != 1:
+            raise PreflightError('neighbor_catalog_invalid')
+        original = self.chapter
+        try:
+            self.chapter = uid
+            context = reader_context(dict(book_id=self.book_id),
+                                     self.request('reader', reader_url_for(self.book_id, uid), as_json=False))
+            if identifier(context['current_chapter'].get('chapterUid')) != uid:
+                raise PreflightError('neighbor_source_invalid')
+            params = make_content_params(self.book_id, uid, context['psvts'], sc=1)
+            parts = [self.request(name, BASE + '/web/book/chapter/' + name, params, as_json=False)
+                     for name in ('e_0', 'e_1', 'e_3')]
+            if any(part == '{}' for part in parts) or parts[0].lstrip().startswith('{'):
+                raise PreflightError('neighbor_source_invalid')
+            raw = decode_content_shards(*parts).encode()
+            if not 1 <= len(raw) <= 2 * 1024 * 1024:
+                raise PreflightError('neighbor_source_invalid')
+            later, rows = normalize_chapter_infos(self.request('catalog_after', BASE + '/web/book/chapterInfos',
+                                                              {'bookIds': [self.book_id]}), self.book_id)
+            after = position(self.request('progress_after', BASE + '/web/book/getProgress?bookId=' + self.book_id), self.book_id)
+            if rows != chapters or versions(later) != versions(record) or after != self.baseline:
+                raise PreflightError('neighbor_baseline_changed')
+            payload['reader_neighbor'] = {'uid': uid, 'direction': direction,
+                                          'raw_sha256': hashlib.sha256(raw).hexdigest()}
+            return payload
+        finally:
+            self.chapter = original
 
 
 class MissingResumePreflight(ReadingPreflight):
@@ -629,6 +684,7 @@ def main(argv=None):
     parser.add_argument('--missing-resume', action='store_true', help='Verify downloading a missing resume chapter with an isolated synthetic cached fallback')
     parser.add_argument('--resume-warning',action='store_true',help='Also verify cancellation of the offline fallback warning')
     parser.add_argument('--reader-estimate',action='store_true',help='Verify native whole-book estimate and offline reopen')
+    parser.add_argument('--reader-neighbor',action='store_true',help='Also verify adjacent-chapter navigation')
     parser.add_argument('--reader-typography',action='store_true',help='Verify native typography and offline reopen')
     parser.add_argument('--reader-margins',action='store_true',help='Verify native page margins and offline reopen')
     parser.add_argument('--reader-display',action='store_true',help='Verify native status bar and offline reopen')
@@ -643,6 +699,8 @@ def main(argv=None):
     if args.resume_warning and not args.missing_resume:parser.error('--resume-warning requires --missing-resume')
     if args.reader_estimate and (not args.saved_session or args.full_book or args.book_format!='epub'):
         parser.error('--reader-estimate requires a saved session and a single EPUB chapter')
+    if args.reader_neighbor and (not args.reader_estimate or args.missing_resume):
+        parser.error('--reader-neighbor requires --reader-estimate without --missing-resume')
     if args.reader_typography and (not args.saved_session or args.full_book or args.book_format!='epub' or args.reader_estimate):
         parser.error('--reader-typography requires a saved session and a single EPUB chapter')
     if args.reader_margins and (not args.saved_session or args.full_book or args.book_format!='epub' or args.reader_estimate or args.reader_typography):
@@ -657,6 +715,7 @@ def main(argv=None):
         if args.saved_session:
             store = SessionStore()
             probe = (FullBookPreflight() if args.full_book else TxtReadingPreflight() if args.book_format == 'txt'
+                     else NeighborReadingPreflight() if args.reader_neighbor
                      else MissingResumePreflight() if args.missing_resume else ReadingPreflight())
             saved = store.load()
             probe.vid = saved['vid']
@@ -684,7 +743,7 @@ def main(argv=None):
             if len(raw) > 256 * 1024:
                 raise ValueError('reading_input_limit')
             child = subprocess.run(args.lua_command, input=raw, capture_output=True, timeout=920 if args.full_book else 320)
-            envelope = decode_envelope(child.stdout, probe.vid, full_chapters=full_chapters,missing_resume=args.missing_resume,resume_warning=args.resume_warning,reader_estimate=args.reader_estimate,reader_typography=args.reader_typography,reader_margins=args.reader_margins,reader_display=args.reader_display)
+            envelope = decode_envelope(child.stdout, probe.vid, full_chapters=full_chapters,missing_resume=args.missing_resume,resume_warning=args.resume_warning,reader_estimate=args.reader_estimate,reader_neighbor=args.reader_neighbor,reader_typography=args.reader_typography,reader_margins=args.reader_margins,reader_display=args.reader_display)
             if args.full_book and envelope['report']['result'] == 'PASS':
                 if envelope['report']['full_book']['source_image_references'] != report['source_image_references']:
                     raise ValueError('full_image_scope_changed')
@@ -707,6 +766,7 @@ def main(argv=None):
             if args.missing_resume: report['missing_resume_verified']=True
             if args.resume_warning: report['resume_warning_verified']=True
             if args.reader_estimate: report['reader_estimate_verified']=True
+            if args.reader_neighbor: report['reader_neighbor_verified']=True
             if args.reader_typography: report['reader_typography_verified']=True
             if args.reader_margins: report['reader_margins_verified']=True
             if args.reader_display: report['reader_display_verified']=True

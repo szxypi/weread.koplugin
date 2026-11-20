@@ -66,6 +66,53 @@ class TxtShelfDisplayScopeTests(unittest.TestCase):
             with self.assertRaises(probe.PreflightError):preflight.request('shelf','synthetic')
 
 
+class NeighborReadingPreflightTests(unittest.TestCase):
+    def test_adjacent_source_is_bounded_and_baseline_is_rechecked(self):
+        preflight=probe.NeighborReadingPreflight()
+        preflight.book_id='41';preflight.chapter='2'
+        preflight.baseline={'chapter':'2','offset':20,'percent':30}
+        record={};rows=[{'chapterUid':1},{'chapterUid':2},{'chapterUid':3}]
+        preflight._neighbor_catalog=(record,rows)
+        calls=[]
+        def request(stage,url,body=None,**_kwargs):
+            calls.append((stage,preflight.chapter))
+            return 'synthetic'
+        preflight.request=request
+        with patch.object(probe.ReadingPreflight,'prepare',return_value={'book_id':'41','chapter_uid':'2'}), \
+             patch.object(probe,'reader_context',return_value={'current_chapter':{'chapterUid':3},'psvts':'x'}), \
+             patch.object(probe,'make_content_params',return_value={}), \
+             patch.object(probe,'decode_content_shards',return_value='<p>synthetic</p>'), \
+             patch.object(probe,'normalize_chapter_infos',return_value=(record,rows)), \
+             patch.object(probe,'position',return_value=preflight.baseline):
+            result=preflight.prepare()
+        self.assertEqual(result['reader_neighbor']['uid'],'3')
+        self.assertEqual(result['reader_neighbor']['direction'],1)
+        self.assertEqual(result['reader_neighbor']['raw_sha256'],hashlib.sha256(b'<p>synthetic</p>').hexdigest())
+        self.assertEqual([stage for stage,_uid in calls],['reader','e_0','e_1','e_3','catalog_after','progress_after'])
+        self.assertTrue(all(uid=='3' for _stage,uid in calls))
+        self.assertEqual(preflight.chapter,'2')
+
+    def test_duplicate_neighbor_is_rejected_before_network(self):
+        preflight=probe.NeighborReadingPreflight()
+        preflight.book_id='41';preflight.chapter='2'
+        preflight._neighbor_catalog=({},[{'chapterUid':2},{'chapterUid':3},{'chapterUid':3}])
+        preflight.request=MagicMock(side_effect=AssertionError('unexpected request'))
+        with patch.object(probe.ReadingPreflight,'prepare',return_value={'book_id':'41','chapter_uid':'2'}):
+            with self.assertRaises(probe.PreflightError):preflight.prepare()
+        preflight.request.assert_not_called()
+
+    def test_foreign_reader_is_rejected_and_original_chapter_restored(self):
+        preflight=probe.NeighborReadingPreflight()
+        preflight.book_id='41';preflight.chapter='2'
+        preflight._neighbor_catalog=({},[{'chapterUid':2},{'chapterUid':3}])
+        preflight.request=MagicMock(return_value='synthetic')
+        with patch.object(probe.ReadingPreflight,'prepare',return_value={'book_id':'41','chapter_uid':'2'}), \
+             patch.object(probe,'reader_context',return_value={'current_chapter':{'chapterUid':4},'psvts':'x'}):
+            with self.assertRaises(probe.PreflightError):preflight.prepare()
+        self.assertEqual(preflight.chapter,'2')
+        self.assertEqual(preflight.request.call_count,1)
+
+
 class SyntheticTxtRetryBoundsTests(unittest.TestCase):
     def test_retry_bounds_are_explicit_and_cb_scoped(self):
         value=stage()
@@ -175,6 +222,16 @@ class OwnerReadingTests(unittest.TestCase):
         with self.assertRaises(ValueError):probe.decode_envelope(frame(envelope()),OWNER,reader_estimate=True)
         for scope in ({'cb_reading':True},{'full_chapters':2},{'off_shelf_home':True}):
             with self.assertRaises(ValueError):probe.validate_stage(stage(),'live',reader_estimate=True,**scope)
+
+    def test_reader_neighbor_requires_both_stages_and_estimate_scope(self):
+        value=envelope()
+        for part in value['report']['stages']:
+            part.update(reader_estimate_verified=True,reader_estimate_stage=5,reader_neighbor_verified=True)
+        probe.decode_envelope(frame(value),OWNER,reader_estimate=True,reader_neighbor=True)
+        for index in (0,1):
+            bad=deepcopy(value);bad['report']['stages'][index]['reader_neighbor_verified']=False
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,reader_estimate=True,reader_neighbor=True)
+        with self.assertRaises(ValueError):probe.decode_envelope(frame(value),OWNER,reader_neighbor=True)
 
     def test_reader_estimate_requires_explicit_single_epub_session(self):
         for args in (['--reader-estimate'],['--reader-estimate','--saved-session','--full-book','--lua-command','synthetic'],
