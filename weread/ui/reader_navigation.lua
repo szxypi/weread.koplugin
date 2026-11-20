@@ -194,6 +194,7 @@ function M:showEndOfBookDialog(book_id)
                 end
                 require('weread.ui.reader_progress').show(self,{previous=previous_chapter,next=next_chapter,
                     single_chapter=current_idx~=nil and not is_full_book,
+                    book=book,chapters=chapters,chapter_index=current_idx,chapter_uid=current_id,
                     native_chapters=not current_idx or is_full_book,is_current=still_current,
                     resolve_chapter=resolve_chapter})
             end

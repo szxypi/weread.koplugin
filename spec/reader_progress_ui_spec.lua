@@ -26,6 +26,8 @@ package.preload['ui/widget/progresswidget']=function() return {new=function(_,ar
 end} end
 package.preload['weread.lib.plugin_util']=function() return {tr=function(text) return text end,
     T=function(text,...) for i=1,select('#',...) do text=text:gsub('%%'..i,tostring(select(i,...))) end;return text end} end
+local estimated
+package.preload['weread.lib.reader_whole_estimate']=function() return {for_document=function() return estimated end} end
 local Progress=require('weread.ui.reader_progress')
 local page,pos,account=2,100,'one'
 local doc={file='chapter.epub',getPageCount=function() return 10 end,getCurrentPos=function() return pos end}
@@ -45,13 +47,18 @@ local function button(id)
     for _,row in ipairs(shown.buttons) do for _,item in ipairs(row) do if item.id==id then return item end end end
     error('missing button '..id)
 end
+estimated=42.5
 assert(Progress.show(host,opts));assert(shown.title:find('Current chapter file',1,true))
+assert(shown.title:find('Whole book ≈ 42.5%',1,true) and shown.title:find('may be incomplete',1,true))
 local panel=host._weread_reader_progress
+assert(panel.whole_estimate==42.5)
 panel.bar:paintTo(nil,10,30)
 panel.bar:onTapSelect(nil,{pos={x=110}})
 assert(#tasks==1 and #events==0 and not panel.dialog)
 tasks[1]();assert(#events==1 and events[1].name=='GotoPercent' and events[1].value==50 and history==1)
 assert(not host._weread_reader_progress)
+estimated=nil;assert(Progress.show(host,opts))
+assert(shown.title:find('Whole-book estimate unavailable.',1,true));Progress.cancel(host)
 assert(Progress.show(host,opts));local stale=button('progress_next_chapter').callback
 local existing=host._weread_reader_progress
 assert(not Progress.show(host,{is_current=function() return false end}) and host._weread_reader_progress==existing,

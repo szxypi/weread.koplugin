@@ -20,6 +20,12 @@ return function(reader,host,pump,shot,clean,full)
     local state=open()
     assert(state.dialog.title:find(tr(full and 'Current file' or 'Current chapter file'),1,true),
         'progress scope was mislabeled')
+    if not full and reader.document.file:match('%.epub$') then
+        assert(state.whole_estimate and state.whole_estimate>=0 and state.whole_estimate<=100,
+            'single-chapter EPUB estimate was unavailable')
+        assert(state.dialog.title:find(tr('The loaded catalog may be incomplete.'),1,true),
+            'catalog estimate omitted its completeness warning')
+    end
     assert(state.dialog:getContentSize().h<=require('device').screen:getHeight(), 'progress panel exceeds screen')
     shot(full and 'reader-progress-full' or 'reader-progress-chapter')
     local bar=state.bar;local d=bar.dimen

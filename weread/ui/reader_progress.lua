@@ -1,4 +1,4 @@
--- Native progress panel: every percentage is explicitly for the open file.
+-- Native progress panel: navigation always targets the open file.
 local ButtonDialog=require('ui/widget/buttondialog')
 local Device=require('device')
 local Event=require('ui/event')
@@ -117,6 +117,17 @@ function M.show(host,options)
     local scope=options.single_chapter and _('Current chapter file') or _('Current file')
     local heading=util.T(_('%1 · page %2 / %3 · %4%'),scope,snapshot.page,snapshot.total,
         string.format('%.1f',snapshot.percent))
+    if options.single_chapter then
+        local ok,estimate=pcall(require('weread.lib.reader_whole_estimate').for_document,
+            snapshot.document,options.book,options.chapters,options.chapter_index,options.chapter_uid,snapshot.percent)
+        if ok and estimate then
+            state.whole_estimate=estimate
+            heading=heading..'\n'..util.T(_('Whole book ≈ %1% (loaded catalog estimate)'),string.format('%.1f',estimate))
+            heading=heading..'\n'.._('The loaded catalog may be incomplete.')
+        else
+            heading=heading..'\n'.._('Whole-book estimate unavailable.')
+        end
+    end
     local built,dialog=pcall(function()
         local window=ButtonDialog:new{title=heading,buttons={
             {{id='progress_previous_chapter',text=_('Previous chapter'),enabled=prev_action~=nil,callback=prev_action},
