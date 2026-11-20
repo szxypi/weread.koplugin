@@ -510,6 +510,16 @@ class OwnerReadingTests(unittest.TestCase):
 
 
 class FullBookReadingTests(unittest.TestCase):
+    def test_full_cache_status_requires_verified_full_book(self):
+        value=stage(full=True);value['full_cache_status_verified']=True;value['full_cache_status_diagnostic']='none'
+        probe.validate_stage(value,'live',full_chapters=2,full_cache_status=True)
+        value['full_cache_status_verified']=False
+        with self.assertRaises(ValueError):probe.validate_stage(value,'live',full_chapters=2,full_cache_status=True)
+        value['full_cache_status_verified']=True;value['full_cache_status_diagnostic']='private data'
+        with self.assertRaises(ValueError):probe.validate_stage(value,'live',full_chapters=2,full_cache_status=True)
+        with self.assertRaises(ValueError):probe.validate_stage(value,'live',full_cache_status=True)
+        with redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):probe.main(['--full-cache-status'])
+
     def test_private_rejection_diagnostic_only_crosses_native_failure_pipe(self):
         native=stage(full=True);native['result']='UNVERIFIED'
         encoded=base64.b64encode(b'private original reader page').decode()

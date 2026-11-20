@@ -56,6 +56,7 @@ def main(argv=None):
     parser.add_argument('--missing-resume',action='store_true')
     parser.add_argument('--resume-warning',action='store_true')
     parser.add_argument('--reader-estimate',action='store_true')
+    parser.add_argument('--full-cache-status',action='store_true')
     parser.add_argument('--reader-neighbor',action='store_true')
     parser.add_argument('--reader-typography',action='store_true')
     parser.add_argument('--reader-margins',action='store_true')
@@ -130,6 +131,9 @@ def main(argv=None):
         if len(raw) > 256 * 1024:
             raise ValueError('input_limit')
         payload = json.loads(raw)
+        if args.full_cache_status != (payload.get('full_cache_status_probe') is True):raise ValueError('input_limit')
+        if args.full_cache_status and ('full_manifest' not in payload or args.cb_reading and not args.cb_full_book):
+            raise ValueError('input_limit')
         if args.reader_estimate != (payload.get('reader_estimate_probe') is True):raise ValueError('input_limit')
         if args.reader_neighbor != ('reader_neighbor' in payload):raise ValueError('input_limit')
         if args.reader_neighbor:
@@ -300,6 +304,7 @@ def main(argv=None):
                                    **({'resume_warning': True} if args.resume_warning else {}),
                                    **({'reader_estimate': True} if args.reader_estimate else {}),
                                    **({'reader_neighbor': True} if args.reader_neighbor else {}),
+                                   **({'full_cache_status': True} if args.full_cache_status else {}),
                                    **({'reader_typography': True} if args.reader_typography else {}),
                                    **({'reader_margins': True} if args.reader_margins else {}),
                                    **({'reader_display': True} if args.reader_display else {}),

@@ -105,13 +105,12 @@ local function ready(reader)
     return assert(reader.weread.source_position:current())
 end
 local function check_full_chapter_status(current)
-    clean(current.ui);current:showChapterList(book(current))
-    pump(function() return current._chapter_list_view~=nil end)
-    local view=assert(current._chapter_list_view)
-    local cached=tr('Cached')
-    assert(#view.chapters>1,'full-book catalog was empty')
-    for _,item in ipairs(view.chapters) do assert(item.status==cached,'full-book chapter was not marked cached') end
-    clean(current.ui)
+    local chapters=assert(current:ensureChaptersLoaded(book(current)))
+    local manifest={}
+    for _,chapter in ipairs(chapters) do manifest[#manifest+1]={chapter_uid=tostring(chapter.chapterUid or chapter.chapterId)} end
+    assert(#manifest>1,'full-book catalog was empty')
+    assert(dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'owner_full_cache_status_case.lua')(
+        {book_id=id,full_manifest=manifest},current,current.ui,pump))
 end
 local function check_cb_notes(reader,current,seed)
     local Cache=require('weread.lib.my_cloud_marks_store')

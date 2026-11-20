@@ -178,6 +178,10 @@ local ok,reason=pcall(function()
     assert(type(input.source_sample_offset)=='number' and input.source_sample_offset>=0 and input.source_sample_offset%1==0)
     assert(type(input.cookies)=='table' and input.cookies.wr_vid == input.vid)
     local full=type(input.full_manifest)=='table'
+    assert(input.full_cache_status_probe==nil or input.full_cache_status_probe==true and full)
+    if input.full_cache_status_probe then
+        report.full_cache_status_verified=false;report.full_cache_status_diagnostic='none'
+    end
     local chapter_ids,chapter_urls={},{}
     if full then
         report.native_images_decoded=0
@@ -827,6 +831,9 @@ local ok,reason=pcall(function()
         while not predicate() do
             assert(download_finished~=false,'full download did not complete')
             assert(not download_failed,'full chapter failed')
+            assert(not (input.full_cache_status_probe and report.phase=='prepare'
+                and ({catalog_unavailable=true,rate_limited=true,login_expired=true,scope_changed=true,
+                    fingerprint_changed=true})[report.full_cache_status_diagnostic]),'full catalog stopped')
             assert(not (full and report.phase=='prepare' and counters[11]>0 and plugin
                 and not plugin.downloader._active_job),'full catalog context rejected')
             assert(socket.gettime()<deadline);tick();socket.sleep(.01)
@@ -834,6 +841,36 @@ local ok,reason=pcall(function()
     end
     if progress_case and input.progress_roundtrip then progress_case:install_guard() end
     FM:showFiles(home);plugin=assert(FM.instance.weread)
+    if input.full_cache_status_probe then
+        -- Only retain fixed diagnostic categories, never book data or messages.
+        local Catalog=require('weread.ui.catalog_request')
+        local cancel=Catalog.cancel
+        Catalog.cancel=function(host,view)
+            local ctx=host._catalog_request
+            if host==plugin and ctx and report.phase=='prepare' then
+                if not host.settings:auth_scope_matches(ctx.scope) then
+                    report.full_cache_status_diagnostic='scope_changed'
+                elseif require('weread.lib.worker_settings').fingerprint(host.settings)~=ctx.fingerprint then
+                    report.full_cache_status_diagnostic='fingerprint_changed'
+                else report.full_cache_status_diagnostic='catalog_cancelled' end
+            end
+            return cancel(host,view)
+        end
+        local show=plugin.showInfo
+        plugin.showInfo=function(host,message,...)
+            if report.phase=='prepare' then
+                local tr=require('weread.lib.plugin_util').tr
+                if message==tr('Could not load this book’s chapter list. Check your connection and login, then try again.') then
+                    report.full_cache_status_diagnostic='catalog_unavailable'
+                elseif message==tr('WeRead is limiting requests. Download stopped. Please try again later.') then
+                    report.full_cache_status_diagnostic='rate_limited'
+                elseif message==tr('WeRead login expired. Please sign in again and retry.') then
+                    report.full_cache_status_diagnostic='login_expired'
+                end
+            end
+            return show(host,message,...)
+        end
+    end
     local host=plugin
     if off_shelf_cover then
         local fetch=plugin.fetchVisibleShelfCovers
@@ -1129,6 +1166,9 @@ local ok,reason=pcall(function()
     assert(plugin._source_position_message.text:find('已定位到当前页正文',1,true)
         and plugin._source_position_message.text:find('精确云端同步仍在验证中',1,true))
     UI:forceRePaint();plugin:closeReadingPositionMessage();report.source_dialog_verified=true
+    if input.full_cache_status_probe then
+        report.full_cache_status_verified=dofile(fixtures..'owner_full_cache_status_case.lua')(input,plugin,reader,pump)
+    end
     if input.reader_estimate_probe then
         report.reader_estimate_verified=dofile(fixtures..'owner_reader_estimate_case.lua')(input,plugin,reader,pump,report)
     end
@@ -1289,6 +1329,7 @@ if not ok then
     report.failed_line=tonumber(type(reason)=='string' and (reason:match('owner_reading_probe%.lua:(%d+):')
         or reason:match('owner_reader_estimate_case%.lua:(%d+):')
         or reason:match('owner_reader_neighbor_case%.lua:(%d+):')
+        or reason:match('owner_full_cache_status_case%.lua:(%d+):')
         or reason:match('owner_reader_typography_case%.lua:(%d+):')
         or reason:match('owner_reader_display_case%.lua:(%d+):')
         or reason:match('owner_reader_margins_case%.lua:(%d+):'))) or 0
