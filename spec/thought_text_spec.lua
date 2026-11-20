@@ -50,4 +50,40 @@ viewer:init(true)
 expect(frees==2 and inits==2 and resets==2,'viewer font change lost fallback')
 Text.viewer{html=true};Text.viewer{legacy=true}
 expect(frees==2 and inits==2,'unsupported renderer was modified')
+local bare={new=function(_self,options) return options end}
+package.preload['ui/widget/menu']=function() return bare end
+expect(Text.menu{title='Legacy'}.title=='Legacy','legacy menu fallback failed')
+package.loaded['ui/widget/menu']=nil
+package.preload['ui/size']=function() return {span={horizontal_default=10}} end
+local menu_parent={}
+function menu_parent:extend(child) return setmetatable(child,{__index=self}) end
+function menu_parent:new(options) setmetatable(options,{__index=self});options:updateItems();return options end
+function menu_parent:updateItems() self.updates=(self.updates or 0)+1 end
+package.preload['ui/widget/menu']=function() return menu_parent end
+local menu_resets=0
+local function row_widget(fail_new,has_missing)
+    local text={text='sample',face=base,use_xtext=true,_shape_start=1,_shape_end=1}
+    function text:free() self._xtext=nil end
+    function text:updateSize()
+        if fail_new and self.face==face then error('unavailable font') end
+        self._xtext={shapeLine=function() return {{glyph=has_missing and self.face==base and 0 or 7,font_num=0}} end}
+    end
+    text:updateSize()
+    local mandatory={getWidth=function() return 20 end,use_xtext=false}
+    local group={{width=0},text,resetLayout=function() menu_resets=menu_resets+1 end}
+    local row={content_width=300,text='sample',mandatory='book',_underline_container={{{[2]={group},[3]={mandatory}}}}}
+    return row,text
+end
+local row,fake_text=row_widget(false,true)
+local group={row,resetLayout=function() menu_resets=menu_resets+1 end}
+local menu=Text.menu{item_group=group}
+expect(fake_text.face==face and fake_text.max_width==270 and menu_resets==2,'scoped menu did not rebuild missing text within its row')
+menu:updateItems();expect(menu.updates==2 and menu_resets==2,'menu reused or duplicated its fallback')
+row,fake_text=row_widget(true,true);group={row,resetLayout=function() menu_resets=menu_resets+1 end}
+Text.menu{item_group=group}
+expect(fake_text.face==base and fake_text.max_width==nil and fake_text._xtext~=nil,'failed font rebuild did not restore native text')
+row,fake_text=row_widget(false,false);group={row,resetLayout=function() menu_resets=menu_resets+1 end}
+Text.menu{item_group=group}
+expect(fake_text.face==base and fake_text.max_width==nil,'ordinary menu row was modified')
+expect(Text.menu{item_group={{text='unknown layout'}}}~=nil,'unknown menu layout did not fall back')
 print('thought_text_spec: '..checks..' checks')

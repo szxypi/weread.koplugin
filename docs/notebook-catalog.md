@@ -20,6 +20,6 @@
 
 跨书笔记搜索在上述两种尺寸以合成数据和真实账号的划线、想法各一份快照验证：均能搜索并打开目标笔记，全新进程离线重开后再次通过；搜索期间没有额外网络请求。真实内容仅用于内存文件系统中的临时配置，验证后已清理；测试只读取账号数据，未修改云端笔记。尚未在 Kindle Oasis 2 实机上验证该功能。
 
-跨书草稿入口已在 600×800 和 KO2 尺寸的合成原生环境验证：离线恢复已有划线草稿、全新断网进程恢复选区草稿、待核对状态不重发，以及账号／引用／草稿版本变化保护通过。截图见[小屏](validation-assets/2026-11-20/cross-book-drafts-small.png)和 [KO2 尺寸](validation-assets/2026-11-20/cross-book-drafts-ko2.png)，两张均为合成数据；列表预览中的部分表情仍可能显示缺字框，编辑器和草稿正文的表情回退不受影响。真实账号的此入口及实体设备仍待验收，见[记录](validation-assets/2026-11-20/cross-book-drafts.json)。
+跨书草稿入口已在 600×800 和 KO2 尺寸的合成原生环境验证：离线恢复已有划线草稿、全新断网进程恢复选区草稿、待核对状态不重发，以及账号／引用／草稿版本变化保护通过。原始截图见[小屏](validation-assets/2026-11-20/cross-book-drafts-small.png)和 [KO2 尺寸](validation-assets/2026-11-20/cross-book-drafts-ko2.png)，其中部分表情显示缺字框；后续已增加列表局部字体回退，修复后的合成截图见[小屏](validation-assets/2026-11-20/note-list-font-small.png)和 [KO2 尺寸](validation-assets/2026-11-20/note-list-font-ko2.png)。真实账号的此入口及实体设备仍待验收，见[记录](validation-assets/2026-11-20/cross-book-drafts.json)。
 
 只读探测：`python3 scripts/verify_notebook_catalog.py --saved-session`；不带参数时不会联网或读取本机凭据。探测报告只包含字段、数量和校验结果，不保存书籍名称、内容或凭据。

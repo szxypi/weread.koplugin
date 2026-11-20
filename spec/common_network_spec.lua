@@ -115,4 +115,16 @@ eq(paints, 1, "completed close can draw the uncovered page")
 eq(pending_paint, false, "next frame drains the repaint")
 busy_host:closeBusy()
 eq(closes, 1, "repeated cancellation does not close another widget")
+local native_menu=require('ui/widget/menu')
+native_menu.new=function(_self,options) options.native=true;return options end
+local shown
+manager.show=function(_self,widget) shown=widget end
+package.loaded['weread.ui.thought_text']={menu=function(options) options.thought=true;return options end}
+local list_host=setmetatable({}, {__index=Common})
+local plain=list_host:showList('Plain',{{text='A'}})
+eq(plain.native,true,'ordinary list changed menu class')
+local scoped=list_host:showList('Notes',{{text='😀'}},nil,{thought_text=true,items_per_page=3})
+eq(scoped.thought,true,'note list missed scoped font menu')
+eq(scoped.items_per_page,3,'note list lost pagination options')
+eq(shown,scoped,'note list was not shown')
 print(string.format("common_network_spec: %d checks", checks))

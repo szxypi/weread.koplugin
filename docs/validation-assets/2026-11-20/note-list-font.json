@@ -1,0 +1,29 @@
+{
+  "result": "PASS",
+  "scope": "synthetic native KOReader fixtures; no real-account requests",
+  "koreader": "v2026.07.1 Linux ARM64",
+  "screens": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300
+    }
+  ],
+  "checks": [
+    "notes and cross-book draft list emoji glyphs",
+    "notebook list and saved-note search emoji glyphs",
+    "ordinary text fonts and layout unchanged",
+    "pagination, long text and right column",
+    "native selection thought flow"
+  ],
+  "limitations": [
+    "requires xtext and available emoji font",
+    "other KOReader versions and physical Kindle KO2 not tested",
+    "does not cover every Unicode emoji"
+  ]
+}

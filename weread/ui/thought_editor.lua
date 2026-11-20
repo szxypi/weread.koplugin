@@ -299,7 +299,7 @@ function M.drafts(host,owner,current,redraw)
             show(ctx,dialog)
         end}
     end
-    show(ctx,require('ui/widget/menu'):new{title=_('Local thought drafts'),item_table=items,is_popout=true,is_borderless=false})
+    show(ctx,require('weread.ui.thought_text').menu{title=_('Local thought drafts'),item_table=items,is_popout=true,is_borderless=false})
     return true
 end
 return M

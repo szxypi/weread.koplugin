@@ -170,7 +170,7 @@ function M:showList(title, items, empty_text, options)
         return
     end
     options = options or {}
-    local menu = Menu:new{
+    local menu_options = {
         title = title,
         item_table = items,
         is_borderless = true,
@@ -178,6 +178,7 @@ function M:showList(title, items, empty_text, options)
         items_per_page = options.items_per_page,
         subtitle = options.subtitle,
     }
+    local menu = options.thought_text and require('weread.ui.thought_text').menu(menu_options) or Menu:new(menu_options)
     UIManager:show(menu)
     if options.initial_page and options.initial_page > 1
         and type(menu.onGotoPage) == "function" then

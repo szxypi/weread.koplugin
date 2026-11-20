@@ -336,7 +336,7 @@ function M.show(host,id,variant,options)
     if owner.bookmarks then owner.labels.title='My cloud bookmarks';owner.labels.empty='No cloud bookmarks in this view.' end
     local ok,value=pcall(owner.store.read,owner.store,id);owner.value=ok and value or nil
     if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
-    local menu=host:showList(_(owner.labels.title),{{text=_(owner.labels.missing),select_enabled=false}})
+    local menu=host:showList(_(owner.labels.title),{{text=_(owner.labels.missing),select_enabled=false}},nil,{thought_text=true})
     if not menu then return false end
     owner.menu=menu;host._my_marks_owner=owner;host._my_marks_menu=menu
     local on_close=menu.onCloseWidget

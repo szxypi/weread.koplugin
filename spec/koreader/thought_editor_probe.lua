@@ -17,7 +17,7 @@ local ok,reason=pcall(function()
     local codec={json_encode=function(_self,v) return json.encode(v) end,json_decode=function(_self,v) return json.decode(v) end}
     local SQ3=require('lua-ljsqlite3/init');local remote_path=home..'/synthetic-remote.db'
     local function remote(task)
-        local db=SQ3.open(remote_path);db:exec('PRAGMA journal_mode=WAL');db:exec('PRAGMA busy_timeout=3000')
+        local db=SQ3.open(remote_path);db:exec('PRAGMA busy_timeout=3000')
         local success,value=pcall(task,db);db:close();assert(success);return value
     end
     local function load(db)
@@ -27,6 +27,7 @@ local ok,reason=pcall(function()
         local stmt=db:prepare('UPDATE remote SET payload=? WHERE id=1');stmt:bind(json.encode(value)):step();stmt:close()
     end
     if mode=='live' then remote(function(db)
+        db:exec('PRAGMA journal_mode=WAL')
         db:exec('CREATE TABLE remote(id INTEGER PRIMARY KEY,payload TEXT NOT NULL)')
         db:exec([[INSERT INTO remote(id,payload) VALUES(1,'{}')]])
         save(db,{snapshot=F.snapshot(codec),posts=0,requests=0,forbidden=0,mode='normal'})
@@ -143,6 +144,12 @@ local ok,reason=pcall(function()
     end
     if mode=='live' then
         report.phase='draft'
+        local notes=open(true)
+        for index,item in ipairs(notes.menu.item_table) do if item.my_note_id=='synthetic-note' then
+            notes.menu:onGotoPage(notes.menu:getPageNumber(index));break
+        end end
+        TextSmoke.menu_emoji(notes.menu,'😀')
+        plugin:cancelMyCloudMarks()
         local owner=open(false);select(owner,'synthetic-mark');tap(owner,'thought_create')
         owner.editor.input:setInputText('合成本机草稿 😀\n可在离线后继续。');expect(TextSmoke.input(owner.editor.input,{['😀']=true})==1);shot('draft')
         tap(owner,'save_thought_draft');notice(owner);expect(#journal:drafts()==1 and state().posts==0)
@@ -155,6 +162,7 @@ local ok,reason=pcall(function()
         expect(require('weread.ui.notebook_catalog').show(plugin))
         local notebook=assert(plugin._notebook_owner)
         select(notebook,'Local thought drafts');list=notebook.menu._shelf_popup
+        TextSmoke.menu_emoji(list,'😀')
         expect(list.item_table[1].mandatory=='合成测试书籍')
         shot('notebook-drafts')
         list:onMenuSelect(list.item_table[1]);tap(notebook,'resume_other_book_draft')

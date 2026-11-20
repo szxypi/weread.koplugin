@@ -27,7 +27,7 @@ package.preload['weread.lib.selection_reference']=function() return {
     valid=function(row,id) return row and row.source and row.source.book_id==id end,
     restore=function() return state.restored end} end
 package.preload['weread.ui.thought_text']=function() return {
-    viewer=function(v) return v end,input=function(v) function v:getInputText() return self.input end;return v end} end
+    viewer=function(v) return v end,menu=function(v) return v end,input=function(v) function v:getInputText() return self.input end;return v end} end
 package.preload['weread.lib.protocol']=function() return {utf8_substr=function(v) return v end} end
 package.preload['weread.lib.memory_worker']=function() return {new=function() return {
     start=function(_self,task,callback) state.task=task;state.complete=callback;return not state.worker_failed end,

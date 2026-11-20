@@ -75,7 +75,7 @@ local function show(host,owner,current,catalog,result)
             host:showInfo(_('This saved note is no longer available. Search again.'))
         end}
     end
-    menu=host:showList(_('Saved note search results'),rows)
+    menu=host:showList(_('Saved note search results'),rows,nil,{thought_text=true})
     if not menu then return end
     Popup.show(owner.menu,menu,function() end)
 end

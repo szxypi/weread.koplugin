@@ -17,7 +17,9 @@ def main():
     rows=[]
     for index in range(45):
         book_id=str(900001+index)
-        rows.append(dict(bookId=book_id,book=dict(bookId=book_id,title=f'合成书籍 {index+1}',author='合成作者'),
+        title=f'合成😀书籍 {index+1}' if index==0 else f'合成书籍 {index+1}'
+        author='合成作者🙂' if index==1 else '合成作者'
+        rows.append(dict(bookId=book_id,book=dict(bookId=book_id,title=title,author=author),
                          noteCount=index,reviewCount=index%4,bookmarkCount=index%3,sort=1000-index))
     source=dict(books=rows,totalBookCount=len(rows));expected=project(source,1000)
     payload=dict(source=source,owner='900000',now=1000,synthetic=True,

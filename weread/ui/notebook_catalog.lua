@@ -206,7 +206,7 @@ function M.show(host,options)
         document=host.ui and host.ui.document,store=Store:new(host.library_db,host.client,account)}
     local ok,value=pcall(owner.store.read,owner.store);owner.value=ok and value or nil
     if owner.account~=host.library_db:accountKey() or not host.settings:auth_scope_matches(scope) then return false end
-    local menu=host:showList(_('My notebooks'),{{text=_('No saved notebooks. Refresh while online.'),select_enabled=false}})
+    local menu=host:showList(_('My notebooks'),{{text=_('No saved notebooks. Refresh while online.'),select_enabled=false}},nil,{thought_text=true})
     if not menu then return false end
     owner.menu=menu;host._notebook_owner=owner;host._notebook_menu=menu
     local on_close=menu.onCloseWidget

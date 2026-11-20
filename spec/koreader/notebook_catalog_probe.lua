@@ -130,15 +130,20 @@ local ok,reason=pcall(function()
     assert(same(owner.value,expected))
     report.phase='views'
     for page=1,menu.page_num do menu:onGotoPage(page);UI:forceRePaint();report.pages=report.pages+1 end
-    assert(#menu.item_table==#expected.books+5)
+    local positions={};for index,row in ipairs(menu.item_table) do if row.notebook_id then positions[#positions+1]=index end end
+    assert(#positions==#expected.books)
+    local FontSmoke=synthetic and assert(loadfile('/source/spec/koreader/thought_text_smoke.lua'))() or nil
     for index,book in ipairs(expected.books) do
-        local item=menu.item_table[index+5];assert(item.text==book.title and item.mandatory==book.author)
-        menu:onGotoPage(menu:getPageNumber(index+5));report.books=report.books+1
+        local position=positions[index];local item=menu.item_table[position]
+        assert(item.text==book.title and item.mandatory==book.author)
+        menu:onGotoPage(menu:getPageNumber(position));report.books=report.books+1
+        if synthetic and index==1 then FontSmoke.menu_emoji(menu,'😀') end
+        if synthetic and index==2 then FontSmoke.menu_emoji(menu,'🙂') end
     end
     -- Exercise each per-book destination without additional network requests.
     local chosen,position
     local Marks=require('weread.lib.my_cloud_marks')
-    for index,book in ipairs(expected.books) do if Marks.display_id(book.bookId) then chosen=book;position=index+5;break end end
+    for index,book in ipairs(expected.books) do if Marks.display_id(book.bookId) then chosen=book;position=positions[index];break end end
     assert(chosen);plugin.isNetworkOnline=function() return false end
     for index,variant in ipairs({'highlights','thoughts','bookmarks'}) do
         menu:onGotoPage(menu:getPageNumber(position));menu:onMenuSelect(menu.item_table[position])
@@ -180,7 +185,8 @@ local ok,reason=pcall(function()
     assert(count==#expected.books and counters[0]==request_count);UI:forceRePaint()
     menu:onMenuSelect(item('Sort notebooks'));sort=assert(menu._shelf_popup)
     sort.buttons[1][1].callback();tick();assert(owner.sort=='original')
-    for index,book in ipairs(expected.books) do assert(menu.item_table[index+5].notebook_id==book.bookId) end
+    local original={};for _,row_item in ipairs(menu.item_table) do if row_item.notebook_id then original[#original+1]=row_item.notebook_id end end
+    for index,book in ipairs(expected.books) do assert(original[index]==book.bookId) end
     report.search_sort=true
     if synthetic and mode=='live' then
         local Saved=require('weread.lib.my_cloud_marks_store')
@@ -192,7 +198,7 @@ local ok,reason=pcall(function()
         marks.updated[1].markText='Synthetic needle in an extra cached book'
         assert(Saved:new(plugin.library_db,plugin.client):write(marks))
         local thoughts={schema=1,book_id='900002',fetched_at=1000,reviews=array()}
-        thoughts.reviews[1]={reviewId='saved-thought-b',content='Synthetic needle in a thought',isPrivate=1}
+        thoughts.reviews[1]={reviewId='saved-thought-b',content='😀 Synthetic needle in a thought',isPrivate=1}
         assert(Saved:new(plugin.library_db,plugin.client,'thoughts'):write(thoughts))
     end
     if real_samples and mode=='live' then
@@ -211,6 +217,10 @@ local ok,reason=pcall(function()
     for _,row in ipairs(results.item_table) do if row.saved_note_id then found_notes[row.saved_note_id]=row end end
     if synthetic then
         assert(found_notes['saved-mark-a'] and found_notes['saved-mark-extra'] and found_notes['saved-thought-b'])
+        for index,row in ipairs(results.item_table) do if row.saved_note_id=='saved-thought-b' then
+            results:onGotoPage(results:getPageNumber(index));break
+        end end
+        FontSmoke.menu_emoji(results,'😀')
         results:onMenuSelect(found_notes['saved-thought-b'])
         local child=assert(plugin._my_marks_owner);local child_menu=assert(plugin._my_marks_menu)
         assert(child.id=='900002' and child.thoughts and child_menu._shelf_popup)

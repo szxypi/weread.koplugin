@@ -33,6 +33,47 @@ function M.emoji(box,chars)
     assert(found>0,'emoji assertion found no selected glyph')
     return found
 end
+-- Inspect the actual MenuItem text widget, not the source row, after layout.
+function M.menu_text(menu,needle)
+    local seen={}
+    local function find(node)
+        if type(node)~='table' or seen[node] then return nil end
+        seen[node]=true
+        if type(node.text)=='string' and node.text:find(needle,1,true) and node.face and node.updateSize then
+            node:updateSize()
+            if node._xtext and node._shape_start and node._shape_end then return node end
+        end
+        for _,child in ipairs(node) do local hit=find(child);if hit then return hit end end
+    end
+    for _,row in ipairs(menu.item_group or {}) do local hit=find(row);if hit then return hit,row end end
+end
+function M.menu_box(menu,needle)
+    local seen={}
+    local function find(node)
+        if type(node)~='table' or seen[node] then return nil end
+        seen[node]=true
+        if type(node.text)=='string' and node.text:find(needle,1,true) and node.vertical_string_list
+            and node._xtext and node.face then return node end
+        for _,child in ipairs(node) do local hit=find(child);if hit then return hit end end
+    end
+    for _,row in ipairs(menu.item_group or {}) do local hit=find(row);if hit then return hit,row end end
+end
+function M.menu_emoji(menu,char)
+    local widget,row=M.menu_text(menu,char);assert(widget and row,'menu text widget missing')
+    local chars=require('util').splitToChars(widget.text)
+    local glyphs=widget._xtext:shapeLine(widget._shape_start,widget._shape_end,widget._shape_idx_to_substitute_with_ellipsis)
+    local count=0
+    for _,glyph in ipairs(glyphs) do
+        if chars[glyph.text_index]==char and not glyph.no_drawing then
+            local face=widget.face.getFallbackFont(glyph.font_num)
+            assert(glyph.glyph>0 and face.realname:match('NotoEmoji%-Regular%.ttf$'),'menu emoji has no fallback glyph')
+            local raster=require('ui/rendertext'):getGlyphByIndex(face,glyph.glyph,false)
+            assert(raster.bb:getWidth()>0 and raster.bb:getHeight()>0,'menu emoji has no bitmap')
+            count=count+1
+        end
+    end
+    assert(count>0,'menu emoji not visible');return widget,row
+end
 function M.input(dialog,chars)
     local input=assert(dialog._input_widget)
     return M.emoji(input.scroll and input.text_widget.text_widget or input.text_widget,chars)
@@ -63,6 +104,33 @@ function M.run()
     local mixed=box(scoped,'中文 😀🙂👍🏽❤️👩‍💻👨‍👩‍👧‍👦1️⃣🇨🇳 café\n第二行。')
     for _i,glyph in ipairs(M.glyphs(mixed)) do assert(glyph.glyph>0,'mixed emoji sequence has missing glyph') end
     mixed:free()
+    local Menu=require('ui/widget/menu');local UI=require('ui/uimanager')
+    local rows={{text='Plain 中文 123',mandatory='书名'}, {text='Emoji 😀 end',mandatory='书名'}}
+    local baseline=Menu:new{title='Synthetic',item_table=rows,is_popout=true,items_per_page=1,items_font_size=22,single_line=true,is_enable_shortcut=false}
+    local scoped_menu=Text.menu{title='Synthetic',item_table=rows,is_popout=true,items_per_page=1,items_font_size=22,single_line=true,is_enable_shortcut=false}
+    local ordinary=M.menu_text(baseline,'Plain 中文 123');local scoped_ordinary=M.menu_text(scoped_menu,'Plain 中文 123')
+    assert(ordinary and scoped_ordinary and ordinary:getWidth()==scoped_ordinary:getWidth()
+        and ordinary.face==scoped_ordinary.face,'ordinary menu text metrics or font changed')
+    scoped_menu:onNextPage();local main=M.menu_emoji(scoped_menu,'😀')
+    assert(main:getWidth()<=main.max_width,'scoped text exceeded row width')
+    scoped_menu:onPrevPage();assert(M.menu_text(scoped_menu,'Plain 中文 123'),'previous page lost its row')
+    scoped_menu:onNextPage();M.menu_emoji(scoped_menu,'😀')
+    UI:close(baseline);UI:close(scoped_menu)
+    local long=Text.menu{title='Synthetic',item_table={{text='😀 '..string.rep('中文',150),mandatory='书名'}},
+        is_popout=true,items_per_page=8,items_font_size=22,single_line=true,is_enable_shortcut=false}
+    UI:show(long);UI:forceRePaint()
+    local long_text,long_row=M.menu_emoji(long,'😀')
+    local overlap=long_row._underline_container[1][1];local left,right=overlap[2],overlap[3]
+    assert(long_text:isTruncated() and left.dimen.x+left[1][1].width+long_text:getWidth()<=right.dimen.x+1,
+        'long emoji preview overlapped its book title')
+    UI:close(long)
+    local label=Text.menu{title='Synthetic',item_table={{text=string.rep('正文',50),mandatory='书名 😀'}},
+        is_popout=true,items_per_page=8,items_font_size=22,single_line=true,is_enable_shortcut=false}
+    UI:show(label);UI:forceRePaint();M.menu_emoji(label,'😀');UI:close(label)
+    local multiline=Text.menu{title='Synthetic',item_table={{text='中文 😀 '..string.rep('文字',30),mandatory='书名'}},
+        is_popout=true,items_per_page=8,items_font_size=22,single_line=false,multilines_forced=true,is_enable_shortcut=false}
+    local multi=M.menu_box(multiline,'😀');assert(multi and M.emoji(multi,{['😀']=true})==1,'multiline menu fallback missing')
+    UI:show(multiline);UI:forceRePaint();UI:close(multiline)
     local viewer=Text.viewer{text='中文 😀🙂\n第二行',buttons_table={{{id='synthetic',text='OK'}}},add_default_buttons=true}
     assert(M.emoji(viewer.box_widget,{['😀']=true,['🙂']=true})==2)
     local buttons=#viewer.buttons_table
