@@ -16,8 +16,9 @@ FLAGS={'anonymous_credentials','transport_guard','worker_heartbeat','native_file
        'account_isolation','cache_session_free','workers_reaped','credential_audit'}
 
 
-def validate_stage(value,mode,count):
+def validate_stage(value,mode,count,*,bulk_notes=False):
     keys=FLAGS|{'result','mode','phase','pages','books','requests','forbidden','failed_line'}
+    if bulk_notes:keys|={'bulk_notes'}
     if not isinstance(value,dict) or set(value)!=keys:raise ValueError('ui_schema')
     if any(type(value[key]) is not bool or not value[key] for key in FLAGS):raise ValueError('ui_flags')
     if any(type(value[key]) is not int or value[key]<0 for key in ('pages','books','requests','forbidden','failed_line')):
@@ -25,6 +26,17 @@ def validate_stage(value,mode,count):
     if (value['result']!='PASS' or value['mode']!=mode or value['phase']!='complete' or value['books']!=count
             or value['pages']<1 or value['requests']!=int(mode=='live') or value['forbidden'] or value['failed_line']):
         raise ValueError('ui_incomplete')
+    if bulk_notes:
+        bulk=value['bulk_notes']
+        if (not isinstance(bulk,dict) or set(bulk)!={'books','saved','skipped','requests','menu_started','cache_verified'}
+                or any(type(bulk[k]) is not int or not 0<=bulk[k]<=640 for k in ('books','saved','requests'))
+                or type(bulk['skipped']) is not int or not 0<=bulk['skipped']<=5000
+                or any(type(bulk[k]) is not bool for k in ('menu_started','cache_verified'))
+                or not 1<=bulk['books']<=64 or bulk['saved']!=bulk['books']*2
+                or bulk['books']+bulk['skipped']!=count
+                or bulk['menu_started']!=(mode=='live') or not bulk['cache_verified']
+                or mode=='live' and not bulk['books']*2<=bulk['requests']<=bulk['books']*10
+                or mode=='reopen' and bulk['requests']!=0):raise ValueError('ui_bulk_incomplete')
 
 
 def main(argv=None):
@@ -32,6 +44,7 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True)
     parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--synthetic',action='store_true')
     parser.add_argument('--cached-notes-sample',action='store_true')
+    parser.add_argument('--bulk-notes',action='store_true')
     parser.add_argument('--width',type=int,default=600);parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('Linux and built runtime required')
@@ -42,6 +55,8 @@ def main(argv=None):
         if len(raw)>8*1024*1024:raise ValueError('input_limit')
         payload=json.loads(raw)
         if (payload.get('synthetic') is True)!=args.synthetic:raise ValueError('input_scope')
+        if (payload.get('bulk_notes') is True)!=args.bulk_notes or args.bulk_notes and (args.synthetic or args.cached_notes_sample):
+            raise ValueError('input_scope')
         if args.cached_notes_sample != ('saved_samples' in payload) or args.synthetic and args.cached_notes_sample:
             raise ValueError('input_scope')
         if args.cached_notes_sample and (not isinstance(payload['saved_samples'],list) or len(payload['saved_samples'])!=2
@@ -56,15 +71,19 @@ def main(argv=None):
                 EMULATE_BB_TYPE='BB8',EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi))
             if args.synthetic:env['WEREAD_NOTEBOOK_SYNTHETIC']='1'
             if args.cached_notes_sample:env['WEREAD_NOTEBOOK_SAVED_SAMPLES']='1'
+            if args.bulk_notes:env['WEREAD_NOTEBOOK_BULK']='1'
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/notebook_catalog_probe.lua';stages=[];live=None
             for mode in ('live','reopen'):
-                code,rawout,repaint=run_child([str(runtime/'luajit'),str(probe),mode],env,raw,runtime,timeout=180)
+                code,rawout,repaint=run_child([str(runtime/'luajit'),str(probe),mode],env,raw,runtime,timeout=600 if args.bulk_notes else 180)
                 if len(rawout)>12*1024*1024 or rawout.count(FRAME)!=1:raise ValueError('ui_frame')
                 result=json.loads(rawout.split(FRAME)[1]);stages.append(result.get('ui'));output['ui']['stages']=stages
                 if code or repaint:raise ValueError('ui_child')
-                validate_stage(result['ui'],mode,count)
+                validate_stage(result['ui'],mode,count,bulk_notes=args.bulk_notes)
                 if live is None:live=result
                 elif result['native']!=live['native'] or result['model']!=live['model']:raise ValueError('ui_reopen')
+                if live is not None and mode=='reopen' and args.bulk_notes:
+                    for key in ('books','saved','skipped'):
+                        if result['ui']['bulk_notes'][key]!=live['ui']['bulk_notes'][key]:raise ValueError('ui_reopen')
             files=0
             with zipfile.ZipFile(args.candidate) as archive:
                 for item in archive.infolist():

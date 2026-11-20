@@ -1,0 +1,98 @@
+{
+  "result": "PASS",
+  "real_account": true,
+  "physical_device": false,
+  "private_content_saved_in_repo": false,
+  "cases": {
+    "small": {
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "id_classes": {
+        "numeric": 14,
+        "imported": 1,
+        "other": 0
+      },
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "transport_guard": true,
+          "credential_audit": true,
+          "workers_reaped": true,
+          "forbidden": 0,
+          "bulk_notes": {
+            "saved": 30,
+            "menu_started": true,
+            "books": 15,
+            "requests": 30,
+            "cache_verified": true,
+            "skipped": 0
+          }
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "transport_guard": true,
+          "credential_audit": true,
+          "workers_reaped": true,
+          "forbidden": 0,
+          "bulk_notes": {
+            "skipped": 0,
+            "books": 15,
+            "requests": 0,
+            "cache_verified": true,
+            "saved": 30,
+            "menu_started": false
+          }
+        }
+      ]
+    },
+    "ko2": {
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "id_classes": {
+        "numeric": 14,
+        "imported": 1,
+        "other": 0
+      },
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "transport_guard": true,
+          "credential_audit": true,
+          "workers_reaped": true,
+          "forbidden": 0,
+          "bulk_notes": {
+            "books": 15,
+            "requests": 30,
+            "saved": 30,
+            "skipped": 0,
+            "menu_started": true,
+            "cache_verified": true
+          }
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "transport_guard": true,
+          "credential_audit": true,
+          "workers_reaped": true,
+          "forbidden": 0,
+          "bulk_notes": {
+            "cache_verified": true,
+            "skipped": 0,
+            "books": 15,
+            "saved": 30,
+            "requests": 0,
+            "menu_started": false
+          }
+        }
+      ]
+    }
+  }
+}

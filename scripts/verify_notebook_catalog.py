@@ -58,10 +58,12 @@ def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     parser.add_argument('--native-ui',action='store_true')
     parser.add_argument('--cached-notes-sample',action='store_true',help='Also check real saved-note samples in the isolated UI')
+    parser.add_argument('--bulk-notes',action='store_true',help='Verify the native batch-save menu and offline cache')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     if args.native_ui and (not args.saved_session or not args.lua_command) or args.lua_command and not args.native_ui:
         parser.error('native UI requires saved session and Lua command')
     if args.cached_notes_sample and not args.native_ui:parser.error('cached note samples require native UI')
+    if args.bulk_notes and (not args.native_ui or args.cached_notes_sample):parser.error('bulk notes require native UI and exclude cached samples')
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0,private_values_saved=False)
     resource.setrlimit(resource.RLIMIT_CORE,(0,0));saved=grant=probe=None
     try:
@@ -94,6 +96,7 @@ def main(argv=None):
             if args.native_ui:
                 now=1;expected=project(large,now)
                 payload=dict(source=large,owner=saved['vid'],now=now,credentials=grant)
+                if args.bulk_notes:payload['bulk_notes']=True
                 if args.cached_notes_sample:
                     from verify_my_cloud_marks import MarksProbe
                     from verify_my_cloud_thoughts import ThoughtsProbe
@@ -102,20 +105,28 @@ def main(argv=None):
                     payload['saved_samples']=[dict(kind='marks',snapshot=marks.model),
                                               dict(kind='thoughts',snapshot=thoughts.samples[0]['expected'])]
                     report['sample_snapshots']=2
-                child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=600)
+                child=subprocess.run(args.lua_command,input=json.dumps(payload,ensure_ascii=False).encode(),capture_output=True,timeout=1280 if args.bulk_notes else 600)
                 from run_notebook_catalog_ui import FRAME,validate_stage
                 if len(child.stdout)>12*1024*1024 or child.stdout.count(FRAME)!=1:raise ValueError('notebook/ui_frame')
                 actual=json.loads(child.stdout.split(FRAME)[1]);ui=actual.get('ui')
                 if isinstance(ui,dict):
                     report['ui_diagnostics']=[{key:row[key] for key in ('failed_line','requests','forbidden','pages','books')
                         if type(row.get(key)) is int and 0<=row[key]<=100000} for row in ui.get('stages',[])[:2] if isinstance(row,dict)]
+                    if args.bulk_notes:
+                        report['bulk_diagnostics']=[{key:value for key,value in row.get('bulk_notes',{}).items()
+                            if key in ('books','saved','skipped','requests') and type(value) is int and 0<=value<=5000
+                            or key in ('menu_started','cache_verified') and type(value) is bool}
+                            for row in ui.get('stages',[])[:2] if isinstance(row,dict) and isinstance(row.get('bulk_notes'),dict)]
                 if child.returncode or actual.get('model')!=expected or actual.get('native')!=expected or actual.get('requests')!=1:
                     raise ValueError('notebook/ui_result')
                 if (not isinstance(ui,dict) or set(ui)!={'result','profile_removed','installed_bytes_match','installed_files','stages'}
                         or ui['result']!='PASS' or ui['profile_removed'] is not True or ui['installed_bytes_match'] is not True
                         or type(ui['installed_files']) is not int or not 1<=ui['installed_files']<=1000
                         or not isinstance(ui['stages'],list) or len(ui['stages'])!=2):raise ValueError('notebook/ui_result')
-                for row,mode in zip(ui['stages'],('live','reopen')):validate_stage(row,mode,len(expected['books']))
+                for row,mode in zip(ui['stages'],('live','reopen')):validate_stage(row,mode,len(expected['books']),bulk_notes=args.bulk_notes)
+                if args.bulk_notes:
+                    for key in ('books','saved','skipped'):
+                        if ui['stages'][0]['bulk_notes'][key]!=ui['stages'][1]['bulk_notes'][key]:raise ValueError('notebook/ui_result')
                 if store.load(saved['vid'])!=grant:raise ValueError('notebook/stale')
                 report.update(native_https_matches=True,native_ui_verified=True,ui=ui)
             report['result']='OBSERVED'

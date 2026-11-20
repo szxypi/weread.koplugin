@@ -15,6 +15,8 @@ local ok,reason=pcall(function()
     assert(synthetic==(os.getenv('WEREAD_NOTEBOOK_SYNTHETIC')=='1'))
     local real_samples=os.getenv('WEREAD_NOTEBOOK_SAVED_SAMPLES')=='1'
     assert(real_samples==(input.saved_samples~=nil) and not (synthetic and real_samples))
+    local bulk_notes=os.getenv('WEREAD_NOTEBOOK_BULK')=='1'
+    assert(bulk_notes==(input.bulk_notes==true) and not (bulk_notes and (synthetic or real_samples)))
     if synthetic then assert(grant.vid=='900000' and grant.accessToken=='synthetic-notebook-access'
         and grant.refreshToken=='synthetic-notebook-refresh' and grant.deviceId==string.rep('1',32)) end
     local source=home..'/plugins/weread.koplugin';package.path=source..'/?.lua;'..package.path
@@ -61,6 +63,24 @@ local ok,reason=pcall(function()
     report.anonymous_credentials=true
     memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1));counters=ffi.cast('int *',memory)
     local parent=tonumber(ffi.C.getpid());local target='https://i.weread.qq.com/user/notebooks?count=100'
+    local bulk_urls,bulk_ids,seen={}, {},{}
+    if bulk_notes then
+        local marks=require('weread.lib.my_cloud_marks');local slot=16
+        for _,book in ipairs(expected.books) do
+            local id=marks.display_id(book.bookId)
+            if id and not seen[id] and #bulk_ids<64 then
+                seen[id]=true;bulk_ids[#bulk_ids+1]=id
+                bulk_urls['https://i.weread.qq.com/book/bookmarklist?bookId='..id..'&synckey=0']=slot;slot=slot+1
+                for _,count in ipairs({20,40,80,160,320,640,1280,2560,5000}) do
+                    bulk_urls['https://i.weread.qq.com/review/list?bookId='..id
+                        ..'&listType=11&listMode=0&mine=1&synckey=0&count='..count]=slot;slot=slot+1
+                end
+            end
+        end
+        assert(#bulk_ids>0 and slot<1024)
+        report.bulk_notes={books=#bulk_ids,saved=0,skipped=#expected.books-#bulk_ids,requests=0,
+            menu_started=false,cache_verified=false}
+    end
     local function allowed(options)
         local headers=options.headers or {}
         return mode=='live' and options.url==target and options.method=='GET' and options.body==nil
@@ -80,15 +100,42 @@ local ok,reason=pcall(function()
         elseif key=='persist' then test.persist_response_cookies=true else test.sensitive=false end
         assert(not allowed(test))
     end
+    local function allowed_bulk(options)
+        local slot=bulk_urls[options.url];local h=options.headers or {}
+        if slot and mode=='live' and options.method=='GET' and options.body==nil
+            and options.skip_cookie==true and options.persist_response_cookies==false and options.sensitive==true
+            and h.vid==grant.vid and h.accessToken==grant.accessToken and not h.Cookie and not h.Authorization then return slot end
+    end
+    if bulk_notes then
+        local valid_bulk={url='https://i.weread.qq.com/book/bookmarklist?bookId='..bulk_ids[1]..'&synckey=0',
+            method='GET',skip_cookie=true,persist_response_cookies=false,sensitive=true,
+            headers={vid=grant.vid,accessToken=grant.accessToken}}
+        assert((allowed_bulk(valid_bulk)~=nil)==(mode=='live'))
+        for _,key in ipairs({'url','method','body','cookie','owner','token','authorization','skip','persist','sensitive'}) do
+            local test={};for name,v in pairs(valid_bulk) do test[name]=v end
+            test.headers={vid=grant.vid,accessToken=grant.accessToken}
+            if key=='url' then test.url=valid_bulk.url..'&extra=1' elseif key=='method' then test.method='POST'
+            elseif key=='body' then test.body='{}' elseif key=='cookie' then test.headers.Cookie='forbidden'
+            elseif key=='owner' then test.headers.vid='0' elseif key=='token' then test.headers.accessToken='forbidden'
+            elseif key=='authorization' then test.headers.Authorization='forbidden' elseif key=='skip' then test.skip_cookie=false
+            elseif key=='persist' then test.persist_response_cookies=true else test.sensitive=false end
+            assert(not allowed_bulk(test))
+        end
+    end
     report.transport_guard=true
     local Client=require('weread.lib.client');local request=Client.request
     function Client:request(options)
-        if not allowed(options) or counters[0]>=1 or tonumber(ffi.C.getpid())==parent then
-            counters[1]=counters[1]+1;error('notebook read scope rejected',0)
+        if allowed(options) and counters[0]<1 and tonumber(ffi.C.getpid())~=parent then
+            counters[0]=counters[0]+1
+            if synthetic then require('socket').sleep(.35);return json.encode(input.source),200 end
+            return request(self,options)
         end
-        counters[0]=counters[0]+1
-        if synthetic then require('socket').sleep(.35);return json.encode(input.source),200 end
-        return request(self,options)
+        local slot=allowed_bulk(options)
+        if slot and counters[slot]==0 and counters[2]<640 and tonumber(ffi.C.getpid())~=parent then
+            counters[slot]=counters[slot]+1;counters[2]=counters[2]+1
+            return request(self,options)
+        end
+        counters[1]=counters[1]+1;error('notebook read scope rejected',0)
     end
     local fetch=Data.fetch
     function Data.fetch(client,access,options) options=options or {};options.now=input.now;return fetch(client,access,options) end
@@ -130,6 +177,9 @@ local ok,reason=pcall(function()
     assert(same(owner.value,expected))
     if synthetic then
         dofile('/source/spec/koreader/notebook_bulk_case.lua')(plugin,owner,mode,counters,wait,tick)
+    end
+    if bulk_notes then
+        dofile('/source/spec/koreader/notebook_owner_bulk_case.lua')(plugin,owner,mode,bulk_ids,counters,report.bulk_notes,home)
     end
     report.phase='views'
     for page=1,menu.page_num do menu:onGotoPage(page);UI:forceRePaint();report.pages=report.pages+1 end
@@ -286,7 +336,9 @@ local ok,reason=pcall(function()
             plugin:cancelMyCloudMarks();assert(not plugin._my_marks_owner)
         end
     else
+        if not bulk_notes then
         assert(not next(found_notes),'fresh private profile unexpectedly contained saved notes')
+        end
         UI:close(results);tick()
     end
     assert(not menu._shelf_popup and counters[0]==before_search)
