@@ -1,0 +1,525 @@
+{
+  "result": "PASS",
+  "recorded_at": "2026-11-09T11:14:00.612254+00:00",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "synthetic_only": true,
+  "real_account_requests": 0,
+  "keychain_accessed": false,
+  "product_recovery_entry_implemented": true,
+  "automatic_record_choice": false,
+  "source_manifest_sha256": "48efae8f206702c7f0d40423ab887c5129941e11a7219c93ca89b0ea72bfcb4f",
+  "product_reader_opens": 80,
+  "recovered_copies": 16,
+  "product_cases": 26,
+  "lua_specs": 149,
+  "python_suites": 33,
+  "python_tests": 333,
+  "luacheck_files": 390,
+  "lua_syntax_files": 392,
+  "unicode_bytes_retained": true,
+  "default_font_emoji_coverage_verified": false,
+  "physical_ko2_verified": false,
+  "usb_inventory_checked": true,
+  "amazon_or_kindle_usb_matches": 0,
+  "kindle_named_mounts": 0,
+  "profiles": [
+    {
+      "kind": "product",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "candidate_source_compared": true,
+      "package_files": 178,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "source_base_commit": "e3b69fa62548c1e45a54ab2db483e56a35c2c2c3",
+      "stages": [
+        {
+          "product_cases": [
+            {
+              "explicit_confirmation": true,
+              "location": "doc",
+              "archived": true,
+              "kind": "backup",
+              "records_restored": true,
+              "body_unchanged": true,
+              "derived_identity_reset": true
+            },
+            {
+              "explicit_confirmation": true,
+              "location": "dir",
+              "archived": true,
+              "kind": "primary",
+              "records_restored": true,
+              "body_unchanged": true,
+              "derived_identity_reset": true
+            },
+            {
+              "explicit_confirmation": true,
+              "location": "doc",
+              "archived": true,
+              "kind": "beside",
+              "records_restored": true,
+              "body_unchanged": true,
+              "derived_identity_reset": true
+            },
+            {
+              "explicit_confirmation": true,
+              "location": "hash",
+              "archived": true,
+              "kind": "folder",
+              "records_restored": true,
+              "body_unchanged": true,
+              "derived_identity_reset": true
+            },
+            {
+              "explicit_confirmation": true,
+              "location": "hash",
+              "archived": true,
+              "kind": "live",
+              "records_restored": true,
+              "body_unchanged": true,
+              "derived_identity_reset": true
+            },
+            {
+              "kind": "fresh_copy",
+              "no_records_applied": true
+            },
+            {
+              "kind": "record_write_failure",
+              "current_and_originals_kept": true
+            },
+            {
+              "complete_body_retained": true,
+              "kind": "selector_readback_unknown",
+              "attempt_record_retained": true,
+              "records_reopened": true,
+              "no_automatic_success": true
+            },
+            {
+              "kind": "cancel_live_inspection",
+              "child_reaped": true,
+              "no_file_opened": true
+            },
+            {
+              "kind": "cancel_live_copy",
+              "current_kept": true,
+              "child_reaped": true,
+              "stage_cleaned": true
+            },
+            {
+              "kind": "account_change",
+              "no_file_opened": true
+            },
+            {
+              "kind": "stock_reader_handoff",
+              "new_reader_instances": 1,
+              "actual_switch_document": true,
+              "records_visible": true
+            },
+            {
+              "rows": 125,
+              "pipe_bytes": 69969,
+              "kind": "large_unicode_history",
+              "not_truncated": true,
+              "no_file_opened": true
+            }
+          ],
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "automatic_product_recovery": false,
+          "product_recovery_entry_implemented": true,
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "result": "PASS",
+          "recovered_versions": 8,
+          "expected_reader_opens": 32,
+          "native_confirmation": true,
+          "reader_opens": 32
+        },
+        {
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "automatic_product_recovery": false,
+          "product_recovery_entry_implemented": true,
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "result": "PASS",
+          "fresh_process": true,
+          "reader_opens": 8,
+          "recovered_versions": 8,
+          "synthetic_only": true
+        }
+      ],
+      "local_http_events": 0
+    },
+    {
+      "kind": "product",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "candidate_source_compared": true,
+      "package_files": 178,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "source_base_commit": "e3b69fa62548c1e45a54ab2db483e56a35c2c2c3",
+      "stages": [
+        {
+          "product_cases": [
+            {
+              "kind": "backup",
+              "derived_identity_reset": true,
+              "body_unchanged": true,
+              "location": "doc",
+              "archived": true,
+              "explicit_confirmation": true,
+              "records_restored": true
+            },
+            {
+              "kind": "primary",
+              "derived_identity_reset": true,
+              "body_unchanged": true,
+              "location": "dir",
+              "archived": true,
+              "explicit_confirmation": true,
+              "records_restored": true
+            },
+            {
+              "kind": "beside",
+              "derived_identity_reset": true,
+              "body_unchanged": true,
+              "location": "doc",
+              "archived": true,
+              "explicit_confirmation": true,
+              "records_restored": true
+            },
+            {
+              "kind": "folder",
+              "derived_identity_reset": true,
+              "body_unchanged": true,
+              "location": "hash",
+              "archived": true,
+              "explicit_confirmation": true,
+              "records_restored": true
+            },
+            {
+              "kind": "live",
+              "derived_identity_reset": true,
+              "body_unchanged": true,
+              "location": "hash",
+              "archived": true,
+              "explicit_confirmation": true,
+              "records_restored": true
+            },
+            {
+              "kind": "fresh_copy",
+              "no_records_applied": true
+            },
+            {
+              "kind": "record_write_failure",
+              "current_and_originals_kept": true
+            },
+            {
+              "kind": "selector_readback_unknown",
+              "no_automatic_success": true,
+              "records_reopened": true,
+              "complete_body_retained": true,
+              "attempt_record_retained": true
+            },
+            {
+              "kind": "cancel_live_inspection",
+              "no_file_opened": true,
+              "child_reaped": true
+            },
+            {
+              "kind": "cancel_live_copy",
+              "child_reaped": true,
+              "stage_cleaned": true,
+              "current_kept": true
+            },
+            {
+              "kind": "account_change",
+              "no_file_opened": true
+            },
+            {
+              "kind": "stock_reader_handoff",
+              "records_visible": true,
+              "new_reader_instances": 1,
+              "actual_switch_document": true
+            },
+            {
+              "kind": "large_unicode_history",
+              "no_file_opened": true,
+              "pipe_bytes": 69969,
+              "not_truncated": true,
+              "rows": 125
+            }
+          ],
+          "recovered_versions": 8,
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "automatic_product_recovery": false,
+          "product_recovery_entry_implemented": true,
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "result": "PASS",
+          "expected_reader_opens": 32,
+          "native_confirmation": true,
+          "reader_opens": 32
+        },
+        {
+          "account_data_writes": 0,
+          "result": "PASS",
+          "fresh_process": true,
+          "reader_opens": 8,
+          "recovered_versions": 8,
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "automatic_product_recovery": false,
+          "product_recovery_entry_implemented": true,
+          "account_requests": 0
+        }
+      ],
+      "local_http_events": 0
+    },
+    {
+      "kind": "core",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "candidate_source_compared": true,
+      "package_files": 178,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "source_base_commit": "e3b69fa62548c1e45a54ab2db483e56a35c2c2c3",
+      "fresh_metadata_readback": true,
+      "independent_epub_checks": true
+    },
+    {
+      "kind": "core",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "candidate_source_compared": true,
+      "package_files": 178,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "source_base_commit": "e3b69fa62548c1e45a54ab2db483e56a35c2c2c3",
+      "fresh_metadata_readback": true,
+      "independent_epub_checks": true
+    },
+    {
+      "kind": "discovery",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true,
+        "dpi_from_validation_command": true
+      },
+      "candidate_source_compared": true,
+      "package_files": 178,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0
+    },
+    {
+      "kind": "discovery",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "bb_type": "BB8",
+        "grayscale": true,
+        "dpi_from_validation_command": true
+      },
+      "candidate_source_compared": true,
+      "package_files": 178,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0
+    },
+    {
+      "kind": "migration",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "candidate_source_compared": true,
+      "package_files": 178,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "source_base_commit": "e3b69fa62548c1e45a54ab2db483e56a35c2c2c3",
+      "stages": [
+        {
+          "result": "PASS",
+          "version_files": 18,
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "transitions": [
+            {
+              "positions_restored": true,
+              "source": "doc",
+              "target": "dir",
+              "pending_preserved": true,
+              "html_unchanged": true,
+              "old_location_removed": true,
+              "versions": 3,
+              "notes_preserved": true
+            },
+            {
+              "positions_restored": true,
+              "source": "doc",
+              "target": "hash",
+              "pending_preserved": true,
+              "html_unchanged": true,
+              "old_location_removed": true,
+              "versions": 3,
+              "notes_preserved": true
+            },
+            {
+              "positions_restored": true,
+              "source": "dir",
+              "target": "doc",
+              "pending_preserved": true,
+              "html_unchanged": true,
+              "old_location_removed": true,
+              "versions": 3,
+              "notes_preserved": true
+            },
+            {
+              "positions_restored": true,
+              "source": "dir",
+              "target": "hash",
+              "pending_preserved": true,
+              "html_unchanged": true,
+              "old_location_removed": true,
+              "versions": 3,
+              "notes_preserved": true
+            },
+            {
+              "positions_restored": true,
+              "source": "hash",
+              "target": "doc",
+              "pending_preserved": true,
+              "html_unchanged": true,
+              "old_location_removed": true,
+              "versions": 3,
+              "notes_preserved": true
+            },
+            {
+              "positions_restored": true,
+              "source": "hash",
+              "target": "dir",
+              "pending_preserved": true,
+              "html_unchanged": true,
+              "old_location_removed": true,
+              "versions": 3,
+              "notes_preserved": true
+            }
+          ],
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "reader_opens": 36
+        },
+        {
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "transitions": {},
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "result": "PASS",
+          "reader_opens": 18,
+          "fresh_process": true,
+          "version_files": 18
+        }
+      ],
+      "local_http_events": 0
+    },
+    {
+      "kind": "legacy_control",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "bb_type": "BB8",
+        "grayscale": true
+      },
+      "candidate_source_compared": true,
+      "package_files": 178,
+      "source_and_installed_bytes_match": true,
+      "zip_crc_verified": true,
+      "repaint_failure_count": 0,
+      "source_base_commit": "e3b69fa62548c1e45a54ab2db483e56a35c2c2c3",
+      "stages": [
+        {
+          "reader_opens": 15,
+          "result": "PASS",
+          "synthetic_only": true,
+          "account_requests": 0,
+          "product_recovery_entry_implemented": false,
+          "automatic_product_recovery": false,
+          "actual_location_menu": true,
+          "actual_reader": true,
+          "sampled_hash_collision": true,
+          "shared_primary_backup_distinct": true,
+          "stock_migration_deletes_shared_candidates": true,
+          "original_html_unchanged": true,
+          "chosen_snapshots_restored": true,
+          "recovered_after_source_candidates_removed": true,
+          "recovered_versions": 6,
+          "source_snapshots": 2,
+          "account_data_writes": 0
+        },
+        {
+          "fresh_process": true,
+          "reader_opens": 6,
+          "result": "PASS",
+          "synthetic_only": true,
+          "actual_reader": true,
+          "actual_location_menu": true,
+          "automatic_product_recovery": false,
+          "product_recovery_entry_implemented": false,
+          "account_requests": 0,
+          "account_data_writes": 0,
+          "recovered_versions": 6
+        }
+      ],
+      "local_http_events": 0
+    }
+  ],
+  "real_account_data_writes": 0,
+  "working_tree_candidate": true,
+  "new_component_checks": 92,
+  "record_data_checks": 28
+}

@@ -1,0 +1,16 @@
+{
+  "result": "UNVERIFIED",
+  "phase": "group_baseline_preflight",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "original_group_baseline_matches": false,
+  "previous_fixture_present": true,
+  "previous_groups_absent": true,
+  "original_shelf_difference_explained": false,
+  "diagnostic_captured_native_shelf_and_book_baseline_match": true,
+  "diagnostic_two_statistics_reads_stable": true,
+  "diagnostic_old_native_and_web_baselines_match": false,
+  "original_preflight_guard_unchanged": true,
+  "captured_record_retained_and_unsent": true,
+  "historical_accounting_verified": false
+}

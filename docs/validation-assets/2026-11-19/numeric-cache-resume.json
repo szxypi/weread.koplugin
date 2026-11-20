@@ -1,0 +1,18 @@
+{
+  "synthetic_native_reader": {
+    "screens": ["600x800", "1264x1680"],
+    "legacy_numeric_keys_injected_at_host_boundary": true,
+    "exact_cached_chapter_opened": true,
+    "pending_position_preserved": true,
+    "offline_reopen": true,
+    "reading_progress_posts": 0
+  },
+  "component_checks": {
+    "numeric_cache_key_recognized": true,
+    "nonnumeric_exact_key_preserved": true,
+    "adjacent_large_id_alias_rejected": true,
+    "stale_verification_cancelled": true
+  },
+  "early_fixture_failure": "JSON object keys were normalized to strings before the target path was exercised",
+  "real_account_or_device_tested": false
+}

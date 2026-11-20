@@ -1,0 +1,17 @@
+{
+  "result": "AUTH_TICKET_ONLY",
+  "stages": [
+    {
+      "stage": "auth_page",
+      "status": 200
+    },
+    {
+      "stage": "auth_uid",
+      "status": 200
+    }
+  ],
+  "uid_contract_present": true,
+  "owner_login_performed": false,
+  "account_data_reads": 0,
+  "account_writes_attempted": 0
+}

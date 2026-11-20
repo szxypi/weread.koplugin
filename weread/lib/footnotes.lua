@@ -5,6 +5,7 @@
 -- anchor index, then transform the finalized chapter bodies cooperatively.
 
 local logger = require("weread.lib.logger").scoped("Footnotes")
+local BookLinks = require('weread.lib.book_link_paths')
 
 local Footnotes = {}
 
@@ -228,9 +229,13 @@ local function looks_like_ref(attrs, href, inner)
     return marker and (file == "" or file_hint or anchor_hint) and true or false
 end
 
-local function collect_refs(html)
+local source_blocks
+local local_note_range
+
+local function collect_refs(links)
     local refs = {}
-    for attrs, inner in tostring(html or ""):gmatch("<[aA]([^>]*)>(.-)</[aA]%s*>") do
+    for _i, link in ipairs(links) do
+        local attrs, inner = link.attrs, link.inner
         local href = get_attr(attrs, "href")
         if href and looks_like_ref(attrs, href, inner) then
             local file, anchor = split_href(href)
@@ -274,57 +279,49 @@ local function remember_definition(definitions, anchor, inner)
     end
 end
 
-local function collect_definitions(html)
+local function collect_definitions(html, blocks, anchors, links)
     local definitions = {}
     html = tostring(html or "")
-    for _i, tag in ipairs(BLOCK_TAGS) do
-        local patterns = {
-            "<" .. tag .. "([^>]*)>(.-)</" .. tag .. "%s*>",
-            "<" .. tag:upper() .. "([^>]*)>(.-)</" .. tag:upper() .. "%s*>",
-        }
-        for _j, pattern in ipairs(patterns) do
-            for attrs, inner in html:gmatch(pattern) do
-                remember_definition(definitions,
-                    get_attr(attrs, "id") or get_attr(attrs, "name"), inner)
-                for raw_tag in inner:gmatch("<[%a][^>]*>") do
-                    remember_definition(definitions,
-                        get_attr(raw_tag, "id") or get_attr(raw_tag, "name"), inner)
+    for anchor, points in pairs(anchors) do
+        for _i, point in ipairs(points) do
+            for _j, block in ipairs(blocks) do
+                if block.first <= point.first and point.first < block.last then
+                    remember_definition(definitions, anchor, html:sub(block.open_last + 1, block.close_first - 1))
+                elseif point.tag == "a" and point.last and point.last < block.first and block.tag == "p"
+                    and html:sub(point.last + 1, block.first - 1):match("^%s*$") then
+                    remember_definition(definitions, anchor, html:sub(block.open_last + 1, block.close_first - 1))
                 end
             end
         end
     end
-    for attrs, inner in html:gmatch("<[aA]([^>]*)>(.-)</[aA]%s*>") do
-        remember_definition(definitions,
-            get_attr(attrs, "id") or get_attr(attrs, "name"), inner)
-    end
-    -- A common tail-note layout places an empty named anchor immediately
-    -- before the paragraph containing the actual note text.
-    for attrs, inner in html:gmatch(
-        "<[aA]([^>]*)>%s*</[aA]>%s*<[pP][^>]*>(.-)</[pP]%s*>") do
+    for _i, link in ipairs(links) do
+        local attrs, inner = link.attrs, link.inner
         remember_definition(definitions,
             get_attr(attrs, "id") or get_attr(attrs, "name"), inner)
     end
     return definitions
 end
 
-local function collect_anchor_presence(html)
+local function collect_anchor_presence(points)
     local anchors = {}
-    for raw_tag in tostring(html or ""):gmatch("<[%a][^>]*>") do
-        local anchor = get_attr(raw_tag, "id") or get_attr(raw_tag, "name")
-        if anchor and anchor ~= "" then anchors[anchor] = true end
-    end
+    for anchor in pairs(points) do if anchor ~= "" then anchors[anchor] = true end end
     return anchors
 end
 
-local function collect_definition_backlinks(html)
+local function collect_definition_backlinks(blocks, links)
     local backlinks = {}
-    for attrs, inner in tostring(html or ""):gmatch("<[pP]([^>]*)>(.-)</[pP]%s*>") do
+    for _i, block in ipairs(blocks) do
+        local attrs = block.attrs
         local class = get_attr(attrs, "class") or ""
         local lower = class:lower()
-        if has_token(class, "note") or lower:find("fncontent", 1, true) then
-            for link_attrs, link_inner in inner:gmatch("<[aA]([^>]*)>(.-)</[aA]%s*>") do
+        if has_token(class, "note") or lower:find("fncontent", 1, true)
+            or has_token(get_attr(attrs, "epub:type"), "footnote")
+            or has_token(get_attr(attrs, "role"), "doc-footnote") then
+            for _j, link in ipairs(links) do
+                local link_attrs, link_inner = link.attrs, link.inner
                 local href = get_attr(link_attrs, "href")
-                if href and looks_like_ref(link_attrs, href, link_inner) then
+                if link.first > block.first and link.last < block.last
+                    and href and looks_like_ref(link_attrs, href, link_inner) then
                     local _, anchor = split_href(href)
                     if anchor then backlinks[anchor] = true end
                 end
@@ -365,23 +362,59 @@ local function chapter_aliases(chapter)
     return aliases
 end
 
+-- Link-only archive inspection must not clean note prose, collect definitions,
+-- or emit the converter's source-derived diagnostics.
+function Footnotes.scan_links(html,chapter)
+    local anchors,links=select(2,source_blocks(tostring(html or '')))
+    local scan={chapter_uid=chapter_uid(chapter),chapter=chapter,anchors=collect_anchor_presence(anchors),
+        anchor_counts={},link_hrefs={}}
+    for anchor,points in pairs(anchors) do scan.anchor_counts[anchor]=#points end
+    for _i,link in ipairs(links) do
+        local href=get_attr(link.attrs,'href')
+        if href then scan.link_hrefs[#scan.link_hrefs+1]=href end
+    end
+    return scan
+end
+
+function Footnotes.element_texts(html,name)
+    html=tostring(html or '')
+    local blocks=source_blocks(html,name)
+    local values={}
+    for _i,block in ipairs(blocks) do
+        if block.tag==name then
+            values[#values+1]={attrs=block.attrs,text=html:sub(block.open_last+1,block.close_first-1)}
+        end
+    end
+    return values
+end
+
 function Footnotes.scan_chapter(html, chapter)
-    local refs = collect_refs(html)
+    html = tostring(html or "")
+    local blocks, anchors, links = source_blocks(html)
+    local refs = collect_refs(links)
     local forward_ref_ids = {}
     for _i, ref in ipairs(refs) do
         if ref.ref_id and ref.ref_id ~= "" then
             forward_ref_ids[ref.ref_id] = true
         end
     end
-    return {
+    local scan = {
         chapter_uid = chapter_uid(chapter),
         chapter = chapter,
-        definitions = collect_definitions(html),
-        anchors = collect_anchor_presence(html),
-        definition_backlinks = collect_definition_backlinks(html),
+        definitions = collect_definitions(html, blocks, anchors, links),
+        anchors = collect_anchor_presence(anchors),
+        anchor_counts = {},
+        definition_backlinks = collect_definition_backlinks(blocks, links),
         refs = refs,
         forward_ref_ids = forward_ref_ids,
     }
+    for anchor,points in pairs(anchors) do scan.anchor_counts[anchor]=#points end
+    -- Cross-chapter references must carry the same full-markup safety check
+    -- as local references; cleaned text alone cannot prove media is absent.
+    for anchor, content in pairs(scan.definitions) do
+        content.plain_safe = local_note_range(html, blocks, anchors, anchor, content, scan) ~= nil
+    end
+    return scan
 end
 
 local function put_exact(index, key, content)
@@ -393,12 +426,13 @@ local function put_exact(index, key, content)
     end
 end
 
-function Footnotes.build_book_index(scans, chapters)
+function Footnotes.build_book_index(scans, chapters, chapter_hrefs)
     local index = {
         exact = {},
         local_by_uid = {},
         unique = {},
         ambiguous = {},
+        book_links = BookLinks.build(scans,chapters,chapter_hrefs),
     }
     local chapter_by_uid = {}
     for _i, chapter in ipairs(chapters or {}) do
@@ -472,9 +506,17 @@ local function build_section(notes)
     if #notes == 0 then return "" end
     local out = { '\n<div class="wr-footnotes">\n<hr/>\n' }
     for _i, note in ipairs(notes) do
+        local backlinks, aliases, keys = {}, {}, {}
+        for _j, ref in ipairs(note.refs or { note }) do
+            backlinks[#backlinks + 1] = string.format('<a href="#%s" class="wr-fn-num">%s</a>',
+                ref.ref_id, xml_escape(ref.display))
+        end
+        for anchor in pairs(note.aliases or {}) do keys[#keys + 1] = anchor end
+        table.sort(keys)
+        for _j, anchor in ipairs(keys) do aliases[#aliases + 1] = '<span id="' .. xml_escape(anchor) .. '"></span>' end
         out[#out + 1] = string.format(
-            '<aside epub:type="footnote" id="%s" class="wr-book-footnote"><p><a href="#%s" class="wr-fn-num">%s</a> %s</p></aside>\n',
-            note.target_id, note.ref_id, xml_escape(note.display), xml_escape(note.text))
+            '<aside epub:type="footnote" id="%s" class="wr-book-footnote">%s<p>%s %s</p></aside>\n',
+            note.target_id, table.concat(aliases), table.concat(backlinks, " "), xml_escape(note.text))
     end
     out[#out + 1] = "</div>\n"
     return table.concat(out)
@@ -487,38 +529,150 @@ local function replace_href(attrs, href)
     end, 1)
     if count > 0 then return replaced end
     replaced, count = attrs:gsub("(href%s*=%s*)'[^']*'", function(prefix)
-        return prefix .. "'" .. escaped .. "'"
+        return prefix .. "'" .. escaped:gsub("'",'&apos;') .. "'"
     end, 1)
     return count > 0 and replaced or attrs
 end
 
-local function strip_consumed_note_blocks(html, converted_anchors)
-    local removed = 0
-    html = html:gsub("<[pP]([^>]*)>(.-)</[pP]%s*>", function(attrs, inner)
-        local class = get_attr(attrs, "class") or ""
-        local lower = class:lower()
-        if not has_token(class, "note") and not lower:find("fncontent", 1, true) then
-            return "<p" .. attrs .. ">" .. inner .. "</p>"
+local VOID_TAGS = { area=true, base=true, br=true, col=true, embed=true, hr=true, img=true,
+    input=true, link=true, meta=true, param=true, source=true, track=true, wbr=true }
+local NOTE_BLOCK_TAGS = {}
+for _i, tag in ipairs(BLOCK_TAGS) do NOTE_BLOCK_TAGS[tag] = true end
+
+-- Ranges must be balanced, even with quoted '>' or nested same-name tags.
+-- A malformed fragment never authorizes deleting an enclosing body block.
+source_blocks = function(html,wanted_tag)
+    local blocks, anchors, links, images, stack, pos = {}, {}, {}, {}, {}, 1
+    local lower = html:lower()
+    while true do
+        local first = html:find("<", pos, true)
+        if not first then break end
+        if html:sub(first, first + 3) == "<!--" then
+            local last = html:find("-->", first + 4, true)
+            if not last then break end
+            pos = last + 3
+        elseif html:sub(first, first + 8) == "<![CDATA[" then
+            local last = html:find("]]>", first + 9, true)
+            if not last then break end
+            pos = last + 3
+        else
+            local at, quote = first + 1, nil
+            while at <= #html do
+                local char = html:sub(at, at)
+                if quote then if char == quote then quote = nil end
+                elseif char == '"' or char == "'" then quote = char
+                elseif char == ">" then break end
+                at = at + 1
+            end
+            if at > #html then break end
+            local raw = html:sub(first, at)
+            local closing, tag = raw:match("^<%s*(/?)%s*([%w:_%-]+)")
+            tag = tag and tag:lower()
+            pos = at + 1
+            if tag and closing == "/" then
+                local node = stack[#stack]
+                if node and node.tag == tag then
+                    stack[#stack] = nil
+                    node.close_first, node.last = first, at
+                    if NOTE_BLOCK_TAGS[tag] or tag==wanted_tag then blocks[#blocks + 1] = node end
+                    if tag == "a" then
+                        node.inner = html:sub(node.open_last + 1, first - 1)
+                        links[#links + 1] = node
+                    end
+                else stack = {} end
+            elseif tag and (tag == "script" or tag == "style") then
+                local _, last = lower:find("</" .. tag .. "%s*>", pos)
+                if not last then break end
+                pos = last + 1
+            elseif tag then
+                local node = { first = first, open_last = at, tag = tag,
+                    attrs = raw:match("^<%s*[%w:_%-]+(.-)>$") or "" }
+                local anchor = get_attr(raw, "id") or get_attr(raw, "name")
+                if anchor then
+                    anchors[anchor] = anchors[anchor] or {}
+                    anchors[anchor][#anchors[anchor] + 1] = node
+                end
+                if VOID_TAGS[tag] or raw:match("/%s*>$") then node.last = at
+                else stack[#stack + 1] = node end
+                if tag == "img" then images[#images + 1] = node end
+            end
         end
-        local consumed = false
-        local own_anchor = get_attr(attrs, "id") or get_attr(attrs, "name")
-        if own_anchor and converted_anchors[own_anchor] then consumed = true end
-        if not consumed then
-            for raw_tag in inner:gmatch("<[%a][^>]*>") do
-                local anchor = get_attr(raw_tag, "id") or get_attr(raw_tag, "name")
-                if anchor and converted_anchors[anchor] then
-                    consumed = true
-                    break
+    end
+    table.sort(links, function(a, b) return a.first < b.first end)
+    return blocks, anchors, links, images
+end
+
+local function rewrite_nodes(html, nodes, transform)
+    local rewritten, from = {}, 1
+    for _i, node in ipairs(nodes) do
+        if node.first >= from then
+            rewritten[#rewritten + 1] = html:sub(from, node.first - 1)
+            rewritten[#rewritten + 1] = transform(node)
+            from = node.last + 1
+        end
+    end
+    rewritten[#rewritten + 1] = html:sub(from)
+    return table.concat(rewritten)
+end
+
+local_note_range = function(html, blocks, anchors, anchor, content, scan)
+    local best
+    for _i, point in ipairs(anchors[anchor] or {}) do
+        for _j, block in ipairs(blocks) do
+            local contains = block.first <= point.first and point.first < block.last
+            local adjacent = point.tag == "a" and point.last and block.tag == "p" and point.last < block.first
+                and html:sub(point.last + 1, block.first - 1):match("^%s*$")
+            if (contains or adjacent) and block.last - block.first <= 128 * 1024 then
+                local inner = html:sub(block.open_last + 1, block.close_first - 1)
+                -- Plain-text conversion must not discard embedded media or
+                -- citations. Those targets retain their original native link.
+                local rich
+                for _k, name in ipairs({ "img", "svg", "math", "table", "object", "audio", "video" }) do
+                    if inner:lower():find("<%s*" .. name .. "[%s/>]") then rich = true; break end
+                end
+                for attrs, label in inner:gmatch("<[aA]([^>]*)>(.-)</[aA]%s*>") do
+                    local href = get_attr(attrs, "href")
+                    local file, target = split_href(href or "")
+                    local glyph = strip_tags(label)
+                    local backlink = target and (glyph == "↩" or glyph == "↑" or glyph == "←" or glyph == "⤴"
+                        or (scan.forward_ref_ids or {})[target]
+                        or (scan.definition_backlinks or {})[target]
+                        or ((scan.anchors or {})[target] and not (scan.definitions or {})[target]))
+                    if href and (not backlink or file ~= "") then rich = true end
+                end
+                if not rich and clean_note_text(inner) == content.text then
+                    local first = adjacent and point.first or block.first
+                    if not best or block.last - first < best.last - best.first then
+                        best = { first = first, last = block.last, aliases = {} }
+                        for key, points in pairs(anchors) do
+                            for _k, candidate in ipairs(points) do
+                                if candidate.first >= first and candidate.first <= block.last then best.aliases[key] = true end
+                            end
+                        end
+                    end
                 end
             end
         end
-        if consumed then
-            removed = removed + 1
-            return ""
+    end
+    if best then
+        for _i, point in ipairs(anchors[anchor] or {}) do
+            if point.first < best.first or point.first > best.last then return nil end
         end
-        return "<p" .. attrs .. ">" .. inner .. "</p>"
-    end)
-    return html, removed
+    end
+    return best
+end
+
+local function strip_consumed_note_blocks(html, notes)
+    local ranges, seen = {}, {}
+    for _i, note in ipairs(notes) do
+        if note.range and not seen[note.range.first] then
+            seen[note.range.first] = true
+            ranges[#ranges + 1] = note.range
+        end
+    end
+    table.sort(ranges, function(a, b) return a.first > b.first end)
+    for _i, range in ipairs(ranges) do html = html:sub(1, range.first - 1) .. html:sub(range.last + 1) end
+    return html, #ranges
 end
 
 function Footnotes.transform_chapter(html, scan, index)
@@ -528,16 +682,20 @@ function Footnotes.transform_chapter(html, scan, index)
         image_notes = 0,
         backlinks = 0,
         removed_note_blocks = 0,
+        native_links = 0,
         unresolved = 0,
     }
     if type(html) ~= "string" or html == "" then return html, stats end
+    local original = html
     scan = scan or { chapter_uid = "chapter", refs = {}, definitions = {} }
     index = index or Footnotes.build_book_index({ [scan.chapter_uid] = scan }, { scan.chapter })
     local uid = safe_id(scan.chapter_uid)
     local ordinal, notes = 0, {}
-    local converted_anchors = {}
+    local by_definition, by_range = {}, {}
 
-    html = html:gsub("(<[iI][mM][gG][^>]*>)", function(tag)
+    local _, _, _, images = source_blocks(html)
+    html = rewrite_nodes(html, images, function(node)
+        local tag = html:sub(node.first, node.last)
         if not image_is_footnote(tag) then return tag end
         local text = clean_note_text(get_attr(tag, "alt") or get_attr(tag, "title")
             or get_attr(tag, "data-content") or get_attr(tag, "data-note") or "")
@@ -555,47 +713,118 @@ function Footnotes.transform_chapter(html, scan, index)
             target_id, ref_id, ordinal)
     end)
 
-    html = html:gsub("<[aA]([^>]*)>(.-)</[aA]%s*>", function(attrs, inner)
+    local blocks, anchors, links = source_blocks(html)
+    local function transform_ref(attrs, inner)
         local href = get_attr(attrs, "href")
-        if not href or not looks_like_ref(attrs, href, inner) then
-            return "<a" .. attrs .. ">" .. inner .. "</a>"
+        local native,reason
+        if href and index.book_links then native,reason=BookLinks.resolve(index.book_links,scan.chapter_uid,href) end
+        local function keep(fallback)
+            local target=native and native.href or fallback
+            if target and target~=BookLinks.attribute(href) then
+                stats.native_links=stats.native_links+1
+                return '<a' .. replace_href(attrs,target) .. '>' .. inner .. '</a>'
+            end
+            return '<a' .. attrs .. '>' .. inner .. '</a>'
+        end
+        if not href or reason=='external' or reason=='invalid' or not looks_like_ref(attrs, href, inner) then
+            return keep()
         end
         stats.candidates = stats.candidates + 1
         local file, anchor = split_href(href)
-        if (scan.definition_backlinks and scan.definition_backlinks[anchor])
+        local local_target=file=='' or native and native.uid==tostring(scan.chapter_uid)
+        if native and native.forward_ref then stats.backlinks=stats.backlinks+1;return keep() end
+        if local_target and ((scan.definition_backlinks and scan.definition_backlinks[anchor])
             or (scan.forward_ref_ids and scan.forward_ref_ids[anchor])
             or (scan.anchors and scan.anchors[anchor]
-                and not (scan.definitions and scan.definitions[anchor])) then
+                and not (scan.definitions and scan.definitions[anchor]))) then
             stats.backlinks = stats.backlinks + 1
-            return "<a" .. replace_href(attrs, "#" .. anchor) .. ">"
-                .. inner .. "</a>"
+            return keep('#' .. anchor)
+        end
+        if file~='' and not native and index.book_links and index.book_links.packaged then
+            stats.unresolved=stats.unresolved+1;return keep()
         end
         local content = resolve_ref(index, scan.chapter_uid, file or "", anchor)
+        if content and file~='' and not local_target and content==(scan.definitions or {})[anchor] then
+            stats.unresolved=stats.unresolved+1;return keep()
+        end
         if not content or is_trivial_note(content.text) then
-            if scan.anchors and scan.anchors[anchor] then
+            if native then return keep() end
+            if local_target and scan.anchors and scan.anchors[anchor] then
                 stats.backlinks = stats.backlinks + 1
-                return "<a" .. replace_href(attrs, "#" .. anchor) .. ">"
-                    .. inner .. "</a>"
+                return keep('#' .. anchor)
             end
             stats.unresolved = stats.unresolved + 1
             return "<a" .. attrs .. ">" .. inner .. "</a>"
         end
+        local range, range_key
+        if content ~= (scan.definitions or {})[anchor] and content.plain_safe ~= true then
+            if native then return keep() end
+            stats.unresolved = stats.unresolved + 1
+            return '<a' .. attrs .. '>' .. inner .. '</a>'
+        end
+        if content == (scan.definitions or {})[anchor] then
+            range = local_note_range(html, blocks, anchors, anchor, content, scan)
+            if not range then
+                stats.unresolved = stats.unresolved + 1
+                return "<a" .. attrs .. ">" .. inner .. "</a>"
+            end
+            range_key = range.first .. ":" .. range.last
+        end
         ordinal = ordinal + 1
-        local target_id = string.format("wrfn-%s-%d", uid, ordinal)
         local ref_id = string.format("wrfnref-%s-%d", uid, ordinal)
         local display = ref_display(inner)
-        notes[#notes + 1] = {
-            target_id = target_id, ref_id = ref_id,
-            display = display, text = content.text,
-        }
-        converted_anchors[anchor] = true
+        local note = by_definition[content] or (range_key and by_range[range_key])
+        if not note and range then
+            for _i, existing in ipairs(notes) do
+                if existing.range and existing.text == content.text
+                    and range.first <= existing.range.last and existing.range.first <= range.last then
+                    note = existing
+                    if range.last - range.first > existing.range.last - existing.range.first then
+                        note.range, note.source_anchor = range, anchor
+                    end
+                    for key in pairs(range.aliases) do note.aliases[key] = true end
+                    break
+                end
+            end
+        end
+        if not note then
+            note = { target_id = string.format("wrfn-%s-%d", uid, ordinal), text = content.text,
+                refs = {}, range = range, aliases = range and range.aliases, source_anchor = range and anchor }
+            notes[#notes + 1] = note
+        end
+        by_definition[content] = note
+        if range_key then by_range[range_key] = note end
+        note.refs[#note.refs + 1] = { ref_id = ref_id, display = display }
         stats.converted = stats.converted + 1
+        local old_id = get_attr(attrs, "id") or get_attr(attrs, "name")
         return string.format(
-            '<span class="wr-fn-ref"><a epub:type="noteref" role="doc-noteref" href="#%s" id="%s">%s</a></span>',
-            target_id, ref_id, xml_escape(display))
-    end)
+            '<span class="wr-fn-ref"%s><a epub:type="noteref" role="doc-noteref" href="#%s" id="%s">%s</a></span>',
+            old_id and ' id="' .. xml_escape(old_id) .. '"' or "", note.target_id, ref_id, xml_escape(display))
+    end
+    html = rewrite_nodes(html, links, function(link) return transform_ref(link.attrs, link.inner) end)
 
-    html, stats.removed_note_blocks = strip_consumed_note_blocks(html, converted_anchors)
+    -- Link rewriting changes byte offsets; resolve each consumed target again.
+    blocks, anchors = source_blocks(html)
+    for _i, note in ipairs(notes) do
+        if note.source_anchor then
+            note.range = local_note_range(html, blocks, anchors, note.source_anchor,
+                { text = note.text }, scan)
+            if not note.range then
+                return original, { converted = 0, image_notes = 0, removed_note_blocks = 0,
+                    candidates = stats.candidates, backlinks = 0, unresolved = #scan.refs, fallback = 1 }
+            end
+        end
+    end
+    for i, note in ipairs(notes) do
+        for j = i + 1, #notes do
+            local other = notes[j]
+            if note.range and other.range and note.range.first <= other.range.last and other.range.first <= note.range.last then
+                return original, { converted = 0, image_notes = 0, removed_note_blocks = 0,
+                    candidates = stats.candidates, backlinks = 0, unresolved = #scan.refs, fallback = 1 }
+            end
+        end
+    end
+    html, stats.removed_note_blocks = strip_consumed_note_blocks(html, notes)
     return append_before_body_close(html, build_section(notes)), stats
 end
 

@@ -1,0 +1,11 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "native_input_dialog": true,
+  "group_filter_preserved": true,
+  "unicode_case_and_normalization": true,
+  "offline_new_process": true,
+  "account_requests": 0,
+  "physical_kindle_tested": false
+}

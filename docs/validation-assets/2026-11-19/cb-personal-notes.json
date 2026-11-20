@@ -1,0 +1,30 @@
+{
+  "result": "PASS",
+  "checked_at_utc": "2026-11-19T00:45:28Z",
+  "candidate_sha256": "4776e2e676e761e54ad706b435fcdf8a71d97e217f6c286de4f6cc4bbea448a8",
+  "real_account": {
+    "imported_books_checked": 6,
+    "mark_rows": 1,
+    "selected_thought_rows": 0,
+    "python_shelf_gets": 2,
+    "python_marks_gets": 6,
+    "python_thought_gets": 1,
+    "native_live_gets": 4,
+    "native_offline_gets": 0,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "shelf_identity_unchanged": true,
+    "temporary_profiles_removed": true,
+    "private_values_in_report": false
+  },
+  "native_ui": {
+    "dimensions": [[600, 800], [1264, 1680]],
+    "variants": ["marks", "thoughts"],
+    "real_online_and_offline_reopen": true,
+    "synthetic_rows_per_variant": 45,
+    "synthetic_fault_cases_per_run": 6,
+    "synthetic_reader_menu_and_offline_reopen": true,
+    "read_only_notice_and_actions_verified": true
+  },
+  "limitations": ["real_nonempty_thoughts", "imported_note_editing", "source_navigation", "kindle_oasis_2"]
+}

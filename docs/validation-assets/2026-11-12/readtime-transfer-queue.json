@@ -1,0 +1,130 @@
+{
+  "result": "PARTIAL_HISTORICAL_UPLOAD_UNVERIFIED",
+  "native_transport_enabled": false,
+  "checks": {
+    "python_files": 98,
+    "python_tests": 1211,
+    "python_skips": 0,
+    "lua_specs": 226,
+    "time_zones": 4,
+    "readtime_protocol_time_zones": 4,
+    "python_compile": 307,
+    "lua_syntax": 637,
+    "result": "PASS"
+  },
+  "static_lua_files": 635,
+  "static_warnings": 0,
+  "static_errors": 0,
+  "local_cases": {
+    "transfer_sqlite_checks": 88,
+    "online_admission_checks": 25
+  },
+  "official_koreader_probe": {
+    "competing_workers": 2,
+    "successful_claims": 1,
+    "canceled_worker_denied": true,
+    "claimed_restart_no_replay": true,
+    "result": "PASS",
+    "settled_once_seconds": 40,
+    "covered_seconds": 20,
+    "cross_process_online_admission": true,
+    "network_requests": 0,
+    "retired_unknown_seconds": 40
+  },
+  "account_tests": {
+    "data_posts": 2,
+    "authentication_posts": 1,
+    "verified_seconds": 2,
+    "requested_historical_seconds": 2,
+    "historical_ledger_rows_uploaded": 0,
+    "utc_current_window": {
+      "result": "PASS_PROTOCOL",
+      "time_zone": "+00:00",
+      "statistics_calendar_attribution": "server_calendar_day",
+      "book_day_month_delta_seconds": 2,
+      "read_days_delta": 0,
+      "source_records_and_positions_exact": true
+    },
+    "historical_window": {
+      "result": "UNVERIFIED",
+      "explicit_success_receipt": true,
+      "independent_diagnoses": 2,
+      "observed_book_counter": "unchanged",
+      "observed_month_statistics": "unchanged",
+      "claimed_intent_retained": true,
+      "no_replay": true,
+      "source_records_and_positions_exact": true
+    }
+  },
+  "official_apk_audit": {
+    "primary_page": "https://weread.qq.com/ink",
+    "download_entry": "https://weread.qq.com/download?p=105&c=900",
+    "bytes": 127467642,
+    "sha256": "04d86bcdc1bbd77cab4ecc4d1c04e869d76dbabc79c60c52a707c64fc3e4b75f",
+    "installed": false
+  },
+  "pending": [
+    "historical_admission_rules",
+    "cross_month_readback",
+    "native_worker_and_ui",
+    "real_file_ledger_upload",
+    "physical_ko2_and_power_loss"
+  ],
+  "protected_root_files_unchanged": true,
+  "development_credentials_retained_in_keychain": true,
+  "source_sha256": {
+    "weread/lib/offline_time_store.lua": "5ac9ecdd0aeb14ca1c8bc9f7654594e843503c8d1ce908171b4bff1ec80c7b15",
+    "weread/lib/read_report.lua": "893ef25159216b8d4dc82d4f11a73dc80f518fa67ecdfffa80699f1a8cba148b",
+    "weread/lib/readtime_coverage.lua": "4b64f9eee6a7c232b5c6c646bdf6f99935bf193947fdf27a679bb2a59a14436b",
+    "weread/lib/readtime_transfer_contract.lua": "aab251bc7518bc350c64b41c554bcce6472953cd7b0bcd30b077fe8415a88e32",
+    "weread/lib/readtime_transfer_store.lua": "4f5874cf130da17f39b642ecae55ce2a6b4fc6e3296d932f6ad14c84b60d2383",
+    "weread/ui/read_report.lua": "102d802f5b871d2373bf82fb006f22a30bb1a4d9ceb6ec30eeb31204c3b9ffa2",
+    "weread/lib/i18n.lua": "15b239fc51ebbd5bcd4483303ad7208aa1351d6ca284b0a2df4a8d8dbefe4930",
+    "spec/readtime_transfer_store_spec.lua": "4c8f55b6f82dd0dadd61ac1df862b7561ebe55b8a404a9871d15fcc4c686e522",
+    "spec/readtime_online_admission_spec.lua": "99d2014f034a378ad745d30f35dceeb28c25117b2a996cf692abf9d289d25026",
+    "spec/koreader/readtime_transfer_probe.lua": "ec104c586c83186b1b37e510e289edfca6357860b7513cba8afb4534832f6f42",
+    "spec/koreader/readtime_coverage_smoke.lua": "2eb9c4bcf3ce20b1f102e691ec9272ad6b63081b03e118be8615863d9684f5a2",
+    "spec/koreader/reader_link_smoke.lua": "59ae72521fb6ca97993a4ac2d2818c83ee7335367b06b7bd15818f6c20a0416b"
+  },
+  "native_reading_regression": [
+    {
+      "result": "PASS",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "synthetic_only": true,
+      "candidate_source_and_installed_files_match": 256,
+      "candidate_sha256": "216a246cb53f1a8bf327a372c9f395aa946f8a09484a6af6de7f29a1f586e30a",
+      "translated_status_visually_checked": true,
+      "screenshot": "readtime-admission-600.png",
+      "screenshot_sha256": "ba22e248e354d0601159b4cb029e6e01f794b1ffac248dacb6d799deec645edc"
+    },
+    {
+      "result": "PASS",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "synthetic_only": true,
+      "candidate_source_and_installed_files_match": 256,
+      "candidate_sha256": "ff9bc72535ad76197c9b4b82384b66dd0fd33c3d8fde607b8d0656c13e70ca80",
+      "translated_status_visually_checked": true,
+      "screenshot": "readtime-admission-1264.png",
+      "screenshot_sha256": "ce118441524379454410b11b5b2489da7875185acea52df29c7e0996290c62ab"
+    }
+  ],
+  "preserved_failures": [
+    "native_probe_missing_lfs_module_before_using_koreader_binding",
+    "missing_graphics_environment",
+    "old_reader_link_smoke_expected_reading_url_replacement",
+    "historical_upload_success_receipt_without_observed_accounting"
+  ],
+  "privacy": {
+    "result": "PASS",
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "active_test_intents_absent": false,
+    "historical_time_claimed_retained": true,
+    "other_active_test_intents_absent": true,
+    "protected_files_unchanged": true
+  }
+}

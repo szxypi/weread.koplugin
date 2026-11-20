@@ -1,0 +1,40 @@
+{
+  "validation": "local_reader_geometry",
+  "production_account_used": false,
+  "results": [
+    {
+      "screen": "600x800",
+      "scroll": {
+        "captured_fraction": 0.50312438778888,
+        "requested_fraction": 0.503125,
+        "document_height": 444087,
+        "actual_position": 223431
+      },
+      "public_network_used": false,
+      "page": {
+        "captured_fraction": 0.20265780730897,
+        "total_pages": 602,
+        "requested_fraction": 0.203073089701,
+        "old_rounded_page": 120,
+        "actual_page": 122
+      }
+    },
+    {
+      "screen": "1264x1680",
+      "scroll": {
+        "captured_fraction": 0.50312439687276,
+        "requested_fraction": 0.503125,
+        "document_height": 948183,
+        "actual_position": 477054
+      },
+      "page": {
+        "captured_fraction": 0.20265780730897,
+        "total_pages": 602,
+        "requested_fraction": 0.203073089701,
+        "old_rounded_page": 120,
+        "actual_page": 122
+      },
+      "public_network_used": false
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""Read-only normal CB_ chapter, Web/native position and exact-source correlation."""
+import argparse,json,re,subprocess
+from datetime import datetime,timezone
+from urllib.parse import urlsplit,parse_qs
+from secure_native_session import NativeSessionStore
+from secure_weread_session import SessionStore
+from verify_cb_reading import CbReadingProbe
+from verify_cb_progress import cb_ids
+from verify_eink_login import NativeProbe,BASE as NATIVE
+from verify_web_source_progress import BASE as WEB
+from verify_translation_preflight import save_refreshed_web_session
+from cb_cloud_position import state,observed,mapping
+from source_remote_position import public_report
+
+
+class Web(CbReadingProbe):
+    def __init__(self):super().__init__();self.progress={}
+    def request(self,stage,url,body=None,**options):
+        value=super().request(stage,url,body,**options)
+        if stage in ('progress_before','progress_after'):self.progress[(self.book_id,stage)]=value
+        return value
+
+
+class Native(NativeProbe):
+    def __init__(self,credentials):super().__init__();self.allowed=set();self.used={};self.credentials=credentials
+    def request(self,stage,url,body=None,credentials=None,timeout=15):
+        p=urlsplit(url);q=parse_qs(p.query)
+        allowed=(p.path=='/shelf/sync' and not q or p.path=='/book/getProgress' and set(q)=={'bookId'} and len(q['bookId'])==1 and q['bookId'][0] in self.allowed)
+        key=(p.path,p.query);limit=2
+        if credentials!=self.credentials or body is not None or p.scheme!='https' or p.netloc!='i.weread.qq.com' or p.fragment or not allowed or self.used.get(key,0)>=limit:raise ValueError('cb_cloud/native_scope')
+        self.used[key]=self.used.get(key,0)+1
+        return super().request(stage,url,credentials=credentials,timeout=timeout)
+
+
+def official_parser_check(source,offset,*,batched=False):
+    from source_parser_preflight import MAX_PRIVATE_BYTES,verify_source,verify_source_batched
+    from verify_source_coordinates import CoordinateError
+    if type(batched) is not bool:raise ValueError('cb_cloud/parser_unavailable')
+    if not batched and len(source.encode('utf-8'))>MAX_PRIVATE_BYTES:
+        return dict(result='SOURCE_LIMIT',official_parser_verified=False,comparison_performed=False,
+                    source_bytes=len(source.encode('utf-8')))
+    try:
+        value=verify_source_batched(source,offset) if batched else verify_source(source,offset,allow_multiple_bodies=True)
+        if (not isinstance(value,dict) or (value.get('official_parser_batches_verified') if batched else value.get('official_parser_verified')) is not True
+                or value.get('private_source_browser_network_disabled') is not True
+                or value.get('official_browser_authenticated') is not False
+                or type(value.get('official_parser_target_present')) is not bool
+                or type(value.get('official_parser_source_nodes')) is not int
+                or not 1<=value['official_parser_source_nodes']<=1000000):
+            raise ValueError('cb_cloud/parser_unavailable')
+        keys=('official_parser_source_nodes','official_parser_target_present','private_source_browser_network_disabled','official_browser_authenticated')
+        if batched:
+            if (value.get('official_parser_full_source_verified') is not False or value.get('model_segments_reconstructed') is not True
+                    or type(value.get('body_count')) is not int or not 1<=value['body_count']<=256
+                    or type(value.get('batches')) is not int or not 1<=value['batches']<=256):raise ValueError('cb_cloud/parser_unavailable')
+            keys+=('official_parser_batches_verified','official_parser_full_source_verified','model_segments_reconstructed','body_count','batches')
+        else:keys+=('official_parser_verified',)
+        result={k:value[k] for k in keys}
+        result.update(result='BATCHES_MATCHED' if batched else 'MATCHED',comparison_performed=True)
+        return result
+    except CoordinateError as error:
+        if str(error)=='parser: source coordinate mismatch':
+            return dict(result='SOURCE_MODEL_MISMATCH',official_parser_verified=False,comparison_performed=True,
+                        private_source_browser_network_disabled=True,official_browser_authenticated=False)
+        if batched and str(error)=='parser: batch composition mismatch':
+            return dict(result='BATCH_MODEL_MISMATCH',comparison_performed=True,official_parser_batches_verified=False,
+                        official_parser_full_source_verified=False,private_source_browser_network_disabled=True,official_browser_authenticated=False)
+        if batched and str(error)=='parser: body exceeds batch limit':
+            return dict(result='BATCH_LIMIT',comparison_performed=False,official_parser_batches_verified=False,
+                        official_parser_full_source_verified=False)
+        raise ValueError('cb_cloud/parser_unavailable') from None
+
+
+def main(argv=None):
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true');p.add_argument('--book-index',type=int,choices=range(1,9));p.add_argument('--source-lens',action='store_true')
+    parser_mode=p.add_mutually_exclusive_group();parser_mode.add_argument('--official-parser',action='store_true');parser_mode.add_argument('--official-parser-batched',action='store_true')
+    p.add_argument('--lua-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
+    if (a.book_index is not None or a.source_lens or a.official_parser or a.official_parser_batched) and not a.saved_session:p.error('source selection requires saved session')
+    if (a.official_parser or a.official_parser_batched) and a.book_index is None:p.error('official parser comparison requires one selected book')
+    if a.lua_command is not None and (not a.saved_session or not a.lua_command):p.error('explicit session and private Lua command required')
+    r=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,authentication_posts=0,books=0,
+           source_chapters=0,positions_unchanged=True,catalog_versions_unchanged=True,write_protocol_verified=False,private_data_on_regular_disk=False,channels=[])
+    web=api=saved=grant=store=None;secrets=set();samples=[];phase='init'
+    try:
+        if a.saved_session:
+            from verify_native_thought_trial import other_pending
+            if other_pending():raise ValueError('cb_cloud/pending')
+            store=SessionStore();saved=store.load();grant=NativeSessionStore().load(saved['vid']);api=Native(grant);web=Web();web.vid=saved['vid']
+            for k,v in saved['cookies'].items():web.set_cookie(k,v)
+            secrets.update(str(v) for v in grant.values());secrets.update(saved['cookies'].values());secrets.add(web.vid)
+            web.verify_account();phase='shelf'
+            native_shelf=api.request('cb_cloud_shelf',NATIVE+'/shelf/sync',credentials=grant)
+            ids=cb_ids(native_shelf);api.allowed=set(ids);web.allowed=set(ids)
+            shelf=web.request('shelf',WEB+'/web/shelf/sync')
+            if cb_ids(shelf)!=ids:raise ValueError('cb_cloud/shelf_changed')
+            web.shelf_ids=[str(b['bookId']) for b in shelf['books']];web.shelf_count=len(shelf['books'])
+            selected=ids
+            if a.book_index is not None:
+                if a.book_index>len(ids):raise ValueError('cb_cloud/book_index')
+                selected=[ids[a.book_index-1]]
+            for book in selected:
+                phase='native_before';before=api.request('cb_cloud_before',NATIVE+'/book/getProgress?bookId='+book,credentials=grant)
+                phase='source';sample=web.inspect(book);chapters=sample['chapters'];source=sample['source'];secrets.update((book,source,sample['source_text']))
+                phase='native_after';after=api.request('cb_cloud_after',NATIVE+'/book/getProgress?bookId='+book,credentials=grant)
+                if observed(before,book,chapters,'native')!=observed(after,book,chapters,'native'):raise ValueError('cb_cloud/native_changed')
+                wb=web.progress[(book,'progress_before')];wa=web.progress[(book,'progress_after')]
+                if observed(wb,book,chapters,'web')!=observed(wa,book,chapters,'web'):raise ValueError('cb_cloud/web_changed')
+                pair={}
+                for channel,raw in (('web',wb),('native',before)):
+                    value=state(raw,book,chapters,channel);pair[channel]=value
+                    samples.append(dict(raw=raw,book_id=book,chapters=chapters,channel=channel))
+                    if value.get('summary'):secrets.add(value['summary'])
+                    check=mapping(source,sample['chapter_uid'],value) if sample['source_format']=='web_xhtml' else None
+                    row=dict(channel=channel,kind=value['kind'],reason=value.get('reason','none'),mapping=check)
+                    if a.source_lens and value['kind']=='located' and value['chapter_uid']==sample['chapter_uid'] and sample['source_format']=='web_xhtml':
+                        from cb_source_lens import compare
+                        row['lens']=compare(source,value['chapter_offset'],value['summary'])
+                    r['channels'].append(row)
+                if a.official_parser or a.official_parser_batched:
+                    if pair['web']['kind']!='located' or pair['web']['chapter_uid']!=sample['chapter_uid'] or sample['source_format']!='web_xhtml':
+                        raise ValueError('cb_cloud/parser_source_unavailable')
+                    r['official_parser']=official_parser_check(source,pair['web']['chapter_offset'],batched=a.official_parser_batched)
+                r['books']+=1;r['source_chapters']+=1
+            phase='models'
+            if a.lua_command:
+                child=subprocess.run(a.lua_command,input=json.dumps(dict(samples=samples),ensure_ascii=False).encode(),stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=180)
+                marker=b'\nWEREAD_CB_CLOUD_POSITION='
+                if child.returncode or child.stdout.count(marker)!=1 or len(child.stdout)>1024*1024:
+                    r['lua_exit_code']=child.returncode;r['lua_frame_count']=min(child.stdout.count(marker),10)
+                    r['lua_diagnostic']='environment' if b"module 'json' not found" in child.stderr else 'scope' if b'cb_cloud/scope' in child.stderr else 'unknown'
+                    raise ValueError('cb_cloud/lua_frame')
+                expected=[state(v['raw'],v['book_id'],v['chapters'],v['channel']) for v in samples]
+                if json.loads(child.stdout.split(marker)[1])!=expected:raise ValueError('cb_cloud/lua_mismatch')
+                r['python_lua_projection_matches']=True
+            web.verify_account();save_refreshed_web_session(store,saved,web)
+            if cb_ids(api.request('cb_cloud_shelf_after',NATIVE+'/shelf/sync',credentials=grant))!=ids:raise ValueError('cb_cloud/shelf_changed')
+            r.update(result='CB_CLOUD_SOURCE_READ_OBSERVED',shelf_cb_identities_unchanged=True)
+    except Exception as error:
+        r.update(result='UNVERIFIED',failure_stage=phase)
+        if re.fullmatch('cb_cloud/[a-z_]+',str(error)):r['reason']=str(error)
+    finally:
+        if web:
+            if store and web.authenticated:
+                try:save_refreshed_web_session(store,store.load(),web)
+                except Exception:r['result']='UNVERIFIED'
+            r['web_stages']=[{k:x[k] for k in ('stage','status') if k in x} for x in web.report['stages']];web.samples.clear();web.close()
+        if api:r['native_stages']=[{k:x[k] for k in ('stage','status') if k in x} for x in api.report['stages']]
+        for v in (saved,grant):
+            if v:v.clear()
+        samples.clear()
+    r=public_report(r,secrets);print(json.dumps(r,indent=2));return int(r['result']=='UNVERIFIED')
+
+
+if __name__=='__main__':raise SystemExit(main())

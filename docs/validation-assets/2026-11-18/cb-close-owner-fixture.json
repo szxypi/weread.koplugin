@@ -1,0 +1,30 @@
+{
+  "result": "PASS",
+  "actual_account": true,
+  "self_authored_fixture_only": true,
+  "existing_book_writes": 0,
+  "native_reader_screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "explicit_manual_choices": 2,
+  "native_manual_position_writes": 4,
+  "native_close_position_writes": 2,
+  "fixture_initialization_position_writes": 4,
+  "position_reported_reading_time_seconds": 0,
+  "independent_position_and_summary_readbacks": true,
+  "fresh_offline_reopen_each_screen": true,
+  "temporary_upload_puts": 1,
+  "temporary_upload_notifications": 1,
+  "fixture_removals": 1,
+  "fixture_removal_verified": true,
+  "original_shelf_members_flags_and_groups_unchanged": true,
+  "authentication_posts": 0,
+  "memory_profiles_removed": true,
+  "credentials_not_persisted_in_profiles": true,
+  "missing_fixture_word_counts_may_be_synthetic": true,
+  "physical_kindle_tested": false,
+  "other_server_history_verified": false,
+  "private_data_in_report": false,
+  "one_shot_journals_consumed": true
+}

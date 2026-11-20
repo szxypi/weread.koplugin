@@ -1,0 +1,397 @@
+#!/usr/bin/env python3
+"""Render the packaged plugin in an isolated real KOReader SDL runtime.
+
+Linux: run under xvfb-run when no desktop display is available.
+No production account or WeRead requests are used.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import subprocess
+import threading
+
+from mock_weread import BOOK_ID, CB_READING_ID, MockServer
+import mock_weread
+import zipfile
+
+REPO = Path(__file__).resolve().parent.parent
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--koreader", type=Path, required=True)
+    parser.add_argument("--run-dir", type=Path, required=True)
+    parser.add_argument("--width", type=int, default=600)
+    parser.add_argument("--height", type=int, default=800)
+    parser.add_argument("--dpi", type=int, default=167)
+    parser.add_argument("--reading-flow", action="store_true", help="Exercise uncached Read and a fresh offline reopen")
+    parser.add_argument('--quick-read',action='store_true',help='Finish the signed-in reading flow via the book hold menu')
+    parser.add_argument('--reading-auth-recovery',choices=('reader','catalog','chapter','repeat401','forbidden','limited'),help='Recover once from a synthetic 401 while opening a book')
+    parser.add_argument('--guest-login-read',action='store_true',help='Exercise guest public search through synthetic QR login into the native reader')
+    parser.add_argument('--guest-hold-login-read',action='store_true',help='Exercise guest book hold through synthetic QR login into the native reader')
+    parser.add_argument('--guest-rank-login-read',action='store_true',help='Exercise first-entry public ranking through synthetic QR login and offline reading')
+    parser.add_argument("--offline-progress", action="store_true", help="Also exercise offline movement and fresh-process reconnection")
+    parser.add_argument("--progress-response", action="store_true", help="Reject foreign/malformed sync responses in the reading flow")
+    parser.add_argument('--progress-confirmation', action='store_true', help='Exercise delayed and unconfirmed position write receipts')
+    parser.add_argument('--source-upload',action='store_true',help='Verify native source wire coordinates and periodic preparation')
+    parser.add_argument('--source-recovery',action='store_true',help='Verify source HTTP 401 recovery against mock credential maintenance')
+    parser.add_argument('--progress-recovery',action='store_true',help='Verify progress preflight HTTP 401 recovery against mock credential maintenance')
+    parser.add_argument('--recovery-save-retry',action='store_true',help='Verify native save-only retry during progress and source recovery')
+    parser.add_argument('--shelf-membership-write',action='store_true',help='Verify native single-book membership changes against the mock service')
+    parser.add_argument('--finish-change',action='store_true',help='Verify finished marks inside the native reader using mock HTTP')
+    parser.add_argument('--selection-thought',action='store_true',help='Verify native selected-text thought drafts and mock HTTP writes')
+    parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
+    parser.add_argument('--excerpt-card',action='store_true',help='Exercise excerpt cards in the synthetic native reader')
+    parser.add_argument('--delayed-screenshot',action='store_true',help='Exercise native delayed screenshots from home and reader')
+    parser.add_argument('--reader-progress',action='store_true',help='Exercise native progress panel and touch navigation')
+    parser.add_argument('--reader-typography',action='store_true',help='Exercise native reading settings and offline persistence')
+    parser.add_argument('--reader-margins',action='store_true',help='Exercise native margins and offline persistence')
+    parser.add_argument('--reader-display',action='store_true',help='Exercise native status bar and offline persistence')
+    parser.add_argument('--delayed-screenshot-long',action='store_true',help='Also wait for real 10- and 15-second screenshots')
+    parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
+    parser.add_argument('--rich-footnotes', action='store_true', help='Exercise original media footnotes and return navigation')
+    parser.add_argument('--chapter-link-scroll', action='store_true', help='Exercise standalone scroll viewport and suspend ownership')
+    parser.add_argument('--chapter-links', action='store_true', help='Exercise standalone chapter taps, downloads and cross-file history')
+    parser.add_argument('--chapter-link-preflight', action='store_true', help='Exercise standalone archive link workers without navigation')
+    parser.add_argument('--cached-resume',action='store_true',help='Exercise multiple cached chapters and full-book reading')
+    parser.add_argument('--duplicate-chapter-titles',action='store_true',help='Exercise independently cached chapters with identical titles')
+    parser.add_argument('--cached-resume-numeric-keys',action='store_true',help='Exercise legacy numeric chapter cache keys')
+    parser.add_argument('--cb-resume',action='store_true',help='Use the opt-in synthetic CB_ shelf book for cached reading')
+    parser.add_argument('--cb-highlight-edit',action='store_true',help='Exercise imported-book highlight writes on the isolated mock service')
+    parser.add_argument('--cache-cleanup',action='store_true',help='Verify native cache cleanup keeps local reading records')
+    parser.add_argument('--download-pacing',action='store_true',help='Cancel a paced source worker and preserve the existing full book')
+    parser.add_argument('--download-rate-limit',action='store_true',help='Pause a limited full-book download and resume completed chapters')
+    parser.add_argument('--download-auth-expiry',action='store_true',help='Pause an expired full-book download and resume completed chapters')
+    parser.add_argument('--download-auth-renewal',choices=('reader','chapter','repeat401'),help='Renew an expired full-book download once')
+    parser.add_argument('--catalog-auth-recovery',choices=('reader','catalog','repeat401','limited','refresh'),help='Renew an expired catalog before full download')
+    parser.add_argument('--manual-auth-recovery',choices=('single','single-reader','single-repeat','selected'),help='Renew an expired selected chapter download')
+    parser.add_argument('--prefetch-condition',choices=('expired','promoted-expired','promoted-recovery','promoted-success','large-id','identity-conflict','identity-change','rate','stale','account','auth-race','before-commit','suspend','auto-renew','auto-reader','auto-style','auto-txt','auto-repeat','auto-cancel','auto-manual','auto-changed','auto-catalog-cancel'),help='Check background chapter failure and selection ownership')
+    parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
+    parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
+    parser.add_argument('--process-loss', choices=('before-state-commit','before-dispatch','after-apply','before-readback'),
+                        help='SIGKILL the entire isolated reader at an upload boundary, then reopen twice')
+    parser.add_argument('--process-loss-kind', choices=('periodic','manual','close'), default='periodic',
+                        help='Select periodic reading time, manual progress, or close-time progress')
+    args = parser.parse_args()
+    guest_read = args.guest_login_read or args.guest_rank_login_read or args.guest_hold_login_read
+    if sum((args.guest_login_read,args.guest_rank_login_read,args.guest_hold_login_read)) > 1:
+        parser.error('select only one guest entry')
+    if guest_read and (args.reading_flow or args.cached_resume or args.footnotes or args.rich_footnotes
+            or args.chapter_links or args.chapter_link_scroll or args.chapter_link_preflight or args.process_loss):
+        parser.error('--guest-login-read uses a separate fixture')
+    if args.chapter_link_scroll and (args.chapter_links or args.chapter_link_preflight or args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
+        parser.error('--chapter-link-scroll uses a separate fixture')
+    if args.chapter_links and (args.chapter_link_preflight or args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
+        parser.error('--chapter-links uses a separate fixture')
+    if args.chapter_link_preflight and (args.footnotes or args.rich_footnotes or args.reading_flow or args.cached_resume):
+        parser.error('--chapter-link-preflight uses a separate fixture')
+    if args.quick_read and not args.reading_flow:
+        parser.error('--quick-read requires --reading-flow')
+    if args.reading_auth_recovery and not args.reading_flow:parser.error('--reading-auth-recovery requires --reading-flow')
+    if args.offline_progress and not args.reading_flow:
+        parser.error("--offline-progress requires --reading-flow")
+    if args.progress_response and not args.reading_flow:
+        parser.error("--progress-response requires --reading-flow")
+    if args.progress_confirmation and not args.reading_flow:
+        parser.error('--progress-confirmation requires --reading-flow')
+    if args.owner_roundtrip and not args.reading_flow:parser.error('--owner-roundtrip requires --reading-flow')
+    if args.source_upload and not args.reading_flow:parser.error('--source-upload requires --reading-flow')
+    if args.source_recovery and not args.reading_flow:parser.error('--source-recovery requires --reading-flow')
+    if args.progress_recovery and not args.reading_flow:parser.error('--progress-recovery requires --reading-flow')
+    if args.shelf_membership_write and not args.reading_flow:parser.error('--shelf-membership-write requires --reading-flow')
+    if args.finish_change and not args.reading_flow:parser.error('--finish-change requires --reading-flow')
+    if args.selection_thought and not args.reading_flow:parser.error('--selection-thought requires --reading-flow')
+    if args.excerpt_card and not args.reading_flow:parser.error('--excerpt-card requires --reading-flow')
+    if args.delayed_screenshot and not args.reading_flow:parser.error('--delayed-screenshot requires --reading-flow')
+    if args.reader_progress and not (args.reading_flow or args.cached_resume):parser.error('--reader-progress requires --reading-flow or --cached-resume')
+    if args.reader_typography and not (args.reading_flow or args.cached_resume):parser.error('--reader-typography requires --reading-flow or --cached-resume')
+    if args.reader_margins and not (args.reading_flow or args.cached_resume):parser.error('--reader-margins requires --reading-flow or --cached-resume')
+    if args.reader_display and not args.reading_flow:parser.error('--reader-display requires --reading-flow')
+    if args.delayed_screenshot_long and not args.delayed_screenshot:parser.error('--delayed-screenshot-long requires --delayed-screenshot')
+    if args.recovery_save_retry and not (args.reading_flow and args.source_upload and args.source_recovery and args.progress_recovery):
+        parser.error('--recovery-save-retry requires --reading-flow --source-upload --source-recovery --progress-recovery')
+    if args.rich_footnotes and (args.footnotes or args.reading_flow or args.cached_resume):
+        parser.error('--rich-footnotes uses a separate fixture')
+    if args.footnotes and args.reading_flow:
+        parser.error("--footnotes and --reading-flow use separate fixtures")
+    if args.cached_resume and (args.footnotes or args.reading_flow):
+        parser.error('--cached-resume uses a separate fixture')
+    if args.cb_resume and not args.cached_resume:parser.error('--cb-resume requires --cached-resume')
+    if args.duplicate_chapter_titles and not args.cached_resume:parser.error('--duplicate-chapter-titles requires --cached-resume')
+    if args.cached_resume_numeric_keys and not args.cached_resume:parser.error('--cached-resume-numeric-keys requires --cached-resume')
+    if args.cb_highlight_edit and (not args.cached_resume or not args.cb_resume or args.content_format!='epub'):
+        parser.error('--cb-highlight-edit requires --cached-resume --cb-resume with EPUB')
+    if args.cache_cleanup and not args.cached_resume:parser.error('--cache-cleanup requires --cached-resume')
+    if args.download_pacing and not args.cached_resume:parser.error('--download-pacing requires --cached-resume')
+    if args.download_rate_limit and not args.cached_resume:parser.error('--download-rate-limit requires --cached-resume')
+    if args.download_auth_expiry and (not args.cached_resume or args.download_rate_limit):parser.error('--download-auth-expiry requires --cached-resume and excludes --download-rate-limit')
+    if args.download_auth_renewal and (not args.cached_resume or args.download_auth_expiry or args.download_rate_limit):
+        parser.error('--download-auth-renewal requires --cached-resume and excludes other download failure fixtures')
+    if args.catalog_auth_recovery and (not args.cached_resume or args.download_auth_expiry or args.download_rate_limit or args.download_auth_renewal):
+        parser.error('--catalog-auth-recovery requires --cached-resume and excludes other download failure fixtures')
+    if args.manual_auth_recovery and (not args.cached_resume or args.download_auth_expiry or args.download_rate_limit or args.download_auth_renewal or args.catalog_auth_recovery):
+        parser.error('--manual-auth-recovery requires --cached-resume and excludes other download failure fixtures')
+    if args.prefetch_condition and (not args.cached_resume or any((args.download_auth_expiry,args.download_rate_limit,
+            args.download_auth_renewal,args.catalog_auth_recovery,args.manual_auth_recovery,args.cb_resume))):
+        parser.error('--prefetch-condition requires the ordinary cached resume fixture')
+    if args.content_format!='epub' and not args.cached_resume:
+        parser.error('--content-format txt requires --cached-resume')
+    if args.prefetch_condition=='auto-txt' and args.content_format!='txt':
+        parser.error('--prefetch-condition auto-txt requires --content-format txt')
+    if args.prefetch_condition=='large-id' and (args.content_format!='epub' or args.cached_resume_numeric_keys):
+        parser.error('--prefetch-condition large-id requires the ordinary EPUB fixture')
+    if args.resume_handoff and not args.cached_resume:
+        parser.error('--resume-handoff requires --cached-resume')
+    if args.process_loss and (not args.reading_flow or any((args.offline_progress, args.progress_response,
+            args.progress_confirmation, args.source_upload, args.source_recovery, args.progress_recovery,
+            args.recovery_save_retry, args.shelf_membership_write, args.finish_change, args.selection_thought, args.owner_roundtrip,
+            args.excerpt_card,args.delayed_screenshot,args.reader_progress,args.reader_typography,args.reader_margins,args.reader_display))):
+        parser.error('--process-loss requires --reading-flow without other reading-flow extensions')
+    if not args.process_loss and args.process_loss_kind != 'periodic':
+        parser.error('--process-loss-kind requires --process-loss')
+    runtime, root = args.koreader.resolve(), args.run_dir.resolve()
+    if not (runtime / "luajit").is_file() or not (runtime / "reader.lua").is_file():
+        parser.error("--koreader must contain a built runtime")
+    if min(args.width, args.height, args.dpi) < 1:
+        parser.error("screen dimensions and DPI must be positive")
+    root.mkdir(parents=True, exist_ok=False)
+    for directory in ("profile/plugins", "evidence", "xdg"):
+        (root / directory).mkdir(parents=True)
+    (root / "xdg").chmod(0o700)
+    archive = root / "candidate.zip"
+    subprocess.run(["bash", str(REPO / "scripts/package_release.sh"), str(archive)], check=True)
+    with zipfile.ZipFile(archive) as package:
+        package.extractall(root / "profile/plugins")
+    (root / "evidence/package.sha256").write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + "\n")
+    environment = dict(os.environ, KO_HOME=str(root / "profile"),
+                       WEREAD_SOURCE=str(root / "profile/plugins/weread.koplugin"),
+                       WEREAD_EVIDENCE=str(root / "evidence"), XDG_RUNTIME_DIR=str(root / "xdg"),
+                       EMULATE_READER="1", EMULATE_BW_SCREEN="1", EMULATE_BB_TYPE="BB8",
+                       EMULATE_READER_W=str(args.width),
+                       EMULATE_READER_H=str(args.height), EMULATE_READER_DPI=str(args.dpi))
+    target_book_id=BOOK_ID
+    if args.duplicate_chapter_titles:
+        mock_weread.CHAPTERS[1]['title']=mock_weread.CHAPTERS[3]['title']='合成重复章节'
+        mock_weread.CHAPTERS[0]['title']=mock_weread.CHAPTERS[2]['title']='另一组重复章节'
+        environment['WEREAD_TEST_DUPLICATE_CHAPTER_TITLES']='1'
+    if args.prefetch_condition=='large-id':
+        target_book_id='9007199254740993'
+        mock_weread.BOOK_ID=target_book_id
+        mock_weread.BOOKS[0]['bookId']=target_book_id
+        environment['WEREAD_TEST_LARGE_BOOK_ID']='1'
+    if args.process_loss:
+        from process_loss_runtime import ProcessLossServer
+        server = ProcessLossServer(0, root / 'evidence/requests.jsonl', args.process_loss, args.process_loss_kind)
+        environment['WEREAD_TEST_PROCESS_LOSS'] = args.process_loss
+        environment['WEREAD_TEST_PROCESS_LOSS_KIND'] = args.process_loss_kind
+    else:
+        server = MockServer(0, root / "evidence/requests.jsonl")
+    server.content_format=args.content_format
+    server.guest_login_fixture=guest_read
+    if guest_read:server.control['guest_login_pending']=True
+    if args.guest_rank_login_read:environment['WEREAD_GUEST_RANK']='1'
+    if args.guest_hold_login_read:environment['WEREAD_GUEST_HOLD']='1'
+    server.finish_fixture=args.finish_change
+    server.selection_fixture=args.selection_thought or args.cb_highlight_edit
+    server.cb_reading=args.cb_resume
+    if args.cb_resume:environment['WEREAD_TEST_CB_RESUME']='1'
+    if args.cached_resume_numeric_keys:environment['WEREAD_TEST_NUMERIC_CACHE_KEYS']='1'
+    if args.cb_highlight_edit:environment['WEREAD_TEST_CB_HIGHLIGHT_EDIT']='1'
+    if args.cache_cleanup:environment['WEREAD_TEST_CACHE_CLEANUP']='1'
+    if args.download_pacing:environment['WEREAD_TEST_DOWNLOAD_PACING']='1'
+    if args.download_rate_limit:environment['WEREAD_TEST_DOWNLOAD_RATE_LIMIT']='1'
+    if args.download_auth_expiry:environment['WEREAD_TEST_DOWNLOAD_AUTH_EXPIRY']='1'
+    if args.download_auth_renewal:environment['WEREAD_TEST_DOWNLOAD_AUTH_RENEWAL']=args.download_auth_renewal
+    if args.catalog_auth_recovery:environment['WEREAD_TEST_CATALOG_AUTH_RECOVERY']=args.catalog_auth_recovery
+    if args.manual_auth_recovery:environment['WEREAD_TEST_MANUAL_AUTH_RECOVERY']=args.manual_auth_recovery
+    if args.prefetch_condition:environment['WEREAD_TEST_PREFETCH_CONDITION']=args.prefetch_condition
+    environment['WEREAD_TEST_CONTENT_FORMAT']=args.content_format
+    if args.resume_handoff:
+        environment['WEREAD_TEST_RESUME_HANDOFF']='1'
+    server.progress[target_book_id] = dict(chapterUid=2, chapterIdx=2, chapterOffset=120, progress=37, summary="合成进度")
+    if args.cb_resume:server.progress[CB_READING_ID]=server.progress[target_book_id].copy()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    environment["WEREAD_MOCK_PORT"] = str(server.server_port)
+    if args.offline_progress:
+        environment["WEREAD_TEST_OFFLINE_PROGRESS"] = "1"
+    if args.quick_read:environment['WEREAD_TEST_QUICK_READ']='1'
+    if args.reading_auth_recovery:environment['WEREAD_TEST_READING_AUTH_RECOVERY']=args.reading_auth_recovery
+    if args.progress_response:
+        environment["WEREAD_TEST_PROGRESS_RESPONSE"] = "1"
+    if args.progress_confirmation: environment['WEREAD_TEST_PROGRESS_CONFIRMATION'] = '1'
+    if args.source_upload:environment['WEREAD_TEST_SOURCE_UPLOAD']='1'
+    if args.source_recovery:environment['WEREAD_TEST_SOURCE_RECOVERY']='1'
+    if args.progress_recovery:environment['WEREAD_TEST_PROGRESS_RECOVERY']='1'
+    if args.recovery_save_retry:environment['WEREAD_TEST_RECOVERY_SAVE_RETRY']='1'
+    if args.shelf_membership_write:environment['WEREAD_TEST_SHELF_MEMBERSHIP_WRITE']='1'
+    if args.finish_change:environment['WEREAD_TEST_FINISH_CHANGE']='1'
+    if args.selection_thought:environment['WEREAD_TEST_SELECTION_THOUGHT']='1'
+    if args.excerpt_card:environment['WEREAD_TEST_EXCERPT_CARD']='1'
+    if args.delayed_screenshot:environment['WEREAD_TEST_DELAYED_SCREENSHOT']='1'
+    if args.reader_progress:environment['WEREAD_TEST_READER_PROGRESS']='1'
+    if args.reader_typography:environment['WEREAD_TEST_READER_TYPOGRAPHY']='1'
+    if args.reader_margins:environment['WEREAD_TEST_READER_MARGINS']='1'
+    if args.reader_display:environment['WEREAD_TEST_READER_DISPLAY']='1'
+    if args.delayed_screenshot_long:environment['WEREAD_TEST_DELAYED_SCREENSHOT_LONG']='1'
+    if args.owner_roundtrip:
+        from mock_weread import chapter_html
+        from verify_source_coordinates import FilteredSource
+        from verify_position_roundtrip import prepare_plan
+        raw=chapter_html(2);co=FilteredSource(raw).starts[30]
+        point=dict(chapterUid=2,chapterIdx=2,chapterOffset=co,progress=37,summary='synthetic')
+        plan=prepare_plan(BOOK_ID,dict(book=point),dict(book_id=BOOK_ID,psvts='synthetic',pclts='synthetic-pc',progress=dict(book=point)),raw)
+        assert plan['target'] is not None
+        server.roundtrip_seed=point.copy();server.progress[BOOK_ID]=point.copy()
+        private=dict(vid='900000',book_id=BOOK_ID,chapter_uid='2',source_format='web_xhtml',source_raw_sha256=hashlib.sha256(raw.encode()).hexdigest(),
+                     progress_roundtrip={k:plan[k] for k in ('baseline','target')})
+        private['progress_roundtrip'].update(permit_writes=True,intent_digest='a'*64)
+        fixture=root/'evidence/synthetic-roundtrip-input.json';fixture.write_text(json.dumps(private))
+        environment['WEREAD_TEST_OWNER_ROUNDTRIP']=str(fixture)
+    try:
+        with (root / "evidence/runtime.log").open("w") as log:
+            fixture = "book_reading_smoke.lua" if args.reading_flow else "discovery_smoke.lua"
+            if guest_read:fixture='guest_login_read_smoke.lua'
+            if args.cached_resume:
+                fixture='cached_resume_smoke.lua'
+            fixture_args = []
+            if args.footnotes:
+                fixture = "book_footnotes_render.lua"
+                fixture_args = [str(root / "profile/plugins/weread.koplugin"), str(root / "evidence")]
+            if args.rich_footnotes:
+                fixture = 'book_rich_footnotes_render.lua'
+                fixture_args = [str(root / 'profile/plugins/weread.koplugin'), str(root / 'evidence')]
+            if args.chapter_link_scroll:
+                fixture='chapter_links_scroll.lua'
+                fixture_args=[str(root / 'profile/plugins/weread.koplugin'),str(root / 'evidence')]
+            if args.chapter_links:
+                fixture='chapter_links_navigation.lua'
+                fixture_args=[str(root / 'profile/plugins/weread.koplugin'),str(root / 'evidence')]
+            if args.chapter_link_preflight:
+                fixture='chapter_link_preflight.lua'
+                fixture_args=[str(root / 'profile/plugins/weread.koplugin'),str(root / 'evidence')]
+            if args.process_loss:
+                from process_loss_runtime import run_process_loss
+                result = run_process_loss(runtime, REPO / 'spec/koreader' / fixture, environment, log, server, root)
+            else:
+                result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
+                                        cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
+                                        timeout=240 if args.cache_cleanup or args.download_rate_limit or args.download_auth_expiry or args.download_auth_renewal or args.catalog_auth_recovery or args.manual_auth_recovery or args.prefetch_condition else 120)
+            if args.prefetch_condition=='identity-conflict' and result.returncode==0:
+                observed=json.loads((root/'evidence/prefetch-condition.json').read_text())
+                assert observed==dict(result='PASS',scenario='identity-conflict',record_preserved=True,
+                    promoted_not_retried=True,reader_annotation_not_bound=True,chapter_requests=1)
+            if args.prefetch_condition=='identity-change' and result.returncode==0:
+                observed=json.loads((root/'evidence/prefetch-condition.json').read_text())
+                assert observed==dict(result='PASS',scenario='identity-change',record_preserved=True,
+                    promoted_not_retried=True,chapter_requests=1)
+            if args.prefetch_condition=='large-id' and result.returncode==0:
+                observed=json.loads((root/'evidence/prefetch-condition.json').read_text())
+                assert observed.get('scenario')=='large-id' and observed.get('result')=='PASS'
+                assert observed.get('promoted_opened') and observed.get('reader_exact_book_id')
+                assert observed.get('shadow_foreign_preserved') and observed.get('reader_annotation_not_bound')
+            if args.cached_resume_numeric_keys and result.returncode==0:
+                log.flush(); raw=(root/'evidence/runtime.log').read_bytes(); marker=b'\nWEREAD_NUMERIC_CACHE_RESUME='
+                assert raw.count(marker)==1, 'numeric-cache resume fixture did not run'
+                assert json.loads(raw.split(marker,1)[1].splitlines()[0])==dict(result='PASS',exact_chapter=True,pending_preserved=True)
+            if guest_read and result.returncode==0:
+                entry='/web/bookListInCategory/rising' if args.guest_rank_login_read else '/web/search/global'
+                paths=(entry,'/api/userInfo') if args.guest_hold_login_read else (entry,'/web/book/publicinfos','/api/userInfo')
+                for path in paths:
+                    assert server.request_totals[(path,'')]==1, 'guest login/read did not perform exactly one expected request'
+                assert server.request_totals[('/api/auth/getLoginUid','')]==2, 'QR cancellation or retry was not exercised'
+                assert server.request_totals[('/api/auth/getLoginInfo','')]>=1, 'QR login was not checked'
+                assert server.request_totals[('/web/book/read','')]==0,'guest login/read wrote reading progress'
+                before=server.request_totals.copy()
+                result=subprocess.run(['./luajit',str(REPO/'spec/koreader'/fixture)],cwd=runtime,
+                    env=dict(environment,WEREAD_READING_REOPEN='1'),stdout=log,stderr=subprocess.STDOUT,timeout=120)
+                assert server.request_totals==before,'guest offline reopen contacted the mock service'
+            if (args.reading_flow or args.cached_resume) and result.returncode == 0 and not args.process_loss:
+                if args.cached_resume:
+                    assert server.request_totals[('/web/book/read','')]==0,'cached reading wrote progress/time'
+                before = server.request_totals.copy()
+                result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture)],
+                                        cwd=runtime, env=dict(environment, WEREAD_READING_REOPEN="1"),
+                                        stdout=log, stderr=subprocess.STDOUT, timeout=120)
+                assert server.request_totals == before, "offline reopen contacted the mock service"
+                if args.cached_resume and result.returncode==0:
+                    (root/'evidence/cached-resume-offline.json').write_text(json.dumps(dict(
+                        result='PASS',fresh_process=True,offline_http_requests=0,progress_or_time_posts=0),indent=2)+'\n')
+                if args.offline_progress and result.returncode == 0:
+                    writes_before = server.request_totals[("/web/book/read", "")]
+                    result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture)],
+                                            cwd=runtime, env=dict(environment, WEREAD_READING_RECONNECT="1"),
+                                            stdout=log, stderr=subprocess.STDOUT, timeout=120)
+                    # One reading-session entry and one progress update, both zero-time.
+                    assert server.request_totals[("/web/book/read", "")] == writes_before + 2, "reconnect repeated or omitted the chosen upload sequence"
+            if args.footnotes and result.returncode == 0:
+                from verify_book_footnotes import inspect_epub
+                packages = list((root / "evidence").glob("*.epub"))
+                assert len(packages) == 1, "expected one native footnote fixture EPUB"
+                inspected = inspect_epub(packages[0])
+                assert inspected["noterefs"] == 5 and inspected["generated_footnotes"] == 4
+                for key in ("duplicate_ids", "broken_targets", "broken_backlinks", "broken_local_links",
+                            "unreferenced_generated_notes", "missing_generated_backlinks"):
+                    assert inspected[key] == 0, key
+                (root / "evidence/footnotes-package.json").write_text(json.dumps(inspected, indent=2) + "\n")
+            if args.rich_footnotes and result.returncode == 0:
+                import posixpath
+                import xml.etree.ElementTree as ET
+                from verify_book_footnotes import inspect_epub, inspect_epub_links
+                packages = list((root / 'evidence/single-chapter').glob('*.epub'))
+                assert len(packages) == 1
+                inspected = inspect_epub(packages[0])
+                assert inspected['noterefs'] == 5 and inspected['footnotes'] == 5
+                assert inspected['generated_footnotes'] == 1
+                for key in ('duplicate_ids', 'broken_targets', 'broken_backlinks', 'broken_local_links',
+                            'unreferenced_generated_notes', 'missing_generated_backlinks'):
+                    assert inspected[key] == 0, key
+                with zipfile.ZipFile(packages[0]) as package:
+                    chapter = 'OEBPS/text/chapter.xhtml'
+                    document = ET.fromstring(package.read(chapter))
+                    counts = dict.fromkeys(('img', 'math', 'table'), 0)
+                    for element in document.iter():
+                        tag = element.tag.rsplit('}', 1)[-1]
+                        if tag in counts:
+                            counts[tag] += 1
+                        if tag == 'img':
+                            resource = posixpath.normpath(posixpath.join(posixpath.dirname(chapter), element.attrib['src']))
+                            assert resource == 'OEBPS/images/note.svg'
+                            assert b'<circle' in package.read(resource)
+                    assert counts == dict(img=1, math=1, table=1)
+                    inspected.update(original_media_counts=counts, embedded_image_resolves=True)
+                cross = list((root / 'evidence/cross-chapter').glob('*.epub'))
+                assert len(cross) == 1
+                with zipfile.ZipFile(cross[0]) as package:
+                    source = ET.fromstring(package.read('OEBPS/text/chapter-001.xhtml'))
+                    target = ET.fromstring(package.read('OEBPS/text/chapter-002.xhtml'))
+                    references = [node.attrib['href'] for node in source.iter() if 'href' in node.attrib and node.tag.endswith('}a')]
+                    assert references == ['chapter-002.xhtml#remote-rich']
+                    assert len([node for node in target.iter() if node.attrib.get('id') == 'remote-rich']) == 1
+                    assert all(any(node.tag.rsplit('}', 1)[-1] == tag for node in target.iter()) for tag in ('img', 'math', 'table'))
+                    assert not any(node.attrib.get('class') == 'wr-book-footnote' for node in source.iter())
+                link_graph=inspect_epub_links(cross[0])
+                assert link_graph['chapters']==3 and link_graph['local_links']==5
+                assert link_graph['zip_ok'] and link_graph['local_images']==1
+                for key in ('duplicate_ids','duplicate_archive_entries','broken_local_links',
+                            'invalid_local_links','missing_local_images'):
+                    assert link_graph[key]==0,(key,link_graph[key])
+                inspected['cross_chapter_link_graph']=link_graph
+                inspected['cross_chapter_original_target_and_media_retained'] = True
+                (root / 'evidence/rich-footnotes-package.json').write_text(json.dumps(inspected, indent=2) + '\n')
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+    if result.returncode:
+        print((root / "evidence/runtime.log").read_text())
+    else:
+        assert b"[WeRead] forceRePaint failed:" not in (root / "evidence/runtime.log").read_bytes(), "native repaint failed; inspect the isolated runtime log"
+        print(f"PASS: packaged plugin; {args.width}x{args.height}; screenshots: {root / 'evidence'}")
+    raise SystemExit(result.returncode)
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,105 @@
+{
+  "result": "PASS",
+  "synthetic_service_runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "catalog",
+      "renewals": 1,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "f73c3b5e7c303f8555b406c162d1da082f5f0543fe437a094685f7ba5e347eec"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "stage": "catalog",
+      "renewals": 1,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "d94fd413695cfda0e09d713fa931cd90b934a8b533a780005319ee8a09c0b8d5"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "reader",
+      "renewals": 1,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "cebd7140f9bdb0d9df9777a7dfbc4aea91064c07c915db85f1b34e0918fe6a59"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "repeat401",
+      "renewals": 1,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "e499b5db94fd4db71323f4e11e2233ccf6ad55c127c59312f0c5d5d0a47d560c"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "stage": "limited",
+      "renewals": 0,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "a7c60740983c590bcfa82bcffbe53a4e607d1c7c04e5c3e457411e5f1b3ac203"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "txt",
+      "stage": "catalog",
+      "renewals": 1,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "505f6656ea45d560073210ed99005f39f1429d5922966a1e6c08ef5eed285ea4"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "refresh",
+      "renewals": 1,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "023c4ab4f44b2e69c83a0a754c9456c7d9e530a12d4f9e06bd0929ee81197202"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "stage": "refresh",
+      "renewals": 1,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "dabf7531880417d372a764762dd35ba81a6151c3fdfeb6979e8bbfac1761a6c3"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "catalog",
+      "renewals": 1,
+      "background": true,
+      "offline_reopen": true,
+      "package_sha256": "25960a3fcd5a6632968d892cad0656dfc2f5b2a9688e3f988792843ed26647fd"
+    }
+  ],
+  "initial_fixture_failure": {
+    "result": "UNVERIFIED",
+    "reason": "detail view retained a cached catalog; the requested uncached path was not exercised"
+  },
+  "owner_read_only_model": {
+    "result": "PASS",
+    "books_checked": 3,
+    "readable_chapters": [
+      40,
+      30,
+      41
+    ],
+    "account_writes": 0,
+    "authentication_posts": 0,
+    "scope": "real account catalog payloads validated by actual Lua model and production chapter projection; no native UI or injected expiry",
+    "catalog_request_sha256": "44b83c320e930884fa5f55824f58d318ae8738f3d3434332b28f1564285e498e",
+    "content_sha256": "80ed9a3207e82e1b15425a6cde4ee140298d786914209048b8570b28fca270b2"
+  },
+  "physical_kindle_tested": false
+}

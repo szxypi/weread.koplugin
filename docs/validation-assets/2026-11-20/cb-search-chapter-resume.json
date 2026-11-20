@@ -1,0 +1,21 @@
+{
+  "result": "PASS",
+  "synthetic_screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_selected_cursor_resumed": true,
+  "synthetic_original_cursor_resumed": true,
+  "synthetic_results_deduplicated_and_navigated": true,
+  "component_multiple_chapters_independently_resumed": true,
+  "component_cancel_and_late_callback_checked": true,
+  "component_failed_renewal_not_repeated": true,
+  "component_shared_page_limit_checked": true,
+  "real_account_native_ui_books": 1,
+  "real_account_ui_screen_sizes": ["600x800", "1264x1680"],
+  "real_account_selected_chapter_was_current": true,
+  "real_account_search_requests_per_ui": 4,
+  "real_account_source_navigation_verified": true,
+  "real_account_shelf_catalog_source_and_position_unchanged": true,
+  "real_account_data_writes": 0,
+  "authentication_posts": 0,
+  "real_account_screenshots": 0,
+  "physical_kindle_tested": false
+}

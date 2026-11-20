@@ -1,0 +1,95 @@
+{
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "base_commit": "8544957482fc9212533ffa0c725914be08c96474",
+  "synthetic_only": true,
+  "real_account_requests": 0,
+  "real_account_writes": 0,
+  "offline": {
+    "lua_specs": 144,
+    "python_suites": 31,
+    "python_tests": 307,
+    "luacheck_files": 375,
+    "lua_syntax_files": 377,
+    "new_cancellation_checks": 27
+  },
+  "runs": [
+    {
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "candidate_sha256": "029bf661d7cf2899291ac728c357aff02592cfa8d0ac6e8b43ebb5062f9bc0a5",
+      "report": {
+        "reaped_children": 9,
+        "synthetic_only": true,
+        "cases": {
+          "switch_to_portal": true,
+          "suspend_then_resume": true,
+          "closed_during_suspend": true,
+          "close_then_reopen": true,
+          "account_change": true,
+          "switch_to_list": true
+        },
+        "account_data_writes": 0,
+        "authentication_posts": 0,
+        "phase": "complete",
+        "drained_pipes": 9,
+        "terminated_children": 6,
+        "started_children": 9,
+        "result": "PASS"
+      }
+    },
+    {
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "candidate_sha256": "53c0e1d46f58cc98373369df7c087a3cf795168b6ebebdddd666c52669ffc290",
+      "report": {
+        "started_children": 9,
+        "terminated_children": 6,
+        "reaped_children": 9,
+        "drained_pipes": 9,
+        "cases": {
+          "account_change": true,
+          "switch_to_list": true,
+          "switch_to_portal": true,
+          "suspend_then_resume": true,
+          "closed_during_suspend": true,
+          "close_then_reopen": true
+        },
+        "account_data_writes": 0,
+        "authentication_posts": 0,
+        "phase": "complete",
+        "result": "PASS",
+        "synthetic_only": true
+      }
+    }
+  ],
+  "before_control": {
+    "base_commit": "8544957482fc9212533ffa0c725914be08c96474",
+    "result": "EXPECTED_FAILURE",
+    "live_request_confirmed": true,
+    "close_cancelled_child": false
+  },
+  "core_regression": [
+    {
+      "case": "shelf-cover-stop-core600-final",
+      "candidate_sha256": "ff5cea96a1e8a7c77274b6d203b8a173a1134650cb56007758446529f05ca3f6",
+      "installed_files": 173,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0,
+      "fresh_process_metadata_reopen": true,
+      "independent_epub_exports": true,
+      "independent_epub_versions": true
+    },
+    {
+      "case": "shelf-cover-stop-core-ko2-final",
+      "candidate_sha256": "567c5089a94f8b8e17c6f6a21e7794018907e796864b1d5676b206a98d7becab",
+      "installed_files": 173,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0,
+      "fresh_process_metadata_reopen": true,
+      "independent_epub_exports": true,
+      "independent_epub_versions": true
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "result": "LATEST_ARTICLE_VERIFIED",
+  "real_sample_count": 1,
+  "python_latest_requests": 1,
+  "native_lua_latest_requests": 1,
+  "title_and_identity_match": true,
+  "title_matches_readable_article_body": true,
+  "shelf_and_previous_test_scopes_unchanged": true,
+  "account_data_posts": 0,
+  "authorization_posts": 0,
+  "synthetic_packaged_native_ui": {
+    "600x800": "PASS",
+    "1264x1680_300dpi": "PASS",
+    "existing_articles_preserved": true,
+    "fresh_process_offline_reopen": true
+  },
+  "complete_history_verified": false,
+  "real_account_native_ui_tested": false,
+  "physical_kindle_tested": false
+}

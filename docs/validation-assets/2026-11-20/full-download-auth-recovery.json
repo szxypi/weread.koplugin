@@ -1,0 +1,89 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "chapter",
+      "renewals": 1,
+      "completed_chapters_reused": true,
+      "offline_reopen": true,
+      "package_sha256": "9b8a9671b1dd02442c6a98a7a3649747374d40aaa2bfcf0ac77d291a952e80fa"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "stage": "chapter",
+      "renewals": 1,
+      "completed_chapters_reused": true,
+      "offline_reopen": true,
+      "package_sha256": "439b10876d37115e4e5e12f1bfc274e2f3dac6c8e06eee2e14c8182cc78bc72d"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "reader",
+      "renewals": 1,
+      "completed_chapters_reused": false,
+      "offline_reopen": true,
+      "package_sha256": "36deda71cfd66b6a47c8bbfe6d70e6bdb1501eac90e6c807bb20a48436fef8b0"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "stage": "repeat401",
+      "renewals": 1,
+      "completed_chapters_reused": true,
+      "offline_reopen": true,
+      "package_sha256": "a014dfcd97f822327bfc4f92da2ed7b65cd31c85cff3a75cf924a6ca73a7e13f"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "txt",
+      "stage": "chapter",
+      "renewals": 1,
+      "completed_chapters_reused": true,
+      "offline_reopen": true,
+      "package_sha256": "907f2cf56eea1a867b3558a4b8d657f9f99fbc646bc5f1e9e74e572134644970"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "txt",
+      "stage": "chapter",
+      "renewals": 1,
+      "completed_chapters_reused": true,
+      "offline_reopen": true,
+      "package_sha256": "41e80cdb8cc4d9785eace5c522b476a586a980696efb080d33f3e7b167c59bea"
+    }
+  ],
+  "initial_failure": {
+    "result": "UNVERIFIED",
+    "reason": "fresh catalog omitted version; initial implementation refused resume"
+  },
+  "unknown_version_marked": true,
+  "physical_kindle_tested": false,
+  "final_candidate_runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "stage": "chapter",
+      "renewals": 1,
+      "completed_chapters_reused": true,
+      "offline_reopen": true,
+      "package_sha256": "c2c8a64019b6f1c741a8b325d9dbdbdd232107dbf58b73152ba96659f0a3ca18"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "txt",
+      "stage": "chapter",
+      "renewals": 1,
+      "completed_chapters_reused": true,
+      "offline_reopen": true,
+      "package_sha256": "b952e72b25a8762e0797dae3bbda7d51ce8d2dd9dc725d00029514e8935db6d2"
+    }
+  ],
+  "rate_limit_regression": true,
+  "manual_fallback_regression": true
+}

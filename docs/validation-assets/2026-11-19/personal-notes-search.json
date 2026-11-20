@@ -1,0 +1,26 @@
+{
+  "result": "PASS",
+  "feature": "search_current_book_saved_personal_notes",
+  "modes": ["highlights_and_bookmarks", "thoughts"],
+  "screens": ["600x800", "1264x1680"],
+  "synthetic_cases": {
+    "entries_per_mode": 45,
+    "unicode_case_folding": true,
+    "type_filters": true,
+    "clear_search": true,
+    "fresh_offline_reopen": true,
+    "search_network_requests": 0
+  },
+  "owner_cases": {
+    "highlight_entries": 52,
+    "thought_entries": 3,
+    "actual_search_in_both_processes": true,
+    "search_network_requests": 0,
+    "observed_position_unchanged": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_screenshots": 0,
+    "temporary_profiles_removed": true
+  },
+  "physical_device": false
+}

@@ -12,4 +12,8 @@ assert(Source.quote(spans, "15-18") == "", "range starting inside an entity was 
 assert(Source.quote(Source.plain("甲<&乙"), "1-3") == "<&", "raw TXT offsets were interpreted as HTML")
 local scripted = Source.index('<script>x</script><p>abc</p>')
 assert(#scripted == 1 and scripted[1][3] == "abc", "script text entered quote source")
+local comment = Source.index('<p>A<!-- hidden > quote -->B</p>')
+assert(Source.quote(comment, '3-28') == 'AB', 'comment text entered quote source')
+assert(Source.quote(Source.index('<p>left <3 &amp; right</p>'), '3-22') == 'left <3 & right', 'literal angle bracket entered tag state')
+assert(Source.quote(Source.index('<html><head><title>hidden</title></head><body>shown</body></html>',{body_only=true}), '0-70') == 'shown', 'head text entered body-only source')
 print("annotation_source_spec: original rune offsets, UTF-8, tags and entities passed")

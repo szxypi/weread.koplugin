@@ -1,0 +1,21 @@
+{
+  "result": "VERIFIED_WITH_LIMITS",
+  "real_account": {
+    "books_sampled": 1,
+    "second_shard_nonempty": true,
+    "omitting_second_shard_changes_decoded_source": true,
+    "koreader_lua_full_source_matches": true,
+    "simulated_second_shard_http_503_rejected_without_source_cache": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "private_source_or_credentials_saved": false
+  },
+  "synthetic_native_reader": {
+    "screens": [[600, 800, 167], [1264, 1680, 300]],
+    "two_shards_and_explicit_empty_second": true,
+    "reading_and_fresh_offline_reopen": true
+  },
+  "component_cases": ["401", "429", "503", "network error", "invalid response", "bad checksum", "existing cache preserved"],
+  "real_network_failure_ui_verified": false,
+  "physical_device_verified": false
+}

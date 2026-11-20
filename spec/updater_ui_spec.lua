@@ -145,6 +145,15 @@ expect(shown_widget and shown_widget.text:find("Update check failed", 1, true),
     "manual failure should still be reported")
 shown_widget = nil
 
+core.fetch_release = function() return nil, "no_published_release" end
+ui:check(true)
+expect(shown_widget.text == "No published version is available for this project yet.",
+    "unpublished project should show an actionable status, not HTTP failure")
+expect(state.available_version == "" and state.last_check > 0, "empty channel did not clear stale updates")
+shown_widget = nil
+ui:check(false)
+expect(shown_widget == nil, "automatic empty-channel checks should remain silent")
+
 local now = 100000
 local original_env = getfenv(UpdaterUI.schedule_auto_check)
 setfenv(UpdaterUI.schedule_auto_check, setmetatable({

@@ -17,13 +17,17 @@ local BottomContainer = require("ui/widget/container/bottomcontainer")
 local ButtonDialog = require("ui/widget/buttondialog")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
+local Font = require("ui/font")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LineWidget = require("ui/widget/linewidget")
+local HorizontalGroup = require("ui/widget/horizontalgroup")
+local HorizontalSpan = require("ui/widget/horizontalspan")
 local PageRenderer = require("weread.ui.thought_popup.pages")
 local ScrollContainer = require("weread.ui.thought_popup.scroll_container")
 local Size = require("ui/size")
+local TextWidget = require("ui/widget/textwidget")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
@@ -50,6 +54,7 @@ local ThoughtPopupWidget = InputContainer:extend{
     contrast = 9,
     tap_to_page = false,
     close_callback = nil,
+    on_replies = nil,
     dialog = nil,
 
     _pages = nil,
@@ -125,6 +130,7 @@ function ThoughtPopupWidget:_reopen(opts)
     if opts.tap_to_page ~= nil then self.tap_to_page = opts.tap_to_page end
     if opts.dialog then self.dialog = opts.dialog end
     self.close_callback = opts.close_callback
+    self.on_replies = opts.on_replies
     self.height_ratio = math.max(0.1, math.min(0.9, self.height_ratio or 0.70))
     self.height = math.floor(Screen:getHeight() * self.height_ratio)
 
@@ -141,7 +147,14 @@ function ThoughtPopupWidget:_buildLayout()
     local content_h = self._pages.content_h
 
     local ratio_h = math.floor(Screen:getHeight() * self.height_ratio)
-    local chrome = TOP_BORDER_SIZE + PADDING_TOP + PADDING_BOTTOM
+    local hint
+    if self.on_replies then
+        hint = TextWidget:new{text = _("Hold a thought to view replies."),
+            face = Font:getFace("cfont", 16), max_width = self.width - 2 * PADDING_TOP}
+    end
+    self._reply_hint = hint
+    local hint_height = hint and hint:getSize().h + Size.padding.small or 0
+    local chrome = TOP_BORDER_SIZE + PADDING_TOP + PADDING_BOTTOM + hint_height
     local blank_tolerance = math.ceil((self.doc_font_size or Screen:scaleBySize(18)) * 1.2)
 
     local viewport_h
@@ -174,10 +187,16 @@ function ThoughtPopupWidget:_buildLayout()
         LineWidget:new{
             dimen = Geom:new{ w = self.width, h = TOP_BORDER_SIZE },
         },
-        VerticalSpan:new{ width = PADDING_TOP },
-        scroll,
-        VerticalSpan:new{ width = PADDING_BOTTOM },
     }
+    if hint then
+        vgroup_children[#vgroup_children + 1] = HorizontalGroup:new{
+            HorizontalSpan:new{width = PADDING_TOP}, hint,
+        }
+        vgroup_children[#vgroup_children + 1] = VerticalSpan:new{width = Size.padding.small}
+    end
+    vgroup_children[#vgroup_children + 1] = VerticalSpan:new{width = PADDING_TOP}
+    vgroup_children[#vgroup_children + 1] = scroll
+    vgroup_children[#vgroup_children + 1] = VerticalSpan:new{width = PADDING_BOTTOM}
 
     local vgroup = VerticalGroup:new(vgroup_children)
 
@@ -267,26 +286,32 @@ end
 function ThoughtPopupWidget:_showThoughtActionMenu(item)
     local popup = self
     local action_dialog
-    action_dialog = ButtonDialog:new{
-        buttons = {
-            {
-                {
-                    text = _("Copy"),
-                    callback = function()
-                        UIManager:close(action_dialog)
-                        popup:_copyThoughtContent(item)
-                    end,
-                },
-                {
-                    text = _("Generate QR code"),
-                    callback = function()
-                        UIManager:close(action_dialog)
-                        popup:_generateQRCode(item)
-                    end,
-                },
-            },
+    local buttons = {{
+        {
+            text = _("Copy"),
+            callback = function()
+                UIManager:close(action_dialog)
+                popup:_copyThoughtContent(item)
+            end,
         },
-    }
+        {
+            text = _("Generate QR code"),
+            callback = function()
+                UIManager:close(action_dialog)
+                popup:_generateQRCode(item)
+            end,
+        },
+    }}
+    if self.on_replies then
+        buttons[#buttons + 1] = {{
+            text = _("View replies"),
+            callback = function()
+                UIManager:close(action_dialog)
+                if popup.on_replies then popup.on_replies(item, popup) end
+            end,
+        }}
+    end
+    action_dialog = ButtonDialog:new{buttons = buttons}
     UIManager:show(action_dialog)
 end
 

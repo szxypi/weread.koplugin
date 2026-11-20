@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "real_account_data_writes": 0,
+  "authorization_posts": 0,
+  "screens": ["600x800", "1264x1680"],
+  "actual_koreader_reader": true,
+  "actual_subprocess_pipe_and_sqlite": true,
+  "synthetic_chapters": 10000,
+  "old_limit_bytes": 262144,
+  "new_limit_bytes": 1048576,
+  "bounded_encoding_with_extreme_path_bytes": 604688,
+  "single_synthetic_dispatch_per_screen": true,
+  "archive_and_online_source_checks": "synthetic stubs in this scenario",
+  "real_10000_chapter_epub_verified": false,
+  "real_historical_credit_verified": false,
+  "physical_kindle_verified": false
+}

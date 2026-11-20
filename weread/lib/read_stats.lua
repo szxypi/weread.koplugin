@@ -1,7 +1,7 @@
 -- weread/lib/read_stats.lua — WeRead reading statistics data layer.
 --
 -- Pure logic, no UI dependencies:
---   * calls the /readdata/detail gateway API (via the shared Client)
+--   * reads owner-bound native or Skill statistics (via the shared Client)
 --   * normalizes the response into a stable structure (raw seconds / date labels only)
 --   * computes period navigation (previous / next natural week/month/year)
 --
@@ -20,23 +20,26 @@ M.MODES = { "weekly", "monthly", "annually", "overall" }
 local DAY_SECONDS = 86400
 local CST_OFFSET = 8 * 3600 -- Beijing time, east of UTC
 
--- Device offset east of UTC, in seconds (e.g. a CST device returns 28800).
-local function utc_offset()
-    local now = os.time()
-    return os.difftime(now, os.time(os.date("!*t", now)))
-end
-
 -- Broken-down Beijing-time components for a timestamp (isdst = false).
 local function cst_date(ts)
     return os.date("!*t", ts + CST_OFFSET)
 end
 
--- Inverse of cst_date: real Unix timestamp for a Beijing-time components table.
--- os.time() treats the table as device-local, so we undo the device offset and
--- then shift by the fixed CST offset.
+-- Gregorian civil date -> UTC days, independent of the device's current or
+-- historical DST offset. Normalize month/day overflow for period navigation.
 local function cst_time(t)
-    return os.time(t) + utc_offset() - CST_OFFSET
+    local year = t.year + math.floor((t.month - 1) / 12)
+    local month = (t.month - 1) % 12 + 1
+    year = year - (month <= 2 and 1 or 0)
+    local era = math.floor(year / 400)
+    local yoe = year - era * 400
+    local shifted_month = month + (month > 2 and -3 or 9)
+    local doy = math.floor((153 * shifted_month + 2) / 5)
+    local days = era * 146097 + yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy - 719468
+    return (days + t.day - 1) * DAY_SECONDS + (t.hour or 0) * 3600
+        + (t.min or 0) * 60 + (t.sec or 0) - CST_OFFSET
 end
+M.cst_time = cst_time
 
 -- strftime against Beijing wall-clock time.
 local function cst_fmt(fmt, ts)
@@ -230,10 +233,13 @@ end
 --   period_label
 --   allow_prev / allow_next : whether previous/next period navigation is possible
 --   prev_base_time / next_base_time : navigation targets (nil for "overall")
-function M.fetch(client, mode, base_time)
+function M.prepare(raw, mode, base_time, now)
     mode = mode or "monthly"
-    local raw = client:get_read_stats(mode, base_time)
+    assert(type(raw) == "table" and type(raw.readTimes) == "table", "Missing reading statistics")
+    local code = raw.errcode or raw.errCode
+    assert(not code or tonumber(code) == 0, "Reading statistics rejected")
     local data = M.normalize(raw, mode)
+    data.source_kind = raw._stats_source
 
     if mode == "overall" then
         -- A single unbounded period: no navigation.
@@ -248,7 +254,7 @@ function M.fetch(client, mode, base_time)
     local canonical = tonumber(raw and raw.baseTime)
     if not canonical then
         local seed = (base_time and tonumber(base_time) and tonumber(base_time) > 0)
-            and tonumber(base_time) or os.time()
+            and tonumber(base_time) or now or os.time()
         canonical = period_start(mode, seed)
     end
 
@@ -260,8 +266,13 @@ function M.fetch(client, mode, base_time)
     data.allow_prev = true
     -- next_base is the actual start of the following period; if it is already in
     -- the past, that period has begun and navigating forward is allowed.
-    data.allow_next = next_base <= os.time()
+    data.allow_next = next_base <= (now or os.time())
     return data
+end
+
+function M.fetch(client, mode, base_time, selected, options)
+    mode = mode or "monthly"
+    return M.prepare(client:get_read_stats(mode, base_time, selected, options), mode, base_time)
 end
 
 return M

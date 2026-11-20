@@ -1,0 +1,50 @@
+{
+  "result": "PASS",
+  "concurrent_runs": 4,
+  "runs": [
+    {
+      "run": "a",
+      "size": "600x800",
+      "result": "PASS",
+      "profile_removed": true,
+      "local_storage_retry_verified": true,
+      "restart_verified": true,
+      "account_service": "synthetic",
+      "final_posts": 13,
+      "forbidden": 0
+    },
+    {
+      "run": "b",
+      "size": "600x800",
+      "result": "PASS",
+      "profile_removed": true,
+      "local_storage_retry_verified": true,
+      "restart_verified": true,
+      "account_service": "synthetic",
+      "final_posts": 13,
+      "forbidden": 0
+    },
+    {
+      "run": "c",
+      "size": "1264x1680",
+      "result": "PASS",
+      "profile_removed": true,
+      "local_storage_retry_verified": true,
+      "restart_verified": true,
+      "account_service": "synthetic",
+      "final_posts": 13,
+      "forbidden": 0
+    },
+    {
+      "run": "d",
+      "size": "1264x1680",
+      "result": "PASS",
+      "profile_removed": true,
+      "local_storage_retry_verified": true,
+      "restart_verified": true,
+      "account_service": "synthetic",
+      "final_posts": 13,
+      "forbidden": 0
+    }
+  ]
+}

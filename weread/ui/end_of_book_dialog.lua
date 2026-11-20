@@ -24,8 +24,8 @@ local M = {}
 --   opts.enable_* : boolean — whether each context-dependent action is enabled
 --   opts.annotations_visible : boolean — current annotation visibility state
 --   callbacks             : { on_bookshelf, on_search, on_chapter_list, on_next,
---                             on_book_details, on_read_stats, on_sync_progress,
---                             on_toggle_annotations, on_close_book }
+--                             on_search_current, on_book_details, on_read_stats, on_sync_progress,
+--                             on_toggle_annotations, on_reader_progress, on_delayed_screenshot, on_close_book }
 -- Returns the dialog widget instance.
 function M.show(opts, callbacks)
     opts = opts or {}
@@ -51,6 +51,7 @@ function M.show(opts, callbacks)
     if opts.show_chapter_nav then
         local nav_row = {
             {
+                id = 'chapter_list',
                 text = _("Chapter list"),
                 enabled = opts.enable_chapter_list ~= false,
                 callback = function() dismiss_then(callbacks.on_chapter_list) end,
@@ -58,6 +59,7 @@ function M.show(opts, callbacks)
         }
         if opts.show_next_chapter then
             table.insert(nav_row, {
+                id = 'next_chapter',
                 text = _("Next chapter"),
                 enabled = opts.enable_next_chapter ~= false,
                 callback = function() dismiss_then(callbacks.on_next) end,
@@ -79,17 +81,62 @@ function M.show(opts, callbacks)
         },
     })
 
-    -- Row 3: bookshelf / search
+    -- Row 3: bookshelf / bookstore search
     table.insert(buttons, {
         {
             text = _("Bookshelf"),
             callback = function() dismiss_then(callbacks.on_bookshelf) end,
         },
         {
-            text = _("Search"),
+            text = _("Search bookstore"),
             callback = function() dismiss_then(callbacks.on_search) end,
         },
     })
+
+    -- KOReader searches the open document, which may be a single chapter.
+    table.insert(buttons, {
+        {
+            text = _("Search current file"),
+            enabled = opts.enable_search_current == true,
+            callback = function() dismiss_then(callbacks.on_search_current) end,
+        },
+        {
+            text = _("Search entire book"),
+            enabled = opts.enable_search_book == true,
+            callback = function() dismiss_then(callbacks.on_search_book) end,
+        },
+    })
+
+    table.insert(buttons, {{
+        text = _("Search downloaded chapters"),
+        enabled = opts.enable_search_cached == true,
+        callback = function() dismiss_then(callbacks.on_search_cached) end,
+    }})
+
+    if opts.show_claim_location then
+        table.insert(buttons, {{
+            text = _("Save this page locally for this account"),
+            callback = function() dismiss_then(callbacks.on_claim_location) end,
+        }})
+    end
+
+    if callbacks.on_reader_progress or callbacks.on_reader_typography then
+        local row={}
+        if callbacks.on_reader_progress then row[#row+1]={id='reader_progress',text=_('Reading progress'),
+            callback=function() dismiss_then(callbacks.on_reader_progress) end} end
+        if callbacks.on_reader_typography then row[#row+1]={id='reader_typography',text=_('Reading settings'),
+            callback=function() dismiss_then(callbacks.on_reader_typography) end} end
+        table.insert(buttons,row)
+    end
+
+    if callbacks.on_delayed_screenshot or callbacks.on_reader_display then
+        local row={}
+        if callbacks.on_reader_display then row[#row+1]={id='reader_display',text=_('Page display'),
+            callback=function() dismiss_then(callbacks.on_reader_display) end} end
+        if callbacks.on_delayed_screenshot then row[#row+1]={id='delayed_screenshot',text=_('Delayed screenshot'),
+            callback=function() dismiss_then(callbacks.on_delayed_screenshot) end} end
+        table.insert(buttons,row)
+    end
 
     -- Penultimate row: progress sync and the shared annotation visibility
     -- toggle. Keep both visible; unsupported context is represented by a
@@ -102,8 +149,8 @@ function M.show(opts, callbacks)
         },
         {
             text = opts.annotations_visible == false
-                and _("Show underlines and thoughts")
-                or _("Hide underlines and thoughts"),
+                and _("Show underlines, thoughts and bookmarks")
+                or _("Hide underlines, thoughts and bookmarks"),
             callback = function() dismiss_then(callbacks.on_toggle_annotations) end,
         },
     })

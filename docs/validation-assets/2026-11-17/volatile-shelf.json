@@ -1,0 +1,13 @@
+{
+  "scope": "unsaved shelf within the current account session",
+  "component_cases": ["account change", "login epoch change", "stale disk authorization", "shelf source change", "native credential change", "web credential change", "gateway key change", "explicit invalidation", "new host instance"],
+  "synthetic_native_runtime": {
+    "resolutions": [[600, 800], [1264, 1680]],
+    "host": "PluginLoader and FileManager",
+    "cases": ["home to shelf", "shelf to home", "source change drops unsaved state", "fresh process uses saved snapshot"],
+    "http_requests": 0,
+    "network_data": "in-memory synthetic fixture"
+  },
+  "physical_kindle_verified": false,
+  "result": "PASS"
+}

@@ -1,0 +1,18 @@
+{
+  "result": "SYNTHETIC_CB_NATIVE_UI_RPC_VERIFIED",
+  "screens": [[600, 800, 167], [1264, 1680, 300]],
+  "scenarios_per_screen": 19,
+  "production_queue_selection": true,
+  "production_ui_creates_transfer_service": true,
+  "synthetic_source_and_network": true,
+  "skip_book_without_writing_and_reset_on_reopen": true,
+  "original_summary_preserved": true,
+  "baseline_sealed_before_claim": true,
+  "unknown_not_replayed": true,
+  "profile_removed": true,
+  "real_account_data_posts": 0,
+  "real_authentication_posts": 0,
+  "normal_ui_real_account_tested": false,
+  "raw_txt_historical_transfer_supported": false,
+  "physical_device_tested": false
+}

@@ -1,0 +1,52 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "automatic_renewal": false,
+  "login_simulated": false,
+  "runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "format": "epub",
+      "paused_after_one": true,
+      "failed_request_count": 1,
+      "checkpoint_reused": true,
+      "complete_book_only": true,
+      "offline_reopen": true,
+      "package_sha256": "a11f200ec03d156b6cb8eb0336aac14cd702e753e204899ca1154116361115f5"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "epub",
+      "paused_after_one": true,
+      "failed_request_count": 1,
+      "checkpoint_reused": true,
+      "complete_book_only": true,
+      "offline_reopen": true,
+      "package_sha256": "88b36e91eec037b8f24b99b5162f098224727f0b3f8818b3ddb74868dad4bdf2"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "format": "txt",
+      "paused_after_one": true,
+      "failed_request_count": 1,
+      "checkpoint_reused": true,
+      "complete_book_only": true,
+      "offline_reopen": true,
+      "package_sha256": "91a7d7cc81416f40aaa848a547906d5b03d1a01fd1349b633305d23fb7f3012e"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "format": "txt",
+      "paused_after_one": true,
+      "failed_request_count": 1,
+      "checkpoint_reused": true,
+      "complete_book_only": true,
+      "offline_reopen": true,
+      "package_sha256": "0cde188efda02db168a9fc590969dfb72e42f0c3eb984bb8a93ea1c243b4c324"
+    }
+  ],
+  "rate_limit_regression": true,
+  "reading_auto_renewal_regression": true,
+  "physical_kindle_tested": false
+}

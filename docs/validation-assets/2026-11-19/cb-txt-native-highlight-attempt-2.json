@@ -1,0 +1,18 @@
+{
+  "result": "CB_NATIVE_TXT_HIGHLIGHT_VERIFIED",
+  "sample": "new self-authored imported TXT with a non-BMP character before the selection",
+  "metadata_book_version_zero": true,
+  "official_utf16_range": true,
+  "screen": "1264x1680@300",
+  "native_selection_and_save_delete": true,
+  "dry_run_blocked": true,
+  "native_writes": 2,
+  "independent_readbacks": 2,
+  "offline_reopen": true,
+  "authentication_posts": 0,
+  "existing_book_writes": 0,
+  "fixture_removed_and_independently_confirmed": true,
+  "original_observed_state_restored": true,
+  "private_values_in_report": false,
+  "limitations": ["one self-authored TXT at KO2 simulated resolution", "official saved-highlight display not verified", "physical Kindle not tested"]
+}

@@ -1,0 +1,155 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "production_tree_sha256": "b879ebaa7c37f46986c8e5dd3b03c2ef4d8bdd9751cbf6ecadd4447662547ecc",
+  "production_files": 263,
+  "native_runs": [
+    {
+      "case": "navigation",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "production_files": 263,
+      "source_candidate_installed_equal": true,
+      "result": "PASS",
+      "checks": {
+        "missing_chapter_real_downloader": true,
+        "download_reverified_before_open": true,
+        "download_back_exact": true,
+        "cached_native_tap": true,
+        "movement_cancellation": true,
+        "result": "PASS",
+        "cross_file_back_exact": true,
+        "explicit_cancellation": true,
+        "cross_file_forward_exact": true,
+        "version_conflict_keeps_source": true,
+        "local_history_above_boundary": true,
+        "changed_return_archive_rejected": true,
+        "failed_back_preserves_retry": true,
+        "percent_anchor_literal": true,
+        "no_cloud_verification_grant": true,
+        "unicode_filename_and_anchor": true,
+        "account_data_posts": 0,
+        "synthetic_only": true,
+        "original_return_link": true
+      },
+      "post_requests": {
+        "chapter_content_reads": 4,
+        "account_data_writes": 0
+      },
+      "target_screenshot": {
+        "file": "chapter-link-target-600.png",
+        "sha256": "1425e4c5bd01bf7f478a0af6affc68214b371373ba6090b684350dd8c73df27c"
+      },
+      "return_screenshot": {
+        "file": "chapter-link-return-600.png",
+        "sha256": "c44c1942c218d33a322cfc4e946af3f3ac8235ef343f08b76f032ac883afa4d5"
+      }
+    },
+    {
+      "case": "navigation",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "production_files": 263,
+      "source_candidate_installed_equal": true,
+      "result": "PASS",
+      "checks": {
+        "cached_native_tap": true,
+        "local_history_above_boundary": true,
+        "percent_anchor_literal": true,
+        "no_cloud_verification_grant": true,
+        "unicode_filename_and_anchor": true,
+        "cross_file_forward_exact": true,
+        "missing_chapter_real_downloader": true,
+        "download_reverified_before_open": true,
+        "download_back_exact": true,
+        "original_return_link": true,
+        "movement_cancellation": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "explicit_cancellation": true,
+        "account_data_posts": 0,
+        "version_conflict_keeps_source": true,
+        "changed_return_archive_rejected": true,
+        "failed_back_preserves_retry": true,
+        "cross_file_back_exact": true
+      },
+      "post_requests": {
+        "chapter_content_reads": 4,
+        "account_data_writes": 0
+      },
+      "target_screenshot": {
+        "file": "chapter-link-target-1264.png",
+        "sha256": "d2ce41b7eb147b2024152570f6dfac2872374a71bb31920116c78e7570b71acb"
+      },
+      "return_screenshot": {
+        "file": "chapter-link-return-1264.png",
+        "sha256": "9420dd9c651497e5f2ccd7f16ff1ba0fccc3192ec7a00b45beedb0d8df6223fc"
+      }
+    },
+    {
+      "case": "rich",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "production_files": 263,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    },
+    {
+      "case": "rich",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "production_files": 263,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    },
+    {
+      "case": "core",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "production_files": 263,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    },
+    {
+      "case": "core",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "production_files": 263,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    }
+  ],
+  "local_checks": {
+    "result": "PASS",
+    "python_files": 100,
+    "python_tests": 1236,
+    "primary_platform": "macOS",
+    "primary_skips": 3,
+    "supplemental": {
+      "platform": "Linux ARM64",
+      "file": "scripts/test_process_loss_runtime.py",
+      "tests": 7,
+      "skips": 0
+    },
+    "all_required_cases_executed": true,
+    "lua_specs": 232,
+    "lua_ui_history_checks": 71,
+    "static_files": 652
+  },
+  "backend_checks": 73,
+  "real_account_requests": 0,
+  "pending": [
+    "Additional real-book formats",
+    "Physical Kindle Oasis 2",
+    "Device suspend and power loss",
+    "Other roadmap features",
+    "Dedicated performance phase after full functional acceptance"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "physical_device": false,
+  "cases": {
+    "small": [
+      {
+        "mode": "live",
+        "groups_selected": 26,
+        "reference_matches": true,
+        "cache_matches": true,
+        "http_requests": 0
+      },
+      {
+        "mode": "reopen",
+        "groups_selected": 26,
+        "reference_matches": true,
+        "cache_matches": true,
+        "http_requests": 0
+      }
+    ],
+    "ko2": [
+      {
+        "mode": "live",
+        "groups_selected": 26,
+        "reference_matches": true,
+        "cache_matches": true,
+        "http_requests": 0
+      },
+      {
+        "mode": "reopen",
+        "groups_selected": 26,
+        "reference_matches": true,
+        "cache_matches": true,
+        "http_requests": 0
+      }
+    ]
+  },
+  "earlier_failures": [
+    "offline comparison stopped because the test fixture changed between stages",
+    "multi-group title translation shadowed by loop index; corrected and rerun"
+  ]
+}

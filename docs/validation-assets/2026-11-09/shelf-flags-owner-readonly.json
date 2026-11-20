@@ -1,0 +1,119 @@
+{
+  "result": "SHELF_FLAGS_READ_VERIFIED",
+  "checked_at": "2026-11-09T00:15:20.739060+00:00",
+  "account_data_writes": 0,
+  "credentials_written_to_files": false,
+  "shelf_write_preview_reading_state_matches": true,
+  "channels": {
+    "native": {
+      "book_count": 139,
+      "states": {
+        "pinned": {
+          "missing": 139
+        },
+        "private": {
+          "true": 136,
+          "false": 3
+        },
+        "finished": {
+          "false": 119,
+          "true": 20
+        }
+      },
+      "field_types": {
+        "isTop": {
+          "missing": 139
+        },
+        "secret": {
+          "int": 139
+        },
+        "finishReading": {
+          "int": 139
+        },
+        "finished": {
+          "int": 139
+        }
+      },
+      "independent_finished_field_differs": 117,
+      "archive_pin_field_types": {
+        "missing": 5
+      }
+    },
+    "web": {
+      "book_count": 139,
+      "states": {
+        "pinned": {
+          "missing": 139
+        },
+        "private": {
+          "true": 136,
+          "false": 3
+        },
+        "finished": {
+          "false": 119,
+          "true": 20
+        }
+      },
+      "field_types": {
+        "isTop": {
+          "missing": 139
+        },
+        "secret": {
+          "int": 139
+        },
+        "finishReading": {
+          "int": 139
+        },
+        "finished": {
+          "int": 139
+        }
+      },
+      "independent_finished_field_differs": 117,
+      "archive_pin_field_types": {
+        "missing": 5
+      }
+    }
+  },
+  "same_members_observed": true,
+  "lua_projection_matches": true,
+  "native_https_projection_matches": true,
+  "native_read_requests": 2,
+  "refreshed_web_session_saved": false,
+  "same_owner_verified": true,
+  "native_stages": [
+    {
+      "stage": "shelf_flags",
+      "status": 200,
+      "keys": [
+        "archive",
+        "bookCount",
+        "bookProgress",
+        "books",
+        "lectureBooks",
+        "lectureRemoved",
+        "lectureSynckey",
+        "lectureUpdate",
+        "mp",
+        "mpEx",
+        "pureBookCount",
+        "removed",
+        "removedArchive",
+        "synckey"
+      ]
+    }
+  ],
+  "web_stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

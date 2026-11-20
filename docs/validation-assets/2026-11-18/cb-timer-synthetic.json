@@ -1,0 +1,21 @@
+{
+  "result": "PASS",
+  "environment": "isolated_koreader_mock_service",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "cache_types": [
+    "full_book",
+    "single_chapter"
+  ],
+  "default_off": true,
+  "verified_baseline_required": true,
+  "zero_time_position": true,
+  "remote_change_stops_write": true,
+  "uncertain_not_replayed": true,
+  "offline_fresh_process_preserves_journal": true,
+  "real_account_data_writes": 0,
+  "real_account_timer_verified": false,
+  "physical_kindle_verified": false
+}

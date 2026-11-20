@@ -39,18 +39,29 @@ local BookReviewsView = FocusManager:extend{
     result = nil,
     on_switch = nil,
     on_select = nil,
+    on_load_more = nil,
+    on_close = nil,
+    latest_only = false,
+    scroll_offset = nil,
+    focus_row = nil,
+    title_text = nil,
+    tab_text = nil,
+    empty_text = nil,
+    incomplete_text = nil,
+    limited_text = nil,
 }
 
 function BookReviewsView:buildTabBar()
-    local first_width = math.floor(self.screen_w / #TABS)
+    local tabs = self.latest_only and { TABS[2] } or TABS
+    local first_width = math.floor(self.screen_w / #tabs)
     local row = HorizontalGroup:new{}
     self._tab_buttons = {}
-    for index, tab in ipairs(TABS) do
+    for index, tab in ipairs(tabs) do
         local active = tab.mode == self.mode
         local button = Button:new{
-            text = _(tab.text),
-            width = index == #TABS
-                and self.screen_w - first_width * (#TABS - 1)
+            text = _(self.latest_only and self.tab_text or tab.text),
+            width = index == #tabs
+                and self.screen_w - first_width * (#tabs - 1)
                 or first_width,
             radius = 0,
             margin = 0,
@@ -89,7 +100,7 @@ function BookReviewsView:reviewText(review)
         review.author ~= "" and review.author or _("Anonymous"),
     }
     if review.rating > 0 then
-        metadata[#metadata + 1] = T(_("Score %1"), BookReviews.format_rating(review.rating))
+        metadata[#metadata + 1] = T(_("Score %1 / 5"), BookReviews.format_rating(review.rating))
     end
     local review_date = BookReviews.format_date(review.create_time)
     if review_date ~= "" then
@@ -111,11 +122,10 @@ function BookReviewsView:buildContent()
     if #items == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
         table.insert(content, TextWidget:new{
-            text = _("No reviews."),
+            text = _(self.empty_text or "No reviews."),
             face = Font:getFace("cfont", 18),
             max_width = self.content_width,
         })
-        return content
     end
 
     for _i, review in ipairs(items) do
@@ -143,6 +153,32 @@ function BookReviewsView:buildContent()
         table.insert(content, button)
         table.insert(content, VerticalSpan:new{ width = Size.padding.small })
     end
+    if self.result and self.result.has_more and self.on_load_more then
+        local button = Button:new{
+            text = _("Load more results"),
+            width = self.content_width,
+            show_parent = self,
+            callback = self.on_load_more,
+        }
+        self._review_buttons[#self._review_buttons + 1] = button
+        table.insert(content, button)
+    end
+    if self.latest_only then
+        table.insert(content, VerticalSpan:new{ width = Size.padding.large })
+        table.insert(content, TextWidget:new{
+            text = self.result and self.result.limited
+                and _(self.limited_text or "Review limit reached; more reviews may be available.")
+                or _(self.incomplete_text or "Some reviews may be unavailable."),
+            face = Font:getFace("cfont", 16),
+            max_width = self.content_width,
+        })
+    elseif self.result and self.result.limited then
+        table.insert(content, VerticalSpan:new{ width = Size.padding.large })
+        table.insert(content, TextWidget:new{
+            text = _("Review limit reached; more reviews may be available."),
+            face = Font:getFace("cfont", 16), max_width = self.content_width,
+        })
+    end
     return content
 end
 
@@ -161,7 +197,7 @@ function BookReviewsView:init()
 
     self.title_bar = TitleBar:new{
         width = self.screen_w,
-        title = T("%1 · %2", _("Book reviews"), self.book_title or _("Untitled")),
+        title = T("%1 · %2", _(self.title_text or "Book reviews"), self.book_title or _("Untitled")),
         title_multilines = true,
         align = "center",
         with_bottom_line = true,
@@ -184,6 +220,8 @@ function BookReviewsView:init()
             },
         },
     }
+    self._review_scroll = scroll
+    if self.scroll_offset then scroll:setScrolledOffset(self.scroll_offset) end
     local rows = { self._tab_buttons }
     for _i, review_button in ipairs(self._review_buttons) do
         rows[#rows + 1] = { review_button }
@@ -192,7 +230,7 @@ function BookReviewsView:init()
     for _i, button in ipairs(self._tab_buttons) do outside_scroll[button] = true end
     FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
     -- Reviews follow the tab row.
-    FocusNav.initialFocus(self, 1, #rows > 1 and 2 or 1)
+    FocusNav.initialFocus(self, 1, math.min(#rows, self.focus_row or (#rows > 1 and 2 or 1)))
 
     self[1] = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
@@ -210,6 +248,8 @@ function BookReviewsView:onShow()
 end
 
 function BookReviewsView:onCloseWidget()
+    self._review_closed = true
+    if self.on_close then self.on_close() end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
@@ -228,6 +268,16 @@ function M.show(data, callbacks)
         result = data.result,
         on_switch = callbacks.on_switch,
         on_select = callbacks.on_select,
+        on_load_more = callbacks.on_load_more,
+        on_close = callbacks.on_close,
+        latest_only = data.latest_only == true,
+        scroll_offset = data.scroll_offset,
+        focus_row = data.focus_row,
+        title_text = data.title_text,
+        tab_text = data.tab_text,
+        empty_text = data.empty_text,
+        incomplete_text = data.incomplete_text,
+        limited_text = data.limited_text,
     }
     UIManager:show(view)
     return view

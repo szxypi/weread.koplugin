@@ -1,0 +1,155 @@
+{
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "candidate_sha256": "ceb9bebe22a75f9b207a88d8e4f00cfc554fad679e2d6326e15c990bac0eb3c6",
+  "real_final_get_requests": 8,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "real_screenshots": 0,
+  "runs": [
+    {
+      "display": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "report": {
+        "result": "SHELF_COVER_READ_VERIFIED",
+        "checked_at": "2026-11-09T07:23:35.892856+00:00",
+        "credentials_sent_to_lua": false,
+        "private_urls_saved": false,
+        "screenshots": 0,
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "web_cookie_rotation_saved": false,
+        "owner_verified": true,
+        "shelf_books": 139,
+        "python_image_gets": 1,
+        "image_media": "image/jpeg",
+        "cookie_sent_to_image": false,
+        "authorization_sent_to_image": false,
+        "redirects_followed": 0,
+        "native": {
+          "source_removed": true,
+          "worker_reaped": true,
+          "offline_reused": true,
+          "painted_cover": true,
+          "memory_profile": true,
+          "image_gets": 1,
+          "screenshots": 0,
+          "forbidden_requests": 0,
+          "result": "PASS",
+          "phase": "complete",
+          "anonymous_only": true,
+          "digest_matches": true,
+          "thumbnail_bounded": true
+        },
+        "stages": [
+          {
+            "stage": "account",
+            "status": 200
+          },
+          {
+            "stage": "shelf",
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "display": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "report": {
+        "result": "SHELF_COVER_READ_VERIFIED",
+        "checked_at": "2026-11-09T07:23:36.822647+00:00",
+        "credentials_sent_to_lua": false,
+        "private_urls_saved": false,
+        "screenshots": 0,
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "web_cookie_rotation_saved": false,
+        "owner_verified": true,
+        "shelf_books": 139,
+        "python_image_gets": 1,
+        "image_media": "image/jpeg",
+        "cookie_sent_to_image": false,
+        "authorization_sent_to_image": false,
+        "redirects_followed": 0,
+        "native": {
+          "source_removed": true,
+          "worker_reaped": true,
+          "offline_reused": true,
+          "painted_cover": true,
+          "memory_profile": true,
+          "image_gets": 1,
+          "screenshots": 0,
+          "forbidden_requests": 0,
+          "result": "PASS",
+          "phase": "complete",
+          "anonymous_only": true,
+          "digest_matches": true,
+          "thumbnail_bounded": true
+        },
+        "stages": [
+          {
+            "stage": "account",
+            "status": 200
+          },
+          {
+            "stage": "shelf",
+            "status": 200
+          }
+        ]
+      }
+    }
+  ],
+  "synthetic_runtime": [
+    {
+      "case": "shelf-cover600-final",
+      "candidate_sha256": "ceb9bebe22a75f9b207a88d8e4f00cfc554fad679e2d6326e15c990bac0eb3c6",
+      "installed_files": 173,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0,
+      "receiving_sink_overflow_rejected": true
+    },
+    {
+      "case": "shelf-cover-ko2-final",
+      "candidate_sha256": "de85f4d34d36ba09ab5857381e20eb3b21dd05297503b0dce80b520b14b33972",
+      "installed_files": 173,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0,
+      "receiving_sink_overflow_rejected": true
+    }
+  ],
+  "core_regression": [
+    {
+      "case": "shelf-cover-core600-final",
+      "candidate_sha256": "a7c47eb00b42d985b361633406646621c5fcc2ef11293591b35a2218a1dde686",
+      "installed_files": 173,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0,
+      "metadata_fresh_process_reopen": true,
+      "epub_export_independent_check": true,
+      "epub_versions_independent_check": true
+    },
+    {
+      "case": "shelf-cover-core-ko2-final",
+      "candidate_sha256": "2e12e31ea51a66a3790bea0636d48917209ce336e8ceb608fa5600a93aeb8647",
+      "installed_files": 173,
+      "source_and_install_bytes_match": true,
+      "repaint_failures": 0,
+      "metadata_fresh_process_reopen": true,
+      "epub_export_independent_check": true,
+      "epub_versions_independent_check": true
+    }
+  ],
+  "offline_checks": {
+    "lua_specs": 143,
+    "python_suites": 31,
+    "python_tests": 306,
+    "luacheck_files": 373,
+    "lua_syntax_files": 375
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "screens": ["600x800", "1264x1680"],
+  "actual_koreader_filemanager_and_profile_button": true,
+  "concurrent_name_and_statistics_tasks_started": true,
+  "real_account_nickname_ui_gets": 2,
+  "real_account_statistics_ui_gets": 2,
+  "independent_nickname_preflight_and_readback_gets": 4,
+  "independent_statistics_preflight_gets": 2,
+  "fresh_offline_processes": 2,
+  "offline_http_requests": 0,
+  "statistics_cache_compared_between_processes": true,
+  "account_database_isolation": true,
+  "tmpfs_profiles_removed": true,
+  "credentials_in_ordinary_files": false,
+  "private_screenshots": 0,
+  "real_account_data_writes": 0,
+  "verified_expiry": "statistics endpoint returned HTTP 401; another independent statistics request also returned 401",
+  "separate_authorization_posts": 1,
+  "same_account_renewal_saved_to_keychain": true,
+  "native_ui_authorization_posts": 0,
+  "physical_kindle_verified": false
+}

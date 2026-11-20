@@ -1,0 +1,51 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "kind": "finish_queue",
+  "pairs": [
+    {
+      "baseline": {
+        "storage": 75,
+        "concurrent_saves": 812,
+        "journal_mode/busy": 75,
+        "success": 4925
+      },
+      "candidate": {
+        "success": 5000,
+        "storage": 0,
+        "concurrent_saves": 1603
+      }
+    },
+    {
+      "baseline": {
+        "success": 4932,
+        "storage": 68,
+        "concurrent_saves": 804,
+        "journal_mode/busy": 68
+      },
+      "candidate": {
+        "success": 5000,
+        "storage": 0,
+        "concurrent_saves": 1656
+      }
+    },
+    {
+      "baseline": {
+        "concurrent_saves": 656,
+        "journal_mode/busy": 55,
+        "success": 4945,
+        "storage": 55
+      },
+      "candidate": {
+        "concurrent_saves": 1064,
+        "success": 5000,
+        "storage": 0
+      }
+    }
+  ],
+  "baseline_sha256": "9baec9998806274b633641bdf0ccd4158598c9aa9e7fdd6c613b881377a587ef",
+  "candidate_sha256": "c7e594235f7aa21ec4b4d674004612929a30b5616f8afeed52beb25b85553609",
+  "probe_sha256": "7da2e36ab2ea8497d68eb9cfd4d39952f610d1a8a99e828ddc3aba809bdc631f",
+  "profiles_removed": true,
+  "candidate_shared_sha256": "425b700b0cf490fe1f4004184cde2f499c3cbd317bdd96c98e015f0e4610c59e"
+}

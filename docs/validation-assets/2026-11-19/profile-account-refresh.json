@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "screens": ["600x800", "1264x1680"],
+  "native_profile_ui_and_simulated_server": true,
+  "initial_ui_runs": "nickname scene passed, but later statistics regression failed because the fixture retained its synthetic statistics; fixture cleanup was corrected and both sizes reran successfully",
+  "independent_child_sqlite_read_and_offline_reopen": true,
+  "account_switch_and_session_change_guarded": true,
+  "real_account_independent_python_gets": 4,
+  "real_account_native_gets": 1,
+  "real_account_same_name_verified": true,
+  "initial_attempts": "two independent preflight GETs succeeded; native probe stopped at runtime initialization before request",
+  "same_account_cookie_rotation_saved_to_keychain": true,
+  "real_account_data_writes": 0,
+  "authorization_posts": 0,
+  "name_and_credentials_in_report": false,
+  "real_account_complete_ui_verified": false,
+  "physical_kindle_verified": false
+}

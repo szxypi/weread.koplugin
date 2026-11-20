@@ -1,0 +1,38 @@
+{
+  "result": "PASS",
+  "screenshots": "Synthetic books and requests only",
+  "native_synthetic": {
+    "screens": [
+      {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      }
+    ],
+    "mixed_membership_and_finish_rows": true,
+    "long_title_displayed": true,
+    "select_status_and_cancel": true,
+    "resave_and_reconnect": true,
+    "exactly_once_per_synced_change": true
+  },
+  "actual_account_read_only_preview": {
+    "result": "PASS",
+    "width": 1264,
+    "height": 1680,
+    "dpi": 300,
+    "isolated_profile_removed": true,
+    "offline_list_title_and_selection_verified": true,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "original_members_flags_groups_restored": true
+  },
+  "limits": [
+    "physical Kindle KO2",
+    "other network and device conditions"
+  ]
+}

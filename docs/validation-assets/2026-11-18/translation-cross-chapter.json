@@ -1,0 +1,17 @@
+{
+  "result": "SYNTHETIC_NATIVE_CROSS_CHAPTER_VERIFIED",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_book_chapters": 6,
+  "chapters_with_translation": 4,
+  "source_records": 6,
+  "unchanged_cross_chapter_selection_copied": true,
+  "translation_changed_selection_skipped": true,
+  "existing_target_note_preserved": true,
+  "ambiguous_duplicate_source_skipped": true,
+  "repeated_copy_did_not_duplicate": true,
+  "new_offline_process_readback": true,
+  "original_book_notes_and_cache_preserved": true,
+  "account_data_writes": 0,
+  "real_user_annotations_tested": false,
+  "physical_kindle_verified": false
+}

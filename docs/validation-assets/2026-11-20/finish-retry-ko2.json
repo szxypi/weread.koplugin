@@ -1,0 +1,57 @@
+{
+  "result": "PASS",
+  "profile_removed": true,
+  "installed_bytes_match": true,
+  "stages": [
+    {
+      "requests": 67,
+      "posts": 7,
+      "forbidden": 0,
+      "screenshots": 3,
+      "workers_reaped": true,
+      "mode": "live",
+      "result": "PASS",
+      "phase": "complete",
+      "checks": 47
+    },
+    {
+      "requests": 108,
+      "posts": 12,
+      "forbidden": 0,
+      "screenshots": 3,
+      "workers_reaped": true,
+      "mode": "reopen",
+      "rate_limit_stop_verified": true,
+      "offline_shot": true,
+      "result": "PASS",
+      "phase": "complete",
+      "temporary_retry_verified": true,
+      "checks": 61
+    },
+    {
+      "forbidden": 0,
+      "screenshots": 0,
+      "workers_reaped": true,
+      "mode": "offline_reopen",
+      "queued_restart_prepared": true,
+      "result": "PASS",
+      "phase": "complete",
+      "checks": 15,
+      "requests": 111,
+      "posts": 12
+    },
+    {
+      "result": "PASS",
+      "phase": "complete",
+      "checks": 6,
+      "requests": 118,
+      "queued_restart_verified": true,
+      "mode": "retry_reopen",
+      "posts": 13,
+      "forbidden": 0,
+      "screenshots": 0,
+      "workers_reaped": true
+    }
+  ],
+  "queue_store_verified": true
+}

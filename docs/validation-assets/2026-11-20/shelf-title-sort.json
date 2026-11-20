@@ -1,0 +1,12 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "processes_per_size": ["online-disabled", "fresh-offline-reopen"],
+  "native_menu_both_directions": true,
+  "unicode_case_and_width_normalization": true,
+  "pinned_and_equal_order_preserved": true,
+  "missing_titles_last": true,
+  "real_account_posts": 0,
+  "physical_kindle_tested": false
+}

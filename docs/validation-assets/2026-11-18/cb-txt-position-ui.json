@@ -1,0 +1,20 @@
+{
+  "environment": "packaged KOReader emulator and synthetic local service",
+  "source_format": "web_txt",
+  "screens": [[600, 800, 167], [1264, 1680, 300]],
+  "initial_scenarios_each": ["normal", "delayed", "noack", "noack_unapplied", "changed", "native_time", "no_native", "save_failed", "verify_save_failed"],
+  "manual_position_and_offline_reopen": "PASS",
+  "periodic_position_and_offline_reopen": "PASS",
+  "close_position_and_offline_reopen": "PASS",
+  "cloud_choice_preserves_local_pending_and_offline_reopen": "PASS",
+  "xhtml_cloud_and_close_regressions": "PASS",
+  "initial_timer_timeout_fixed_and_retested": true,
+  "initial_close_candidate_failure_fixed_and_retested": true,
+  "cloud_view_checkpoint_pending_overwrite_fixed_and_retested": true,
+  "real_account_native_ui_tested": false,
+  "physical_device_tested": false,
+  "txt_reading_time_enabled": true,
+  "txt_reading_time_synthetic_seconds_each_screen": 10,
+  "txt_reading_time_unknown_ack_preserved_each_screen": true,
+  "txt_reading_time_real_accounting_verified": false
+}

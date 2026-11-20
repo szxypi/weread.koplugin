@@ -1,0 +1,49 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "pairs": [
+    {
+      "baseline": {
+        "success": 4966,
+        "storage": 34,
+        "concurrent_saves": 725,
+        "journal_mode/busy": 34
+      },
+      "candidate": {
+        "concurrent_saves": 663,
+        "success": 5000,
+        "storage": 0
+      }
+    },
+    {
+      "baseline": {
+        "success": 4957,
+        "storage": 43,
+        "concurrent_saves": 708,
+        "journal_mode/busy": 43
+      },
+      "candidate": {
+        "concurrent_saves": 600,
+        "success": 5000,
+        "storage": 0
+      }
+    },
+    {
+      "baseline": {
+        "concurrent_saves": 482,
+        "journal_mode/busy": 26,
+        "success": 4974,
+        "storage": 26
+      },
+      "candidate": {
+        "storage": 0,
+        "concurrent_saves": 507,
+        "success": 5000
+      }
+    }
+  ],
+  "baseline_sha256": "3079dc90bb7fc00aa8f98da0a8fdf45f26d3996285f88996f21dd4d3498242f2",
+  "candidate_sha256": "6a6e006c2d40558675e1470504a825948af93f05a74c6f561067b1e037880de0",
+  "probe_sha256": "9665a54a4e019fe235bed58ef250efe3dcaa797bc94cc246f95c6f663d5da229",
+  "profiles_removed": true
+}

@@ -1,0 +1,22 @@
+{
+  "result": "PASS",
+  "synthetic_screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_result_count": 60,
+  "synthetic_chapter_action_and_warning_on_first_page": true,
+  "synthetic_return_action_and_warning_on_first_page": true,
+  "synthetic_selected_and_original_cursor_resumed": true,
+  "synthetic_source_navigation_verified": true,
+  "synthetic_ordinary_imported_current_and_offline_regressions": true,
+  "real_account_native_ui_books": 1,
+  "real_account_ui_screen_sizes": ["600x800", "1264x1680"],
+  "real_account_preflight_first_response_rows": 50,
+  "real_account_ui_minimum_candidates_per_size": 10,
+  "real_account_actions_and_warning_on_first_page": true,
+  "real_account_selected_and_original_cursor_resumed": true,
+  "real_account_source_navigation_verified": true,
+  "real_account_shelf_catalog_source_and_position_unchanged": true,
+  "real_account_data_writes": 0,
+  "authentication_posts": 0,
+  "real_account_screenshots": 0,
+  "physical_kindle_tested": false
+}

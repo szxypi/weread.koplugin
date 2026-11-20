@@ -1,0 +1,32 @@
+{
+  "result": "PYTHON_ROUNDTRIP_VERIFIED",
+  "initial_shelf_count": 140,
+  "target_initially_absent": true,
+  "independent_baselines_match": true,
+  "subscription_posts": 1,
+  "unsubscription_posts": 1,
+  "both_acknowledged_and_independently_read_back": true,
+  "other_members_flags_groups_restored": true,
+  "authorization_posts_during_roundtrip": 0,
+  "native_grant_and_previous_test_scopes_unchanged": true,
+  "consumed_one_shot_scope_retained": true,
+  "synthetic_packaged_native_ui": {
+    "600x800": "PASS",
+    "1264x1680_300dpi": "PASS"
+  },
+  "real_account_native_ui_tested": true,
+  "real_account_native_ui": {
+    "screen": "1264x1680_300dpi",
+    "same_plan_zero_write_preview": true,
+    "subscription_posts": 1,
+    "unsubscription_posts": 1,
+    "independent_readbacks": 2,
+    "other_members_flags_groups_restored": true,
+    "isolated_imported_article_record_preserved": true,
+    "authorization_posts": 0,
+    "saved_grants_and_previous_test_scopes_unchanged": true,
+    "temporary_profile_removed": true,
+    "unknown_receipt_mock_stops_without_replay": true
+  },
+  "physical_kindle_tested": false
+}

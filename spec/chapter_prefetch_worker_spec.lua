@@ -77,7 +77,7 @@ local result = Worker.run(settings, {}, { book_id = "book" },
     { chapterUid = "2", title = "Two" }, context)
 
 assert(result.path == "/tmp/book-chapter.epub")
-assert(result.chapter_uid == "2" and result.cache_dir == "/tmp/cache/book")
+assert(result.book_id == 'book' and result.chapter_uid == "2" and result.cache_dir == "/tmp/cache/book")
 assert(result.annotation_document and result.annotation_document.clean)
 assert(result.auth and result.auth.wr_ticket == "renewed")
 assert(flushes == 0, "child worker must not flush parent LuaSettings")
@@ -85,5 +85,42 @@ assert(table.concat(calls, ",")
     == "reader,workspace,source,images,epub,cleanup")
 assert(table.concat(progress, ",")
     == "reader,source,images,footnotes,epub")
+
+local content=require("weread.lib.content")
+local tries,sleeps=0,0
+content.fetch_single_chapter_source=function() tries=tries+1;error("download_read/rate_limited",0) end
+context.sleep=function() sleeps=sleeps+1 end
+local ok,err=pcall(Worker.run,settings,{}, {book_id="book"},{chapterUid="2"},context)
+assert(not ok and tostring(err):find("download_read/rate_limited",1,true) and tries==1 and sleeps==0,
+    "prefetch retried a rate-limited chapter")
+assert(calls[#calls]=="cleanup", "rate-limited prefetch did not clean its workspace")
+tries,sleeps=0,0
+content.fetch_single_chapter_source=function() tries=tries+1;error('book_reading/web_expired',0) end
+ok,err=pcall(Worker.run,settings,{}, {book_id='book'},{chapterUid='2'},context)
+assert(not ok and tostring(err):find('book_reading/web_expired',1,true) and tries==1 and sleeps==0,
+    'prefetch retried a chapter after login expired')
+assert(calls[#calls]=='cleanup','expired prefetch did not clean its workspace')
+local request_count=0
+content.ensure_reader_state=function(scoped,book)
+    scoped:request{method='GET',url=require('weread.lib.protocol').reader_url(book.book_id)}
+end
+local expired_client={request=function() request_count=request_count+1;return nil,401,{} end}
+ok,err=pcall(Worker.run,settings,expired_client,{book_id='book'},{chapterUid='2'},context)
+assert(not ok and tostring(err):find('book_reading/web_expired',1,true) and request_count==1,
+    'prefetch reader request did not classify a definite 401')
+local scope_current=true
+settings.get_auth_scope=function() return {vid='900000',epoch=1} end
+settings.auth_scope_matches=function() return scope_current end
+content.ensure_reader_state=function() end
+content.fetch_single_chapter_source=function() return '<p>synthetic</p>' end
+local saved=false
+content.save_chapter_epub=function(_settings,_book,_chapter,_body,_assets,_css,_identity,_source,_output,guard)
+    scope_current=false
+    guard();saved=true
+    return '/tmp/never-published.epub'
+end
+ok,err=pcall(Worker.run,settings,{}, {book_id='book'},{chapterUid='2'},context)
+assert(not ok and tostring(err):find('chapter_prefetch/session_changed',1,true) and not saved and calls[#calls]=='cleanup',
+    'changed account was allowed to publish a prefetched chapter')
 
 print("chapter_prefetch_worker_spec: isolated settings and complete pipeline passed")

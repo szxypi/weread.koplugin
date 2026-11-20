@@ -6,11 +6,11 @@ local function expect(condition, message)
     if not condition then error(message or ("check " .. checks .. " failed")) end
 end
 
-local dialogs = {}
+local dialogs,closed_views = {},{}
 package.preload["ui/uimanager"] = function()
     return {
         show = function(_self, dialog) dialogs[#dialogs + 1] = dialog end,
-        close = function() end,
+        close = function(_self,view) closed_views[#closed_views+1]=view end,
         nextTick = function(_self, callback) callback() end,
         scheduleIn = function(_self, _delay, callback) callback() end,
     }
@@ -56,6 +56,7 @@ package.preload["weread.lib.content"] = function() return {} end
 local cached_covers = {}
 local cover_path_lookups = 0
 local fake_cover_cache = {
+    MAX_IMAGE_BYTES = 3 * 1024 * 1024,
     pathFor = function(_self, book)
         cover_path_lookups = cover_path_lookups + 1
         return cached_covers[book]
@@ -228,7 +229,9 @@ expect(#cover_requests == 9,
 expect(subprocess_runs == 9,
     "cover network and thumbnail work did not run in background subprocesses")
 expect(cover_requests[1].options.skip_cookie == true
-        and cover_requests[1].options.persist_response_cookies == false,
+        and cover_requests[1].options.persist_response_cookies == false
+        and cover_requests[1].options.max_bytes == fake_cover_cache.MAX_IMAGE_BYTES
+        and cover_requests[1].options.sensitive == true,
     "public cover request did not suppress account credentials")
 expect(#shown == 10 and shown[10].data.cover_paths[shelf[1]] ~= nil,
     "cover batch did not refresh the page once with cached paths")
@@ -274,9 +277,72 @@ host:showShelfView("books")
 local groups = host.shelf_groups
 expect(#groups == 3 and groups[1].books[1] == grouped_books[1],
     "snapshot groups were not projected onto the shared book records")
+-- Multi-group choices persist per account and never infer a missing group as
+-- empty when an incomplete snapshot is shown.
+local group_account='account-a';local profiles={};local fail_save=false
+host.library_db={accountKey=function() return group_account end,
+    getProfileState=function(_self,key) return profiles[group_account] and profiles[group_account][key] end,
+    putProfileState=function(_self,key,value)
+        if fail_save then return false end
+        profiles[group_account]=profiles[group_account] or {};profiles[group_account][key]=value;return true
+    end}
+host.showInfo=function(_self,text) host.info=text end
+host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+shown[#shown].callbacks.on_select_groups({'archive:7','archive:8'})
+expect(#shown[#shown].data.books==20 and #shown[#shown].data.group_keys==2,'multi-group union missing books')
+expect(#profiles['account-a'].shelf_multi_groups_v1.keys==2,'multi-group selection not saved')
+shown[#shown].callbacks.on_select_groups({'__ungrouped__'})
+local all_ids={};for i=1,30 do all_ids[i]=tostring(i) end
+host:applyShelfSnapshot(grouped_books,{{archiveId=7,name='History',bookIds=all_ids}});host:showShelfView('books')
+expect(#shown[#shown].data.books==0 and #shown[#shown].data.group_keys==1,
+    'an empty remembered uncategorized group incorrectly showed the entire shelf')
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+shown[#shown].callbacks.on_select_groups({'archive:7','archive:8'})
+host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(#shown[#shown].data.group_keys==2 and #shown[#shown].data.books==20,'saved selection not restored')
+host:applyShelfSnapshot(grouped_books,{archives[1]});host:showShelfView('books')
+expect(#shown[#shown].data.books==30 and #shown[#shown].data.group_keys==2,'partial snapshot lost selection or hid books')
+host.shelf_group_key='archive:7';host:showShelfView('books')
+expect(#shown[#shown].data.books==30,'stale single-group state narrowed unavailable multi-group selection')
+host.shelf_group_key=nil
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(#shown[#shown].data.group_keys==2 and #shown[#shown].data.books==20,'full snapshot did not restore remembered groups')
+local stale_multi=shown[#shown].callbacks.on_select_groups;group_account='account-b';stale_multi({'archive:8'})
+expect(not profiles['account-b'],'stale account callback saved another account selection')
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(#shown[#shown].data.group_keys==0 and #shown[#shown].data.books==30,'selection leaked between accounts')
+shown[#shown].callbacks.on_select_groups({'archive:missing'})
+expect(host.info=='Remove unavailable groups before applying.' and #shown[#shown].data.group_keys==0,
+    'unavailable group was accepted or did not report a useful error')
+fail_save=true;shown[#shown].callbacks.on_select_groups({'archive:8'});fail_save=false
+expect(#shown[#shown].data.group_keys==0 and host.info=='Could not save the selected groups.', 'save failure applied an unpersisted filter')
+group_account='account-a';host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(#shown[#shown].data.group_keys==2,'returning to an account lost its selection')
+shown[#shown].callbacks.on_select_group(nil)
+expect(#profiles['account-a'].shelf_multi_groups_v1.keys==0 and #shown[#shown].data.group_keys==0,'all books did not clear persistent selection')
+host.library_db=nil;host._shelf_multi_loaded=nil;host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
 shown[#shown].callbacks.on_select_group("archive:7")
 expect(shown[#shown].data.mode == "books" and #shown[#shown].data.books == 20
         and shown[#shown].data.group_label == "History", "group created a separate content mode")
+local duplicate_archives={
+    {archiveId=7,name='First',bookIds={'1'}},
+    {archiveId=7,name='Second',bookIds={'2'}},
+}
+host:applyShelfSnapshot(grouped_books,duplicate_archives);host:showShelfView('books')
+expect(host.shelf_group_key==nil and #shown[#shown].data.books==30,
+    'ambiguous refreshed group kept filtering the bookshelf')
+local count_before_duplicate=#shown
+shown[#shown].callbacks.on_select_group('archive:7')
+expect(#shown==count_before_duplicate and host.shelf_group_key==nil
+    and host.info=='This group is unavailable. Refresh the bookshelf and try again.',
+    'ambiguous group selection opened the first matching group')
+host.shelf_group_key='archive:7'
+host:showShelfView('books',nil,nil,{page=2,prepared_shelf={books={grouped_books[1]},accounts={}}})
+expect(host.shelf_group_key==nil and shown[#shown].data.page==1 and #shown[#shown].data.books==30,
+    'ambiguous stored selection reused a stale prepared shelf')
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+shown[#shown].callbacks.on_select_group('archive:7')
+groups=host.shelf_groups
 shown[#shown].callbacks.on_page_changed(2)
 expect(host.shelf_groups == groups and shown[#shown].data.page == 2,
     "paging rebuilt groups or lost the selected page")
@@ -288,6 +354,12 @@ shown[#shown].callbacks.on_select_group("archive:8")
 expect(#shown[#shown].data.books == 0, "empty group fell back to the entire shelf")
 shown[#shown].callbacks.on_select_group("__ungrouped__")
 expect(#shown[#shown].data.books == 10, "uncategorized group has wrong membership")
+host:applyShelfSnapshot(grouped_books,{{archiveId=7,name='History',bookIds=all_ids}});host:showShelfView('books')
+expect(host.shelf_group_key=='__ungrouped__' and #shown[#shown].data.books==0,
+    'single uncategorized selection unexpectedly showed all books after its last book was grouped')
+host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+expect(host.shelf_group_key=='__ungrouped__' and #shown[#shown].data.books==10,
+    'single uncategorized selection did not recover when ungrouped books returned')
 shown[#shown].callbacks.on_select_group("archive:7")
 for index = 1, 12 do grouped_books[index].cover = "https://cdn.example/group-" .. index end
 host.isNetworkOnline = function() return true end
@@ -309,6 +381,8 @@ host.client.get_shelf = function()
     return { books = grouped_books, archive = { archives[2], archives[1] } }
 end
 host.library_db = { cacheShelf = function(_self, _books, value) written_archives = value end }
+local cache_notice
+host.showTransientInfo=function(_self,text) cache_notice=text end
 local before_refresh = shown[#shown]
 local cover_generation = host.shelf_cover_generation
 host.shelf_cover_pending = { view = host.shelf_view }
@@ -323,6 +397,41 @@ expect(fetches == 1 and written_archives[2].archiveId == 7 and not host.shelf_re
 expect(shown[#shown].data.page == 2 and shown[#shown].data.group_key == "archive:7"
         and shown[#shown].data.scroll_offset.y == 125,
     "refresh lost group, page or scroll position after archive reorder")
+expect(cache_notice and cache_notice:find('offline',1,true),
+    'visible shelf refresh did not report a failed offline snapshot')
+local saved_result,refreshed_snapshot
+host:refreshBookshelf(nil,{on_loaded=function(saved,snapshot) saved_result,refreshed_snapshot=saved,snapshot end})
+pending()
+expect(saved_result==false and refreshed_snapshot.books==grouped_books and refreshed_snapshot.archives==written_archives,
+    'home refresh did not receive the fresh network snapshot when cache saving failed')
+host:showShelfView('books',nil,nil,{page=2})
+
+local original_info=host.showInfo
+local incomplete_info
+host.showInfo=function(_self,message) incomplete_info=message end
+local before_incomplete=shown[#shown]
+host.library_db.getShelf=function() return grouped_books end
+host.library_db.getShelfArchives=function() return archives end
+host.client.get_shelf=function() return {books={{bookId='new',title='Incomplete'}}} end
+local previous_write=written_archives
+before_incomplete.callbacks.on_refresh();pending()
+expect(shown[#shown]==before_incomplete and written_archives==previous_write and host.shelf_group_key=='archive:7'
+    and incomplete_info and incomplete_info:find('previous complete',1,true),
+    'missing group data replaced the current grouped shelf or cached snapshot')
+local incomplete_home
+host:refreshBookshelf(nil,{on_loaded=function(saved,snapshot,incomplete) incomplete_home={saved,snapshot,incomplete} end});pending()
+expect(incomplete_home and incomplete_home[1] and incomplete_home[2].books==grouped_books
+    and incomplete_home[2].archives==archives and incomplete_home[3],
+    'home did not retain the complete snapshot on missing groups')
+host.library_db.getShelfArchives=function() return nil end
+local incomplete_new
+host:refreshBookshelf(nil,{on_loaded=function(saved,snapshot,incomplete) incomplete_new={saved,snapshot,incomplete} end});pending()
+expect(incomplete_new and not incomplete_new[1] and incomplete_new[2].groups_incomplete and incomplete_new[3]
+    and incomplete_new[2].books[1].bookId=='new' and written_archives==previous_write,
+    'first incomplete shelf was saved or discarded instead of being shown temporarily')
+host.showInfo=original_info
+host:applyShelfSnapshot(grouped_books,archives);host.shelf_group_key='archive:7'
+host:showShelfView('books',nil,nil,{page=2})
 
 host.client.get_shelf = function() return { books = grouped_books, archive = {} } end
 shown[#shown].callbacks.on_refresh()
@@ -362,4 +471,275 @@ host.shelf_group_key = "archive:7"
 host:onWeReadAccountChanged()
 expect(host.shelf_groups == nil and host.shelf_group_key == nil, "account switch retained old groups")
 
+host.runOnlineTask = function(_self, _label, callback) pending = callback return true end
+local late_fetches, home_reopened = 0, false
+host.client.get_shelf = function() late_fetches = late_fetches + 1 return { books = {} } end
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+host:closeWeReadUI()
+pending()
+expect(late_fetches == 0 and not home_reopened and not host.shelf_refreshing,
+    "leaving home before a queued refresh still fetched or reopened it")
+local account = "first"
+host.library_db.accountKey = function() return account end
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+account = "second"
+pending()
+expect(late_fetches == 0 and not home_reopened and not host.shelf_refreshing,
+    "queued home refresh crossed the account boundary")
+local jobs, cancelled = {}, 0
+host.client.shelf_authentication = function() return true end
+host.isNetworkConnected = function() return true end
+host.shelf_refresh_worker = {
+    start = function(_self, task, callback) jobs[#jobs + 1] = { task = task, callback = callback } return true end,
+    cancel = function() cancelled = cancelled + 1 end,
+}
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+local old_job = table.remove(jobs, 1)
+host:closeWeReadUI()
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+local fresh_context = host.shelf_refresh_context
+old_job.callback(old_job.task())
+expect(host.shelf_refresh_context == fresh_context and host.shelf_refreshing and late_fetches == 0,
+    "late async shelf result canceled or fetched for a newer view")
+local job = table.remove(jobs, 1)
+job.callback(job.task())
+expect(home_reopened and not host.shelf_refreshing and late_fetches == 1, "current async shelf could not complete")
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1)
+account = "third"
+job.callback(job.task())
+expect(not home_reopened and late_fetches == 1 and not host.shelf_refreshing,
+    "async shelf crossed an account boundary before HTTP")
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1)
+local async_result = job.task()
+shelf_settings.source = "native"
+job.callback(async_result)
+expect(not home_reopened and not host.shelf_refreshing, "result from prior source choice reopened shelf")
+expect(cancelled > 0, "leaving shelf did not cancel native background worker")
+shelf_settings.source = "auto"
+host.showTransientInfo = function() end
+local renewal_callback, renewal_starts, renewal_cancels = nil, 0, 0
+host.native_renewal = {
+    start = function(_self, _options, callback)
+        renewal_starts = renewal_starts + 1
+        renewal_callback = callback
+        return true, { token = renewal_starts }
+    end,
+    cancel = function() renewal_cancels = renewal_cancels + 1 end,
+}
+host.client.get_shelf = function(_self, options)
+    if options.recover_auth then error("shelf_source/native_expired", 0) end
+    return { books = {}, archive = {}, _shelf_source = options.skip_native and "gateway" or "native" }
+end
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(host.shelf_refreshing and renewal_starts == 1 and not home_reopened, "expired shelf did not wait for one renewal")
+renewal_callback(true)
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(home_reopened and not host.shelf_refreshing and host.shelf_active_source == "native", "successful renewal did not retry native shelf")
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task()); renewal_callback(false)
+job = table.remove(jobs, 1); job.callback(job.task())
+expect(home_reopened and host.shelf_active_source == "gateway" and renewal_starts == 2, "failed renewal did not use one permitted fallback")
+shelf_settings.source = "native"
+home_reopened = false
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task()); renewal_callback(false)
+expect(not home_reopened and not host.shelf_refreshing and #jobs == 0, "native-only renewal failure bypassed source policy")
+shelf_settings.source = "auto"
+host:refreshBookshelf(nil, { on_loaded = function() home_reopened = true end })
+job = table.remove(jobs, 1); job.callback(job.task())
+local late_renewal = renewal_callback
+host:closeWeReadUI()
+late_renewal(true)
+expect(renewal_cancels > 0 and not home_reopened and #jobs == 0, "cancelled renewal reopened closed shelf")
+-- A dismissed shelf must not be revived by its still-queued group callback.
+host:applyShelfSnapshot(grouped_books,archives)
+host:showShelfView('books')
+local replaced=host.shelf_view
+host:showShelfView('books')
+expect(closed_views[#closed_views]==replaced,'reopening the shelf left the old parent and its popup alive')
+local stale_group=shown[#shown].callbacks.on_select_group
+host:closeWeReadUI()
+local before_stale=#shown
+stale_group(nil)
+expect(#shown==before_stale and not host.shelf_view,'a group callback revived a closed shelf')
+local queued_actions={'on_select_group','on_page_changed','on_switch','on_display_change','on_search','on_refresh','on_sort','on_filter','on_select'}
+for _change_index,change in ipairs({'account','epoch','session','document','snapshot','source','auth'}) do
+    host.ui={};host.settings.get_auth_scope=nil
+    shelf_settings.source='auto'
+    host:applyShelfSnapshot(grouped_books,archives);host:showShelfView('books')
+    local callbacks=shown[#shown].callbacks
+    if change=='account' then account=account..'-new'
+    elseif change=='epoch' then host.discovery_epoch=(host.discovery_epoch or 0)+1
+    elseif change=='session' then host._reader_session_gen=(host._reader_session_gen or 0)+1
+    elseif change=='document' then host.ui.document={file='/synthetic.epub'}
+    elseif change=='snapshot' then host:applyShelfSnapshot(grouped_books,archives)
+    elseif change=='source' then shelf_settings.source='native'
+    else host.settings.get_auth_scope=function() return {vid='900000',epoch=2} end end
+    local count=#shown
+    for _action_index,name in ipairs(queued_actions) do callbacks[name](nil) end
+    expect(#shown==count and host.shelf_group_key==nil,'stale shelf actions crossed '..change)
+end
+host.settings.get_auth_scope=nil
+-- Search must not stop at a missing optional author or identifier field.
+shelf_settings.source='auto';shelf_settings.view_mode='list';shelf_settings.sort_order='default'
+host.library_db=nil;host._shelf_multi_loaded=nil;host.shelf_multi_groups={};host.shelf_group_key=nil
+host.bookMatchesFilters=function(_self,book) return book.visible~=false end
+local searchable={
+    {bookId='ID-1049',title='Alpha',visible=true},
+    {book_id='BK-2026',title='Beta',visible=true},
+    {bookId=123987,title='Gamma',visible=true},
+    {bookId='outside',title='Other',author='MiXeD Author',visible=true},
+    {bookId='hidden',title='Hidden',author='MiXeD Author',visible=false},
+}
+host:applyShelfSnapshot(searchable,{{archiveId=7,name='Selected',bookIds={'ID-1049','BK-2026',123987}}})
+host.shelf_group_key='archive:7'
+for _,case in ipairs({{'1049','ID-1049'},{'bk-2026','BK-2026'},{'123987',123987}}) do
+    host:showShelfView('books',case[1])
+    local results=shown[#shown].data.books
+    expect(#results==1 and (results[1].bookId or results[1].book_id)==case[2],
+        'search lost an identifier following a missing optional field')
+end
+host.shelf_group_key=nil
+host:showShelfView('books','mixed author')
+expect(#shown[#shown].data.books==1 and shown[#shown].data.books[1].bookId=='outside',
+    'search did not retain case-insensitive author matching and active filters')
+
+-- Equal sort values must preserve shelf order across pages and pinned groups.
+local tied,pinned,rest={},{},{}
+for index=1,24 do
+    local book={bookId=tostring(index),title='Same title',readUpdateTime=1700000000,isTop=index%7==0 and 1 or 0}
+    tied[#tied+1]=book
+    local bucket=book.isTop==1 and pinned or rest;bucket[#bucket+1]=book
+end
+local stable={};for _,book in ipairs(pinned) do stable[#stable+1]=book end
+for _,book in ipairs(rest) do stable[#stable+1]=book end
+host.shelf_regular=tied;host.shelf_groups={};host.shelf_group_key=nil;host.shelf_multi_groups={}
+for _,order in ipairs({'time_desc','time_asc','name_asc','name_desc','author_asc','author_desc'}) do
+    shelf_settings.sort_order=order
+    for _=1,2 do
+        host:showShelfView('books',nil,nil,{page=2})
+        local result=shown[#shown].data.books
+        expect(#result==#stable,'sort lost books')
+        for index,book in ipairs(stable) do expect(result[index]==book,'equal sort changed shelf order for '..order) end
+    end
+end
+for index,book in ipairs(tied) do expect(book.bookId==tostring(index),'sort changed the source shelf') end
+local mixed={
+    {bookId='a',title='A',readUpdateTime=40}, {bookId='b',title='B',readUpdateTime=10},
+    {bookId='c',title='C',readUpdateTime=40}, {bookId='d',title='D'},
+    {bookId='e',title='E',readUpdateTime='12'}, {bookId='f',title='F',readUpdateTime='bad'},
+    {bookId='g',title='G',readUpdateTime=math.huge}, {bookId='h',title='H',readUpdateTime=253402300800},
+}
+host.shelf_regular=mixed
+for _,case in ipairs({{'time_desc',{'a','c','e','b','d','f','g','h'}},
+                      {'time_asc',{'d','f','g','h','b','e','a','c'}}}) do
+    shelf_settings.sort_order=case[1];host:showShelfView('books')
+    for index,id in ipairs(case[2]) do
+        expect(shown[#shown].data.books[index].bookId==id,'mixed time sort changed ordering or rejected an old value')
+    end
+end
+-- Offline reads from the same account must update recent sorting, including
+-- after returning to a shelf that was previously paged and prepared.
+local get_settings=host.settings.get
+local local_events={a={book_id='a',home_recent_at=100,home_recent_account='owner'},
+    b={book_id='b',home_recent_at=200,home_recent_account='other'},
+    c={book_id='different',home_recent_at=300,home_recent_account='owner'}}
+host.settings.get=function(self,key,default) if key=='books' then return local_events end return get_settings(self,key,default) end
+host.library_db={accountKey=function() return 'owner' end}
+host.shelf_regular={{bookId='a',title='A',readUpdateTime=10},{bookId='b',title='B',readUpdateTime=20},
+    {bookId='c',title='C',readUpdateTime=30},{bookId='p',title='Pinned',isTop=1,readUpdateTime=1}}
+shelf_settings.sort_order='time_desc';host:showShelfView('books')
+local local_result=shown[#shown].data
+expect(local_result.books[1].bookId=='p' and local_result.books[2].bookId=='a'
+    and local_result.books[3].bookId=='c' and local_result.books[4].bookId=='b',
+    'recent sort ignored offline reading, account scope, book identity or pin')
+expect(local_result.last_read_times[local_result.books[2]]==100 and local_result.books[2].readUpdateTime==10,
+    'local reading time was not passed to the view or changed the cloud snapshot')
+shown[#shown].callbacks.on_page_changed(1)
+local return_to_shelf=host.shelf_view._prepare_detail_return()
+local_events.b={book_id='b',home_recent_at=500,home_recent_account='owner'}
+return_to_shelf()
+expect(shown[#shown].data.books[2].bookId=='b', 'returning from a book reused stale sorted results')
+host.library_db=nil;host.settings.get=get_settings
+local legacy_items
+host.shelf_books=mixed;host.shelfToolbarItems=function() return {} end
+host.showList=function(_self,_title,items) legacy_items=items;return {} end
+shelf_settings.sort_order='time_desc';host:showShelfPage()
+expect(#legacy_items==8 and legacy_items[3].text=='E'
+    and legacy_items[3].mandatory==os.date('%Y-%m-%d',12),
+    'legacy shelf failed to render a numeric-string timestamp')
+for index=5,8 do expect(legacy_items[index].mandatory=='','legacy shelf displayed an invalid date') end
+local progress_values={a=50,b=0,c=50,e=100}
+host.prepareShelfProgress=function(_self,values)
+    for _,book in ipairs(values) do book._shelf_progress=progress_values[book.bookId] end
+    return {}
+end
+host.refreshVisibleShelfProgress=function() end
+host.shelf_regular={{bookId='p',title='Pinned',isTop=1},{bookId='a',title='A'},{bookId='b',title='B'},
+    {bookId='c',title='C'},{bookId='d',title='D'},{bookId='e',title='E'}}
+for _,case in ipairs({{'progress_desc',{'p','e','a','c','b','d'}},
+                      {'progress_asc',{'p','b','a','c','e','d'}}}) do
+    shelf_settings.sort_order=case[1];host:showShelfView('books')
+    for index,id in ipairs(case[2]) do
+        expect(shown[#shown].data.books[index].bookId==id,'progress sort lost pin, unknown, zero or stable ties')
+    end
+end
+shelf_settings.sort_order='progress_desc';host:showShelfView('books')
+local ordered=shown[#shown].data.books
+progress_values.e=0;shown[#shown].callbacks.on_page_changed(1)
+expect(shown[#shown].data.books==ordered and ordered[2].bookId=='e',
+    'background progress changed the order while browsing')
+host:showShelfView('books')
+expect(shown[#shown].data.books[2].bookId=='a','fresh view did not sort the latest cached progress')
+host:showShelfView('public_account')
+shown[#shown].callbacks.on_switch('books')
+expect(shown[#shown].data.books[2].bookId=='a',
+    'switching from public accounts reused books without progress ordering')
+host.shelf_books=host.shelf_regular;host:showShelfPage()
+expect(legacy_items[2].text=='A' and legacy_items[2].mandatory=='50%',
+    'legacy progress ordering did not show the sorted percentage')
+host.prepareShelfProgress=nil;host.refreshVisibleShelfProgress=nil
+local authors={
+    {bookId='missing-pin',title='Pinned without author',isTop=1},
+    {bookId='b',title='Book B',author='Bob'},
+    {bookId='a1',title='Book A',author=' Alice '},
+    {bookId='a2',title='Book C',author='ALICE'},
+    {bookId='fallback',title='Book D',author='',authors='Carol'},
+    {bookId='missing',title='Book E',author=true},
+}
+host.shelf_regular=authors;host.bookMatchesFilters=function() return true end
+for _,case in ipairs({{'author_asc',{'missing-pin','a1','a2','b','fallback','missing'}},
+                      {'author_desc',{'missing-pin','fallback','b','a1','a2','missing'}}}) do
+    shelf_settings.sort_order=case[1];host:showShelfView('books')
+    for index,id in ipairs(case[2]) do
+        expect(shown[#shown].data.books[index].bookId==id,'author sort lost a stable, pinned or unknown author')
+    end
+end
+host:showShelfView('books','carol')
+expect(#shown[#shown].data.books==1 and shown[#shown].data.books[1].bookId=='fallback',
+    'search did not match the alternate author field')
+expect(authors[2].bookId=='b' and authors[3].bookId=='a1','author sorting changed the source shelf')
+local titles={
+    {bookId='missing-pin',title='',isTop=1},
+    {bookId='b',title='beta'},
+    {bookId='a1',title=' Alpha '},
+    {bookId='a2',title='ALPHA'},
+    {bookId='c',title='Charlie'},
+    {bookId='missing',title=true},
+}
+host.shelf_regular=titles
+for _,case in ipairs({{'name_asc',{'missing-pin','a1','a2','b','c','missing'}},
+                      {'name_desc',{'missing-pin','c','b','a1','a2','missing'}}}) do
+    shelf_settings.sort_order=case[1];host:showShelfView('books')
+    for index,id in ipairs(case[2]) do
+        expect(shown[#shown].data.books[index].bookId==id,'title sort lost stable, pinned or unknown title')
+    end
+end
+expect(titles[2].bookId=='b' and titles[3].bookId=='a1','title sorting changed the source shelf')
 print(("bookshelf_pagination_spec: %d checks"):format(checks))

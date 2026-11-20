@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Full two-screen private manual-TXT chain against a local synthetic server."""
+import argparse
+import copy
+import json
+import os
+from pathlib import Path
+import threading
+
+import mock_weread
+from cb_cloud_position import observed
+from cb_existing_position_intent import Intent
+from mock_weread import CB_READING_ID, CHAPTERS, MockServer, QUOTE, chapter_txt, prepare
+from test_cb_fixture_position_transport import MemoryBackend
+from txt_coordinates import PlainSource
+from verify_cb_txt_manual_fixture_ui_trial import manual_trial
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--koreader', type=Path, required=True); parser.add_argument('--run-dir', type=Path, required=True)
+    parser.add_argument('--unicode',action='store_true')
+    args = parser.parse_args(); root, runtime = args.run_dir.resolve(), args.koreader.resolve()
+    os.environ['LD_LIBRARY_PATH'] = str(runtime / 'libs')
+    server = MockServer(0); server.cb_reading = True; server.content_format = 'txt'; thread = None
+    if args.unicode:
+        def unicode_chapter(uid):
+            value=chapter_txt(uid).replace('😀','好')
+            return value.replace('这是第1章的第16段。','这是第1章的第16段。唯一😀边界') if uid==1 else value
+        mock_weread.chapter_txt=unicode_chapter
+    source = mock_weread.chapter_txt(1); model = PlainSource(source)
+    if args.unicode:
+        index=source.index('😀');first=model.starts[index];following=model.ends[index]
+        assert following-first==2
+    else:
+        first = model.locate('这是第1章的第16段。' + QUOTE)[0];following=first+1
+    plan = dict(book=CB_READING_ID, chapter='1', index=1, first=first, following=following)
+    server.progress[CB_READING_ID] = dict(chapterUid=1, chapterIdx=1, chapterOffset=first, progress=25,
+                                           summary=model.excerpt(first)['text'])
+    try:
+        prepare(root, runtime, server.server_port, 600, 800, 167)
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        os.environ['WEREAD_FIXTURE_SYNTHETIC'] = '1'; os.environ['WEREAD_FIXTURE_MOCK_PORT'] = str(server.server_port)
+        def pair():
+            web = server.get_progress(CB_READING_ID); native = copy.deepcopy(web)
+            native['book'].update(readingTime=0, recordReadingTime=0, ttsTime=0)
+            return native, web
+        initial = {channel: observed(raw, CB_READING_ID, CHAPTERS, channel)
+                   for channel, raw in zip(('native', 'web'), pair())}
+        runner = Path(__file__).resolve().parent / 'run_cb_fixture_manual_ui.py'
+        command = ['python3', str(runner), '--koreader', str(runtime), '--candidate', str(root / 'candidate.zip')]
+        context = dict(sample=dict(source=source, chapters=CHAPTERS), plan=plan, chapters=CHAPTERS,
+                       pair=pair, authority=lambda: True, shelf_current=lambda: True,
+                       cookies=lambda: dict(wr_vid='900000', wr_skey='synthetic-cookie-session'), owner='900000',
+                       attempt='a'*32, source_hash='b'*64, target=CB_READING_ID,
+                       initial_observed=initial, attest=lambda: ['first'], command=['first'])
+        report = dict(position_writes_known=1, position_writes_uncertain=False)
+        intent = Intent(backend=MemoryBackend())
+        if not manual_trial(context, report, intent, command, attest=lambda: command): raise ValueError('chain failed')
+        if (server.request_totals.get(('/web/book/read',''), 0) != 4 or report['position_writes_known'] != 5
+                or report['position_writes_uncertain'] or len(report['manual_stages']) != 2):
+            raise ValueError('chain counts')
+        print(json.dumps(dict(result='PASS', unicode_boundary=args.unicode, blocked_previews=2, manual_writes=4, dual_readbacks=4,
+                              screens=2, fresh_offline_reopens=2, private_profiles_removed=True)))
+    finally:
+        if thread is not None: server.shutdown(); thread.join()
+        server.server_close()
+
+
+if __name__ == '__main__': main()

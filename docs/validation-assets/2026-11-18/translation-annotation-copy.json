@@ -1,0 +1,21 @@
+{
+  "result": "SYNTHETIC_NATIVE_TRANSLATION_ANNOTATION_COPY_VERIFIED",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "synthetic_book_chapters": 6,
+  "source_records": 4,
+  "existing_target_note_preserved": true,
+  "ambiguous_duplicate_source_skipped": true,
+  "bookmark_and_note_copied": true,
+  "highlight_range_text_style_and_color_verified": true,
+  "nested_unicode_and_entity_range_verified": true,
+  "equivalent_pointer_spellings_deduplicated": true,
+  "independent_copy_nonce_in_hash_sample": true,
+  "equal_sample_hash_blocked_before_open": true,
+  "record_locations_checked": ["document", "centralized", "hash"],
+  "repeated_copy_did_not_duplicate": true,
+  "new_offline_process_readback": true,
+  "original_book_notes_and_cache_preserved": true,
+  "account_data_writes": 0,
+  "real_user_annotations_tested": false,
+  "physical_kindle_verified": false
+}

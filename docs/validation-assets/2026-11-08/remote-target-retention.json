@@ -1,0 +1,146 @@
+{
+  "status": "PARTIAL",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Ubuntu ARM64 / Xvfb",
+  "coordinate_model": "existing_catalog_words_and_fraction",
+  "precision_wire_sync_enabled": false,
+  "public_network_used": false,
+  "production_account_writes_attempted": 0,
+  "runs": [
+    {
+      "kind": "target",
+      "candidate_sha256": "93886ffd875b09c84bfb3f770a80249e0d7dfd9ffab21153e3cf790bd51b0991",
+      "packaged_files_match_workspace": 120,
+      "page": {
+        "total_pages": 602,
+        "requested_fraction": 0.203073089701,
+        "old_rounded_page": 120,
+        "actual_page": 122,
+        "captured_fraction": 0.20265780730897,
+        "native_page_origin_offset": 60797,
+        "pages_after_reflow": 706,
+        "retained_after_reflow": true,
+        "retained_chapter_offset": 60921,
+        "retained_chapter_uid": 1
+      },
+      "scroll": {
+        "captured_fraction": 0.50312353835637,
+        "requested_fraction": 0.503125,
+        "document_height": 528087,
+        "actual_position": 265693
+      },
+      "public_network_used": false,
+      "cloud_target_retained": true,
+      "same_page_jump_invalidates": true,
+      "return_does_not_revive": true,
+      "native_scroll_update": true,
+      "production_account_writes_attempted": 0,
+      "precision_wire_sync_enabled": false,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "grayscale": true
+      }
+    },
+    {
+      "kind": "target",
+      "candidate_sha256": "93886ffd875b09c84bfb3f770a80249e0d7dfd9ffab21153e3cf790bd51b0991",
+      "packaged_files_match_workspace": 120,
+      "cloud_target_retained": true,
+      "same_page_jump_invalidates": true,
+      "return_does_not_revive": true,
+      "native_scroll_update": true,
+      "production_account_writes_attempted": 0,
+      "precision_wire_sync_enabled": false,
+      "page": {
+        "native_page_origin_offset": 60797,
+        "pages_after_reflow": 706,
+        "retained_after_reflow": true,
+        "retained_chapter_offset": 60921,
+        "retained_chapter_uid": 1,
+        "total_pages": 602,
+        "requested_fraction": 0.203073089701,
+        "old_rounded_page": 120,
+        "actual_page": 122,
+        "captured_fraction": 0.20265780730897
+      },
+      "scroll": {
+        "requested_fraction": 0.503125,
+        "document_height": 1116183,
+        "actual_position": 561579,
+        "captured_fraction": 0.50312448765122
+      },
+      "public_network_used": false,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      }
+    },
+    {
+      "kind": "live",
+      "candidate_sha256": "93886ffd875b09c84bfb3f770a80249e0d7dfd9ffab21153e3cf790bd51b0991",
+      "packaged_files_match_workspace": 120,
+      "wire_precision_sync_enabled": false,
+      "live_reader_capture": true,
+      "background_process_observed": true,
+      "status": "PARTIAL",
+      "menu_check": true,
+      "screen": {
+        "height": 1680,
+        "width": 1264,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "page_two_co": 433,
+      "initial_co": 16,
+      "book_switch": true,
+      "stale_dialog_closed": true,
+      "native_document_kept_in_parent": true,
+      "public_network_used": false,
+      "scroll": true,
+      "page_turn": true,
+      "account_change": true,
+      "suspend_resume_callbacks": true,
+      "low_memory_recovery": true,
+      "same_path_replacement": true,
+      "reopen_version": 8,
+      "verified_file_chapter_title": true,
+      "production_account_writes_attempted": 0
+    },
+    {
+      "kind": "core",
+      "candidate_sha256": "a4c0dbea46f1594deca867aabfbaf3bb8f1e87a8f619fe470094d49253366af3",
+      "packaged_files_match_workspace": 120,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "http_download_images_footnotes": true,
+      "six_chapter_background_package": true,
+      "native_statistics_seconds": 12,
+      "online_offline_coverage": true,
+      "source_version_replacement": true,
+      "account_suspend_requests_cancelled": true
+    }
+  ],
+  "checks": {
+    "lua_specs": 100,
+    "luacheck_files": 233,
+    "luacheck_warnings": 0,
+    "python_tests": 71,
+    "progress_sync_checks": 227,
+    "reader_position_checks": 38,
+    "read_report_progress_checks": 22
+  },
+  "limitations": [
+    "Retained target uses the existing catalog-word/fraction model, not raw source UTF-16 coordinates.",
+    "Raw-source cloud target application and precision write/readback remain unfinished.",
+    "No production account writes, hardware Kindle or multi-device validation.",
+    "Unverifiable or never-stable layout revokes progress verification; reports remain blocked until progress is checked again."
+  ],
+  "offline_smoke_clock_boundary": "Repeated capture asserts only actual newly elapsed wall-clock seconds, without freezing clocks or editing native tuples."
+}

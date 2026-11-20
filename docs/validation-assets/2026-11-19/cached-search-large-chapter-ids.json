@@ -1,0 +1,25 @@
+{
+  "synthetic_native_reader": {
+    "chapter_uid": "9007199254740993",
+    "screens": ["600x800", "1264x1680"],
+    "single_chapter_cached_search_and_navigation": true,
+    "full_book_no_catalog_signed_out_search_and_navigation": true,
+    "independent_offline_reopen_and_stale_fallback": true,
+    "network_requests": 0
+  },
+  "early_failure": {
+    "stage": "offline_reopen",
+    "reason": "previous local resume validation rejected the large identifier",
+    "corrected_and_retested": true
+  },
+  "real_account_read_only_catalog_sample": {
+    "books_checked": 5,
+    "chapters_checked": 307,
+    "chapters_above_32bit": 0,
+    "chapters_above_exact_number": 0,
+    "account_data_writes": 0,
+    "authentication_posts": 0
+  },
+  "real_large_identifier_tested": false,
+  "physical_kindle_tested": false
+}

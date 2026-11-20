@@ -20,6 +20,7 @@ local function widget_mock(created_list)
                 width_ratio = fields.width_ratio,
                 contrast = fields.contrast,
                 tap_to_page = fields.tap_to_page,
+                on_replies = fields.on_replies,
                 _reopen = function(w, opts)
                     reopen_log[#reopen_log + 1] = {
                         items = opts.items,
@@ -33,6 +34,7 @@ local function widget_mock(created_list)
                     w.width_ratio = opts.width_ratio
                     w.contrast = opts.contrast
                     w.tap_to_page = opts.tap_to_page
+                    w.on_replies = opts.on_replies
                 end,
                 clear = function() end,
                 _freeContentCaches = function(w)
@@ -153,6 +155,15 @@ test("empty pages are rejected", function()
     eq(ok, false, "empty pages rejected")
     ok = pcall(M.show, {})
     eq(ok, false, "missing pages rejected")
+end)
+
+test("reply action follows the current pooled popup", function()
+    reset()
+    local callback = function() end
+    local popup = M.show({pages = pages1, on_replies = callback})
+    eq(popup.on_replies, callback, "first popup receives reply action")
+    M.show({pages = pages2})
+    eq(popup.on_replies, nil, "reused popup does not keep stale reply action")
 end)
 
 test("lifecycle helpers release the pools", function()

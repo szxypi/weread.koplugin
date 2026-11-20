@@ -1,0 +1,15 @@
+{
+  "result": "PASS",
+  "environment": "KOReader native interface with isolated loopback service",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "normal_path": ["create", "straight_underline", "wavy_underline", "delete", "offline_reopen"],
+  "independent_readback_after_each_write": true,
+  "dry_run_blocks_write": true,
+  "ko2_unconfirmed_cases": ["straight_underline", "wavy_underline"],
+  "pending_record_preserved": true,
+  "retry_does_not_send": true,
+  "normal_highlight_regression": true,
+  "real_account_writes": 0,
+  "physical_device_tested": false
+}

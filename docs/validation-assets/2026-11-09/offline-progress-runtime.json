@@ -1,0 +1,189 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "production_account_reads": 0,
+  "production_account_data_writes": 0,
+  "keychain_reads": 0,
+  "base_commit": "cdcb42f11dfde4cc2a0e2326c27f177819ea2bc7",
+  "candidate_changes": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "root_runtime_processes": 10,
+  "connectivity": "injected link availability; real fail-closed HTTP",
+  "profiles": [
+    {
+      "profile": "offline-progress-flow-final3-600",
+      "result": "PASS",
+      "package_sha256": "fb93241a0b83dc1c8ea56611607ffe2b118fac1782f37d406f0c30c26f899a54",
+      "source_manifest_sha256": "8518cda16372e7daf9ffaef96f2a0e00650ff08e00a2fe5ff1e58619e2d48903",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "primary_workflow": true,
+      "uncached_read_enabled": true,
+      "async_catalog": true,
+      "cancellable_download": true,
+      "close_and_suspend_guard": true,
+      "native_reader": true,
+      "page_turn": true,
+      "sync_action_and_mock_readback": true,
+      "fresh_process_offline_restore": true,
+      "offline_new_http_requests": 0,
+      "offline_progress": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "unverified_checkpoint": true,
+        "manual_only_checkpoint": true,
+        "flush_and_suspend": true,
+        "fresh_process": true,
+        "native_position_restored": true,
+        "local_home_progress": true,
+        "reconnect_compared_before_write": true,
+        "explicit_choice_required": true,
+        "duplicate_link_event_safe": true,
+        "mock_readback": true,
+        "remote_choice_clears_pending": true,
+        "remote_choice_no_upload": true,
+        "flush_preserves_remote_choice": true,
+        "offline_new_requests": 0,
+        "chosen_updates": 1,
+        "session_entry_and_progress_posts": 2
+      }
+    },
+    {
+      "profile": "offline-progress-flow-final3-ko2",
+      "result": "PASS",
+      "package_sha256": "77f61910253f7566ed49a59e9fac86b1a5980b8ca28a9117611b4a78699c49e4",
+      "source_manifest_sha256": "8518cda16372e7daf9ffaef96f2a0e00650ff08e00a2fe5ff1e58619e2d48903",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "primary_workflow": true,
+      "uncached_read_enabled": true,
+      "async_catalog": true,
+      "cancellable_download": true,
+      "close_and_suspend_guard": true,
+      "native_reader": true,
+      "page_turn": true,
+      "sync_action_and_mock_readback": true,
+      "fresh_process_offline_restore": true,
+      "offline_new_http_requests": 0,
+      "offline_progress": {
+        "local_home_progress": true,
+        "reconnect_compared_before_write": true,
+        "explicit_choice_required": true,
+        "duplicate_link_event_safe": true,
+        "mock_readback": true,
+        "remote_choice_clears_pending": true,
+        "remote_choice_no_upload": true,
+        "flush_preserves_remote_choice": true,
+        "offline_new_requests": 0,
+        "chosen_updates": 1,
+        "session_entry_and_progress_posts": 2,
+        "result": "PASS",
+        "synthetic_only": true,
+        "unverified_checkpoint": true,
+        "manual_only_checkpoint": true,
+        "flush_and_suspend": true,
+        "fresh_process": true,
+        "native_position_restored": true
+      }
+    },
+    {
+      "profile": "offline-progress-core-final2-600",
+      "result": "PASS",
+      "package_sha256": "e3b3badc56b96148392f2f3bd7f26021d007a53ff93d668600e5eb73df23d73d",
+      "source_manifest_sha256": "8518cda16372e7daf9ffaef96f2a0e00650ff08e00a2fe5ff1e58619e2d48903",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      }
+    },
+    {
+      "profile": "offline-progress-core-final2-ko2",
+      "result": "PASS",
+      "package_sha256": "25011e0313ee5ad79c99a2c5cbcbca7771e871b95b827a723a48faa11c6f6f46",
+      "source_manifest_sha256": "8518cda16372e7daf9ffaef96f2a0e00650ff08e00a2fe5ff1e58619e2d48903",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      }
+    },
+    {
+      "profile": "offline-progress-discovery-final2-600",
+      "result": "PASS",
+      "package_sha256": "b8e0639a5bc58272dc9a1083cd39b8f457d8bae57595550c40c33372062509de",
+      "source_manifest_sha256": "8518cda16372e7daf9ffaef96f2a0e00650ff08e00a2fe5ff1e58619e2d48903",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      }
+    },
+    {
+      "profile": "offline-progress-discovery-final2-ko2",
+      "result": "PASS",
+      "package_sha256": "ee8eaa62d9552cc9220885359d766b7311ea68de0183a768bb3e94bd3af85e52",
+      "source_manifest_sha256": "8518cda16372e7daf9ffaef96f2a0e00650ff08e00a2fe5ff1e58619e2d48903",
+      "production_files": 183,
+      "zip_crc": true,
+      "installed_and_source_identical": true,
+      "repaint_errors": 0,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      }
+    }
+  ],
+  "checks": {
+    "lua_spec_groups": 155,
+    "progress_sync_checks": 319,
+    "new_progress_sync_checks": 49,
+    "before_fix_reproductions": [
+      3,
+      5
+    ],
+    "python_suites": 34,
+    "python_tests": 351,
+    "luacheck_files": 407,
+    "lua_syntax_files": 409,
+    "namespace": true,
+    "timezones": 4,
+    "tls": true,
+    "python_compile": true,
+    "release_notes_extract": true
+  },
+  "limitations": [
+    "synthetic HTTP sync uses the existing percentage/word mapping; precise real-account writes and multi-device coordination remain pending",
+    "physical Kindle Oasis 2, additional real-account book types and failure conditions remain pending",
+    "FileManager compatibility beyond the existing adapter is deferred; this test uses it only as the native plugin host",
+    "no release or whole-goal completion; concentrated performance work remains deferred",
+    "synthetic chapter footnote appears twice in generated XHTML and repeats in native rendering; tracked separately for repair"
+  ]
+}

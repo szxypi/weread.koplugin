@@ -1,0 +1,87 @@
+{
+  "result": "FINISH_FLAG_AND_POSITION_RESTORED_ACK_SCHEMA_UNVERIFIED",
+  "checked_at": "2026-11-10T12:02:43.225334+00:00",
+  "original_mark_data_posts_attempted": 1,
+  "separately_authorized_restore_data_posts_attempted": 1,
+  "combined_data_posts_attempted": 2,
+  "original_two_step_experiment_stopped_after_first_post": true,
+  "original_strict_roundtrip_verified": false,
+  "fresh_restore_only_permission_consumed": true,
+  "automatic_retry_or_replay": false,
+  "restore": {
+    "result": "COMPLETION_FLAG_RESTORED_BY_INDEPENDENT_READ",
+    "data_writes_attempted": 1,
+    "authentication_posts_attempted": 0,
+    "intent_state": "cleared",
+    "observed_finished": false,
+    "original_flags_restored": true,
+    "unrelated_flags_and_members_unchanged": true,
+    "position_unchanged": true,
+    "acknowledgement_recognized": false,
+    "receipt_shape": {
+      "known_fields": [
+        "finishReading",
+        "status"
+      ],
+      "other_fields_count": 2,
+      "status_enum": "1",
+      "returned_book_id": false,
+      "returned_book_id_matches": false
+    },
+    "stages": [
+      {
+        "stage": "finish_restore_preflight_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_restore_preflight_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_restore_once",
+        "status": 200
+      },
+      {
+        "stage": "finish_restore_readback_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_restore_readback_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_restore_independent_final_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_restore_independent_final_position",
+        "status": 200
+      }
+    ]
+  },
+  "original_and_final_shelf_books": 139,
+  "finished_books_sequence": [
+    20,
+    21,
+    20
+  ],
+  "credential_entries_retained": true,
+  "private_responses_saved": false,
+  "raw_positions_snapshots_credentials_titles_or_account_in_report": false,
+  "executed_base_head": "a50a64f0f238e294d6e14d3369106f75d9e4c291",
+  "source_sha256": {
+    "scripts/secure_finish_experiment.py": "2235ada447b3826bffd6b9a33670ddd67421b4df2c008a5fc64b9768dec6c4ba",
+    "scripts/resolve_finish_experiment.py": "4f80ae337ebcbf6dfb961f039c6a636b7349013241758dfa9550a3c5af37c13a",
+    "scripts/test_resolve_finish_experiment.py": "93dd32ca1ef0dc60d35c6536394291f03a40f56babad46df14ddfeaa913ffde2"
+  },
+  "production_changed": false,
+  "lua_write_implemented": false,
+  "pending": [
+    "acknowledgement_semantics",
+    "lua_completion_ui",
+    "physical_ko2",
+    "other_server_metadata_restoration",
+    "remaining_roadmap_features",
+    "performance_after_full_feature_acceptance"
+  ]
+}

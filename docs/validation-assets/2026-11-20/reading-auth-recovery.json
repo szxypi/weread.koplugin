@@ -1,0 +1,125 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "stage": "reader",
+      "renewals": 1,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "4131667ad7e71a5de70ec1752cea41275aaac1d9ee1241a45ec6eb005fd44ce0"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "stage": "catalog",
+      "renewals": 1,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "e74546a842798471e977a7cca0fdf72f9df802970899709f4a70aca2128c2355"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "stage": "chapter",
+      "renewals": 1,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "d7b0da3066ce7df0cf80c6a9d307a92e3be2072e1dc0ba7930f53786ad385cb8"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "stage": "repeat401",
+      "renewals": 1,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "5599d10e8f60dcf1fbfd1b255482ecb69b0a4d62a7aacb0f0b74cd2d864d8433"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "stage": "forbidden",
+      "renewals": 0,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "3c7452f2920e670dc398d7b818b1b724dc712b958bfb3b2173ef8176995e6a91"
+    },
+    {
+      "screen": "600x800/167 DPI",
+      "stage": "limited",
+      "renewals": 0,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "88b2eba49c2f21f0c4130dd2befa292d6daa89d404233c95ebf92c9ad07ff7b6"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "stage": "reader",
+      "renewals": 1,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "cbd4914db0fd81080214805b0b4f7e20ca7afd58a0db983cbf50ec8a18ffebaa"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "stage": "catalog",
+      "renewals": 1,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "13d94e1a78bd0e510d7643c52beb1fac37e21eac3ad818c7f12d182646466db3"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "stage": "chapter",
+      "renewals": 1,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "a93bf254e57a848ec2eba7e29080821d1b7c081b5fa795e7bd794a150c8061bd"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "stage": "repeat401",
+      "renewals": 1,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "b38b3d723ba4298efec7e9a550d16b85bba08bfa76c892cb151c78d12c7c86e0"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "stage": "forbidden",
+      "renewals": 0,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "957c44cb9d8b49754abbc9f8057383c3e366c3bc143ae8ec1eb185a1347f3a24"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "stage": "limited",
+      "renewals": 0,
+      "same_account": true,
+      "credentials_checked_before_handoff": true,
+      "offline_reopen": true,
+      "package_sha256": "dae808c9639ca46bf77d39c52ca82b0bd7aba8478fe2f6c48020af2dd65740a2"
+    }
+  ],
+  "guest_qr_read_and_offline_reopen": true,
+  "component_checks": [
+    "explicit_401_only",
+    "scoped_requests",
+    "failed_cookie_discarded",
+    "owner_bound_successful_cookie",
+    "single_recovery",
+    "cancel_and_stale_context",
+    "renewal_receipt_verified"
+  ]
+}

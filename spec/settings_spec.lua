@@ -78,6 +78,10 @@ package.preload["weread.lib.book_store"] = function()
             saved_books[book_id] = book
             return true, { cache_dir = "/saved/" .. book_id }
         end,
+        patch_reading = function(_settings, book_id, index, patch)
+            expect(book_id=='7' and index==values.books['7'] and patch.progress==38,'reading patch did not use one indexed book')
+            return true
+        end,
         is_minimal_index = function(books)
             minimal_index_checked = books == values.books
             return false
@@ -103,8 +107,8 @@ expect(thought_popup.height_ratio == 0.70
     and thought_popup.contrast == 9
     and thought_popup.tap_to_page == false,
     "thought popup preferences should use the defaults")
-expect(settings:get("shelf").view_mode == "list",
-    "bookshelf should default to the low-overhead list view")
+expect(settings:get("shelf").view_mode == "cover",
+    "bookshelf should default to the e-ink cover view")
 expect(created_dirs[1] == "/data/weread"
     and created_dirs[2] == "/data/weread/cache",
     "settings directories were not initialized")
@@ -132,6 +136,9 @@ expect(flush_count == 2,
 local books = settings:get("books")
 expect(books["42"].loaded and books["42"].book_id == "42",
     "book indexes were not hydrated through BookStore")
+expect(settings:get_book("42").book_id=="42" and settings:get_book("42").loaded,
+    "one indexed book was not hydrated")
+expect(settings:get_book("missing")==nil,"unknown book read an unindexed cache")
 settings:set("books", {
     ["7"] = { title = "Seven" },
 })
@@ -139,6 +146,9 @@ expect(saved_books["7"].title == "Seven",
     "book was not persisted through BookStore")
 expect(values.books["7"].cache_dir == "/saved/7",
     "settings did not store the minimal book index")
+local patch_flushes=flush_count
+expect(settings:patch_reading_state('7',{progress=38}) and flush_count==patch_flushes,
+    'late reading patch flushed an older global settings snapshot')
 values.large_runtime_data = { "temporary" }
 settings:delete("large_runtime_data")
 expect(values.large_runtime_data == nil,
@@ -210,5 +220,58 @@ local ok = pcall(function() settings:get_device_fingerprint() end)
 expect(not ok and values.device_fingerprint == "invalid; cookie=value",
     "failed entropy reads must not save a partial or shared fallback fingerprint")
 setfenv(Settings.get_device_fingerprint, original_environment)
+
+local scope_path = os.tmpname()
+local original_path = settings.settings_file
+settings.settings_file = scope_path
+local function persist_scope()
+    local file = assert(io.open(scope_path, "w"))
+    file:write(string.format("return { account={user_vid=%q}, cookies={wr_vid=%q}, auth_epoch=%d }",
+        tostring(values.account.user_vid or ""), tostring(values.cookies.wr_vid or ""), values.auth_epoch))
+    file:close()
+end
+settings:update_auth({ account = { user_vid = "123", login_time = 10 }, cookies = { wr_vid = "123" } })
+persist_scope()
+local scope = settings:get_auth_scope()
+expect(scope and settings:auth_scope_matches(scope), "matching primary-file Web session was rejected")
+settings:merge_set_cookie("wr_skey=mocknew; Path=/")
+expect(settings:get_auth_scope().epoch == scope.epoch, "Cookie renewal must preserve native authorization owner")
+settings:update_auth({ account = { user_vid = "123", login_time = 10 } })
+expect(not settings:auth_scope_matches(scope) and settings:get_auth_scope().epoch > scope.epoch,
+    "same account re-login in the same second must invalidate old native grants")
+persist_scope()
+scope = settings:get_auth_scope()
+values.cookies.wr_vid = "456"
+expect(settings:get_auth_scope() == nil, "inconsistent cookie VID cannot authorize native access")
+values.cookies.wr_vid = "123"
+local file = assert(io.open(scope_path, "w"))
+file:write("return {account={user_vid='456'}, cookies={wr_vid='456'}, auth_epoch=999}") file:close()
+expect(not settings:auth_scope_matches(scope), "stale Settings instance cannot authorize another on-disk login")
+settings:update_auth({ account = { user_vid = "123", login_time = 10 } })
+expect(values.auth_epoch == 1000, "new Web login advances beyond disk session generation")
+settings:reset_account()
+expect(settings:get_auth_scope() == nil, "logout invalidates native account scope")
+persist_scope()
+local old_flush = store.flush
+local source_failure = false
+store.flush = function()
+    if source_failure then error("synthetic write failure") end
+    local source_file = assert(io.open(scope_path, "w"))
+    source_file:write(string.format("return {shelf={source=%q}}", values.shelf.source))
+    source_file:close()
+end
+expect(settings:set_shelf_source("native") and settings:get("shelf").source == "native",
+    "source preference did not survive primary-file readback")
+source_failure = true
+expect(not settings:set_shelf_source("gateway") and settings:get("shelf").source == "native",
+    "failed source preference write must restore prior selection")
+source_failure = false
+expect(not settings:set_shelf_source("invalid"), "unknown source preference accepted")
+local source_file = assert(io.open(scope_path, "w"))
+source_file:write("return {account={user_vid='456'}, cookies={wr_vid='456'}, auth_epoch=2000}") source_file:close()
+expect(not settings:set_shelf_source("gateway"), "stale source picker overwrote a new on-disk account")
+store.flush = old_flush
+os.remove(scope_path)
+settings.settings_file = original_path
 
 print(("settings_spec: %d checks"):format(checks))

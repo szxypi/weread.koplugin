@@ -1,0 +1,19 @@
+{
+  "result": "UTF16_SELECTION_OBSERVED",
+  "sample": "new self-authored TXT with a non-BMP character before the selected passage",
+  "official_reader_selection": true,
+  "selected_quote_in_fixture": true,
+  "selected_quote_unique": true,
+  "range_in_bounds": true,
+  "unicode_scalar_slice_matches": false,
+  "utf16_slice_matches": true,
+  "non_bmp_before_range": true,
+  "attempted_highlight_request_blocked": true,
+  "annotation_posts": 0,
+  "authentication_posts_during_observation": 0,
+  "existing_book_writes": 0,
+  "fixture_removed_and_independently_confirmed": true,
+  "shelf_restored": true,
+  "private_values_in_report": false,
+  "limitations": ["one short self-authored TXT selection", "no official saved-highlight display or cross-device verification", "leading BOM semantics unverified", "physical Kindle not tested"]
+}

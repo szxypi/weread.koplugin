@@ -19,6 +19,7 @@ local OverlapGroup = require("ui/widget/overlapgroup")
 local ScrollableContainer = require("ui/widget/container/scrollablecontainer")
 local Size = require("ui/size")
 local TextWidget = require("ui/widget/textwidget")
+local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
@@ -26,7 +27,11 @@ local Widget = require("ui/widget/widget")
 local Screen = Device.screen
 local FocusNav = require("weread.ui.focus_nav")
 local I18n = require("weread.lib.i18n")
+local ShelfFlags = require("weread.lib.shelf_flags")
+local ShelfGroups = require("weread.lib.shelf_groups")
+local ShelfTime = require("weread.lib.shelf_time")
 local CoverLayout = require("weread.lib.cover_layout")
+local HomeLayout = require("weread.lib.home_layout")
 local T = require("ffi/util").template
 local HEADER_SIZE = 72
 local icons_dir = debug.getinfo(1, "S").source:match("^@(.*/)") .. "../../icons/"
@@ -137,7 +142,7 @@ local FinishedBadge = Widget:extend{}
 
 function FinishedBadge:init()
     self.label = TextWidget:new{
-        text = _("Read complete"),
+        text = self.label_text or _("Read complete"),
         face = Font:getFace("cfont", 9),
     }
     -- Chinese glyphs occupy their line box unevenly. Use separate horizontal
@@ -254,21 +259,19 @@ function PrivateReadingBadge:paintTo(bb, x, y)
 end
 
 local function is_private_book(book)
-    local secret = book and book.secret
-    return secret == true or tonumber(secret) == 1
+    return ShelfFlags.display(book,'private')==true
 end
 
 local function is_finished(book)
-    return tonumber(book and book.finishReading) == 1
+    return ShelfFlags.display(book,'finished')==true
 end
 
 local DownloadStatus = Widget:extend{
     size = 1,
 }
 
--- Keep this small container local: it gives shelf titles a fixed measured
--- width and an explicit left paint origin without adding a KOReader widget
--- dependency that is absent from the lightweight Lua test harness.
+-- Keep the first title line aligned across short and wrapped book names.
+-- The owner also releases its native text row when the card is closed.
 local LeftAlignedTitle = Widget:extend{
     width = 1,
     height = 1,
@@ -282,8 +285,8 @@ function LeftAlignedTitle:init()
 end
 
 function LeftAlignedTitle:paintTo(bb, x, y)
-    local content_size = self.content:getSize()
-    self.content:paintTo(bb, x, y + math.floor((self.height - content_size.h) / 2))
+    self.dimen.x,self.dimen.y=x,y
+    self.content:paintTo(bb, x, y)
 end
 
 function LeftAlignedTitle:free(...)
@@ -392,6 +395,7 @@ local ShelfRow = InputContainer:extend{
     width = nil,
     font_size = 22,
     callback = nil,
+    hold_callback = nil,
     show_parent = nil,
 }
 
@@ -432,9 +436,14 @@ function ShelfRow:init()
             GestureRange:new{ ges = "tap", range = self.dimen },
         },
     }
+    if self.hold_callback then
+        self.ges_events.HoldShelfRow = { GestureRange:new{ ges = "hold", range = self.dimen } }
+        self.ges_events.HoldReleaseShelfRow = { GestureRange:new{ ges = "hold_release", range = self.dimen } }
+    end
 end
 
 function ShelfRow:onTapShelfRow()
+    if self._hold_handled then self._hold_handled = false; return true end
     if not self.callback then return true end
     self.frame.invert = true
     UIManager:widgetRepaint(self.frame, self.frame.dimen.x, self.frame.dimen.y)
@@ -444,6 +453,19 @@ function ShelfRow:onTapShelfRow()
     UIManager:setDirty(nil, "fast", self.frame.dimen)
     self.callback()
     return true
+end
+
+function ShelfRow:onHoldShelfRow()
+    if not self.hold_callback then return false end
+    self._hold_handled = true
+    self.hold_callback()
+    UIManager:nextTick(function() self._hold_handled = false end)
+    return true
+end
+
+function ShelfRow:onHoldReleaseShelfRow()
+    self._hold_handled = false
+    return self.hold_callback ~= nil
 end
 
 function ShelfRow:onFocus()
@@ -465,6 +487,9 @@ local CoverCell = InputContainer:extend{
     contain_cover = false,
     cached = false,
     callback = nil,
+    hold_callback = nil,
+    store_details = false,
+    store_reason = false,
     show_parent = nil,
 }
 
@@ -473,6 +498,7 @@ function CoverCell:init()
         width = self.width,
         height = self.height,
         size_scale = Screen:scaleBySize(1000) / 1000,
+        detail_lines = self.store_details and (self.store_reason and 2 or 1) or 0,
     }
     local border = Size.border.thin
     local image_width = math.max(1, metrics.card_width - 2 * border)
@@ -553,10 +579,11 @@ function CoverCell:init()
         cover_layers[#cover_layers + 1] = shadow
     end
     cover_layers[#cover_layers + 1] = cover_card
-    self._finished = is_finished(self.book)
+    self._finished = self.finish_pending and self.finish_pending.desired or false
+    if not self.finish_pending then self._finished = is_finished(self.book) end
     self._has_finished_badge = self._finished
-    if self._finished then
-        local badge = FinishedBadge:new{}
+    if self._finished or self.finish_pending then
+        local badge = FinishedBadge:new{label_text=self.finish_pending and _(self.finish_pending.phase=='queued' and 'Pending sync' or 'Needs review') or nil}
         -- Keep the completion stamp inside the rounded cover silhouette. If it
         -- touches the outer top-right corner, its square white background
         -- hides the cover radius and makes the card read as a right angle.
@@ -566,6 +593,15 @@ function CoverCell:init()
             badge_inset,
         }
         cover_layers[#cover_layers + 1] = badge
+        self._finished_badge=badge
+    end
+    if ShelfFlags.display(self.book,'pinned')==true then
+        local padding=math.max(1,Screen:scaleBySize(2))
+        local badge=FrameContainer:new{padding=padding,margin=0,bordersize=Size.border.thin,radius=0,
+            background=Blitbuffer.COLOR_WHITE,TextWidget:new{text=_('Pinned'),face=Font:getFace('cfont',12),
+                max_width=math.max(1,math.floor(metrics.card_width*.4)-padding*2)}}
+        local inset=math.max(border,Screen:scaleBySize(4))
+        badge.overlap_offset={inset,inset};cover_layers[#cover_layers+1]=badge;self._pinned_badge=badge
     end
     self._private_reading = is_private_book(self.book)
     self._has_private_badge = self._private_reading
@@ -586,21 +622,45 @@ function CoverCell:init()
         self._private_badge = badge
         self._private_badge_size = badge_size
     end
+    if type(self.book._shelf_progress) == "number" then
+        local badge = FrameContainer:new{
+            padding = math.max(1, Screen:scaleBySize(2)), margin = 0,
+            bordersize = Size.border.thin, radius = 0,
+            background = Blitbuffer.COLOR_WHITE,
+            TextWidget:new{ text = tostring(self.book._shelf_progress) .. "%", face = Font:getFace("cfont", 14) },
+        }
+        local size = badge:getSize()
+        local inset = math.max(border, Screen:scaleBySize(4))
+        badge.overlap_offset = {
+            math.max(0, metrics.card_width - size.w - inset),
+            math.max(0, metrics.card_height - size.h - inset),
+        }
+        cover_layers[#cover_layers + 1] = badge
+        self._progress_badge = badge
+    end
     local cover = OverlapGroup:new(cover_layers)
     local title = self.book.title or self.book.bookId or self.book.book_id or _("Untitled")
     local status_size = math.max(1, math.min(metrics.title_height, Screen:scaleBySize(10)))
     local title_gap = math.max(1, Screen:scaleBySize(2))
     self._has_download_status = self.cached == true
     self._download_status_checked = self._has_download_status
-    local title_widget = TextWidget:new{
-        text = title,
+    local title_widget = TextBoxWidget:new{
+        text = tostring(title):gsub("[\r\n\t]", " "),
         face = Font:getFace("cfont", 15),
-        max_width = math.max(1, metrics.cover_width
+        width = math.max(1, metrics.cover_width
             - (self._has_download_status and status_size + title_gap or 0)),
+        height = metrics.title_height,
+        height_adjust = true,
+        height_overflow_show_ellipsis = true,
+        alignment = "left",
     }
-    local title_line = HorizontalGroup:new{}
+    self._title_widget = title_widget
+    local title_line = HorizontalGroup:new{ align = "top" }
     if self._has_download_status then
-        title_line[#title_line + 1] = DownloadStatus:new{ size = status_size }
+        title_line[#title_line + 1] = CenterContainer:new{
+            dimen = Geom:new{ w = status_size, h = math.floor(metrics.title_height / 2) },
+            DownloadStatus:new{ size = status_size },
+        }
         title_line[#title_line + 1] = HorizontalSpan:new{ width = title_gap }
     end
     title_line[#title_line + 1] = title_widget
@@ -611,6 +671,35 @@ function CoverCell:init()
         height = metrics.title_height,
         content = title_line,
     }
+    local card_contents=VerticalGroup:new{
+        align = "center",
+        CenterContainer:new{ dimen = Geom:new{ w = metrics.cover_width, h = metrics.cover_height }, cover },
+        VerticalSpan:new{ width = metrics.title_gap },
+        CenterContainer:new{ dimen = Geom:new{ w = metrics.cover_width, h = metrics.title_height }, title_container },
+    }
+    if self.store_details then
+        card_contents[#card_contents+1]=VerticalSpan:new{width=metrics.detail_gap}
+        local author=type(self.book.author)=='string' and self.book.author:gsub('[%c]+',' ') or ''
+        local info=self.book._public_info
+        local rating=type(info)=='table' and info.newRating
+        local count=type(info)=='table' and info.newRatingCount
+        if type(rating)=='number' and rating==rating and rating>0 and rating<=1000
+            and type(count)=='number' and count>0 and count<=1e10 and count%1==0 then
+            local score=_('Rating')..' '..string.format('%.1f',rating/100)
+            author=author~='' and score..' · '..author or score
+        end
+        local fields={author}
+        if self.store_reason then fields[#fields+1]=type(self.book.reason)=='string' and self.book.reason:gsub('[%c]+',' ') or '' end
+        self._store_details={}
+        self._store_detail_frames={}
+        for _,value in ipairs(fields) do
+            local line=TextWidget:new{text=value,face=Font:getFace('cfont',13),max_width=metrics.cover_width}
+            self._store_details[#self._store_details+1]=line
+            local frame=LeftAlignedTitle:new{width=metrics.cover_width,height=metrics.detail_line_height,content=line}
+            self._store_detail_frames[#self._store_detail_frames+1]=frame
+            card_contents[#card_contents+1]=frame
+        end
+    end
     self.frame = FrameContainer:new{
         bordersize = 0,
         radius = 0,
@@ -620,18 +709,7 @@ function CoverCell:init()
         show_parent = self.show_parent,
         CenterContainer:new{
             dimen = Geom:new{ w = self.width, h = self.height },
-            VerticalGroup:new{
-                align = "center",
-                CenterContainer:new{
-                    dimen = Geom:new{ w = metrics.cover_width, h = metrics.cover_height },
-                    cover,
-                },
-                VerticalSpan:new{ width = metrics.title_gap },
-                CenterContainer:new{
-                    dimen = Geom:new{ w = metrics.cover_width, h = metrics.title_height },
-                    title_container,
-                },
-            },
+            card_contents,
         },
     }
     self[1] = self.frame
@@ -641,11 +719,29 @@ function CoverCell:init()
             GestureRange:new{ ges = "tap", range = self.dimen },
         },
     }
+    if self.hold_callback then
+        self.ges_events.HoldCoverCell = { GestureRange:new{ ges = "hold", range = self.dimen } }
+        self.ges_events.HoldReleaseCoverCell = { GestureRange:new{ ges = "hold_release", range = self.dimen } }
+    end
 end
 
 function CoverCell:onTapCoverCell()
+    if self._hold_handled then self._hold_handled = false; return true end
     if self.callback then self.callback() end
     return true
+end
+
+function CoverCell:onHoldCoverCell()
+    if not self.hold_callback then return false end
+    self._hold_handled = true
+    self.hold_callback()
+    UIManager:nextTick(function() self._hold_handled = false end)
+    return true
+end
+
+function CoverCell:onHoldReleaseCoverCell()
+    self._hold_handled = false
+    return self.hold_callback ~= nil
 end
 
 function CoverCell:onFocus()
@@ -668,9 +764,13 @@ local LibraryView = FocusManager:extend{
     sort_label = nil,
     filter_label = nil,
     groups = nil,
+    group_membership_incomplete = false,
     group_key = nil,
+    group_keys = nil,
     group_label = nil,
     on_select_group = nil,
+    on_select_groups = nil,
+    on_manage_local_groups = nil,
     on_display_change = nil,
     scroll_offset = nil,
     on_switch = nil,
@@ -678,7 +778,14 @@ local LibraryView = FocusManager:extend{
     on_refresh = nil,
     on_sort = nil,
     on_filter = nil,
+    on_import_mp_link = nil,
+    on_imported_mp_links = nil,
+    on_manage_mp_accounts = nil,
+    on_offline_changes = nil,
     on_select = nil,
+    on_hold = nil,
+    store_details = false,
+    store_reason = false,
     paged = false,
     page = 1,
     page_size = 10,
@@ -696,7 +803,95 @@ local function after_tap(callback)
     return function() UIManager:nextTick(callback) end
 end
 
+function LibraryView:actionBar(entries, navigation)
+    if not entries or #entries == 0 then return nil end
+    local buttons = {}
+    local width = math.floor(self.screen_w / #entries)
+    for index, entry in ipairs(entries) do
+        buttons[#buttons + 1] = Button:new{
+            text = entry.text, width = index == #entries and self.screen_w - width * (index - 1) or width,
+            height = Screen:scaleBySize(54), text_font_size = 18, avoid_text_truncation = false,
+            text_font_bold = entry.active == true,
+            enabled = entry.enabled ~= false,
+            radius = 0, margin = 0, padding = 0, bordersize = 0,
+            show_parent = self, callback = after_tap(entry.active and function() end or entry.callback or function() end),
+            hold_callback = entry.hold_callback and after_tap(entry.hold_callback) or nil,
+        }
+    end
+    if navigation then self._navigation_buttons = buttons else self._action_buttons = buttons end
+    return HorizontalGroup:new(buttons)
+end
+
+function LibraryView:portalHeader()
+    local HeaderLayout = require("weread.lib.home_header_layout")
+    local size = Screen:scaleBySize(72)
+    local entries = {
+        { key = "back", width = size, callback = function() self:onClose() end },
+        { key = "title", width = math.max(1, self.screen_w - (self.on_settings and 4 or 3) * size) },
+        { key = "search", width = size, callback = self.on_search },
+        { key = "refresh", width = size, callback = self.on_refresh },
+    }
+    if self.on_settings then table.insert(entries, #entries, { key = "settings", width = size, callback = self.on_settings }) end
+    local items = HeaderLayout.arrange(self.screen_w, entries, 0)
+    local widgets, buttons, x = {}, {}, 0
+    for _, item in ipairs(items) do
+        if item.x > x then widgets[#widgets + 1] = HorizontalSpan:new{ width = item.x - x } end
+        local icons = { back = "chevron.left", search = "appbar.search", refresh = "appbar.search", settings = "appbar.settings" }
+        local button = Button:new{
+            text = item.key == "title" and self.title or nil, icon = icons[item.key],
+            width = item.width, height = size, text_font_size = 24, text_font_bold = true,
+            avoid_text_truncation = false,
+            enabled = item.key == "title" or item.callback ~= nil, radius = 0, margin = 0, padding = 0, bordersize = 0,
+            show_parent = self, callback = after_tap(item.callback or function() end),
+        }
+        if item.key == "refresh" then
+            button.label_widget:free()
+            button.label_widget = IconWidget:new{
+                file = icons_dir .. "shelf-refresh.svg",
+                width = Screen:scaleBySize(36), height = Screen:scaleBySize(36),
+            }
+            button.label_container[1] = button.label_widget
+            self.refresh_button = button
+        elseif item.key == "settings" then self.settings_button = button
+        end
+        widgets[#widgets + 1], buttons[#buttons + 1] = button, button
+        x = item.x + item.width
+    end
+    self._header_buttons = buttons
+    return VerticalGroup:new{
+        align = "left", HorizontalGroup:new(widgets),
+        LineWidget:new{ dimen = Geom:new{ w = self.screen_w, h = Size.border.thin } },
+    }
+end
+
+function LibraryView:homeTextRow(text, height, font_size, bold)
+    local label = TextWidget:new{
+        text = text, face = Font:getFace("cfont", font_size), bold = bold,
+        max_width = math.max(1, self.screen_w - 2 * Size.padding.default),
+    }
+    local frame = FrameContainer:new{
+        padding = 0, margin = 0, bordersize = 0, background = Blitbuffer.COLOR_WHITE,
+        CenterContainer:new{
+            dimen = Geom:new{ w = self.screen_w, h = Screen:scaleBySize(height) }, label,
+        },
+    }
+    return frame, label
+end
+
+function LibraryView:updateHomeStatus(text)
+    if not self._home_status_label or self._home_status_label.text == text then return end
+    self._home_status_label:setText(text)
+    UIManager:setDirty(self, "ui", self._home_status_frame.dimen)
+end
+
+function LibraryView:updateHomeSummary(text)
+    if not self._summary_button or self._summary_button.text == text then return end
+    self._summary_button:setText(text, self._summary_button.width)
+    UIManager:setDirty(self, "ui", self._summary_button.dimen)
+end
+
 function LibraryView:headerBar()
+    if self.portal then return self:portalHeader() end
     local size = Screen:scaleBySize(HEADER_SIZE)
     local title = self.mode == "public_account" and _("Public Accounts")
         or T(_("Books · %1"), self.group_label or _("All"))
@@ -739,6 +934,7 @@ function LibraryView:headerBar()
 end
 
 function LibraryView:setRefreshing(refreshing)
+    if not self.refresh_button then return end
     self.refresh_button:enableDisable(not refreshing)
     UIManager:setDirty(self, "ui", self.refresh_button.dimen)
 end
@@ -747,14 +943,37 @@ function LibraryView:getScrollOffset()
     return self.scroll and self.scroll:getScrolledOffset()
 end
 
+function LibraryView:getVisibleBooks()
+    local source = self.mode == "public_account" and (self.accounts or {}) or (self.books or {})
+    local result = {}
+    if self.paged then
+        for index = (self.page - 1) * self.page_size + 1, math.min(#source, self.page * self.page_size) do
+            result[#result + 1] = source[index]
+        end
+        return result
+    end
+    local offset = self:getScrollOffset()
+    local top, height, y = offset and offset.y or 0, self.scroll.dimen.h, 0
+    for index, row in ipairs(self._item_rows) do
+        local bottom = y + row:getSize().h
+        if bottom > top and y < top + height then result[#result + 1] = source[index] end
+        if y >= top + height then break end
+        y = bottom + 1 -- list divider
+    end
+    return result
+end
+
 function LibraryView:showSourceMenu(menu_mode)
+    if self._shelf_closed then return end
+    local Popup=require('weread.ui.shelf_popup')
     local Menu = require("ui/widget/menu")
     menu_mode = menu_mode or self.mode
     local width = math.floor(self.screen_w * 0.9)
     local dialog
     local function select(callback)
         return after_tap(function()
-            UIManager:close(dialog)
+            if not Popup.current(self,dialog) then return end
+            Popup.close(self)
             callback()
         end)
     end
@@ -787,7 +1006,7 @@ function LibraryView:showSourceMenu(menu_mode)
     local function add_group(key, label, count)
         items[#items + 1] = {
             text = label,
-            mandatory = (self.mode == "books" and self.group_key == key and "✓  " or "")
+            mandatory = (self.mode == "books" and self.group_key == key and #(self.group_keys or {})==0 and "✓  " or "")
                 .. tostring(count),
             callback = select(function()
                 if self.on_select_group then self.on_select_group(key) end
@@ -796,8 +1015,21 @@ function LibraryView:showSourceMenu(menu_mode)
     end
     if menu_mode == "books" then
         add_group(nil, _("All books"), self.total_books or #(self.books or {}))
-        for _, group in ipairs(self.groups or {}) do
-            add_group(group.key, group.label, #group.books)
+        if self.on_select_groups and (#(self.groups or {})>0 or #(self.group_keys or {})>0) then
+            items[#items+1]={text=_('Select multiple groups'),mandatory=#(self.group_keys or {})>0 and '✓' or '',
+                callback=select(function() self:showMultiGroupMenu() end)}
+        end
+        for _index, group in ipairs(self.groups or {}) do
+            local label = group.label
+            if not ShelfGroups.unique(self.groups, group.key) then label = T(_('Unavailable: %1'), label) end
+            if group.incomplete then label = T(_('%1 (incomplete)'),label) end
+            add_group(group.key, label, #group.books)
+        end
+        if self.group_membership_incomplete then
+            items[#items+1]={text=_('Some group memberships are unknown. Refresh the bookshelf.'),select_enabled=false}
+        end
+        if self.on_manage_local_groups then
+            items[#items+1]={text=_('Manage local groups'),callback=select(function() self.on_manage_local_groups() end)}
         end
     else
         items[1] = {
@@ -840,14 +1072,64 @@ function LibraryView:showSourceMenu(menu_mode)
     end
     -- Keep popout dismissal, but use square corners like the bookshelf.
     dialog[1].radius = 0
-    UIManager:show(dialog)
+    Popup.show(self,dialog)
+end
+
+function LibraryView:showMultiGroupMenu()
+    if self._shelf_closed or not self.on_select_groups then return end
+    local Popup=require('weread.ui.shelf_popup')
+    local Menu=require('ui/widget/menu')
+    local selected={}
+    for _,key in ipairs(self.group_keys or {}) do selected[key]=true end
+    if not next(selected) and self.group_key then selected[self.group_key]=true end
+    local items,dialog={},nil
+    items[#items+1]={text=_('Apply selected groups'),callback=after_tap(function()
+        if not Popup.current(self,dialog) then return end
+        local keys={};for key in pairs(selected) do keys[#keys+1]=key end
+        table.sort(keys);Popup.close(self);self.on_select_groups(keys)
+    end)}
+    items[#items+1]={text=_('Clear group selection'),callback=after_tap(function()
+        if not Popup.current(self,dialog) then return end
+        selected={};for i=3,#items do items[i].mandatory='' end;dialog:updateItems()
+    end)}
+    local function add_group(key,label,enabled)
+        local item={text=label,mandatory=selected[key] and '✓' or '',select_enabled=enabled}
+        item.callback=after_tap(function()
+            if not Popup.current(self,dialog) or item.select_enabled==false then return end
+            selected[key]=not selected[key] or nil
+            item.mandatory=selected[key] and '✓' or '';dialog:updateItems()
+        end)
+        items[#items+1]=item
+    end
+    local missing={}
+    for key in pairs(selected) do if not ShelfGroups.unique(self.groups,key) then missing[#missing+1]=key end end
+    table.sort(missing)
+    for _i,key in ipairs(missing) do add_group(key,_('Unavailable saved group'),true) end
+    for _index,group in ipairs(self.groups or {}) do
+        local label=group.incomplete and T(_('%1 (incomplete)'),group.label) or group.label
+        add_group(group.key,label,ShelfGroups.unique(self.groups,group.key)~=nil)
+    end
+    if self.group_membership_incomplete then
+        items[#items+1]={text=_('Some group memberships are unknown. Refresh the bookshelf.'),select_enabled=false}
+    end
+    local row_height=Screen:scaleBySize(54)
+    local perpage=math.max(1,math.min(#items,math.floor((self.screen_h-Screen:scaleBySize(120))/row_height)))
+    dialog=Menu:new{title=_('Select multiple groups'),width=math.floor(self.screen_w*.9),
+        height=math.min(self.screen_h,Screen:scaleBySize(120)+perpage*row_height),
+        item_table=items,items_per_page=perpage,items_font_size=22}
+    Popup.show(self,dialog)
 end
 
 function LibraryView:showOptions()
+    if self._shelf_closed then return end
+    local Popup=require('weread.ui.shelf_popup')
     local ButtonDialog = require("ui/widget/buttondialog")
     local dialog
     local function action(callback)
-        return after_tap(function() UIManager:close(dialog) callback() end)
+        return after_tap(function()
+            if not Popup.current(self,dialog) then return end
+            Popup.close(self);callback()
+        end)
     end
     local buttons = {{ {
         text = T(_("Sort: %1"), self.sort_label or ""),
@@ -866,6 +1148,15 @@ function LibraryView:showOptions()
             }
         end
         buttons[#buttons + 1] = row
+    elseif self.mode == "public_account" and self.on_import_mp_link and self.on_imported_mp_links then
+        buttons[#buttons + 1] = {{text = _("Import article link"), callback = action(self.on_import_mp_link)}}
+        buttons[#buttons + 1] = {{text = _("Imported articles"), callback = action(self.on_imported_mp_links)}}
+        if self.on_manage_mp_accounts then
+            buttons[#buttons + 1] = {{text = _("Manage public account subscriptions"), callback = action(self.on_manage_mp_accounts)}}
+        end
+    end
+    if self.on_offline_changes then
+        buttons[#buttons+1]={{text=_('Offline changes'),callback=action(self.on_offline_changes)}}
     end
     if not self.cover_mode then
         local row = {}
@@ -879,17 +1170,27 @@ function LibraryView:showOptions()
     end
     dialog = ButtonDialog:new{ title = _("Bookshelf"), buttons = buttons }
     dialog.movable[1].radius = 0
-    UIManager:show(dialog)
+    Popup.show(self,dialog)
 end
 
 function LibraryView:itemStatus(book)
     if self.mode == "public_account" then return book.author or "" end
-    local status = ""
-    if book.readUpdateTime and book.readUpdateTime > 0 then
-        status = os.date("%Y-%m-%d", book.readUpdateTime)
+    local status
+    local pending=self.finish_pending and self.finish_pending[tostring(book.bookId or book.book_id or '')]
+    if pending then
+        status=_(pending.desired and 'Done' or 'Not finished')..' · '.._(pending.phase=='queued' and 'Pending sync' or 'Needs review')
     elseif is_finished(book) then
         status = _("Done")
+    elseif type(book._shelf_progress) == "number" then
+        status = tostring(book._shelf_progress) .. "%"
+    else
+        status = ShelfTime.date(self.last_read_times and self.last_read_times[book] or book.readUpdateTime) or ""
     end
+    local parts={}
+    if ShelfFlags.display(book,'pinned')==true then parts[#parts+1]=_('Pinned') end
+    if is_private_book(book) then parts[#parts+1]=_('Private') end
+    if status~='' then parts[#parts+1]=status end
+    status=table.concat(parts,' · ')
     if book._cached then
         status = status ~= "" and ("✓  " .. status) or "✓"
     end
@@ -926,7 +1227,7 @@ function LibraryView:content()
     if #source == 0 then
         table.insert(content, VerticalSpan:new{ width = Size.padding.large })
         table.insert(content, TextWidget:new{
-            text = self.keyword and self.keyword ~= "" and _("No shelf matches.") or _("No items."),
+            text = self.empty_text or (self.keyword and self.keyword ~= "" and _("No shelf matches.") or _("No items.")),
             face = Font:getFace("cfont", 20),
             max_width = self.content_width,
         })
@@ -965,16 +1266,22 @@ function LibraryView:content()
                 or cell_height
             local cover_cell = CoverCell:new{
                 book = book,
+                finish_pending = self.finish_pending and self.finish_pending[tostring(book.bookId or book.book_id or '')],
                 cached = book._cached == true,
                 cover_path = self.cover_paths and self.cover_paths[book] or nil,
                 cover_loading = self.cover_loading and self.cover_loading[book] == true,
                 contain_cover = self.mode == "public_account",
+                store_details = self.store_details,
+                store_reason = self.store_reason,
                 width = width,
                 height = math.max(1, height),
                 show_parent = self,
                 callback = function()
                     if self.on_select then self.on_select(book, self.mode) end
                 end,
+                hold_callback = self.on_hold and self.mode == "books" and function()
+                    self.on_hold(book, self.mode)
+                end or nil,
             }
             self._item_rows[#self._item_rows + 1] = cover_cell
             grid_row[#grid_row + 1] = cover_cell
@@ -991,6 +1298,9 @@ function LibraryView:content()
                 callback = function()
                     if self.on_select then self.on_select(book, self.mode) end
                 end,
+                hold_callback = self.on_hold and self.mode == "books" and function()
+                    self.on_hold(book, self.mode)
+                end or nil,
             }
             self._item_rows[#self._item_rows + 1] = shelf_row
             self._focus_item_rows[#self._focus_item_rows + 1] = { shelf_row }
@@ -1054,10 +1364,32 @@ function LibraryView:init()
     if Device:hasKeys() then self.key_events.Close = { { Device.input.group.Back } } end
 
     local header = self:headerBar()
+    local actions = self:actionBar(self.actions)
+    local navigation = self:actionBar(self.navigation, true)
+    local status, summary, recent_heading
+    if self.home_layout then
+        if self.home_layout.show_status then
+            status, self._home_status_label = self:homeTextRow(self.status_text or "", HomeLayout.HEIGHTS.status, 13, false)
+            self._home_status_frame = status
+        end
+        if self.home_layout.show_summary then
+            summary = Button:new{
+                text = self.summary_text or "", width = self.screen_w, height = Screen:scaleBySize(HomeLayout.HEIGHTS.summary),
+                text_font_size = 16, avoid_text_truncation = false, radius = 0, margin = 0, padding = 0, bordersize = 0,
+                show_parent = self, callback = after_tap(self.on_summary or function() end),
+            }
+            self._summary_button = summary
+        end
+        recent_heading = self:homeTextRow(_("Recently read"), HomeLayout.HEIGHTS.recent_label, 16, true)
+    end
     self:preparePagination()
     local page_bar = self:pageBar()
     local scroll_h = math.max(1, self.screen_h - header:getSize().h
-        - (page_bar and page_bar:getSize().h or 0))
+        - (page_bar and page_bar:getSize().h or 0)
+        - (actions and actions:getSize().h or 0)
+        - (status and status:getSize().h or 0) - (summary and summary:getSize().h or 0)
+        - (recent_heading and recent_heading:getSize().h or 0)
+        - (navigation and navigation:getSize().h or 0))
     if self.cover_mode then
         local rows = math.max(1, math.floor(tonumber(self.cover_rows) or 2))
         self.cover_content_height = scroll_h
@@ -1071,26 +1403,62 @@ function LibraryView:init()
     }
     self.scroll = scroll
     if self.scroll_offset and not self.paged then scroll:setScrolledOffset(self.scroll_offset) end
+    if not self.paged and self.on_visible_changed then
+        local scroll_by = scroll._scrollBy
+        scroll._scrollBy = function(container, ...)
+            scroll_by(container, ...)
+            if self._visible_task then UIManager:unschedule(self._visible_task) end
+            self._visible_task = function()
+                self._visible_task = nil
+                self.on_visible_changed()
+            end
+            UIManager:scheduleIn(0.3, self._visible_task)
+        end
+    end
     local rows = { self._header_buttons }
-    for _i, item_row in ipairs(self._focus_item_rows) do
-        rows[#rows + 1] = item_row
+    local first_item_row
+    local function book_rows()
+        first_item_row = #self._focus_item_rows > 0 and #rows + 1 or nil
+        for _i, item_row in ipairs(self._focus_item_rows) do rows[#rows + 1] = item_row end
+        if self._page_buttons then rows[#rows + 1] = self._page_buttons end
+    end
+    if self.home_layout then
+        for _, key in ipairs(self.home_layout.sections) do
+            if key == "shortcuts" and self._action_buttons then rows[#rows + 1] = self._action_buttons
+            elseif key == "summary" and summary then rows[#rows + 1] = { summary }
+            elseif key == "recent" then book_rows() end
+        end
+    else
+        if self._action_buttons then rows[#rows + 1] = self._action_buttons end
+        book_rows()
     end
     local outside_scroll = {}
     for _i, button in ipairs(self._header_buttons) do outside_scroll[button] = true end
     if self._page_buttons then
-        rows[#rows + 1] = self._page_buttons
         for _i, button in ipairs(self._page_buttons) do outside_scroll[button] = true end
     end
+    if summary then outside_scroll[summary] = true end
+    if self._navigation_buttons then rows[#rows + 1] = self._navigation_buttons end
+    for _, button in ipairs(self._action_buttons or {}) do outside_scroll[button] = true end
+    for _, button in ipairs(self._navigation_buttons or {}) do outside_scroll[button] = true end
     FocusNav.apply(self, rows, { scroll = scroll, outside_scroll = outside_scroll })
-    FocusNav.initialFocus(self, 1, #self._focus_item_rows > 0 and 2 or 1)
+    FocusNav.initialFocus(self, 1, first_item_row or 1)
+    local body = { align = "left", header }
+    if self.home_layout then
+        local recent = VerticalGroup:new{ align = "left", recent_heading, scroll,
+            page_bar or VerticalSpan:new{ width = 0 } }
+        local sections = { status = status, summary = summary, shortcuts = actions, recent = recent }
+        for _, key in ipairs(self.home_layout.sections) do if sections[key] then body[#body + 1] = sections[key] end end
+    else
+        if actions then body[#body + 1] = actions end
+        body[#body + 1] = scroll
+        body[#body + 1] = page_bar or VerticalSpan:new{ width = 0 }
+    end
+    if navigation then body[#body + 1] = navigation end
     self[1] = FrameContainer:new{
         background = Blitbuffer.COLOR_WHITE,
         bordersize = 0, padding = 0, margin = 0,
-        dimen = self.dimen:copy(),
-        VerticalGroup:new{
-            align = "left", header, scroll,
-            page_bar or VerticalSpan:new{ width = 0 },
-        },
+        dimen = self.dimen:copy(), VerticalGroup:new(body),
     }
     if self.paged then
         -- Let horizontal swipes reach the shelf pager, not the inner scroller.
@@ -1130,20 +1498,33 @@ function LibraryView:onShow()
 end
 
 function LibraryView:onCloseWidget()
+    self._shelf_closed=true
+    require('weread.ui.shelf_popup').close(self)
+    if self._visible_task then UIManager:unschedule(self._visible_task) self._visible_task = nil end
     UIManager:setDirty(nil, function() return "ui", self.dimen end)
 end
 
 function LibraryView:onClose()
+    if self.on_close then self.on_close() end
     UIManager:close(self)
     return true
 end
 
 local M = {}
 
+function M.navigation(entries, parent)
+    return LibraryView.actionBar(parent, entries, true)
+end
+
 -- Measure before fetching covers, so the worker and the visible grid agree.
-function M.getLayout(cover_mode, count, mode)
+function M.getLayout(cover_mode, count, mode, extra_height, options)
+    options = options or {}
     local width, height = Screen:getWidth(), Screen:getHeight()
-    local header_height = Screen:scaleBySize(HEADER_SIZE) + Size.border.thin
+    local header_height = Screen:scaleBySize(HEADER_SIZE + (extra_height or 0)) + Size.border.thin
+    if options.home then
+        header_height = Screen:scaleBySize(HEADER_SIZE) + Size.border.thin
+            + HomeLayout.reserved(options.home, function(value) return Screen:scaleBySize(value) end)
+    end
     local page_bar_height = Screen:scaleBySize(54)
     local function layout(reserved)
         if cover_mode then
@@ -1151,6 +1532,12 @@ function M.getLayout(cover_mode, count, mode)
                 width = width, height = height,
                 size_scale = Screen:scaleBySize(1000) / 1000,
                 reserved_height = reserved,
+                max_columns = options.store and 3 or nil,
+                max_rows = options.store and 2 or nil,
+                min_cell_width = options.home and options.home.density == "compact"
+                    and math.ceil(140 * math.sqrt(Screen:scaleBySize(1000) / 1000)) or nil,
+                min_cell_height = options.home and options.home.density == "compact"
+                    and math.ceil(180 * math.sqrt(Screen:scaleBySize(1000) / 1000)) or nil,
             }
         end
         local row = ShelfRow:new{ width = width, text = "", font_size = mode == "public_account" and 22 or 20 }
@@ -1167,11 +1554,23 @@ function M.show(data, callbacks)
     callbacks = callbacks or {}
     local view = LibraryView:new{
         mode = data.mode,
+        portal = data.portal,
+        home_layout = data.home_layout,
+        store_details = data.store_details,
+        store_reason = data.store_reason,
+        status_text = data.status_text,
+        summary_text = data.summary_text,
+        empty_text = data.empty_text,
+        actions = data.actions,
+        navigation = data.navigation,
         title = data.title,
         wp_enable = data.wp_enable ~= false,
         books = data.books,
+        last_read_times = data.last_read_times,
         groups = data.groups,
+        group_membership_incomplete = data.group_membership_incomplete,
         group_key = data.group_key,
+        group_keys = data.group_keys,
         group_label = data.group_label,
         total_books = data.total_books,
         scroll_offset = data.scroll_offset,
@@ -1188,15 +1587,27 @@ function M.show(data, callbacks)
         cover_cell_height = data.cover_cell_height,
         cover_paths = data.cover_paths,
         cover_loading = data.cover_loading,
+        finish_pending = data.finish_pending,
+        on_close = callbacks.on_close,
         on_switch = callbacks.on_switch,
         on_select_group = callbacks.on_select_group,
+        on_select_groups = callbacks.on_select_groups,
+        on_manage_local_groups = callbacks.on_manage_local_groups,
         on_display_change = callbacks.on_display_change,
         on_search = callbacks.on_search,
         on_refresh = callbacks.on_refresh,
+        on_settings = callbacks.on_settings,
+        on_summary = callbacks.on_summary,
         on_sort = callbacks.on_sort,
         on_filter = callbacks.on_filter,
+        on_import_mp_link = callbacks.on_import_mp_link,
+        on_imported_mp_links = callbacks.on_imported_mp_links,
+        on_manage_mp_accounts = callbacks.on_manage_mp_accounts,
+        on_offline_changes = callbacks.on_offline_changes,
         on_select = callbacks.on_select,
+        on_hold = callbacks.on_hold,
         on_page_changed = callbacks.on_page_changed,
+        on_visible_changed = callbacks.on_visible_changed,
     }
     UIManager:show(view)
     return view

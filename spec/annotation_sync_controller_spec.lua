@@ -673,5 +673,21 @@ do
     assert(spawned > killed and prevented == allowed)
     WorkerSettings.capture = capture
 end
+do
+    local captured, args = {}, nil
+    host.client.capture_annotation_access = function() return captured end
+    host.requireLogin = function(_self, cookie, api) args = { cookie, api }; return true end
+    assert(host:_requireAnnotationAccess() and args[1] == true and args[2] == false,
+        "native annotation access still requested a Skill key")
+    captured = nil
+    assert(host:_requireAnnotationAccess() and args[1] == true and args[2] == true,
+        "missing native and gateway access bypassed login gate")
+    cache.auto_prefetch_next_chapter, cache.prefetch_annotations = true, true
+    host.settings = { get = function() return cache end }
+    host.isNetworkConnected = function() return true end
+    assert(not host:canPrefetchAnnotations(), "prefetch started without an annotation read channel")
+    captured = {}
+    assert(host:canPrefetchAnnotations(), "native-only authorization blocked annotation prefetch")
+end
 helper.cleanup()
 print("annotation_sync_controller_spec: consent, completion, cancellation, sessions and prefetch passed")

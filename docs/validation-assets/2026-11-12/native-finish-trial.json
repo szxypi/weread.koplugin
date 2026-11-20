@@ -1,0 +1,550 @@
+{
+  "result": "PASS",
+  "scope": "production single-operation finished mark and fresh restoration with host readback",
+  "code_head": "289ac30ccd623132b4eb94170d9b52f0abe73ad3",
+  "actual": {
+    "result": "PASS",
+    "phase": "complete",
+    "account_data_posts": 2,
+    "authentication_posts": 0,
+    "no_automatic_replay": true,
+    "code_head": "289ac30ccd623132b4eb94170d9b52f0abe73ad3",
+    "fresh_same_plan_dry_run": {
+      "result": "PASS",
+      "mode": "dry-run",
+      "native_ui": {
+        "result": "PASS",
+        "profile_removed": true,
+        "installed": {
+          "files": 250,
+          "bytes_match": true
+        },
+        "stage": {
+          "screenshots": 0,
+          "failed_line": 0,
+          "shelf_books": 140,
+          "profile_files_audited": 7,
+          "anonymous_credentials": true,
+          "guard_selftest": true,
+          "native_detail": true,
+          "first_preview": true,
+          "second_preview": false,
+          "native_confirmations": true,
+          "worker_heartbeat": true,
+          "cancel_no_post": true,
+          "local_state_preserved": true,
+          "cache_verified": false,
+          "journal_before_posts": false,
+          "workers_reaped": true,
+          "credential_audit": true,
+          "result": "PASS",
+          "phase": "complete",
+          "permit_writes": false,
+          "native_gets": 5,
+          "native_posts": 0,
+          "denied": 0
+        }
+      },
+      "independent_steps": 0,
+      "account_data_posts": 0,
+      "authentication_posts": 0,
+      "reserved_posts": 0,
+      "original_flags_groups_and_exact_position_restored": true,
+      "intent_state": "absent",
+      "no_automatic_replay": true
+    },
+    "mode": "apply",
+    "native_ui": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed": {
+        "files": 250,
+        "bytes_match": true
+      },
+      "stage": {
+        "anonymous_credentials": true,
+        "guard_selftest": true,
+        "native_detail": true,
+        "first_preview": true,
+        "second_preview": true,
+        "native_confirmations": true,
+        "worker_heartbeat": true,
+        "cancel_no_post": true,
+        "local_state_preserved": true,
+        "cache_verified": true,
+        "journal_before_posts": true,
+        "workers_reaped": true,
+        "credential_audit": true,
+        "result": "PASS",
+        "phase": "complete",
+        "permit_writes": true,
+        "native_gets": 15,
+        "native_posts": 2,
+        "denied": 0,
+        "screenshots": 0,
+        "failed_line": 0,
+        "shelf_books": 140,
+        "profile_files_audited": 7
+      }
+    },
+    "independent_steps": 2,
+    "reserved_posts": 2,
+    "original_flags_groups_and_exact_position_restored": true,
+    "intent_state": "absent",
+    "same_plan_dry_run_passed": true,
+    "package_sha256": "4b0893d5318c37e2f61eb7c83c1775b7eb68fe39d696ead1f418f3d605b63156",
+    "host_stages": [
+      {
+        "stage": "finish_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_metadata",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      }
+    ]
+  },
+  "matrix": {
+    "result": "PASS",
+    "cases": [
+      {
+        "screen": 600,
+        "case": "normal",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 600,
+        "case": "dry-run",
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 600,
+        "case": "lost-ack",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 600,
+        "case": "empty-ack",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 600,
+        "case": "no-mark",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "no-restore",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "changed-flag",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "changed-group",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "position-change",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "removed-book",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 600,
+        "case": "host-loss",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "normal",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 1264,
+        "case": "dry-run",
+        "result": "PASS",
+        "mock_data_posts": 0,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 1264,
+        "case": "lost-ack",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 1264,
+        "case": "empty-ack",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "absent"
+      },
+      {
+        "screen": 1264,
+        "case": "no-mark",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "no-restore",
+        "result": "PASS",
+        "mock_data_posts": 2,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "changed-flag",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "changed-group",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "position-change",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "removed-book",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      },
+      {
+        "screen": 1264,
+        "case": "host-loss",
+        "result": "PASS",
+        "mock_data_posts": 1,
+        "intent_state": "pending"
+      }
+    ],
+    "real_data_posts": 0
+  },
+  "checks": {
+    "python_files": 92,
+    "python_tests": 1118,
+    "python_skips": 0,
+    "lua_specs": 222,
+    "time_zones": 4,
+    "python_compile": 286,
+    "lua_syntax": 625,
+    "result": "PASS",
+    "lint_files": 623,
+    "lint_warnings": 0,
+    "lint_errors": 0,
+    "namespace": "PASS"
+  },
+  "shelf_regressions": {
+    "result": "PASS",
+    "cases": [
+      {
+        "screen": 600,
+        "result": "PASS",
+        "case": "native-shelf-normal"
+      },
+      {
+        "screen": 1264,
+        "result": "PASS",
+        "case": "native-shelf-normal"
+      }
+    ],
+    "real_account_data_posts": 0
+  },
+  "first_real_preflight": {
+    "result": "PASS",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "shelf_books": 140,
+    "unfinished_selected": true,
+    "mark_and_restore_plans": true,
+    "full_flags_groups_position_bound": true,
+    "intent_state": "absent",
+    "reserved_posts": 0,
+    "host_stages": [
+      {
+        "stage": "finish_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_metadata",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      }
+    ]
+  },
+  "expired_before_native_launch": {
+    "result": "UNVERIFIED",
+    "phase": "prepare",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "no_automatic_replay": true,
+    "intent_state": "absent",
+    "host_stages": [
+      {
+        "stage": "finish_shelf",
+        "status": 401
+      }
+    ]
+  },
+  "renewal": {
+    "result": "SAVED_NATIVE_RENEWAL_VERIFIED",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 1,
+    "credentials_written_to_files": false,
+    "same_owner_verified": true,
+    "book_count": 140,
+    "keychain_renewed_readback_verified": true,
+    "keychain_pending_readback_verified": true,
+    "access_token_changed": true,
+    "refresh_token_returned": false,
+    "stages": [
+      {
+        "stage": "renewal",
+        "status": 200
+      },
+      {
+        "stage": "renewed_shelf",
+        "status": 200
+      }
+    ]
+  },
+  "renewed_real_dry_run": {
+    "result": "PASS",
+    "mode": "dry-run",
+    "native_ui": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed": {
+        "files": 250,
+        "bytes_match": true
+      },
+      "stage": {
+        "native_posts": 0,
+        "denied": 0,
+        "screenshots": 0,
+        "failed_line": 0,
+        "shelf_books": 140,
+        "profile_files_audited": 7,
+        "anonymous_credentials": true,
+        "guard_selftest": true,
+        "native_detail": true,
+        "first_preview": true,
+        "second_preview": false,
+        "native_confirmations": true,
+        "worker_heartbeat": true,
+        "cancel_no_post": true,
+        "local_state_preserved": true,
+        "cache_verified": false,
+        "journal_before_posts": false,
+        "workers_reaped": true,
+        "credential_audit": true,
+        "result": "PASS",
+        "phase": "complete",
+        "permit_writes": false,
+        "native_gets": 5
+      }
+    },
+    "independent_steps": 0,
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "reserved_posts": 0,
+    "original_flags_groups_and_exact_position_restored": true,
+    "intent_state": "absent",
+    "no_automatic_replay": true,
+    "host_stages": [
+      {
+        "stage": "finish_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_metadata",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_independent_position",
+        "status": 200
+      }
+    ]
+  },
+  "one_shot_marker": {
+    "state": "consumed",
+    "result": "PASS",
+    "intent_state": "absent"
+  },
+  "production_files": 250,
+  "source_package_installed_bytes_match": true,
+  "package_sha256": "4b0893d5318c37e2f61eb7c83c1775b7eb68fe39d696ead1f418f3d605b63156",
+  "private_data": {
+    "real_screenshots": 0,
+    "real_ids_titles_credentials_or_positions_in_public_files": false,
+    "development_logins_retained": true
+  },
+  "account_data_posts": 2,
+  "authentication_posts_in_trial": 0,
+  "earlier_maintenance_authentication_posts": 1,
+  "completion_dates_or_history_fully_restored": false,
+  "physical_acceptance": false,
+  "performance_phase_started": false,
+  "goal_complete": false,
+  "ci_at_code_head": {
+    "run": 43060799823,
+    "head_sha": "289ac30ccd623132b4eb94170d9b52f0abe73ad3",
+    "conclusion": "failure",
+    "stage": "Install Lua tooling",
+    "code_checks_started": false,
+    "official_archive_dns_failure": true,
+    "exit_code": 100
+  },
+  "privacy_audit": {
+    "python_bookmark_intent_absent": true,
+    "native_bookmark_intent_absent": true,
+    "result": "PASS",
+    "files": 1504,
+    "actual_authentication_literals": 0,
+    "credentials_retained": true,
+    "test_intents_absent": true,
+    "python_style_intent_absent": true,
+    "native_style_intent_absent": true,
+    "protected_files_unchanged": true,
+    "document_links_checked": 160
+  }
+}

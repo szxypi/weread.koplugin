@@ -1,0 +1,13 @@
+{
+  "checked_at": "2026-11-08T23:41:32.151936+00:00",
+  "result": "PUBLIC_CATEGORY_VERIFIED",
+  "authenticated": false,
+  "account_data_writes": 0,
+  "http_status": 200,
+  "ranks": 7,
+  "categories": 22,
+  "total_entries": 201,
+  "lua_projection_matches": true,
+  "native_https_matches": true,
+  "native_read_requests": 1
+}

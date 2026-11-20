@@ -259,6 +259,26 @@ package.preload["weread.lib.plugin_util"] = function()
     }
 end
 
+-- This spec isolates collection updates; filesystem ownership is covered by
+-- book_cache_cleanup_spec and the native real-file case.
+local removed_roots={}
+package.preload['libs/libkoreader-lfs']=function() return {
+    symlinkattributes=function() return {mode='directory',dev=1,ino=1} end,
+} end
+package.preload['weread.lib.book_cache_cleanup']=function() return {
+    scan=function(root) return {root=root,files=1,bytes=1,metadata='fixture',owner={dev=1,ino=1}} end,
+    acquire=function(root)
+        return {owns=function() return true end,release=function() end},
+            {root=root,files=1,bytes=1,metadata='fixture',owner={dev=1,ino=1}}
+    end,
+    same_plan=function() return true end,
+    step=function(job) removed_roots[job.plan.root]=true;job.files=1;return true,'done' end,
+} end
+package.preload['weread.lib.book_store']=function() return {clear_downloads=function() return true end} end
+require('weread.lib.plugin_util').file_exists=function(path)
+    return not removed_roots[path:match('^(.*)/[^/]+$')]
+end
+
 local real_os_execute = os.execute
 rawset(os, "execute", function() return 0 end)
 
@@ -268,6 +288,7 @@ package.loaded["weread.lib.protocol"] = nil
 local Cache = require("weread.ui.cache")
 
 local function make_cache_host(books)
+    removed_roots={}
     local stored = books
     local host = {
         settings = {
@@ -342,11 +363,11 @@ do
             cached_file = "/cache/n/full.epub",
             cached_full_book = "/cache/n/full.epub",
         },
-        ["MP_WXS_1"] = { cached_file = "/cache/mp/article.epub" },
+        ["MP_WXS_1"] = { cached_file = "/cache/MP_WXS_1/article.epub" },
     })
     host:clearAllMPCache()
     eq(#coll_removes, 1, "clearAllMPCache removes only MP")
-    eq(coll_removes[1] and coll_removes[1].path, "/cache/mp/article.epub",
+    eq(coll_removes[1] and coll_removes[1].path, "/cache/MP_WXS_1/article.epub",
         "clearAllMPCache path")
 end
 

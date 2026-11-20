@@ -13,6 +13,16 @@ package.loaded["gettext"] = gettext
 local I18n = require("weread.lib.i18n")
 
 assert(I18n.tr("Bookshelf") == "书架", "automatic Chinese locale must translate plugin menus")
+for source,expected in pairs({
+    ["Download full book and search again"]="下载全书并重新搜索",
+    ["Fetch chapter list for this search"]="联网获取章节目录",
+    ["Download all %1 chapters, then search the downloaded book again?"]="下载全部 %1 章后，重新搜索已下载内容吗？",
+    ["Cannot replace the book currently open in the reader."]="无法替换阅读器中正在打开的书籍。",
+    ["Could not download this book."]="无法下载这本书。",
+    ["Preparing chapter %1/%2"]="正在准备第 %1 / %2 章",
+    ["Failed to clear underlines and thoughts: %1"]="清除划线和想法失败：%1",
+    ["Remove"]="移除",
+}) do assert(I18n.tr(source)==expected, "missing Chinese UI translation") end
 assert(require("_meta").fullname == "微信读书", "plugin metadata must follow the automatic locale")
 
 gettext.current_lang = "C"

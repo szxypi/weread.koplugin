@@ -1,0 +1,25 @@
+{
+  "result": "PASS",
+  "screens": [
+    {"width": 600, "height": 800, "search_first": 20, "search_second": 20,
+     "candidate_sha256": "7accc050e725aeaf2e977aca5107bfd1272246f07a9137520e2524d72454d5e0"},
+    {"width": 1264, "height": 1680, "search_first": 20, "search_second": 20,
+     "candidate_sha256": "ee8b3c05cca474119b953497f41fa5c9a4bc71569475c25379012394d908950b"}
+  ],
+  "native_file_manager_plugin": true,
+  "signed_out": true,
+  "search_gets_per_screen": 3,
+  "read_only_public_metadata_posts_per_screen": 2,
+  "other_network_requests": 0,
+  "public_intro_matches_response": true,
+  "manual_refresh_without_login": true,
+  "fresh_process_offline_detail_matches": true,
+  "offline_network_requests": 0,
+  "synthetic_guest_read_requires_login": true,
+  "private_fields_filtered": true,
+  "account_data_writes": 0,
+  "credentials_used": false,
+  "screenshots": 0,
+  "temporary_profile_removed": true,
+  "physical_device_tested": false
+}

@@ -1,0 +1,12 @@
+{
+  "result": "SYNTHETIC_LOOPBACK_HTTP_VERIFIED",
+  "synthetic_only": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "scenarios": 6,
+  "read_only_web_post": true,
+  "dry_run_sent_no_write": true,
+  "invalid_http_receipts_blocked": true,
+  "disconnect_never_replayed": true,
+  "redirect_blocked": true
+}

@@ -1,0 +1,51 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "kind": "private_journal",
+  "pairs": [
+    {
+      "baseline": {
+        "storage": 64,
+        "concurrent_saves": 843,
+        "journal_mode/busy": 64,
+        "success": 4936
+      },
+      "candidate": {
+        "success": 5000,
+        "storage": 0,
+        "concurrent_saves": 1774
+      }
+    },
+    {
+      "baseline": {
+        "journal_mode/busy": 84,
+        "success": 4916,
+        "storage": 84,
+        "concurrent_saves": 1192
+      },
+      "candidate": {
+        "storage": 0,
+        "concurrent_saves": 1666,
+        "success": 5000
+      }
+    },
+    {
+      "baseline": {
+        "storage": 66,
+        "concurrent_saves": 765,
+        "journal_mode/busy": 66,
+        "success": 4934
+      },
+      "candidate": {
+        "success": 5000,
+        "storage": 0,
+        "concurrent_saves": 1080
+      }
+    }
+  ],
+  "baseline_sha256": "42e3e82848a432d79d5250b0beac3dc55703be32a37f4ef601ea7241c914ff3c",
+  "candidate_sha256": "0de9215c6b2776ebb6ba5a8f5800f7f5fc0fa6675150614e4aa0f871e3298e91",
+  "probe_sha256": "7da2e36ab2ea8497d68eb9cfd4d39952f610d1a8a99e828ddc3aba809bdc631f",
+  "profiles_removed": true,
+  "candidate_shared_sha256": "425b700b0cf490fe1f4004184cde2f499c3cbd317bdd96c98e015f0e4610c59e"
+}

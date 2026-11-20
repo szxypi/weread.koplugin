@@ -1,0 +1,341 @@
+{
+  "result": "PASS_PRIVATE_READING_PHASE",
+  "date": "2026-11-12",
+  "python_protocol": {
+    "result": "PRIVATE_FLAG_ROUNDTRIP_VERIFIED",
+    "checked_at": "2026-11-12T01:49:05.373634+00:00",
+    "account_data_posts": 2,
+    "authentication_posts": 0,
+    "credentials_written_to_files": false,
+    "shelf_books": 140,
+    "private_before": false,
+    "private_desired": true,
+    "private_restore": false,
+    "pinned_observable": 0,
+    "channels_match": true,
+    "metadata_pin_values_provided": 0,
+    "known_root_pin_lists_present": 0,
+    "change_acknowledged": true,
+    "change_receipt_fields": {
+      "succ": "int"
+    },
+    "change_independent_readback": true,
+    "restore_acknowledged": true,
+    "restore_receipt_fields": {
+      "succ": "int"
+    },
+    "restore_independent_readback": true,
+    "private_restored": true,
+    "other_flags_groups_and_position_unchanged": true,
+    "stages": [
+      {
+        "stage": "flag_shelf",
+        "status": 200
+      },
+      {
+        "stage": "flag_position",
+        "status": 200
+      },
+      {
+        "stage": "flag_shelf",
+        "status": 200
+      },
+      {
+        "stage": "flag_position",
+        "status": 200
+      },
+      {
+        "stage": "flag_metadata",
+        "status": 200
+      },
+      {
+        "stage": "flag_shelf",
+        "status": 200
+      },
+      {
+        "stage": "flag_position",
+        "status": 200
+      },
+      {
+        "stage": "flag_private_write",
+        "status": 200
+      },
+      {
+        "stage": "flag_shelf",
+        "status": 200
+      },
+      {
+        "stage": "flag_position",
+        "status": 200
+      },
+      {
+        "stage": "flag_shelf",
+        "status": 200
+      },
+      {
+        "stage": "flag_position",
+        "status": 200
+      },
+      {
+        "stage": "flag_private_write",
+        "status": 200
+      },
+      {
+        "stage": "flag_shelf",
+        "status": 200
+      },
+      {
+        "stage": "flag_position",
+        "status": 200
+      }
+    ],
+    "trial_phase": "retired"
+  },
+  "lua_model_matches": true,
+  "real_native": {
+    "result": "PASS",
+    "mode": "apply",
+    "native_ui": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed": {
+        "files": 269,
+        "bytes_match": true
+      },
+      "stage": {
+        "cancel_no_post": true,
+        "local_state_preserved": true,
+        "cache_verified": true,
+        "journal_before_posts": true,
+        "workers_reaped": true,
+        "credential_audit": true,
+        "result": "PASS",
+        "phase": "complete",
+        "permit_writes": true,
+        "native_gets": 15,
+        "native_posts": 2,
+        "denied": 0,
+        "screenshots": 0,
+        "failed_line": 0,
+        "shelf_books": 140,
+        "profile_files_audited": 7,
+        "anonymous_credentials": true,
+        "guard_selftest": true,
+        "native_detail": true,
+        "first_preview": true,
+        "second_preview": true,
+        "native_confirmations": true,
+        "worker_heartbeat": true
+      }
+    },
+    "independent_steps": 2,
+    "account_data_posts": 2,
+    "authentication_posts": 0,
+    "reserved_posts": 2,
+    "original_flags_groups_and_exact_position_restored": true,
+    "intent_state": "retired",
+    "no_automatic_replay": true,
+    "host_stages": [
+      {
+        "stage": "private_shelf",
+        "status": 200
+      },
+      {
+        "stage": "private_position",
+        "status": 200
+      },
+      {
+        "stage": "private_metadata",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_position",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "private_independent_position",
+        "status": 200
+      }
+    ]
+  },
+  "native_synthetic": {
+    "normal": {
+      "result": "PASS",
+      "mock_data_posts": 2,
+      "intent_state": "retired"
+    },
+    "lost-ack": {
+      "result": "PASS",
+      "mock_data_posts": 2,
+      "intent_state": "retired"
+    },
+    "no-mark": {
+      "result": "PASS",
+      "mock_data_posts": 1,
+      "intent_state": "possible_dispatch",
+      "expected_stop": true,
+      "pending_replay_blocked": true
+    },
+    "no-restore": {
+      "result": "PASS",
+      "mock_data_posts": 2,
+      "intent_state": "possible_dispatch",
+      "expected_stop": true,
+      "pending_replay_blocked": true
+    },
+    "changed-group": {
+      "result": "PASS",
+      "mock_data_posts": 1,
+      "intent_state": "possible_dispatch",
+      "expected_stop": true,
+      "pending_replay_blocked": true
+    },
+    "host-loss": {
+      "result": "PASS",
+      "mock_data_posts": 1,
+      "intent_state": "possible_dispatch",
+      "expected_stop": true,
+      "pending_replay_blocked": true
+    }
+  },
+  "native_menus": {
+    "600": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "stages": [
+        {
+          "requests": 67,
+          "posts": 7,
+          "forbidden": 0,
+          "screenshots": 3,
+          "workers_reaped": true,
+          "mode": "live",
+          "result": "PASS",
+          "phase": "complete",
+          "checks": 50
+        },
+        {
+          "posts": 8,
+          "forbidden": 0,
+          "screenshots": 1,
+          "workers_reaped": true,
+          "mode": "reopen",
+          "result": "PASS",
+          "phase": "complete",
+          "checks": 12,
+          "requests": 76
+        }
+      ]
+    },
+    "ko2": {
+      "result": "PASS",
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "phase": "complete",
+          "checks": 50,
+          "requests": 67,
+          "posts": 7,
+          "forbidden": 0,
+          "screenshots": 3,
+          "workers_reaped": true
+        },
+        {
+          "workers_reaped": true,
+          "mode": "reopen",
+          "result": "PASS",
+          "phase": "complete",
+          "checks": 12,
+          "requests": 76,
+          "posts": 8,
+          "forbidden": 0,
+          "screenshots": 1
+        }
+      ]
+    }
+  },
+  "old_finished_mark_regression": {
+    "result": "PASS",
+    "profile_removed": true,
+    "installed_bytes_match": true,
+    "stages": [
+      {
+        "forbidden": 0,
+        "screenshots": 3,
+        "workers_reaped": true,
+        "mode": "live",
+        "result": "PASS",
+        "phase": "complete",
+        "checks": 47,
+        "requests": 67,
+        "posts": 7
+      },
+      {
+        "checks": 12,
+        "requests": 76,
+        "posts": 8,
+        "forbidden": 0,
+        "screenshots": 1,
+        "workers_reaped": true,
+        "mode": "reopen",
+        "result": "PASS",
+        "phase": "complete"
+      }
+    ]
+  },
+  "sqlite_checks": 16,
+  "production_files": 269,
+  "python_files": 103,
+  "python_tests": 1288,
+  "python_skips": 0,
+  "lua_specs": 236,
+  "real_account_data_posts": 4,
+  "authentication_posts_during_preflight_recovery": 1,
+  "authentication_posts_during_roundtrips": 0,
+  "credentials_retained": true,
+  "private_values_on_regular_disk": false,
+  "real_screenshots": 0,
+  "python_and_native_trial_tombstones_retained": true,
+  "remaining": [
+    "Observable real pin baseline and verified pin modification",
+    "Physical Kindle Oasis 2",
+    "Other roadmap features",
+    "Dedicated performance phase after functional acceptance"
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "result": "OWNER_OFF_SHELF_HOME_VERIFIED",
+  "screen_sizes": ["600x800", "1264x1680"],
+  "account_shelf_books": 141,
+  "candidate_books_checked_per_run": 2,
+  "public_book_confirmed_absent_from_web_and_native_shelf": true,
+  "chapter_access_explicitly_verified": true,
+  "entry": "preselected_real_book_details",
+  "store_search_ui_verified": false,
+  "native_chapter_download_and_reading": true,
+  "home_recent_same_process_reopens_saved_page": true,
+  "home_recent_new_offline_process_reopens_saved_page": true,
+  "offline_network_requests": 0,
+  "web_shelf_membership_order_flags_and_groups_unchanged": true,
+  "native_shelf_flags_and_groups_unchanged": true,
+  "observed_web_reading_position_and_counters_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts_in_reading_runs": 0,
+  "separate_expired_native_authorization_renewals": 1,
+  "temporary_profile_in_memory_and_removed": true,
+  "real_screenshots": 0,
+  "physical_kindle_verified": false
+}

@@ -65,6 +65,12 @@ local fake_settings = {
     end,
 }
 
+local firewall_cleaned = false
+package.preload['device'] = function() return { isKindle = function() return true end } end
+package.preload['weread.lib.excerpt_firewall'] = function()
+    return { cleanup = function(root) firewall_cleaned = root == fake_settings.data_dir; return true end }
+end
+
 local migrations_ran = false
 local dispatcher_registered = false
 local menu_registered = false
@@ -117,6 +123,12 @@ package.preload["weread.lib.plugin_util"] = function()
 end
 package.preload["weread.lib.qr_login"] = function()
     return { new = function() return { kind = "qr_login" } end }
+end
+package.preload["weread.ui.native_authorization"] = function()
+    return { new = function() return { kind = "native_authorization" } end }
+end
+package.preload["weread.lib.native_renewal"] = function()
+    return { new = function() return { kind = "native_renewal" } end }
 end
 package.preload["weread.lib.read_report"] = function()
     return {
@@ -189,6 +201,7 @@ package.preload["weread.ui.reader_navigation"] = function()
     }
 end
 
+package.preload["weread.ui.home_settings"] = function() return {} end
 local Plugin = dofile("main.lua")
 local plugin = setmetatable({
     ui = {
@@ -211,13 +224,19 @@ expect(plugin.client.settings == fake_settings, "client did not receive settings
 expect(plugin.downloader.settings == fake_settings,
     "downloader did not receive settings")
 expect(plugin.qr_login.kind == "qr_login", "QR login service was not initialized")
+expect(plugin.native_authorization.kind == "native_authorization", "native authorization was not initialized")
 expect(migrations_ran, "migrations did not run during initialization")
+expect(firewall_cleaned, "Kindle startup did not clean an interrupted excerpt transfer")
 expect(dispatcher_registered, "dispatcher actions were not registered")
 expect(menu_registered, "plugin was not registered in KOReader's main menu")
 expect(backup_cleaned,
     "successful plugin initialization did not clean the update backup")
-expect(plugin:launch() == true and bookshelf_opened,
-    "standard third-party launcher entry did not open the bookshelf")
+local home_opened = false
+plugin.showHome = function() home_opened = true return true end
+expect(plugin:launch() == true and home_opened,
+    "standard launcher entry did not open the home")
+expect(plugin:openBookshelf() == true and bookshelf_opened,
+    "stable bookshelf launcher no longer opens the bookshelf")
 expect(type(plugin.openBookshelf) == "function",
     "stable bookshelf entry point was not exposed")
 expect(package.loaded["weread.lib.client"] ~= nil,

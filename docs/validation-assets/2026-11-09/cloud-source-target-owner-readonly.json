@@ -1,0 +1,65 @@
+{
+  "result": "CLOUD_SOURCE_READ_TARGET_VERIFIED",
+  "checked_at": "2026-11-08T19:16:39.545369+00:00",
+  "account_writes_attempted": 0,
+  "private_source_saved": false,
+  "credentials_written_to_files": false,
+  "precision_upload_enabled": false,
+  "snapshot_consistent": true,
+  "embedded_position_matches": true,
+  "source_target_roundtrip": true,
+  "local_epub_requires_identical_source": true,
+  "same_owner_rechecked": true,
+  "keychain_readback_verified": true,
+  "official_parser_target_present": true,
+  "official_parser_nodes": 11430,
+  "lua_projection_matches": true,
+  "native_https_projection_matches": true,
+  "native_read_requests": 6,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "selection_progress",
+      "status": 200
+    },
+    {
+      "stage": "selection_progress",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

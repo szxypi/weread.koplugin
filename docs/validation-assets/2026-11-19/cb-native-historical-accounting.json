@@ -1,0 +1,21 @@
+{
+  "result": "CB_NATIVE_TRANSFER_READBACK_MATCH",
+  "source_format": "imported XHTML",
+  "historical_seconds": 6,
+  "cross_day_preflight_read_only": true,
+  "preflight_stable_samples": 2,
+  "native_write_blocked_rehearsal": true,
+  "production_candidate_reattested": true,
+  "account_data_posts": 1,
+  "authentication_posts": 0,
+  "acknowledged": true,
+  "historical_date_matched": true,
+  "first_independent_readback_samples": 3,
+  "second_independent_readback_samples": 3,
+  "positions_source_shelves_and_other_counts_unchanged": true,
+  "capture_and_single_use_audit_retained": true,
+  "previous_unresolved_group_fixture_retained": true,
+  "previous_unresolved_groups_absent": true,
+  "production_imported_book_history_queue_enabled": false,
+  "physical_device_tested": false
+}

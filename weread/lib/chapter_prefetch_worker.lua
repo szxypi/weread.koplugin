@@ -1,4 +1,5 @@
 local Content = require("weread.lib.content")
+local FileIdentity = require("weread.lib.book_file_identity")
 local Footnotes = require("weread.lib.footnotes")
 local WorkerSettings = require("weread.lib.worker_settings")
 
@@ -9,13 +10,27 @@ local function empty_footnote_stats()
         backlinks = 0, removed_note_blocks = 0, unresolved = 0, fallback = 0 }
 end
 
-function M.run(settings, client, book, chapter, context)
+function M.run(settings, client, book, chapter, context, expected_scope, expected_fingerprint)
     local auth_result = WorkerSettings.capture(settings)
+    local scope=expected_scope or settings.get_auth_scope and settings:get_auth_scope()
+    local function check_current()
+        context.checkCancelled()
+        if scope and (not settings.auth_scope_matches or not settings:auth_scope_matches(scope)) then
+            error('chapter_prefetch/session_changed',0)
+        end
+        return true
+    end
     local workspace
     local ok, result = xpcall(function()
+        check_current()
+        if expected_fingerprint and WorkerSettings.fingerprint(settings)~=expected_fingerprint then
+            error('chapter_prefetch/session_changed',0)
+        end
+        client = require('weread.lib.book_reading_client').wrap(client, book, chapter)
         context.emit { stage = "reader" }
         Content.ensure_reader_state(client, book)
-        context.checkCancelled()
+        local source_identity = FileIdentity.capture(book)
+        check_current()
 
         local cache = settings:get("cache", {})
         local state = {}
@@ -24,27 +39,32 @@ function M.run(settings, client, book, chapter, context)
             state.workspace = workspace
         end
 
-        local xhtml
+        local xhtml, position_source
         for attempt = 1, 3 do
             context.emit { stage = "source", attempt = attempt }
-            local fetched, value = pcall(Content.fetch_single_chapter_source,
+            local fetched, value, source = pcall(Content.fetch_single_chapter_source,
                 client, settings, book, chapter, state)
-            if fetched then xhtml = value; break end
+            FileIdentity.check(source_identity, book)
+            if fetched then xhtml, position_source = value, source; break end
+            if type(value) == "string" and (value == "download_read/rate_limited"
+                or value:match("^download_read/rate_limited[\r\n]")
+                or value == "book_reading/web_expired"
+                or value:match("^book_reading/web_expired[\r\n]")) then error(value, 0) end
             if attempt == 3 then error(value, 0) end
             context.sleep(0.8 * attempt)
         end
-        context.checkCancelled()
+        check_current()
 
         local uid = tostring(chapter.chapterUid or chapter.chapterId or "1")
         local scan_ok, scan = pcall(Footnotes.scan_chapter, xhtml, chapter)
         context.emit { stage = cache.download_book_images and "images" or "process" }
         state.image_progress = function(current, total)
-            context.checkCancelled()
+            check_current()
             context.emit { stage = "images", current = current, count = total }
         end
         local finalized, assets = Content.finalize_single_chapter_content(
             client, settings, book, chapter, xhtml, state)
-        context.checkCancelled()
+        check_current()
 
         local stats = empty_footnote_stats()
         if scan_ok then
@@ -66,15 +86,16 @@ function M.run(settings, client, book, chapter, context)
         else
             stats.fallback = 1
         end
-        context.checkCancelled()
+        check_current()
 
         context.emit { stage = "epub" }
         local path = Content.save_chapter_epub(settings, book, chapter,
-            finalized, assets, state.css)
+            finalized, assets, state.css, source_identity, position_source, nil, check_current)
         local descriptor = book.annotation_documents
             and book.annotation_documents[path] or nil
         return {
             path = path,
+            book_id = source_identity.book_id,
             chapter_uid = uid,
             cache_dir = book.cache_dir,
             reader_url = book.reader_url,

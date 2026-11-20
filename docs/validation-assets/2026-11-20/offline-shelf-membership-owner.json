@@ -1,0 +1,42 @@
+{
+  "result": "PASS",
+  "source": "Transcribed from the redacted verifier result; no book, account or credential data retained.",
+  "production_commit": "744de58",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "screen": {
+    "width": 1264,
+    "height": 1680,
+    "dpi": 300
+  },
+  "mode": "owner_offline_membership_roundtrip",
+  "same_plan_zero_write_preflight_passed": true,
+  "offline_queue_verified": true,
+  "native_http": {
+    "shelf_get": 9,
+    "metadata_get": 1,
+    "add_posts": 1,
+    "remove_posts": 1,
+    "other_requests_denied": 0,
+    "write_statuses": [
+      200,
+      200
+    ]
+  },
+  "original_shelf_members": 140,
+  "independent_readback_steps": 2,
+  "account_data_posts": 2,
+  "authentication_posts": 0,
+  "original_members_flags_groups_restored": true,
+  "native_cache_readback": true,
+  "local_state_preserved": true,
+  "durable_intent_after": "absent",
+  "profile_removed": true,
+  "anonymous_credentials": true,
+  "screenshots": 0,
+  "not_verified": [
+    "physical Kindle KO2",
+    "other book types",
+    "full power failure",
+    "unobserved server history or timestamps"
+  ]
+}

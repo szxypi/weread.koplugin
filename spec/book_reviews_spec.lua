@@ -4,6 +4,9 @@
 
 package.path = "./?.lua;" .. package.path
 local BookReviews = require("weread.lib.book_reviews")
+assert(BookReviews.plain_text("2 < 3, 5 > 4") == "2 < 3, 5 > 4", "plain comparison text was stripped as HTML")
+assert(BookReviews.plain_text("<p>Native &amp; text</p><!-- comment --><b>Second</b>") == "Native & text\n\nSecond",
+    "native text projection retained HTML tags or comments")
 
 local failures, checks = 0, 0
 local current_test
@@ -47,7 +50,7 @@ test("normalizes nested gateway reviews", function()
     eq(#result.items, 1, "item count")
     eq(result.items[1].author, "读者甲", "author")
     eq(result.items[1].content, "第一段\n第二段 & 尾声", "plain content")
-    eq(result.items[1].rating, 10, "100-point star normalized to 10")
+    eq(result.items[1].rating, 5, "100-point star normalized to 5")
     eq(result.items[1].is_finish, true, "finished")
     eq(result.items[1].idx, 7, "idx")
 end)
@@ -70,10 +73,32 @@ test("truncates previews by UTF-8 characters", function()
     eq(BookReviews.preview("abc", 3), "abc", "exact preview")
 end)
 
-test("formats review ratings on a ten-point scale", function()
-    eq(BookReviews.normalize_item({ star = 60 }).rating, 6, "60 becomes 6")
-    eq(BookReviews.normalize_item({ star = 100 }).rating, 10, "100 becomes 10")
-    eq(BookReviews.format_rating(6), "6.0", "one decimal place")
+test("formats gateway review ratings on a five-star scale", function()
+    eq(BookReviews.normalize_item({ star = 20 }).rating, 1, "20 becomes 1")
+    eq(BookReviews.normalize_item({ star = 60 }).rating, 3, "60 becomes 3")
+    eq(BookReviews.normalize_item({ star = 100 }).rating, 5, "100 becomes 5")
+    eq(BookReviews.format_rating(3), "3.0", "one decimal place")
+end)
+
+test("appends pages without duplicating a review and rejects invalid cursors", function()
+    local first = BookReviews.append_page(nil, { reviewsHasMore = 1, synckey = 40,
+        reviews = { { idx = 5, review = { reviewId = "a" } } } })
+    eq(first.max_idx, 5, "first cursor")
+    eq(first.synckey, 40, "first sync key")
+    local second = BookReviews.append_page(first, { reviewsHasMore = 1, synckey = 41,
+        reviews = { { idx = 5, review = { reviewId = "a" } },
+                    { idx = 9, review = { reviewId = "b" } } } })
+    eq(#second.items, 2, "overlap removed")
+    eq(second.max_idx, 9, "next cursor")
+    eq(#first.items, 1, "prior page unchanged")
+    local cycle = { reviewsHasMore = 1, synckey = 42,
+        reviews = { { idx = 5, review = { reviewId = "a" } } } }
+    eq(pcall(BookReviews.append_page, second, cycle), false, "cursor cycle rejected")
+    eq(pcall(BookReviews.append_page, nil, { reviewsHasMore = 1, reviews = {} }), false, "missing cursor rejected")
+    eq(pcall(BookReviews.append_page, nil, { errcode = 1 }), false, "error response rejected")
+    local final = BookReviews.append_page(second, { reviewsHasMore = 0, reviews = {} })
+    eq(#final.items, 2, "empty final page preserves results")
+    eq(final.has_more, false, "final page ends pagination")
 end)
 
 test("formats string and millisecond dates", function()

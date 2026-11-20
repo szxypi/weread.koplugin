@@ -1,0 +1,17 @@
+{
+  "result": "CB_FIXTURE_STYLE_VERIFIED",
+  "fixture": "self-authored XHTML EPUB",
+  "fixture_only": true,
+  "annotation_posts": 4,
+  "steps": ["create_default", "change_to_straight", "change_to_wave", "delete"],
+  "independent_readbacks": true,
+  "default_color_preserved": true,
+  "existing_book_writes": 0,
+  "authentication_posts": 0,
+  "original_records_restored": true,
+  "source_and_catalog_unchanged": true,
+  "fixture_removed": true,
+  "shelf_baseline_restored": true,
+  "no_replay": true,
+  "private_values_in_report": false
+}

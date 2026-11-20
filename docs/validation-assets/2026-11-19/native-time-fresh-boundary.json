@@ -1,0 +1,30 @@
+{
+  "real_account_readonly": {
+    "result": "CAPTURE_FRESH_SHELF_READONLY_VERIFIED",
+    "captured_seconds": 6,
+    "trial_journals_and_fixture_bound": true,
+    "current_native_and_web_shelves_stable": true,
+    "previous_native_baseline_matches": false,
+    "previous_web_baseline_matches": false,
+    "journal_rechecks_stable": true,
+    "initial_scope_binding_attempts_stopped": 2,
+    "failure_cause": "upload receipt type differed from synthetic fixture",
+    "account_data_writes": 0,
+    "authentication_requests": 0,
+    "historical_accounting_verified": false
+  },
+  "synthetic_koreader": {
+    "runtime": "official KOReader 2026.07.1 Linux ARM64, Xvfb",
+    "scenarios_per_screen": 20,
+    "screens": [
+      {"width": 600, "height": 800, "dpi": 167, "result": "PASS"},
+      {"width": 1264, "height": 1680, "dpi": 300, "result": "PASS"}
+    ],
+    "fresh_shelf_supervisor": true,
+    "baseline_sealed_before_claim": true,
+    "no_replay_after_lost_receipt_or_worker_death": true,
+    "account_data_writes": 0,
+    "authentication_requests": 0,
+    "physical_kindle_tested": false
+  }
+}

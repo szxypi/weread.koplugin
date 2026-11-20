@@ -1,0 +1,184 @@
+{
+  "runs": [
+    {
+      "pages_before": 52,
+      "entities": true,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "grayscale": true
+      },
+      "scroll": true,
+      "font_before": 22,
+      "target_page": 51,
+      "source_dom_source_roundtrip": true,
+      "chapters": 2,
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "progress_mapping_enabled": false,
+      "wire_progress_write_verified": false,
+      "duplicate_titles": true,
+      "identical_chapter_text": true,
+      "cross_block": true,
+      "status": "PARTIAL",
+      "font_reflow": true,
+      "literal_brackets": true,
+      "co": 10785,
+      "astral": true,
+      "chapter_end": true,
+      "image_only_last_page": true,
+      "repeat_context_disambiguation": true,
+      "cancel_preparation": true,
+      "cancel_walk": true,
+      "repeat_walk_steps": 91,
+      "sparse_checkpoints": 39,
+      "font_after": 26,
+      "pages_after": 70,
+      "kind": "dom",
+      "candidate_sha256": "2a6720569ef98825b261fcc88d2239102df82eea95666110a4748c82289f5d18",
+      "packaged_files_match_workspace": 115,
+      "runtime": "KOReader v2026.07.1 Linux ARM64"
+    },
+    {
+      "astral": true,
+      "chapter_end": true,
+      "image_only_last_page": true,
+      "repeat_context_disambiguation": true,
+      "cancel_preparation": true,
+      "cancel_walk": true,
+      "repeat_walk_steps": 91,
+      "sparse_checkpoints": 39,
+      "font_before": 22,
+      "pages_after": 70,
+      "status": "PARTIAL",
+      "pages_before": 52,
+      "chapters": 2,
+      "font_after": 26,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "scroll": true,
+      "target_page": 51,
+      "co": 10785,
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "progress_mapping_enabled": false,
+      "wire_progress_write_verified": false,
+      "duplicate_titles": true,
+      "identical_chapter_text": true,
+      "cross_block": true,
+      "source_dom_source_roundtrip": true,
+      "font_reflow": true,
+      "literal_brackets": true,
+      "entities": true,
+      "kind": "dom",
+      "candidate_sha256": "044b50ebd47d5db0b514c2f9b5ee079018884a2332b662919625968fcc010019",
+      "packaged_files_match_workspace": 115,
+      "runtime": "KOReader v2026.07.1 Linux ARM64"
+    },
+    {
+      "extra_routes": {
+        "prefetch_worker_chapters": 1,
+        "images_disabled": true,
+        "synchronous_range_chapters": 2
+      },
+      "reader": {
+        "file_version": 7,
+        "co": 1395,
+        "point_offset": 24,
+        "total_pages": 3,
+        "file_id": "9ce518b146dd13ce53be5f98b2328582d23c4d8c32fef6c5a1537c3182accd8e",
+        "raw_bytes": 4421,
+        "chapter_dom_roundtrip": true,
+        "target_page": 3,
+        "previous_page": 1,
+        "exact_prefix_verified": true,
+        "target_visible": true,
+        "raw_before_images": true
+      },
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "progress_mapping_enabled": false,
+      "wire_progress_write_verified": false,
+      "full": {
+        "file_version": 7,
+        "transformed_chapter_dom_roundtrips": 2,
+        "background_packaging": true,
+        "raw_before_footnotes": 6,
+        "chapters": 6,
+        "file_id": "b38231c5b666bde53a438970baf9e23e414585a2d7d025f8390b2de929a3009f",
+        "raw_before_images": 6
+      },
+      "kind": "download",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "grayscale": true
+      },
+      "candidate_sha256": "5d9f4989a048d55615854baadb602318a833edcb6f5b8755da86f297e7c4d178",
+      "packaged_files_match_workspace": 115,
+      "runtime": "KOReader v2026.07.1 Linux ARM64",
+      "status": "PARTIAL"
+    },
+    {
+      "progress_mapping_enabled": false,
+      "wire_progress_write_verified": false,
+      "extra_routes": {
+        "synchronous_range_chapters": 2,
+        "prefetch_worker_chapters": 1,
+        "images_disabled": true
+      },
+      "full": {
+        "file_id": "b38231c5b666bde53a438970baf9e23e414585a2d7d025f8390b2de929a3009f",
+        "transformed_chapter_dom_roundtrips": 2,
+        "background_packaging": true,
+        "chapters": 6,
+        "raw_before_footnotes": 6,
+        "raw_before_images": 6,
+        "file_version": 7
+      },
+      "reader": {
+        "file_id": "9ce518b146dd13ce53be5f98b2328582d23c4d8c32fef6c5a1537c3182accd8e",
+        "raw_bytes": 4421,
+        "previous_page": 1,
+        "exact_prefix_verified": true,
+        "target_visible": true,
+        "co": 1395,
+        "file_version": 7,
+        "point_offset": 24,
+        "raw_before_images": true,
+        "chapter_dom_roundtrip": true,
+        "target_page": 3,
+        "total_pages": 3
+      },
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "kind": "download",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "candidate_sha256": "5d9f4989a048d55615854baadb602318a833edcb6f5b8755da86f297e7c4d178",
+      "packaged_files_match_workspace": 115,
+      "runtime": "KOReader v2026.07.1 Linux ARM64",
+      "status": "PARTIAL"
+    }
+  ],
+  "remaining": [
+    "production ReaderUI current-page capture and lifecycle wiring",
+    "background preparation and pinned cloud anchor",
+    "complex/generated content and TXT",
+    "real-account write/readback and multi-device",
+    "Kindle Oasis 2 hardware"
+  ],
+  "known_visual_limitations": [
+    "KO2-sized screenshot renders the emoji as a question mark; DOM scalar mapping verified, glyph rendering not accepted"
+  ]
+}

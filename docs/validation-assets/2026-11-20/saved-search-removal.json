@@ -1,0 +1,39 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "physical_kindle_tested": false,
+  "native_cases": [
+    "cancel removal",
+    "confirm one search removal",
+    "other searches retained",
+    "fresh process confirms removal"
+  ],
+  "sqlite_cases": [
+    "refreshed generation retained",
+    "account isolation",
+    "failed commit rollback",
+    "invalid generation rejected"
+  ],
+  "runs": [
+    {
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "native_processes": [
+        "live",
+        "reopen"
+      ],
+      "offline_requests": 0,
+      "package_sha256": "a5cf68dcf6286689174c8cd8960f659077138812631df8f2f3bc093a6cbe95a8"
+    },
+    {
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "native_processes": [
+        "live",
+        "reopen"
+      ],
+      "offline_requests": 0,
+      "package_sha256": "a5cf68dcf6286689174c8cd8960f659077138812631df8f2f3bc093a6cbe95a8"
+    }
+  ]
+}

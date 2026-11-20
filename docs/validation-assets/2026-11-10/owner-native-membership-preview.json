@@ -1,0 +1,394 @@
+{
+  "result": "OWNER_NATIVE_MEMBERSHIP_READONLY_PREVIEW_VERIFIED_EXECUTOR_MOCK_ONLY",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "physical_device": false,
+  "real_data_posts_attempted": 0,
+  "real_authentication_posts_attempted": 0,
+  "real_plugin_write_verified": false,
+  "pending_scoped_native_write_consent": true,
+  "old_python_roundtrip_permission_reused": false,
+  "real_private_screenshots": 0,
+  "anonymous_authentication_descriptors": true,
+  "private_profile_tmpfs_and_removed": true,
+  "native_detail_confirmation_and_cancellation_verified": true,
+  "synthetic_local_reading_sentinel_preserved": true,
+  "native_sqlite_and_reading_state_from_production_backends": true,
+  "independent_full_membership_unchanged": true,
+  "actual_profiles": [
+    {
+      "resolution": "600",
+      "report": {
+        "result": "OWNER_NATIVE_MEMBERSHIP_PREVIEW_VERIFIED",
+        "checked_at": "2026-11-10T10:21:11.304689+00:00",
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "private_data_on_regular_disk": false,
+        "screenshots": 0,
+        "intent_state": "none",
+        "real_plugin_write_verified": false,
+        "pending_intent_present": false,
+        "plan_fingerprint": "6f866df403a47c1c5fa49b83a7806d78f0f1aac93a1cbf78166614b1f20eab0e",
+        "planned_post_limit": 2,
+        "same_owner_verified": true,
+        "python_preflight_gets": 3,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "runner_error": "none",
+          "stage": {
+            "status_close_cancelled": true,
+            "workers_reaped": true,
+            "credential_audit": true,
+            "local_state_preserved": true,
+            "roundtrip_restored": false,
+            "no_authentication_posts": true,
+            "journal_before_posts": false,
+            "native_cache_readback": false,
+            "shelf_books": 139,
+            "profile_files_audited": 7,
+            "screenshots": 0,
+            "failed_line": 0,
+            "denied_route": 0,
+            "request_counts": [
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "post_statuses": [],
+            "result": "PASS",
+            "phase": "complete",
+            "permit_writes": false,
+            "anonymous_credentials": true,
+            "guard_selftest": true,
+            "native_detail": true,
+            "preview_matches": true,
+            "native_confirmation": true,
+            "worker_heartbeat": true,
+            "cancel_no_post": true
+          }
+        },
+        "independent_membership_unchanged": true,
+        "final_shelf_count": 139,
+        "preflight_stages": [
+          {
+            "stage": "discovery_shelf",
+            "status": 200
+          },
+          {
+            "stage": "search",
+            "status": 200
+          },
+          {
+            "stage": "discovery_metadata",
+            "status": 200
+          },
+          {
+            "stage": "discovery_shelf",
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "resolution": "ko2",
+      "report": {
+        "result": "OWNER_NATIVE_MEMBERSHIP_PREVIEW_VERIFIED",
+        "checked_at": "2026-11-10T10:21:14.152814+00:00",
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "private_data_on_regular_disk": false,
+        "screenshots": 0,
+        "intent_state": "none",
+        "real_plugin_write_verified": false,
+        "pending_intent_present": false,
+        "plan_fingerprint": "6f866df403a47c1c5fa49b83a7806d78f0f1aac93a1cbf78166614b1f20eab0e",
+        "planned_post_limit": 2,
+        "same_owner_verified": true,
+        "python_preflight_gets": 3,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "runner_error": "none",
+          "stage": {
+            "result": "PASS",
+            "phase": "complete",
+            "permit_writes": false,
+            "anonymous_credentials": true,
+            "guard_selftest": true,
+            "native_detail": true,
+            "preview_matches": true,
+            "native_confirmation": true,
+            "worker_heartbeat": true,
+            "cancel_no_post": true,
+            "status_close_cancelled": true,
+            "workers_reaped": true,
+            "credential_audit": true,
+            "local_state_preserved": true,
+            "roundtrip_restored": false,
+            "no_authentication_posts": true,
+            "journal_before_posts": false,
+            "native_cache_readback": false,
+            "shelf_books": 139,
+            "profile_files_audited": 7,
+            "screenshots": 0,
+            "failed_line": 0,
+            "denied_route": 0,
+            "request_counts": [
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "post_statuses": []
+          }
+        },
+        "independent_membership_unchanged": true,
+        "final_shelf_count": 139,
+        "preflight_stages": [
+          {
+            "stage": "discovery_shelf",
+            "status": 200
+          },
+          {
+            "stage": "search",
+            "status": 200
+          },
+          {
+            "stage": "discovery_metadata",
+            "status": 200
+          },
+          {
+            "stage": "discovery_shelf",
+            "status": 200
+          }
+        ]
+      }
+    }
+  ],
+  "mock_preview_and_armed_profiles": [
+    {
+      "result": "PASS",
+      "synthetic_only": true,
+      "stages": [
+        {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "runner_error": "none",
+          "stage": {
+            "screenshots": 0,
+            "failed_line": 0,
+            "denied_route": 0,
+            "request_counts": [
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "post_statuses": [],
+            "result": "PASS",
+            "phase": "complete",
+            "permit_writes": false,
+            "anonymous_credentials": true,
+            "guard_selftest": true,
+            "native_detail": true,
+            "preview_matches": true,
+            "native_confirmation": true,
+            "worker_heartbeat": true,
+            "cancel_no_post": true,
+            "status_close_cancelled": true,
+            "workers_reaped": true,
+            "credential_audit": true,
+            "local_state_preserved": true,
+            "roundtrip_restored": false,
+            "no_authentication_posts": true,
+            "journal_before_posts": false,
+            "native_cache_readback": false,
+            "shelf_books": 25,
+            "profile_files_audited": 7
+          }
+        },
+        {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "runner_error": "none",
+          "stage": {
+            "phase": "complete",
+            "permit_writes": true,
+            "anonymous_credentials": true,
+            "guard_selftest": true,
+            "native_detail": true,
+            "preview_matches": true,
+            "native_confirmation": true,
+            "worker_heartbeat": true,
+            "cancel_no_post": true,
+            "status_close_cancelled": true,
+            "workers_reaped": true,
+            "credential_audit": true,
+            "local_state_preserved": true,
+            "roundtrip_restored": true,
+            "no_authentication_posts": true,
+            "journal_before_posts": true,
+            "native_cache_readback": true,
+            "shelf_books": 25,
+            "profile_files_audited": 8,
+            "screenshots": 0,
+            "failed_line": 0,
+            "denied_route": 0,
+            "request_counts": [
+              8,
+              1,
+              1,
+              1,
+              0
+            ],
+            "post_statuses": [
+              200,
+              200
+            ],
+            "result": "PASS"
+          }
+        }
+      ],
+      "real_account_requests_attempted": 0
+    },
+    {
+      "result": "PASS",
+      "synthetic_only": true,
+      "stages": [
+        {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "runner_error": "none",
+          "stage": {
+            "preview_matches": true,
+            "native_confirmation": true,
+            "worker_heartbeat": true,
+            "cancel_no_post": true,
+            "status_close_cancelled": true,
+            "workers_reaped": true,
+            "credential_audit": true,
+            "local_state_preserved": true,
+            "roundtrip_restored": false,
+            "no_authentication_posts": true,
+            "journal_before_posts": false,
+            "native_cache_readback": false,
+            "shelf_books": 25,
+            "profile_files_audited": 7,
+            "screenshots": 0,
+            "failed_line": 0,
+            "denied_route": 0,
+            "request_counts": [
+              3,
+              1,
+              0,
+              0,
+              0
+            ],
+            "post_statuses": [],
+            "result": "PASS",
+            "phase": "complete",
+            "permit_writes": false,
+            "anonymous_credentials": true,
+            "guard_selftest": true,
+            "native_detail": true
+          }
+        },
+        {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "runner_error": "none",
+          "stage": {
+            "result": "PASS",
+            "phase": "complete",
+            "permit_writes": true,
+            "anonymous_credentials": true,
+            "guard_selftest": true,
+            "native_detail": true,
+            "preview_matches": true,
+            "native_confirmation": true,
+            "worker_heartbeat": true,
+            "cancel_no_post": true,
+            "status_close_cancelled": true,
+            "workers_reaped": true,
+            "credential_audit": true,
+            "local_state_preserved": true,
+            "roundtrip_restored": true,
+            "no_authentication_posts": true,
+            "journal_before_posts": true,
+            "native_cache_readback": true,
+            "shelf_books": 25,
+            "profile_files_audited": 8,
+            "screenshots": 0,
+            "failed_line": 0,
+            "denied_route": 0,
+            "request_counts": [
+              8,
+              1,
+              1,
+              1,
+              0
+            ],
+            "post_statuses": [
+              200,
+              200
+            ]
+          }
+        }
+      ],
+      "real_account_requests_attempted": 0
+    }
+  ],
+  "maximum_armed_data_posts": 2,
+  "exact_expected_plan_and_independent_armed_runner_required": true,
+  "host_keychain_intent_before_child": true,
+  "unknown_intent_blocks_new_experiment": true,
+  "only_independently_verified_restoration_or_zero_dispatch_clears_intent": true,
+  "no_credential_entry_deleted": true,
+  "production_files": 200,
+  "source_package_bytes_equal": true,
+  "zip_crc_verified": true,
+  "candidate_sha256": "af7e795f2fffa4a9a9b5711c14cf776e00129b3eb71837ada6d2425137399c7f",
+  "source_manifest_sha256": "1cdc11ebcb89b97a45dba7ba6f97480da4b01a6d2c54029982fda19ca8cf72a6",
+  "installed_bytes_measured_after_probe": false,
+  "lua_spec_groups": 178,
+  "new_python_boundary_tests": 23,
+  "python_offline_test_files": 51,
+  "python_tests": 607,
+  "lua_static_files": 471,
+  "lua_syntax_files": 473,
+  "python_compiled_files": 138,
+  "calendar_time_zones": [
+    "UTC",
+    "Asia/Shanghai",
+    "America/New_York",
+    "Pacific/Apia"
+  ],
+  "code_sha256": {
+    "scripts/secure_shelf_experiment.py": "12df6dca914872074095272498483a3fcafdc989373e9696c3301c9566fc8850",
+    "scripts/owner_shelf_membership_contract.py": "c375bb4392445a5d37e8d5f88f72b6db155d77d4db754ee589afcac12012dff4",
+    "scripts/run_owner_shelf_membership.py": "b13aa99b92bc7c244f13e86291bf4dad76830dadce898cfcd14d3d1ddaf803fd",
+    "scripts/verify_owner_shelf_membership.py": "df460ee5c3922b6421655e53b94fe5fa5704a206a7cdf5144dec6126fa410064",
+    "scripts/test_owner_shelf_membership.py": "ab4081abea02e6ff4751cb0ef85752c9a6456040947efb1748a9bde3ae591eb0",
+    "scripts/test_owner_shelf_membership_runtime.py": "d988e2fe8bf402dacb44ee2ca449dade024d30aa792cd26a40d6c4686b08eff6",
+    "spec/koreader/owner_shelf_membership_probe.lua": "8b745008ffee7221d866db0c3e9db198466433e6f839c411e4ce2411563feb3b"
+  },
+  "pending": [
+    "explicit_consent_and_real_native_membership_roundtrip",
+    "other_shelf_state_write_protocols",
+    "physical_ko2",
+    "hardware_power_loss_and_whole_process_kill",
+    "multi_device_coordination",
+    "remaining_roadmap_features",
+    "performance_after_full_feature_acceptance"
+  ]
+}

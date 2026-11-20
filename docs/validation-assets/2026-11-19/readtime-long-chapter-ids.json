@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "real_account_data_writes": 0,
+  "authorization_posts": 0,
+  "screens": ["600x800", "1264x1680"],
+  "actual_koreader_reader": true,
+  "actual_subprocess_sqlite_and_archive": true,
+  "synthetic_epub_chapters": 127,
+  "long_chapter_ids_verified_as_strings": true,
+  "adjacent_ids_above_2_pow_53_verified_in_real_archive": true,
+  "simulated_source_and_transfer_endpoints": true,
+  "single_synthetic_dispatch_per_screen": true,
+  "offline_search_navigation_limit_unchanged": true,
+  "real_service_long_ids_verified": false,
+  "real_historical_credit_verified": false,
+  "physical_kindle_verified": false
+}

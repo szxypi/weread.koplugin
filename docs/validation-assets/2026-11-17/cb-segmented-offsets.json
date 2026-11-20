@@ -1,0 +1,17 @@
+{
+  "result": "PASS",
+  "scope": "read-only candidate diagnostics; not a verified sync protocol",
+  "books": 5,
+  "source_chapters": 5,
+  "channels_per_book": 2,
+  "channels_match": true,
+  "positions_catalog_and_shelf_unchanged": true,
+  "zero_offset": 1,
+  "unique_summary": 4,
+  "nonzero_unique": 3,
+  "nonzero_unique_with_segmented_candidate": 0,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "write_protocol_verified": false,
+  "real_private_text_or_ids_in_report": false
+}

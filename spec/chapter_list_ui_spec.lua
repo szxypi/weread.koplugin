@@ -116,7 +116,13 @@ host.settings = {
     end,
 }
 local book = { bookId = "book-1", title = "Book", cached_chapters = {} }
+local cancelled_view
+package.loaded['weread.ui.catalog_request']={cancel=function(_,view) cancelled_view=view end}
 host:showChapterList(book)
+local original_view=host._chapter_list_view
+original_view:onCloseWidget()
+expect(cancelled_view==original_view,'closing chapter view immediately cancels its pending refresh')
+original_view._catalog_closed=nil
 expect(catalog_view_data.title == "Book" and #catalog_view_data.chapters == 7,
     "chapter catalog view receives the title and all chapters")
 expect(catalog_view_data.chapters[1].status == "100 words",
@@ -168,6 +174,48 @@ expect(closed == 1 and returned_to_parent,
     "successful multi-download closes selection and returns to parent list")
 expect(catalog_view_data.chapters[1].status == "Cached",
     "successful multi-download refreshes cached chapter status")
+
+local claims=require('weread.lib.chapter_cache_claim')
+local old_combined,old_usable=claims.combined,claims.usable
+local proof={items={chapter_1=true,chapter_3=true}}
+claims.combined=function(_,path) if path=='/cache/full.epub' then return proof end end
+claims.usable=function(_,path) return path~='/cache/wrong.epub' end
+host.getFullBookCachePath=function() return '/cache/full.epub' end
+existing_files['/cache/full.epub']=true
+existing_files['/cache/numeric.epub']=true
+existing_files['/cache/wrong.epub']=true
+local mappings={[2]='/cache/numeric.epub',['4']='/cache/missing.epub',['5']='/cache/wrong.epub'}
+book.cached_chapters=mappings
+persisted_books['book-1']={cached_chapters=mappings,cached_full_book='/cache/full.epub'}
+host:showChapterList(book)
+expect(catalog_view_data.chapters[1].status=='Cached' and catalog_view_data.chapters[3].status=='Cached',
+    'combined-book chapters were not marked cached')
+expect(catalog_view_data.chapters[2].status=='Cached','numeric single-chapter key was not marked cached')
+expect(catalog_view_data.chapters[4].status=='400 words' and catalog_view_data.chapters[5].status=='500 words',
+    'missing or unverified cache was shown as available')
+expect(mappings['4']=='/cache/missing.epub','display removed the stale cache mapping')
+host:showChapterDownloadSelection(book,chapters)
+local status_menu=shown[#shown]
+expect(status_menu.items[2].mandatory_func()=='Cached' and status_menu.items[4].mandatory_func()=='Cached',
+    'combined-book status was missing from download selection')
+expect(status_menu.items[3].mandatory_func()=='Cached' and status_menu.items[5].mandatory_func()=='400 words'
+    and status_menu.items[7].mandatory_func()=='500 words','download selection used incorrect cache status')
+claims.combined,claims.usable=old_combined,old_usable
+host.getFullBookCachePath=nil
+
+local manager=require('ui/uimanager')
+local old_schedule,late=manager.scheduleIn,nil
+manager.scheduleIn=function(_,_,callback) late=callback end
+local reopened=false
+host:showChapterDownloadSelection(book,chapters,function() reopened=true end)
+local stale_selection=shown[#shown]
+stale_selection.items[2].callback()
+stale_selection.items[1].callback()
+downloaded_options.on_complete(true)
+expect(type(late)=='function','completed selection did not schedule its return')
+fake_menu:onCloseWidget();late()
+expect(not reopened,'closed selection reopened its parent after a late completion')
+manager.scheduleIn=old_schedule
 
 print(string.format(
     "chapter_list_ui_spec: %d checks, %d failure(s)", checks, failures))

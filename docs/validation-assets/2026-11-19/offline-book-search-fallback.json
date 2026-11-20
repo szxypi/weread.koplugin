@@ -1,0 +1,26 @@
+{
+  "result": "SYNTHETIC_OFFLINE_SEARCH_FALLBACK_VERIFIED",
+  "runtime": "KOReader 2026.07 Linux ARM64",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "book_types": [
+    "ordinary",
+    "imported"
+  ],
+  "offline_reader_menu_handoff": true,
+  "disconnect_keeps_online_results": true,
+  "query_preserved_for_downloaded_search": true,
+  "offline_search_network_requests": 0,
+  "signed_out_local_search_regression": false,
+  "missing_catalog_retry_and_local_fallback": true,
+  "login_failure_and_rate_limit_fallback": true,
+  "normal_online_pagination_regression": true,
+  "renewal_and_catalog_reload_regression": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "real_network_failure_verified": false,
+  "kindle_device_verified": false,
+  "signed_out_correction": "Earlier mock settings automatically injected a login; see signed-out-book-search-fallback.json for corrected validation."
+}

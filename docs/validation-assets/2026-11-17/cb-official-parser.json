@@ -1,0 +1,17 @@
+{
+  "result": "PARTIAL",
+  "books": 5,
+  "official_parser_compared": 4,
+  "official_parser_models_matched": 4,
+  "cloud_offsets_at_parser_text_node_start": 3,
+  "oversized_source_not_compared": 1,
+  "browser_unauthenticated_and_offline_before_private_input": true,
+  "summary_matched_cloud_offset": 0,
+  "cloud_position_catalog_and_shelf_unchanged": true,
+  "account_data_posts": 0,
+  "authentication_posts_for_comparison": 0,
+  "independent_401_and_single_authorization_renewal": true,
+  "retained_group_observed_unchanged": true,
+  "coordinate_semantics_and_writes_verified": false,
+  "physical_kindle_tested": false
+}

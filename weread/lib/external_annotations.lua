@@ -5,7 +5,7 @@ local logger = require("weread.lib.logger")
 
 local ExternalAnnotations = {}
 ExternalAnnotations.SCHEMA_VERSION = 2
-ExternalAnnotations.MATCHER_VERSION = 3
+ExternalAnnotations.MATCHER_VERSION = 4
 ExternalAnnotations.MAX_SEARCH_HITS = 16
 ExternalAnnotations.CHAPTER_SEARCH_HITS = 1
 ExternalAnnotations.FALLBACK_QUOTE_BYTES = 90
@@ -423,6 +423,12 @@ function ExternalAnnotations.locate(document, chapters, options)
     for _, chapter in ipairs(type(chapters) == "table" and chapters or {}) do
         local uid = tostring(chapter.chapter_uid or "")
         local book_id = tostring(chapter.book_id or "")
+        local local_quotes = options.chapter_quotes and options.chapter_quotes[uid]
+        local function quote_for(underline)
+            local text = type(local_quotes) == "table" and local_quotes[tostring(underline.range or "")]
+            if type(text) == "string" and clean_quote(text) ~= "" then return clean_quote(text) end
+            return ExternalAnnotations.quote_for(underline, chapter.reviews)
+        end
         local chapter_started = os.clock()
         local located_before = stats.located
         local unmatched_before = stats.unmatched
@@ -478,7 +484,7 @@ function ExternalAnnotations.locate(document, chapters, options)
             for seq, underline in ipairs(underlines) do
                 if seq >= (options.resume and options.resume.next_index or 1) then
                     local after = scan_range ~= nil and range_start(underline) > scan_range
-                    local quote = ExternalAnnotations.quote_for(underline, chapter.reviews)
+                    local quote = quote_for(underline)
                     local first, last = ExternalAnnotations.find_in_flat(flat, quote,
                         scan_cursor + (after and 1 or 0))
                     if first then
@@ -544,7 +550,7 @@ function ExternalAnnotations.locate(document, chapters, options)
 
             local quote_started = os.clock()
             local underline_range = tostring(underline.range or "")
-            local quote = ExternalAnnotations.quote_for(underline, chapter.reviews)
+            local quote = quote_for(underline)
             if quote == "" then
                 stats.missing_text = stats.missing_text + 1
                 perf("book_id=", book_id, "chapter_uid=", uid, "seq=", seq,
@@ -552,6 +558,16 @@ function ExternalAnnotations.locate(document, chapters, options)
                     "ms=", string.format("%.1f", elapsed_ms(quote_started)))
             else
                 local result, partial, mode, hits = locate_quote(quote)
+                if not result then
+                    -- A rendered footnote or other supported transformation
+                    -- may omit source glyphs. Retain the existing full-quote,
+                    -- same-chapter fallback; never relax its cursor or bounds.
+                    local fallback = ExternalAnnotations.quote_for(underline, chapter.reviews)
+                    if fallback ~= "" and fallback ~= quote then
+                        result, partial, mode, hits = locate_quote(fallback)
+                        if result then quote = fallback end
+                    end
+                end
                 if result then
                     global_cursor_xp = result.start
                     local review = options.include_items ~= false

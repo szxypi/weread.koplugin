@@ -1,0 +1,17 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "screens": [
+    {"width": 600, "height": 800},
+    {"width": 1264, "height": 1680}
+  ],
+  "native_file_manager_plugin": true,
+  "public_search_and_detail": true,
+  "qr_cancel_does_not_open_book": true,
+  "qr_retry_resumes_selected_book": true,
+  "native_epub_reader": true,
+  "synthetic_progress_writes": 0,
+  "stale_intent_guards_unit_tested": ["account", "page", "document", "session", "cancel", "cookie"],
+  "real_account_used": false,
+  "physical_device_tested": false
+}

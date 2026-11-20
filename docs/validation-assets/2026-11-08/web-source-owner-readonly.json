@@ -1,0 +1,122 @@
+{
+  "result": "PARTIAL",
+  "checked_at": "2026-11-08T14:20:04.570232+00:00",
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "selection_progress",
+      "status": 200
+    },
+    {
+      "stage": "selection_progress",
+      "status": 200
+    },
+    {
+      "stage": "progress_before",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "catalog_before",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "catalog_after",
+      "status": 200
+    },
+    {
+      "stage": "progress_after",
+      "status": 200
+    }
+  ],
+  "account_writes_attempted": 0,
+  "precision_wire_sync_enabled": false,
+  "version_semantics_verified": false,
+  "offline_model_check": true,
+  "owner_web_login_verified": true,
+  "credentials_reused": true,
+  "credential_store": "macos_keychain",
+  "shelf_book_count": 139,
+  "selection_attempts": 2,
+  "existing_read_position_selected": true,
+  "source_utf16_units": 21356,
+  "visible_characters": 12722,
+  "offset_resolves_to_unique_visible_text": true,
+  "server_coordinate_semantics_verified": false,
+  "offset_exceeds_catalog_word_count": false,
+  "official_parser_verified": true,
+  "official_parser_source_nodes": 11430,
+  "official_parser_generated_break_marker_nodes": 32,
+  "official_parser_target_present": true,
+  "private_source_browser_network_disabled": true,
+  "official_browser_authenticated": false,
+  "official_browser_version": "157.0.8103.39",
+  "lua_verified": true,
+  "lua_cases": 1,
+  "lua_positions": 3,
+  "lua_scalar_positions": 9,
+  "lua_official_text_nodes": 11430,
+  "lua_current_targets_verified": 1,
+  "cloud_position_stable": true,
+  "embedded_position_matches": true,
+  "catalog_stable": true,
+  "version_fields_observed": true,
+  "version_field_paths": [
+    "book.version"
+  ],
+  "reader_version_fields_observed": true,
+  "book_version_field_comparable": false,
+  "book_version_field_equal": null,
+  "read_snapshot_consistent": true,
+  "pending": [
+    "server_coordinate_and_version_semantics",
+    "authorized_precise_write_readback",
+    "multi_device_and_hardware"
+  ],
+  "credential_lifecycle": {
+    "store": "macos_keychain",
+    "explicit_opt_in": true,
+    "save_and_readback_verified": true,
+    "cross_process_account_reverification": true,
+    "retained_until_goal_completion": true,
+    "real_session_deleted": false,
+    "synthetic_add_read_update_delete_verified": true,
+    "credentials_written_to_files": false
+  },
+  "checks": {
+    "python_tests": 112,
+    "web_source_tests": 23,
+    "secure_session_tests": 11,
+    "parser_isolation_tests": 5,
+    "source_coordinate_tests": 25,
+    "plugin_runtime_changed": false
+  },
+  "limitations": [
+    "One ordinary book and one current target; no general coordinate or version-semantics claim.",
+    "Official-parser comparison is capped at 256 KiB; no maximum-chapter performance acceptance.",
+    "No production progress/shelf/time writes, device EPUB acceptance, multi-device or KO2 hardware validation.",
+    "Cloud raw-source target adapter, precise write/readback, TXT/complex content and version semantics remain incomplete."
+  ]
+}

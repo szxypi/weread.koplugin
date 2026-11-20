@@ -1,0 +1,18 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "detail_downloads_missing_resume": true,
+  "home_downloads_missing_resume": true,
+  "explicit_cached_copy": true,
+  "offline_missing_target_fallback": true,
+  "new_process_offline_reopen": true,
+  "offline_http_requests": 0,
+  "progress_or_time_posts": 0,
+  "account_isolation_and_stale_callback": "component-tested",
+  "real_account_tested": false,
+  "physical_kindle_tested": false
+}

@@ -1,0 +1,19 @@
+{
+  "result": "READ_ONLY_DISCOVERY_CHECKED",
+  "existing_queries_next_offset": {"queries": 13, "books_checked": 3, "candidates": 0},
+  "additional_queries": {"queries": 6, "offsets": [0, 2], "books_checked": 11, "candidates": 0},
+  "possible_duplicate_books": true,
+  "shelf_unchanged_in_each_check": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "private_data_saved": false,
+  "real_full_book_verified": false,
+  "synthetic_empty_chapter_guard": {
+    "screens": [[600, 800, 167], [1264, 1680, 300]],
+    "native_runtime": "KOReader 2026.07 Linux ARM64",
+    "empty_chapter_rejected": true,
+    "original_and_previous_copy_preserved": true,
+    "normal_download_and_offline_reopen": true,
+    "physical_device_verified": false
+  }
+}

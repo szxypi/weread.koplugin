@@ -1,0 +1,180 @@
+{
+  "result": "CLOUD_SOURCE_CROSS_FILE_RUNTIME_VERIFIED",
+  "checked_at": "2026-11-08T20:07:53.671695+00:00",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "synthetic_only": true,
+  "cases": [
+    {
+      "suite": "cloud",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "d651a51a798ab25eda8d405254535b02dccb5ec98b718adfa98dbd687f4a1634",
+      "packaged_files": 139,
+      "production_files_match_worktree": true,
+      "checks": {
+        "result": "PASS",
+        "upload_verified": false,
+        "synthetic_only": true,
+        "source_target_visible": true,
+        "cross_chapter_full_book": true,
+        "background_http": true,
+        "independent_archive": true,
+        "retained_original_offset": true,
+        "offline_no_request": true,
+        "rate_no_retry": true,
+        "dismiss_cancelled": true,
+        "suspend_cancelled": true,
+        "account_cancelled": true,
+        "navigator_cancelled": true,
+        "reader_reopen_cancelled": true,
+        "old_queued_upload_cancelled": true,
+        "report_gate_not_granted": true,
+        "cached_full_handoff": true,
+        "cached_chapter_handoff": true,
+        "startup_pull_superseded": true,
+        "download_declined": true,
+        "owned_download_cancelled": true,
+        "download_reverified": true,
+        "downloaded_source_target_visible": true,
+        "changed_source_no_guess": true,
+        "reading_writes": 0
+      }
+    },
+    {
+      "suite": "cloud",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "e22648cfa323be76443b66fd1fd20729347ca07d51fc00dbced768af505249b6",
+      "packaged_files": 139,
+      "production_files_match_worktree": true,
+      "checks": {
+        "independent_archive": true,
+        "retained_original_offset": true,
+        "offline_no_request": true,
+        "rate_no_retry": true,
+        "dismiss_cancelled": true,
+        "suspend_cancelled": true,
+        "account_cancelled": true,
+        "navigator_cancelled": true,
+        "reader_reopen_cancelled": true,
+        "old_queued_upload_cancelled": true,
+        "report_gate_not_granted": true,
+        "cached_full_handoff": true,
+        "cached_chapter_handoff": true,
+        "startup_pull_superseded": true,
+        "download_declined": true,
+        "owned_download_cancelled": true,
+        "download_reverified": true,
+        "downloaded_source_target_visible": true,
+        "changed_source_no_guess": true,
+        "reading_writes": 0,
+        "result": "PASS",
+        "upload_verified": false,
+        "synthetic_only": true,
+        "source_target_visible": true,
+        "cross_chapter_full_book": true,
+        "background_http": true
+      }
+    },
+    {
+      "suite": "core",
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "bd343d0b9d51e038453d850443f7f7bcf9cca377ac4ad39412905b83826411fe",
+      "packaged_files": 139,
+      "production_files_match_worktree": true
+    },
+    {
+      "suite": "core",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "5eb191700900a0e833cc74021456990d3f89e88707c10fa24a6afd9233543aa8",
+      "packaged_files": 139,
+      "production_files_match_worktree": true
+    },
+    {
+      "suite": "legacy-navigation",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "531d72d9a100ecf0aa6ec8dcca76a089ed531298cc4574d4bd5a75f79401eee2",
+      "packaged_files": 139,
+      "production_files_match_worktree": true,
+      "checks": {
+        "old_download_cached_without_open": true,
+        "new_local_source_request": true,
+        "downloaded_chapter_switch": true,
+        "status": "PARTIAL",
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "precision_wire_sync_enabled": false,
+        "native_reader_replaced": true,
+        "cached_chapter_switch": true,
+        "stale_native_prompt_rejected": true
+      }
+    },
+    {
+      "suite": "local-source",
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "result": "PASS",
+      "repaint_warnings": 0,
+      "candidate_sha256": "c56b01ede272bb7bdca18fe81ab0770bb271171f1e0347dbd6127cca99227076",
+      "packaged_files": 139,
+      "production_files_match_worktree": true,
+      "checks": {
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "wire_precision_sync_enabled": false,
+        "live_reader_capture": true,
+        "background_process_observed": true,
+        "native_document_kept_in_parent": true,
+        "menu_check": true,
+        "page_turn": true,
+        "account_change": true,
+        "suspend_resume_callbacks": true,
+        "low_memory_recovery": true,
+        "same_path_replacement": true,
+        "scroll": true,
+        "stale_dialog_closed": true,
+        "source_navigation_close_reopen": true,
+        "book_switch": true,
+        "source_navigation": true,
+        "status": "PARTIAL",
+        "verified_file_chapter_title": true
+      }
+    }
+  ],
+  "limitations": [
+    "No physical Kindle verification",
+    "No precision wire uploads or independent write readback",
+    "Existing Python and real-response validated read protocols reused; local cross-file orchestration verified here"
+  ]
+}

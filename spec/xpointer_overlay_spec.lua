@@ -235,6 +235,23 @@ expect(shown_popup and shown_popup.position == "bottom"
 expect(shown_popup.doc_font_name == "Book Font"
         and shown_popup.doc_margins.left == 11,
     "local-book popup did not reuse the document typography")
+local personal_calls={};local corner=true
+package.loaded['weread.ui.personal_marks']={tap=function(_self,_ges,bookmarks_only)
+    personal_calls[#personal_calls+1]=bookmarks_only==true
+    return bookmarks_only==true and corner
+end}
+local prefs=popup_host.settings.get
+popup_host.settings.get=function(self,key)
+    if key=='cache' then return {ignore_edge_thought_taps=true} end
+    return prefs(self,key)
+end
+expect(popup_host:_onXPointerOverlayTap{pos={x=590,y=20}},'explicit bookmark corner yielded to page-turn edge')
+expect(#personal_calls==1 and personal_calls[1],'edge attempted a text-mark tap')
+corner=false
+expect(not popup_host:_onXPointerOverlayTap{pos={x=590,y=20}},'empty edge no longer yields to page turn')
+expect(#personal_calls==2,'ordinary text tap escaped the edge exclusion')
+package.loaded['weread.ui.personal_marks']=nil
+popup_host.settings.get=prefs
 
 local bind_host = {
     ui = { document = { file = "/books/test.epub" } },

@@ -1,0 +1,19 @@
+{
+  "result": "PASS",
+  "mixed_identity_scenarios_synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "gateway_mixed_number_and_string_ids": true,
+  "native_group_and_ungrouped_views": true,
+  "legacy_rounded_book_payload_recovered_from_sqlite_key": true,
+  "legacy_ambiguous_numeric_group_member_not_bound": true,
+  "fresh_offline_process": true,
+  "synthetic_http_requests": 0,
+  "real_account_normal_projection_read_only": true,
+  "real_account_native_and_web_books": 140,
+  "real_account_native_and_web_archives": 5,
+  "real_account_lua_projection_matches": true,
+  "real_account_ui_or_sqlite_verified": false,
+  "real_account_data_writes": 0,
+  "native_authorization_renewals": 1,
+  "physical_kindle_tested": false
+}

@@ -1,0 +1,78 @@
+{
+  "result": "COMPLETION_FLAG_OWNER_READONLY_PREVIEW_VERIFIED_WRITE_UNVERIFIED",
+  "actual_preview": {
+    "checked_at": "2026-11-10T10:58:29.825704+00:00",
+    "shelf_books": 139,
+    "finished_books": 20,
+    "unknown_flags": 0,
+    "before": false,
+    "desired": true,
+    "same_owner_verified": true,
+    "position_baseline_verified": true,
+    "independent_flags_and_position_unchanged": true,
+    "stages": [
+      {
+        "stage": "finish_preview_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_preview_position",
+        "status": 200
+      },
+      {
+        "stage": "finish_preview_independent_shelf",
+        "status": 200
+      },
+      {
+        "stage": "finish_preview_independent_position",
+        "status": 200
+      }
+    ]
+  },
+  "real_data_posts_attempted": 0,
+  "real_authentication_posts_attempted": 0,
+  "real_get_requests_attempted": 10,
+  "final_preview_get_requests": 4,
+  "earlier_preview_and_target_confirmation_get_requests": 6,
+  "real_markstatus_write_verified": false,
+  "lua_write_implemented": false,
+  "pending_specific_completion_consent": true,
+  "reused_membership_or_position_write_consent": false,
+  "raw_positions_and_snapshots_saved": false,
+  "credentials_written_to_files": false,
+  "credential_entries_retained": true,
+  "bounded_maximum_data_posts": 2,
+  "unexpected_receipt_or_state_stops_experiment": true,
+  "explicit_exact_plan_required": true,
+  "durable_pending_before_dispatch": true,
+  "unknown_intent_blocks_replay": true,
+  "independent_final_flags_members_and_position_required_before_cleanup": true,
+  "completion_fixture_tests": 25,
+  "checks": {
+    "result": "PASS",
+    "python_offline_files": 52,
+    "python_tests": 632,
+    "python_compiled_files": 141,
+    "production_files": 200,
+    "production_bytes_unchanged_from_native_tested_candidate": true
+  },
+  "previous_lua_spec_groups": 179,
+  "production_native_validation_commit": "6c0d880961ee08e41ce37365bca6222763d88720",
+  "previous_native_runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "native_ui_rerun_this_turn": false,
+  "physical_device": false,
+  "code_sha256": {
+    "scripts/secure_finish_experiment.py": "bd0bd92136a1fa6c0f1de51eb983133ffb4501a8f9b598338ea4e4d3a7439445",
+    "scripts/verify_finish_roundtrip.py": "78c781fe5389c139bf75a93377b3038b96a04df848eac30413d71888bfaf4075",
+    "scripts/test_finish_roundtrip.py": "e2453234d0747a820b18fd66d91ce329a3b6fd4848ec2ecdbb51c01df1654dcc"
+  },
+  "pending": [
+    "specific_completion_write_consent_and_real_protocol_roundtrip",
+    "lua_completion_write_and_native_ui",
+    "real_native_membership_roundtrip",
+    "physical_ko2",
+    "server_progress_and_other_metadata_side_effects",
+    "remaining_roadmap_features",
+    "performance_after_full_feature_acceptance"
+  ]
+}

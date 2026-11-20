@@ -1,0 +1,16 @@
+{
+  "date": "2026-11-19",
+  "runtime": "official KOReader 2026.07.1 Linux ARM64, Xvfb",
+  "data": "public rising chart; signed-out profile; no screenshots",
+  "dimensions": [
+    {"width": 600, "height": 800, "dpi": 167},
+    {"width": 1264, "height": 1680, "dpi": 300}
+  ],
+  "each_size": {
+    "live": {"result": "PASS", "first": 20, "second": 20, "requests": 2, "forbidden": 0},
+    "fresh_offline_process": {"result": "PASS", "first": 20, "second": 20, "requests": 0, "forbidden": 0},
+    "offline_projected_fields_match_live": true,
+    "temporary_profile_removed": true
+  },
+  "physical_kindle": "not tested"
+}

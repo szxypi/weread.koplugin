@@ -1,0 +1,301 @@
+{
+  "status": "PARTIAL",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Ubuntu ARM64 / Xvfb",
+  "public_network_used": false,
+  "production_account_writes_attempted": 0,
+  "precision_wire_sync_enabled": false,
+  "runs": [
+    {
+      "kind": "source_navigation",
+      "candidate_sha256": "7e75f3df950ba14929be8402bfadccc1043c2b87dbbd8ea27aa664f70a1648bb",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "grayscale": true
+      },
+      "page_before": 1,
+      "pages_before_reflow": 182,
+      "pages_after_reflow": 266,
+      "source_target_retained": true,
+      "font_reflow": true,
+      "same_page_jump_invalidates": true,
+      "target_page": 93,
+      "upload_verification_unchanged": true,
+      "cancelled_native_walk": true,
+      "native_walk_steps_before_cancel": 633,
+      "scroll": true,
+      "status": "PARTIAL",
+      "cancelled_live_worker_reaped": true,
+      "public_network_used": false,
+      "native_page_origin_co": 435,
+      "precision_wire_sync_enabled": false,
+      "background_preparation": true,
+      "parent_native_dom": true,
+      "ui_raw_member_reads": 0,
+      "navigation_child_observed": true,
+      "native_phase_event_loop_ticks": 26,
+      "target_chapter": "22",
+      "target_co": 741,
+      "production_account_writes_attempted": 0,
+      "reader_lifecycle": {
+        "wire_precision_sync_enabled": false,
+        "live_reader_capture": true,
+        "background_process_observed": true,
+        "native_document_kept_in_parent": true,
+        "menu_check": true,
+        "page_turn": true,
+        "account_change": true,
+        "suspend_resume_callbacks": true,
+        "low_memory_recovery": true,
+        "same_path_replacement": true,
+        "reopen_version": 8,
+        "scroll": true,
+        "stale_dialog_closed": true,
+        "source_navigation": true,
+        "book_switch": true,
+        "status": "PARTIAL",
+        "page_two_co": 435,
+        "screen": {
+          "height": 800,
+          "width": 600
+        },
+        "initial_co": 16,
+        "source_navigation_close_reopen": true,
+        "verified_file_chapter_title": true,
+        "public_network_used": false,
+        "production_account_writes_attempted": 0
+      }
+    },
+    {
+      "kind": "source_navigation",
+      "candidate_sha256": "7e75f3df950ba14929be8402bfadccc1043c2b87dbbd8ea27aa664f70a1648bb",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "upload_verification_unchanged": true,
+      "cancelled_native_walk": true,
+      "scroll": true,
+      "public_network_used": false,
+      "production_account_writes_attempted": 0,
+      "status": "PARTIAL",
+      "precision_wire_sync_enabled": false,
+      "background_preparation": true,
+      "parent_native_dom": true,
+      "ui_raw_member_reads": 0,
+      "navigation_child_observed": true,
+      "native_phase_event_loop_ticks": 25,
+      "target_chapter": "22",
+      "target_co": 741,
+      "native_page_origin_co": 433,
+      "page_before": 1,
+      "pages_before_reflow": 182,
+      "pages_after_reflow": 266,
+      "source_target_retained": true,
+      "font_reflow": true,
+      "same_page_jump_invalidates": true,
+      "target_page": 93,
+      "native_walk_steps_before_cancel": 254,
+      "cancelled_live_worker_reaped": true,
+      "reader_lifecycle": {
+        "source_navigation": true,
+        "scroll": true,
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "wire_precision_sync_enabled": false,
+        "live_reader_capture": true,
+        "background_process_observed": true,
+        "native_document_kept_in_parent": true,
+        "menu_check": true,
+        "page_turn": true,
+        "account_change": true,
+        "suspend_resume_callbacks": true,
+        "low_memory_recovery": true,
+        "same_path_replacement": true,
+        "reopen_version": 8,
+        "verified_file_chapter_title": true,
+        "stale_dialog_closed": true,
+        "source_navigation_close_reopen": true,
+        "book_switch": true,
+        "initial_co": 16,
+        "page_two_co": 433,
+        "screen": {
+          "width": 1264,
+          "height": 1680
+        },
+        "status": "PARTIAL"
+      }
+    },
+    {
+      "kind": "downloaded_single_chapter_and_core",
+      "candidate_sha256": "7e75f3df950ba14929be8402bfadccc1043c2b87dbbd8ea27aa664f70a1648bb",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "source_binding": {
+        "extra_routes": {
+          "synchronous_range_chapters": 2,
+          "prefetch_worker_chapters": 1,
+          "images_disabled": true
+        },
+        "reader": {
+          "target_page": 3,
+          "previous_page": 1,
+          "exact_prefix_verified": true,
+          "target_visible": true,
+          "raw_before_images": true,
+          "file_version": 7,
+          "co": 1395,
+          "production_source_navigation": true,
+          "raw_bytes": 4421,
+          "total_pages": 3,
+          "chapter_dom_roundtrip": true,
+          "file_id": "9ce518b146dd13ce53be5f98b2328582d23c4d8c32fef6c5a1537c3182accd8e",
+          "point_offset": 24
+        },
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "progress_mapping_enabled": false,
+        "wire_progress_write_verified": false,
+        "full": {
+          "file_version": 7,
+          "file_id": "b38231c5b666bde53a438970baf9e23e414585a2d7d025f8390b2de929a3009f",
+          "raw_before_footnotes": 6,
+          "background_packaging": true,
+          "transformed_chapter_dom_roundtrips": 2,
+          "chapters": 6,
+          "raw_before_images": 6
+        }
+      },
+      "native_statistics_seconds": 12
+    },
+    {
+      "kind": "legacy_target_retention",
+      "candidate_sha256": "7e75f3df950ba14929be8402bfadccc1043c2b87dbbd8ea27aa664f70a1648bb",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167,
+        "grayscale": true
+      },
+      "navigation": {
+        "page": {
+          "retained_chapter_offset": 60921,
+          "retained_chapter_uid": 1,
+          "total_pages": 602,
+          "requested_fraction": 0.203073089701,
+          "old_rounded_page": 120,
+          "actual_page": 122,
+          "captured_fraction": 0.20265780730897,
+          "native_page_origin_offset": 60797,
+          "pages_after_reflow": 706,
+          "retained_after_reflow": true
+        },
+        "scroll": {
+          "captured_fraction": 0.50312353835637,
+          "requested_fraction": 0.503125,
+          "document_height": 528087,
+          "actual_position": 265693
+        },
+        "public_network_used": false,
+        "cloud_target_retained": true,
+        "same_page_jump_invalidates": true,
+        "return_does_not_revive": true,
+        "native_scroll_update": true,
+        "production_account_writes_attempted": 0,
+        "precision_wire_sync_enabled": false
+      }
+    },
+    {
+      "kind": "chapter_dom",
+      "candidate_sha256": "7e75f3df950ba14929be8402bfadccc1043c2b87dbbd8ea27aa664f70a1648bb",
+      "packaged_files_match_workspace": 121,
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300,
+        "grayscale": true
+      },
+      "dom": {
+        "screen": {
+          "width": 1264,
+          "height": 1680
+        },
+        "source_dom_source_roundtrip": true,
+        "public_network_used": false,
+        "production_account_writes_attempted": 0,
+        "progress_mapping_enabled": false,
+        "wire_progress_write_verified": false,
+        "duplicate_titles": true,
+        "identical_chapter_text": true,
+        "cross_block": true,
+        "chapters": 2,
+        "pages_before": 52,
+        "co": 10785,
+        "scroll": true,
+        "font_before": 22,
+        "target_page": 51,
+        "status": "PARTIAL",
+        "font_reflow": true,
+        "literal_brackets": true,
+        "entities": true,
+        "astral": true,
+        "chapter_end": true,
+        "image_only_last_page": true,
+        "repeat_context_disambiguation": true,
+        "cancel_preparation": true,
+        "cancel_walk": true,
+        "repeat_walk_steps": 91,
+        "sparse_checkpoints": 39,
+        "font_after": 26,
+        "pages_after": 70
+      }
+    }
+  ],
+  "checks": {
+    "lua_specs": 101,
+    "luacheck_files": 236,
+    "luacheck_warnings": 0,
+    "python_tests": 71,
+    "source_navigation_checks": 31,
+    "source_worker_checks": 50,
+    "source_context_checks": 15,
+    "source_position_checks": 50,
+    "source_dom_checks": 55,
+    "progress_sync_checks": 238,
+    "reader_position_checks": 43,
+    "read_report_progress_checks": 22
+  },
+  "hardware_audit": {
+    "mounted_koreader_folders": 0,
+    "recognized_kindle_usb": 0,
+    "private_device_identifiers_saved": false
+  },
+  "limits": {
+    "original_source_bytes": 2097152,
+    "rendered_member_bytes": 8388608,
+    "native_text_bytes": 8388608,
+    "navigation_anchor_bytes": 8192,
+    "result_pipe_bytes": 65536,
+    "navigation_timeout_seconds": 120,
+    "deferred_resource_retries": 3,
+    "ui_archive_guard_scope": "original source and rendered chapter members; OPF and provenance metadata remain allowed"
+  },
+  "limitations": [
+    "The local navigation entry is internal; a validated cloud-position adapter remains unfinished.",
+    "Legacy word/fraction upload fields remain unchanged; local source navigation does not grant upload verification.",
+    "Native chapter text extraction and OPF scanning include synchronous calls; no maximum-chapter latency, peak RSS or KO2 hardware performance claim.",
+    "Cloud coordinate/version comparison, precise write/readback, navigation operation coordination, TXT/complex content and multi-device validation remain incomplete.",
+    "Separate synthetic DOM fixture emoji glyph coverage remains unverified."
+  ]
+}

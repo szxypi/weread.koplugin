@@ -1,0 +1,37 @@
+{
+  "result": "READER_CONTEXT_VERIFIED",
+  "checked_at": "2026-11-08T22:01:13.010228+00:00",
+  "account_writes_attempted": 0,
+  "credentials_written_to_files": false,
+  "private_context_saved": false,
+  "lua_projection_matches": true,
+  "native_https_context_matches": true,
+  "native_read_requests": 2,
+  "owner_verified": true,
+  "shelf_book_count": 139,
+  "sample_count": 2,
+  "same_book_context": true,
+  "strict_initial_state": true,
+  "stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}

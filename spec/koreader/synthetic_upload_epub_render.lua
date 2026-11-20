@@ -1,0 +1,12 @@
+-- Open and render a self-authored synthetic upload fixture in KOReader CRE.
+require('setupkoenv')
+local home,path=assert(os.getenv('KO_HOME')),assert(arg[1]);local min_pages=tonumber(arg[2] or '1')
+assert(min_pages and min_pages>=1 and min_pages<=100)
+assert(home:match('^/dev/shm/') and path:match('^/dev/shm/'))
+G_defaults=require('luadefaults'):open();G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
+local Device=require('device');require('document/canvascontext'):init(Device)
+local document=assert(require('document/documentregistry'):openDocument(path))
+assert(document:loadDocument());document:setFontFace('Noto Sans');document:setFontSize(Device.screen:scaleBySize(24));document:render()
+local matches=assert(document:findAllText('This synthetic chapter verifies',false,0,4,false,0))
+assert(document:getPageCount()>=min_pages and matches[1] and matches[1].start)
+document:close();print('PASS: synthetic upload book rendered by KOReader CRE')

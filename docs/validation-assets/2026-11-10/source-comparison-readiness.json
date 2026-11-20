@@ -1,0 +1,193 @@
+{
+  "result": "SOURCE_READINESS_AND_FULL_SMOKE_VERIFIED",
+  "base_head": "b781b6f6e4a481a56931fac429b6b819cb95ee4e",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "physical_device": false,
+  "synthetic_only": true,
+  "real_account_requests": 0,
+  "real_account_data_writes": 0,
+  "real_authentication_posts": 0,
+  "keychain_accesses": 0,
+  "original_credential_entries_retained": true,
+  "initial_diagnostic_observations": [
+    {
+      "phase": "mp_download_smoke",
+      "pause_suspend": true,
+      "position_available": false,
+      "identity_valid": true,
+      "location_available": true,
+      "book_matches_detected": true
+    },
+    {
+      "phase": "mp_versions_smoke",
+      "pause_suspend": true,
+      "position_available": false,
+      "identity_valid": true,
+      "location_available": true,
+      "book_matches_detected": true
+    },
+    {
+      "phase": "mp_cleanup_smoke",
+      "pause_suspend": true,
+      "position_available": false,
+      "identity_valid": true,
+      "location_available": true,
+      "book_matches_detected": true
+    },
+    {
+      "phase": "mp_recovery_smoke",
+      "pause_suspend": true,
+      "position_available": false,
+      "identity_valid": true,
+      "location_available": true,
+      "book_matches_detected": true
+    },
+    {
+      "phase": "mp_catalog_smoke",
+      "pause_suspend": true,
+      "position_available": false,
+      "identity_valid": true,
+      "location_available": true,
+      "book_matches_detected": true
+    }
+  ],
+  "lifecycle_resume_pairs_fixed": 5,
+  "lifecycle_pair_fix_alone_confirmed_upload_but_not_wake_comparison": true,
+  "early_remote_read_negative_control_reproduced": true,
+  "local_source_wait_seconds": 35,
+  "pre_read_only_wait": true,
+  "source_collector_observed_without_new_capture_job": true,
+  "cancellation_and_stale_replacement_callbacks_verified": true,
+  "timeout_preserves_local_pending": true,
+  "actual_coordinate_difference_keeps_explicit_choice": true,
+  "friendly_manual_timeout_guidance": true,
+  "full_standalone_smoke_result": "PASS",
+  "normal_reading_regression_result": "PASS",
+  "profiles": [
+    {
+      "kind": "standalone_full",
+      "resolution": "600x800",
+      "dpi": 167,
+      "production_files": 204,
+      "source_package_and_installed_byte_equal": true,
+      "zip_crc_verified": true,
+      "repaint_warnings": 0,
+      "candidate_sha256": "429f294cd15679d64af8a00f388b043c8f11af88ee1c5c3310b0ae1d13b922f5",
+      "outcome": {
+        "real_account_requests": 0,
+        "fixture_suspend_resume_pairs_restored": true,
+        "queued_old_account_upload_cancelled": true,
+        "queued_old_account_pull_cancelled": true,
+        "source_coordinates_confirmed": true,
+        "independent_web_coordinates_match": true,
+        "gateway_percentage_matches": true,
+        "local_pending_cleared_after_confirmation": true,
+        "source_wait_before_cloud_observed": true,
+        "source_wait_max_seconds": 35,
+        "fresh_reads_after_source_ready": 2,
+        "pre_suspend_upload_not_replayed": true,
+        "verified_after_resume": true,
+        "source_wait_job_retired": true,
+        "source_wait_cancel_reaped_local_worker": true,
+        "stale_source_wait_callbacks_ignored": true,
+        "result": "PASS",
+        "full_download_and_source_routes": true,
+        "synthetic_only": true
+      }
+    },
+    {
+      "kind": "standalone_full",
+      "resolution": "1264x1680",
+      "dpi": 300,
+      "production_files": 204,
+      "source_package_and_installed_byte_equal": true,
+      "zip_crc_verified": true,
+      "repaint_warnings": 0,
+      "candidate_sha256": "ca6eb83fe42638f486c9c60b82dc14f8c1839f8523534f6dd6d366c908aa48b8",
+      "outcome": {
+        "full_download_and_source_routes": true,
+        "result": "PASS",
+        "source_wait_max_seconds": 35,
+        "source_wait_job_retired": true,
+        "pre_suspend_upload_not_replayed": true,
+        "verified_after_resume": true,
+        "queued_old_account_upload_cancelled": true,
+        "queued_old_account_pull_cancelled": true,
+        "source_coordinates_confirmed": true,
+        "independent_web_coordinates_match": true,
+        "gateway_percentage_matches": true,
+        "local_pending_cleared_after_confirmation": true,
+        "source_wait_before_cloud_observed": true,
+        "stale_source_wait_callbacks_ignored": true,
+        "source_wait_cancel_reaped_local_worker": true,
+        "fixture_suspend_resume_pairs_restored": true,
+        "real_account_requests": 0,
+        "synthetic_only": true,
+        "fresh_reads_after_source_ready": 2
+      }
+    },
+    {
+      "kind": "normal_reading",
+      "resolution": "600x800",
+      "dpi": 167,
+      "production_files": 204,
+      "source_package_and_installed_byte_equal": true,
+      "zip_crc_verified": true,
+      "repaint_warnings": 0,
+      "candidate_sha256": "7e0b14fd9dfa1fc8aa9bf7f2aed0a3b3ccee5ca7566952d6aa3d00f79cc368f0",
+      "outcome": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "fresh_offline_process": true,
+        "reconnection_process": true
+      }
+    },
+    {
+      "kind": "normal_reading",
+      "resolution": "1264x1680",
+      "dpi": 300,
+      "production_files": 204,
+      "source_package_and_installed_byte_equal": true,
+      "zip_crc_verified": true,
+      "repaint_warnings": 0,
+      "candidate_sha256": "3148e15273e31b359f8e4701445b01f66535dc74c572eca15cedbd764c8e58a2",
+      "outcome": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "fresh_offline_process": true,
+        "reconnection_process": true
+      }
+    }
+  ],
+  "static": {
+    "result": "PASS",
+    "lua_spec_groups": 183,
+    "lua_source_wait_checks": 42,
+    "python_offline_files": 55,
+    "python_tests": 670,
+    "lua_syntax_files": 487,
+    "python_compiled_files": 152,
+    "luacheck_files": 485,
+    "time_zones": 4
+  },
+  "source_sha256": {
+    "weread/lib/progress_source_wait.lua": "58ce09ba11c1f78549e2035b5b4992f208145ac765278c15b5a92bbcecd53f89",
+    "weread/lib/progress_sync.lua": "f2b3d1f29df07b53e58c04f0f996f3de2b133bab3a6717b7016625ea43468b9e",
+    "weread/ui/progress_sync_dialog.lua": "6686db8f2a419bb3b1febccba01b8c36cad114043659a0a1188d9b2b304e957a",
+    "spec/progress_source_wait_spec.lua": "998295644645128e60b963d8c9d326a7fa3d5c1b1e7d30cde2301b8f4e9ba8b2",
+    "spec/koreader/weread_mock_smoke.lua": "5d7379e3791dc9cf77dd3d8406be941e4c1a056eb3469fc06f33635ed575ebcc",
+    "spec/koreader/mp_download_smoke.lua": "a5eb9266ca7b37061986dc68d9f5d19368eb02f9d724d0da41f98122b33bd17b",
+    "spec/koreader/mp_versions_smoke.lua": "799446968331753b3a8d7d1f7f1299730df1a7531640c5c96da1d2a139b31fd7",
+    "spec/koreader/mp_cleanup_smoke.lua": "70b93f810947d83b45eb80b489d9bddeecb02fd5ad7f798ffcce791727e88748",
+    "spec/koreader/mp_recovery_smoke.lua": "848088b14d39eb8e1f28fc6a536389e97069014de437b93231dc0e9646528a3f",
+    "spec/koreader/mp_catalog_smoke.lua": "83263503cb5bdfbc456bb2b34ccad24cd444807a90e336c2a254e9ef7096adf5"
+  },
+  "pending": [
+    "physical_ko2",
+    "new_combination_real_write_readback",
+    "multi_device_concurrency",
+    "other_formats",
+    "remaining_roadmap_features",
+    "performance_after_full_feature_acceptance"
+  ]
+}

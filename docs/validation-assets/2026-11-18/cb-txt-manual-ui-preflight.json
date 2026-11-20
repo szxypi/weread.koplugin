@@ -1,0 +1,15 @@
+{
+  "scope": "new self-authored imported TXT fixture",
+  "environment": "packaged KOReader emulators and synthetic local service",
+  "screens": [[600, 800, 167], [1264, 1680, 300]],
+  "individual_private_previews_blocked": 2,
+  "individual_private_synthetic_runs_verified": 2,
+  "sequential_chain_blocked_previews": 2,
+  "sequential_chain_manual_writes": 4,
+  "sequential_chain_dual_channel_readbacks": 4,
+  "sequential_chain_offline_reopens": 2,
+  "temporary_profiles_removed": true,
+  "real_account_read_only_preview": true,
+  "real_account_data_writes_in_preflight": 0,
+  "real_manual_roundtrip_verified": false
+}

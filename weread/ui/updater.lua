@@ -237,6 +237,15 @@ function UpdaterUI:check(manual)
         return { release = release, error = err }
     end, function(result)
         self._checking = false
+        if result and result.error == "no_published_release" then
+            self.updater:clear_available_update()
+            self.updater:_save_state{ last_check = os.time() }
+            self.refresh_ui()
+            if manual then
+                UIManager:show(InfoMessage:new{ text = _("No published version is available for this project yet.") })
+            end
+            return
+        end
         if not result or not result.release then
             logger.warn("update check failed:", result and result.error or "cancelled")
             if manual and not (result and result.cancelled) then

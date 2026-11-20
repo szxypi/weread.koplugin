@@ -1,0 +1,208 @@
+{
+  "schema": 1,
+  "result": "PASS",
+  "base_head": "e241a52215810b8dc410aab0b3f21cfa08e0c93f",
+  "scope": "ordinary-source-highlight-create-and-remove",
+  "continuing_goal_authorization": true,
+  "maximum_prototype_data_posts": 2,
+  "real_prototype": {
+    "result": "PASS",
+    "mode": "apply",
+    "account_data_posts": 2,
+    "independent_steps": 2,
+    "original_records_restored": true,
+    "web_position_unchanged": true,
+    "derived_chapter_metadata_changed": false,
+    "original_state_unchanged": true,
+    "intent_state": "absent",
+    "no_automatic_replay": true,
+    "authentication_posts": 0
+  },
+  "real_readonly_contract": {
+    "result": "PASS",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "python_lua_match": true,
+    "plans": 2,
+    "original_state_unchanged": true,
+    "no_intent_created": true,
+    "deletion_plan_uses_hypothetical_new_record": true
+  },
+  "real_batches": [
+    {
+      "label": "prototype-initial-readonly",
+      "result": "UNVERIFIED",
+      "gets": 25,
+      "existing_catalog_content_read_posts": 5,
+      "account_data_posts": 0,
+      "authentication_posts": 0
+    },
+    {
+      "label": "prototype-readonly",
+      "result": "PASS",
+      "gets": 26,
+      "existing_catalog_content_read_posts": 5,
+      "account_data_posts": 0,
+      "authentication_posts": 0
+    },
+    {
+      "label": "prototype-create-remove",
+      "result": "PASS",
+      "gets": 34,
+      "existing_catalog_content_read_posts": 5,
+      "account_data_posts": 2,
+      "authentication_posts": 0
+    },
+    {
+      "label": "contract-initial",
+      "result": "UNVERIFIED",
+      "gets": 16,
+      "existing_catalog_content_read_posts": 5,
+      "account_data_posts": 0,
+      "authentication_posts": 0
+    },
+    {
+      "label": "contract-second",
+      "result": "UNVERIFIED",
+      "gets": 16,
+      "existing_catalog_content_read_posts": 5,
+      "account_data_posts": 0,
+      "authentication_posts": 0
+    },
+    {
+      "label": "contract-final",
+      "result": "PASS",
+      "gets": 20,
+      "existing_catalog_content_read_posts": 5,
+      "account_data_posts": 0,
+      "authentication_posts": 0
+    }
+  ],
+  "real_totals": {
+    "gets": 137,
+    "existing_catalog_content_read_posts": 30,
+    "account_data_posts": 2,
+    "authentication_posts": 0
+  },
+  "native_synthetic": {
+    "600": {
+      "files": 241,
+      "source_and_installed_bytes_match": true,
+      "package_sha256": "b772e8169bc3518e8fdc4f0d0161dd39b893df2c97a1b44e49abb37f5a90c3c6",
+      "stage": {
+        "native_selection": true,
+        "native_list_delete": true,
+        "background_workers": true,
+        "durable_intent_before_post": true,
+        "offline_no_write": true,
+        "source_change_refuses_post": true,
+        "linked_thought_delete_refused": true,
+        "pending_no_resend": true,
+        "readonly_recovery": true,
+        "cancel_refuses_commit": true,
+        "original_records_restored": true,
+        "synthetic_only": true,
+        "reader_position_and_notes_preserved": true,
+        "lost_receipt_independent_readback": true,
+        "mock_data_posts": 4,
+        "real_account_data_posts": 0,
+        "result": "PASS"
+      },
+      "fresh_offline": {
+        "synthetic_only": true,
+        "local_draft_and_pending_kept": true,
+        "fresh_process": true,
+        "automatic_replay": false,
+        "offline_http_requests": 0,
+        "result": "PASS",
+        "offline_source_restore": true
+      }
+    },
+    "ko2": {
+      "files": 241,
+      "source_and_installed_bytes_match": true,
+      "package_sha256": "64aaa49575915dc970911800af1dc5d258ee6d87070feac49aac3f7be43aba77",
+      "stage": {
+        "background_workers": true,
+        "durable_intent_before_post": true,
+        "offline_no_write": true,
+        "source_change_refuses_post": true,
+        "linked_thought_delete_refused": true,
+        "pending_no_resend": true,
+        "readonly_recovery": true,
+        "cancel_refuses_commit": true,
+        "original_records_restored": true,
+        "result": "PASS",
+        "synthetic_only": true,
+        "reader_position_and_notes_preserved": true,
+        "lost_receipt_independent_readback": true,
+        "real_account_data_posts": 0,
+        "native_selection": true,
+        "mock_data_posts": 4,
+        "native_list_delete": true
+      },
+      "fresh_offline": {
+        "synthetic_only": true,
+        "automatic_replay": false,
+        "offline_source_restore": true,
+        "fresh_process": true,
+        "offline_http_requests": 0,
+        "result": "PASS",
+        "local_draft_and_pending_kept": true
+      }
+    }
+  },
+  "sqlite_fork_claim": {
+    "result": "PASS",
+    "checks": 47,
+    "highlight_competing_claims": 2,
+    "winning_claims": 1,
+    "separate_thought_journal": true
+  },
+  "checks": {
+    "python_files": 80,
+    "python_tests": 990,
+    "python_skips": 0,
+    "lua_specs": 213,
+    "time_zones": 4,
+    "python_compile": 242,
+    "lua_syntax": 597,
+    "result": "PASS",
+    "followup_highlight_tests": 20
+  },
+  "lint": {
+    "files": 595,
+    "warnings": 0,
+    "errors": 0
+  },
+  "limitations": [
+    "native_real_write_roundtrip",
+    "physical_kindlereader",
+    "linked-thought-residual-cleanup",
+    "styles-and-position-bookmarks",
+    "immediate-reader-repaint",
+    "more-formats-and-ranges",
+    "multi-device"
+  ],
+  "privacy": {
+    "real_screenshots": 0,
+    "public_source_text": false,
+    "credentials_retained_until_goal_complete": true
+  },
+  "privacy_audit": {
+    "result": "PASS",
+    "files": 1380,
+    "actual_authentication_literals": 0,
+    "short_public_cookie_flags_excluded": [
+      "wr_ql",
+      "wr_pf"
+    ],
+    "credentials_retained": true,
+    "legacy_native_trial_intent_absent": true,
+    "new_selection_trial_intent_absent": true,
+    "new_selection_reserved_posts": 0,
+    "highlight_trial_intent_absent": true,
+    "protected_files_unchanged": true,
+    "document_links_checked": 136
+  }
+}

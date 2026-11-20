@@ -1,0 +1,247 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "production_tree_sha256": "8f3047163996b61450c228ff692681b000b1a0dbfdb05abeb00e3eb432f42907",
+  "production_files": 264,
+  "before": {
+    "actual": {
+      "rendering_hash": 3283569141,
+      "xpointer": "/body/DocFragment/body/p[18]/text().0",
+      "pos": 561,
+      "mode": "scroll"
+    },
+    "expected": {
+      "rendering_hash": 3283569141,
+      "xpointer": "/body/DocFragment/body/p[18]/text().0",
+      "pos": 587,
+      "mode": "scroll"
+    },
+    "result": "FAIL_BEFORE_FIX",
+    "implementation_head": "f2d0a682d132049bed5fa5ce9a9d4dbed2cefe13",
+    "lost_scroll_pixels": 26
+  },
+  "native_runs": [
+    {
+      "case": "scroll",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "production_files": 264,
+      "source_candidate_installed_equal": true,
+      "result": "PASS",
+      "checks": {
+        "synthetic_only": true,
+        "suspend_worker_cancelled": true,
+        "resume_does_not_replay": true,
+        "scroll_forward_exact": true,
+        "mode_change_cancellation": true,
+        "changed_layout_uses_text_anchor": true,
+        "real_account_requests": 0,
+        "scroll_back_exact": true,
+        "no_cloud_verification_grant": true,
+        "close_worker_cancelled": true,
+        "closed_result_does_not_reopen": true,
+        "result": "PASS",
+        "fresh_reader_navigation": true
+      },
+      "back": {
+        "actual": {
+          "mode": "scroll",
+          "rendering_hash": 3283569141,
+          "xpointer": "/body/DocFragment/body/p[18]/text().0",
+          "pos": 587
+        },
+        "expected": {
+          "mode": "scroll",
+          "rendering_hash": 3283569141,
+          "xpointer": "/body/DocFragment/body/p[18]/text().0",
+          "pos": 587
+        }
+      },
+      "forward": {
+        "actual": {
+          "mode": "scroll",
+          "rendering_hash": 3015520712,
+          "xpointer": "/body/DocFragment/body/svg.0",
+          "pos": 697
+        },
+        "expected": {
+          "mode": "scroll",
+          "rendering_hash": 3015520712,
+          "xpointer": "/body/DocFragment/body/svg.0",
+          "pos": 697
+        }
+      },
+      "reflow": {
+        "actual": {
+          "mode": "scroll",
+          "rendering_hash": 3490812758,
+          "xpointer": "/body/DocFragment/body/p[18]/text().0",
+          "pos": 1836
+        },
+        "expected_text": {
+          "mode": "scroll",
+          "rendering_hash": 3283569141,
+          "xpointer": "/body/DocFragment/body/p[18]/text().0",
+          "pos": 587
+        }
+      },
+      "http_requests": 0,
+      "return_screenshot": {
+        "file": "chapter-scroll-return-600.png",
+        "sha256": "e1565d0b2f29eda12fc194553540c69049890f5a55c33c48da28b98e8e6f644b"
+      },
+      "reflow_screenshot": {
+        "file": "chapter-scroll-reflow-600.png",
+        "sha256": "fa9b678f23876f335cb9f75e102ed15b74d5a0b24ab935827e0d40dbc131d7f5"
+      }
+    },
+    {
+      "case": "scroll",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "production_files": 264,
+      "source_candidate_installed_equal": true,
+      "result": "PASS",
+      "checks": {
+        "closed_result_does_not_reopen": true,
+        "fresh_reader_navigation": true,
+        "suspend_worker_cancelled": true,
+        "resume_does_not_replay": true,
+        "scroll_back_exact": true,
+        "real_account_requests": 0,
+        "synthetic_only": true,
+        "mode_change_cancellation": true,
+        "scroll_forward_exact": true,
+        "no_cloud_verification_grant": true,
+        "result": "PASS",
+        "changed_layout_uses_text_anchor": true,
+        "close_worker_cancelled": true
+      },
+      "back": {
+        "expected": {
+          "rendering_hash": 2410471288,
+          "xpointer": "/body/DocFragment/body/p[19]/text().0",
+          "pos": 1307,
+          "mode": "scroll"
+        },
+        "actual": {
+          "rendering_hash": 2410471288,
+          "xpointer": "/body/DocFragment/body/p[19]/text().0",
+          "pos": 1307,
+          "mode": "scroll"
+        }
+      },
+      "forward": {
+        "expected": {
+          "rendering_hash": 3854346317,
+          "xpointer": "/body/DocFragment/body/p[21]/text().0",
+          "pos": 1417,
+          "mode": "scroll"
+        },
+        "actual": {
+          "rendering_hash": 3854346317,
+          "xpointer": "/body/DocFragment/body/p[21]/text().0",
+          "pos": 1417,
+          "mode": "scroll"
+        }
+      },
+      "reflow": {
+        "expected_text": {
+          "rendering_hash": 2410471288,
+          "xpointer": "/body/DocFragment/body/p[19]/text().0",
+          "pos": 1307,
+          "mode": "scroll"
+        },
+        "actual": {
+          "rendering_hash": 4272275147,
+          "xpointer": "/body/DocFragment/body/p[19]/text().0",
+          "pos": 4176,
+          "mode": "scroll"
+        }
+      },
+      "http_requests": 0,
+      "return_screenshot": {
+        "file": "chapter-scroll-return-1264.png",
+        "sha256": "514edb0f1d62e0ec5c73abfd68a3c0e3c2ea71bbd152812e144089ca1c1cc23f"
+      },
+      "reflow_screenshot": {
+        "file": "chapter-scroll-reflow-1264.png",
+        "sha256": "cfa0962c7b8fb53d70731eaf296071dec0fca7e9792e460ae02f2ebbe1f61f6f"
+      }
+    },
+    {
+      "case": "navigation",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "production_files": 264,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    },
+    {
+      "case": "navigation",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "production_files": 264,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    },
+    {
+      "case": "rich",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "production_files": 264,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    },
+    {
+      "case": "rich",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "production_files": 264,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    },
+    {
+      "case": "core",
+      "width": 600,
+      "height": 800,
+      "dpi": 167,
+      "production_files": 264,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    },
+    {
+      "case": "core",
+      "width": 1264,
+      "height": 1680,
+      "dpi": 300,
+      "production_files": 264,
+      "source_candidate_installed_equal": true,
+      "result": "PASS"
+    }
+  ],
+  "local_checks": {
+    "result": "PASS",
+    "python_files": 100,
+    "python_tests": 1236,
+    "python_skips": 0,
+    "platform": "Linux ARM64",
+    "lua_specs": 233,
+    "position_checks": 41,
+    "static_files": 655
+  },
+  "real_account_requests": 0,
+  "pending": [
+    "Additional real-book formats",
+    "Physical Kindle Oasis 2 suspend and power loss",
+    "Other roadmap features",
+    "Dedicated performance phase after full functional acceptance"
+  ]
+}

@@ -1,0 +1,579 @@
+{
+  "result": "PASS",
+  "accepted_scope": "selected_real_xhtml_chapter_all_ranges_plugin_matching_popup_and_fresh_offline_reopen",
+  "production_parent_commit": "dad36ee38f34f250e2f6bb53410e8a92e1277866",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "matcher_version": 4,
+  "candidate_files": 188,
+  "candidate_files_equal_source": true,
+  "candidate_crc_verified": true,
+  "candidate_manifest_algorithm": "sha256(concat(file_relative_paths_sorted_with_NUL_sha256_hex_LF))",
+  "candidate_manifest_sha256": "9f1c7cabd260b9a632af138938c2beb68f4e70294fff86c888cba213c4970813",
+  "candidate_sha256": "2ebbac736ddd7aeaa67e9d5c0e4a99404f809c0ad043ebc5361391d95cb662b9",
+  "code_sha256": {
+    "scripts/annotation_source_quotes.py": "b17c41a0de218d2a3b9574b2451dd6c85b056c10328af1cf3341cafc1f4fab96",
+    "scripts/test_annotation_source_quotes.py": "01106c02ed60c77d5bfa454ffec6a95c113c57ef4220076fd0603a3eba46c071",
+    "scripts/owner_annotation_contract.py": "3788c28c9f361478a2b30d4b6b88b2323d6db74042cb672235b399e7d31d323d",
+    "scripts/verify_owner_annotations.py": "33047a95856d9a03a7da169d5b7b1abae467305fc825a13190c1b12a535dbcf6",
+    "scripts/test_owner_annotations.py": "b63085c5c29366cd3daa2b9f290fe4a2167cb590c55e529a00847be8279e8dec",
+    "scripts/run_owner_reading_probe.py": "a7f7f51bcd0a9525affbefb3319f8cd6ca3940accaf8c89eb8f3187d92c767d1",
+    "spec/koreader/owner_reading_probe.lua": "776cec40120808fa1520206528668929e1a40b7b53e5108bd92085994dce0610",
+    "spec/koreader/owner_annotations_case.lua": "2e8a057447e3e9022fad166507eaf6ee0db5acf0949a32ec9796a8be48af2746",
+    "spec/annotation_source_projection_spec.lua": "a990aba4c44b61964c64b81dd910cfa3dad8cc40ec391aa25e2290038f4d5f14",
+    "spec/document_text_end_spec.lua": "125e0245ebe60512244ada440c71dad99282b2bf12dedaeb7c76393c335c8e17",
+    "weread/lib/document_text_end.lua": "c8a4f701a4d5858b7602a87bf72d8d181d5ab2c4d1a1ce2b4dc5aaf45d172b24",
+    "weread/lib/source_dom.lua": "8c7d12c826a2be5736b0ecdd653753395a37d15f3f7f5b8dd31492326cf99e09",
+    "weread/lib/annotation_chapters.lua": "0dbcd0b4c8523bee10fc5cfcf405f57855ade1ace90c95f0d80d647f872cb2bb",
+    "weread/lib/annotation_sync.lua": "15bea4fb7ff647da73ffe43bd49dfe2c5bc6ff18f5b50d7720fc155d9e1ac62a",
+    "weread/lib/external_annotations.lua": "3bed264fd2f853dc01c65818677fd0f64c3fbaaa084d010840f32ad4e7923433",
+    "weread/ui/annotation_sync_controller.lua": "4afc7cd75c1d96f4008336606b479f0a34537e9966c9b3c07ba1290e3a8e7f74"
+  },
+  "pre_fix_private_copy_experiment": {
+    "production_located": 73,
+    "source_quote_located": 75,
+    "sealed_chapter_end_located": 76,
+    "python_lua_source_quotes_agree": true,
+    "remaining_source_quote_outside_old_chapter_end": 1,
+    "account_data_writes_attempted": 0
+  },
+  "profiles": [
+    {
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "report": {
+        "result": "OWNER_NATIVE_ANNOTATIONS_VERIFIED",
+        "checked_at": "2026-11-10T01:15:26.234568+00:00",
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "private_data_on_regular_disk": false,
+        "screenshots": 0,
+        "preflight_rotation_saved": false,
+        "underlines": 76,
+        "thought_items": 180,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "failed_line": 0,
+              "screenshots": 0,
+              "last_http_status": 200,
+              "denied_kind": 0,
+              "denied_route": 0,
+              "denied_flags": 0,
+              "requests": [
+                1,
+                12,
+                5,
+                1,
+                7,
+                1,
+                0
+              ],
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_auth": true,
+              "transport_guard_selftest": true,
+              "plugin_selection": true,
+              "native_reader": true,
+              "source_text_visible": true,
+              "source_receipt_verified": true,
+              "page_turn": true,
+              "position_checkpoint": true,
+              "local_source_position_verified": true,
+              "source_navigation_roundtrip": true,
+              "source_dialog_verified": true,
+              "legacy_progress_units_preserved": true,
+              "credential_file_audit": true,
+              "workers_reaped": true,
+              "shelf_books": 139,
+              "pages": 39,
+              "profile_files_audited": 14,
+              "annotations": {
+                "failed_line": 0,
+                "partial": 0,
+                "source_data_matches": true,
+                "picker_and_matching": true,
+                "all_records_checked": true,
+                "underlines": 76,
+                "popup_matches_cached_items": true,
+                "located": 76,
+                "unmatched": 0,
+                "native_underlines_requests": 1,
+                "native_thought_requests": 3,
+                "native_denied_requests": 0,
+                "unmatched_missing_quote": 0,
+                "unmatched_quote_search_hits": 0,
+                "position_restored": true,
+                "unmatched_original_search_hits": 0,
+                "source_quote_recheck_verified": true,
+                "source_quote_recheck_located": 76,
+                "source_quote_recheck_unmatched": 0,
+                "source_quote_miss_overlap": 0,
+                "source_quote_miss_equal_start": 0,
+                "source_quote_miss_earlier_hit": 0,
+                "source_quote_miss_outside_chapter": 0,
+                "sealed_chapter_recheck_located": 76,
+                "unmatched_original_quote_differs": 0,
+                "thought_items": 180,
+                "real_overlay_tap": true
+              }
+            },
+            {
+              "source_navigation_roundtrip": true,
+              "source_dialog_verified": true,
+              "legacy_progress_units_preserved": true,
+              "credential_file_audit": true,
+              "workers_reaped": true,
+              "shelf_books": 139,
+              "pages": 39,
+              "profile_files_audited": 14,
+              "failed_line": 0,
+              "screenshots": 0,
+              "last_http_status": 0,
+              "denied_kind": 0,
+              "denied_route": 0,
+              "denied_flags": 0,
+              "requests": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_auth": true,
+              "transport_guard_selftest": true,
+              "plugin_selection": true,
+              "native_reader": true,
+              "source_text_visible": true,
+              "source_receipt_verified": true,
+              "page_turn": true,
+              "position_checkpoint": true,
+              "local_source_position_verified": true,
+              "annotations": {
+                "unmatched": 0,
+                "native_thought_requests": 0,
+                "source_quote_miss_overlap": 0,
+                "failed_line": 0,
+                "position_restored": true,
+                "source_data_matches": true,
+                "picker_and_matching": true,
+                "all_records_checked": true,
+                "real_overlay_tap": true,
+                "popup_matches_cached_items": true,
+                "located": 76,
+                "underlines": 76,
+                "native_underlines_requests": 0,
+                "thought_items": 180,
+                "native_denied_requests": 0,
+                "unmatched_missing_quote": 0,
+                "unmatched_quote_search_hits": 0,
+                "unmatched_original_quote_differs": 0,
+                "unmatched_original_search_hits": 0,
+                "source_quote_recheck_verified": true,
+                "source_quote_recheck_located": 76,
+                "source_quote_recheck_unmatched": 0,
+                "partial": 0,
+                "source_quote_miss_equal_start": 0,
+                "source_quote_miss_earlier_hit": 0,
+                "source_quote_miss_outside_chapter": 0,
+                "sealed_chapter_recheck_located": 76
+              }
+            }
+          ],
+          "runner_error": "none"
+        },
+        "native_rotation_saved": false,
+        "cloud_position_unchanged": true,
+        "complete_matching_verified": true,
+        "same_owner_verified": true,
+        "fresh_offline_process": true,
+        "preflight_stages": [
+          {
+            "stage": "account",
+            "status": 200
+          },
+          {
+            "stage": "shelf",
+            "status": 200
+          },
+          {
+            "stage": "selection_progress",
+            "status": 200
+          },
+          {
+            "stage": "selection_progress",
+            "status": 200
+          },
+          {
+            "stage": "progress_before",
+            "status": 200
+          },
+          {
+            "stage": "reader",
+            "status": 200
+          },
+          {
+            "stage": "catalog_before",
+            "status": 200
+          },
+          {
+            "stage": "e_0",
+            "status": 200
+          },
+          {
+            "stage": "e_1",
+            "status": 200
+          },
+          {
+            "stage": "e_3",
+            "status": 200
+          },
+          {
+            "stage": "catalog_after",
+            "status": 200
+          },
+          {
+            "stage": "progress_after",
+            "status": 200
+          },
+          {
+            "stage": "account",
+            "status": 200
+          },
+          {
+            "stage": "account",
+            "status": 200
+          },
+          {
+            "stage": "progress_after",
+            "status": 200
+          },
+          {
+            "stage": "account",
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "report": {
+        "result": "OWNER_NATIVE_ANNOTATIONS_VERIFIED",
+        "checked_at": "2026-11-10T01:16:22.609946+00:00",
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "private_data_on_regular_disk": false,
+        "screenshots": 0,
+        "preflight_rotation_saved": false,
+        "underlines": 76,
+        "thought_items": 180,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "profile_files_audited": 14,
+              "failed_line": 0,
+              "screenshots": 0,
+              "last_http_status": 200,
+              "denied_kind": 0,
+              "denied_route": 0,
+              "denied_flags": 0,
+              "requests": [
+                1,
+                12,
+                5,
+                1,
+                7,
+                1,
+                0
+              ],
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_auth": true,
+              "transport_guard_selftest": true,
+              "plugin_selection": true,
+              "native_reader": true,
+              "source_text_visible": true,
+              "source_receipt_verified": true,
+              "page_turn": true,
+              "position_checkpoint": true,
+              "local_source_position_verified": true,
+              "source_navigation_roundtrip": true,
+              "source_dialog_verified": true,
+              "legacy_progress_units_preserved": true,
+              "credential_file_audit": true,
+              "workers_reaped": true,
+              "shelf_books": 139,
+              "pages": 41,
+              "annotations": {
+                "located": 76,
+                "unmatched": 0,
+                "partial": 0,
+                "underlines": 76,
+                "native_denied_requests": 0,
+                "thought_items": 180,
+                "unmatched_quote_search_hits": 0,
+                "unmatched_original_quote_differs": 0,
+                "unmatched_original_search_hits": 0,
+                "source_quote_recheck_verified": true,
+                "source_quote_recheck_located": 76,
+                "source_quote_recheck_unmatched": 0,
+                "source_quote_miss_overlap": 0,
+                "source_quote_miss_equal_start": 0,
+                "source_quote_miss_earlier_hit": 0,
+                "source_quote_miss_outside_chapter": 0,
+                "sealed_chapter_recheck_located": 76,
+                "unmatched_missing_quote": 0,
+                "failed_line": 0,
+                "position_restored": true,
+                "native_underlines_requests": 1,
+                "native_thought_requests": 3,
+                "source_data_matches": true,
+                "picker_and_matching": true,
+                "all_records_checked": true,
+                "real_overlay_tap": true,
+                "popup_matches_cached_items": true
+              }
+            },
+            {
+              "shelf_books": 139,
+              "pages": 41,
+              "profile_files_audited": 14,
+              "failed_line": 0,
+              "screenshots": 0,
+              "last_http_status": 0,
+              "denied_kind": 0,
+              "denied_route": 0,
+              "denied_flags": 0,
+              "requests": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_auth": true,
+              "transport_guard_selftest": true,
+              "plugin_selection": true,
+              "native_reader": true,
+              "source_text_visible": true,
+              "source_receipt_verified": true,
+              "page_turn": true,
+              "position_checkpoint": true,
+              "local_source_position_verified": true,
+              "source_navigation_roundtrip": true,
+              "source_dialog_verified": true,
+              "legacy_progress_units_preserved": true,
+              "credential_file_audit": true,
+              "workers_reaped": true,
+              "annotations": {
+                "real_overlay_tap": true,
+                "popup_matches_cached_items": true,
+                "located": 76,
+                "unmatched": 0,
+                "native_underlines_requests": 0,
+                "native_thought_requests": 0,
+                "native_denied_requests": 0,
+                "unmatched_missing_quote": 0,
+                "unmatched_quote_search_hits": 0,
+                "unmatched_original_quote_differs": 0,
+                "unmatched_original_search_hits": 0,
+                "source_quote_recheck_verified": true,
+                "source_quote_recheck_located": 76,
+                "source_quote_recheck_unmatched": 0,
+                "source_quote_miss_overlap": 0,
+                "partial": 0,
+                "underlines": 76,
+                "source_quote_miss_outside_chapter": 0,
+                "thought_items": 180,
+                "position_restored": true,
+                "sealed_chapter_recheck_located": 76,
+                "source_quote_miss_earlier_hit": 0,
+                "source_quote_miss_equal_start": 0,
+                "failed_line": 0,
+                "source_data_matches": true,
+                "picker_and_matching": true,
+                "all_records_checked": true
+              }
+            }
+          ],
+          "runner_error": "none"
+        },
+        "native_rotation_saved": false,
+        "cloud_position_unchanged": true,
+        "complete_matching_verified": true,
+        "same_owner_verified": true,
+        "fresh_offline_process": true,
+        "preflight_stages": [
+          {
+            "stage": "account",
+            "status": 200
+          },
+          {
+            "stage": "shelf",
+            "status": 200
+          },
+          {
+            "stage": "selection_progress",
+            "status": 200
+          },
+          {
+            "stage": "selection_progress",
+            "status": 200
+          },
+          {
+            "stage": "progress_before",
+            "status": 200
+          },
+          {
+            "stage": "reader",
+            "status": 200
+          },
+          {
+            "stage": "catalog_before",
+            "status": 200
+          },
+          {
+            "stage": "e_0",
+            "status": 200
+          },
+          {
+            "stage": "e_1",
+            "status": 200
+          },
+          {
+            "stage": "e_3",
+            "status": 200
+          },
+          {
+            "stage": "catalog_after",
+            "status": 200
+          },
+          {
+            "stage": "progress_after",
+            "status": 200
+          },
+          {
+            "stage": "account",
+            "status": 200
+          },
+          {
+            "stage": "account",
+            "status": 200
+          },
+          {
+            "stage": "progress_after",
+            "status": 200
+          },
+          {
+            "stage": "account",
+            "status": 200
+          }
+        ]
+      }
+    }
+  ],
+  "synthetic_core_profiles": [
+    {
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "result": "PASS",
+      "native_annotations": {
+        "real_overlay_tap_and_popup": true,
+        "cancel_and_resume_batch": true,
+        "no_late_commit": true,
+        "explicit_401_and_429_single_read": true,
+        "grant_change_rejected": true,
+        "offline_cached_matching": true,
+        "gateway_annotation_requests": 0,
+        "reading_writes": 0,
+        "result": "PASS",
+        "renewal_posts": 0,
+        "synthetic_only": true,
+        "keyless_native": true,
+        "native_picker_and_matching": true
+      },
+      "source_package_installed_bytes_equal": true,
+      "candidate_files": 188,
+      "candidate_sha256": "49a364a1f80e05bfff1b98934ff2bc506491903226bf581c4ab0510d4920d083",
+      "native_repaint_errors": 0,
+      "screenshot_sha256": {
+        "native-annotations-keyless-thought.png": "89c63b3ee59f0919409ffb4126f7e7c07b993d4c1610d95618dd80489c852cc0",
+        "native-annotations-keyless-overlay.png": "db5a055e2d802806a21761ea5321dc8c77c693b12004ae0a87f7e626c6c66ce5"
+      }
+    },
+    {
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "PASS",
+      "native_annotations": {
+        "no_late_commit": true,
+        "explicit_401_and_429_single_read": true,
+        "grant_change_rejected": true,
+        "offline_cached_matching": true,
+        "gateway_annotation_requests": 0,
+        "reading_writes": 0,
+        "renewal_posts": 0,
+        "result": "PASS",
+        "synthetic_only": true,
+        "keyless_native": true,
+        "native_picker_and_matching": true,
+        "real_overlay_tap_and_popup": true,
+        "cancel_and_resume_batch": true
+      },
+      "source_package_installed_bytes_equal": true,
+      "candidate_files": 188,
+      "candidate_sha256": "a2d044d0db10c2d2553ab812187c77e6c606a4bc1accbd67862d690fdb7b3184",
+      "native_repaint_errors": 0,
+      "screenshot_sha256": {
+        "native-annotations-keyless-thought.png": "7684f052a62bf2036268da24b96ff6c6725f7cb26bc121609742e7abe8ffa85e",
+        "native-annotations-keyless-overlay.png": "19c405ad67b5105f42394b0b6917d0ac69ce05268b2ce992a6770bff22af7c46"
+      }
+    }
+  ],
+  "synthetic_screenshots_visually_checked": true,
+  "lua_spec_groups": 162,
+  "python_tests": 498,
+  "source_projection_regression_checks": 13,
+  "document_end_regression_checks": 8,
+  "independent_python_source_quote_tests": 5,
+  "lua_static_files": 426,
+  "lua_syntax_files": 428,
+  "physical_device": false,
+  "pending": [
+    "other_real_formats_and_chapters",
+    "automatic_parent_renewal_during_annotation_job",
+    "cloud_annotation_writes",
+    "physical_ko2",
+    "concentrated_eink_performance"
+  ]
+}

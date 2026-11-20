@@ -27,6 +27,7 @@ function Overlay:new(opts)
         records = opts.records or {},
         records_ordered = opts.records_ordered == true,
         style = opts.style,
+        painter = opts.painter,
         enabled = opts.enabled ~= false,
         cache = {},
         visible = {},
@@ -253,7 +254,7 @@ function Overlay:paintTo(bb, x, y)
         end
     end
     self.visible = boxes
-    draw_lines(self, bb, lines)
+    if self.painter then self.painter(bb,boxes,self.style) else draw_lines(self, bb, lines) end
     self.last_metrics = {
         candidates = candidates,
         boxes = #boxes,

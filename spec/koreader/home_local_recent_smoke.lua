@@ -1,0 +1,377 @@
+-- Open an off-shelf synthetic book through the plugin, then resume from home.
+-- The second process has no server and reuses only the isolated test profile.
+require('setupkoenv')
+local home,evidence=assert(os.getenv('KO_HOME')),assert(os.getenv('WEREAD_EVIDENCE'))
+local switch=os.getenv('WEREAD_TEST_HOME_ACCOUNT_SWITCH')=='1'
+local switch_reopen=os.getenv('WEREAD_TEST_HOME_ACCOUNT_REOPEN')=='1'
+local unknown=os.getenv('WEREAD_TEST_HOME_UNKNOWN_LEGACY')=='1'
+local claim_reopen=os.getenv('WEREAD_TEST_HOME_CLAIM_REOPEN')=='1'
+local scroll_reopen=os.getenv('WEREAD_TEST_HOME_SCROLL_REOPEN')=='1'
+local claim_scroll=os.getenv('WEREAD_TEST_CLAIM_SCROLL')=='1'
+local reopen=os.getenv('WEREAD_TEST_HOME_REOPEN')=='1' or switch or switch_reopen or unknown or claim_reopen or scroll_reopen
+G_defaults=require('luadefaults'):open()
+G_reader_settings=require('luasettings'):open(home..'/settings.reader.lua')
+G_reader_settings:saveSetting('language','zh_CN')
+G_reader_settings:saveSetting('extra_plugin_paths',{home..'/plugins'})
+require('gettext').changeLang('zh_CN')
+local Device=require('device');require('document/canvascontext'):init(Device)
+package.path=home..'/plugins/weread.koplugin/?.lua;'..package.path
+local settings=require('weread.lib.settings'):new()
+assert(settings.mock_endpoint and settings.data_dir:match('/weread%-mock$'))
+if not reopen then
+    settings:update_auth({account={user_vid='900000',name='Synthetic'},
+        cookies={wr_vid='900000',wr_skey='synthetic-home-session'}},{replace_cookies=true})
+    local sync=settings:get('sync');sync.pull_on_open=false;sync.upload_on_close=false;sync.upload_interval_minutes=0;settings:set('sync',sync)
+    local cache=settings:get('cache');cache.auto_prefetch_next_chapter=false;cache.download_book_images=false;cache.download_underlines_and_thoughts=false;settings:set('cache',cache)
+    local report=settings:get('read_report');report.enabled=false;settings:set('read_report',report);settings:flush()
+end
+local ffi=require('ffi');pcall(ffi.cdef,'void *mmap(void *, unsigned long, int, int, int, long);')
+local memory=ffi.C.mmap(nil,4096,3,0x21,-1,0);assert(memory~=ffi.cast('void *',-1))
+local requests=ffi.cast('int *',memory);requests[0]=0
+local Client=require('weread.lib.client')
+function Client:request() requests[0]=requests[0]+1;error('local home attempted a network request',0) end
+local Common=require('weread.ui.common')
+Common.isNetworkOnline=function() return false end;Common.isNetworkConnected=Common.isNetworkOnline
+local Loader=require('pluginloader');Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
+for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end
+assert(#Loader.enabled_plugins==1)
+local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
+local socket,json=require('socket'),require('json')
+local FM,Reader=require('apps/filemanager/filemanager'),require('apps/reader/readerui')
+local id='900099'
+local function tick() UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01) end
+local function pump(predicate)
+    local deadline=socket.gettime()+45
+    while not predicate() do assert(socket.gettime()<deadline,'home local reading deadline');tick() end
+end
+local function host() if not FM.instance then FM:showFiles(home) end;return assert(FM.instance.weread) end
+local function close_reader()
+    local reader=assert(Reader.instance)
+    while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
+    reader.weread:onFlushSettings();reader:onClose(false);assert(not Reader.instance)
+end
+local function press(view,label)
+    local tr=require('weread.lib.plugin_util').tr
+    for _i,buttons in ipairs({view._action_buttons or {},view._footer_actions or {}}) do
+        for _j,button in ipairs(buttons) do if button.text==tr(label) then assert(button.enabled~=false);button.callback();return end end
+    end
+    error('missing reading action',0)
+end
+local function synthetic_note(reader)
+    for _i,item in ipairs(reader.annotation.annotations or {}) do
+        if item.note=='synthetic note preserved across account reads' then return true end
+    end
+    return false
+end
+local function same(left,right)
+    if type(left)~=type(right) then return false end
+    if type(left)~='table' then return left==right end
+    for key,value in pairs(left) do if not same(value,right[key]) then return false end end
+    for key in pairs(right) do if left[key]==nil then return false end end
+    return true
+end
+FM:showFiles(home)
+local plugin=host();local account=assert(plugin.library_db:accountKey())
+if scroll_reopen then
+    local book=assert(plugin.settings:get_book(id));local path=assert(book.cached_full_book)
+    local map=assert(require('docsettings'):open(path):readSetting('weread_account_locations'))
+    local point=assert(map.entries[account].xpointer)
+    assert(plugin:startBookReading(book))
+    pump(function() return Reader.instance and Reader.instance.weread
+        and Reader.instance.weread.progress_sync.current_book_id==id end)
+    local reader=Reader.instance;assert(reader.view.view_mode=='scroll')
+    local Position=require('weread.lib.reader_position')
+    local frame=Position.snapshot(reader.document,'scroll',reader.weread.progress_sync.get_viewport_height())
+    assert(Position.contains_anchor(reader.document,frame,point),'saved scroll anchor was not restored')
+    assert(synthetic_note(reader),'scroll reopen lost the native note')
+    close_reader();assert(requests[0]==0)
+    print('\nWEREAD_NATIVE_SCROLL_REOPEN='..json.encode({result='PASS',fresh_process=true,visible_anchor=true,
+        native_note_preserved=true,requests=0}))
+    os.exit(0)
+end
+if claim_reopen then
+    local book=assert(plugin.settings:get_book(id));local path=assert(book.cached_full_book)
+    local claims=assert(book.native_location_claims)
+    local key=require('weread.lib.crypto').sha256_hex(path);local claim=assert(claims[key])
+    local other_file=assert(io.open(evidence..'/account-second-xpointer.txt','rb'))
+    local other=other_file:read('*a');other_file:close();assert(other~=claim.xpointer)
+    local DocSettings=require('docsettings');local sidecar=DocSettings:open(path)
+    assert(not sidecar:readSetting('weread_account_locations'))
+    sidecar:saveSetting('last_xpointer',other);assert(sidecar:flush())
+    assert(plugin:startBookReading(book))
+    pump(function() return Reader.instance and Reader.instance.weread
+        and Reader.instance.weread.progress_sync.current_book_id==id end)
+    local reader=Reader.instance
+    local visible
+    if reader.view.view_mode=='scroll' then
+        local Position=require('weread.lib.reader_position')
+        local frame=Position.snapshot(reader.document,'scroll',reader.weread.progress_sync.get_viewport_height())
+        visible=Position.contains_anchor(reader.document,frame,claim.xpointer)
+    else visible=reader.document:isXPointerInCurrentPage(claim.xpointer) end
+    assert(visible,'durable account claim did not restore the chosen page')
+    assert(synthetic_note(Reader.instance),'account claim discarded the native note')
+    local scroll_anchor
+    if reader.view.view_mode=='scroll' then
+        local dimen=reader.view.dimen
+        local selection=assert(reader.document:getTextFromPositions({x=0,y=0},{x=dimen.w-1,y=dimen.h-1},true))
+        scroll_anchor=assert(selection.pos0)
+    end
+    close_reader()
+    local after=DocSettings:open(path):readSetting('weread_account_locations')
+    assert(after and after.entries[account] and after.legacy.xpointer==other,
+        'account claim did not preserve the previous native page')
+    if scroll_anchor then assert(after.entries[account].xpointer==scroll_anchor,'scroll close saved an offscreen origin') end
+    assert(requests[0]==0)
+    print('\nWEREAD_NATIVE_CLAIM_REOPEN='..json.encode({result='PASS',fresh_process=true,chosen_page=true,
+        previous_page_preserved=true,native_note_preserved=true,requests=0}))
+    os.exit(0)
+end
+if unknown then
+    local book=assert(plugin.settings:get_book(id));local path=assert(book.cached_full_book)
+    local DocSettings=require('docsettings');local sidecar=DocSettings:open(path)
+    local original=assert(sidecar:readSetting('last_xpointer'))
+    sidecar:delSetting('weread_account_locations');assert(sidecar:flush())
+    assert(plugin.settings:patch_reading_state(id,{last_local_position={book_id=id,chapter_uid='1',percent=33},
+        last_local_account=account}))
+    assert(plugin:startBookReading(assert(plugin.settings:get_book(id))))
+    pump(function() return Reader.instance and Reader.instance.weread
+        and Reader.instance.weread.progress_sync.current_book_id==id end)
+    assert(Reader.instance.document:isXPointerInCurrentPage(original),'unknown legacy page did not open normally')
+    assert(synthetic_note(Reader.instance),'legacy reading discarded the native note')
+    close_reader()
+    local after=DocSettings:open(path)
+    assert(not after:readSetting('weread_account_locations') and after:readSetting('last_xpointer')==original,
+        'unknown legacy page was automatically claimed or lost')
+    plugin=host()
+    assert(plugin.settings:patch_reading_state(id,{last_local_position={book_id=id,chapter_uid='1',percent=33},
+        last_local_account=account}))
+    assert(plugin:startBookReading(assert(plugin.settings:get_book(id))))
+    pump(function() return Reader.instance and Reader.instance.weread
+        and Reader.instance.weread.progress_sync.current_book_id==id end)
+    local reader=Reader.instance;local before=assert(reader.weread.settings:get_book(id))
+    assert(before.pending_upload_position and before.source_dispatch
+        and before.source_dispatch.id=='synthetic-original-dispatch','missing pending-state fixture')
+    local pending=json.decode(json.encode(before.pending_upload_position))
+    local dispatch=json.decode(json.encode(before.source_dispatch))
+    if claim_scroll then
+        reader:handleEvent(require('ui/event'):new('SetViewMode','scroll'))
+        for _i=1,5 do tick() end
+        assert(reader.view.view_mode=='scroll','native reader did not enter scroll mode')
+        reader.document.configurable.view_mode=1
+        reader:saveSettings()
+    end
+    assert(reader.weread:showEndOfBookDialog(id));local quick=assert(UI:getTopmostVisibleWidget())
+    local claim_button;local tr=require('weread.lib.plugin_util').tr
+    for _i,row in ipairs(quick.buttons) do for _j,button in ipairs(row) do
+        if button.text==tr('Save this page locally for this account') then claim_button=button end
+    end end
+    assert(claim_button and claim_button.enabled~=false,'native claim action was not offered')
+    UI:forceRePaint();Device.screen:shot(evidence..'/native-claim-menu.png');claim_button.callback()
+    local key=require('weread.lib.crypto').sha256_hex(path)
+    pump(function() local current=reader.weread.settings:get_book(id)
+        return current and current.native_location_claims and current.native_location_claims[key] end)
+    local saved=assert(reader.weread.settings:get_book(id))
+    assert(same(saved.pending_upload_position,pending),
+        'claim changed the pending cloud position')
+    assert(same(saved.source_dispatch,dispatch),
+        'claim changed the unconfirmed dispatch journal')
+    assert(not DocSettings:open(path):readSetting('weread_account_locations'),
+        'claim unexpectedly rewrote the shared native sidecar')
+    if reader.weread.source_position then reader.weread.source_position:stop() end
+    assert(requests[0]==0)
+    print('\nWEREAD_UNKNOWN_NATIVE_LEGACY='..json.encode({result='PASS',original_page=true,not_claimed=true,
+        explicit_claim=true,pending_preserved=true,native_note_preserved=true,requests=0}))
+    os.exit(0)
+end
+if switch or switch_reopen then
+    -- Mock settings intentionally reset to account 900000 on construction;
+    -- select the second synthetic account again in the fresh process.
+    if switch_reopen then
+        plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},
+            cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+    end
+    if switch then
+        local books=plugin.settings:get('books',{});local book=assert(books[id])
+        -- Simulate upgrading a native sidecar made before account locations.
+        -- The prior account's source-bound viewport is independently saved.
+        local old_xp_file=assert(io.open(evidence..'/home-recent-xpointer.txt','rb'))
+        local old_xp=old_xp_file:read('*a');old_xp_file:close()
+        assert(book.last_local_position and book.last_local_position.source_view
+            and book.last_local_position.source_view.view.xpointer==old_xp,'missing legacy source-bound viewport')
+        local DocSettings=require('docsettings')
+        local legacy_sidecar=DocSettings:open(assert(book.cached_full_book))
+        assert(legacy_sidecar:readSetting('weread_account_locations'))
+        legacy_sidecar:delSetting('weread_account_locations');assert(legacy_sidecar:flush())
+        assert(plugin:startBookReading(book))
+        pump(function() return Reader.instance and Reader.instance.weread
+            and Reader.instance.weread.progress_sync.current_book_id==id end)
+        assert(Reader.instance.document:isXPointerInCurrentPage(old_xp),'legacy native page was lost')
+        close_reader();plugin=host()
+        local migrated=DocSettings:open(assert(book.cached_full_book)):readSetting('weread_account_locations')
+        assert(migrated and migrated.entries[account] and migrated.entries[account].xpointer==old_xp
+            and migrated.legacy.xpointer==old_xp,'verified legacy page was not migrated')
+        books=plugin.settings:get('books',{});book=assert(books[id])
+        book.recent_read_account=account;book.recent_read_at=10
+        book.home_recent_account=nil;book.home_recent_at=nil;book.last_local_account=nil
+        book.last_local_position={book_id=id,chapter_uid='1',percent=33}
+        book.pending_upload_position={book_id=id,chapter_uid='1',percent=33}
+        book.pending_upload_account=nil;book.pending_upload_reason='synthetic-legacy'
+        book.source_dispatch={account=account,id='synthetic-original-dispatch'}
+        -- Recreate an old-version on-disk record, retaining the normal book
+        -- index and EPUB while forcing the legacy migration path.
+        local legacy_dir=assert(book.cache_dir)
+        os.remove(legacy_dir..'/.weread-accounts/'..account..'/reading_state.json')
+        os.remove(legacy_dir..'/.weread-accounts/legacy_metadata.json')
+        assert(require('weread.lib.book_store').save({cache_dir=plugin.settings.cache_dir},id,book))
+        assert(plugin.settings:get_book(id).pending_upload_position.percent==33)
+        plugin.settings:update_auth({account={user_vid='900002',name='Other synthetic'},
+            cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+        assert(plugin.settings:get_auth_scope(true).vid=='900002','synthetic account switch not persisted')
+        assert(plugin.library_db:accountKey()~=account)
+        assert(plugin:recordRecentReading(id))
+        local foreign=assert(plugin.settings:get_book(id))
+        assert(not foreign.pending_upload_position and not foreign.last_local_position and not foreign.source_dispatch,
+            'second account inherited original reading state')
+        local current=assert(plugin.library_db:accountKey())
+        assert(plugin.settings:patch_reading_state(id,{pending_upload_position={book_id=id,chapter_uid='1',percent=61},
+            pending_upload_account=current,last_local_position={book_id=id,chapter_uid='1',percent=62},last_local_account=current,
+            source_dispatch={account=current,id='synthetic-second-dispatch'}}))
+        plugin:showBookRecord(assert(plugin.settings:get_book(id)),{verified_metadata=true})
+        -- The mock always installs account 900000 on new Settings instances.
+        -- Re-select B for the ReaderUI instance created by the normal button.
+        local Settings=require('weread.lib.settings');local construct=Settings.new
+        function Settings:new(...)
+            local value=construct(self,...)
+            value:update_auth({account={user_vid='900002',name='Other synthetic'},
+                cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+            return value
+        end
+        press(assert(plugin._book_detail_view),'▤ Read')
+        pump(function() return Reader.instance and Reader.instance.weread
+            and Reader.instance.weread.progress_sync.current_book_id==id end)
+        local reader=Reader.instance
+        assert(synthetic_note(reader),'native note disappeared after account switch')
+        local legacy=assert(io.open(evidence..'/home-recent-xpointer.txt','rb'))
+        local original_xpointer=legacy:read('*a');legacy:close()
+        assert(not reader.document:isXPointerInCurrentPage(original_xpointer),
+            'second account opened at the first account\'s native page')
+        local pages_before=reader.document:getPageCount()
+        assert(reader.font:onSetFontSize(reader.font.configurable.font_size+4))
+        for _i=1,5 do tick() end
+        assert(reader.document:getPageCount()~=pages_before,'font change did not repaginate synthetic book')
+        reader.rolling:onGotoPage(5);tick();reader.weread.progress_sync:on_page_update()
+        local second_xpointer=assert(reader.document:getXPointer())
+        local second=assert(io.open(evidence..'/account-second-xpointer.txt','wb'));second:write(second_xpointer);second:close()
+        close_reader();Settings.new=construct
+        local after=assert(plugin.settings:get_book(id))
+        assert(after.pending_upload_position and after.last_local_position and after.pending_upload_account==current,
+            'second account reading did not save its own checkpoint')
+        local f=assert(io.open(evidence..'/account-second-checkpoint.json','wb'))
+        f:write(json.encode({pending=after.pending_upload_position.percent,position=after.last_local_position.percent}));f:close()
+    end
+    local book=assert(plugin.settings:get_book(id));local current=assert(plugin.library_db:accountKey())
+    local f=assert(io.open(evidence..'/account-second-checkpoint.json','rb'));local checkpoint=json.decode(f:read('*a'));f:close()
+    assert(book.home_recent_account==current and book.pending_upload_account==current)
+    assert(book.last_local_position.percent==checkpoint.position and book.pending_upload_position.percent==checkpoint.pending
+        and book.source_dispatch.id=='synthetic-second-dispatch','second account checkpoint was not preserved')
+    if switch_reopen then
+        local second=assert(io.open(evidence..'/account-second-xpointer.txt','rb'))
+        local second_xpointer=second:read('*a');second:close()
+        local Settings=require('weread.lib.settings');local construct=Settings.new
+        function Settings:new(...)
+            local value=construct(self,...)
+            value:update_auth({account={user_vid='900002',name='Other synthetic'},
+                cookies={wr_vid='900002',wr_skey='synthetic-other-session'}},{replace_cookies=true})
+            return value
+        end
+        assert(plugin:startBookReading(book))
+        pump(function() return Reader.instance and Reader.instance.weread
+            and Reader.instance.weread.progress_sync.current_book_id==id end)
+        assert(Reader.instance.document:isXPointerInCurrentPage(second_xpointer),
+            'second account native page did not survive a fresh process')
+        assert(synthetic_note(Reader.instance),'native note disappeared after process restart')
+        close_reader();Settings.new=construct;plugin=host()
+        plugin.settings:update_auth({account={user_vid='900000',name='Synthetic'},
+            cookies={wr_vid='900000',wr_skey='synthetic-home-session'}},{replace_cookies=true})
+        assert(plugin.settings:get_auth_scope(true).vid=='900000','synthetic account restoration not persisted')
+        local original=assert(plugin.library_db:accountKey())
+        book=assert(plugin.settings:get_book(id))
+        assert(original==book.recent_read_account and book.last_local_position.percent==33
+            and book.pending_upload_position.percent==33 and book.source_dispatch.id=='synthetic-original-dispatch',
+            'original account lost its reading state')
+        assert(plugin:startBookReading(book))
+        pump(function() return Reader.instance and Reader.instance.weread
+            and Reader.instance.weread.progress_sync.current_book_id==id end)
+        local first=assert(io.open(evidence..'/home-recent-xpointer.txt','rb'))
+        local original_xpointer=first:read('*a');first:close()
+        assert(Reader.instance.document:isXPointerInCurrentPage(original_xpointer),
+            'original account did not recover its own native page')
+        assert(synthetic_note(Reader.instance),'native note disappeared on returning to original account')
+        close_reader();plugin=host()
+        plugin.settings:update_auth({account={},cookies={}},{replace_cookies=true})
+        assert(plugin:recordRecentReading(id))
+        book=assert(plugin.settings:get_book(id))
+        assert(book.home_recent_account=='' and not book.pending_upload_position and not book.source_dispatch,
+            'signed-out event inherited an account checkpoint')
+    end
+    assert(requests[0]==0)
+    print('\nWEREAD_HOME_ACCOUNT_SWITCH='..json.encode({result='PASS',reopen=switch_reopen,
+        independent_pending=true,independent_position=true,independent_dispatch=true,
+        native_pages=true,native_note_preserved=true,repagination=true,requests=0}))
+    os.exit(0)
+end
+local path,xpointer
+if not reopen then
+    local chapters={{chapterUid='1',chapterIdx=1,title='合成章节',wordCount=1000}}
+    local paragraphs={};for i=1,200 do paragraphs[#paragraphs+1]='<p>合成测试段落 '..i..'，仅用于验证本地阅读。</p>' end
+    local body='<html><body>'..table.concat(paragraphs)..'</body></html>'
+    local book={book_id=id,bookId=id,bookVersion=1,title='合成本机读物',author='合成作者',chapters=chapters,cached_chapters={}}
+    local Source=require('weread.lib.position_source');local Identity=require('weread.lib.book_file_identity')
+    local source={['1']=assert(Source.capture(book,chapters[1],body,'web_xhtml'))}
+    local Content=require('weread.lib.content')
+    path=assert(Content.save_book_epub(settings,book,chapters,{['1']=body},'home-recent',{},nil,nil,Identity.capture(book),source))
+    book.cached_full_book=path;book.cached_file=path;book.cached_chapters['1']=path
+    assert(Content.save_catalog_cache(plugin.client,settings,book,chapters))
+    local books=settings:get('books',{});books[id]=book
+    books['900098']={book_id='900098',title='其他账号',recent_read_at=os.time()+10,recent_read_account='other-owner'}
+    books['900097']={book_id='900097',title='其他账号资料',recent_read_at=os.time()+20,recent_read_account=account,_library_account_key='other-owner'}
+    settings:set('books',books);settings:flush()
+    assert(plugin.library_db:cacheShelf({{bookId='900001',title='合成书架',readUpdateTime=1}},{}))
+    plugin:showHome();assert(#plugin.shelf_view.books==1,'unread off-shelf book appeared')
+    plugin:closeWeReadUI();plugin:showBookRecord(book,{verified_metadata=true})
+    press(assert(plugin._book_detail_view),'▤ Read')
+    pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==path end)
+    pump(function() local b=Reader.instance.weread.settings:get_book(id);return b and b.home_recent_account==account end)
+    local reader=Reader.instance;assert(reader.document:getPageCount()>3)
+    reader.rolling:onGotoPage(3);tick();xpointer=assert(reader.document:getXPointer())
+    pump(function() return reader.weread.progress_sync.current_book_id==id and reader.weread.source_position:current()~=nil end)
+    assert(reader.weread.progress_sync:checkpoint_local('synthetic_legacy',reader.weread.source_position:current()))
+    local last=assert(reader.document:getNextVisibleChar(xpointer))
+    reader.annotation:addItem({page=xpointer,pos0=xpointer,pos1=last,drawer='underscore',text='synthetic text',
+        note='synthetic note preserved across account reads',datetime='2026-11-11 12:00:00'})
+    close_reader()
+    local f=assert(io.open(evidence..'/home-recent-xpointer.txt','wb'));f:write(xpointer);f:close()
+else
+    local f=assert(io.open(evidence..'/home-recent-xpointer.txt','rb'));xpointer=f:read('*a');f:close()
+    path=assert(settings:get_book(id).cached_full_book)
+end
+plugin=host();plugin:closeWeReadUI();plugin:showHome()
+local view=assert(plugin.shelf_view);local selected
+for _i,row in ipairs(view.books) do
+    local row_id=tostring(row.bookId or row.book_id)
+    assert(row_id~='900098' and row_id~='900097','foreign account appeared on home')
+    if row_id==id then selected=row end
+end
+assert(selected and selected._cached and view.books[1]==selected,'local recent book missing or not first')
+assert(#assert(plugin.library_db:getShelf())==1 and plugin.library_db:getShelf()[1].bookId=='900001','cloud shelf changed')
+UI:forceRePaint();view.on_select(selected,'books')
+pump(function() return Reader.instance and Reader.instance.document and Reader.instance.document.file==path end)
+local reader=Reader.instance
+pump(function() return reader.weread.progress_sync.current_book_id==id end)
+assert(reader.document:isXPointerInCurrentPage(xpointer),'home selection lost the saved page')
+close_reader();plugin=host()
+assert(#assert(plugin.library_db:getShelf())==1 and plugin.library_db:getShelf()[1].bookId=='900001','reading altered cloud shelf')
+assert(requests[0]==0,'local home attempted network')
+print('\nWEREAD_HOME_LOCAL_RECENT='..json.encode({result='PASS',reopen=reopen,home_selection=true,
+    account_isolation=true,shelf_unchanged=true,saved_page=true,requests=0}))
+os.exit(0)

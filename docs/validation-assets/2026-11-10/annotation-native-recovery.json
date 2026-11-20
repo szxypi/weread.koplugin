@@ -1,0 +1,209 @@
+{
+  "result": "SIMULATED_RECOVERY_VERIFIED_REAL_EXPIRED_GRANT_OBSERVED",
+  "production_parent_commit": "07db69ac8292878b76b836be01037bb3b30b5b35",
+  "accepted_scope": "foreground_and_headless_once_only_parent_owned_native_401_recovery_with_saved_batches",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "code_sha256": {
+    "weread/ui/annotation_sync_controller.lua": "5ebdaf0aa4a5f512697b745a7533a9c318d7ea0d9e977ef875f88d1482f4c70e",
+    "weread/lib/annotation_sync.lua": "fd899401500bf5f14333e0602da1e23da648fb953552a73b4a243c5bfc626217",
+    "weread/lib/annotation_prefetch_worker.lua": "f4e66eb52bdc29ba6cb761333ec7846af82c4e21527647db4d078a8655d6b50e",
+    "weread/lib/native_read_recovery.lua": "61df860de68080bf07986a4a7a7ed636bc4b34a005972f20474c52570764b683",
+    "weread/lib/native_renewal.lua": "5c8cdbb87f39f4bd83ee9c454ea38e07d35fc2fec1d4603b371d78d38d4b9ff9",
+    "weread/lib/i18n.lua": "00a037fdc73d08e308fb1452a7eae875bc2559d4cbd044dd55a0f37bb4189140",
+    "spec/annotation_recovery_spec.lua": "222a264eda29182ac7468834c73684368055cb67bdae2e45252e02ea4a156be9",
+    "spec/koreader/native_annotations_smoke.lua": "7e7df4938539aa7f4b7208e84a26e74499a82e7fb124edd04951a62a1b286473",
+    "spec/koreader/native_authorization_smoke.lua": "b1912a147dfea6f1942d80d3699d76b92b29838e4e459ef589856a5c634e2300",
+    "scripts/mock_weread.py": "493dc997de24708263dc343878e56a5cbbdeabf72668136e63f822b81a65be98",
+    "scripts/test_mock_weread.py": "6bf4dabe832cde5bd403ca4572b254fff79d10ab4e1b1d554e9d25d0804b9955"
+  },
+  "profiles": [
+    {
+      "display": [
+        600,
+        800,
+        167
+      ],
+      "result": "PASS",
+      "synthetic_only": true,
+      "native_annotation_result": {
+        "result": "PASS",
+        "synthetic_only": true,
+        "keyless_native": true,
+        "native_picker_and_matching": true,
+        "real_overlay_tap_and_popup": true,
+        "cancel_and_resume_batch": true,
+        "no_late_commit": true,
+        "bounded_401_and_429_recovery": true,
+        "grant_change_rejected": true,
+        "recovered_remaining_thought_batch": true,
+        "offline_cached_matching": true,
+        "headless_parent_recovery": true,
+        "renewal_cancel_no_replay": true,
+        "cancelled_renewal_posts": 1,
+        "gateway_annotation_requests": 0,
+        "reading_writes": 0,
+        "renewal_posts": 4
+      },
+      "ranges_in_recovery_case": 31,
+      "successful_first_batch_ranges": 30,
+      "remaining_batch_ranges": 1,
+      "first_thought_batch_not_refetched": true,
+      "candidate_files": 188,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "native_repaint_errors": 0,
+      "candidate_sha256": "95beb08efb98a8ff66abc6a7700d2b1721515a9c0150e50571c093974827cc70",
+      "manifest_sha256": "f7943a699b1955b420e0bf1480e8fb6e22a05627f2bd02f4f69ae02508a0fcf3",
+      "screenshot_sha256": {
+        "native-annotations-limited.png": "696a09fc63f376c4b06789bffe60a8ad2d7bf1bdc1b1dc59d395a34097c755a3",
+        "native-annotations-keyless-thought.png": "89c63b3ee59f0919409ffb4126f7e7c07b993d4c1610d95618dd80489c852cc0",
+        "native-annotations-expired.png": "d8fe515f4d81f928cf702c300c7f07513bd810567b4070d293753f6027b3ae69",
+        "native-annotations-renewed-batches.png": "3bc6f9e1d96e9ffb48f55bc405fc8c0127bfeb8d11c4b9a2a7c414be2e639174",
+        "native-annotations-renewal-paused.png": "d4859f8329a2ff24671db9a59e3bc9ba8c2bb9bdfef666c52643fba88f194914",
+        "native-annotations-keyless-overlay.png": "db5a055e2d802806a21761ea5321dc8c77c693b12004ae0a87f7e626c6c66ce5"
+      }
+    },
+    {
+      "display": [
+        1264,
+        1680,
+        300
+      ],
+      "result": "PASS",
+      "synthetic_only": true,
+      "native_annotation_result": {
+        "synthetic_only": true,
+        "keyless_native": true,
+        "native_picker_and_matching": true,
+        "real_overlay_tap_and_popup": true,
+        "cancel_and_resume_batch": true,
+        "no_late_commit": true,
+        "bounded_401_and_429_recovery": true,
+        "grant_change_rejected": true,
+        "recovered_remaining_thought_batch": true,
+        "offline_cached_matching": true,
+        "headless_parent_recovery": true,
+        "renewal_cancel_no_replay": true,
+        "cancelled_renewal_posts": 1,
+        "result": "PASS",
+        "reading_writes": 0,
+        "renewal_posts": 4,
+        "gateway_annotation_requests": 0
+      },
+      "ranges_in_recovery_case": 31,
+      "successful_first_batch_ranges": 30,
+      "remaining_batch_ranges": 1,
+      "first_thought_batch_not_refetched": true,
+      "candidate_files": 188,
+      "source_package_installed_bytes_equal": true,
+      "zip_crc_verified": true,
+      "native_repaint_errors": 0,
+      "candidate_sha256": "ff30408db19ab535f7cc1ce058abac10136d037fb2304beff01098e6a26d4c44",
+      "manifest_sha256": "f7943a699b1955b420e0bf1480e8fb6e22a05627f2bd02f4f69ae02508a0fcf3",
+      "screenshot_sha256": {
+        "native-annotations-limited.png": "7312c53f36e4ffb46d92bf76f088fc9fe58644156a082f4bb7104a2f418f5296",
+        "native-annotations-keyless-thought.png": "7684f052a62bf2036268da24b96ff6c6725f7cb26bc121609742e7abe8ffa85e",
+        "native-annotations-expired.png": "bfef343a239a69d7757844b31e372feb3b70d8f3b342bfa0f021e9d9ef0aea8a",
+        "native-annotations-renewed-batches.png": "7bbee4d6c480a05e3c48352a2cb04d587a455e643b85460bfdf49ce0364125fe",
+        "native-annotations-renewal-paused.png": "a77534d6d3085b8ef0f0ced474add2c04a49318aa40e7bcc3f35a5e0e7f9b3ef",
+        "native-annotations-keyless-overlay.png": "19c405ad67b5105f42394b0b6917d0ac69ce05268b2ce992a6770bff22af7c46"
+      }
+    }
+  ],
+  "component_recovery_checks": 36,
+  "lua_spec_groups": 163,
+  "python_tests": 500,
+  "lua_static_files": 427,
+  "lua_syntax_files": 429,
+  "real_readonly_attempt": {
+    "result": "UNVERIFIED",
+    "checked_at": "2026-11-10T01:41:01.092332+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 0,
+    "private_data_on_regular_disk": false,
+    "screenshots": 0,
+    "preflight_rotation_saved": false,
+    "reason": "owner_annotations_unverified",
+    "preflight_stages": [
+      {
+        "stage": "account",
+        "status": 200
+      },
+      {
+        "stage": "shelf",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "selection_progress",
+        "status": 200
+      },
+      {
+        "stage": "progress_before",
+        "status": 200
+      },
+      {
+        "stage": "reader",
+        "status": 200
+      },
+      {
+        "stage": "catalog_before",
+        "status": 200
+      },
+      {
+        "stage": "e_0",
+        "status": 200
+      },
+      {
+        "stage": "e_1",
+        "status": 200
+      },
+      {
+        "stage": "e_3",
+        "status": 200
+      },
+      {
+        "stage": "catalog_after",
+        "status": 200
+      },
+      {
+        "stage": "progress_after",
+        "status": 200
+      },
+      {
+        "stage": "account",
+        "status": 200
+      }
+    ]
+  },
+  "real_expired_grant_observation": {
+    "result": "UNVERIFIED",
+    "checked_at": "2026-11-10T01:42:43.849188+00:00",
+    "account_data_writes_attempted": 0,
+    "authentication_posts_attempted": 0,
+    "private_annotations_saved": false,
+    "credentials_written_to_files": false,
+    "reason": "shelf: HTTP 401",
+    "stages": [
+      {
+        "stage": "shelf",
+        "status": 401
+      }
+    ]
+  },
+  "real_parent_recovery_verified": false,
+  "real_authentication_posts_attempted": 0,
+  "real_account_data_writes_attempted": 0,
+  "credentials_retained_in_original_keychain": true,
+  "physical_device": false,
+  "pending": [
+    "real_expired_grant_parent_recovery_combination",
+    "other_real_formats_and_chapters",
+    "physical_ko2",
+    "cloud_annotation_writes",
+    "concentrated_eink_performance"
+  ]
+}

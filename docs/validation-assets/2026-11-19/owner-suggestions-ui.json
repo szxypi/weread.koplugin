@@ -1,0 +1,33 @@
+{
+  "result": "OWNER_NATIVE_SUGGESTIONS_UI_VERIFIED",
+  "runtime": "KOReader 2026.07 Linux ARM64",
+  "screen_sizes": [
+    "600x800",
+    "1264x1680"
+  ],
+  "real_account": true,
+  "public_query_samples": 1,
+  "independent_preflight_reads_per_run": 2,
+  "native_ui_reads_per_run": 2,
+  "suggestion_count": 8,
+  "search_batch_counts": [
+    4,
+    4
+  ],
+  "transport_guard_blocks_other_requests": true,
+  "worker_processes_reaped": true,
+  "tmpfs_profile_removed": true,
+  "credential_audit_passed": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "screenshots": 0,
+  "earlier_ko2_attempt": "UNVERIFIED: search keyword or result-count assertion failed; cause not retained; independent retry passed.",
+  "kindle_device_verified": false,
+  "menu_and_display_fields_match_independent_read": true,
+  "simulated_401_renewal_and_persistent_401_bounded": true,
+  "earlier_search_batch_counts": [
+    3,
+    4
+  ],
+  "earlier_preflight_attempt": "UNVERIFIED before UI; cause not retained; sequential retry passed."
+}

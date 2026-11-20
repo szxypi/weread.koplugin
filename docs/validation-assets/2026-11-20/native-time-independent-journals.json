@@ -1,0 +1,24 @@
+{
+  "result": "INDEPENDENT_STORES_READONLY_VERIFIED",
+  "independent_gate_empty": true,
+  "independent_audit_empty": true,
+  "capture_unchanged": true,
+  "old_gate_unchanged": true,
+  "old_audit_unchanged": true,
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "journal_writes": 0,
+  "historical_accounting_verified": false,
+  "simulated_checks": [
+    "one claim",
+    "cross-process claim race",
+    "claimed state survives reopen",
+    "three accounting samples",
+    "full shelf mismatch is partial",
+    "unstable shelf rejected",
+    "tampered baseline rejected",
+    "abrupt process exit after claim blocks replay"
+  ],
+  "real_dispatch_tested": false,
+  "native_interface_tested": false
+}

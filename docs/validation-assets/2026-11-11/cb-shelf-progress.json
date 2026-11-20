@@ -1,0 +1,516 @@
+{
+  "result": "PASS",
+  "recorded_at": "2026-11-10T16:13:47.303533+00:00",
+  "source_base_commit": "82526b5b7f58d8e26b7d800a548a13ee00decd64",
+  "runtime": "KOReader v2026.07.1 Linux ARM64 / Xvfb",
+  "production_changed": true,
+  "changed_production_files": [
+    "weread/lib/read_access.lua",
+    "weread/lib/client.lua",
+    "weread/lib/shelf_progress.lua",
+    "weread/ui/shelf_progress.lua"
+  ],
+  "python_verified_before_lua": true,
+  "python_before_lua_source_sha256": {
+    "scripts/verify_cb_progress.py": "165a3b76ca66d765c746ca8911bbbea03d1776c91d966327e6f12c64e4ddf5ff",
+    "scripts/test_cb_progress.py": "bcd23686dea52a307a83900ff9d1c29d4e259060651d85a6c3f125f9acd920b3"
+  },
+  "first_python_read": {
+    "result": "CB_DISPLAY_PROGRESS_READ_VERIFIED",
+    "checked_at": "2026-11-10T15:55:52.194392+00:00",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "credentials_written_to_files": false,
+    "raw_positions_or_identities_exported": false,
+    "cb_progress_gets": 5,
+    "web_cookie_rotation_saved": false,
+    "same_owner_verified": true,
+    "shelf_cb_identities_match": true,
+    "cb_books": 5,
+    "known_progress": 5,
+    "unavailable_progress": 0,
+    "python_preflight_gets": 3,
+    "stages": [
+      {
+        "stage": "cb_progress",
+        "status": 200
+      },
+      {
+        "stage": "cb_progress",
+        "status": 200
+      },
+      {
+        "stage": "cb_progress",
+        "status": 200
+      },
+      {
+        "stage": "cb_progress",
+        "status": 200
+      },
+      {
+        "stage": "cb_progress",
+        "status": 200
+      }
+    ]
+  },
+  "python_lua_https": {
+    "result": "CB_DISPLAY_PROGRESS_READ_VERIFIED",
+    "checked_at": "2026-11-10T15:59:34.423665+00:00",
+    "account_data_posts": 0,
+    "authentication_posts": 0,
+    "credentials_written_to_files": false,
+    "raw_positions_or_identities_exported": false,
+    "cb_progress_gets": 5,
+    "web_cookie_rotation_saved": false,
+    "same_owner_verified": true,
+    "shelf_cb_identities_match": true,
+    "cb_books": 5,
+    "known_progress": 5,
+    "unavailable_progress": 0,
+    "lua_model_matches": true,
+    "lua_https_matches": true,
+    "lua_progress_gets": 5,
+    "python_preflight_gets": 3,
+    "stages": [
+      {
+        "stage": "cb_progress",
+        "status": 200
+      },
+      {
+        "stage": "cb_progress",
+        "status": 200
+      },
+      {
+        "stage": "cb_progress",
+        "status": 200
+      },
+      {
+        "stage": "cb_progress",
+        "status": 200
+      },
+      {
+        "stage": "cb_progress",
+        "status": 200
+      }
+    ]
+  },
+  "source_sha256": {
+    "weread/lib/read_access.lua": "23cc3b195e3ec79e2c38979eee650372b267193ba9cedc20a51b8f72f19160f3",
+    "weread/lib/client.lua": "8f01afab01ba91be9e9456096267a14f6cebafd796db16f1753f4e05dd89680a",
+    "weread/lib/shelf_progress.lua": "195aa003fcf1dd595c8935b9b0ecb535448d1d786f45392f7fa6ed99c71e4a93",
+    "weread/ui/shelf_progress.lua": "ab4b57b761a383474dba616ef7f8c4488437d5a13c74fb37f31373e72d0db4cf",
+    "scripts/verify_cb_progress.py": "165a3b76ca66d765c746ca8911bbbea03d1776c91d966327e6f12c64e4ddf5ff",
+    "scripts/test_cb_progress.py": "53f9d21af071fc15656583b41e0797891c77385d51ea870d0b84aae59aeb4ccc",
+    "spec/cb_shelf_progress_spec.lua": "f7620c575cecfd89c424ae03eefb7ca67d7fa05defc2013cd0c8891198886dd3",
+    "spec/client_spec.lua": "256c87890fa25b2fe84be90f08ceccc049ddc2fa8790afefa3b36636d31a22ab",
+    "spec/koreader/shelf_progress_probe.lua": "3ab19be293b939187be3084a109743eb72b40e9093452eadba09d3839571fda5",
+    "spec/koreader/shelf_progress_smoke.lua": "815bdeaddf71f9ec6e6da00066e3a83bc4e02d752f7f5b7ae5f9fc500e9be60e",
+    "spec/koreader/persistent_ui_probe.lua": "f200d040ae0dcd9d12a6654d51b612ad8693f01f63c86d4a84f11c617cc7b40d",
+    ".github/workflows/ci.yml": "a22707cb34f7bada88cd0cd3a4b2519b974db5fffc8ae898c81a41279ff35f2d"
+  },
+  "cb_book_samples": 5,
+  "numeric_progress_before": 132,
+  "total_ordinary_progress_after": 137,
+  "cb_channel": "Web_GET_only",
+  "numeric_account_chapter_and_sync_validators_unchanged": true,
+  "cb_sync_snapshot_rejected_before_transport": true,
+  "unverified_cb_metadata_rejected_before_transport": true,
+  "native_authorization_sent_to_cb_route": false,
+  "raw_real_identities_positions_or_credentials_in_report": false,
+  "actual_protocol_gets": 21,
+  "actual_ui_gets": 586,
+  "actual_total_gets": 607,
+  "actual_account_data_posts": 0,
+  "actual_authentication_posts": 0,
+  "previous_real_write_permissions_reused": false,
+  "credentials_retained": true,
+  "credential_files_written": false,
+  "real_data_profiles_tmpfs_removed": true,
+  "real_account_screenshots": 0,
+  "real_account_human_visual_acceptance": false,
+  "real_ui_native_processes": 4,
+  "real_ui_painted_views": 115,
+  "synthetic_regressions": [
+    {
+      "case": "reading",
+      "screen": "600",
+      "result": "PASS",
+      "directory": "cb-progress-regression-reading-600"
+    },
+    {
+      "case": "combined",
+      "screen": "600",
+      "result": "PASS",
+      "directory": "cb-progress-regression-combined-600",
+      "cb_display_assertions": {
+        "mixed_channels_verified": true,
+        "cb_snapshot_source_web": true,
+        "sqlite_display_verified": true,
+        "offline_cached_list_zero_requests": true,
+        "gateway_only_cb_skipped": true,
+        "ordinary_gateway_continued": true,
+        "unavailable_progress_not_invented": true,
+        "reading_writes_unchanged": true
+      }
+    },
+    {
+      "case": "reading",
+      "screen": "ko2",
+      "result": "PASS",
+      "directory": "cb-progress-regression-reading-ko2"
+    },
+    {
+      "case": "combined",
+      "screen": "ko2",
+      "result": "PASS",
+      "directory": "cb-progress-regression-combined-ko2",
+      "cb_display_assertions": {
+        "sqlite_display_verified": true,
+        "offline_cached_list_zero_requests": true,
+        "gateway_only_cb_skipped": true,
+        "ordinary_gateway_continued": true,
+        "unavailable_progress_not_invented": true,
+        "reading_writes_unchanged": true,
+        "mixed_channels_verified": true,
+        "cb_snapshot_source_web": true
+      }
+    }
+  ],
+  "profiles": [
+    {
+      "screen": {
+        "width": 600,
+        "height": 800,
+        "dpi": 167
+      },
+      "report": {
+        "result": "OWNER_FILE_BACKED_UI_READ_VERIFIED",
+        "checked_at": "2026-11-10T16:02:48.378914+00:00",
+        "credentials_written_to_persistent_files": false,
+        "private_data_on_regular_disk": false,
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "screenshots": 0,
+        "web_cookie_rotation_saved": false,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "shelf_coverage": {
+                "partition_verified": true,
+                "reference_fields_match": true,
+                "page_cache_matches": true,
+                "boundaries_verified": true,
+                "reference_books": 139,
+                "regular_books": 137,
+                "public_accounts": 2,
+                "forward_pages": 24,
+                "reverse_pages": 0,
+                "unique_cells": 139,
+                "progress_eligible": 137,
+                "cover_eligible": 139
+              },
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "credential_file_audit": true,
+              "file_backed_sqlite": true,
+              "bookstore_readback": true,
+              "transport_guard_selftest": true,
+              "progress_display_matches": true,
+              "covers_visible": true,
+              "workers_reaped": true,
+              "preferences_readback": true,
+              "paged_shelf": true,
+              "shelf_books": 139,
+              "shelf_groups": 6,
+              "painted_views": 26,
+              "cover_gets": 148,
+              "progress_gets": 137,
+              "cover_cells": 139,
+              "cover_retries": 4,
+              "progress_snapshots": 137,
+              "known_progress": 137,
+              "profile_files_audited": 147,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "request_counts": [
+                1,
+                1
+              ],
+              "failed_line": 0,
+              "progress_http_status": 200,
+              "progress_fetch_result": 4,
+              "progress_parse_result": 1,
+              "progress_shape": 0,
+              "denied_kind": 0,
+              "denied_reason": 0,
+              "cover_redirects": 6,
+              "cover_http_redirects": 0,
+              "redirect_address_kind": 3
+            },
+            {
+              "denied_reason": 0,
+              "cover_redirects": 0,
+              "cover_http_redirects": 0,
+              "redirect_address_kind": 0,
+              "shelf_coverage": {
+                "progress_eligible": 137,
+                "cover_eligible": 139,
+                "partition_verified": true,
+                "reference_fields_match": true,
+                "page_cache_matches": true,
+                "boundaries_verified": true,
+                "reference_books": 139,
+                "regular_books": 137,
+                "public_accounts": 2,
+                "forward_pages": 24,
+                "reverse_pages": 22,
+                "unique_cells": 139
+              },
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "credential_file_audit": true,
+              "file_backed_sqlite": true,
+              "bookstore_readback": true,
+              "transport_guard_selftest": true,
+              "progress_display_matches": true,
+              "covers_visible": true,
+              "workers_reaped": true,
+              "preferences_readback": true,
+              "paged_shelf": true,
+              "shelf_books": 139,
+              "shelf_groups": 6,
+              "painted_views": 48,
+              "cover_gets": 0,
+              "progress_gets": 0,
+              "cover_cells": 139,
+              "cover_retries": 0,
+              "progress_snapshots": 137,
+              "known_progress": 137,
+              "profile_files_audited": 147,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "request_counts": [
+                0,
+                0
+              ],
+              "failed_line": 0,
+              "progress_http_status": 0,
+              "progress_fetch_result": 0,
+              "progress_parse_result": 0,
+              "progress_shape": 0,
+              "denied_kind": 0
+            }
+          ],
+          "runner_error": "none"
+        },
+        "python_preflight_gets": 3,
+        "same_owner_verified": true,
+        "preflight_stages": [
+          {
+            "stage": "metadata_shelf",
+            "status": 200
+          },
+          {
+            "stage": "metadata",
+            "status": 200
+          }
+        ]
+      }
+    },
+    {
+      "screen": {
+        "width": 1264,
+        "height": 1680,
+        "dpi": 300
+      },
+      "report": {
+        "result": "OWNER_FILE_BACKED_UI_READ_VERIFIED",
+        "checked_at": "2026-11-10T16:04:14.544542+00:00",
+        "credentials_written_to_persistent_files": false,
+        "private_data_on_regular_disk": false,
+        "account_data_writes_attempted": 0,
+        "authentication_posts_attempted": 0,
+        "screenshots": 0,
+        "web_cookie_rotation_saved": false,
+        "ui": {
+          "result": "PASS",
+          "tmpfs_profile": true,
+          "profile_removed": true,
+          "stages": [
+            {
+              "shelf_coverage": {
+                "cover_eligible": 139,
+                "partition_verified": true,
+                "reference_fields_match": true,
+                "page_cache_matches": true,
+                "boundaries_verified": true,
+                "reference_books": 139,
+                "regular_books": 137,
+                "public_accounts": 2,
+                "forward_pages": 13,
+                "reverse_pages": 0,
+                "unique_cells": 139,
+                "progress_eligible": 137
+              },
+              "mode": "live",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "credential_file_audit": true,
+              "file_backed_sqlite": true,
+              "bookstore_readback": true,
+              "transport_guard_selftest": true,
+              "progress_display_matches": true,
+              "covers_visible": true,
+              "workers_reaped": true,
+              "preferences_readback": true,
+              "paged_shelf": true,
+              "shelf_books": 139,
+              "shelf_groups": 6,
+              "painted_views": 15,
+              "cover_gets": 154,
+              "progress_gets": 137,
+              "cover_cells": 139,
+              "cover_retries": 10,
+              "progress_snapshots": 137,
+              "known_progress": 137,
+              "profile_files_audited": 147,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "request_counts": [
+                1,
+                1
+              ],
+              "failed_line": 0,
+              "progress_http_status": 200,
+              "progress_fetch_result": 4,
+              "progress_parse_result": 1,
+              "progress_shape": 0,
+              "denied_kind": 0,
+              "denied_reason": 0,
+              "cover_redirects": 5,
+              "cover_http_redirects": 0,
+              "redirect_address_kind": 3
+            },
+            {
+              "denied_kind": 0,
+              "denied_reason": 0,
+              "cover_redirects": 0,
+              "cover_http_redirects": 0,
+              "redirect_address_kind": 0,
+              "shelf_coverage": {
+                "unique_cells": 139,
+                "progress_eligible": 137,
+                "cover_eligible": 139,
+                "partition_verified": true,
+                "reference_fields_match": true,
+                "page_cache_matches": true,
+                "boundaries_verified": true,
+                "reference_books": 139,
+                "regular_books": 137,
+                "public_accounts": 2,
+                "forward_pages": 13,
+                "reverse_pages": 11
+              },
+              "mode": "reopen",
+              "result": "PASS",
+              "phase": "complete",
+              "anonymous_credentials": true,
+              "credential_file_audit": true,
+              "file_backed_sqlite": true,
+              "bookstore_readback": true,
+              "transport_guard_selftest": true,
+              "progress_display_matches": true,
+              "covers_visible": true,
+              "workers_reaped": true,
+              "preferences_readback": true,
+              "paged_shelf": true,
+              "shelf_books": 139,
+              "shelf_groups": 6,
+              "painted_views": 26,
+              "cover_gets": 0,
+              "progress_gets": 0,
+              "cover_cells": 139,
+              "cover_retries": 0,
+              "progress_snapshots": 137,
+              "known_progress": 137,
+              "profile_files_audited": 147,
+              "screenshots": 0,
+              "forbidden_requests": 0,
+              "request_counts": [
+                0,
+                0
+              ],
+              "failed_line": 0,
+              "progress_http_status": 0,
+              "progress_fetch_result": 0,
+              "progress_parse_result": 0,
+              "progress_shape": 0
+            }
+          ],
+          "runner_error": "none"
+        },
+        "python_preflight_gets": 3,
+        "same_owner_verified": true,
+        "preflight_stages": [
+          {
+            "stage": "metadata_shelf",
+            "status": 200
+          },
+          {
+            "stage": "metadata",
+            "status": 200
+          }
+        ]
+      }
+    }
+  ],
+  "static_checks": {
+    "result": "PASS",
+    "production_files": 208,
+    "candidates": 5,
+    "installed_profiles": 4,
+    "source_zip_and_installed_bytes_match": true,
+    "manifest_sha256": "8219a3d3766c62784bd480a807c4add30043e63a866e569210d7bcf6d0f6a410",
+    "lua_syntax_files": 499,
+    "lua_spec_groups": 187,
+    "luacheck_files": 497,
+    "python_files": 58,
+    "python_tests": 721,
+    "python_compiled_files": 159,
+    "zip_crc_verified": true,
+    "repaint_diagnostics": 0
+  },
+  "synthetic_screenshots_visually_checked": true,
+  "committed_synthetic_image_sha256": {
+    "cb-progress-cover-600.png": "ab2cf6e567a085673fe9748abed3c96c5c700d0fc219e0a1b84af6cf9ac8d53c",
+    "cb-progress-offline-ko2.png": "eb26a9b6da557cef80e5cb2a9370b0600d8cd90ca1be433883ff2b3b52ca0318"
+  },
+  "physical_environment": {
+    "checked_at": "2026-11-10T16:12:40.529216+00:00",
+    "mounted_koreader_installations": 0,
+    "kindle_usb_matches": 0,
+    "physical_ko2_available": false,
+    "private_device_details_saved": false
+  },
+  "no_active_luajit_at_completion": true,
+  "pending": [
+    "cb_book_metadata",
+    "cb_catalog_and_content",
+    "cb_source_coordinates_and_cloud_writes",
+    "other_identity_formats",
+    "real_cb_expiry_recovery_combination",
+    "all_group_selections",
+    "remaining_roadmap_features",
+    "physical_ko2",
+    "performance_after_full_feature_acceptance"
+  ],
+  "post_protocol_test_only_change": "Use the existing XXX test-cookie convention; protocol and production code unchanged."
+}

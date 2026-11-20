@@ -1,0 +1,23 @@
+{
+  "result": "PASS",
+  "actual_account": true,
+  "actual_source_and_target_chapter_index": true,
+  "other_catalog_and_book_metadata_synthetic": true,
+  "real_shelf_navigation_tested": false,
+  "native_ui_scenarios": 4,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "cache_modes": ["full_book", "single_chapter"],
+  "read_only_requests_per_scenario": 14,
+  "account_data_writes": 0,
+  "authentication_writes": 0,
+  "position_unchanged": true,
+  "shelf_order_unchanged": true,
+  "fresh_offline_process_reopen": true,
+  "pending_position_preserved": true,
+  "upload_enabled": false,
+  "credentials_not_persisted_in_profile": true,
+  "memory_profiles_removed": true,
+  "private_data_in_report": false,
+  "initial_failures_before_source_check": 2,
+  "physical_kindle_tested": false
+}

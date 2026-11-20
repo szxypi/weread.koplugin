@@ -1,0 +1,225 @@
+{
+  "result": "TRANSLATION_EXISTING_CONTENT_VERIFIED",
+  "checked_at": "2026-11-08T22:43:14.007350+00:00",
+  "account_data_writes_attempted": 0,
+  "translation_mode_changes_attempted": 0,
+  "generation_requests_attempted": 0,
+  "trial_activations_attempted": 0,
+  "purchase_requests_attempted": 0,
+  "credentials_written_to_files": false,
+  "private_catalog_saved": false,
+  "shelf_book_count": 139,
+  "member_contract_verified": true,
+  "member_value_type": "int",
+  "sampled_book_count": 2,
+  "public_search_fixture": true,
+  "samples": [
+    {
+      "chapter_count": 120,
+      "format": "epub",
+      "version_present": true,
+      "translation_field_counts": {
+        "hasTranslated": 120,
+        "translateVersion": 0,
+        "transWordCount": 0
+      },
+      "translated_flag_true_count": 120,
+      "positive_translate_version_count": 0,
+      "positive_trans_word_count": 0,
+      "explicit_free_or_owned_readable_chapters": 13
+    },
+    {
+      "chapter_count": 61,
+      "format": "epub",
+      "version_present": true,
+      "translation_field_counts": {
+        "hasTranslated": 61,
+        "translateVersion": 23,
+        "transWordCount": 23
+      },
+      "translated_flag_true_count": 61,
+      "positive_translate_version_count": 0,
+      "positive_trans_word_count": 23,
+      "explicit_free_or_owned_readable_chapters": 9
+    }
+  ],
+  "same_owner_verified": true,
+  "content_checks": [
+    {
+      "attempted": true,
+      "same_book_and_chapter_verified": true,
+      "content_decoded": true,
+      "attempts": [
+        {
+          "representation": "browser",
+          "decoded_bytes": 0
+        },
+        {
+          "representation": "download",
+          "decoded_bytes": 14828
+        }
+      ],
+      "translation_blocks": 49,
+      "nonempty_translation_blocks": 49
+    },
+    {
+      "attempted": true,
+      "same_book_and_chapter_verified": true,
+      "content_decoded": true,
+      "attempts": [
+        {
+          "representation": "browser",
+          "decoded_bytes": 0
+        },
+        {
+          "representation": "download",
+          "decoded_bytes": 10906
+        }
+      ],
+      "translation_blocks": 34,
+      "nonempty_translation_blocks": 34
+    }
+  ],
+  "refreshed_web_session_saved_to_keychain": true,
+  "web_stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "reader",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "e_0",
+      "status": 200
+    },
+    {
+      "stage": "e_1",
+      "status": 200
+    },
+    {
+      "stage": "e_3",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ],
+  "existing_translated_text_confirmed": true,
+  "lua_translation_model": [
+    {
+      "blocks": 49,
+      "translation_css": true,
+      "relations": {
+        "source_id": 0,
+        "translation_id": 0,
+        "same_id": 0,
+        "previous_missing": 0,
+        "same_tag": 49
+      },
+      "tags": {
+        "p": true
+      },
+      "translation_only_available": true,
+      "pairs": 49,
+      "bilingual_css": true,
+      "original_css": true
+    },
+    {
+      "blocks": 34,
+      "translation_css": true,
+      "relations": {
+        "source_id": 0,
+        "translation_id": 0,
+        "same_id": 0,
+        "previous_missing": 0,
+        "same_tag": 34
+      },
+      "tags": {
+        "p": true
+      },
+      "translation_only_available": true,
+      "pairs": 34,
+      "bilingual_css": true,
+      "original_css": true
+    }
+  ],
+  "stages": [
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "member",
+      "status": 200
+    },
+    {
+      "stage": "public_english",
+      "status": 200
+    },
+    {
+      "stage": "book",
+      "status": 200
+    },
+    {
+      "stage": "catalog",
+      "status": 200
+    },
+    {
+      "stage": "book",
+      "status": 200
+    },
+    {
+      "stage": "catalog",
+      "status": 200
+    }
+  ],
+  "credential_maintenance": {
+    "native_http_401_observed": true,
+    "native_authentication_posts": 1,
+    "native_keychain_readback_verified": true,
+    "refresh_token_returned": false
+  }
+}

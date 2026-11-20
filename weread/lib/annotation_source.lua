@@ -13,10 +13,11 @@ function Source.plain(text)
     return { { 0, count, text, true } }
 end
 
-function Source.index(html)
+function Source.index(html, options)
     html = html:gsub("^\239\187\191", "")
     local spans, offset, i, start, pieces = {}, 0, 1, nil, {}
     local in_tag, quote, suppressed = false, nil, nil
+    local body_only, in_body = options and options.body_only == true, false
     local tag = {}
     local function flush()
         if start then spans[#spans + 1] = { start, offset, table.concat(pieces) } end
@@ -33,18 +34,28 @@ function Source.index(html)
             elseif char == ">" then
                 in_tag = false
                 local name = table.concat(tag):lower()
+                if name:match('^body[%s>]') then in_body = true
+                elseif name:match('^/body[%s>]') then in_body = false end
                 if name:match("^/?script[%s>]") or name:match("^/?style[%s>]") then
                     suppressed = name:sub(1, 1) ~= "/" or nil
                 end
             end
-        elseif char == "<" then
+        elseif html:sub(i, i + 3) == "<!--" then
+            flush()
+            local ending = html:find("-->", i + 4, true)
+            if not ending then return {} end
+            local after = ending + 3
+            while i < after do i, offset = i + length(html:byte(i)), offset + 1 end
+            goto continue
+        elseif char == "<" and html:sub(i + 1, i + 1):match("[%a/!?]") then
             flush()
             in_tag, tag = true, {}
-        elseif not suppressed then
+        elseif not suppressed and (not body_only or in_body) then
             start = start or offset
             pieces[#pieces + 1] = char
         end
         i, offset = i + size, offset + 1
+        ::continue::
     end
     flush()
     return spans

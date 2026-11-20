@@ -1,0 +1,31 @@
+{
+  "date": "2026-11-18",
+  "result": "PASS",
+  "real_imported_books_read_only_checked": 6,
+  "real_source_scope": "one chapter; other chapter and pending position synthetic",
+  "query": "independently selected fullwidth letter variant of a unique source word",
+  "native_cases": [
+    {"width": 600, "height": 800, "dpi": 167, "cache": "single_chapter"},
+    {"width": 1264, "height": 1680, "dpi": 300, "cache": "single_chapter"},
+    {"width": 600, "height": 800, "dpi": 167, "cache": "two_chapter_full_book"},
+    {"width": 1264, "height": 1680, "dpi": 300, "cache": "two_chapter_full_book"}
+  ],
+  "verified": {
+    "source_coordinate": true,
+    "native_navigation": true,
+    "fresh_offline_reopen": true,
+    "synthetic_pending_position_preserved": true,
+    "observed_progress_fields_unchanged": true,
+    "shelf_order_flags_and_groups_unchanged": true,
+    "catalog_and_versions_unchanged": true,
+    "profiles_removed": true,
+    "candidate_bytes_verified": true
+  },
+  "synthetic_preflight_native_cases": 4,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "private_source_or_credentials_on_regular_disk": false,
+  "real_screenshots": 0,
+  "real_canonical_accent_search_verified": false,
+  "physical_kindle_tested": false
+}

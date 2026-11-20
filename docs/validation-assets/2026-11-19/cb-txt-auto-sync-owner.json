@@ -1,0 +1,33 @@
+{
+  "result": "PASS",
+  "book": "fresh_self_authored_txt",
+  "source_boundary": "adjacent_ascii_utf16",
+  "initial_preflight": "read_only_pass",
+  "initial_attempt": {
+    "result": "stopped_before_position_dispatch",
+    "unexpected_guarded_read": "personal_bookmarks",
+    "position_requests": 0,
+    "initial_intent_claims": 0,
+    "fixture_retained": true
+  },
+  "continuation": {
+    "same_bound_fixture": true,
+    "unstarted_and_no_notes_verified": true,
+    "initial_dry_run_blocked": true,
+    "initial_position_requests": 1,
+    "cases": [
+      {"mode": "timer", "screen": "600x800", "dry_run_blocked": true, "position_requests": 3, "dual_readback": true, "offline_reopen": true},
+      {"mode": "timer", "screen": "1264x1680", "dry_run_blocked": true, "position_requests": 3, "dual_readback": true, "offline_reopen": true},
+      {"mode": "close", "screen": "600x800", "dry_run_blocked": true, "position_requests": 3, "dual_readback": true, "offline_reopen": true},
+      {"mode": "close", "screen": "1264x1680", "dry_run_blocked": true, "position_requests": 3, "dual_readback": true, "offline_reopen": true}
+    ],
+    "position_requests_total": 13,
+    "position_requests_uncertain": false,
+    "cleanup_requests": 1,
+    "fixture_removed": true,
+    "other_shelf_state_restored": true,
+    "existing_book_writes": 0,
+    "authentication_posts": 0
+  },
+  "physical_device": false
+}

@@ -1,0 +1,26 @@
+{
+  "date": "2026-11-18",
+  "change": "TXT blank lines and whitespace preserved in newly generated EPUB chapters",
+  "tabs_rendered_as_spaces": 4,
+  "raw_source_and_utf16_coordinates_changed": false,
+  "existing_cached_epub_rewritten": false,
+  "synthetic_native_render": {
+    "screens": [[600, 800, 167], [1264, 1680, 300]],
+    "visible_indentation_blank_line_and_wrapping": true,
+    "screenshots_visually_checked": true,
+    "network_requests": 0
+  },
+  "synthetic_native_source_lifecycle": {"txt_both_screens": "PASS", "xhtml_both_screens": "PASS", "page_position_and_navigation": true, "reflow_and_cancel": true},
+  "real_owner_txt": {
+    "screens": [[600, 800, 167], [1264, 1680, 300]],
+    "online_and_fresh_offline_reader": "PASS",
+    "source_location_and_navigation": true,
+    "observed_cloud_position_unchanged": true,
+    "account_data_writes": 0,
+    "authentication_posts": 0,
+    "profiles_removed": true,
+    "previous_attempts": "two UNVERIFIED runs: read-only display requests for observed personal books were blocked by the verifier"
+  },
+  "private_source_or_credentials_saved": false,
+  "physical_kindle_tested": false
+}

@@ -1,0 +1,122 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "stage": "progress",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "0d1c50b7b4e0b40e3be9834b93a292c4e4cd6dff6cdfc27a11dc76b94383d221"
+    },
+    {
+      "stage": "progress",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "0d1c50b7b4e0b40e3be9834b93a292c4e4cd6dff6cdfc27a11dc76b94383d221"
+    },
+    {
+      "stage": "reader",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "dca8692bc0d6114da066065696be2d8d7c6f61d724c87b4ee7496ee9d8ab62d5"
+    },
+    {
+      "stage": "reader",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "dca8692bc0d6114da066065696be2d8d7c6f61d724c87b4ee7496ee9d8ab62d5"
+    },
+    {
+      "stage": "chapter",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "2f286d20cc43836221bc745576549026765868a4ca3ef728f1499387362002d0"
+    },
+    {
+      "stage": "chapter",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "94bc4ffdffbe2eb87f0b05b948f16ca6f192019238608de92e7863ede67460c9"
+    },
+    {
+      "stage": "repeat",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "injected_expirations": 2,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "aafcb4e250216f5d594218d2cff34079b1a11bd14dd6b54fcd2508a28d291507"
+    },
+    {
+      "stage": "repeat",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "injected_expirations": 2,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "dca8692bc0d6114da066065696be2d8d7c6f61d724c87b4ee7496ee9d8ab62d5"
+    },
+    {
+      "stage": "cancel",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "94bc4ffdffbe2eb87f0b05b948f16ca6f192019238608de92e7863ede67460c9"
+    },
+    {
+      "stage": "cancel",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "c561f03fb7565064619a42cfba7b22a7463d6f30936428a1b3f000880940f5dc"
+    },
+    {
+      "stage": "post-download",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "d8ee5943ca98b0429fd8cfb282e22e9fe59fdb70330a6ce528cccf9eae55b1ef"
+    },
+    {
+      "stage": "post-download",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "injected_expirations": 1,
+      "renewals": 1,
+      "progress_writes": 0,
+      "package_sha256": "0d1c50b7b4e0b40e3be9834b93a292c4e4cd6dff6cdfc27a11dc76b94383d221"
+    }
+  ],
+  "transport_failures": "401 renews once; 403 and 429 do not renew",
+  "cancel_stops_navigation": true,
+  "physical_kindle_tested": false,
+  "previous_download_recovery_regression": {
+    "600x800": "PASS",
+    "1264x1680": "PASS"
+  }
+}

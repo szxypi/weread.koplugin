@@ -224,4 +224,20 @@ expect(legacy_replacement_result and legacy_replacement_result.ok
         and not worker:busy(),
     "kind-less replacement did not run")
 
+-- Plugin initialization can reseed the RNG in the same second. Independent
+-- progress/profile/prefetch workers must never consume each other's IPC files.
+local parallel_a, parallel_b = new_worker(256 * 1024), new_worker(256 * 1024)
+local result_a, result_b
+math.randomseed(12345)
+parallel_a:start{ task = function() return "worker-a" end, on_done = function(value) result_a = value end }
+local pid_a = next_pid
+math.randomseed(12345)
+parallel_b:start{ task = function() return "worker-b" end, on_done = function(value) result_b = value end }
+local pid_b = next_pid
+expect(parallel_a.job.result_path ~= parallel_b.job.result_path, "independent workers shared result paths")
+callbacks[pid_a](); callbacks[pid_b]()
+done[pid_a], done[pid_b] = true, true
+poll(); poll()
+expect(result_a and result_a.ok and result_a.value == "worker-a"
+    and result_b and result_b.ok and result_b.value == "worker-b", "parallel worker results were mixed or deleted")
 print(("background_worker_spec: %d checks"):format(checks))

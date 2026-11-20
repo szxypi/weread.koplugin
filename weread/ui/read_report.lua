@@ -1,14 +1,9 @@
 -- Reading-report settings, target selection, and statistics UI.
-local logger = require("weread.lib.logger")
-local ReadStats = require("weread.lib.read_stats")
-local ReadStatsView = require("weread.ui.read_stats_view")
 local UIManager = require("ui/uimanager")
 
 local PluginUtil = require("weread.lib.plugin_util")
 local _ = PluginUtil.tr
 local T = PluginUtil.T
-local log_error = PluginUtil.log_error
-local display_error = PluginUtil.display_error
 
 local M = {}
 
@@ -95,7 +90,39 @@ function M:getReadReportMenuItems()
                 self:onShowWeReadReportStatus()
             end),
         },
+        {
+            text = _("Record offline reading time locally"),
+            keep_menu_open = true, check_callback_updates_menu = true,
+            checked_func = function() return self.settings:get("offline_time", {}).enabled == true end,
+            callback = self:safeCallback(_("Record offline reading time locally"), function(menu)
+                local enabled = self.settings:get("offline_time", {}).enabled == true
+                if self.offline_time then self.offline_time:stop("disabled") end
+                local ok = pcall(function()
+                    self.settings:set("offline_time", { enabled = not enabled })
+                    if self.settings:flush() == false then error("write_failed") end
+                end)
+                if not ok then
+                    self.settings:set("offline_time", { enabled = enabled })
+                    self:showInfo(_("Could not save offline time settings."))
+                end
+                if self.offline_time then self.offline_time:start() end
+                if menu then menu:updateItems() end
+            end),
+        },
+        {
+            text = _("Offline reading time"),
+            callback = self:safeCallback(_("Offline reading time"), function() self:showOfflineTimeStatus() end),
+        },
     }
+end
+
+function M:showOfflineTimeStatus()
+    return require('weread.ui.offline_time_review').show(self)
+end
+
+function M:closeOfflineTimeUI()
+    local review=package.loaded['weread.ui.offline_time_review']
+    if review then review.close(self) end
 end
 
 -- Preset reporting intervals. A longer interval means fewer network wake-ups,
@@ -146,6 +173,9 @@ function M:onShowWeReadReportStatus()
         target = cur.book_title ~= "" and cur.book_title or _("Not configured")
     end
     local status = report_status.running and _("Running") or _("Stopped")
+    if report_status.running and report_status.state == "waiting_for_offline_time" then
+        status = _("Waiting for an available reading-time interval")
+    end
     local count = report_status.count
     local last = report_status.last_time
         and os.date("%H:%M:%S", report_status.last_time) or "--"
@@ -236,44 +266,15 @@ function M:showReadReportBookPicker()
 end
 
 function M:showReadStats()
-    if not self:requireLogin(false, true) then
-        return
-    end
-    -- Open on the monthly tab by default.
     self:loadReadStats("monthly", nil, nil)
 end
 
--- Fetch reading statistics for a period and (re)show the visualization page.
--- old_view, when provided, is closed once the new data is ready (tab switch or
--- period navigation).
+function M:cancelReadStatsRequest()
+    return require("weread.ui.statistics_request").cancel(self)
+end
+
 function M:loadReadStats(mode, base_time, old_view)
-    self:showBusy(_("Loading reading statistics..."))
-    self:runOnlineTask(_("Reading statistics"), function()
-        local ok, data = pcall(function()
-            return ReadStats.fetch(self.client, mode, base_time)
-        end)
-        self:closeBusy()
-        if not ok then
-            logger.err("load reading statistics failed:", log_error(data))
-            self:showInfo(T(_("%1 failed:\n%2"), _("Reading statistics"), display_error(data)))
-            return
-        end
-        if old_view then
-            UIManager:close(old_view)
-        end
-        local view
-        view = ReadStatsView.show(data, {
-            on_prev = function()
-                self:loadReadStats(mode, data.prev_base_time, view)
-            end,
-            on_next = function()
-                self:loadReadStats(mode, data.next_base_time, view)
-            end,
-            on_switch = function(new_mode)
-                self:loadReadStats(new_mode, nil, view)
-            end,
-        })
-    end)
+    return require("weread.ui.statistics_request").load(self, mode, base_time, old_view)
 end
 
 return M

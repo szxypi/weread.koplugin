@@ -1,0 +1,20 @@
+{
+  "scope": "one synthetic EPUB and one nonempty group creation attempt",
+  "fixture_upload_notifications": 1,
+  "group_create_posts": 1,
+  "group_create_receipt_captured": false,
+  "group_delete_posts": 0,
+  "fixture_cleanup_posts": 0,
+  "native_fixture_visible": true,
+  "web_fixture_visible": true,
+  "native_group_visible": false,
+  "web_group_visible": false,
+  "native_preexisting_state_unchanged_excluding_fixture": true,
+  "web_preexisting_state_unchanged_excluding_fixture": true,
+  "earlier_empty_group_absent": true,
+  "fixture_retained": true,
+  "phase": "create_claimed",
+  "result": "unverified",
+  "automatic_retry": false,
+  "limitation": "Readbacks cannot exclude delayed server application; a successful group creation is not established."
+}

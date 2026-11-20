@@ -3,10 +3,35 @@ local UIManager = require("ui/uimanager")
 local Content = require("weread.lib.content")
 local Chapters = require("weread.lib.annotation_chapters")
 local PluginUtil = require("weread.lib.plugin_util")
+local AnnotationAccess = require("weread.lib.annotation_access")
+local NativeRecovery = require("weread.lib.native_read_recovery")
+local ReadAccess = require("weread.lib.read_access")
 local logger = require("weread.lib.logger")
 local _ = PluginUtil.tr
 local T = PluginUtil.T
 local M = {}
+
+local function annotation_error_message(reason)
+    local code = tostring(reason):match("annotation_source/([a-z_]+)")
+    if not code then return reason end
+    if code == "native_expired" then
+        return _("E-Ink authorization expired. Renew it in WeRead settings, then continue matching.")
+    elseif code == "rate_limited" then
+        return _("Annotation requests are limited. Try again later. Saved progress was kept.")
+    elseif code == "session_changed" then
+        return _("Authorization changed. Start annotation matching again.")
+    elseif code == "source_changed" then
+        return _("The annotation download channel changed. Fetch the selected chapters again to refresh their saved data.")
+    end
+    return _("Annotation data could not be verified. Saved progress was kept.")
+end
+
+function M:_requireAnnotationAccess()
+    if self.client.capture_annotation_access and self.client:capture_annotation_access() then
+        return self:requireLogin(true, false)
+    end
+    return self:requireLogin(true, true)
+end
 
 local function compare_xpointers(document, a, b)
     local ok, order = pcall(document.compareXPointers, document, a, b)
@@ -46,8 +71,12 @@ function M:_annotationBinding()
     if entry and entry.binding then return entry.binding end
     local book_id = self:detectWeReadBook()
     if not book_id then return nil end
+    if type(book_id)=='number' then
+        if book_id<1 or book_id%1~=0 or book_id>9007199254740991 then return nil end
+        book_id=string.format('%.0f',book_id)
+    elseif type(book_id)~='string' then return nil end
     local books = self.settings:get("books", {})
-    local book = books[tostring(book_id)] or books[book_id]
+    local book = ReadAccess.cached_book(books,book_id)
     if not book then return nil end
     return { book_id = tostring(book_id), title = book.title, author = book.author,
         format = book.format, automatic = true }
@@ -59,7 +88,7 @@ function M:_usesUnifiedAnnotations()
     if not binding then return false end
     if binding.automatic then
         local books = self.settings:get("books", {})
-        local book = books[binding.book_id] or books[tonumber(binding.book_id)]
+        local book = ReadAccess.cached_book(books,binding.book_id)
         local descriptor = Chapters.descriptor(book, file(self))
         if descriptor and descriptor.clean then return true end
     end
@@ -86,7 +115,7 @@ function M:_prepareAnnotationContext(online, refresh_catalog)
     local store = self:_annotationStore()
     local books = self.settings:get("books", {})
     local book_id = tostring(binding.book_id)
-    local book = books[book_id] or books[tonumber(book_id)]
+    local book = ReadAccess.cached_book(books,book_id)
     local descriptor = binding.automatic and Chapters.descriptor(book, path)
     local catalog = store:get(book_id, "meta", "catalog") or book and book.chapters
     if online and (not catalog or refresh_catalog) then
@@ -273,6 +302,7 @@ function M:_cancelUnifiedAnnotationSync(preserve_pending)
     local request = self._external_annotation_sync
     if not request then return end
     request.cancelled = true
+    if request.recovery then NativeRecovery.cancel(self, request.recovery) end
     if request.job then request.job.cancelled = true end
     local dismiss = request.progress and request.progress.dismiss_callback
     if request.progress then
@@ -290,6 +320,49 @@ function M:_cancelUnifiedAnnotationSync(preserve_pending)
     -- Clear ownership before resuming Trapper: cancellation must not deliver
     -- a late response, schedule a retry or close a newer job's dialog.
     if dismiss then dismiss() end
+end
+
+function M:_recoverAnnotationAuthorization(request, context, options, reason)
+    if type(reason) ~= "string" or not (reason == "annotation_source/native_expired"
+        or reason:match("^annotation_source/native_expired\nstack traceback:")) then return false end
+    local selected = request.job and request.job.annotation_access or request.annotation_access
+    if not selected or not selected.native or selected.native.renewal_pending
+        or AnnotationAccess.kind(selected, context.book_id) ~= "native"
+        or not AnnotationAccess.matches(self.settings, selected) then return false end
+    local function current()
+        return self._external_annotation_sync == request and not request.cancelled
+            and file(self) == context.path and self._reader_session_gen == request.session
+            and self:isNetworkConnected() and (not options.prefetch or self:canPrefetchAnnotations())
+    end
+    if not current() then return false end
+    local function paused()
+        if self._external_annotation_sync ~= request then return end
+        self:_cancelUnifiedAnnotationSync()
+        if not options.background then
+            self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), annotation_error_message(reason)))
+        end
+    end
+    local started = NativeRecovery.start(self, request.recovery, selected, {
+        capture = AnnotationAccess.capture, is_current = current,
+        stale = function()
+            if self._external_annotation_sync == request then self:_cancelUnifiedAnnotationSync() end
+        end,
+        complete = function(success, renewed)
+            if not success then paused(); return end
+            local resumed = {}
+            for key, value in pairs(options) do resumed[key] = value end
+            resumed.refresh, resumed.clear_existing = false, false
+            resumed._annotation_recovery = request.recovery
+            resumed._annotation_access = AnnotationAccess.pin(renewed, "native", context.book_id)
+            self:_cancelUnifiedAnnotationSync(true)
+            self:_runAnnotationJob(context, resumed)
+        end,
+    })
+    if started and self._external_annotation_sync == request then
+        if not request.guard then request.guard = require("weread.lib.standby_guard").acquire() end
+        if request.progress then request.progress:setTitle(_("Renewing E-Ink authorization…")) end
+    end
+    return started
 end
 
 function M:_finishAnnotationPrefetchWorker(request, result)
@@ -310,6 +383,8 @@ function M:_finishAnnotationPrefetchWorker(request, result)
     elseif not request.cancelled then
         logger.warn("annotation prefetch worker failed:",
             tostring(type(result) == "table" and result.error or "no result"))
+        if self:_recoverAnnotationAuthorization(request, request.context, request.options,
+            type(result) == "table" and result.error) then return end
     end
     self._external_annotation_sync = nil
     local pending = self._annotation_pending_prefetch
@@ -333,7 +408,7 @@ function M:_runAnnotationPrefetchWorker(request, context, options)
         timeout = 180,
         task = function(worker_context)
             return AnnotationWorker.run(self.settings, self.client, context,
-                options.chapters or context.chapters, worker_context)
+                options.chapters or context.chapters, worker_context, request.annotation_access)
         end,
         on_launch = function(pid, available_kb)
             if self._external_annotation_sync ~= request then return end
@@ -410,7 +485,11 @@ function M:_runAnnotationJob(context, options)
         self:_cancelUnifiedAnnotationSync()
     end
     local Sync = require("weread.lib.annotation_sync")
-    local request = { context = context, session = self._reader_session_gen, prefetch = options.prefetch }
+    local request = { context = context, options = options, session = self._reader_session_gen, prefetch = options.prefetch,
+        recovery = options._annotation_recovery or {}, annotation_access = options._annotation_access }
+    if not request.annotation_access and self.client.capture_annotation_access then
+        request.annotation_access = self.client:capture_annotation_access()
+    end
     self._external_annotation_sync = request
     if options.prefetch then
         return self:_runAnnotationPrefetchWorker(request, context, options)
@@ -446,9 +525,14 @@ function M:_runAnnotationJob(context, options)
     request.job = Sync:new{
         perf = perf,
         store = context.store, client = self.client, book_id = context.book_id,
+        annotation_access = request.annotation_access,
         chapters = options.chapters or context.chapters, ranges = context.ranges,
         document = not options.prefetch and self.ui.document or nil,
         document_key = not options.prefetch and context.document_key or nil,
+        get_document_source = not options.prefetch and function(chapter)
+            return require("weread.lib.position_source").read_document(self.ui.document,
+                context.book_id, Chapters.uid(chapter))
+        end or nil,
         refresh = options.refresh or options.clear_existing, clear_existing = options.clear_existing,
         offline = options.offline, async_network = request.trapper ~= nil,
         is_online = function() return self:isNetworkConnected() end,
@@ -514,6 +598,7 @@ function M:_runAnnotationJob(context, options)
             done, state = request.job:step(unpack(values, 1, 3))
         end
         if done == nil or done then
+            if done == nil and self:_recoverAnnotationAuthorization(request, context, options, state) then return end
             perf("annotation_job_total", job_started, "ok=", done == true)
             local pending = self._annotation_pending_prefetch
             self:_cancelUnifiedAnnotationSync()
@@ -523,7 +608,7 @@ function M:_runAnnotationJob(context, options)
                     if state == Sync.NETWORK_REQUIRED then
                         self:showInfo(_("Connect to the network to download annotation data. Saved matching progress will be reused."))
                     else
-                        self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), state))
+                        self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), annotation_error_message(state)))
                     end
                 end
             end
@@ -554,7 +639,7 @@ function M:_runAnnotationJob(context, options)
                     tostring(state.current or 0), tostring(state.count or 0),
                     tostring(state.index), tostring(state.total))
             elseif state.stage == "source" then
-                title = T(_("Downloading underline source text · chapter %1/%2"),
+                title = T(_("Preparing underline source text · chapter %1/%2"),
                     tostring(state.index), tostring(state.total))
             elseif state.stage == "underlines" then
                 title = T(_("Downloading underlines · chapter %1/%2"),
@@ -577,7 +662,7 @@ function M:_runAnnotationJob(context, options)
                 self:_cancelUnifiedAnnotationSync()
                 logger.warn("annotation_sync UI:", err)
                 if not options.background then
-                    self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), tostring(err)))
+                    self:showInfo(T(_("Annotation sync paused: %1\nSaved progress will be reused."), annotation_error_message(err)))
                 end
             end
         end
@@ -608,7 +693,7 @@ function M:startUnifiedAnnotationSync(options)
         self:_runAnnotationJob(context, options)
     end
     if options.offline then return start() end
-    if not self:requireLogin(true, true) then return end
+    if not self:_requireAnnotationAccess() then return end
     return self:runOnlineTask(_("Sync underlines and thoughts"), start)
 end
 
@@ -711,6 +796,7 @@ end
 function M:canPrefetchAnnotations()
     return self.settings:get("cache").auto_prefetch_next_chapter == true
         and self:isAnnotationPrefetchEnabled() and self:isNetworkConnected()
+        and (not self.client.capture_annotation_access or self.client:capture_annotation_access() ~= nil)
 end
 
 function M:cancelAnnotationPrefetch()
@@ -851,7 +937,7 @@ function M:chooseAnnotationChapters()
     end
     local context = self:_prepareAnnotationContext(false)
     if context and context.catalog and #context.catalog > 0 then return show() end
-    if not self:requireLogin(true, true) then return end
+    if not self:requireLogin(true, false) then return end
     self:runOnlineTask(_("Loading chapter list..."), show)
 end
 

@@ -1,0 +1,16 @@
+{
+  "result": "PARTIAL",
+  "books_read": 6,
+  "strict_adjacent_source_plans": 2,
+  "lua_four_payload_models_verified": 2,
+  "candidate_summary_missing": 0,
+  "candidate_summary_over_20_characters": 2,
+  "candidate_summary_fully_preserved_by_current_payload": 0,
+  "cloud_positions_unchanged": true,
+  "shelf_order_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_writes": 0,
+  "server_write_semantics_verified": false,
+  "write_authority_granted": false,
+  "private_data_saved": false
+}
