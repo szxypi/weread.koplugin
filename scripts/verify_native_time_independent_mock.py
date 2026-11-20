@@ -25,6 +25,10 @@ from txt_full_summary import digest
 from verify_native_statistics import period
 from verify_native_time_bundle_ui_rpc import seed_evidence
 from verify_native_time_guarded_mock import Capture,Server
+from native_time_independent_readback import run as readback,BoundNative
+from native_time_bundle_readback import StatisticsReads,ShelfRead
+from verify_fresh_time_capture_readonly import BoundSource
+from test_uploaded_epub_native_reading_runtime import Opener
 
 
 def scenario(args,mode):
@@ -76,12 +80,24 @@ def scenario(args,mode):
                   'malicious_approval':('UNVERIFIED',None,0),'success':('INDEPENDENT_NATIVE_ACKNOWLEDGED','acknowledged',1),
                   'source_changed':('UNVERIFIED',None,0),'position_changed':('UNVERIFIED',None,0),
                   'missing_ack':('UNVERIFIED','claimed',1),'archive_changed':('UNVERIFIED','claimed',0),
-                  'interrupted':('UNVERIFIED','claimed',0)}[mode]
+                  'interrupted':('UNVERIFIED','claimed',0),'success_readback':('INDEPENDENT_NATIVE_ACKNOWLEDGED','acknowledged',1)}[mode]
         state,_=gate.read();phase=state['phase'] if state else None
         if (result['result'],phase,server.writes)!=expected:
             raise ValueError('independent_mock/result '+json.dumps({'mode':mode,'broker':result,'phase':phase,'writes':server.writes}))
         if result['dispatch_may_have_occurred'] is not (phase is not None):raise ValueError('independent_mock/gate')
         if (audit.read()[0] is not None)!=(phase is not None):raise ValueError('independent_mock/audit')
+        if mode=='success_readback':
+            saved={'vid':plan['owner'],'cookies':{'wr_vid':'900000','wr_skey':'mock_key'}}
+            class Web(BoundSource):
+                def __init__(self,book):super().__init__(book);self.opener=Opener(server)
+            checked=readback(saved=saved,grant=grant,store=store,gate=gate,audit=audit,current=lambda:True,
+                web_factory=Web,native_factory=lambda grant,plan,current,clock:BoundNative(grant,plan,current,clock,Opener(server)),
+                statistics_factory=lambda grant,months,current:StatisticsReads(grant,months,current,Opener(server)),
+                shelf_factory=lambda grant,current:ShelfRead(grant,current,Opener(server)),sleep=lambda _:None)
+            if (checked.get('result')!='READBACK_MATCH' or checked.get('independent_samples')!=3
+                    or checked.get('real_accounting_verified') is not False or server.writes!=1):
+                raise ValueError('independent_mock/readback '+json.dumps(checked))
+
     finally:
         server.shutdown();thread.join();server.server_close();prepared.close()
 
@@ -91,9 +107,9 @@ def main():
     for name in ('koreader','source','candidate'):parser.add_argument('--'+name,required=True,type=Path)
     args=parser.parse_args()
     try:
-        for mode in ('dry','malicious_approval','success','source_changed','position_changed','missing_ack','archive_changed','interrupted'):
+        for mode in ('dry','malicious_approval','success','source_changed','position_changed','missing_ack','archive_changed','interrupted','success_readback'):
             scenario(args,mode)
-        report=dict(result='SYNTHETIC_INDEPENDENT_NATIVE_VERIFIED',scenarios=8,real_account_posts=0,synthetic_posts=2,
+        report=dict(result='SYNTHETIC_INDEPENDENT_NATIVE_VERIFIED',scenarios=9,real_account_posts=0,synthetic_posts=3,independent_readback_verified=True,
                     dry_override_blocked=True,archive_rechecked=True,uncertain_claims_not_replayed=True,
                     actual_ui_readback_verified=False)
     except Exception as error:
