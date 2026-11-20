@@ -255,6 +255,7 @@ function M:showHomeQuickSettings()
         { text = _("Home layout"), callback = function() dismiss() self:showHomeLayoutSettings() end },
         { text = _('Search options'), callback = function() dismiss() self:showHomeSearchOptions() end },
         { text = _('Offline changes'), callback = function() dismiss() require('weread.ui.offline_changes').show(self) end },
+        { text = _('Delayed screenshot'), callback = function() dismiss() require('weread.ui.delayed_screenshot').show(self) end },
         { text = (cache.download_book_images and "✓ " or "○ ") .. _("Download book images"), callback = function()
             dismiss()
             cache.download_book_images = not cache.download_book_images

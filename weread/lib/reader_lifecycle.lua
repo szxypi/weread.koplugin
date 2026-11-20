@@ -530,6 +530,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local screenshot=package.loaded['weread.ui.delayed_screenshot'];if screenshot then screenshot.cancel() end
     local renewing=require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._chapter_open_intent=nil
     self._resume_chapter_prefetch=nil

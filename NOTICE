@@ -135,3 +135,9 @@ Excerpt phone transfer:
   local transfer concept from MiuRead book_excerpt_transfer.lua at
   c1893562aa25a870b8dd076d7be062a3348f823e (MiuRead contributors,
   AGPL-3.0-only): https://github.com/miumiupy98-art/miuread-koreader
+
+Delayed screenshots:
+- weread/ui/delayed_screenshot.lua adapts the delayed native screenshot concept
+  from MiuRead screenshot_mode.lua at c1893562aa25a870b8dd076d7be062a3348f823e
+  (MiuRead contributors, AGPL-3.0-only):
+  https://github.com/miumiupy98-art/miuread-koreader

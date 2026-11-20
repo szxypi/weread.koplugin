@@ -32,6 +32,10 @@ function M:onDispatcherRegisterActions()
         title = _("WeRead · Quick menu"),
         reader = true,
     })
+    Dispatcher:registerAction('weread_delayed_screenshot', {
+        category = 'none', event = 'ShowWeReadDelayedScreenshot',
+        title = _('WeRead · Delayed screenshot'), general = true,
+    })
     Dispatcher:registerAction("weread_sync_progress", {
         category = "none",
         event = "WeReadSyncProgress",

@@ -88,6 +88,13 @@ package.loaded['weread.ui.offline_changes']={show=function(selected) offline_ope
 host:showHomeQuickSettings()
 find(host._home_controls_menu.items,'Offline changes').callback()
 expect(offline_opened==host and not host._home_controls_menu,'quick settings offline changes entry failed')
+local screenshot_host
+package.loaded['weread.ui.delayed_screenshot']={show=function(selected) screenshot_host=selected end}
+host:showHomeQuickSettings()
+find(host._home_controls_menu.items,'Delayed screenshot').callback()
+expect(screenshot_host==host and not host._home_controls_menu,'quick settings screenshot entry failed')
+package.loaded['weread.ui.delayed_screenshot']=nil
+
 host:showHomeLayoutSettings()
 find(host._home_controls_menu.items, "Home book display").sub_item_table[2].callback()
 expect(preferences.view_mode == "list" and redraws == 1 and saves == 1, "home view preference did not persist and redraw")

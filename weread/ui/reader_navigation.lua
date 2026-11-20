@@ -14,6 +14,12 @@ function M:onShowWeReadQuickMenu()
     return self:showEndOfBookDialog(self:detectWeReadBook())
 end
 
+-- General gesture action works from the file manager and reader.
+function M:onShowWeReadDelayedScreenshot()
+    require('weread.ui.delayed_screenshot').show(self)
+    return true
+end
+
 -- Dispatcher entry point for a gesture that opens the WeRead bookshelf from
 -- any document currently open in KOReader.
 function M:onShowWeReadBookshelf()
@@ -157,6 +163,9 @@ function M:showEndOfBookDialog(book_id)
             else
                 show_context_required()
             end
+        end,
+        on_delayed_screenshot = function()
+            self:onShowWeReadDelayedScreenshot()
         end,
         on_read_stats = function()
             self:showReadStats()

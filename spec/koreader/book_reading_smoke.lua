@@ -200,6 +200,11 @@ plugin.shelf_view.on_refresh()
 pump(function() return #(plugin.library_db:getShelf() or {}) > 0 and not plugin.busy_message end)
 plugin:closeWeReadUI(); plugin:showHome()
 shot("reading-home")
+local screenshot_smoke
+if os.getenv('WEREAD_TEST_DELAYED_SCREENSHOT')=='1' then
+    screenshot_smoke=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'delayed_screenshot_smoke.lua')
+    screenshot_smoke.home(plugin,fm,evidence)
+end
 local books = plugin.library_db:getShelf()
 local selected
 for _, book in ipairs(books) do if tostring(book.bookId or book.book_id) == "900001" then selected = book end end
@@ -280,6 +285,7 @@ assert(reader.document.file:match("%.epub$"), "Read did not open the native EPUB
 assert(not plugin.book_reading_context and not plugin._book_detail_view and not plugin.shelf_view,
     "plugin views survived native handoff")
 shot("reading-native-reader")
+if screenshot_smoke then screenshot_smoke.reader(reader.weread,reader) end
 -- Exercise the actual downloaded book through its bound plugin and native tap
 -- routing, in addition to the standalone layout/preference fixture.
 local note = "这是自写的原书脚注。"

@@ -44,6 +44,8 @@ def main():
     parser.add_argument('--selection-thought',action='store_true',help='Verify native selected-text thought drafts and mock HTTP writes')
     parser.add_argument('--owner-roundtrip',action='store_true',help='Exercise the bounded native executor only against this mock service')
     parser.add_argument('--excerpt-card',action='store_true',help='Exercise excerpt cards in the synthetic native reader')
+    parser.add_argument('--delayed-screenshot',action='store_true',help='Exercise native delayed screenshots from home and reader')
+    parser.add_argument('--delayed-screenshot-long',action='store_true',help='Also wait for real 10- and 15-second screenshots')
     parser.add_argument("--footnotes", action="store_true", help="Exercise native footnote rendering, taps and reader settings")
     parser.add_argument('--rich-footnotes', action='store_true', help='Exercise original media footnotes and return navigation')
     parser.add_argument('--chapter-link-scroll', action='store_true', help='Exercise standalone scroll viewport and suspend ownership')
@@ -97,6 +99,8 @@ def main():
     if args.finish_change and not args.reading_flow:parser.error('--finish-change requires --reading-flow')
     if args.selection_thought and not args.reading_flow:parser.error('--selection-thought requires --reading-flow')
     if args.excerpt_card and not args.reading_flow:parser.error('--excerpt-card requires --reading-flow')
+    if args.delayed_screenshot and not args.reading_flow:parser.error('--delayed-screenshot requires --reading-flow')
+    if args.delayed_screenshot_long and not args.delayed_screenshot:parser.error('--delayed-screenshot-long requires --delayed-screenshot')
     if args.recovery_save_retry and not (args.reading_flow and args.source_upload and args.source_recovery and args.progress_recovery):
         parser.error('--recovery-save-retry requires --reading-flow --source-upload --source-recovery --progress-recovery')
     if args.rich_footnotes and (args.footnotes or args.reading_flow or args.cached_resume):
@@ -133,7 +137,7 @@ def main():
     if args.process_loss and (not args.reading_flow or any((args.offline_progress, args.progress_response,
             args.progress_confirmation, args.source_upload, args.source_recovery, args.progress_recovery,
             args.recovery_save_retry, args.shelf_membership_write, args.finish_change, args.selection_thought, args.owner_roundtrip,
-            args.excerpt_card))):
+            args.excerpt_card,args.delayed_screenshot))):
         parser.error('--process-loss requires --reading-flow without other reading-flow extensions')
     if not args.process_loss and args.process_loss_kind != 'periodic':
         parser.error('--process-loss-kind requires --process-loss')
@@ -212,6 +216,8 @@ def main():
     if args.finish_change:environment['WEREAD_TEST_FINISH_CHANGE']='1'
     if args.selection_thought:environment['WEREAD_TEST_SELECTION_THOUGHT']='1'
     if args.excerpt_card:environment['WEREAD_TEST_EXCERPT_CARD']='1'
+    if args.delayed_screenshot:environment['WEREAD_TEST_DELAYED_SCREENSHOT']='1'
+    if args.delayed_screenshot_long:environment['WEREAD_TEST_DELAYED_SCREENSHOT_LONG']='1'
     if args.owner_roundtrip:
         from mock_weread import chapter_html
         from verify_source_coordinates import FilteredSource

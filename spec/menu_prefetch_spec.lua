@@ -130,6 +130,10 @@ for key, value in pairs(Menu) do host[key] = value end
 host:onDispatcherRegisterActions()
 expect(registered.weread_show == nil,
     "generic WeRead shortcut action is no longer registered")
+local screenshot_action = registered.weread_delayed_screenshot
+expect(screenshot_action and screenshot_action.event == 'ShowWeReadDelayedScreenshot'
+        and screenshot_action.general == true,
+    'delayed screenshot is available as a general gesture action')
 local sync_action = registered.weread_sync_progress
 expect(sync_action and sync_action.event == "WeReadSyncProgress"
         and sync_action.title == "WeRead · Sync progress now"
