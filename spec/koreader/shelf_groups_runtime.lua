@@ -27,6 +27,35 @@ plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plu
 if mode=='live' then assert(plugin.library_db:cacheShelf(shelf.books,shelf.archive)) end
 local books=assert(plugin.library_db:getShelf());local archives=assert(plugin.library_db:getShelfArchives())
 assert(#books==#shelf.books and #archives==#shelf.archive)
+-- Legacy numeric table keys must not alias adjacent large string book IDs.
+local account_key=plugin.library_db.accountKey
+local shelf_read,archives_read=plugin.library_db.getShelf,plugin.library_db.getShelfArchives
+local settings_read=plugin.settings.get
+local recent_saved={
+    [42]={recent_read_at=30,recent_read_account='synthetic-owner'},
+    [9007199254740992]={recent_read_at=100,recent_read_account='synthetic-owner'},
+}
+local recent_shelf={{bookId='9007199254740993',title='大编号',readUpdateTime=1},
+                    {bookId='43',title='另一本',readUpdateTime=2},{bookId='42',title='旧缓存',readUpdateTime=0}}
+plugin.library_db.accountKey=function() return 'synthetic-owner' end
+plugin.library_db.getShelf=function() return recent_shelf end
+plugin.library_db.getShelfArchives=function() return {} end
+plugin.settings.get=function(self,key,default)
+    if key=='books' then return recent_saved end
+    return settings_read(self,key,default)
+end
+plugin:showHome()
+local recent_view=assert(plugin.shelf_view)
+assert(#recent_view.books==3 and recent_view.books[1].bookId=='42' and recent_view.books[2].bookId=='43'
+    and recent_view.books[3].bookId=='9007199254740993' and recent_view.books[3]._recent_time==1,
+    'legacy numeric key attached a different large book to the home page')
+recent_saved['9007199254740993']={recent_read_at=90,recent_read_account='synthetic-owner'}
+plugin:showHome();recent_view=assert(plugin.shelf_view)
+assert(recent_view.books[1].bookId=='9007199254740993' and recent_view.books[1]._recent_time==90,
+    'exact large string book key was not used on home')
+plugin:closeWeReadUI()
+plugin.library_db.accountKey=account_key;plugin.library_db.getShelf=shelf_read;plugin.library_db.getShelfArchives=archives_read
+plugin.settings.get=settings_read
 local function tick() UI:setInputTimeout(0);UI:handleInput();socket.sleep(.005) end
 local function pump(predicate)
     local deadline=socket.gettime()+20
@@ -353,7 +382,7 @@ if mode=='live' then
 end
 assert(requests==0)
 report.result,report.mode,report.http_requests,report.popup_cases,report.fresh_db_read='PASS',mode,requests,popup_cases,true
-report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
+report.portal=portal;report.search_sparse_fields=true;report.sort_ties_stable=true;report.author_sort=true;report.title_sort=true;report.recent_identity=true;report.shelf_dates=true;report.home_refresh_cases=home_refresh_cases
 report.volatile_restart=true;report.saved_searches=saved_searches;report.incomplete_shelf=incomplete_shelf
 io.write('\nWEREAD_GROUP_UI_RESULT='..json.encode(report)..'\n')
 os.exit(0)

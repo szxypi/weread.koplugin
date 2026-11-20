@@ -76,6 +76,20 @@ expect(#edge==2 and edge[1].title=='Cloud title' and edge[2].title=='900004',
 expect(#Data.recent({},off_shelf,'')==0 and #Data.recent({},edge_saved,nil)==0,
     'unscoped recent readings appeared on home')
 expect(#Data.recent({},off_shelf,'a',1)==2,'invalid home limit changed the configured default')
+local safe_legacy={{bookId='42',title='Legacy',readUpdateTime=1},{bookId='43',title='Other',readUpdateTime=2}}
+local safe_records={[42]={recent_read_at=20,recent_read_account='a'}}
+expect(Data.recent(safe_legacy,safe_records,'a')[1].bookId=='42',
+    'safe legacy numeric book key did not restore the recent reading time')
+local large_shelf={{bookId='9007199254740993',title='Adjacent',readUpdateTime=1},
+                   {bookId='9000001',title='Other',readUpdateTime=2}}
+local large_records={[9007199254740992]={recent_read_at=100,recent_read_account='a'}}
+local large_recent=Data.recent(large_shelf,large_records,'a')
+expect(large_recent[1].bookId=='9000001' and large_recent[2]._recent_time==1,
+    'rounded legacy numeric book key was matched to a different large book ID')
+large_records['9007199254740993']={recent_read_at=90,recent_read_account='a'}
+large_recent=Data.recent(large_shelf,large_records,'a')
+expect(large_recent[1].bookId=='9007199254740993' and large_recent[1]._recent_time==90,
+    'exact large string book key did not retain its recent reading time')
 for _, width in ipairs({ 120, 320, 600, 1072, 1440 }) do
     local layout = Header.arrange(width, {
         { key = "back", width = 72 }, { key = "title", width = 200 },

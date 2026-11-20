@@ -1,0 +1,11 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "screen_sizes": ["600x800", "1264x1680"],
+  "native_home_processes_per_size": 2,
+  "unsafe_numeric_key_not_aliased": true,
+  "exact_string_key_preserved": true,
+  "safe_legacy_numeric_key_supported": true,
+  "network_requests": 0,
+  "physical_kindle_tested": false
+}
