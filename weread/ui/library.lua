@@ -223,6 +223,9 @@ function M:closeWeReadUI()
 end
 
 function M:onWeReadAccountChanged()
+    self._resume_chapter_prefetch=nil
+    self._chapter_open_intent=nil
+    if self.downloader then self.downloader:cancelPrefetch('account_changed') end
     local offline=package.loaded['weread.ui.finish_offline']
     if offline then offline.cancel_sync(self);offline.cancel_dialog(self) end
     VolatileShelf.clear(self)

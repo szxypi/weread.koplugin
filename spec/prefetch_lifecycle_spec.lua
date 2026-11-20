@@ -164,6 +164,26 @@ starts[1].options.on_complete(false,'rate_limited')
 expect(#scheduled==0 and information and information:find('limiting requests',1,true),
     'promoted rate-limited prefetch reopened download or hid the failure')
 downloader.isPromotedPrefetch=function() return false end
+local original_finish=package.loaded['weread.ui.finish_offline']
+package.loaded['weread.ui.finish_offline']={pump=function() end}
+local resumed,account_epoch=0,1
+host.progress_sync.on_resume=function() end
+host.read_report={on_resume=function() end}
+host.settings.auth_scope_matches=function(_,scope) return scope.epoch==account_epoch end
+host.maybePrefetchNextChapter=function(_,id) assert(id=='book');resumed=resumed+1 end
+host._current_weread_book_id='book';host._reader_session_gen=1
+for _,change in ipairs({'none','account','session','book'}) do
+    scheduled={};account_epoch=1;host._reader_session_gen=1;host._current_weread_book_id='book'
+    host._resume_chapter_prefetch={book_id='book',session=1,scope={vid='900000',epoch=1}}
+    Lifecycle.onResume(host)
+    expect(#scheduled==1 and not host._resume_chapter_prefetch,'wake did not consume and defer the prefetch intent')
+    if change=='account' then account_epoch=2
+    elseif change=='session' then host._reader_session_gen=2
+    elseif change=='book' then host._current_weread_book_id='other' end
+    local previous=resumed;table.remove(scheduled,1)()
+    expect(resumed==previous+(change=='none' and 1 or 0),'wake accepted wrong prefetch context: '..change)
+end
+package.loaded['weread.ui.finish_offline']=original_finish
 
 local legacy_single = {
     cached_file = "/cache/one.epub",

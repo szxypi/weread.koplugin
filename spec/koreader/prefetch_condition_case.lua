@@ -36,6 +36,89 @@ return function(reader,host,book,id,evidence)
     local renewals=count('/web/login/renewal')
     local notice,old_info=nil,host.showInfo
     host.showInfo=function(self,text,...) notice=text;return old_info(self,text,...) end
+    if kind=='account' or kind=='auth-race' or kind=='before-commit' or kind=='suspend' then
+        local lfs=require('libs/libkoreader-lfs')
+        local dir=assert(reader.document.file:match('^(.*)/[^/]+$'))
+        local function epubs()
+            local names={}
+            for name in lfs.dir(dir) do if name:match('%.epub$') then names[#names+1]=name end end
+            table.sort(names);return table.concat(names,'\n')
+        end
+        local Content=require('weread.lib.content')
+        local old_save,sentinel
+        local ready_marker=evidence..'/prefetch-before-commit.ready'
+        local release_marker=evidence..'/prefetch-before-commit.release'
+        if kind=='before-commit' then
+            local chapters=assert(host:ensureChaptersLoaded(book))
+            local name=tostring((book.title or 'WeRead')..' - '..(chapters[3].title or tostring(chapters[3].chapterUid)))
+                :gsub('[%z%c/\\:%*%?"<>|]','_'):gsub('^%s+',''):gsub('%s+$',''):gsub('%s+',' ')
+            sentinel=dir..'/'..name..'.epub'
+            local existing=io.open(sentinel,'rb');assert(not existing,'synthetic destination already exists')
+            local file=assert(io.open(sentinel,'wb'));file:write('prior-synthetic-chapter');file:close()
+            old_save=Content.save_chapter_epub
+            Content.save_chapter_epub=function(a,b,c,d,e,f,g,h,i,guard)
+                local function held()
+                    local ready=assert(io.open(ready_marker,'wb'));ready:write('ready');ready:close()
+                    local until_time=socket.gettime()+20
+                    while socket.gettime()<until_time do
+                        local released=io.open(release_marker,'rb')
+                        if released then released:close();return guard() end
+                        socket.sleep(.01)
+                    end
+                    error('prefetch fixture release timeout',0)
+                end
+                return old_save(a,b,c,d,e,f,g,h,i,held)
+            end
+        end
+        local before=epubs()
+        request('/__control',{match='/web/book/chapter/e_0',times=0,delay=1})
+        assert(host:maybePrefetchNextChapter(id),'lifecycle prefetch did not start')
+        pump(function()
+            if kind=='before-commit' then
+                local ready=io.open(ready_marker,'rb');if ready then ready:close();return true end
+            else
+                for url in pairs(request('/__state').active_requests) do
+                    if url:find('/web/book/chapter/e_0',1,true) then return true end
+                end
+            end
+        end)
+        if old_save then Content.save_chapter_epub=old_save end
+        local old_epoch=settings:get('auth_epoch',0)
+        if kind=='suspend' then host:onSuspend()
+        else
+            settings:set('auth_epoch',old_epoch+1);settings:flush()
+            if kind=='account' then host:onWeReadAccountChanged() end
+        end
+        if kind=='before-commit' then local release=assert(io.open(release_marker,'wb'));release:write('go');release:close() end
+        pump(function() return not host.downloader._active_job end)
+        assert(Reader.instance==reader and epubs()==before,'stale prefetch changed an EPUB or opened a reader')
+        if sentinel then
+            local file=assert(io.open(sentinel,'rb'));local text=file:read('*a');file:close()
+            assert(text=='prior-synthetic-chapter' and not io.open(sentinel..'.part','rb'),'stale publication replaced the existing file')
+            assert(os.remove(sentinel))
+        end
+        local saved=assert(settings:get_book(id))
+        assert(not saved.cached_chapters or not saved.cached_chapters['3'],'stale prefetch was stored in the new session')
+        request('/__control',{match='',times=0,delay=0})
+        if kind=='suspend' then
+            assert(host._resume_chapter_prefetch,'suspend did not retain a wake intent')
+            host:onResume()
+            pump(function()
+                local current=settings:get_book(id)
+                return current and current.cached_chapters and current.cached_chapters['3'] and not host.downloader._active_job
+            end)
+        else
+            settings:set('auth_epoch',old_epoch);settings:flush()
+            if kind=='account' then host:onWeReadAccountChanged() end
+        end
+        cache.auto_prefetch_next_chapter=false;settings:set('cache',cache);settings:flush()
+        host.showInfo=old_info
+        while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
+        local file=assert(io.open(evidence..'/prefetch-condition.json','wb'))
+        file:write(Json.encode{result='PASS',scenario=kind,old_epub_preserved=true,stale_not_cached=true,
+            resumed=kind=='suspend',renewals=count('/web/login/renewal')-renewals});file:close()
+        return reader,host
+    end
     local succeeds=kind=='stale' or kind=='promoted-success'
     request('/__control',{match='/web/book/chapter/e_0',times=succeeds and 0 or -1,
         status=kind=='rate' and 429 or 401,delay=succeeds and 0.7 or 0})

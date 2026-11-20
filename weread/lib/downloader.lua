@@ -231,6 +231,7 @@ end
 
 function Downloader:cancelPrefetch(reason)
     local cancelled_scheduled = self:_cancelScheduledPrefetch(reason)
+    local cancelled_pending = false
     if self._pending_start and self._pending_start.options
         and self._pending_start.options.prefetch then
         local pending = self._pending_start
@@ -242,9 +243,10 @@ function Downloader:cancelPrefetch(reason)
                 or pending_chapter.chapterId or ""),
             "reason=", tostring(reason or "cancelled"))
         self._pending_start = nil
+        cancelled_pending = true
     end
     local job = self:getActivePrefetch()
-    if not job then return cancelled_scheduled end
+    if not job then return cancelled_scheduled or cancelled_pending end
     job.cancelled = true
     job.cancel_reason = reason or "cancelled"
     if job.worker_handle and self.background_worker then
@@ -400,6 +402,11 @@ function Downloader:_prefetchStage(dl, state)
     self:_setStage(dl, title, stage == "epub" and 1 or 0)
 end
 
+local function prefetch_current(settings,dl)
+    return not dl.auth_scope or settings:auth_scope_matches(dl.auth_scope)
+        and WorkerSettings.fingerprint(settings)==dl.auth_fingerprint
+end
+
 function Downloader:_applyPrefetchResult(dl, result)
     self:_releaseStandby(dl)
     dl.worker_handle = nil
@@ -413,12 +420,19 @@ function Downloader:_applyPrefetchResult(dl, result)
         self:_finishJob(dl)
         return
     end
+    if not prefetch_current(self.settings,dl) then
+        self:_notifyCompletion(dl,false,'account_changed')
+        self:_finishJob(dl)
+        return
+    end
     if type(result) ~= "table" or result.ok ~= true
         or type(result.value) ~= "table" or not file_exists(result.value.path) then
         local reason = type(result) == "table" and result.error or "worker_no_result"
         if type(reason)=='string' and (reason=='book_reading/web_expired' or reason:match('^book_reading/web_expired[\r\n]')) then
             reason='web_expired'
-        elseif rate_limited(reason) then reason='rate_limited' end
+        elseif rate_limited(reason) then reason='rate_limited'
+        elseif type(reason)=='string' and (reason=='chapter_prefetch/session_changed'
+            or reason:match('^chapter_prefetch/session_changed[\r\n]')) then reason='account_changed' end
         self:_notifyCompletion(dl, false, reason)
         self:_finishJob(dl)
         return
@@ -475,7 +489,7 @@ function Downloader:_startPrefetchWorker(dl)
         timeout = 180,
         task = function(context)
             return ChapterWorker.run(self.settings, self.client, dl.book,
-                dl.chapters[1], context)
+                dl.chapters[1], context, dl.auth_scope, dl.auth_fingerprint)
         end,
         on_launch = function(pid, available_kb)
             if self._active_job ~= dl then return end
@@ -690,6 +704,7 @@ function Downloader:start(book, chapters, suffix, options)
         on_complete = options.on_complete,
         started_at = time.now(),
         auth_fingerprint = WorkerSettings.fingerprint(self.settings),
+        auth_scope = options.prefetch and self.settings.get_auth_scope and self.settings:get_auth_scope() or nil,
         reading_auth_recovery = options.reading_auth_recovery == true and options.single_chapter == true,
         full_auth_recovery = options.full_auth_recovery == true and resumable,
         manual_auth_recovery = options.manual_auth_recovery == true and options.prefetch ~= true,
@@ -697,6 +712,11 @@ function Downloader:start(book, chapters, suffix, options)
         on_reading_auth_updated = options.on_reading_auth_updated,
     }
     self._active_job = dl
+
+    if dl.prefetch and self.settings.get_auth_scope and (not dl.auth_scope
+        or not self.settings:auth_scope_matches(dl.auth_scope)) then
+        self:_notifyCompletion(dl,false,'account_changed');self:_finishJob(dl);return false
+    end
 
     if self.operation_lock then
         local locked,lease,reason=pcall(self.operation_lock,book)
@@ -729,6 +749,9 @@ function Downloader:start(book, chapters, suffix, options)
                 self:_notifyCompletion(dl, false, dl.cancel_reason or "cancelled")
                 self:_finishJob(dl)
                 return
+            end
+            if not prefetch_current(self.settings,dl) then
+                self:_notifyCompletion(dl,false,'account_changed');self:_finishJob(dl);return
             end
             self:_startPrefetchWorker(dl)
         end)

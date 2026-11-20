@@ -606,7 +606,7 @@ local function commit_file(part_path, path)
     return true
 end
 
-local function write_epub(path, entries, output)
+local function write_epub(path, entries, output, before_commit)
     if output then
         -- KOReader's optional hash-based sidecars sample the beginning of the
         -- EPUB. Give each independently published translation copy its own
@@ -668,6 +668,13 @@ local function write_epub(path, entries, output)
     if not ok then
         pcall(os.remove, part_path)
         error(err, 0)
+    end
+    if before_commit then
+        local allowed,reason=pcall(before_commit)
+        if not allowed or reason~=true then
+            pcall(os.remove,part_path)
+            error(allowed and 'chapter_prefetch/session_changed' or reason,0)
+        end
     end
     local committed, commit_err = commit_file(part_path, path)
     if not committed then
@@ -1014,7 +1021,7 @@ local function rendered_file_digest(path)
     return Crypto.sha256_hex(raw)
 end
 
-function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference, output)
+function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, source_identity, position_reference, output, before_commit)
     local book_id = book.book_id or book.bookId
     local dir = Content.book_resolved_dir(settings, book_id, book)
     os.execute("mkdir -p " .. string.format("%q", dir))
@@ -1091,7 +1098,7 @@ function Content.save_chapter_epub(settings, book, chapter, xhtml, assets, css, 
     }
     for _, entry in ipairs(position_entries) do entries[#entries + 1] = entry end
     append_asset_entries(entries, assets)
-    write_epub(path, entries, output)
+    write_epub(path, entries, output, before_commit)
     Content.register_annotation_document(book, path, { chapter })
     return path
 end

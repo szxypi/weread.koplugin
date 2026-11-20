@@ -267,6 +267,8 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    self._resume_chapter_prefetch=nil
+    self._chapter_open_intent=nil
     if self._native_account_location then require('weread.lib.native_account_location').before_close(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.cancel(self) end
     require('weread.ui.chapter_links').detach(self)
@@ -436,7 +438,7 @@ function M:maybePrefetchNextChapter(book_id)
                 or value == "replaced" or value == "manual_download"
                 or value == "setting_disabled" or value == "prefetch_not_applicable"
                 or value == "prefetch_context_missing" or value == "no_next_chapter"
-                or value == "next_chapter_cached" then
+                or value == "next_chapter_cached" or value == 'account_changed' or value == 'suspended' then
                 logger.info("ended without completion:",
                     "book_id=", tostring(book_id),
                     "chapter_uid=", next_uid,
@@ -486,6 +488,12 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    self._chapter_open_intent=nil
+    self._resume_chapter_prefetch=nil
+    if self.downloader and self.downloader:cancelPrefetch('suspended') then
+        self._resume_chapter_prefetch={book_id=self._current_weread_book_id,session=self._reader_session_gen,
+            scope=self.settings.get_auth_scope and self.settings:get_auth_scope()}
+    end
     require('weread.ui.catalog_request').cancel(self)
     require('weread.ui.download_recovery').cancel(self)
     local offline=package.loaded['weread.ui.finish_offline']
@@ -537,6 +545,14 @@ function M:onSuspend()
 end
 
 function M:onResume()
+    local pending=self._resume_chapter_prefetch;self._resume_chapter_prefetch=nil
+    if pending then
+        UIManager:scheduleIn(.2,function()
+            if pending.book_id and self._current_weread_book_id==pending.book_id
+                and self._reader_session_gen==pending.session and pending.scope
+                and self.settings:auth_scope_matches(pending.scope) then self:maybePrefetchNextChapter(pending.book_id) end
+        end)
+    end
     personal_action(self,'wake')
     if self.resumeShelfCovers then self:resumeShelfCovers() end
     self.progress_sync:on_resume()

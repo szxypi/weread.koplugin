@@ -251,8 +251,14 @@ Content.save_chapter_epub(settings, book, chapters[1], "<p>same rendered</p>", {
 local chapter_id = packaged_identity().file_id
 expect(assert(Source.decode_metadata(last_entry(Source.meta_path(11)).data)).capture_id == receipt,
     "single-chapter source lost")
-Content.save_chapter_epub(settings, book, chapters[1], "<p>same rendered</p>", {}, nil, source_identity, next_source)
+local guarded_path=Content.save_chapter_epub(settings, book, chapters[1], "<p>same rendered</p>", {}, nil, source_identity, next_source)
 expect(packaged_identity().file_id ~= chapter_id, "single-chapter raw change reused identity")
+local prior=assert(io.open(guarded_path,'wb'));prior:write('previous-book');prior:close()
+local allowed,reason=pcall(Content.save_chapter_epub,settings,book,chapters[1],'<p>new body</p>',{},nil,
+    source_identity,next_source,nil,function() return false end)
+local retained=assert(io.open(guarded_path,'rb'));local bytes=retained:read('*a');retained:close()
+expect(not allowed and reason=='chapter_prefetch/session_changed' and bytes=='previous-book'
+    and not io.open(guarded_path..'.part','rb'),'failed publication guard changed an existing book or left a partial file')
 
 Content.cleanup_download_workspace(workspace)
 expect(not io.open(workspace.text_dir .. "/chapter-001.xhtml", "rb"),

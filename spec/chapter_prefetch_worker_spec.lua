@@ -108,5 +108,19 @@ local expired_client={request=function() request_count=request_count+1;return ni
 ok,err=pcall(Worker.run,settings,expired_client,{book_id='book'},{chapterUid='2'},context)
 assert(not ok and tostring(err):find('book_reading/web_expired',1,true) and request_count==1,
     'prefetch reader request did not classify a definite 401')
+local scope_current=true
+settings.get_auth_scope=function() return {vid='900000',epoch=1} end
+settings.auth_scope_matches=function() return scope_current end
+content.ensure_reader_state=function() end
+content.fetch_single_chapter_source=function() return '<p>synthetic</p>' end
+local saved=false
+content.save_chapter_epub=function(_settings,_book,_chapter,_body,_assets,_css,_identity,_source,_output,guard)
+    scope_current=false
+    guard();saved=true
+    return '/tmp/never-published.epub'
+end
+ok,err=pcall(Worker.run,settings,{}, {book_id='book'},{chapterUid='2'},context)
+assert(not ok and tostring(err):find('chapter_prefetch/session_changed',1,true) and not saved and calls[#calls]=='cleanup',
+    'changed account was allowed to publish a prefetched chapter')
 
 print("chapter_prefetch_worker_spec: isolated settings and complete pipeline passed")

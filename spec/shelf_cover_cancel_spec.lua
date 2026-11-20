@@ -126,6 +126,18 @@ f.finish(job)
 expect(not host.shelf_cover_job and f.stats().reads==1,'timed-out worker did not drain once')
 
 local Lifecycle=require('weread.lib.reader_lifecycle')
+local account_cancelled
+local account_ok,account_reason=pcall(Library.onWeReadAccountChanged,{downloader={cancelPrefetch=function(_,reason)
+    account_cancelled=reason;error('prefetch-account-reached',0)
+end}})
+expect(not account_ok and account_reason=='prefetch-account-reached' and account_cancelled=='account_changed',
+    'account switch omitted chapter prefetch cancellation')
+local suspend_cancelled
+local suspend_ok,suspend_reason=pcall(Lifecycle.onSuspend,{downloader={cancelPrefetch=function(_,reason)
+    suspend_cancelled=reason;error('prefetch-suspend-reached',0)
+end}})
+expect(not suspend_ok and suspend_reason=='prefetch-suspend-reached' and suspend_cancelled=='suspended',
+    'suspend omitted chapter prefetch cancellation')
 for _,event in ipairs({'onReaderReady','onCloseDocument','onSuspend'}) do
     local argument,called
     local ok,reason=pcall(Lifecycle[event],{cancelShelfCovers=function(_self,resume) argument=resume;called=true;error('hook-reached',0) end})

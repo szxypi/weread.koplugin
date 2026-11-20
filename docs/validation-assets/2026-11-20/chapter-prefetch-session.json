@@ -1,0 +1,101 @@
+{
+  "result": "PASS",
+  "synthetic_service_only": true,
+  "real_account_requests": 0,
+  "runs": [
+    {
+      "scenario": "account",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "existing_epub_preserved": true,
+      "stale_result_not_cached": true,
+      "wake_resumed": false,
+      "offline_reopen": true,
+      "package_sha256": "3e8a8c34d848c04614e3d020aa182275daf6934fae69b7d54d13307dd234ad71"
+    },
+    {
+      "scenario": "account",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "existing_epub_preserved": true,
+      "stale_result_not_cached": true,
+      "wake_resumed": false,
+      "offline_reopen": true,
+      "package_sha256": "311d168816bfb423c1d20d87d71d28ec4753c5eea912ab6d5709ba1527ed9de4"
+    },
+    {
+      "scenario": "auth-race",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "existing_epub_preserved": true,
+      "stale_result_not_cached": true,
+      "wake_resumed": false,
+      "offline_reopen": true,
+      "package_sha256": "3e8a8c34d848c04614e3d020aa182275daf6934fae69b7d54d13307dd234ad71"
+    },
+    {
+      "scenario": "auth-race",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "existing_epub_preserved": true,
+      "stale_result_not_cached": true,
+      "wake_resumed": false,
+      "offline_reopen": true,
+      "package_sha256": "184dcd8a1045f0aad421d254fb209bb67a6e0c09ea84886fe5c3ac334149135b"
+    },
+    {
+      "scenario": "before-commit",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "existing_epub_preserved": true,
+      "stale_result_not_cached": true,
+      "wake_resumed": false,
+      "offline_reopen": true,
+      "package_sha256": "82d45843f36d86feebb576af4367b62b454f6405dc25a2b22724b8f12d31205f"
+    },
+    {
+      "scenario": "before-commit",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "existing_epub_preserved": true,
+      "stale_result_not_cached": true,
+      "wake_resumed": false,
+      "offline_reopen": true,
+      "package_sha256": "f655cee0ac7b748ef213cbcdaa5977fd7d39736bd55fe9efbecfe728f907d1c3"
+    },
+    {
+      "scenario": "suspend",
+      "screen": "600x800/167 DPI",
+      "result": "PASS",
+      "existing_epub_preserved": true,
+      "stale_result_not_cached": true,
+      "wake_resumed": true,
+      "offline_reopen": true,
+      "package_sha256": "184dcd8a1045f0aad421d254fb209bb67a6e0c09ea84886fe5c3ac334149135b"
+    },
+    {
+      "scenario": "suspend",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS",
+      "existing_epub_preserved": true,
+      "stale_result_not_cached": true,
+      "wake_resumed": true,
+      "offline_reopen": true,
+      "package_sha256": "3e8a8c34d848c04614e3d020aa182275daf6934fae69b7d54d13307dd234ad71"
+    }
+  ],
+  "regressions": [
+    {
+      "scenario": "promoted-success",
+      "screen": "1264x1680/300 DPI",
+      "result": "PASS"
+    },
+    {
+      "scenario": "promoted-recovery",
+      "screen": "600x800/167 DPI",
+      "result": "PASS"
+    }
+  ],
+  "publication_guard": "account check before rename; not atomic with external account changes",
+  "physical_kindle_tested": false
+}

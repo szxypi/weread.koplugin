@@ -249,6 +249,41 @@ for _,case in ipairs({{'book_reading/web_expired\nstack traceback:','web_expired
     instance._active_job=job;instance:_applyPrefetchResult(job,{ok=false,error=case[1]})
     expect(reason==case[2] and not instance._active_job,'prefetch failed to normalize a known HTTP condition')
 end
+for _,change in ipairs({'epoch','credentials'}) do
+    scheduled={}
+    local state_epoch=1
+    local owned=fake_settings()
+    owned.get_auth_scope=function() return {vid='900000',epoch=state_epoch} end
+    owned.auth_scope_matches=function(_,scope) return scope.epoch==state_epoch end
+    local check_worker=fake_worker()
+    local completed,opened=nil,0
+    local instance=Downloader:new{client={},settings=owned,background_worker=check_worker,
+        is_connected=function() return true end,refresh_shelf=function() end,refresh_ui=function() end,
+        open_file=function() opened=opened+1 end}
+    local scoped_book={book_id='a'}
+    instance:start(scoped_book,{chapter_2},'chapter',{prefetch=true,single_chapter=true,
+        on_complete=function(_,reason) completed=reason end})
+    if change=='epoch' then state_epoch=2 else owned:set('cookies',{wr_skey='new-session'}) end
+    run_scheduled()
+    expect(#check_worker.starts==0 and completed=='account_changed' and not instance._active_job,
+        'changed '..change..' launched a stale prefetch')
+
+    state_epoch=1;owned:set('cookies',{});completed=nil
+    instance:start(scoped_book,{chapter_2},'chapter',{prefetch=true,single_chapter=true,
+        on_complete=function(_,reason) completed=reason end})
+    run_scheduled();instance:promotePrefetch(scoped_book,chapter_2,function() return true end)
+    if change=='epoch' then state_epoch=2 else owned:set('cookies',{wr_skey='new-session'}) end
+    local file_path=os.tmpname();local handle=assert(io.open(file_path,'wb'));handle:write('old');handle:close()
+    check_worker.starts[#check_worker.starts].options.on_done{ok=true,value={path=file_path,chapter_uid='2'}}
+    expect(completed=='account_changed' and opened==0 and not scoped_book.cached_chapters and not instance._active_job,
+        'changed '..change..' accepted a stale prefetch result')
+    os.remove(file_path)
+end
+local queued=Downloader:new{settings=fake_settings()}
+queued._active_job={prefetch=true,cancelled=true}
+queued._pending_start={book=book_a,chapters={chapter_2},options={prefetch=true}}
+expect(queued:cancelPrefetch('suspended') and not queued._pending_start,
+    'suspend failed to report a cancelled queued prefetch')
 
 print(string.format(
     "downloader_prefetch_spec: %d checks, %d failure(s)", checks, failures))
