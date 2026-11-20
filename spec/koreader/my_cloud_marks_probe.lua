@@ -265,7 +265,41 @@ local ok,reason=pcall(function()
                 card:_save_png();plugin.library_db.accountKey=account
                 assert(png_count()==before+1,'old account saved an excerpt')
             end
+            local share
+            if index==1 then
+                local transfer=require('weread.lib.excerpt_transfer');local transfer_start=transfer.start
+                transfer.start=function(png,options)
+                    options.address='127.0.0.1';options.allow_loopback=true
+                    return transfer_start(png,options)
+                end
+                assert(card.export_buttons:getButtonById('share_excerpt')):onTapSelectButton()
+                share=assert(plugin._excerpt_share,'saved note did not open phone transfer')
+                assert(menu._shelf_popup==card,'phone transfer displaced its note editor')
+                local client=assert(socket.tcp());client:settimeout(1)
+                local port=assert(tonumber(share.server.url:match(':(%d+)/')))
+                assert(client:connect('127.0.0.1',port));client:settimeout(0)
+                local route=assert(share.server.url:match('^http://[^/]+(/.+)$'))
+                assert(client:send('GET '..route..'card.png HTTP/1.1\r\nHost: local\r\n\r\n'))
+                local result=''
+                for _=1,1000 do
+                    share.server:poll()
+                    local data,err,partial=client:receive(65536);result=result..(data or partial or '')
+                    if err=='closed' then break end
+                end
+                client:close()
+                assert(result:find('200 OK',1,true) and result:find('\137PNG\r\n\26\n',1,true),
+                    'phone did not receive saved-note PNG')
+                local account=plugin.library_db.accountKey
+                plugin.library_db.accountKey=function() return 'foreign' end
+                share.task()
+                plugin.library_db.accountKey=account
+                assert(not plugin._excerpt_share and share.server.stopped,'account change left sharing active')
+                assert(card.export_buttons:getButtonById('share_excerpt')):onTapSelectButton()
+                share=assert(plugin._excerpt_share,'phone transfer did not restart after account restoration')
+                transfer.start=transfer_start
+            end
             UI:close(card);tick();assert(not menu._shelf_popup and not plugin._excerpt_card_editor)
+            if share then assert(not plugin._excerpt_share and share.server.stopped,'closing note kept sharing') end
         end
         if not thoughts then
             local item;for _,candidate in ipairs(menu.item_table) do if candidate.my_note_id==expected.updated[1].bookmarkId then item=candidate;break end end

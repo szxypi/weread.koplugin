@@ -321,8 +321,18 @@ local ok,reason=pcall(function()
         assert(card.context.book_title=='合成书籍 2' and card.context.book_author=='合成作者🙂',
             'notebook excerpt lost its own book metadata')
         assert(card.context.text=='😀 Synthetic needle in a thought' and child_menu._shelf_popup==card)
+        local transfer=require('weread.lib.excerpt_transfer');local transfer_start=transfer.start
+        transfer.start=function(png,options)
+            options.address='127.0.0.1';options.allow_loopback=true
+            return transfer_start(png,options)
+        end
+        assert(card.export_buttons:getButtonById('share_excerpt')):onTapSelectButton()
+        local share=assert(plugin._excerpt_share,'notebook phone transfer did not open')
+        assert(child_menu._shelf_popup==card,'sharing displaced notebook card')
         plugin:cancelMyCloudMarks();assert(not plugin._my_marks_owner)
-        assert(not plugin._excerpt_card_editor,'notebook closed but card remained open')
+        assert(not plugin._excerpt_card_editor and not plugin._excerpt_share and share.server.stopped,
+            'closing notebook left its phone transfer open')
+        transfer.start=transfer_start
         menu:onMenuSelect(item('Search all saved notes'));input_dialog=assert(menu._shelf_popup)
         input_dialog:setInputText('Pagination token');input_dialog.buttons[1][2].callback()
         wait(function() return not owner.note_search_job end);results=assert(menu._shelf_popup)
