@@ -47,17 +47,27 @@ function M.read_error(reason)
 end
 function M.run(client,settings,selected,input,record,store,options)
     options=options or {};local out={kind='unconfirmed',attempted=false,book_id=input.book_id}
-    local function owns() return current(settings,selected) and store:owns(record) end
-    if not owns() then out.kind='login';return out end
+    local storage_failure=false
+    local function owns()
+        if not current(settings,selected) then return false end
+        local owned,reason=store:owns(record)
+        if not owned and reason=='storage' then storage_failure=true end
+        return owned
+    end
+    if not owns() then out.kind=storage_failure and 'temporary' or 'login';return out end
     local prepared,plan=pcall(M.preview,client,settings,selected,input.book_id,input.desired)
     if not prepared then out.kind=M.read_error(plan);return out end
     if not Contract.same(plan.metadata,record.metadata) then out.kind='changed';out.observed=plan.observed;return out end
     if plan.metadata.before_hash==plan.metadata.after_hash then out.kind='noop';out.observed=plan.observed;return out end
     local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=owns})
     pcall(auth._request,auth,'finish_write',BASE..'/book/markstatus',plan.body,selected.credentials,nil,function()
-        assert(owns() and store:claim(record),'finish_change/replaced');out.attempted=true
+        local owned=owns()
+        local claimed,reason
+        if owned then claimed,reason=store:claim(record) end
+        if not claimed and reason=='storage' then storage_failure=true end
+        assert(owned and claimed,'finish_change/replaced');out.attempted=true
     end)
-    auth:cancel();if not out.attempted then out.kind='unavailable';return out end
+    auth:cancel();if not out.attempted then out.kind=storage_failure and 'temporary' or 'unavailable';return out end
     local sleep=options.sleep or function(seconds) require('socket').sleep(seconds) end
     for attempt=1,3 do
         if not owns() then return out end

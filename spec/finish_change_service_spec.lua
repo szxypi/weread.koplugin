@@ -71,6 +71,9 @@ for _,kind in ipairs({'temporary','rate_limited'}) do
     f=fixture();f.prepare();f.complete();f.commit();f.unsent=kind;f.complete()
     expect(f.finished and f.result.kind==kind and f.record.phase=='idle' and f.posts==0,'read-only failure retained a write claim')
 end
+f=fixture();f.prepare();f.complete();f.commit();f.unsent='temporary';f.fail_finish=true;f.complete()
+expect(not f.finished and f.record.phase=='prepared' and f.posts==0,
+    'unclear local journal state was treated as safely released')
 f=fixture();f.prepare();f.complete();f.commit();f.task();f.service:cancel();expect(f.prepare(true),'pending read-only preparation blocked');f.complete()
 f.plan.observed.snapshot.books[1].finishReading=1
 expect(not f.commit(),'reconciliation plan dispatched')

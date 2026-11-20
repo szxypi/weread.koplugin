@@ -50,6 +50,9 @@ for _,reason in ipairs({'login','rate_limited','unavailable'}) do
 end
 sync,s=fixture();sync:pump();s.prepared(false,true);s.commit({kind='temporary',attempted=false},true)
 expect(s.entry.phase=='queued' and s.notifications[1]=='retryable','proven-unsent temporary failure did not requeue')
+sync,s=fixture();sync:pump();s.prepared(false,true);s.commit({kind='temporary',attempted=false},false)
+expect(s.entry.phase=='dispatching' and s.notifications[1]=='unconfirmed' and not sync:pump(),
+    'unverified local journal release was retried')
 for _,reason in ipairs({'login','rate_limited'}) do
     sync,s=fixture();sync:pump();s.prepared(false,true);s.commit({kind=reason,attempted=false},true)
     expect(s.entry.phase=='queued' and s.notifications[1]==reason,'unsent failure lost user guidance: '..reason)

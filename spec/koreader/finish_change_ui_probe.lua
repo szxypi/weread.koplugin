@@ -44,16 +44,25 @@ local ok,reason=pcall(function()
         local allowed=kind and options.method==(writing and 'POST' or 'GET') and tonumber(ffi.C.getpid())~=parent
             and options.skip_cookie and options.persist_response_cookies==false and options.sensitive
             and h.vid=='900000' and h.accessToken=='synthetic-finish-access' and not h.Cookie and not h.Authorization
+        local rejection=not allowed and 'transport_guard' or nil
         if writing then
-            local record=require('weread.lib.finish_change_store'):new(plugin.library_db,self):read()
+            local record,reason=require('weread.lib.finish_change_store'):new(plugin.library_db,self):read()
+            if not record then rejection=reason=='storage' and 'journal_storage' or 'journal_unavailable'
+            elseif record.phase~='pending' then rejection='journal_not_pending'
+            elseif record.metadata.request_hash~=require('weread.lib.thought_edit_contract').body_hash(body) then rejection='request_hash' end
             allowed=allowed and record and record.phase=='pending' and record.metadata.request_hash==require('weread.lib.thought_edit_contract').body_hash(body)
             local desired=type(body.isCancel)=='number' and body.isCancel==0
-            for k,v in pairs(Contract.request('41',desired)) do allowed=allowed and body[k]==v end
-            local count=0;for _i in pairs(body) do count=count+1 end;allowed=allowed and count==5
+            for k,v in pairs(Contract.request('41',desired)) do
+                if body[k]~=v then rejection='request_fields' end
+                allowed=allowed and body[k]==v
+            end
+            local count=0;for _i in pairs(body) do count=count+1 end
+            if count~=5 then rejection='request_fields' end
+            allowed=allowed and count==5
         end
         local result=remote(function(db)
             db:exec('BEGIN IMMEDIATE');local value=load(db);value.requests=value.requests+1
-            if not allowed then value.forbidden=value.forbidden+1;save(db,value);db:exec('COMMIT');return {reject=true} end
+            if not allowed then value.forbidden=value.forbidden+1;value.rejection=rejection or 'unknown';save(db,value);db:exec('COMMIT');return {reject=true} end
             if kind=='shelf' and (value.fault=='preflight_503_once' or value.fault=='preflight_429_once') then
                 local status=value.fault=='preflight_503_once' and 503 or 429
                 value.fault='normal';save(db,value);db:exec('COMMIT');return {injected_status=status}
@@ -87,6 +96,91 @@ local ok,reason=pcall(function()
     local UI=require('ui/uimanager');local socket=require('socket')
     local Worker=require('weread.lib.memory_worker');local start=Worker.start
     function Worker:start(...) local value=start(self,...);if self.job then workers[#workers+1]={pid=self.job.pid,runner=self.runner} end;return value end
+    do
+        -- Synthetic-only fixed categories distinguish a stalled worker from a
+        -- proven-unsent or possibly-dispatched operation without logging data.
+        local Service=require('weread.lib.finish_change_service')
+        local Task=require('weread.lib.finish_change_task')
+        local task_run,task_preview=Task.run,Task.preview
+        local active_trace
+        function Task.preview(...)
+            if not active_trace then return task_preview(...) end
+            local valid,value=pcall(task_preview,...)
+            active_trace.preflight=valid and 'ok' or Task.read_error(value)
+            if not valid then error(value,0) end
+            return value
+        end
+        function Task.run(client,settings,selected,input,record,store,...)
+            local trace={preflight='not_started',claim='not_called',owns_failed=0}
+            active_trace=trace
+            local owns,claim,read=store.owns,store.claim,store.read
+            store.read=function(self,...)
+                local value,why=read(self,...)
+                trace.last_read=value and 'available' or ({storage=true,account=true})[why] and why or 'other'
+                return value,why
+            end
+            store.owns=function(self,...)
+                if trace.preflight=='ok' and mode=='reopen' and report.phase=='offline-mark' then
+                    local injected=remote(function(db)
+                        db:exec('BEGIN IMMEDIATE');local value=load(db)
+                        local fail=value.fault=='local_owns_once'
+                        if fail then value.fault='normal';save(db,value) end
+                        db:exec('COMMIT');return fail
+                    end)
+                    if injected then
+                        trace.owns_failed=trace.owns_failed+1;trace.owns_reason='storage'
+                        return false,'storage'
+                    end
+                end
+                local result,why=owns(self,...)
+                if not result then trace.owns_failed=trace.owns_failed+1;trace.owns_reason=trace.last_read or 'other' end
+                return result,why
+            end
+            store.claim=function(self,...)
+                local result,why=claim(self,...)
+                trace.claim=result and 'claimed' or why=='storage' and 'storage' or 'other'
+                return result,why
+            end
+            local good,value=pcall(task_run,client,settings,selected,input,record,store,...)
+            store.owns,store.claim,store.read=owns,claim,read;active_trace=nil
+            if not good then error(value,0) end
+            if type(value)=='table' then value._synthetic_trace=trace end
+            return value
+        end
+        local prepare,commit=Service.prepare,Service.commit
+        local kinds={confirmed=true,noop=true,changed=true,temporary=true,login=true,rate_limited=true,
+            unavailable=true,unconfirmed=true,session_changed=true}
+        function Service:prepare(id,guard,callback,...)
+            report.trace_prepare='started';report.trace_commit='none'
+            report.trace_preflight,report.trace_claim,report.trace_owns_failed,report.trace_owns_reason=nil,nil,nil,nil
+            report.trace_attempted,report.trace_finished=nil,nil
+            return prepare(self,id,guard,function(plan,why,...)
+                report.trace_prepare=plan and 'ready' or kinds[why] and why or 'other'
+                return callback(plan,why,...)
+            end,...)
+        end
+        function Service:commit(plan,callback)
+            report.trace_commit='started'
+            return commit(self,plan,function(result,finished)
+                local kind=type(result)=='table' and result.kind
+                report.trace_commit=kinds[kind] and kind or 'other'
+                report.trace_attempted=type(result)=='table' and result.attempted==true or false
+                report.trace_finished=finished==true
+                local trace=type(result)=='table' and result._synthetic_trace
+                if type(trace)=='table' then
+                    report.trace_preflight=({ok=true,temporary=true,login=true,rate_limited=true,unavailable=true,
+                        not_started=true})[trace.preflight] and trace.preflight or 'other'
+                    report.trace_claim=({claimed=true,storage=true,other=true,not_called=true})[trace.claim] and trace.claim or 'other'
+                    report.trace_owns_failed=type(trace.owns_failed)=='number' and math.min(trace.owns_failed,100) or 0
+                    if trace.owns_reason then
+                        report.trace_owns_reason=({available=true,storage=true,account=true,other=true})[trace.owns_reason]
+                            and trace.owns_reason or 'other'
+                    end
+                end
+                return callback(result,finished)
+            end)
+        end
+    end
     local Loader=require('pluginloader');Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
     for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' then Loader:_load{entry} end end;expect(#Loader.enabled_plugins==1)
     local FM=require('apps/filemanager/filemanager');FM:showFiles(home);plugin=assert(FM.instance.weread)
@@ -261,7 +355,12 @@ local ok,reason=pcall(function()
                 local retry=plugin._finish_offline_retry;local timer=retry.timer
                 expect(retry.attempts==1 and queue:get('41').phase=='queued' and state().posts==posts_before)
                 plugin:onNetworkConnected();expect(plugin._finish_offline_retry.timer==timer)
+                fault('local_owns_once')
                 UI:unschedule(timer);UI:scheduleIn(.01,timer)
+                wait(function() return plugin._finish_offline_retry==retry and retry.attempts==2 and retry.timer~=nil end)
+                expect(queue:get('41').phase=='queued' and journal:read().phase=='idle' and state().posts==posts_before)
+                timer=retry.timer;UI:unschedule(timer);UI:scheduleIn(.01,timer)
+                report.local_storage_retry_verified=true
             elseif read_failure=='rate_limited' then
                 wait(function() return state().fault=='normal' and plugin._finish_offline_sync and not plugin._finish_offline_sync.job end)
                 expect(not plugin._finish_offline_retry and queue:get('41').phase=='queued' and state().posts==posts_before)
@@ -358,10 +457,32 @@ local ok,reason=pcall(function()
     report.workers_reaped=true;local value=state();report.requests,report.posts,report.forbidden=value.requests,value.posts,value.forbidden
     expect(value.forbidden==0);report.phase='complete';report.result='PASS'
 end)
+if not ok and plugin then
+    local inspected=pcall(function()
+        local queue=require('weread.lib.finish_queue_store'):new(plugin.library_db)
+        local entry=queue:get('41')
+        local record=require('weread.lib.finish_change_store'):new(plugin.library_db,plugin.client):read()
+        report.trace_queue=entry and ({queued=true,dispatching=true,conflict=true})[entry.phase] and entry.phase or 'none_or_unavailable'
+        report.trace_journal=record and ({idle=true,prepared=true,pending=true})[record.phase] and record.phase or 'unavailable'
+        local sync=plugin._finish_offline_sync
+        report.trace_sync_active=sync and sync.job~=nil or false
+        report.trace_worker_active=sync and sync.service and sync.service.worker and sync.service.worker.job~=nil or false
+        report.trace_timer_active=plugin._finish_offline_retry and plugin._finish_offline_retry.timer~=nil or false
+        report.trace_dialog_active=plugin._finish_change_ui~=nil or plugin._shelf_flag_change_ui~=nil
+            or plugin._shelf_membership_ui~=nil or plugin._finish_offline_dialog~=nil or plugin._membership_offline_dialog~=nil
+    end)
+    report.trace_inspected=inspected
+end
 if plugin then pcall(plugin.closeWeReadUI,plugin) end
 if state_reader then
     local read,value=pcall(state_reader)
-    if read then report.requests,report.posts,report.forbidden=value.requests,value.posts,value.forbidden end
+    if read then
+        report.requests,report.posts,report.forbidden=value.requests,value.posts,value.forbidden
+        if value.forbidden>0 then
+            report.trace_rejection=({transport_guard=true,journal_storage=true,journal_unavailable=true,
+                journal_not_pending=true,request_hash=true,request_fields=true})[value.rejection] and value.rejection or 'unknown'
+        end
+    end
 end
 local deadline=require('socket').gettime()+5
 local reaped=true

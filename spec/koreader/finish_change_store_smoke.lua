@@ -25,8 +25,17 @@ end
 local a,b=fork(),fork();counter[0]=1
 for _i,pid in ipairs({a,b}) do local status=ffi.new('int[1]');assert(ffi.C.waitpid(pid,status,0)==pid);expect(status[0]==0,'claim child failed') end
 expect(counter[1]==1 and store:read().phase=='pending','concurrent claim not exclusive')
+local blocker=assert(library:open());blocker:exec('BEGIN IMMEDIATE')
+local concurrent=store:read()
+blocker:exec('ROLLBACK');blocker:close()
+expect(concurrent and concurrent.phase=='pending','journal read failed while another connection held the write lock')
 local reopened=Store:new(library,codec);expect(reopened:owns(record,'pending') and not reopened:claim(record),'restart replayed possible dispatch')
 expect(not reopened:finish(record,'prepared'),'pending cleared as unsent')
+local real_open=library.open
+library.open=function() return nil end
+local owned,reason=store:owns(record,'pending')
+library.open=real_open
+expect(not owned and reason=='storage','journal ownership did not report an unreadable store')
 account='900099';expect(store:read().phase=='idle' and not store:owns(record),'account intent leaked');account='900000'
 local open=library.open
 function library:open()

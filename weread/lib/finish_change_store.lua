@@ -61,7 +61,9 @@ local function matches(value,record)
 end
 function M:read() return run(self,function(db,account) return read(self,db,account) end) end
 function M:owns(record,phase)
-    local value=self:read();return value~=nil and matches(value,record) and (phase==nil or value.phase==phase)
+    local value,reason=self:read()
+    if not value then return false,reason end
+    return matches(value,record) and (phase==nil or value.phase==phase)
 end
 function M:begin(metadata,scope,revision)
     if not Contract.valid_metadata(metadata) or not scope or not integer(scope.epoch) or not integer(revision) then return nil end

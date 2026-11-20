@@ -25,6 +25,10 @@ def main():
             extract_candidate(candidate,profile/'plugins');shots=root/'screenshots';shots.mkdir()
             env=dict(os.environ,KO_HOME=str(profile),XDG_RUNTIME_DIR=str(xdg),EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
                 EMULATE_READER_W=str(args.width),EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_FINISH_SHOTS=str(shots))
+            code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/finish_change_store_smoke.lua'),
+                str(profile/'plugins/weread.koplugin'),str(Path(temporary)/'finish-store-smoke')],env,b'',args.koreader.resolve(),timeout=60)
+            if code or repaint or b'PASS: finished-mark SQLite FULL, rollback and fork claim' not in out:raise ValueError('finish_store')
+            report['finish_store_verified']=True
             code,out,repaint=run_child([str(args.koreader.resolve()/'luajit'),str(repo/'spec/koreader/finish_queue_store_smoke.lua'),
                 str(profile/'plugins/weread.koplugin'),str(Path(temporary)/'queue-smoke')],env,b'',args.koreader.resolve(),timeout=60)
             if code or repaint or b'PASS: offline finished-mark queue SQLite' not in out:raise ValueError('queue_store')
@@ -38,6 +42,11 @@ def main():
                 if len(out)>4*1024*1024 or out.count(FRAME)!=1:raise ValueError('native_frame')
                 stage=json.loads(out.split(FRAME)[1]);report['stages'].append(stage)
                 if code or repaint or stage['result']!='PASS':raise ValueError('native_acceptance')
+                if mode=='reopen' and stage.get('local_storage_retry_verified') is not True:
+                    raise ValueError('local_storage_retry')
+                if mode=='retry_reopen' and (stage.get('trace_commit')!='confirmed'
+                        or stage.get('trace_attempted') is not True or stage.get('trace_finished') is not True):
+                    raise ValueError('restart_confirmation')
             with zipfile.ZipFile(candidate) as archive:
                 for item in archive.infolist():
                     if not item.is_dir():assert (profile/'plugins'/item.filename).read_bytes()==archive.read(item)

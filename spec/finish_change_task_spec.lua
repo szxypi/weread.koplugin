@@ -8,8 +8,12 @@ local function fixture(queue,before,desired)
     local f={requests={},posts=0,claims=0,phase='prepared',queue=queue,waits=0}
     local settings,store,state=F.access();f.auth=state;f.client=F.codec()
     f.record={metadata=C.make(shelf(before or 0),progress(),'41',desired==nil or desired).metadata}
-    local journal={owns=function() return f.phase~='idle' and not f.revoked end,claim=function()
-        if f.phase~='prepared' or f.fail_claim then return nil end;f.phase='pending';f.claims=f.claims+1;return true
+    local journal={owns=function()
+        f.owns_calls=(f.owns_calls or 0)+1
+        if f.fail_owns_call==f.owns_calls or f.fail_owns_from and f.owns_calls>=f.fail_owns_from then return false,'storage' end
+        return f.phase~='idle' and not f.revoked
+    end,claim=function()
+        if f.phase~='prepared' or f.fail_claim then return nil,f.fail_claim_reason end;f.phase='pending';f.claims=f.claims+1;return true
     end}
     local decode=f.client.json_decode;local response
     function f.client:json_decode(value) if value=='wire' then return F.clone(response.data or response) end;return decode(self,value) end
@@ -63,8 +67,21 @@ local missing=shelf(0);missing.archive=nil
 f=fixture({missing,progress()});result=f.run()
 expect(result.kind=='unavailable' and not result.attempted and f.posts==0,'missing groups allowed finished-mark write')
 f=fixture({shelf(0),progress()});f.fail_claim=true;result=f.run()
-expect(not result.attempted and f.posts==0 and f.phase=='prepared','claim failure dispatched')
-f=fixture({});f.revoked=true;result=f.run();expect(not result.attempted and #f.requests==0,'cancelled state reached transport')
+expect(result.kind=='unavailable' and not result.attempted and f.posts==0 and f.phase=='prepared',
+    'unclassified claim failure dispatched or became retryable')
+for _,at in ipairs({1,2,3,4}) do
+    f=fixture({shelf(0),progress()});f.fail_owns_call=at;result=f.run()
+    expect(result.kind=='temporary' and not result.attempted and f.posts==0 and f.phase=='prepared',
+        'pre-dispatch storage failure did not remain safely retryable at check '..at)
+end
+f=fixture({shelf(0),progress()});f.fail_claim=true;f.fail_claim_reason='storage';result=f.run()
+expect(result.kind=='temporary' and not result.attempted and f.posts==0 and f.phase=='prepared',
+    'pre-dispatch claim storage failure was not safely retryable')
+f=fixture({shelf(0),progress(),{}});f.fail_owns_from=5;result=f.run()
+expect(result.kind=='unconfirmed' and result.attempted and f.posts==1 and f.phase=='pending',
+    'post-dispatch storage failure was incorrectly made retryable')
+f=fixture({});f.revoked=true;result=f.run()
+expect(result.kind=='login' and not result.attempted and #f.requests==0,'cancelled state reached transport or became retryable')
 f=fixture({shelf(0),progress(),{}, {status=401},{status=401},{status=401}});result=f.run()
 expect(result.kind=='unconfirmed' and f.posts==1 and #f.requests==6 and f.phase=='pending','post-write401 renewed or replayed')
 f=fixture({{raw=string.rep('x',4*1024*1024+1)}});result=f.run()
