@@ -77,7 +77,7 @@ local result = Worker.run(settings, {}, { book_id = "book" },
     { chapterUid = "2", title = "Two" }, context)
 
 assert(result.path == "/tmp/book-chapter.epub")
-assert(result.chapter_uid == "2" and result.cache_dir == "/tmp/cache/book")
+assert(result.book_id == 'book' and result.chapter_uid == "2" and result.cache_dir == "/tmp/cache/book")
 assert(result.annotation_document and result.annotation_document.clean)
 assert(result.auth and result.auth.wr_ticket == "renewed")
 assert(flushes == 0, "child worker must not flush parent LuaSettings")

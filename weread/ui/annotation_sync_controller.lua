@@ -76,7 +76,7 @@ function M:_annotationBinding()
         book_id=string.format('%.0f',book_id)
     elseif type(book_id)~='string' then return nil end
     local books = self.settings:get("books", {})
-    local book = ReadAccess.cached_key(books,book_id)
+    local book = ReadAccess.cached_book(books,book_id)
     if not book then return nil end
     return { book_id = tostring(book_id), title = book.title, author = book.author,
         format = book.format, automatic = true }
@@ -88,7 +88,7 @@ function M:_usesUnifiedAnnotations()
     if not binding then return false end
     if binding.automatic then
         local books = self.settings:get("books", {})
-        local book = ReadAccess.cached_key(books,binding.book_id)
+        local book = ReadAccess.cached_book(books,binding.book_id)
         local descriptor = Chapters.descriptor(book, file(self))
         if descriptor and descriptor.clean then return true end
     end
@@ -115,7 +115,7 @@ function M:_prepareAnnotationContext(online, refresh_catalog)
     local store = self:_annotationStore()
     local books = self.settings:get("books", {})
     local book_id = tostring(binding.book_id)
-    local book = ReadAccess.cached_key(books,book_id)
+    local book = ReadAccess.cached_book(books,book_id)
     local descriptor = binding.automatic and Chapters.descriptor(book, path)
     local catalog = store:get(book_id, "meta", "catalog") or book and book.chapters
     if online and (not catalog or refresh_catalog) then

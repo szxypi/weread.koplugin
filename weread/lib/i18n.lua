@@ -1,6 +1,7 @@
 local I18n = {}
 
 local zh = {
+    ["Saved book information does not match. The chapter was not linked; refresh the book and check its cache."] = "本机书籍信息不匹配，章节未关联。请刷新书籍并检查缓存。",
     ["Export saved cloud notes"] = "导出已保存的云端笔记",
     ["WeRead notes"] = "微信读书笔记",
     ["Cloud marks"] = "云端划线与书签",

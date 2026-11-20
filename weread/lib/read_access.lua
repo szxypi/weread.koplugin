@@ -32,6 +32,27 @@ function M.cached_key(entries, value)
 end
 M.cached_chapter=M.cached_key
 
+-- A table key alone is not proof of ownership if stored metadata names a
+-- different book. Return a separate conflict so a writer can preserve the entry.
+local function exact_book_id(value)
+    if type(value)=='string' then return value~='' and value or nil end
+    if type(value)=='number' and value>=1 and value<=9007199254740991 and value%1==0 then
+        return string.format('%.0f',value)
+    end
+end
+
+function M.cached_book(entries, value)
+    local id=exact_book_id(value)
+    if not id or type(entries)~='table' then return nil,'invalid_identity' end
+    local book=M.cached_key(entries,id)
+    if book==nil then return nil end
+    if type(book)~='table' then return nil,'identity_conflict' end
+    for _,field in ipairs({'book_id','bookId'}) do
+        if book[field]~=nil and exact_book_id(book[field])~=id then return nil,'identity_conflict' end
+    end
+    return book
+end
+
 function M.capture(settings)
     if not settings then return end
     local scope = settings.get_auth_scope and settings:get_auth_scope()

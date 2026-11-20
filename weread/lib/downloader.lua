@@ -440,16 +440,29 @@ function Downloader:_applyPrefetchResult(dl, result)
     end
 
     local value = result.value
+    local book_id = tostring(dl.book.book_id or dl.book.bookId or "")
+    local chapter = dl.chapters[1] or {}
+    local uid = tostring(chapter.chapterUid or chapter.chapterId or "1")
+    if type(dl.prefetch_book_id)~='string' or dl.prefetch_book_id=='' or book_id~=dl.prefetch_book_id
+        or type(dl.prefetch_chapter_uid)~='string' or uid~=dl.prefetch_chapter_uid
+        or value.book_id~=dl.prefetch_book_id or value.chapter_uid~=dl.prefetch_chapter_uid
+        or not ReadAccess.cached_book({[book_id]=dl.book},book_id) then
+        self:_notifyCompletion(dl,false,'book_identity_conflict')
+        self:_finishJob(dl)
+        return
+    end
+    local books = self.settings:get("books", {})
+    local record,identity_error = ReadAccess.cached_book(books,book_id)
+    if identity_error then
+        self:_notifyCompletion(dl,false,'book_identity_conflict')
+        self:_finishJob(dl)
+        return
+    end
+    record = record or {}
     if value.auth and not WorkerSettings.merge(self.settings,
         dl.auth_fingerprint, value.auth) then
         logger.info("skip worker auth write-back: parent auth changed")
     end
-    local book_id = tostring(dl.book.book_id or dl.book.bookId or "")
-    local chapter = dl.chapters[1] or {}
-    local uid = tostring(value.chapter_uid or chapter.chapterUid
-        or chapter.chapterId or "1")
-    local books = self.settings:get("books", {})
-    local record = ReadAccess.cached_key(books,book_id) or {}
     local function apply(target)
         target.cached_chapters = target.cached_chapters or {}
         target.cached_chapters[uid] = value.path
@@ -700,6 +713,9 @@ function Downloader:start(book, chapters, suffix, options)
         offer_read = options.offer_read ~= false,
         silent_completion = options.silent_completion == true,
         prefetch = options.prefetch == true,
+        prefetch_book_id = options.prefetch and tostring(book.book_id or book.bookId or "") or nil,
+        prefetch_chapter_uid = options.prefetch and tostring((chapters[1] or {}).chapterUid
+            or (chapters[1] or {}).chapterId or "1") or nil,
         start_delay = tonumber(options.start_delay) or 0,
         on_start = options.on_start,
         on_complete = options.on_complete,

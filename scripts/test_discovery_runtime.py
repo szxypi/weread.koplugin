@@ -58,7 +58,7 @@ def main():
     parser.add_argument('--download-auth-renewal',choices=('reader','chapter','repeat401'),help='Renew an expired full-book download once')
     parser.add_argument('--catalog-auth-recovery',choices=('reader','catalog','repeat401','limited','refresh'),help='Renew an expired catalog before full download')
     parser.add_argument('--manual-auth-recovery',choices=('single','single-reader','single-repeat','selected'),help='Renew an expired selected chapter download')
-    parser.add_argument('--prefetch-condition',choices=('expired','promoted-expired','promoted-recovery','promoted-success','rate','stale','account','auth-race','before-commit','suspend','auto-renew','auto-reader','auto-style','auto-txt','auto-repeat','auto-cancel','auto-manual','auto-changed','auto-catalog-cancel'),help='Check background chapter failure and selection ownership')
+    parser.add_argument('--prefetch-condition',choices=('expired','promoted-expired','promoted-recovery','promoted-success','identity-conflict','identity-change','rate','stale','account','auth-race','before-commit','suspend','auto-renew','auto-reader','auto-style','auto-txt','auto-repeat','auto-cancel','auto-manual','auto-changed','auto-catalog-cancel'),help='Check background chapter failure and selection ownership')
     parser.add_argument('--content-format',choices=('epub','txt'),default='epub')
     parser.add_argument('--resume-handoff',action='store_true',help='Check exact reading transfer from a chapter to the full EPUB')
     parser.add_argument('--process-loss', choices=('before-state-commit','before-dispatch','after-apply','before-readback'),
@@ -242,6 +242,14 @@ def main():
                 result = subprocess.run(["./luajit", str(REPO / "spec/koreader" / fixture), *fixture_args],
                                         cwd=runtime, env=environment, stdout=log, stderr=subprocess.STDOUT,
                                         timeout=240 if args.cache_cleanup or args.download_rate_limit or args.download_auth_expiry or args.download_auth_renewal or args.catalog_auth_recovery or args.manual_auth_recovery or args.prefetch_condition else 120)
+            if args.prefetch_condition=='identity-conflict' and result.returncode==0:
+                observed=json.loads((root/'evidence/prefetch-condition.json').read_text())
+                assert observed==dict(result='PASS',scenario='identity-conflict',record_preserved=True,
+                    promoted_not_retried=True,reader_annotation_not_bound=True,chapter_requests=1)
+            if args.prefetch_condition=='identity-change' and result.returncode==0:
+                observed=json.loads((root/'evidence/prefetch-condition.json').read_text())
+                assert observed==dict(result='PASS',scenario='identity-change',record_preserved=True,
+                    promoted_not_retried=True,chapter_requests=1)
             if args.cached_resume_numeric_keys and result.returncode==0:
                 log.flush(); raw=(root/'evidence/runtime.log').read_bytes(); marker=b'\nWEREAD_NUMERIC_CACHE_RESUME='
                 assert raw.count(marker)==1, 'numeric-cache resume fixture did not run'

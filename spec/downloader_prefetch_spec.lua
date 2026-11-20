@@ -233,10 +233,10 @@ for _,valid in ipairs({true,false}) do
     local test_book={book_id='a'}
     local instance=Downloader:new{settings=fake_settings(),refresh_shelf=function() end,
         open_file=function() opened=opened+1 end}
-    local job={book=test_book,chapters={chapter_2},prefetch=true,promoted=true,open_on_complete=true,
+    local job={book=test_book,chapters={chapter_2},prefetch=true,prefetch_book_id='a',prefetch_chapter_uid='2',promoted=true,open_on_complete=true,
         promotion_current=function() return valid end,on_complete=function(ok) if ok then completed=completed+1 end end}
     instance._active_job=job
-    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,chapter_uid='2'}})
+    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,book_id='a',chapter_uid='2'}})
     expect(completed==1 and opened==(valid and 1 or 0) and test_book.cached_chapters['2']==temp_path,
         'late promoted prefetch did not cache safely or opened a stale selection')
 end
@@ -245,9 +245,10 @@ do
     local books={[9007199254740992]=foreign}
     local settings=fake_settings();settings:set('books',books)
     local instance=Downloader:new{settings=settings,refresh_shelf=function() end}
-    local job={book={book_id='9007199254740993'},chapters={chapter_2},prefetch=true}
+    local job={book={book_id='9007199254740993'},chapters={chapter_2},prefetch=true,
+        prefetch_book_id='9007199254740993',prefetch_chapter_uid='2'}
     instance._active_job=job
-    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,chapter_uid='2'}})
+    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,book_id='9007199254740993',chapter_uid='2'}})
     expect(foreign.cached_chapters['2']==nil and foreign.title=='other legacy book'
         and books['9007199254740993']~=foreign and books['9007199254740993'].book_id=='9007199254740993',
         'large book ID aliased a different legacy cache during prefetch')
@@ -256,10 +257,41 @@ do
     local legacy={book_id='42',title='legacy',cached_chapters={}}
     local books={[42]=legacy};local settings=fake_settings();settings:set('books',books)
     local instance=Downloader:new{settings=settings,refresh_shelf=function() end}
-    local job={book={book_id='42'},chapters={chapter_2},prefetch=true};instance._active_job=job
-    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,chapter_uid='2'}})
+    local job={book={book_id='42'},chapters={chapter_2},prefetch=true,prefetch_book_id='42',prefetch_chapter_uid='2'};instance._active_job=job
+    instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,book_id='42',chapter_uid='2'}})
     expect(books['42']==legacy and legacy.cached_chapters['2']==temp_path,
         'prefetch lost a safe legacy numeric book key')
+end
+do
+    local conflict={book_id='99',title='different book',cached_chapters={['1']='/original.epub'}}
+    local books={['42']=conflict};local settings=fake_settings();settings:set('books',books)
+    local reason,refreshed
+    local instance=Downloader:new{settings=settings,refresh_shelf=function() refreshed=true end}
+    local worker_settings=require('weread.lib.worker_settings');local original_merge=worker_settings.merge;local merges=0
+    worker_settings.merge=function() merges=merges+1;return true end
+    local job={book={book_id='42'},chapters={chapter_2},prefetch=true,prefetch_book_id='42',prefetch_chapter_uid='2',
+        on_complete=function(ok,value) if not ok then reason=value end end}
+    instance._active_job=job;instance:_applyPrefetchResult(job,{ok=true,value={path=temp_path,book_id='42',chapter_uid='2',auth={}}})
+    worker_settings.merge=original_merge
+    expect(reason=='book_identity_conflict' and not refreshed and not instance._active_job
+        and merges==0 and books['42']==conflict and conflict.cached_chapters['2']==nil and job.book.cached_chapters==nil,
+        'prefetch changed a cache entry with a conflicting book identity')
+end
+for _,change in ipairs({'book','chapter','worker_book','worker_chapter','missing_worker_book'}) do
+    local settings=fake_settings();local book={book_id='42'};local chapter={chapterUid='2'}
+    local result={path=temp_path,chapter_uid='2',book_id='42'};local reason
+    local instance=Downloader:new{settings=settings,refresh_shelf=function() error('stale result refreshed shelf') end}
+    local job={book=book,chapters={chapter},prefetch=true,prefetch_book_id='42',prefetch_chapter_uid='2',
+        on_complete=function(ok,value) if not ok then reason=value end end}
+    if change=='book' then book.book_id='99'
+    elseif change=='chapter' then chapter.chapterUid='3'
+    elseif change=='worker_book' then result.book_id='99'
+    elseif change=='worker_chapter' then result.chapter_uid='3'
+    else result.book_id=nil end
+    instance._active_job=job
+    local ok=pcall(instance._applyPrefetchResult,instance,job,{ok=true,value=result})
+    expect(ok and reason=='book_identity_conflict' and not instance._active_job and not book.cached_chapters
+        and next(settings:get('books',{}))==nil,'stale prefetch result was linked after '..change..' changed')
 end
 os.remove(temp_path)
 for _,case in ipairs({{'book_reading/web_expired\nstack traceback:','web_expired'},

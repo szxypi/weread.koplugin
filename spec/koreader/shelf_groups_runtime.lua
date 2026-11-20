@@ -63,9 +63,10 @@ local foreign={title='Other book',cached_chapters={['1']='/synthetic/original.ep
 local prefetch_books={[9007199254740992]=foreign}
 local fake_settings={get=function() return prefetch_books end,set=function() end,flush=function() end}
 local downloader=require('weread.lib.downloader'):new{settings=fake_settings,refresh_shelf=function() end}
-local download={book={book_id='9007199254740993'},chapters={{chapterUid='2'}},prefetch=true}
+local download={book={book_id='9007199254740993'},chapters={{chapterUid='2'}},prefetch=true,
+    prefetch_book_id='9007199254740993',prefetch_chapter_uid='2'}
 downloader._active_job=download
-downloader:_applyPrefetchResult(download,{ok=true,value={path=cache_path,chapter_uid='2'}})
+downloader:_applyPrefetchResult(download,{ok=true,value={path=cache_path,book_id='9007199254740993',chapter_uid='2'}})
 assert(foreign.cached_chapters['2']==nil and prefetch_books['9007199254740993']~=foreign
     and prefetch_books['9007199254740993'].book_id=='9007199254740993','prefetch modified a different legacy book')
 local Controller=require('weread.ui.annotation_sync_controller')

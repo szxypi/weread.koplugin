@@ -163,6 +163,25 @@ starts={};scheduled={};host:maybePrefetchNextChapter('book')
 starts[1].options.on_complete(false,'rate_limited')
 expect(#scheduled==0 and information and information:find('limiting requests',1,true),
     'promoted rate-limited prefetch reopened download or hid the failure')
+starts={};scheduled={};information=nil;host:maybePrefetchNextChapter('book')
+starts[1].options.on_complete(false,'book_identity_conflict')
+expect(#scheduled==0 and information and information:find('does not match',1,true),
+    'promoted prefetch retried or hid a conflicting saved book identity')
+local original_get=host.settings.get
+host.settings.get=function(self,key)
+    if key=='books' then return {book={book_id='another',chapters=chapters}} end
+    return original_get(self,key)
+end
+starts={};expect(not host:maybePrefetchNextChapter('book') and #starts==0,
+    'prefetch started with a saved book that has a conflicting identity')
+local cancelled
+downloader.getActivePrefetch=function() return {book=book,chapters={chapters[2]}} end
+downloader.cancelPrefetch=function(_,reason) cancelled=reason end
+information=nil;expect(not host:maybePrefetchNextChapter('book') and cancelled=='book_identity_handled'
+    and information and information:find('does not match',1,true),
+    'an already selected prefetch was silently cancelled after an identity conflict')
+downloader.getActivePrefetch=nil;downloader.cancelPrefetch=function() end
+host.settings.get=original_get
 downloader.isPromotedPrefetch=function() return false end
 book.bookVersion=7;starts={};scheduled={}
 local valid_chapter={chapterUid='2',title='Two',wordCount=0,level=1}

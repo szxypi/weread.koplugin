@@ -95,6 +95,7 @@ function M.run(settings, client, book, chapter, context, expected_scope, expecte
             and book.annotation_documents[path] or nil
         return {
             path = path,
+            book_id = source_identity.book_id,
             chapter_uid = uid,
             cache_dir = book.cache_dir,
             reader_url = book.reader_url,

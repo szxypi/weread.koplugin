@@ -28,9 +28,24 @@ assert(host:_usesUnifiedAnnotations(),'exact string book key did not activate it
 context=assert(host:_prepareAnnotationContext(false))
 assert(context.book==exact and context.descriptor==exact.annotation_documents[path],
     'exact large string book key was not used')
+exact.book_id='9000001';host._annotation_context=nil
+assert(not host:_usesUnifiedAnnotations(),'conflicting stored book ID activated its annotation descriptor')
+context=assert(host:_prepareAnnotationContext(false))
+assert(context.book==nil and context.descriptor==nil,'conflicting stored book ID was attached to the document')
+exact.book_id=nil
 host._annotationBinding=Controller._annotationBinding
 books={[42]={title='Legacy book'}};detected=42
 assert(host:_annotationBinding().book_id=='42','safe legacy numeric book binding was lost')
 detected=9007199254740992;books={[detected]=foreign}
 assert(host:_annotationBinding()==nil,'unsafe numeric book ID was used as an automatic binding')
+local Access=require('weread.lib.read_access')
+local compatible={book_id=42,bookId='42'}
+assert(Access.cached_book({['42']=compatible},'42')==compatible,'matching legacy numeric identity was rejected')
+compatible.bookId='43'
+local ignored,reason=Access.cached_book({['42']=compatible},'42')
+assert(ignored==nil and reason=='identity_conflict','conflicting ID aliases were not rejected')
+ignored,reason=Access.cached_book({['42']='invalid'},'42')
+assert(ignored==nil and reason=='identity_conflict','malformed book record was accepted')
+assert(Access.cached_book({['CB_Synthetic']={book_id='CB_Synthetic'}},'CB_Synthetic'),
+    'matching imported book ID was rejected')
 print('annotation_book_identity_spec: safe book binding and descriptors passed')

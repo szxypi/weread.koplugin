@@ -36,6 +36,94 @@ return function(reader,host,book,id,evidence)
     local renewals=count('/web/login/renewal')
     local notice,old_info=nil,host.showInfo
     host.showInfo=function(self,text,...) notice=text;return old_info(self,text,...) end
+    if kind=='identity-change' then
+        request('/__control',{match='/web/book/chapter/e_0',times=0,delay=.7})
+        local apply=host.downloader._applyPrefetchResult
+        host.downloader._applyPrefetchResult=function(self,job,result)
+            self._applyPrefetchResult=apply
+            if result.ok then job.book.book_id='900002' end
+            return apply(self,job,result)
+        end
+        assert(host:maybePrefetchNextChapter(id),'changed-identity prefetch did not start')
+        local active=assert(host.downloader:getActivePrefetch())
+        host:showChapterList(book);local view=assert(host._chapter_list_view);view._chapter_rows[3].callback()
+        assert(active.promoted and active.promotion_current and active.promotion_current(),
+            'changed-identity test did not promote the background task')
+        pump(function() return not host.downloader._active_job end)
+        assert(notice==tr('Saved book information does not match. The chapter was not linked; refresh the book and check its cache.'),
+            'changed book identity did not show the protected-cache notice')
+        local saved=assert(settings:get_book(id))
+        assert(not saved.cached_chapters or not saved.cached_chapters['3'],
+            'changed-identity prefetch was registered to the original book')
+        local until_time=socket.gettime()+1.5
+        while socket.gettime()<until_time do UI:handleInput();socket.sleep(.01) end
+        assert(Reader.instance==reader and count('/web/book/chapter/e_0')-shards==1,
+            'changed-identity prefetch retried or changed the open reader')
+        request('/__control',{match='',times=0,delay=0})
+        cache.auto_prefetch_next_chapter=false;settings:set('cache',cache);settings:flush();host.showInfo=old_info
+        while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
+        local file=assert(io.open(evidence..'/prefetch-condition.json','wb'))
+        file:write(Json.encode{result='PASS',scenario=kind,record_preserved=true,promoted_not_retried=true,chapter_requests=1});file:close()
+        return reader,host
+    end
+    if kind=='identity-conflict' then
+        request('/__control',{match='/web/book/chapter/e_0',times=0,delay=1})
+        assert(host:maybePrefetchNextChapter(id),'conflict test prefetch did not start')
+        local active=assert(host.downloader:getActivePrefetch())
+        host:showChapterList(book);local view=assert(host._chapter_list_view);view._chapter_rows[3].callback()
+        assert(active.promoted and active.promotion_current and active.promotion_current(),
+            'conflict test did not promote the background task')
+        pump(function()
+            for url in pairs(request('/__state').active_requests) do
+                if url:find('/web/book/chapter/e_0',1,true) then return true end
+            end
+        end)
+        local get=settings.get;local original=get(settings,'books',{});local records={}
+        for key,value in pairs(original) do records[key]=value end
+        local foreign={};for key,value in pairs(assert(original[id])) do foreign[key]=value end
+        foreign.book_id='900002';records[id]=foreign
+        settings.get=function(self,key,default)
+            if key=='books' then return records end
+            return get(self,key,default)
+        end
+        -- Inspect annotation ownership inside the real ReaderUI while the
+        -- same conflicting cache snapshot is visible to the parent process.
+        foreign.annotation_documents={[reader.document.file]={clean=true,chapters={}}}
+        local old_binding,old_detect=host._annotationBinding,host.detectWeReadBook
+        local old_context,old_active=host._annotation_context,host._unified_annotations_active
+        local old_document=host.external_annotations_db.getDocument
+        host.external_annotations_db.getDocument=function() return nil end
+        host.detectWeReadBook=function() return id end
+        assert(host:_annotationBinding()==nil,'reader accepted a conflicting automatic book binding')
+        host._annotationBinding=function() return {book_id=id,automatic=true} end
+        host._annotation_context=nil;host._unified_annotations_active=nil
+        assert(not host:_usesUnifiedAnnotations(),'reader activated a conflicting annotation descriptor')
+        local annotation=assert(host:_prepareAnnotationContext(false))
+        assert(annotation.book==nil and annotation.descriptor==nil,'reader associated a conflicting annotation record')
+        host._annotationBinding=old_binding;host.detectWeReadBook=old_detect
+        host._annotation_context=old_context;host._unified_annotations_active=old_active
+        host.external_annotations_db.getDocument=old_document
+        pump(function() return not host.downloader._active_job end)
+        settings.get=get
+        assert(notice==tr('Saved book information does not match. The chapter was not linked; refresh the book and check its cache.'),
+            'conflicting identity did not show the protected-cache notice')
+        local saved=assert(settings:get_book(id))
+        assert(not saved.cached_chapters or not saved.cached_chapters['3'],
+            'conflicting prefetch was registered to the original book')
+        assert(not foreign.cached_chapters or not foreign.cached_chapters['3'],
+            'conflicting prefetch changed the foreign record')
+        local until_time=socket.gettime()+1.5
+        while socket.gettime()<until_time do UI:handleInput();socket.sleep(.01) end
+        assert(Reader.instance==reader and count('/web/book/chapter/e_0')-shards==1,
+            'conflicting prefetch retried or changed the open reader')
+        request('/__control',{match='',times=0,delay=0})
+        cache.auto_prefetch_next_chapter=false;settings:set('cache',cache);settings:flush();host.showInfo=old_info
+        while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do UI:close(UI:getTopmostVisibleWidget()) end
+        local file=assert(io.open(evidence..'/prefetch-condition.json','wb'))
+        file:write(Json.encode{result='PASS',scenario=kind,record_preserved=true,promoted_not_retried=true,
+            reader_annotation_not_bound=true,chapter_requests=1});file:close()
+        return reader,host
+    end
     if kind:match('^auto%-') then
         local target=kind=='auto-reader' and '/web/reader/'
             or kind=='auto-style' and '/web/book/chapter/e_2'

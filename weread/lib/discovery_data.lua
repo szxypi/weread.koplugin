@@ -128,7 +128,7 @@ function M.recent(books, saved, account, limit)
         local id=type(book)=='table' and text(book.bookId or book.book_id) or ''
         if id~='' and not seen[id] then
             seen[id]=true
-            local local_book=Access.cached_key(saved,id)
+            local local_book=Access.cached_book(saved,id)
             local event_account,event_time
             if type(local_book)=='table' then event_account,event_time=recent_event(local_book) end
             local owned=type(local_book)=='table' and account~=nil and account~=''

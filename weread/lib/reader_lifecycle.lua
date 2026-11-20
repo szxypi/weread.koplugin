@@ -4,6 +4,7 @@ local FileIdentity = require("weread.lib.book_file_identity")
 local logger = require("weread.lib.logger").scoped("Prefetch")
 local UIManager = require("ui/uimanager")
 local PluginUtil = require("weread.lib.plugin_util")
+local ReadAccess = require("weread.lib.read_access")
 local WeRead = require("weread.lib.protocol")
 local _ = PluginUtil.tr
 local T = PluginUtil.T
@@ -12,6 +13,9 @@ local file_exists = PluginUtil.file_exists
 local log_error = PluginUtil.log_error
 
 local M = {}
+local function book_identity_message()
+    return _('Saved book information does not match. The chapter was not linked; refresh the book and check its cache.')
+end
 local function selection_action(host,action)
     local module=package.loaded['weread.ui.selection_thought']
     if module then module[action](host) end
@@ -374,7 +378,15 @@ function M:maybePrefetchNextChapter(book_id, recovered)
     end
 
     local books = self.settings:get("books", {})
-    local book = books[tostring(book_id)] or books[book_id]
+    local book,identity_error = ReadAccess.cached_book(books,book_id)
+    if identity_error then
+        local active=self.downloader.getActivePrefetch and self.downloader:getActivePrefetch()
+        local selected=active and active.book and active.chapters and active.chapters[1]
+            and self.downloader:isPromotedPrefetch(active.book,active.chapters[1])
+        self.downloader:cancelPrefetch('book_identity_handled')
+        if selected then self:showInfo(book_identity_message()) else self:showPrefetchNotice(book_identity_message()) end
+        return false
+    end
     local chapters = self:ensureChaptersLoaded(book)
     local file = self.ui.document and self.ui.document.file
     if not book or not chapters or not file then
@@ -449,7 +461,8 @@ function M:maybePrefetchNextChapter(book_id, recovered)
                 or value == "replaced" or value == "manual_download"
                 or value == "setting_disabled" or value == "prefetch_not_applicable"
                 or value == "prefetch_context_missing" or value == "no_next_chapter"
-                or value == "next_chapter_cached" or value == 'account_changed' or value == 'suspended' then
+                or value == "next_chapter_cached" or value == 'account_changed' or value == 'suspended'
+                or value == 'book_identity_handled' then
                 logger.info("ended without completion:",
                     "book_id=", tostring(book_id),
                     "chapter_uid=", next_uid,
@@ -459,6 +472,11 @@ function M:maybePrefetchNextChapter(book_id, recovered)
             end
             if value == 'rate_limited' and retry_requested then
                 self:showInfo(_('WeRead is limiting requests. Download stopped. Please try again later.'))
+                return
+            end
+            if value=='book_identity_conflict' then
+                local message=book_identity_message()
+                if retry_requested then self:showInfo(message) else self:showPrefetchNotice(message) end
                 return
             end
             if value=='web_expired' and not retry_requested
