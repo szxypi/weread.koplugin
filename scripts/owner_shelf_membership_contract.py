@@ -5,7 +5,8 @@ import re
 FRAME=b'\nWEREAD_OWNER_MEMBERSHIP_RESULT='
 FLAGS={'anonymous_credentials','guard_selftest','native_detail','preview_matches','native_confirmation','worker_heartbeat',
        'cancel_no_post','status_close_cancelled','workers_reaped','credential_audit','local_state_preserved',
-       'roundtrip_restored','no_authentication_posts','journal_before_posts','native_cache_readback'}
+       'roundtrip_restored','no_authentication_posts','journal_before_posts','native_cache_readback',
+       'offline_queue_requested','offline_queue_verified'}
 COUNTS={'shelf_books':5000,'profile_files_audited':1024,'screenshots':0,'failed_line':10000,'denied_route':8}
 PHASES={'init','detail','preview','cancel','close','recreate','add','remove','audit','complete'}
 ERRORS={'none','candidate_layout','input_limit','child_timeout','runner_exception','stage_unverified'}
@@ -26,10 +27,11 @@ def validate_stage(value,apply):
             or not isinstance(statuses,list) or len(statuses)!=counts[2]+counts[3]
             or any(type(n) is not int or not 0<=n<=599 for n in statuses)
             or not apply and (counts[2] or counts[3] or value['roundtrip_restored'])):raise ValueError('membership_stage_requests')
-    needed=FLAGS-({'roundtrip_restored','journal_before_posts','native_cache_readback'} if not apply else set())
+    needed=FLAGS-{'offline_queue_requested','offline_queue_verified'}-({'roundtrip_restored','journal_before_posts','native_cache_readback'} if not apply else set())
     if value['result']=='PASS' and (value['phase']!='complete' or not all(value[key] for key in needed)
             or counts[0]<3 or counts[1]!=1 or counts[4] or value['failed_line'] or value['denied_route']
             or value['shelf_books']<1 or value['profile_files_audited']<1
+            or value['offline_queue_requested']!=value['offline_queue_verified']
             or apply and (counts[2:4]!=[1,1] or statuses!=[200,200])):raise ValueError('membership_stage_incomplete')
     return value
 

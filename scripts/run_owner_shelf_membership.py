@@ -41,6 +41,7 @@ def main(argv=None):
     parser.add_argument('--armed',action='store_true')
     parser.add_argument('--mock-port',type=int)
     parser.add_argument('--host-steps',action='store_true')
+    parser.add_argument('--offline-queue',action='store_true')
     args=parser.parse_args(argv);runtime=args.koreader.resolve()
     if sys.platform!='linux' or not (runtime/'luajit').is_file() or min(args.width,args.height,args.dpi)<1:parser.error('requires Linux and a built runtime')
     if args.mock_port is not None and not 1<=args.mock_port<=65535:parser.error('invalid mock port')
@@ -71,12 +72,14 @@ def main(argv=None):
                 EMULATE_READER_H=str(args.height),EMULATE_READER_DPI=str(args.dpi),WEREAD_MEMBERSHIP_ARMED='1' if args.armed else '0')
             if args.mock_port is not None:environment['WEREAD_MEMBERSHIP_MOCK']=str(args.mock_port)
             environment['WEREAD_MEMBERSHIP_HOST_STEPS']='1' if args.host_steps else '0'
+            environment['WEREAD_MEMBERSHIP_OFFLINE_QUEUE']='1' if args.offline_queue else '0'
             probe=Path(__file__).resolve().parent.parent/'spec/koreader/owner_shelf_membership_probe.lua'
             command=[str(runtime/'luajit'),str(probe)]
             if args.host_steps:code,out,repaint=interactive(command,environment,payload,runtime)
             else:code,out,repaint=run_child(command,environment,raw,runtime,timeout=150)
             envelope=decode_stage(out,args.armed);report['stage']=envelope['report'];private=envelope['private']
-            if code or repaint or report['stage']['result']!='PASS':raise ValueError('stage_unverified')
+            if (code or repaint or report['stage']['result']!='PASS'
+                    or report['stage']['offline_queue_requested'] is not args.offline_queue):raise ValueError('stage_unverified')
             installed=check_installed(args.candidate,profile)
             report['result']='PASS'
     except subprocess.TimeoutExpired:report['runner_error']='child_timeout'

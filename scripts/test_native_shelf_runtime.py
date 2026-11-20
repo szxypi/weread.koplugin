@@ -53,7 +53,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--koreader',type=Path,required=True)
     parser.add_argument('--candidate',type=Path,required=True);parser.add_argument('--width',type=int,default=600)
     parser.add_argument('--height',type=int,default=800);parser.add_argument('--dpi',type=int,default=167)
-    parser.add_argument('--case',choices=CASES,default='normal');args=parser.parse_args()
+    parser.add_argument('--case',choices=CASES,default='normal');parser.add_argument('--offline-queue',action='store_true');args=parser.parse_args()
     profiles=set(Path('/dev/shm').glob('weread-membership-*'))
     server=Server(args.case);thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     report=dict(result='UNVERIFIED',case=args.case,real_account_data_posts=0,authentication_posts=0)
@@ -68,6 +68,7 @@ def main():
         command=[sys.executable,str(Path(__file__).with_name('run_owner_shelf_membership.py')),'--host-steps','--koreader',str(args.koreader),
             '--candidate',str(args.candidate),'--width',str(args.width),'--height',str(args.height),'--dpi',str(args.dpi),'--mock-port',str(server.server_port)]
         if armed:command.append('--armed')
+        if args.offline_queue:command.append('--offline-queue')
         if args.case=='host-loss':
             observe=probe.read
             def lost(credentials,present):
@@ -77,6 +78,8 @@ def main():
         try:
             result=run(probe,grant,store,command,armed=armed,mock_port=server.server_port)
             assert args.case in ('normal','dry-run');report['execution']=result
+            assert result['native_ui']['stage']['offline_queue_requested'] is args.offline_queue
+            assert result['native_ui']['stage']['offline_queue_verified'] is args.offline_queue
             assert not store.pending()
         except TrialFailure as error:
             assert args.case not in ('normal','dry-run') and store.pending()

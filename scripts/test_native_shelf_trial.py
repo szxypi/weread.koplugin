@@ -84,6 +84,42 @@ class StoreTests(unittest.TestCase):
         with self.assertRaises(StoreError):NativeShelfTrialStore(backend).reserve(plan())
 
 
+class PreflightTests(unittest.TestCase):
+    def test_read_only_command_removes_one_arming_flag_without_mutating_original(self):
+        command=['docker','exec','probe','--offline-queue','--armed']
+        self.assertEqual(task.preflight_command(command),command[:-1])
+        self.assertEqual(command[-1],'--armed')
+        for invalid in (['probe'],['probe','--armed','--armed'],None):
+            with self.subTest(command=invalid),self.assertRaises(ValueError):task.preflight_command(invalid)
+
+
+    def test_preflight_and_apply_use_the_same_bound_probe_and_stop_on_failure(self):
+        for failed in (False,True):
+            probe=Mock();probe.report={'stages':[]}
+            def dispatch(_probe,_credentials,_store,_command,*,armed,current):
+                if failed and not armed:raise ValueError('preflight failed')
+                return {'result':'PASS'}
+            with ExitStack() as stack:
+                stack.enter_context(patch('verify_native_thought_trial.other_pending',return_value=False))
+                for target in ('secure_native_thought_trial.NativeThoughtTrialStore','secure_selection_trial.SelectionTrialStore'):
+                    stack.enter_context(patch(target)).return_value.pending.return_value=False
+                stack.enter_context(patch.object(task,'NativeShelfTrialStore')).return_value.pending.return_value=False
+                stack.enter_context(patch.object(task,'SessionStore')).return_value.load.return_value={'vid':'900000'}
+                stack.enter_context(patch.object(task,'NativeSessionStore')).return_value.load.return_value=credentials()
+                stack.enter_context(patch.object(task,'ShelfTrialProbe',return_value=probe))
+                dispatch_mock=stack.enter_context(patch.object(task,'run',side_effect=dispatch))
+                output=io.StringIO();stack.enter_context(redirect_stdout(output))
+                status=task.main(['--saved-session','--apply','--preflight','--native-ui-command','probe','--offline-queue','--armed'])
+            self.assertEqual(status,1 if failed else 0)
+            self.assertEqual(dispatch_mock.call_count,1 if failed else 2)
+            calls=dispatch_mock.call_args_list
+            self.assertIs(calls[0].args[0],probe);self.assertFalse(calls[0].kwargs['armed'])
+            self.assertEqual(calls[0].args[3],['probe','--offline-queue'])
+            if not failed:
+                self.assertIs(calls[1].args[0],probe);self.assertTrue(calls[1].kwargs['armed'])
+                self.assertTrue(json.loads(output.getvalue())['same_plan_preflight_passed'])
+
+
 class RunnerTests(unittest.TestCase):
     def fixture(self):
         store=NativeShelfTrialStore(Backend());probe=task.ShelfTrialProbe()

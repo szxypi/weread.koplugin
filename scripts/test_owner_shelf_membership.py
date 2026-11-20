@@ -80,6 +80,14 @@ class ContractTests(unittest.TestCase):
             value=stage(True);value[key]=False
             with self.subTest(key=key),self.assertRaises(ValueError):validate_stage(value,True)
 
+    def test_offline_proof_must_match_requested_mode(self):
+        for apply in (False,True):
+            normal=stage(apply);normal['offline_queue_requested']=False;normal['offline_queue_verified']=False
+            validate_stage(normal,apply)
+            for requested,verified in ((True,False),(False,True)):
+                value=stage(apply);value.update(offline_queue_requested=requested,offline_queue_verified=verified)
+                with self.subTest(apply=apply,requested=requested),self.assertRaises(ValueError):validate_stage(value,apply)
+
     def test_no_private_or_unbounded_extra_output(self):
         for value in (dict(stage(),title='private'),dict(stage(),credentials={}),dict(stage(),raw={})):
             with self.assertRaises(ValueError):validate_stage(value,False)

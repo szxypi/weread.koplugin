@@ -8,6 +8,7 @@ local report={result='UNVERIFIED',phase='init',permit_writes=false,anonymous_cre
     native_detail=false,preview_matches=false,native_confirmation=false,worker_heartbeat=false,cancel_no_post=false,
     status_close_cancelled=false,workers_reaped=false,credential_audit=false,local_state_preserved=false,
     roundtrip_restored=false,no_authentication_posts=false,journal_before_posts=false,native_cache_readback=false,
+    offline_queue_requested=os.getenv('WEREAD_MEMBERSHIP_OFFLINE_QUEUE')=='1',offline_queue_verified=false,
     shelf_books=0,profile_files_audited=0,screenshots=0,failed_line=0,denied_route=0,
     request_counts={0,0,0,0,0},post_statuses=json.decode('[]')}
 local private={plan_fingerprint=string.rep('0',64),intent_digest='',final_members_digest=string.rep('0',64)}
@@ -223,8 +224,37 @@ local ok,reason=pcall(function()
         local reply=json.decode(line);assert(type(reply)=='table' and reply.seq==sequence and reply.ok==true)
         for key in pairs(reply) do assert(key=='seq' or key=='ok') end
     end
+    local offline=require('weread.ui.membership_offline')
+    local function save_offline(before)
+        plugin.isNetworkConnected=function() return false end
+        local count=counters[2]+counters[3]
+        start_preview()
+        local confirm=assert(plugin._membership_offline_dialog)
+        confirm.ok_callback()
+        local queued=assert(offline.get(plugin,id))
+        assert(queued.phase=='queued' and queued.before==before and queued.desired~=before)
+        assert(counters[2]+counters[3]==count and not plugin.shelf_membership:pending())
+        plugin.isNetworkConnected=function() return true end
+    end
+    local function sync_offline()
+        assert(offline.pump(plugin))
+        pump(function()
+            local item=offline.get(plugin,id)
+            return not item or (item.phase=='dispatching' and plugin._membership_offline_sync
+                and not plugin._membership_offline_sync.job)
+        end)
+        assert(not offline.get(plugin,id))
+    end
+    if report.offline_queue_requested then
+        local snapshot=assert(plugin.shelf_membership.preview).snapshot
+        assert(plugin.library_db:cacheShelf(snapshot.books,snapshot.archive))
+        dialog.cancel_callback()
+        save_offline(false)
+    end
     if input.permit_writes then
-        report.phase='add';dialog.ok_callback();pump(function() return not plugin._shelf_membership_ui end)
+        report.phase='add'
+        if report.offline_queue_requested then sync_offline()
+        else dialog.ok_callback();pump(function() return not plugin._shelf_membership_ui end) end
         assert(counters[2]==1 and counters[3]==0 and not plugin.shelf_membership:pending())
         assert(plugin.library_db:getShelfStatus(id).present==true)
         local members=assert(Task.members{books=plugin.library_db:getShelf()})
@@ -232,14 +262,23 @@ local ok,reason=pcall(function()
         local original={};for _i,value in ipairs(members) do if value~=id then original[#original+1]=value end end
         assert(Task.digest(original)==input.members_digest and counters[5]==200)
         local added_digest=Task.digest(members);independent(1);counters[7]=1
-        report.phase='remove';start_preview();dialog=wait_preview(true,added_digest);dialog.ok_callback()
-        pump(function() return not plugin._shelf_membership_ui end)
+        report.phase='remove'
+        if report.offline_queue_requested then save_offline(true);sync_offline();report.offline_queue_verified=true
+        else
+            start_preview();dialog=wait_preview(true,added_digest);dialog.ok_callback()
+            pump(function() return not plugin._shelf_membership_ui end)
+        end
         assert(counters[2]==1 and counters[3]==1 and counters[5]==200 and counters[6]==200 and not plugin.shelf_membership:pending())
         assert(plugin.library_db:getShelfStatus(id).present==false)
         private.final_members_digest=Task.digest(assert(Task.members{books=plugin.library_db:getShelf()}))
         assert(private.final_members_digest==input.members_digest)
         independent(2)
         report.roundtrip_restored=true;report.journal_before_posts=counters[8]==2;report.native_cache_readback=true
+    elseif report.offline_queue_requested then
+        plugin.isNetworkConnected=function() return false end
+        start_preview();assert(plugin._membership_offline_dialog).ok_callback()
+        assert(not offline.get(plugin,id) and counters[2]+counters[3]==0)
+        report.offline_queue_verified=true
     else dialog.cancel_callback();assert(counters[2]+counters[3]==0) end
     assert(Crypto.sha256_hex(file(state_path))==state_hash)
     local latest=assert(plugin.settings:get_book(id))

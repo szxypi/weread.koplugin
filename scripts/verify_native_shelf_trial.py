@@ -139,10 +139,16 @@ def resolve(credentials,store,probe=None):
                 prior_native_trial_success_claimed=False,no_automatic_replay=True)
 
 
+def preflight_command(command):
+    if not isinstance(command,list) or command.count('--armed')!=1:raise ValueError('native_shelf/preflight_command')
+    return [part for part in command if part!='--armed']
+
+
 def main(argv=None):
     parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true')
     mode=parser.add_mutually_exclusive_group();mode.add_argument('--dry-run',action='store_true');mode.add_argument('--apply',action='store_true')
     mode.add_argument('--status',action='store_true');mode.add_argument('--resolve',action='store_true')
+    parser.add_argument('--preflight',action='store_true',help='Repeat a read-only native preview on the same plan immediately before apply')
     parser.add_argument('--native-ui-command',nargs=argparse.REMAINDER);args=parser.parse_args(argv)
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0);credentials=probe=None;phase='init'
     try:
@@ -162,9 +168,18 @@ def main(argv=None):
                     phase='prepare';probe=ShelfTrialProbe();probe.prepare(credentials)
                     def current():
                         if NativeSessionStore().load(saved['vid'])!=credentials:raise ValueError('native_shelf/grant_replaced')
+                    preflight=None
+                    if args.preflight:
+                        if not args.apply:raise ValueError('native_shelf/preflight_command')
+                        phase='dry-run'
+                        command=preflight_command(args.native_ui_command)
+                        preflight=run(probe,credentials,store,command,armed=False,current=current)
+                        if preflight['result']!='PASS':raise ValueError('native_shelf/preflight')
                     phase='apply' if args.apply else 'dry-run'
                     report=run(probe,credentials,store,args.native_ui_command,armed=args.apply,current=current)
-        elif args.native_ui_command or any((args.apply,args.dry_run,args.status,args.resolve)):raise ValueError('native_shelf/offline')
+                    if preflight is not None:report['same_plan_preflight_passed']=True
+
+        elif args.native_ui_command or any((args.apply,args.dry_run,args.status,args.resolve,args.preflight)):raise ValueError('native_shelf/offline')
     except (Exception,KeyboardInterrupt) as error:
         report=dict(result='UNVERIFIED',phase=phase,account_data_posts=0 if phase!='apply' else None,
                     authentication_posts=0,no_automatic_replay=True)
