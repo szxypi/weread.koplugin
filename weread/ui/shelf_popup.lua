@@ -15,7 +15,14 @@ function M.redrawForMetadata(host,owner,callback)
         context.pending_shelf_redraw={owner=owner,callback=callback,generation=host._metadata_redraw_generation}
         return
     end
-    M.redraw(owner,callback)
+    local generation=host._metadata_redraw_generation
+    M.redraw(owner,function()
+        if host.shelf_view~=owner or owner._shelf_closed or host._metadata_redraw_generation~=generation then return end
+        -- A popup may have delayed this callback until after a new metadata
+        -- request started. Check again when the redraw actually executes.
+        if host.book_metadata_context then M.redrawForMetadata(host,owner,callback)
+        else callback() end
+    end)
 end
 function M.resumeMetadata(host,context)
     local pending=context.pending_shelf_redraw

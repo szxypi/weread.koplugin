@@ -1,0 +1,59 @@
+{
+  "result": "PASS",
+  "profile_removed": true,
+  "installed_bytes_match": true,
+  "stages": [
+    {
+      "checks": 59,
+      "requests": 68,
+      "posts": 7,
+      "forbidden": 0,
+      "screenshots": 3,
+      "workers_reaped": true,
+      "mode": "live",
+      "result": "PASS",
+      "phase": "complete"
+    },
+    {
+      "forbidden": 0,
+      "screenshots": 3,
+      "workers_reaped": true,
+      "mode": "reopen",
+      "temporary_retry_verified": true,
+      "rate_limit_stop_verified": true,
+      "result": "PASS",
+      "metadata_refresh_verified": true,
+      "phase": "complete",
+      "offline_shot": true,
+      "checks": 78,
+      "requests": 109,
+      "posts": 12
+    },
+    {
+      "mode": "offline_reopen",
+      "workers_reaped": true,
+      "result": "PASS",
+      "screenshots": 0,
+      "phase": "complete",
+      "queued_restart_prepared": true,
+      "checks": 15,
+      "requests": 112,
+      "posts": 12,
+      "forbidden": 0
+    },
+    {
+      "checks": 6,
+      "requests": 119,
+      "posts": 13,
+      "forbidden": 0,
+      "screenshots": 0,
+      "workers_reaped": true,
+      "mode": "retry_reopen",
+      "result": "PASS",
+      "phase": "complete",
+      "queued_restart_verified": true
+    }
+  ],
+  "queue_store_verified": true,
+  "membership_queue_store_verified": true
+}

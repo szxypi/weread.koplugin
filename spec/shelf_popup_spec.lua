@@ -134,5 +134,14 @@ do
     Popup.redrawForMetadata(host,view,function() value=6 end)
     host.book_metadata_context=nil;Popup.resumeMetadata(host,context);host.shelf_view={};flush()
     expect(value==5,'metadata redraw crossed into another shelf page')
+    host.shelf_view=view;host.book_metadata_context=nil
+    Popup.show(view,{})
+    Popup.redrawForMetadata(host,view,function() value=7 end)
+    Popup.close(view)
+    host.book_metadata_context={};context=host.book_metadata_context
+    flush()
+    expect(value==5 and context.pending_shelf_redraw,'popup close interrupted newly started metadata')
+    host.book_metadata_context=nil;Popup.resumeMetadata(host,context);flush()
+    expect(value==7,'metadata cancellation lost popup-deferred redraw')
 end
 print(('shelf_popup_spec: %d checks'):format(checks))

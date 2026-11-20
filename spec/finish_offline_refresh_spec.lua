@@ -34,6 +34,16 @@ state.account='two';Popup.close(view);drain();expect(state.redraws==0 and book.f
 host,view,state,book=fixture();host._book_detail_view={};Finish.refresh_view(host,'41')
 expect(state.redraws==0 and book.finishReading==0 and view._finish_dirty['41'],'detail screen was interrupted')
 host._book_detail_view=nil;expect(Finish.reconcile_view(host,view) and book.finishReading==1,'detail return lost update')
+host,view,state,book=fixture();host.book_metadata_context={};local metadata=host.book_metadata_context
+Finish.refresh_view(host,'41')
+expect(state.redraws==0 and book.finishReading==0 and view._finish_dirty['41']
+    and metadata.pending_shelf_redraw,'finished mark interrupted book metadata loading')
+host.book_metadata_context=nil;Popup.resumeMetadata(host,metadata);drain()
+expect(state.redraws==1 and book.finishReading==1 and not view._finish_dirty,'metadata cancellation lost finished mark refresh')
+host,view,state,book=fixture();host.book_metadata_context={};metadata=host.book_metadata_context
+Finish.refresh_view(host,'41');host.book_metadata_context=nil;host._book_detail_view={};Popup.resumeMetadata(host,metadata);drain()
+expect(state.redraws==0 and view._finish_dirty['41'],'metadata completion redrew behind details')
+host._book_detail_view=nil;expect(Finish.reconcile_view(host,view) and book.finishReading==1,'detail return lost pending finished mark')
 host,view,state,book=fixture();host._shelf_state_menu={};Finish.refresh_view(host,'41')
 expect(state.redraws==0 and book.finishReading==0 and view._finish_dirty['41'],'shelf status menu was interrupted')
 host._shelf_state_menu=nil;Finish.flush_view(host)

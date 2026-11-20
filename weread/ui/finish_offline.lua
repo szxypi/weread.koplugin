@@ -64,7 +64,7 @@ function M.flush_view(host)
     -- retained shelf and calls reconcile_view after the detail is dismissed.
     if host._book_detail_view or host._shelf_state_menu then return end
     local current=require('weread.ui.page_scope').capture(host,view)
-    require('weread.ui.shelf_popup').redraw(view,function()
+    require('weread.ui.shelf_popup').redrawForMetadata(host,view,function()
         if not current() or host._book_detail_view or host._shelf_state_menu or not M.reconcile_view(host,view) then return end
         view._finish_redraw()
     end)

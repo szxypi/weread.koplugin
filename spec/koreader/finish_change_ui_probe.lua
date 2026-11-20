@@ -298,6 +298,19 @@ local ok,reason=pcall(function()
         report.phase='offline-already-applied';queue_offline(true)
         change(function(v) v.shelf.books[1].finishReading=1 end)
         reconnect(10,true,'status')
+        do
+            local before=assert(plugin.shelf_view)
+            local metadata={};plugin.book_metadata_context=metadata
+            require('weread.ui.finish_offline').refresh_view(plugin,'41')
+            expect(plugin.shelf_view==before and before._finish_dirty['41'] and metadata.pending_shelf_redraw)
+            plugin:cancelBookMetadata();wait(function() return plugin.shelf_view~=before end)
+            local updated=plugin.shelf_view;local found
+            for _,item in ipairs(updated.books) do
+                if tostring(item.bookId or item.book_id)=='41' then found=item end
+            end
+            expect(found and require('weread.lib.shelf_flags').display(found,'finished')==true)
+            report.metadata_refresh_verified=true
+        end
         report.phase='offline-unmark-after-noop';queue_offline()
         plugin.prepareShelfProgress=function() return nil end;plugin.fetchVisibleShelfCovers=function() end
         plugin:showHome()

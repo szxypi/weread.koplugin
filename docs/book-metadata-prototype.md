@@ -71,6 +71,10 @@ Web Reader 资料属于回退入口；更多书籍类型、真实过期和实体
 
 真实账号在两种模拟尺寸重新完成正常选书、原生阅读与新进程离线重开，云端位置不变、没有账号数据或授权写入，见[600×800 报告](validation-assets/2026-11-20/owner-metadata-scope-600.json)和 [KO2 尺寸报告](validation-assets/2026-11-20/owner-metadata-scope-ko2.json)。这两次验证没有模拟真实账号切页竞态；该竞态由前述合成服务测试覆盖。
 
+离线读完标记同步完成后的重绘也等待资料加载；若弹窗先拦截了封面重绘、关闭后才开始加载资料，重绘执行时会再次检查加载状态。取消资料加载后刷新，打开详情后等返回书架时刷新。两种模拟尺寸的实际原生界面、合成离线队列和缩略图工作进程通过相关竞态与返回检查；真实账号 KO2 尺寸的正常阅读及离线重开回归通过，见[报告](validation-assets/2026-11-20/owner-finish-metadata-ko2.json)，该真实回归不含读完标记修改。
+
+普通尺寸离线队列首次组合运行在新进程补传等待超时，竞态检查已通过；[首次记录](validation-assets/2026-11-20/finish-metadata-600-initial.json)保留。随后独立重跑完整流程通过，超时原因尚未确定，见[普通尺寸](validation-assets/2026-11-20/finish-metadata-600.json)与 [KO2 尺寸](validation-assets/2026-11-20/finish-metadata-ko2.json)的合成记录。
+
 ## 原生控件验收
 
 打包插件在官方 KOReader v2026.07.1 ARM64／Ubuntu／Xvfb 的 600×800 和 KO2 尺寸 1264×1680／300 DPI 通过：

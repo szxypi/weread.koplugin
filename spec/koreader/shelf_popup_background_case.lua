@@ -55,6 +55,24 @@ return function(host,response,cover,evidence)
         local view=show(false,false)
         local book=assert(view:getVisibleBooks()[1]);assert(cache:store(book,cover))
         host:showShelfView('books',nil,view);view=host.shelf_view
+        view:showSourceMenu();local picker=assert(view._shelf_popup)
+        local path=assert(cache:pathFor(book));local source=cache.dir..'/'..cache:key(book)..'.png'
+        local file=assert(io.open(source,'wb'));assert(file:write(cover));file:close();assert(os.remove(path))
+        host:fetchVisibleShelfCovers(view,view.books,{mode='books',prepared_books=view.books,prepared_accounts=view.accounts})
+        pump(function() return not host.shelf_cover_job and not host.shelf_cover_pending end)
+        assert(view._shelf_popup==picker and view._shelf_redraw,'thumbnail did not wait for selector')
+        require('weread.ui.shelf_popup').close(view)
+        local metadata={};host.book_metadata_context=metadata
+        pump(function() return metadata.pending_shelf_redraw~=nil or host.shelf_view~=view end)
+        assert(host.shelf_view==view and metadata.pending_shelf_redraw,
+            'selector dismissal interrupted newly started metadata')
+        host:cancelBookMetadata();pump(function() return host.shelf_view~=view end)
+        assert(cache:pathFor(book),'selector-to-metadata cancellation lost the thumbnail')
+    end
+    do
+        local view=show(false,false)
+        local book=assert(view:getVisibleBooks()[1]);assert(cache:store(book,cover))
+        host:showShelfView('books',nil,view);view=host.shelf_view
         local path=assert(cache:pathFor(book));local source=cache.dir..'/'..cache:key(book)..'.png'
         local file=assert(io.open(source,'wb'));assert(file:write(cover));file:close();assert(os.remove(path))
         local metadata={};host.book_metadata_context=metadata
