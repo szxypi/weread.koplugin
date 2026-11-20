@@ -69,12 +69,17 @@ return function(input,host,reader,pump)
     pump(function() return host._chapter_list_view~=nil end)
     local view=assert(host._chapter_list_view)
     assert(type(view.chapters)=='table' and #view.chapters==#chapters,'quick-menu chapter list was incomplete')
-    local listed=false
+    local listed,original_listed=false,false
     for _,item in ipairs(view.chapters) do
         local chapter=item.source
-        if chapter and tostring(chapter.chapterUid or chapter.chapterId)==neighbor.uid then listed=true end
+        local uid=chapter and tostring(chapter.chapterUid or chapter.chapterId)
+        if uid==neighbor.uid then
+            listed=true;assert(item.status==tr('Cached'),'downloaded neighbor was not marked cached')
+        elseif uid==input.chapter_uid then
+            original_listed=true;assert(item.status==tr('Cached'),'original chapter was not marked cached')
+        end
     end
-    assert(listed,'quick-menu chapter list omitted the verified neighbor')
+    assert(listed and original_listed,'quick-menu chapter list omitted a verified chapter')
     menu=quick()
     local original_open=host.openChapter
     local calls=0

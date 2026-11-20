@@ -104,6 +104,15 @@ local function ready(reader)
     pump(function() return reader.weread.source_position:current()~=nil end)
     return assert(reader.weread.source_position:current())
 end
+local function check_full_chapter_status(current)
+    clean(current.ui);current:showChapterList(book(current))
+    pump(function() return current._chapter_list_view~=nil end)
+    local view=assert(current._chapter_list_view)
+    local cached=tr('Cached')
+    assert(#view.chapters>1,'full-book catalog was empty')
+    for _,item in ipairs(view.chapters) do assert(item.status==cached,'full-book chapter was not marked cached') end
+    clean(current.ui)
+end
 local function check_cb_notes(reader,current,seed)
     local Cache=require('weread.lib.my_cloud_marks_store')
     if seed then
@@ -149,6 +158,7 @@ if offline then
     local reader=read_from_shelf(expected.file)
     assert(reader.document:isXPointerInCurrentPage(expected.xpointer) and reader:getCurrentPage()==expected.page)
     local position=ready(reader);assert(position.chapter_uid==expected.chapter_uid and position.basis==Source.coordinate_basis(format))
+    if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then check_full_chapter_status(reader.weread) end
     if os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1' then
         dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
             reader,reader.weread,pump,shot,clean,true,evidence)
@@ -412,6 +422,7 @@ end
 local full=assert(book(host).cached_full_book)
 pump(function() return Reader.instance and Reader.instance.document.file==full end)
 reader,current=Reader.instance,Reader.instance.weread;report.full_download=true
+if os.getenv('WEREAD_TEST_DUPLICATE_CHAPTER_TITLES')=='1' then check_full_chapter_status(current) end
 if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_smoke.lua')(
         reader,current,pump,shot,clean,true)

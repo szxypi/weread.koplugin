@@ -53,6 +53,25 @@ return function(reader,host,book,id,pump,clean,set_offline)
     local account=assert(host.library_db:accountKey())
     assert(host.settings:patch_reading_state(id,{pending_upload_position=pending,pending_upload_account=account}))
     assert(host.library_db:putChapters(id,chapters));latest.chapters=chapters
+    -- Only chapters actually present in the partial EPUB are available.
+    clean(reader);host:showChapterList(latest)
+    pump(function() return host._chapter_list_view~=nil end)
+    local catalog_view=assert(host._chapter_list_view)
+    local cached=require('weread.lib.plugin_util').tr('Cached')
+    for index,item in ipairs(catalog_view.chapters) do
+        assert((item.status==cached)==(index==2 or index==4),'partial combined cache status was incorrect')
+    end
+    host:showChapterDownloadSelection(latest,chapters)
+    local menu=assert(require('ui/uimanager'):getTopmostVisibleWidget())
+    local row_index=0
+    for _,item in ipairs(menu.item_table) do
+        if not item.separator then
+            row_index=row_index+1
+            assert((item.mandatory_func()==cached)==(row_index==2 or row_index==4),
+                'download selection cache status was incorrect')
+        end
+    end
+    assert(row_index==#chapters,'download selection omitted a chapter')
     select_chapter(host,latest,2);pump(function() return reader.document:isXPointerInCurrentPage(first) end)
     assert(host.progress_sync.file_resume and host.progress_sync.file_resume.preserve_only,
         'partial combined file did not pause synchronization')

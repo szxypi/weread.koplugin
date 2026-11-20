@@ -2002,6 +2002,22 @@ function M:loadChapters(book, callback, force_refresh)
     end)
 end
 
+-- Match the chapter-opening rules when presenting offline availability.
+-- A combined EPUB may contain only part of the catalog, so check each UID.
+local function chapter_cache_lookup(host,book)
+    local claims=require('weread.lib.chapter_cache_claim')
+    local identity=require('weread.lib.reader_context')
+    local cache={}
+    local full=host.getFullBookCachePath and host:getFullBookCachePath(book) or book.cached_full_book
+    local combined=full and file_exists(full) and claims.combined(book,full)
+    return function(uid)
+        local cached=ReadAccess.cached_chapter(book.cached_chapters,uid)
+        if cached and file_exists(cached) and claims.usable(book,cached,uid,cache) then return true end
+        local ok,id=pcall(identity.identifier,uid,true)
+        return ok and combined and combined.items['chapter_'..id]==true or false
+    end
+end
+
 function M:showChapterList(book, on_close)
     local ChapterListView = require("weread.ui.chapter_list_view")
     local function reloadBookCache()
@@ -2021,20 +2037,12 @@ function M:showChapterList(book, on_close)
         -- captured when the chapter list was first opened.
         reloadBookCache()
         local rows = {}
-        local claims=require('weread.lib.chapter_cache_claim')
-        local claim_cache={}
+        local is_cached=chapter_cache_lookup(self,book)
         for _i, chapter in ipairs(chapters) do
             local chapter_uid = chapter.chapterUid or chapter.chapterId
-            local cached = book.cached_chapters
-                and book.cached_chapters[tostring(chapter_uid)]
-            if cached and not file_exists(cached) then
-                book.cached_chapters[tostring(chapter_uid)] = nil
-                cached = nil
-            end
-            if cached and not claims.usable(book,cached,chapter_uid,claim_cache) then cached=nil end
             rows[#rows + 1] = {
                 title = chapter.title or T(_("Chapter %1"), tostring(chapter_uid)),
-                status = cached and _("Cached")
+                status = is_cached(chapter_uid) and _("Cached")
                     or T(_("%1 words"), tostring(chapter.wordCount or 0)),
                 source = chapter,
             }
@@ -2116,6 +2124,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
     end
 
     local items = {}
+    local is_chapter_cached=chapter_cache_lookup(self,book)
     local perpage = list_items_per_page()
     local chapters_per_page = math.max(1, perpage - 1)
     local function appendDownloadAction()
@@ -2157,8 +2166,7 @@ function M:showChapterDownloadSelection(book, chapters, on_downloaded)
         for chapter_index = page_start, page_end do
             local chapter = chapters[chapter_index]
             local uid = tostring(chapter.chapterUid or chapter.chapterId or chapter_index)
-            local cached = ReadAccess.cached_chapter(book.cached_chapters,uid)
-            local is_cached = file_exists(cached)
+            local is_cached = is_chapter_cached(uid)
             items[#items + 1] = {
                 text_func = function()
                     local marker = selected[uid] and "[✓] " or "[  ] "
