@@ -7,7 +7,7 @@ function M.create(directory,title,format)
     local lfs=require('libs/libkoreader-lfs')
     if type(directory)~='string' or #directory>3000 or directory:find('[%z%c]') then return nil end
     local ext=format=='markdown' and 'md' or format=='json' and 'json' or format=='epub' and 'epub'
-        or format=='epub_part' and 'epub.part' or format=='html' and 'html'
+        or format=='epub_part' and 'epub.part' or format=='html' and 'html' or format=='png' and 'png'
     if not ext then return nil end
     local made=require('util').makePath(directory)
     if not made and lfs.attributes(directory,'mode')~='directory' then return nil end

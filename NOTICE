@@ -30,6 +30,12 @@ MiuRead UI migration:
 Copyright (C) 2026 MiuRead contributors. AGPL-3.0-only.
 Source: https://github.com/miumiupy98-art/miuread-koreader
 
+The experimental book-excerpt card renderer and its bundled template assets
+under weread/lib/excerpt_card are adapted from MiuRead's book_excerpt_card
+at commit c1893562aa25a870b8dd076d7be062a3348f823e. Copyright (C) 2026
+MiuRead contributors; AGPL-3.0-only. Output handling and scoped text rendering
+were adapted for this plugin. The user-facing editor is not yet connected.
+
 Source-coordinate protocol research:
 - scripts/verify_source_coordinates.py references MiuRead's wr_co.lua and
   source_position.lua (MiuRead contributors, AGPL-3.0-only). It compares a public
