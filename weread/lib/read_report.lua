@@ -1361,7 +1361,7 @@ function ReadReport:confirm_position(receipt)
             return false,outcome
         end
         local remote=Initial.target(self.client,self.settings,state.cb_initial.access,state.target,
-            state.cb_summary,state.cb_initial.current)
+            state.cb_summary,state.cb_initial.current,state.cb_initial.counts)
         outcome.confirmation_reads=state.reads
         if remote then
             self._position_confirmation=nil
@@ -1508,10 +1508,13 @@ function ReadReport:_upload_cb_initial(book_id,position,plan)
         return false,{error='source_native_authentication_unavailable',error_kind='position'}
     end
     local attempt={enter_attempted=false,report_attempted=false}
+    local initial_counts
     local ok,result,code=pcall(function()
-        local before=Initial.before(self.client,self.settings,access,plan.initial_remote,current)
-        local again=Initial.before(self.client,self.settings,access,plan.initial_remote,current)
-        assert(before and again and State.equal(before,again),'cb_initial/baseline')
+        local allow_reading_time=plan.basis=='raw_txt_utf16'
+        local before,counts=Initial.before(self.client,self.settings,access,plan.initial_remote,current,allow_reading_time)
+        local again,checked_counts=Initial.before(self.client,self.settings,access,plan.initial_remote,current,allow_reading_time)
+        assert(before and again and State.equal(before,again) and Native.same_counts(counts,checked_counts),'cb_initial/baseline')
+        initial_counts=counts
         local payload=require('weread.lib.cb_position_payload').build('enter',{
             book_id=book_id,chapter_uid=book.chapter_uid,chapter_idx=tonumber(book.chapter_idx),
             chapter_offset=tonumber(book.chapter_offset),progress=tonumber(book.progress),summary=book.summary,
@@ -1529,7 +1532,7 @@ function ReadReport:_upload_cb_initial(book_id,position,plan)
         book.read_session_entered_at=self.now();book.read_session_id=self.session_id
         local receipt={}
         self._position_confirmation={receipt=receipt,reads=0,target=target,auth=self:_auth_fingerprint(),
-            cb_summary=position.summary,cb_initial={access=access,current=current}}
+            cb_summary=position.summary,cb_initial={access=access,current=current,counts=initial_counts}}
         local confirmed=select(2,self:confirm_position(receipt))
         for key,value in pairs(confirmed) do outcome[key]=value end
     end

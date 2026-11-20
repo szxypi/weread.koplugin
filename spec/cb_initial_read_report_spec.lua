@@ -23,16 +23,20 @@ local function fixture(mode)
     Initial.capture=function() return access end
     Initial.current=function(_settings,selected,current) return selected==access and valid and current() end
     local baseline_reads=0
-    Initial.before=function(_client,_settings,selected,expected,current)
+    Initial.before=function(_client,_settings,selected,expected,current,allow_time)
         baseline_reads=baseline_reads+1
-        if selected~=access or not current() or mode=='baseline_changed' then return nil end
+        if selected~=access or not current() or mode=='baseline_changed'
+            or mode=='prior_time' and not allow_time then return nil end
         local result=copy(expected)
         if mode=='native_changed' and baseline_reads==2 then result.updated_present=true;result.updated_at=9 end
-        return result
+        local seconds=mode=='prior_time' and 2 or 0
+        if mode=='counts_changed' and baseline_reads==2 then seconds=1 end
+        return result,{readingTime=seconds,recordReadingTime=0,ttsTime=0}
     end
-    Initial.target=function(_client,_settings,selected,target,summary,current)
+    Initial.target=function(_client,_settings,selected,target,summary,current,counts)
         reads=reads+1
-        if selected~=access or not current() or summary~=position.summary or mode=='no_target' or mode=='delayed' and reads==1 then return nil end
+        if selected~=access or not current() or summary~=position.summary
+            or not counts or counts.readingTime~=(mode=='prior_time' and 2 or 0) or mode=='no_target' or mode=='delayed' and reads==1 then return nil end
         return {book_id=id,chapter_uid=target.chapter_uid,chapter_idx=target.chapter_idx,chapter_offset=target.chapter_offset,
             percent=target.percent,raw_percent=target.percent,source='web',has_chapter_index=true,has_chapter_offset=true}
     end
@@ -65,10 +69,10 @@ expect(signature==Protocol.sign(Protocol.sorted_query(posts[1])),'first request 
 local reads,prepared,persisted,book=stats()
 expect(reads==1 and prepared==1,'unexpected readback or claims')
 expect(book.summary=='saved summary' and persisted.summary=='saved summary','source summary persisted')
-for _,mode in ipairs({'baseline_changed','native_changed','stale_after_claim','stale_after_send','no_ack','transport_error','no_target'}) do
+for _,mode in ipairs({'baseline_changed','native_changed','counts_changed','stale_after_claim','stale_after_send','no_ack','transport_error','no_target'}) do
     report,plan,posts,stats=fixture(mode);ok,result=report:upload_position(id,position,0,plan)
     expect(not ok,'unsafe first request was accepted')
-    local expected=(mode=='baseline_changed' or mode=='native_changed' or mode=='stale_after_claim') and 0 or 1
+    local expected=(mode=='baseline_changed' or mode=='native_changed' or mode=='counts_changed' or mode=='stale_after_claim') and 0 or 1
     expect(#posts==expected,'unexpected first request count')
     if expected==1 then expect(result.enter_attempted and not result.report_attempted,'possible send was lost') end
     if mode=='no_target' then
@@ -92,6 +96,11 @@ local original_summary=position.summary;position.summary='raw\r\nTXT summary'
 report,plan,posts=fixture('normal');plan.basis='raw_txt_utf16';plan.source_position.basis=plan.basis
 ok,result=report:upload_position(id,position,0,plan)
 expect(ok and result.position_confirmed and #posts==1 and posts[1].sm==position.summary,'TXT first position lost raw summary')
+report,plan,posts=fixture('prior_time')
+expect(not report:upload_position(id,position,0,plan) and #posts==0,'unverified XHTML prior time was accepted')
+report,plan,posts=fixture('prior_time');plan.basis='raw_txt_utf16';plan.source_position.basis=plan.basis
+ok,result=report:upload_position(id,position,0,plan)
+expect(ok and result.position_confirmed and #posts==1,'TXT first position did not preserve prior reading time')
 report,plan,posts=fixture('no_ack');plan.basis='raw_txt_utf16';plan.source_position.basis=plan.basis
 ok,result=report:upload_position(id,position,0,plan)
 expect(not ok and result.enter_attempted and #posts==1,'unknown TXT first write was not retained')

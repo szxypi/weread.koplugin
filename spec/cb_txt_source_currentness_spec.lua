@@ -24,7 +24,8 @@ local function fixture()
             if text=='{reader}' then return initial end
             if text=='txt-marker' then return {bookId=state.foreign_marker and 'CB_Other' or book,chapterUid=state.foreign_chapter and 12 or 11} end
             if text=='native-progress' then return {book={bookId=book,chapterUid=0,chapterIdx=0,chapterOffset=state.native_offset or 0,
-                progress=0,summary='',updateTime=1,readingTime=state.native_time or 0,recordReadingTime=0,ttsTime=0}} end
+                progress=0,summary='',updateTime=1,readingTime=state.native_time or 0,
+                recordReadingTime=state.native_record or 0,ttsTime=state.native_tts or 0}} end
             error('unexpected JSON')
         end,
         decode_http_json=function(_self,text)
@@ -50,6 +51,7 @@ local function fixture()
                 'txt-marker','txt-part-0','txt-part-1','catalog','account'})[index]
         if state.change_web_at==index then state.web_offset=26 end
         if state.change_native_at==index then state.native_offset=1 end
+        if state.change_time_at==index then state.native_time=3 end
         options.sink(text);options.sink(nil)
         if state.change_session_at==index then state.valid=false end
         return 1,state.fail_at==index and 401 or 200,{}
@@ -122,9 +124,17 @@ for _i,index in ipairs({3,10}) do
     expect(Check.run_cb_txt_initial(client,expected,nil,initial,selected).error=='source_remote_changed'
         and #state.requests==index,'changed native initial state accepted')
 end
-client,state,selected=first_fixture();state.native_time=1
+client,state,selected=first_fixture();state.native_time=2
+proof=Check.fetch_cb_txt_initial(client,expected,nil,initial,selected)
+expect(Check.packet_cb_txt(proof,expected) and #state.requests==12,'stable prior TXT reading time rejected')
+client,state,selected=first_fixture();state.native_time=2;state.change_time_at=10
 expect(Check.run_cb_txt_initial(client,expected,nil,initial,selected).error=='source_remote_changed'
-    and #state.requests==3,'nonzero native time accepted')
+    and #state.requests==10,'changed native reading time accepted')
+for _,key in ipairs({'native_record','native_tts'}) do
+    client,state,selected=first_fixture();state[key]=1
+    expect(Check.run_cb_txt_initial(client,expected,nil,initial,selected).error=='source_remote_changed'
+        and #state.requests==3,'unverified time category accepted')
+end
 client,state,selected=first_fixture();state.fail_at=3
 expect(Check.run_cb_txt_initial(client,expected,nil,initial,selected).error=='source_native_expired'
     and #state.requests==3,'native 401 was not isolated')

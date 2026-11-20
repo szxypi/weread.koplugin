@@ -12,6 +12,10 @@ local UI=require('ui/uimanager');UI:setRunForeverMode();UI:setInputTimeout(0)
 local Settings=require('weread.lib.settings');local Client=require('weread.lib.client');local Content=require('weread.lib.content')
 local socket=require('socket');local settings=Settings:new();local id='CB_SyntheticResume'
 local mode=assert(os.getenv('WEREAD_CB_FIRST_MODE'))
+local source_format=os.getenv('WEREAD_CB_FIRST_FORMAT')
+local succeeds=mode=='normal' or mode=='delayed' or mode=='native_time' and source_format=='txt'
+local blocked=mode=='changed' or mode=='native_time_before' or mode=='native_record' or mode=='native_tts' or mode=='no_native'
+    or mode=='native_time' and source_format~='txt'
 local function wait(predicate)
     local deadline=socket.gettime()+45
     while not predicate() do UI:setInputTimeout(0);UI:handleInput();socket.sleep(.01)
@@ -26,13 +30,13 @@ if os.getenv('WEREAD_CB_FIRST_REOPEN')=='1' then
     wait(function() return Reader.instance and Reader.instance.weread and Reader.instance.weread._current_weread_book_id==id end)
     local plugin=Reader.instance.weread;plugin.isNetworkOnline=function() return false end;plugin.isNetworkConnected=plugin.isNetworkOnline
     local saved=assert(plugin.settings:get_book(id))
-    if mode=='normal' or mode=='delayed' then assert(not plugin.source_dispatch:pending(id) and not saved.pending_upload_position)
+    if succeeds then assert(not plugin.source_dispatch:pending(id) and not saved.pending_upload_position)
     else assert(plugin.source_dispatch:pending(id) and (saved.pending_upload_position
         or mode=='verify_save_failed' and saved.last_local_position and saved.last_uploaded_position)) end
     plugin.progress_sync:on_resume();UI:setInputTimeout(0);UI:handleInput()
     assert(not plugin.progress_sync.verified and requests==0,'offline reopen retried first request')
     print('\nWEREAD_CB_FIRST_REOPEN='..Client:new(settings):json_encode({result='PASS',offline=true,requests=requests,
-        journal_pending=mode~='normal' and mode~='delayed'}));os.exit(0)
+        journal_pending=not succeeds}));os.exit(0)
 end
 settings:update_auth({account={user_vid='900000',name='Synthetic'},cookies={wr_vid='900000',wr_skey='synthetic-cloud-session'}},{replace_cookies=true})
 local grant={vid='900000',accessToken='synthetic-native-access',refreshToken='synthetic-native-refresh',deviceId='eink334691225'..string.rep('1',19)}
@@ -88,8 +92,8 @@ if mode=='save_failed' or mode=='verify_save_failed' then
 end
 UI:close(dialog);selected.initialize()
 wait(function() return not sync.uploading end);sync._persist=persist
-local expected_notice=(mode=='normal' or mode=='delayed') and 'upload_success'
-    or (mode=='noack' or mode=='noack_unapplied') and 'upload_unconfirmed'
+local expected_notice=succeeds and 'upload_success'
+    or (mode=='noack' or mode=='noack_unapplied' or mode=='native_time_after') and 'upload_unconfirmed'
     or (mode=='save_failed' or mode=='verify_save_failed') and 'upload_initial_save_failed' or 'upload_failed'
 assert(notice and notice.code==expected_notice,'first sync showed an unexpected result')
 if mode=='noack_unapplied' then
@@ -98,9 +102,9 @@ if mode=='noack_unapplied' then
         'manual check offered a repeated first write')
 end
 local saved=assert(plugin.settings:get_book(id))
-if mode=='normal' or mode=='delayed' then
+if succeeds then
     assert(sync.verified and not plugin.source_dispatch:pending(id) and not saved.pending_upload_position,'confirmed first sync not saved')
-elseif mode=='changed' or mode=='native_time' or mode=='no_native' then
+elseif blocked then
     assert(not sync.verified and not plugin.source_dispatch:pending(id) and saved.pending_upload_position,'changed cloud not blocked')
 elseif mode=='verify_save_failed' then
     assert(not sync.verified and plugin.source_dispatch:pending(id) and saved.last_uploaded_position and saved.last_local_position,

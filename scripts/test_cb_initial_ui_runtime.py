@@ -16,15 +16,20 @@ BOOK = 'CB_SyntheticResume'
 
 class FirstServer(MockServer):
     def __init__(self, mode):
-        super().__init__(0); self.cb_reading = True; self.mode = mode; self.first_posts = 0; self.delayed_reads = 0
+        super().__init__(0); self.cb_reading = True; self.mode = mode; self.first_posts = 0; self.delayed_reads = 0; self.native_reads = 0
         self.progress[BOOK] = dict(chapterUid=0, chapterIdx=0, chapterOffset=0, progress=0, summary='')
 
     def route(self, method, target, data):
         url = urlsplit(target)
         if url.hostname == 'i.weread.qq.com' and url.path == '/book/getProgress' and method == 'GET':
             if parse_qs(url.query) != {'bookId': [BOOK]}: raise ValueError('first fixture scope')
+            self.native_reads += 1
             value = self.get_progress(BOOK)
-            value['book'].update(readingTime=1 if self.mode == 'native_time' else 0, recordReadingTime=0, ttsTime=0)
+            seconds = 2 if self.mode in ('native_time', 'native_time_before', 'native_time_after') else 0
+            if self.mode == 'native_time_before' and self.native_reads >= 2 or self.mode == 'native_time_after' and self.first_posts:
+                seconds = 3
+            value['book'].update(readingTime=seconds, recordReadingTime=int(self.mode == 'native_record'),
+                                 ttsTime=int(self.mode == 'native_tts'))
             return 200, value
         if (url.hostname == 'weread.qq.com' and url.path == '/web/book/getProgress' and method == 'GET'
                 and self.mode == 'delayed' and self.first_posts and self.delayed_reads == 0):
@@ -48,7 +53,8 @@ def main():
     parser.add_argument('--dpi', type=int, default=167)
     parser.add_argument('--format', choices=('epub', 'txt'), default='epub')
     parser.add_argument('--mode', choices=('normal', 'noack', 'noack_unapplied', 'changed', 'save_failed', 'verify_save_failed',
-                                           'delayed', 'native_time', 'no_native'), default='normal')
+                                           'delayed', 'native_time', 'native_time_before', 'native_time_after', 'native_record', 'native_tts',
+                                           'no_native'), default='normal')
     args = parser.parse_args(); root, runtime = args.run_dir.resolve(), args.koreader.resolve()
     server = FirstServer(args.mode); server.content_format = args.format; thread = None
     try:
@@ -66,8 +72,8 @@ def main():
         raw = log.read_bytes(); marker = b'\nWEREAD_CB_FIRST_UI='
         if raw.count(marker) != 1 or b'[WeRead] forceRePaint failed:' in raw: raise ValueError('first UI result')
         value = json.loads(raw.split(marker, 1)[1].splitlines()[0])
-        success = args.mode in ('normal', 'delayed')
-        blocked = args.mode in ('changed', 'native_time', 'no_native')
+        success = args.mode in ('normal', 'delayed') or args.mode == 'native_time' and args.format == 'txt'
+        blocked = args.mode in ('changed', 'native_time_before', 'native_record', 'native_tts', 'no_native') or args.mode == 'native_time' and args.format != 'txt'
         expected = dict(result='PASS', mode=args.mode, cancelled=True, explicit_choice=True, verified=success,
                         journal_pending=not success and not blocked, pending=not success and args.mode != 'verify_save_failed')
         if value != expected or server.first_posts != (0 if blocked else 1): raise ValueError('first UI mismatch')

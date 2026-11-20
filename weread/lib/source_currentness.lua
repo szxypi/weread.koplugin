@@ -215,7 +215,7 @@ local function fetch(client,expected_value,selected,format,options,cb)
             or cb_remote and require('weread.lib.cb_sync_guard').matches(data,cb_remote)
         if not matches then fail('remote_changed') end
     end
-    local native_before
+    local native_before,native_counts_before
     local function native_progress()
         local State=require('weread.lib.cb_initial_state')
         local P=require('weread.lib.native_position_protocol')
@@ -235,11 +235,14 @@ local function fetch(client,expected_value,selected,format,options,cb)
         local point=State.from(data,expected.book_id)
         local node=Remote.node(data,expected.book_id)
         local valid,counts=pcall(P.counts,node)
-        if not point or not valid or counts.readingTime~=0 or counts.recordReadingTime~=0 or counts.ttsTime~=0 then
+        if not point or not valid or format~='web_txt' and counts.readingTime~=0
+            or counts.recordReadingTime~=0 or counts.ttsTime~=0 then
             fail('remote_changed')
         end
-        if native_before and not State.equal(native_before,point) then fail('remote_changed') end
-        native_before=point
+        if native_before and (not State.equal(native_before,point) or not P.same_counts(native_counts_before,counts)) then
+            fail('remote_changed')
+        end
+        native_before,native_counts_before=point,counts
     end
     if cb_remote or cb_initial then progress() end
     if cb_initial then native_progress() end
@@ -314,7 +317,8 @@ end
 function M.fetch_cb_upload(client,value,selected,remote) return fetch_cb_upload(client,value,selected,remote,'web_xhtml') end
 function M.fetch_cb_txt_upload(client,value,selected,remote) return fetch_cb_upload(client,value,selected,remote,'web_txt') end
 -- A separate read-only preparation for first position. Both account channels
--- must still show an explicitly unstarted book; native counters must be zero.
+-- must still show an explicitly unstarted book and stable native counters.
+-- Only raw TXT may retain existing reading time; other counters remain zero.
 -- The resulting source packet alone never grants permission to send.
 local function fetch_cb_initial(client,value,selected,initial,native_selected,format)
     local expected=M.expected_cb(value)

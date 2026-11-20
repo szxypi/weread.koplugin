@@ -1,0 +1,50 @@
+{
+  "result": "PASS",
+  "physical_device": false,
+  "account_existing_book_writes": 0,
+  "authentication_posts": 0,
+  "synthetic_fixtures_created": 3,
+  "fixture_removals_confirmed": 3,
+  "reading_time_added_seconds": 6,
+  "time_only_fixture": {
+    "time_posts": 1,
+    "no_chapter_on_both_channels": true,
+    "book_and_statistics_delta_seconds": 2,
+    "shelf_restored": true
+  },
+  "protocol_fixture": {
+    "time_posts": 1,
+    "first_attempt": "stopped_before_position_claim",
+    "initial_failure_reason": "unresolved",
+    "position_claim_initially_absent": true,
+    "position_posts_after_read_only_preflight": 1,
+    "cleanup_posts": 1,
+    "target_and_time_verified": true,
+    "shelf_restored": true
+  },
+  "native_ui_fixture": {
+    "time_posts": 1,
+    "blocked_preflight": true,
+    "position_posts": 1,
+    "cleanup_posts": 1,
+    "resolution": "1264x1680",
+    "target_and_time_verified": true,
+    "statistics_preserved": true,
+    "offline_reopen": true,
+    "source": "synthetic_txt",
+    "reader_title": "synthetic",
+    "chapter_word_count": "synthetic_if_missing",
+    "shelf_restored": true
+  },
+  "simulated_native_ui": {
+    "resolutions": [
+      "600x800",
+      "1264x1680"
+    ],
+    "txt_prior_time": "PASS",
+    "changed_before": "PASS",
+    "changed_after_pending_without_replay": "PASS",
+    "xhtml_nonzero_rejected": "PASS"
+  },
+  "raw_account_data_saved_in_repo": false
+}

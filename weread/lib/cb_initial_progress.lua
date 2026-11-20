@@ -35,32 +35,36 @@ local function read(client,settings,access,book,current)
     assert(active(),'cb_initial/stale')
     local node=Remote.node(native,book)
     local valid,counts=pcall(P.counts,node)
-    assert(valid and counts.readingTime==0 and counts.recordReadingTime==0 and counts.ttsTime==0,'cb_initial/counts')
-    return web,native
+    assert(valid and counts.recordReadingTime==0 and counts.ttsTime==0,'cb_initial/counts')
+    return web,native,counts
 end
 
-function M.before(client,settings,access,expected,current)
+function M.before(client,settings,access,expected,current,allow_reading_time)
     if not State.none(expected) then return nil end
-    local ok,result=pcall(function()
-        local web,native=read(client,settings,access,expected.book_id,current)
+    local ok,result,baseline_counts=pcall(function()
+        local web,native,counts=read(client,settings,access,expected.book_id,current)
+        assert(allow_reading_time==true or counts.readingTime==0,'cb_initial/counts')
         assert(State.matches(web,expected),'cb_initial/web_changed')
         local point=State.from(native,expected.book_id)
         assert(point,'cb_initial/native_changed')
-        return point
+        return point,counts
     end)
-    return ok and result or nil
+    return ok and result or nil,ok and baseline_counts or nil
 end
 
-function M.target(client,settings,access,target,summary,current)
+function M.target(client,settings,access,target,summary,current,expected_counts)
     if type(target)~='table' or type(target.book_id)~='string' or target.book_id:sub(1,3)~='CB_'
         or require('weread.lib.read_access').display_book_id(target.book_id)~=target.book_id
         or not require('weread.lib.read_access').book_id(target.chapter_uid)
         or type(target.percent)~='number' or target.percent%1~=0 or not P.summary(summary) then return nil end
+    local valid_counts,baseline=pcall(P.counts,expected_counts)
+    if not valid_counts or baseline.recordReadingTime~=0 or baseline.ttsTime~=0 then return nil end
     local canonical=Readback.expected(target.book_id,target)
     if not canonical then return nil end
     for key,value in pairs(canonical) do if target[key]~=value then return nil end end
     local ok,result=pcall(function()
-        local web,native=read(client,settings,access,target.book_id,current)
+        local web,native,counts=read(client,settings,access,target.book_id,current)
+        assert(P.same_counts(counts,baseline),'cb_initial/counts_changed')
         local function matches(raw)
             local checked,remote=Readback.check(raw,target)
             local node=Remote.node(raw,target.book_id)

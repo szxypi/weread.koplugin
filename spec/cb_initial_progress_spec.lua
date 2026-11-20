@@ -43,7 +43,13 @@ expect(Progress.before(client,settings,access,initial,current)~=nil and #request
 web.book.updateTime=2
 expect(not Progress.before(client,settings,access,initial,current),'changed Web baseline accepted')
 web=copy(raw);native.book.readingTime=1
-expect(not Progress.before(client,settings,access,initial,current),'nonzero native time accepted')
+expect(not Progress.before(client,settings,access,initial,current),'nonzero native time accepted without TXT scope')
+local prior,prior_counts=Progress.before(client,settings,access,initial,current,true)
+expect(prior and prior_counts.readingTime==1,'TXT baseline with prior time rejected')
+for _,key in ipairs({'recordReadingTime','ttsTime'}) do
+    native=copy(raw);native.book[key]=1
+    expect(not Progress.before(client,settings,access,initial,current,true),'unverified time category accepted')
+end
 native=copy(raw);native.book.chapterUid=11
 expect(not Progress.before(client,settings,access,initial,current),'positive native chapter accepted as empty')
 native=copy(raw);valid=false;requests={}
@@ -52,19 +58,29 @@ valid=true
 expect(not Progress.before(client,settings,access,initial,function() return false end),'stale source accepted')
 local position={book_id=id,chapter_uid='11',chapter_idx=2,chapter_offset=30,percent=37,summary='synthetic summary'}
 local target=assert(Readback.expected(id,position))
+local zero_counts={readingTime=0,recordReadingTime=0,ttsTime=0}
 local bad_target=copy(target);bad_target.book_id='1234';requests={}
-expect(not Progress.target(client,settings,access,bad_target,position.summary,current) and #requests==0,'numeric target accepted')
+expect(not Progress.target(client,settings,access,bad_target,position.summary,current,zero_counts) and #requests==0,'numeric target accepted')
 bad_target=copy(target);bad_target.chapter_uid='0'
-expect(not Progress.target(client,settings,access,bad_target,position.summary,current) and #requests==0,'zero chapter accepted as a target')
+expect(not Progress.target(client,settings,access,bad_target,position.summary,current,zero_counts) and #requests==0,'zero chapter accepted as a target')
 local reached={book={bookId=id,chapterUid=11,chapterIdx=2,chapterOffset=30,progress=37,summary=position.summary,
     readingTime=0,recordReadingTime=0,ttsTime=0}}
 web,native=copy(reached),copy(reached)
-expect(Progress.target(client,settings,access,target,position.summary,current)~=nil,'exact dual target rejected')
+expect(Progress.target(client,settings,access,target,position.summary,current,zero_counts)~=nil,'exact dual target rejected')
 for _,key in ipairs({'chapterUid','chapterIdx','chapterOffset','progress','summary','readingTime'}) do
     native=copy(reached);native.book[key]=key=='summary' and 'different' or 1
-    expect(not Progress.target(client,settings,access,target,position.summary,current),'changed native '..key..' accepted')
+    expect(not Progress.target(client,settings,access,target,position.summary,current,zero_counts),'changed native '..key..' accepted')
 end
+native=copy(reached);native.book.readingTime=2
+local nonzero_counts={readingTime=2,recordReadingTime=0,ttsTime=0}
+expect(Progress.target(client,settings,access,target,position.summary,current,nonzero_counts)~=nil,
+    'confirmed target with preserved reading time rejected')
+native.book.readingTime=3
+expect(not Progress.target(client,settings,access,target,position.summary,current,nonzero_counts),
+    'changed reading time after first position accepted')
+requests={};expect(not Progress.target(client,settings,access,target,position.summary,current,nil) and #requests==0,
+    'readback without a time baseline sent requests')
 native=copy(reached);web.book.summary='different'
-expect(not Progress.target(client,settings,access,target,position.summary,current),'different Web summary accepted')
+expect(not Progress.target(client,settings,access,target,position.summary,current,zero_counts),'different Web summary accepted')
 Access.capture,Access.matches_cb_initial_access,Native.capture,Auth.new=old_capture,old_matches,old_native,old_new
 print(('cb_initial_progress_spec: %d checks'):format(checks))
