@@ -47,7 +47,7 @@ function M.show(host)
     end
     host._weread_reader_typography=state
     local function current()
-        if host._weread_reader_typography~=state or host.ui~=ui or ui.document~=document
+        if state.stopping or host._weread_reader_typography~=state or host.ui~=ui or ui.document~=document
             or document.file~=snapshot.file or ui.font~=font or host._reader_session_gen~=snapshot.session then return false end
         local db=host.library_db
         if db and type(db.accountKey)=='function' then
@@ -75,7 +75,7 @@ function M.show(host)
             display('size','%.0f'),display('spacing','%.0f'),display('weight','%.2f'))
     end
     local function refresh()
-        if current() and state.dialog then pcall(state.dialog.setTitle,state.dialog,title()) end
+        if current() and not state.hidden and state.dialog then pcall(state.dialog.setTitle,state.dialog,title()) end
     end
     local function schedule_refresh()
         if state.refresh_task then UI:unschedule(state.refresh_task) end
@@ -118,15 +118,18 @@ function M.show(host)
     state.stop=function(apply)
         if host._weread_reader_typography~=state then return end
         if apply and next(state.pending) then flush() end
+        state.stopping=true
+        local margins=package.loaded['weread.ui.reader_margins'];if margins then margins.cancel(host) end
         host._weread_reader_typography=nil
         if state.apply_task then UI:unschedule(state.apply_task);state.apply_task=nil end
         if state.refresh_task then UI:unschedule(state.refresh_task);state.refresh_task=nil end
+        if state.restore_task then UI:unschedule(state.restore_task);state.restore_task=nil end
         if state.confirm then local confirm=state.confirm;state.confirm=nil;UI:close(confirm) end
         if state.menu then local menu=state.menu;state.menu=nil;UI:close(menu) end
         if state.dialog then local dialog=state.dialog;state.dialog=nil;UI:close(dialog) end
     end
     local function change(key,direction)
-        if not current() or not state.values[key] then return end
+        if not current() or state.hidden or not state.values[key] then return end
         local def=definitions[key]
         local value=math.max(def.min,math.min(def.max,state.values[key]+direction*def.step))
         if value==state.values[key] then return end
@@ -141,10 +144,10 @@ function M.show(host)
         state.apply_task=task;UI:scheduleIn(.4,task)
     end
     local function choose_font()
-        if not current() or type(font.face_table)~='table' then return end
+        if not current() or state.hidden or type(font.face_table)~='table' then return end
         if next(state.pending) then flush() end
-        if not current() then return end
-        local items,seen={},{}
+        if not current() or state.hidden then return end
+        local items,seen,menu={},{},nil
         for _index,row in ipairs(font.face_table) do
             local id=type(row)=='table' and row.menu_item_id
             if type(id)=='string' and id~='' and #id<=512 and not seen[id] and type(row.callback)=='function' then
@@ -156,8 +159,8 @@ function M.show(host)
                 seen[id]=true
                 local selected=row
                 items[#items+1]={text=label,mandatory=id==font.font_face and '✓' or '',callback=function()
-                    if not current() then return end
-                    local menu=state.menu;state.menu=nil;if menu then UI:close(menu) end
+                    if not current() or state.hidden or state.menu~=menu then return end
+                    state.menu=nil;if menu then UI:close(menu) end
                     local ok=pcall(selected.callback)
                     if not ok and type(host.showInfo)=='function' then host:showInfo(_('Could not apply reading settings.')) end
                     schedule_refresh()
@@ -169,7 +172,7 @@ function M.show(host)
             if type(host.showInfo)=='function' then host:showInfo(_('No fonts are available.')) end
             return
         end
-        local menu=Menu:new{title=_('Choose font'),item_table=items,items_per_page=8}
+        menu=Menu:new{title=_('Choose font'),item_table=items,items_per_page=8}
         local onclose=menu.onCloseWidget
         menu.onCloseWidget=function(instance,...)
             if state.menu==instance then state.menu=nil end
@@ -179,7 +182,7 @@ function M.show(host)
         if not pcall(UI.show,UI,menu) then state.menu=nil;pcall(UI.close,UI,menu) end
     end
     local function save_default()
-        if not current() then return end
+        if not current() or state.hidden then return end
         if next(state.pending) and not flush() then return end
         if not current() then return end
         local defaults=G_reader_settings
@@ -196,7 +199,7 @@ function M.show(host)
         end
         if #entries==0 then return end
         local confirm
-        confirm=ConfirmBox:new{text=_('Save these settings as KOReader defaults? They also apply to other books without their own settings.'),
+        confirm=ConfirmBox:new{text=_('Save these font settings as KOReader defaults? They also apply to other books without their own settings.'),
             ok_text=_('Save defaults'),ok_callback=function()
                 if not current() or state.confirm~=confirm then return end
                 if next(state.pending) then
@@ -240,6 +243,27 @@ function M.show(host)
         state.confirm=confirm
         if not pcall(UI.show,UI,confirm) then state.confirm=nil;pcall(UI.close,UI,confirm) end
     end
+    local function margins()
+        if not current() or state.hidden then return end
+        if next(state.pending) and not flush() then return end
+        if not current() then return end
+        local dialog=state.dialog
+        state.hidden=true;UI:close(dialog)
+        local function restore()
+            if state.restore_task then UI:unschedule(state.restore_task) end
+            local task
+            task=function()
+                if state.restore_task~=task then return end
+                state.restore_task=nil
+                if current() and state.hidden and state.dialog==dialog then
+                    state.hidden=false;refresh();UI:show(dialog)
+                end
+            end
+            state.restore_task=task;UI:scheduleIn(.05,task)
+        end
+        local ok,shown=pcall(function() return require('weread.ui.reader_margins').show(host,current,restore) end)
+        if not ok or not shown then restore() end
+    end
     local ok,dialog=pcall(function()
         return ButtonDialog:new{title=title(),buttons={
             {{id='typography_size_down',text=_('Smaller text'),enabled=state.values.size~=nil,callback=function() change('size',-1) end},
@@ -249,15 +273,16 @@ function M.show(host)
             {{id='typography_weight_down',text=_('Lighter text'),enabled=state.values.weight~=nil,callback=function() change('weight',-1) end},
              {id='typography_weight_up',text=_('Heavier text'),enabled=state.values.weight~=nil,callback=function() change('weight',1) end}},
             {{id='typography_font',text=_('Choose font'),enabled=type(font.face_table)=='table' and type(font.onSetFont)=='function',callback=choose_font}},
-            {{id='typography_default',text=_('Save as global defaults'),enabled=type(G_reader_settings)=='table',callback=save_default}},
-            {{id='typography_close',text=_('Close'),callback=function() state.stop(true) end}},
+            {{id='typography_margins',text=_('Page margins'),enabled=type(ui.typeset)=='table',callback=margins}},
+            {{id='typography_default',text=_('Save font settings as defaults'),enabled=type(G_reader_settings)=='table',callback=save_default}},
+            {{id='typography_close',text=_('Close'),callback=function() if not state.hidden then state.stop(true) end end}},
         }}
     end)
     if not ok or not dialog then state.stop(false);return false end
     state.dialog=dialog
     local onclose=dialog.onCloseWidget
     dialog.onCloseWidget=function(instance,...)
-        if state.dialog==instance then state.dialog=nil;state.stop(true) end
+        if state.dialog==instance and not state.hidden then state.dialog=nil;state.stop(true) end
         if onclose then return onclose(instance,...) end
     end
     if not pcall(UI.show,UI,dialog) then state.stop(false);return false end

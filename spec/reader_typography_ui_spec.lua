@@ -56,6 +56,9 @@ button(dialog,'typography_font').callback();local menu=state.menu
 assert(menu and #menu.item_table==1);menu.item_table[1].callback()
 assert(selected==1 and not state.menu and font.font_face=='Second')
 button(dialog,'typography_font').callback();menu=state.menu
+require('ui/uimanager'):close(menu);menu.item_table[1].callback()
+assert(selected==1,'dismissed font picker accepted a stale selection')
+button(dialog,'typography_font').callback();menu=state.menu
 Typography.cancel(host);menu.item_table[1].callback();assert(selected==1,'closed font picker accepted stale selection')
 assert(Typography.show(host));state=host._weread_reader_typography;dialog=state.dialog
 button(dialog,'typography_size_down').callback();local pending=latest(.4)
@@ -94,5 +97,18 @@ assert(Typography.show(host));state=host._weread_reader_typography;dialog=state.
 button(dialog,'typography_font').callback();state.menu.item_table[1].callback()
 assert(message=='Could not apply reading settings.','failed font selection was not reported')
 Typography.cancel(host)
+local restore,margin_canceled
+package.loaded['weread.ui.reader_margins']={show=function(target,guard,on_closed)
+    assert(target==host and guard());restore=on_closed;return true
+end,cancel=function() margin_canceled=true end}
+ui.typeset={}
+assert(Typography.show(host));state=host._weread_reader_typography;dialog=state.dialog
+button(dialog,'typography_margins').callback();assert(state.hidden and restore)
+local old_tasks=#tasks;button(dialog,'typography_size_up').callback()
+assert(#tasks==old_tasks,'hidden settings accepted a stale action')
+restore();latest(.05)();assert(not state.hidden and shown[#shown]==dialog,'return did not restore settings panel')
+button(dialog,'typography_margins').callback();restore();Typography.cancel(host)
+assert(margin_canceled and not host._weread_reader_typography,'cancel did not close child margins')
+package.loaded['weread.ui.reader_margins']=nil
 doc.info.has_pages=true;assert(not Typography.show(host) and message=='Reading settings are unavailable for this file.')
 print('reader_typography_ui_spec: native setting queue, ownership and font choice passed')

@@ -153,6 +153,10 @@ if offline then
         dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
             reader,reader.weread,pump,shot,clean,true,evidence)
     end
+    if os.getenv('WEREAD_TEST_READER_MARGINS')=='1' then
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_margins_smoke.lua')(
+            reader,reader.weread,pump,shot,clean,true,evidence)
+    end
     if cb_edit then dofile('/source/spec/koreader/cb_highlight_edit_smoke.lua')(reader,reader.weread,pump,clean,true)
     elseif cb_resume then check_cb_notes(reader,reader.weread,false) end
     UI:forceRePaint();Device.screen:shot(evidence..'/cached-resume-offline.png')
@@ -173,14 +177,23 @@ end
 if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
 local typography=os.getenv('WEREAD_TEST_READER_TYPOGRAPHY')=='1'
+local margins=os.getenv('WEREAD_TEST_READER_MARGINS')=='1'
 if typography then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
         reader,current,pump,shot,clean,false,evidence)
 end
-if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' or typography then
+if margins then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_margins_smoke.lua')(
+        reader,current,pump,shot,clean,false,evidence)
+end
+if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' or typography or margins then
     local function inspect_previous(previous,previous_host)
         if typography then
             dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_typography_smoke.lua')(
+                previous,previous_host,pump,shot,clean,true,evidence)
+        end
+        if margins then
+            dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_margins_smoke.lua')(
                 previous,previous_host,pump,shot,clean,true,evidence)
         end
     end

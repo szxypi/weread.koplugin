@@ -54,7 +54,8 @@ Source-coordinate protocol research:
   Official Web JavaScript is loaded for verification, not redistributed.
 The home/shelf/store navigation is adapted to the original WeRead services.
 
-The native reading typography controls in weread/ui/reader_typography.lua
+The native reading typography and margin controls in
+weread/ui/reader_typography.lua and weread/ui/reader_margins.lua
 reference MiuRead's reader_typography_dialog.lua and reader settings in
 miuread.koplugin/main.lua. Copyright (C) 2026 MiuRead contributors;
 AGPL-3.0-only, source repository as above.
