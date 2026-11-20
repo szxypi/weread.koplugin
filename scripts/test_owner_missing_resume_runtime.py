@@ -22,8 +22,10 @@ def main():
     parser.add_argument('--dpi',type=int,default=167)
     choice=parser.add_mutually_exclusive_group();choice.add_argument('--reader-estimate',action='store_true');choice.add_argument('--reader-typography',action='store_true');choice.add_argument('--reader-margins',action='store_true');choice.add_argument('--reader-display',action='store_true')
     parser.add_argument('--reader-neighbor',action='store_true')
+    parser.add_argument('--neighbor-previous',action='store_true')
     args=parser.parse_args()
     if args.reader_neighbor and not args.reader_estimate:parser.error('--reader-neighbor requires --reader-estimate')
+    if args.neighbor_previous and not args.reader_neighbor:parser.error('--neighbor-previous requires --reader-neighbor')
     root=args.run_dir.resolve();root.mkdir(parents=True,exist_ok=False);repo=Path(__file__).resolve().parent.parent
     archive=root/'candidate.zip';subprocess.run(['bash',str(repo/'scripts/package_release.sh'),str(archive)],check=True,capture_output=True)
     server=MockServer(0,root/'requests.jsonl');server.cb_reading=True
@@ -39,8 +41,9 @@ def main():
             cookies=dict(wr_vid='900000',wr_skey='mock_key'),missing_resume_probe=True,resume_warning_probe=True,resume_mock_port=server.server_port)
         if args.reader_estimate:payload['reader_estimate_probe']=True
         if args.reader_neighbor:
-            payload['reader_neighbor']=dict(uid='3',direction=1,
-                raw_sha256=hashlib.sha256(server.chapter_source(3).encode()).hexdigest())
+            neighbor=1 if args.neighbor_previous else 3
+            payload['reader_neighbor']=dict(uid=str(neighbor),direction=-1 if args.neighbor_previous else 1,
+                raw_sha256=hashlib.sha256(server.chapter_source(neighbor).encode()).hexdigest())
         if args.reader_typography:payload['reader_typography_probe']=True
         if args.reader_margins:payload['reader_margins_probe']=True
         if args.reader_display:payload['reader_display_probe']=True

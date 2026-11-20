@@ -39,6 +39,7 @@ return function(input,host,reader,pump)
     select(host,neighbor.direction)
     local next_host,next_reader=wait_for_open(reader)
     assert(next_reader.document.file~=original,'adjacent chapter did not open a new file')
+    local neighbor_path=next_reader.document.file
     local source=assert(Source.read_document(next_reader.document,input.book_id,neighbor.uid))
     assert(source.raw_sha256==neighbor.raw_sha256,'adjacent chapter source does not match independent read')
     select(next_host,-neighbor.direction)
@@ -46,5 +47,60 @@ return function(input,host,reader,pump)
     assert(reader.document.file==original,'return did not reopen original chapter')
     reader.rolling:onGotoXPointer(point);UI:forceRePaint()
     assert(reader.document:isXPointerInCurrentPage(point),'return did not restore original visible position')
+
+    -- Test the separate quick-menu entry from whichever chapter has a next
+    -- neighbor, while reusing only the two previously verified files.
+    if neighbor.direction==-1 then
+        select(host,-1)
+        host,reader=wait_for_open(reader)
+        assert(reader.document.file==neighbor_path,'could not return to the previous chapter')
+    end
+    pump(function() return host.progress_sync.current_book_id==input.book_id end)
+    local function quick()
+        while UI:getTopmostVisibleWidget() and UI:getTopmostVisibleWidget()~=reader do
+            UI:close(UI:getTopmostVisibleWidget())
+        end
+        assert(host:onShowWeReadQuickMenu());UI:forceRePaint()
+        return assert(UI:getTopmostVisibleWidget())
+    end
+    local menu=quick()
+    local list=assert(menu:getButtonById('chapter_list'));assert(list.enabled~=false)
+    list:onTapSelectButton()
+    pump(function() return host._chapter_list_view~=nil end)
+    local view=assert(host._chapter_list_view)
+    assert(type(view.chapters)=='table' and #view.chapters==#chapters,'quick-menu chapter list was incomplete')
+    local listed=false
+    for _,item in ipairs(view.chapters) do
+        local chapter=item.source
+        if chapter and tostring(chapter.chapterUid or chapter.chapterId)==neighbor.uid then listed=true end
+    end
+    assert(listed,'quick-menu chapter list omitted the verified neighbor')
+    menu=quick()
+    local original_open=host.openChapter
+    local calls=0
+    host.openChapter=function() calls=calls+1 end
+    assert(menu:getButtonById('next_chapter')):onTapSelectButton()
+    local old_session=host._reader_session_gen
+    host._reader_session_gen=(old_session or 0)+1
+    local done=false;UI:scheduleIn(.3,function() done=true end)
+    pump(function() return done end)
+    host._reader_session_gen=old_session;host.openChapter=original_open
+    assert(calls==0 and Reader.instance==reader,'stale quick-menu action opened a chapter')
+    menu=quick()
+    local next_button=assert(menu:getButtonById('next_chapter'));assert(next_button.enabled~=false)
+    next_button:onTapSelectButton()
+    next_host,next_reader=wait_for_open(reader)
+    if neighbor.direction==1 then
+        assert(next_reader.document.file==neighbor_path,'quick-menu next chapter did not open')
+        local checked=assert(Source.read_document(next_reader.document,input.book_id,neighbor.uid))
+        assert(checked.raw_sha256==neighbor.raw_sha256,'quick-menu next chapter source changed')
+        select(next_host,-1)
+        host,reader=wait_for_open(next_reader)
+    else
+        host,reader=next_host,next_reader
+    end
+    assert(reader.document.file==original,'quick-menu navigation did not return to the original chapter')
+    reader.rolling:onGotoXPointer(point);UI:forceRePaint()
+    assert(reader.document:isXPointerInCurrentPage(point),'quick-menu navigation lost the original visible position')
     return host,reader
 end

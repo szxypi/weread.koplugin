@@ -103,7 +103,7 @@ local ok,reason=pcall(function()
             and neighbor.uid~=input.chapter_uid and (neighbor.direction==1 or neighbor.direction==-1)
             and type(neighbor.raw_sha256)=='string' and #neighbor.raw_sha256==64
             and neighbor.raw_sha256:match('^[a-f0-9]+$'))
-        report.reader_neighbor_verified=false
+        report.reader_neighbor_verified=false;report.reader_quick_verified=false
     end
     assert(input.reader_typography_probe==nil or input.reader_typography_probe==true and not cb_reading
         and not input.reader_estimate_probe and not input.full_manifest and input.source_format=='web_xhtml'
@@ -1178,7 +1178,7 @@ local ok,reason=pcall(function()
     if input.reader_neighbor then
         plugin,reader=dofile(fixtures..'owner_reader_neighbor_case.lua')(input,plugin,reader,pump)
         document=reader.document
-        report.reader_neighbor_verified=true
+        report.reader_neighbor_verified=true;report.reader_quick_verified=true
     end
     if close_trial_mode then
         assert(candidate_case.closed==true and candidate_case.report.document_closed

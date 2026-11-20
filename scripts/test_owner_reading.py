@@ -226,10 +226,12 @@ class OwnerReadingTests(unittest.TestCase):
     def test_reader_neighbor_requires_both_stages_and_estimate_scope(self):
         value=envelope()
         for part in value['report']['stages']:
-            part.update(reader_estimate_verified=True,reader_estimate_stage=5,reader_neighbor_verified=True)
+            part.update(reader_estimate_verified=True,reader_estimate_stage=5,reader_neighbor_verified=True,reader_quick_verified=True)
         probe.decode_envelope(frame(value),OWNER,reader_estimate=True,reader_neighbor=True)
         for index in (0,1):
             bad=deepcopy(value);bad['report']['stages'][index]['reader_neighbor_verified']=False
+            with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,reader_estimate=True,reader_neighbor=True)
+            bad=deepcopy(value);bad['report']['stages'][index]['reader_quick_verified']=False
             with self.assertRaises(ValueError):probe.decode_envelope(frame(bad),OWNER,reader_estimate=True,reader_neighbor=True)
         with self.assertRaises(ValueError):probe.decode_envelope(frame(value),OWNER,reader_neighbor=True)
 

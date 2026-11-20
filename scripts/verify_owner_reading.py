@@ -88,7 +88,7 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
         raise ValueError('reading_scope')
     expected = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'requests'}
     if reader_estimate: expected.update(('reader_estimate_verified','reader_estimate_stage'))
-    if reader_neighbor: expected.add('reader_neighbor_verified')
+    if reader_neighbor: expected.update(('reader_neighbor_verified','reader_quick_verified'))
     if reader_typography: expected.update(('reader_typography_verified','reader_typography_stage'))
     if reader_margins: expected.update(('reader_margins_verified','reader_margins_stage'))
     if reader_display: expected.update(('reader_display_verified','reader_display_stage'))
@@ -112,6 +112,9 @@ def validate_stage(value, mode, *, full_chapters=1, cb_reading=False, cb_full_bo
         raise ValueError('reading_incomplete')
     if reader_neighbor and (type(value['reader_neighbor_verified']) is not bool
                             or value['result']=='PASS' and not value['reader_neighbor_verified']):
+        raise ValueError('reading_incomplete')
+    if reader_neighbor and (type(value['reader_quick_verified']) is not bool
+                            or value['result']=='PASS' and not value['reader_quick_verified']):
         raise ValueError('reading_incomplete')
     if reader_typography and (type(value['reader_typography_verified']) is not bool
                               or type(value['reader_typography_stage']) is not int or not 0<=value['reader_typography_stage']<=4
@@ -766,7 +769,7 @@ def main(argv=None):
             if args.missing_resume: report['missing_resume_verified']=True
             if args.resume_warning: report['resume_warning_verified']=True
             if args.reader_estimate: report['reader_estimate_verified']=True
-            if args.reader_neighbor: report['reader_neighbor_verified']=True
+            if args.reader_neighbor: report.update(reader_neighbor_verified=True,reader_quick_verified=True)
             if args.reader_typography: report['reader_typography_verified']=True
             if args.reader_margins: report['reader_margins_verified']=True
             if args.reader_display: report['reader_display_verified']=True
