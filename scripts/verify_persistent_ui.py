@@ -47,6 +47,7 @@ COUNTS = {'shelf_books': 5000, 'shelf_groups': 1000, 'painted_views': 4,
 RUNNER_ERRORS |= {'persistent_ui_count_' + key for key in COUNTS}
 RUNNER_ERRORS |= {'persistent_ui_coverage_schema','persistent_ui_coverage_incomplete'}
 RUNNER_ERRORS |= {'persistent_ui_cb_scope','persistent_ui_cb_count'}
+RUNNER_ERRORS |= {'persistent_ui_bulk_scope','persistent_ui_bulk_incomplete'}
 FULL_SHELF_LIMIT = 160
 FULL_COUNTS = dict(COUNTS, shelf_books=FULL_SHELF_LIMIT, painted_views=322,
                    cover_gets=640, progress_gets=FULL_SHELF_LIMIT, cover_cells=FULL_SHELF_LIMIT,
@@ -96,14 +97,16 @@ class CbShelfMetadataProbe(FullShelfMetadataProbe):
         return dict(shelf_book_count=len(shelf['books']))
 
 
-def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False):
+def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False,bulk_progress=False):
     if all_groups and not all_shelf_pages:raise ValueError('persistent_ui_group_scope')
+    if bulk_progress and not all_shelf_pages:raise ValueError('persistent_ui_bulk_scope')
     if cb_metadata and (not all_shelf_pages or type(metadata_books) is not int or not 1<=metadata_books<=8):
         raise ValueError('persistent_ui_cb_scope')
     keys = FLAGS | set(COUNTS) | {'result', 'phase', 'mode', 'request_counts', 'paged_shelf'}
     if all_shelf_pages:keys |= {'shelf_coverage'}
     if all_groups:keys |= {'group_coverage'}
     if cb_metadata:keys |= {'cb_metadata_books'}
+    if bulk_progress:keys |= {'bulk_progress'}
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError('persistent_ui_schema')
     if (type(value['result']) is not str or value['result'] not in {'PASS', 'UNVERIFIED'}
@@ -127,6 +130,16 @@ def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metad
         raise ValueError('persistent_ui_offline_network')
     if value['known_progress'] > value['progress_snapshots']:
         raise ValueError('persistent_ui_progress')
+    if bulk_progress:
+        bulk=value['bulk_progress']
+        if (not isinstance(bulk,dict) or set(bulk)!={'eligible','saved','skipped','menu_started','cache_verified'}
+                or any(type(bulk[k]) is not int or not 0<=bulk[k]<=FULL_SHELF_LIMIT for k in ('eligible','saved','skipped'))
+                or any(type(bulk[k]) is not bool for k in ('menu_started','cache_verified'))
+                or value['result']=='PASS' and (not bulk['eligible'] or bulk['saved']!=bulk['eligible']
+                    or not bulk['cache_verified'] or bulk['menu_started']!=(mode=='live')
+                    or not isinstance(value.get('shelf_coverage'),dict)
+                    or bulk['eligible']!=value['shelf_coverage'].get('progress_eligible'))):
+            raise ValueError('persistent_ui_bulk_incomplete')
     if value['cover_retries'] > value['cover_gets']:
         raise ValueError('persistent_ui_requests')
     if cb_metadata and (type(value['cb_metadata_books']) is not int or not 0<=value['cb_metadata_books']<=metadata_books
@@ -162,14 +175,14 @@ def validate_stage(value, mode, *, all_shelf_pages=False,cb_metadata=False,metad
     return value
 
 
-def decode_stage(raw, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False):
+def decode_stage(raw, mode, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False,bulk_progress=False):
     if not isinstance(raw, bytes) or len(raw) > 2 * 1024 * 1024 or raw.count(FRAME) != 1:
         raise ValueError('persistent_ui_frame')
     return validate_stage(json.loads(raw.split(FRAME)[1]), mode,all_shelf_pages=all_shelf_pages,
-                          cb_metadata=cb_metadata,metadata_books=metadata_books,all_groups=all_groups)
+                          cb_metadata=cb_metadata,metadata_books=metadata_books,all_groups=all_groups,bulk_progress=bulk_progress)
 
 
-def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False):
+def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books=1,all_groups=False,bulk_progress=False):
     if not isinstance(raw, bytes) or len(raw) > 65536 or raw.count(FRAME) != 1:
         raise ValueError('persistent_ui_frame')
     value = json.loads(raw.split(FRAME)[1])
@@ -179,7 +192,7 @@ def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books
             or len(value['stages']) > 2 or type(value['runner_error']) is not str or value['runner_error'] not in RUNNER_ERRORS):
         raise ValueError('persistent_ui_runner_schema')
     for mode, stage in zip(('live', 'reopen'), value['stages']):
-        validate_stage(stage, mode,all_shelf_pages=all_shelf_pages,cb_metadata=cb_metadata,metadata_books=metadata_books,all_groups=all_groups)
+        validate_stage(stage, mode,all_shelf_pages=all_shelf_pages,cb_metadata=cb_metadata,metadata_books=metadata_books,all_groups=all_groups,bulk_progress=bulk_progress)
     if value['result'] == 'PASS' and (value['runner_error'] != 'none' or not value['tmpfs_profile'] or not value['profile_removed']
             or len(value['stages']) != 2 or any(s['result'] != 'PASS' for s in value['stages'])
             or any(value['stages'][0][k] != value['stages'][1][k]
@@ -193,6 +206,10 @@ def decode_result(raw, *, all_shelf_pages=False,cb_metadata=False,metadata_books
         for key in ('groups','memberships','selected_groups','forward_pages','selector_views','checked_memberships','empty_groups'):
             if value['stages'][0]['group_coverage'][key]!=value['stages'][1]['group_coverage'][key]:
                 raise ValueError('persistent_ui_group_incomplete')
+    if value['result']=='PASS' and bulk_progress:
+        for key in ('eligible','saved','skipped'):
+            if value['stages'][0]['bulk_progress'][key]!=value['stages'][1]['bulk_progress'][key]:
+                raise ValueError('persistent_ui_bulk_incomplete')
     return value
 
 
@@ -215,6 +232,7 @@ def main(argv=None):
     parser.add_argument('--all-shelf-pages', action='store_true',help='opt-in full shelf up to 160 entries and reverse offline paging')
     parser.add_argument('--all-groups',action='store_true',help='select and verify every bounded group and its offline pages')
     parser.add_argument('--cb-metadata',action='store_true',help='also verify every selected CB detail and its offline file cache')
+    parser.add_argument('--bulk-progress',action='store_true',help='use the full-shelf progress update menu before paging')
     parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
     if bool(args.saved_session) != bool(args.lua_command):
@@ -222,6 +240,7 @@ def main(argv=None):
     if args.all_shelf_pages and not args.saved_session:parser.error('--all-shelf-pages requires --saved-session')
     if args.all_groups and not args.all_shelf_pages:parser.error('--all-groups requires --all-shelf-pages')
     if args.cb_metadata and not args.all_shelf_pages:parser.error('--cb-metadata requires --all-shelf-pages')
+    if args.bulk_progress and not args.all_shelf_pages:parser.error('--bulk-progress requires --all-shelf-pages')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   credentials_written_to_persistent_files=False, private_data_on_regular_disk=False,
                   account_data_writes_attempted=0, authentication_posts_attempted=0, screenshots=0)
@@ -243,6 +262,7 @@ def main(argv=None):
             if args.all_shelf_pages:
                 payload.update(all_shelf_pages=True,expected_shelf=probe.shelf_reference)
             if args.all_groups:payload.update(all_groups=True,expected_groups=probe.group_reference)
+            if args.bulk_progress:payload['bulk_progress']=True
             if args.cb_metadata:
                 payload.update(cb_metadata=True,metadata_samples=[dict(book_id=row['book_id'],expected_metadata=row['expected']) for row in probe.samples])
             encoded = json.dumps(payload, ensure_ascii=False).encode()
@@ -252,7 +272,7 @@ def main(argv=None):
             domains = re.findall(rb'(?m)^WEREAD_PUBLIC_COVER_DOMAIN=([a-z-]{1,63}\.[a-z]{2,12})$', child.stderr)
             if domains:
                 report['blocked_image_domains'] = sorted({d.decode('ascii') for d in domains})
-            value = decode_result(child.stdout,all_shelf_pages=args.all_shelf_pages,cb_metadata=args.cb_metadata,metadata_books=len(probe.samples),all_groups=args.all_groups)
+            value = decode_result(child.stdout,all_shelf_pages=args.all_shelf_pages,cb_metadata=args.cb_metadata,metadata_books=len(probe.samples),all_groups=args.all_groups,bulk_progress=args.bulk_progress)
             report.update(ui=value, python_preflight_gets=2+len(probe.samples), same_owner_verified=True)
             if child.returncode or value['result'] != 'PASS':
                 raise ValueError('persistent_ui_unverified')

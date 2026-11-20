@@ -50,6 +50,15 @@ def full_stage(mode='live'):
 def full_result():return dict(result(),stages=[full_stage(),full_stage('reopen')])
 
 
+def bulk_stage(mode='live'):
+    value=full_stage(mode)
+    value['bulk_progress']=dict(eligible=137,saved=137,skipped=0,menu_started=mode=='live',cache_verified=True)
+    return value
+
+
+def bulk_result():return dict(result(),stages=[bulk_stage(),bulk_stage('reopen')])
+
+
 def cb_stage(mode='live',books=5):
     value=full_stage(mode);value['cb_metadata_books']=books;value['painted_views']+=books-1
     if mode=='live':value['request_counts']=[1,books]
@@ -306,6 +315,47 @@ class FullShelfUITests(unittest.TestCase):
         for private in ('private-title','private-cookie','private-access','88008800','99009900'):
             self.assertNotIn(private,out.getvalue())
         self.assertEqual(json.loads(out.getvalue())['result'],'OWNER_FILE_BACKED_UI_READ_VERIFIED')
+
+
+class BulkProgressUITests(unittest.TestCase):
+    def test_explicit_full_shelf_scope_and_matching_stages(self):
+        data=bulk_result()
+        self.assertEqual(decode_result(FRAME+json.dumps(data).encode(),all_shelf_pages=True,bulk_progress=True),data)
+        for options in ({},{'all_shelf_pages':True},{'bulk_progress':True}):
+            with self.assertRaises(ValueError):decode_result(FRAME+json.dumps(data).encode(),**options)
+        for args in (['--bulk-progress'],['--saved-session','--bulk-progress','--lua-command','synthetic']):
+            with patch('verify_persistent_ui.SessionStore') as store,redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):main(args)
+            store.assert_not_called()
+
+    def test_partial_or_private_results_never_pass(self):
+        for key,bad in (('eligible',0),('saved',136),('skipped',True),('menu_started',False),
+                        ('cache_verified',False),('title','private')):
+            value=bulk_stage();value['bulk_progress'][key]=bad
+            with self.subTest(key=key),self.assertRaises(ValueError):
+                validate_stage(value,'live',all_shelf_pages=True,bulk_progress=True)
+        value=bulk_result();value['stages'][1]['bulk_progress']['skipped']=1
+        with self.assertRaises(ValueError):decode_result(FRAME+json.dumps(value).encode(),all_shelf_pages=True,bulk_progress=True)
+        value=bulk_stage('reopen');value['progress_gets']=1
+        with self.assertRaises(ValueError):validate_stage(value,'reopen',all_shelf_pages=True,bulk_progress=True)
+
+    def test_cli_passes_explicit_bulk_scope_without_exporting_private_input(self):
+        grant=dict(vid='88008800',accessToken='private-access',refreshToken='private-refresh',deviceId='private-device')
+        saved=dict(vid='88008800',cookies={'wr_skey':'private-cookie'})
+        reference={'99009900':dict(title='private-title',author='',cover='')}
+        probe=SimpleNamespace(inspect=lambda *_:dict(shelf_book_count=139),
+                              samples=[dict(book_id='99009900',expected=dict(bookId='99009900',title='private-title'))],
+                              shelf_reference=reference)
+        child=SimpleNamespace(returncode=0,stdout=FRAME+json.dumps(bulk_result()).encode(),stderr=b'')
+        with patch('verify_persistent_ui.SessionStore') as web,patch('verify_persistent_ui.NativeSessionStore') as native,\
+             patch('verify_persistent_ui.FullShelfMetadataProbe',return_value=probe),\
+             patch('verify_persistent_ui.verified_web_snapshot',return_value=(saved['cookies'],False)),\
+             patch('verify_persistent_ui.subprocess.run',return_value=child) as run,redirect_stdout(io.StringIO()) as out:
+            web.return_value.load.return_value=saved;native.return_value.load.return_value=grant
+            self.assertEqual(main(['--saved-session','--all-shelf-pages','--bulk-progress','--lua-command','synthetic']),0)
+        payload=json.loads(run.call_args.kwargs['input'])
+        self.assertTrue(payload['bulk_progress']);self.assertEqual(reference,{})
+        for private in ('private-title','private-cookie','private-access','88008800','99009900'):
+            self.assertNotIn(private,out.getvalue())
 
 
 class CbMetadataUITests(unittest.TestCase):

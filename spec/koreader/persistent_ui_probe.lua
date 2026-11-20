@@ -26,6 +26,9 @@ local ok,reason=pcall(function()
     local all_pages=input.all_shelf_pages==true
     local cb_metadata=input.cb_metadata==true
     local all_groups=input.all_groups==true
+    local bulk_progress=input.bulk_progress==true
+    assert(input.bulk_progress==nil or type(input.bulk_progress)=='boolean')
+    assert(not bulk_progress or all_pages)
     assert(input.all_groups==nil or type(input.all_groups)=='boolean')
     assert(not all_groups or all_pages)
     assert(input.cb_metadata==nil or type(input.cb_metadata)=='boolean')
@@ -299,6 +302,12 @@ local ok,reason=pcall(function()
         local cover=book.cover
         if type(cover)=='string' and cover:match('^http://wx%.qlogo%.cn/') then cover='https://'..cover:sub(8) end
         if type(cover)=='string' and cover:match('^https://[%w.-]+/') and not cover:find('[%z%c%s]') then allow(cover,'cover') end
+    end
+    if bulk_progress then
+        local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
+        report.bulk_progress=dofile(fixtures..'shelf_owner_bulk_progress_case.lua')(plugin,mode,function()
+            return tonumber(counters[3]),tonumber(counters[4])
+        end)
     end
     local db=assert(plugin.library_db:open())
     local _,name,file=db:rowexec('PRAGMA database_list')

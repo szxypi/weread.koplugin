@@ -58,9 +58,11 @@ def main(argv=None):
     parser.add_argument('--all-shelf-pages',action='store_true')
     parser.add_argument('--all-groups',action='store_true')
     parser.add_argument('--cb-metadata',action='store_true')
+    parser.add_argument('--bulk-progress',action='store_true')
     args = parser.parse_args(argv)
     if args.all_groups and not args.all_shelf_pages:parser.error('--all-groups requires --all-shelf-pages')
     if args.cb_metadata and not args.all_shelf_pages:parser.error('--cb-metadata requires --all-shelf-pages')
+    if args.bulk_progress and not args.all_shelf_pages:parser.error('--bulk-progress requires --all-shelf-pages')
     runtime = args.koreader.resolve()
     if sys.platform != 'linux' or not (runtime / 'luajit').is_file() or min(args.width, args.height, args.dpi) < 1:
         parser.error('requires Linux, a built runtime and positive display dimensions')
@@ -75,7 +77,8 @@ def main(argv=None):
         payload=json.loads(raw)
         if (not isinstance(payload,dict) or payload.get('all_shelf_pages',False) is not args.all_shelf_pages
                 or payload.get('cb_metadata',False) is not args.cb_metadata
-                or payload.get('all_groups',False) is not args.all_groups):
+                or payload.get('all_groups',False) is not args.all_groups
+                or payload.get('bulk_progress',False) is not args.bulk_progress):
             raise ValueError('input_limit')
         metadata_books=len(payload['metadata_samples']) if args.cb_metadata else 1
         with tempfile.TemporaryDirectory(prefix='weread-persistent-', dir='/dev/shm') as temporary:
@@ -92,7 +95,7 @@ def main(argv=None):
             for mode in ('live', 'reopen'):
                 code, out, repaint = run_child([str(runtime / 'luajit'), str(probe), mode], env, raw, runtime,
                                               timeout=600 if args.all_shelf_pages else 150)
-                stage = decode_stage(out, mode,all_shelf_pages=args.all_shelf_pages,cb_metadata=args.cb_metadata,metadata_books=metadata_books,all_groups=args.all_groups)
+                stage = decode_stage(out, mode,all_shelf_pages=args.all_shelf_pages,cb_metadata=args.cb_metadata,metadata_books=metadata_books,all_groups=args.all_groups,bulk_progress=args.bulk_progress)
                 report['stages'].append(stage)
                 if code or repaint or stage['result'] != 'PASS':
                     raise ValueError('stage_unverified')
