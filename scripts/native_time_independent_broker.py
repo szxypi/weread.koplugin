@@ -55,6 +55,14 @@ class Prepared:
         self.bundle.clear();self.grant.clear();self.receipt=None;self.evidence=None
 
 
+def ui_command_from(command):
+    """Derive the single fixed-size dry-only menu worker from the attested task."""
+    old='scripts/run_native_time_guarded_worker.py'
+    if not isinstance(command,list) or command.count(old)!=1:raise ValueError('independent_broker/command')
+    result=list(command);result[result.index(old)]='scripts/run_native_time_independent_ui_worker.py'
+    return result+['--width','1264','--height','1680','--dpi','300']
+
+
 def execute(prepared,signing,cookies,store,gate,audit,current,command,*,armed=False):
     if (not isinstance(prepared,Prepared) or not isinstance(prepared.evidence,IndependentCaptureEvidence)
             or not isinstance(signing,SigningInputs) or not isinstance(gate,IndependentGate)
@@ -74,8 +82,9 @@ def execute(prepared,signing,cookies,store,gate,audit,current,command,*,armed=Fa
                 or type(current) is not AccountBinding
                 or not current.matches(grant,cookies)):
             raise ValueError('independent_broker/scope')
-        expected=trusted_command()+(['--allow-live'] if armed else [])
-        if command!=expected:raise ValueError('independent_broker/command')
+        attested=trusted_command()
+        allowed=[attested+['--allow-live']] if armed else [attested,ui_command_from(attested)]
+        if command not in allowed:raise ValueError('independent_broker/command')
     if current() is not True or store.read()!=(bundle,prepared.receipt):raise ValueError('independent_broker/stale')
     supervisor=IndependentNativeBoundSupervisor(gate,store,bundle,grant,signing.guest,signing.config_token,current,
                                                 audit_store=audit,evidence=evidence)

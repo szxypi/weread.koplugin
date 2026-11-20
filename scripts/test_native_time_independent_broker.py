@@ -9,6 +9,14 @@ from test_native_time_independent_audit import fixture
 
 
 class BrokerTests(unittest.TestCase):
+    def test_ui_worker_is_fixed_size_and_not_a_live_command(self):
+        base=['docker','exec','scripts/run_native_time_guarded_worker.py','--source','/source']
+        ui=task.ui_command_from(base)
+        self.assertEqual(ui,['docker','exec','scripts/run_native_time_independent_ui_worker.py','--source','/source',
+                             '--width','1264','--height','1680','--dpi','300'])
+        self.assertNotIn('--allow-live',ui);self.assertEqual(base[2],'scripts/run_native_time_guarded_worker.py')
+        with self.assertRaises(ValueError):task.ui_command_from(['untrusted'])
+
     def setup_case(self):
         bundle,grant,_body,_now,_before,evidence,gate,audit,_samples,_observations=fixture()
         receipt=Receipt(b'synthetic-capture');store=Mock();store.read.return_value=(bundle,receipt)
@@ -59,6 +67,22 @@ class BrokerTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError,'independent_broker/command'):
                     task.execute(prepared,signing,cookies,store,gate,audit,FakeBinding(),['untrusted'],armed=armed)
                 spawn.assert_not_called()
+
+    def test_real_menu_worker_never_accepts_live_mode(self):
+        class FakeMac:
+            def __init__(self,service):self.service=service;self.account=task.ACCOUNT
+        class FakeBinding:
+            def __call__(self):return True
+            def matches(self,_grant,_cookies):return True
+        prepared,signing,cookies,store,gate,audit=self.setup_case()
+        gate._real=True;audit._real=True
+        store.backend=FakeMac(task.CAPTURE_SERVICE);gate.backend=FakeMac(task.GATE_SERVICE);audit.backend=FakeMac(task.AUDIT_SERVICE)
+        base=['docker','exec','scripts/run_native_time_guarded_worker.py']
+        with patch.object(task,'MacKeychain',FakeMac),patch.object(task,'AccountBinding',FakeBinding), \
+             patch.object(task,'trusted_command',return_value=base),patch.object(task.subprocess,'Popen') as spawn:
+            with self.assertRaisesRegex(ValueError,'independent_broker/command'):
+                task.execute(prepared,signing,cookies,store,gate,audit,FakeBinding(),task.ui_command_from(base),armed=True)
+            spawn.assert_not_called()
 
 
 if __name__=='__main__':unittest.main()

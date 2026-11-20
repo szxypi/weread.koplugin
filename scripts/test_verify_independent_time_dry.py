@@ -55,5 +55,12 @@ class DryTests(unittest.TestCase):
                 if mode in ('preflight','signing','capture','old'):broker.assert_not_called()
                 if mode=='maybe_sent':self.assertTrue(result['dispatch_may_have_occurred']);self.assertIsNone(result['account_data_posts'])
 
+    def test_menu_dry_uses_disarmed_broker_and_reports_menu(self):
+        args,options,broker,_signer,_proof=self.setup_case()
+        result=task.run(*args,ui=True,**options)
+        self.assertEqual(result['result'],'INDEPENDENT_NATIVE_MENU_DRY_VERIFIED')
+        self.assertFalse(broker.call_args.kwargs['armed'])
+        self.assertFalse(result['dispatch_may_have_occurred'])
+
 
 if __name__=='__main__':unittest.main()
