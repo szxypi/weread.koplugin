@@ -104,12 +104,14 @@ function M.fetch(client, book_id, selected, options)
     end
     local display = selected.display or {}
     for _, access in ipairs({ display.gateway or false, display.web or false }) do
-        if access and (Access.book_id(book_id) or access.kind == "web") then
+        if access and (not options.web_only or access.kind == "web") and (Access.book_id(book_id) or access.kind == "web") then
             local ok, value = pcall(client.get_display_book_metadata, client, book_id, access)
             current()
             if ok then
                 local normalized, metadata = pcall(M.normalize, value, book_id)
                 if normalized then return { metadata = metadata, source = access.kind } end
+            elseif access.kind == "web" and value == "book_metadata/web_expired" and options.recover_web then
+                fail("web_expired")
             end
         end
     end

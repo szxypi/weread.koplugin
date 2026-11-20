@@ -11,6 +11,7 @@ local function fixture()
     state={callbacks={},results={},current=true,starts=0,cancels=0}
     local service={start=function(self,options,callback)
         state.starts=state.starts+1;self.job={is_current=options.is_current};state.callbacks[#state.callbacks+1]=callback
+        state.expected_revision=options.expected_revision
         if state.start_failed then self.job=nil;return false,'renewal_unconfirmed' end
         return true,self.job
     end,cancel=function(self,job) if self.job==job then self.job=nil;state.cancels=state.cancels+1 end end}
@@ -41,6 +42,10 @@ host,done=fixture();state.start_failed=true;UI.run(host,{busy=true},done)
 expect(state.results[1].reason=='renewal_unconfirmed' and not host._web_renewal_request and not host.busy_message,'start failure kept busy UI')
 host,done=fixture();UI.run(host,{},done);local ok,reason=UI.run(host,{},done)
 expect(not ok and reason=='busy' and state.starts==1,'concurrent renewal replaced current owner')
+host,done,deliver=fixture();UI.run(host,{expected_revision='synthetic-revision'},done)
+expect(state.expected_revision=='synthetic-revision','renewal did not bind the caller revision')
+deliver(false,'save_failed');host._web_renewal_request.dialog.ok_callback()
+expect(state.expected_revision=='synthetic-revision','save-only retry dropped the caller revision');deliver(true)
 host,done=fixture();local previous=package.loaded['weread.ui.prefetch_auth_recovery'];local stopped=0
 host.web_renewal.job={}
 package.loaded['weread.ui.prefetch_auth_recovery']={cancel=function(owner)

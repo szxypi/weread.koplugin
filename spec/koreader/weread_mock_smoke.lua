@@ -272,7 +272,9 @@ assert(completed and full_path, download_error or "Downloader did not complete")
 local file = assert(io.open(full_path, "rb"))
 assert(file:read(2) == "PK", "full download must produce an EPUB ZIP")
 file:close()
-source_probe.full(full_path, book.bookId or book.book_id, chapters, home .. "/../evidence", client)
+-- Use the live reader's settings: earlier login tests deliberately invalidate
+-- the bootstrap client's account epoch before the prefetch ownership check.
+source_probe.full(full_path, book.bookId or book.book_id, chapters, home .. "/../evidence", reader.weread.client)
 reader:onClose()
 if verify_reopened_file then verify_reopened_file() end
 UIManager:quit()

@@ -968,6 +968,7 @@ function Client:get_display_book_metadata(book_id, access)
         options.headers.Authorization = "Bearer " .. access.api_key
     else error("book_metadata/access_required", 0) end
     local _, code, headers = self:request(options)
+    if not exceeded and code == 401 and access.kind == "web" then error("book_metadata/web_expired", 0) end
     if exceeded or code ~= 200 then error("book_metadata/unavailable", 0) end
     local text = table.concat(chunks)
     if access.kind == "web" then

@@ -644,6 +644,15 @@ expect(metadata_request.method=='GET' and metadata_request.url=='https://weread.
     and metadata_request.headers.Cookie=='wr_skey=XXX-cb-metadata' and metadata_request.headers.Authorization==nil,
     'CB Web metadata changed route or mixed authorization')
 metadata_response.bookId='900001'
+for _,case in ipairs({{kind='web',code=401,expected='book_metadata/web_expired'},
+    {kind='gateway',code=401,expected='book_metadata/unavailable'},
+    {kind='web',code=429,expected='book_metadata/unavailable'},
+    {kind='web',code=401,body=string.rep('x',4*1024*1024+1),expected='book_metadata/unavailable'}}) do
+    responses[#responses+1]={code=case.code,body=case.body or 'private-metadata'}
+    local captured=case.kind=='web' and {kind='web',cookies={}} or {kind='gateway',api_key='synthetic-key'}
+    local success,reason=pcall(client.get_display_book_metadata,client,'900001',captured)
+    expect(not success and reason==case.expected,'metadata classified a non-Web or oversized failure as expired')
+end
 for _,response in ipairs({{code=302,body="private-metadata"},{code=403,body="private-metadata"},
     {code=200,body=string.rep("x",4*1024*1024+1)},{code=200,body="no initial state"},{raise="private-metadata-transport"}}) do
     responses[#responses+1]=response

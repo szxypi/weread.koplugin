@@ -187,4 +187,82 @@ expect(not UI.refresh(host,{book_id="900001"},nil,{automatic=true}),"failed subp
 local _,_,fallback_book=state()
 expect(fallback_book.book_id=="900001" and not host.book_metadata_context and not host.busy_message,
     "unavailable subprocess lost cached detail or retained busy state")
+
+-- A Web 401 is recoverable once, bound to the same detail request and account.
+local pending, renewals, renewal_cancels = nil, 0, 0
+local revision = function() return string.rep(cookies.wr_skey == 'renewed-synthetic' and 'a' or 'b', 64) end
+package.loaded['weread.lib.web_authorization'] = {capture=function() return {revision=revision(),scope=scope} end}
+package.loaded['weread.ui.web_renewal'] = {
+    run=function(_host,options,callback)
+        renewals=renewals+1;pending={guard=options.is_current,callback=callback,expected=options.expected_revision}
+        return true,pending
+    end,
+    cancel=function(_host,request)
+        if request==pending then pending=nil;renewal_cancels=renewal_cancels+1 end
+    end,
+}
+local function expired_fixture(gateway)
+    pending,renewals,renewal_cancels=nil,0,0
+    local sample,get_state,change=fixture()
+    if gateway then key='synthetic-gateway-key' end
+    local status='book_metadata/web_expired'
+    local calls=0
+    sample.client.get_display_book_metadata=function(_self,id,access)
+        calls=calls+1
+        if status then error(status,0) end
+        return {bookId=id,title='Renewed details',author=access.kind}
+    end
+    local selected={book_id='900001',title='Cached title'}
+    expect(UI.refresh(sample,selected,nil,{automatic=true}), 'metadata recovery did not start')
+    return sample,get_state,change,selected,function(value) status=value end,function() return calls end
+end
+local function run_job(get_state) local work=get_state();work.cb(work.task()) end
+local function complete_renewal(receipt)
+    local request=assert(pending);pending=nil;cookies={wr_vid='900000',wr_skey='renewed-synthetic'}
+    request.callback(true,receipt or {revision=revision()})
+end
+local update, selected, set_status, calls
+host,state,_,_,set_status,calls=expired_fixture();run_job(state)
+expect(renewals==1 and pending and pending.expected==string.rep('b',64) and pending.guard(),
+    'Web 401 did not start a revision-bound renewal')
+set_status(nil);complete_renewal();run_job(state)
+local _,_,renewed_book,renewed_saves=state()
+expect(renewed_saves==1 and renewed_book.title=='Renewed details' and calls()==2 and renewals==1
+    and not host.book_metadata_context and not host.busy_message,'renewed Web details were not displayed')
+host,state,_,_,set_status,calls=expired_fixture(true);run_job(state)
+expect(calls()==2 and pending,'gateway fallback did not reach Web recovery')
+set_status(nil);complete_renewal();run_job(state)
+expect(calls()==3 and select(4,state())==1 and select(3,state()).author=='web' and not host.book_metadata_context,
+    'Web recovery repeated the gateway request or failed to commit Web details')
+host,state,_,_,_,calls=expired_fixture();run_job(state);complete_renewal();run_job(state)
+local _,_,cached_book,second_saves=state()
+expect(renewals==1 and calls()==2 and second_saves==0 and cached_book.title=='Cached title'
+    and not host.book_metadata_context,'second 401 retried or lost cached details')
+host,state,_,_,set_status,calls=expired_fixture();set_status('book_metadata/unavailable');run_job(state)
+expect(renewals==0 and calls()==1 and not host.book_metadata_context,'non-401 failure started renewal')
+host,state,_,_,_,calls=expired_fixture();run_job(state)
+local failed_request=pending;pending=nil;failed_request.callback(false,'renewal_unconfirmed')
+local _,_,failed_book,failed_saves=state()
+expect(failed_saves==0 and failed_book.title=='Cached title' and calls()==1 and not host.book_metadata_context,
+    'unconfirmed renewal retried or lost cached details')
+host,state,_,_,_,calls=expired_fixture();run_job(state)
+complete_renewal({revision=string.rep('f',64)})
+expect(select(4,state())==0 and calls()==1 and not host.book_metadata_context,'foreign renewal receipt was accepted')
+for _,change in ipairs({'cancel','account','epoch','book','offline','view'}) do
+    host,state,update,selected,_,calls=expired_fixture()
+    if change=='view' then
+        UI.cancel(host);local view={};host._book_detail_view=view
+        expect(UI.refresh(host,selected,view,{automatic=true}),'detail view refresh did not start')
+    end
+    run_job(state);local old=assert(pending)
+    if change=='cancel' then host.cancel_busy()
+    elseif change=='account' then update{owner='account-b'}
+    elseif change=='epoch' then host.discovery_epoch=2
+    elseif change=='book' then selected.book_id='900002'
+    elseif change=='offline' then update{online=false}
+    else host._book_detail_view={} end
+    old.callback(true,{revision=string.rep('a',64)})
+    expect(select(4,state())==0 and calls()==1 and not host.book_metadata_context and not host.busy_message,
+        'stale metadata renewal was applied: '..change)
+end
 print("PASS: "..checks.." metadata projection/routing/async ownership/local-state checks")

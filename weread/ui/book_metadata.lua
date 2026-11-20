@@ -17,6 +17,7 @@ function M.cancel(host)
     host.book_metadata_context = nil
     if host.book_metadata_worker then host.book_metadata_worker:cancel() end
     Recovery.cancel(host, context)
+    if context.web_request then require('weread.ui.web_renewal').cancel(host, context.web_request) end
     close_busy(host, context)
 end
 
@@ -46,14 +47,18 @@ function M.refresh(host, book, old_view, options)
     host.book_metadata_context = context
     local function current_view()
         return host.book_metadata_context == context and (host.discovery_epoch or 0) == context.epoch
+            and Access.display_book_id(book.book_id or book.bookId) == id
             and (not host.library_db or host.library_db:accountKey() == context.account)
             and (not old_view or host._book_detail_view == old_view)
             and (not guest or host.settings:get('auth_epoch',0)==context.auth_epoch
                 and (not host.settings.get_auth_scope or not host.settings:get_auth_scope()))
     end
     local function current()
-        return current_view() and (guest or context.renewing and Recovery.current(host.settings, access, Metadata.capture)
-            or Metadata.matches(host.settings, access))
+        if not current_view() then return false end
+        if guest then return true end
+        if context.web_renewing then return context.web_current() end
+        if context.renewing then return Recovery.current(host.settings, access, Metadata.capture) end
+        return Metadata.matches(host.settings, access)
     end
     local function finish()
         host.book_metadata_context = nil
@@ -72,6 +77,47 @@ function M.refresh(host, book, old_view, options)
         if ok then host.book_metadata_worker = worker else finish(); failed(); return false end
     end
     local launch
+    local function recover_web()
+        if context.web_attempted or not current() then finish(); failed(); return end
+        local Auth = require('weread.lib.web_authorization')
+        local captured, original = pcall(Auth.capture, host.settings)
+        if not captured or type(original) ~= 'table' or type(original.scope) ~= 'table' or type(original.revision) ~= 'string'
+            or not Metadata.matches(host.settings, access) then finish(); failed(); return end
+        local native_fingerprint = access.native and access.native.fingerprint
+        local api_key = host.settings:get('api_key', '')
+        context.web_attempted, context.web_renewing = true, true
+        context.web_current = function()
+            if not current_view() or not host.settings:auth_scope_matches(original.scope)
+                or host.settings:get('api_key', '') ~= api_key or not host:isNetworkOnline() then return false end
+            local ok, fresh = pcall(Metadata.capture, host.settings, access.native and access.native.store)
+            return ok and fresh ~= nil and (fresh.native and fresh.native.fingerprint) == native_fingerprint
+        end
+        local Renewal = require('weread.ui.web_renewal')
+        local delivered = false
+        local called, started, request = pcall(Renewal.run, host, {
+            is_current = context.web_current, expected_revision = original.revision,
+        }, function(success, receipt)
+            delivered = true
+            if host.book_metadata_context ~= context then return end
+            context.web_request = nil
+            if not context.web_current() or receipt == 'session_changed' then M.cancel(host); return end
+            if not success then finish(); failed(); return end
+            local verified, fresh = pcall(Auth.capture, host.settings)
+            if not verified or type(receipt) ~= 'table' or type(receipt.revision) ~= 'string'
+                or #receipt.revision ~= 64 or not receipt.revision:match('^[0-9a-f]+$')
+                or type(fresh) ~= 'table' or fresh.revision ~= receipt.revision or type(fresh.scope) ~= 'table'
+                or fresh.scope.vid ~= original.scope.vid or fresh.scope.epoch ~= original.scope.epoch then
+                M.cancel(host); return
+            end
+            access = Metadata.capture(host.settings, access.native and access.native.store)
+            if not access or not access.display or not access.display.web then M.cancel(host); return end
+            context.web_renewing = nil
+            launch(true, true)
+        end)
+        if host.book_metadata_context == context then
+            if called and started then if not delivered then context.web_request = request end else finish(); failed() end
+        elseif called and started and request then Renewal.cancel(host, request) end
+    end
     local function complete(result)
         if not current() then
             if host.book_metadata_context == context then M.cancel(host) end
@@ -89,6 +135,7 @@ function M.refresh(host, book, old_view, options)
                 end })
             if recovering then return end
         end
+        if not guest and type(result) == 'table' and result.web_expired then recover_web(); return end
         finish()
         local valid, metadata = pcall(Metadata.normalize, type(result) == "table" and result.metadata, id)
         local source_ok=type(result)=='table' and (guest and result.source=='public'
@@ -117,14 +164,16 @@ function M.refresh(host, book, old_view, options)
         host:showBookMenu(latest)
         host:showTransientInfo(_("Book information updated."), 2)
     end
-    launch = function(skip_native)
+    launch = function(skip_native, web_only)
         local ok, started = pcall(host.book_metadata_worker.start, host.book_metadata_worker, function()
             local valid,result
             if guest then valid,result=pcall(Metadata.fetch_public,host.client,id)
             else valid,result=pcall(Metadata.fetch,host.client,id,access,{
                 recover_auth=host.native_renewal~=nil and not context.recovery_attempted,skip_native=skip_native,
+                recover_web=true,web_only=web_only,
             }) end
-            return valid and result or { native_expired = result == "book_metadata/native_expired" }
+            return valid and result or { native_expired = result == "book_metadata/native_expired",
+                web_expired = result == 'book_metadata/web_expired' }
         end, complete)
         if not ok or not started then
             if host.book_metadata_context == context then M.cancel(host); failed() end

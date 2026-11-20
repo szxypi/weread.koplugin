@@ -73,7 +73,7 @@ return function(plugin,count,flush_tasks,home,pump_until)
     refresh();wait()
     assert(cached().detail_source=="web" and count("/api/agent/gateway","/book/info")==metadata_calls+1,
         "metadata gateway failure did not fall back once")
-    control{match="",times=0,delay=0}
+    control{match="",times=0,delay=0,web_renewal_mode='plain'}
     refresh();wait()
     assert(cached().detail_source=="gateway","configured metadata did not prefer gateway")
     settings:set("api_key","");settings:flush()
@@ -81,6 +81,30 @@ return function(plugin,count,flush_tasks,home,pump_until)
     local updated=cached().detail_updated_at
     refresh();wait()
     assert(cached().detail_updated_at==updated and plugin._book_detail_view,"failure erased cached details")
+    local reader_path=assert(require('weread.lib.protocol').reader_url(id):match('^https://weread%.qq%.com(/.*)$'))
+    local renewal=count('/web/login/renewal')
+    local readers=count(reader_path)
+    books=settings:get('books',{});books[id].detail_updated_at=1000;settings:set('books',books);settings:flush()
+    control{match='/web/reader/',times=1,status=401,delay=0,web_renewal_mode='rotate'}
+    refresh();wait()
+    assert(count('/web/login/renewal')==renewal+1 and count(reader_path)==readers+2
+        and cached().detail_updated_at>1000 and cached().detail_source=='web'
+        and cached().progress==84 and cached().pending_upload_position.percent==83,
+        'expired metadata did not renew and preserve the reader state')
+    assert(require('weread.lib.web_authorization').capture(settings).cookies.wr_skey=='XXXrenewed-native',
+        'metadata recovery did not save the verified receipt')
+    renewal=count('/web/login/renewal');readers=count(reader_path);updated=cached().detail_updated_at
+    control{match='/web/reader/',times=-1,status=401,delay=0,web_renewal_mode='rotate'}
+    refresh();wait()
+    assert(count('/web/login/renewal')==renewal+1 and count(reader_path)==readers+2
+        and cached().detail_updated_at==updated and plugin._book_detail_view,
+        'repeated metadata expiration retried indefinitely or changed cached details')
+    renewal=count('/web/login/renewal');readers=count(reader_path)
+    control{match='/web/reader/',times=1,status=429,delay=0}
+    refresh();wait()
+    assert(count('/web/login/renewal')==renewal and count(reader_path)==readers+1
+        and cached().detail_updated_at==updated,'limited metadata incorrectly renewed or changed the cache')
+    print('PASS: metadata Web 401 -> one verified renewal -> same detail; repeat 401 and 429 stop')
     control{match="/web/reader/",times=0,delay=0.6}
     refresh()
     plugin.busy_message:onTapClose()
@@ -97,7 +121,7 @@ return function(plugin,count,flush_tasks,home,pump_until)
     assert(count("/web/book/read")==writes
         and count("/web/book/getProgress")+count("/api/agent/gateway","/book/getprogress")==progress,
         "metadata queried or wrote reader progress")
-    control{match="",times=0,delay=0}
+    control{match="",times=0,delay=0,web_renewal_mode='plain'}
     plugin:closeWeReadUI()
     settings:update_auth({api_key=previous_key,cookies=previous_cookies},{replace_cookies=true})
     books=settings:get("books",{});books[id]=previous;settings:set("books",books);settings:flush()

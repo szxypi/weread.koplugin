@@ -58,7 +58,7 @@ function M.run(host,options,callback)
     attempt=function()
         if not request.guard() then finish(false,'session_changed');return end
         close_dialog(request)
-        local called,started,job=pcall(service.start,service,{is_current=request.guard},function(ok,reason)
+        local called,started,job=pcall(service.start,service,{is_current=request.guard,expected_revision=options.expected_revision},function(ok,reason)
             if not request.guard() then finish(false,'session_changed');return end
             if not ok and reason=='save_failed' then
                 local dialog
