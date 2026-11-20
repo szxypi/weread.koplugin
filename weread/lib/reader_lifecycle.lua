@@ -250,6 +250,7 @@ function M:onReaderReady()
 end
 
 function M:onPageUpdate()
+    local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local translation_fetch=package.loaded['weread.ui.translation_fetch'];if translation_fetch then translation_fetch.view_changed(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
     require('weread.ui.chapter_links').view_changed(self)
@@ -266,6 +267,7 @@ function M:onPageUpdate()
 end
 
 function M:onPosUpdate()
+    local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local translation_fetch=package.loaded['weread.ui.translation_fetch'];if translation_fetch then translation_fetch.view_changed(self) end
     local review=package.loaded['weread.ui.native_position_review'];if review then review.view_changed(self) end
     require('weread.ui.chapter_links').view_changed(self)
@@ -282,6 +284,7 @@ function M:onPosUpdate()
 end
 
 function M:onCloseDocument()
+    local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._prefetch_auth_attempts=nil
     self._resume_chapter_prefetch=nil
@@ -530,6 +533,7 @@ function M:stopReadReport(reason)
 end
 
 function M:onSuspend()
+    local reading_progress=package.loaded['weread.ui.reader_progress'];if reading_progress then reading_progress.cancel(self) end
     local screenshot=package.loaded['weread.ui.delayed_screenshot'];if screenshot then screenshot.cancel() end
     local renewing=require('weread.ui.prefetch_auth_recovery').cancel(self)
     self._chapter_open_intent=nil

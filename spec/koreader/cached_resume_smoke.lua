@@ -167,6 +167,11 @@ if cb_edit then
 end
 if cb_resume then check_cb_notes(reader,current,true) end
 local first=book(current).cached_chapters['2'];assert(first==reader.document.file)
+if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
+    reader,current=dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_chapter_smoke.lua')(
+        reader,current,pump,clean,id)
+    assert(reader.document.file==first)
+end
 if os.getenv('WEREAD_TEST_PREFETCH_CONDITION') then
     local fixtures=assert(debug.getinfo(1,'S').source:match('^@(.*/)'))
     local _,updated=dofile(fixtures..'prefetch_condition_case.lua')(reader,current,book(current),id,evidence)
@@ -369,6 +374,11 @@ end
 local full=assert(book(host).cached_full_book)
 pump(function() return Reader.instance and Reader.instance.document.file==full end)
 reader,current=Reader.instance,Reader.instance.weread;report.full_download=true
+if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
+    local function shot(name) UI:forceRePaint();Device.screen:shot(evidence..'/'..name..'.png') end
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_smoke.lua')(
+        reader,current,pump,shot,clean,true)
+end
 if handoff_position then
     local deadline=socket.gettime()+12
     while not current.progress_sync:current_source_target() and socket.gettime()<deadline do tick();socket.sleep(.01) end

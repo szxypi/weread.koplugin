@@ -286,6 +286,10 @@ assert(not plugin.book_reading_context and not plugin._book_detail_view and not 
     "plugin views survived native handoff")
 shot("reading-native-reader")
 if screenshot_smoke then screenshot_smoke.reader(reader.weread,reader) end
+if os.getenv('WEREAD_TEST_READER_PROGRESS')=='1' then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'reader_progress_smoke.lua')(
+        reader,reader.weread,pump,shot,clean_popups,false)
+end
 -- Exercise the actual downloaded book through its bound plugin and native tap
 -- routing, in addition to the standalone layout/preference fixture.
 local note = "这是自写的原书脚注。"

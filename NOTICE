@@ -141,3 +141,9 @@ Delayed screenshots:
   from MiuRead screenshot_mode.lua at c1893562aa25a870b8dd076d7be062a3348f823e
   (MiuRead contributors, AGPL-3.0-only):
   https://github.com/miumiupy98-art/miuread-koreader
+
+Reader progress panel:
+- weread/ui/reader_progress.lua adapts the reader progress interaction concept
+  from MiuRead reader_progress_dialog.lua at c1893562aa25a870b8dd076d7be062a3348f823e
+  (MiuRead contributors, AGPL-3.0-only):
+  https://github.com/miumiupy98-art/miuread-koreader

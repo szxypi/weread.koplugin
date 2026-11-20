@@ -67,6 +67,9 @@ function M:showEndOfBookDialog(book_id)
     -- additionally requires a successor.
     local next_chapter = current_idx and not is_full_book
         and chapters[current_idx + 1] or nil
+    local previous_chapter = current_idx and not is_full_book and chapters[current_idx - 1] or nil
+    local function chapter_id(ch) return ch and tostring(ch.chapterUid or ch.chapterId or '') or nil end
+    local current_id,previous_id,next_id=chapter_id(current_chapter),chapter_id(previous_chapter),chapter_id(next_chapter)
 
     local function show_context_required()
         self:showTransientInfo(
@@ -162,6 +165,37 @@ function M:showEndOfBookDialog(book_id)
                 self:showCurrentBookDetails()
             else
                 show_context_required()
+            end
+        end,
+        on_reader_progress = function()
+            local function still_current()
+                local current_scope = self.settings.get_auth_scope and self.settings:get_auth_scope()
+                local same_scope = search_scope and self.settings:auth_scope_matches(search_scope)
+                    or not search_scope and not current_scope
+                if self.ui ~= reader_ui or reader_ui.document ~= document or document.file ~= file_path
+                    or (self._reader_session_gen or 0) ~= reader_session or not same_scope
+                    or self.settings:get('auth_epoch',0) ~= search_epoch then return false end
+                if current_idx then
+                    if book.chapters~=chapters or chapters[current_idx]~=current_chapter
+                        or chapters[current_idx-1]~=previous_chapter or chapters[current_idx+1]~=next_chapter
+                        or chapter_id(current_chapter)~=current_id or chapter_id(previous_chapter)~=previous_id
+                        or chapter_id(next_chapter)~=next_id then return false end
+                    local index,chapter,combined=self:getChapterInfoFromFile(book,file_path)
+                    if index~=current_idx or chapter~=current_chapter or combined~=is_full_book then return false end
+                end
+                return true
+            end
+            local ok,valid=pcall(still_current)
+            if ok and valid then
+                local expected={book=book,book_id=tostring(book_id),file=file_path,index=current_idx,
+                    current=current_id,previous=previous_id,next=next_id}
+                local function resolve_chapter(direction)
+                    return require('weread.lib.reader_progress_chapter').resolve(self,expected,direction)
+                end
+                require('weread.ui.reader_progress').show(self,{previous=previous_chapter,next=next_chapter,
+                    single_chapter=current_idx~=nil and not is_full_book,
+                    native_chapters=not current_idx or is_full_book,is_current=still_current,
+                    resolve_chapter=resolve_chapter})
             end
         end,
         on_delayed_screenshot = function()

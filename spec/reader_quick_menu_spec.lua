@@ -116,6 +116,16 @@ expect(dialog_options.show_chapter_nav and dialog_options.show_next_chapter
     "quick menu reflects the global annotation visibility preference")
 dialog_callbacks.on_search_current()
 expect(native_searches == 1, "current file search uses KOReader's native search")
+local progress_host,progress_options
+package.loaded['weread.ui.reader_progress']={show=function(target,options) progress_host,progress_options=target,options end}
+dialog_callbacks.on_reader_progress()
+expect(progress_host==context_host and progress_options.native_chapters and not progress_options.single_chapter,
+    'quick menu did not open local-file progress')
+local stale_progress=dialog_callbacks.on_reader_progress
+context_host.ui.document={file='/books/other.epub'};progress_host=nil;stale_progress()
+expect(not progress_host, 'stale quick menu opened progress in another document')
+context_host.ui.document={file='/books/local.epub'}
+
 local original_document=context_host.ui.document
 context_host.ui.document={file='/books/other.epub'}
 dialog_callbacks.on_search_current()

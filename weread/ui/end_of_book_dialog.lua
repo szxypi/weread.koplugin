@@ -25,7 +25,7 @@ local M = {}
 --   opts.annotations_visible : boolean — current annotation visibility state
 --   callbacks             : { on_bookshelf, on_search, on_chapter_list, on_next,
 --                             on_search_current, on_book_details, on_read_stats, on_sync_progress,
---                             on_toggle_annotations, on_delayed_screenshot, on_close_book }
+--                             on_toggle_annotations, on_reader_progress, on_delayed_screenshot, on_close_book }
 -- Returns the dialog widget instance.
 function M.show(opts, callbacks)
     opts = opts or {}
@@ -116,6 +116,11 @@ function M.show(opts, callbacks)
             text = _("Save this page locally for this account"),
             callback = function() dismiss_then(callbacks.on_claim_location) end,
         }})
+    end
+
+    if callbacks.on_reader_progress then
+        table.insert(buttons, {{id='reader_progress',text=_('Reading progress'),
+            callback=function() dismiss_then(callbacks.on_reader_progress) end}})
     end
 
     if callbacks.on_delayed_screenshot then
