@@ -20,6 +20,11 @@ local function selection_action(host,action)
     local module=package.loaded['weread.ui.selection_thought']
     if module then module[action](host) end
 end
+local function excerpt_action(host,action)
+    local module=package.loaded['weread.ui.excerpt_selection']
+    if action=='attach' then module=require('weread.ui.excerpt_selection') end
+    if module then module[action](host) end
+end
 local function personal_action(host,action)
     local module=package.loaded['weread.ui.personal_marks']
     if action=='attach' then module=require('weread.ui.personal_marks') end
@@ -166,8 +171,10 @@ function M:onReaderReady()
     self._current_weread_book_id = weread_book_id
     if weread_book_id then require('weread.lib.rich_footnotes').attach(self) end
     selection_action(self,'detach')
+    excerpt_action(self,'detach')
     if weread_book_id and self.ui and self.ui.highlight and type(self.ui.highlight.addToHighlightDialog)=='function' then
         require('weread.ui.selection_thought').attach(self)
+        excerpt_action(self,'attach')
     end
     if weread_book_id then
         FileIdentity.read_document(self.ui.document, weread_book_id)
@@ -248,6 +255,7 @@ function M:onPageUpdate()
     require('weread.ui.chapter_links').view_changed(self)
     personal_action(self,'update')
     selection_action(self,'view_changed')
+    excerpt_action(self,'view_changed')
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
@@ -263,6 +271,7 @@ function M:onPosUpdate()
     require('weread.ui.chapter_links').view_changed(self)
     personal_action(self,'update')
     selection_action(self,'view_changed')
+    excerpt_action(self,'view_changed')
     if self._read_resume_token then require('weread.ui.read_resume').view_changed(self) end
     if self.onCloudSourceViewChanged then self:onCloudSourceViewChanged() end
     if self.source_navigation then self.source_navigation:on_view_changed() end
@@ -284,6 +293,7 @@ function M:onCloseDocument()
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'detach')
     selection_action(self,'detach')
+    excerpt_action(self,'detach')
     require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').on_close(self) end
     if self.cancelShelfCovers then self:cancelShelfCovers() end
@@ -537,6 +547,7 @@ function M:onSuspend()
     if self.closeOfflineTimeUI then self:closeOfflineTimeUI() end
     personal_action(self,'suspend')
     selection_action(self,'cancel')
+    excerpt_action(self,'cancel')
     require('weread.ui.mp_reader_open').cancel(self)
     if self._read_resume_token then require('weread.ui.read_resume').cancel(self) end
     if self.cancelShelfCovers then self:cancelShelfCovers(true) end

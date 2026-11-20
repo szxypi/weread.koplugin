@@ -82,6 +82,9 @@ if offline then
     assert(reader.weread.settings:get_book(expected.book_id).last_uploaded_position.chapter_uid == expected.chapter_uid,
         "fresh process lost acknowledged progress")
     shot("reading-offline-reopen")
+    if os.getenv('WEREAD_TEST_EXCERPT_CARD')=='1' and reopen then
+        dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'excerpt_card_reader_smoke.lua')(reader,current,pump,shot,clean_popups,true)
+    end
     if offline_progress and reopen then
         assert(not current.progress_sync.verified, "offline reopen was marked cloud-verified")
         reader.rolling:onGotoPage(reader.document:getPageCount()); tick()
@@ -406,6 +409,9 @@ if os.getenv('WEREAD_TEST_FINISH_CHANGE')=='1' then
 end
 if os.getenv('WEREAD_TEST_SELECTION_THOUGHT')=='1' then
     dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'selection_thought_smoke.lua')(reader,current,pump,shot,clean_popups)
+end
+if os.getenv('WEREAD_TEST_EXCERPT_CARD')=='1' then
+    dofile(debug.getinfo(1,'S').source:match('^@(.*/)')..'excerpt_card_reader_smoke.lua')(reader,current,pump,shot,clean_popups)
 end
 local checkpoint = { book_id = book_id, path = reader.document.file,
     xpointer = reader.document:getXPointer(), chapter_uid = saved.last_uploaded_position.chapter_uid,

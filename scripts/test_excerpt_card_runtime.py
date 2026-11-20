@@ -34,14 +34,14 @@ def main():
     if child.returncode or raw.count(marker) != 1:
         raise ValueError('excerpt renderer failed; inspect synthetic log')
     result = json.loads(raw.split(marker, 1)[1].splitlines()[0])
-    if result != {'result': 'PASS', 'images': 12}:
+    if result != {'result': 'PASS', 'images': 60}:
         raise ValueError('excerpt renderer result mismatch')
     for path in evidence.glob('excerpt-*.png'):
         if not path.read_bytes().startswith(b'\x89PNG\r\n\x1a\n'):
             raise ValueError('invalid synthetic PNG')
-    if len(list(evidence.glob('excerpt-*.png'))) != 12:
+    if len(list(evidence.glob('excerpt-*.png'))) != 60:
         raise ValueError('missing synthetic PNG')
-    print(json.dumps({'result': 'PASS', 'width': args.width, 'height': args.height, 'images': 12}))
+    print(json.dumps({'result': 'PASS', 'width': args.width, 'height': args.height, 'images': 60}))
 
 
 if __name__ == '__main__':

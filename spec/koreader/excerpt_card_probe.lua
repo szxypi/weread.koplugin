@@ -13,11 +13,11 @@ assert(#Card.TEMPLATES==6 and #Card.COLORS==10)
 local evidence=assert(os.getenv('WEREAD_EXCERPT_EVIDENCE'))
 local count=0
 for i=1,#Card.TEMPLATES do
-    for _,color in ipairs({1,10}) do
+    for color=1,10 do
         local image,size=Card.renderBB{
             text='这是合成书摘。\nA synthetic excerpt with punctuation.',
             book_title='测试书名',book_author='测试作者',date_str=1700000000,
-            template_idx=i,color_idx=color,background_idx=1,
+            template_idx=i,color_idx=color,background_idx=color,
         }
         assert(image and size.w==1125 and size.h>0 and size.h<12000)
         assert(RenderText.renderUtf8Text==original,'render left global renderer patched')
@@ -33,6 +33,8 @@ assert(not image and reason=='empty text' and RenderText.renderUtf8Text==origina
 assert(not Card.renderBB{text=string.rep('a',4097)},'oversized excerpt was accepted')
 assert(not Card.renderBB{text='\255'},'invalid UTF-8 was accepted')
 assert(not Card.renderBB{text='valid',book_title='\0'},'invalid title was accepted')
+local long, long_size=Card.renderBB{text=string.rep('合成书摘的一段文字。',70),template_idx=1}
+assert(long and long_size.truncated==true,'long selection was not flagged as truncated');long:free()
 local opts={text='保存测试',book_title='合成书名',book_author='作者'}
 local first=assert(Card.save(opts,evidence));local second=assert(Card.save(opts,evidence))
 assert(first~=second,'saving overwrote an existing card')
