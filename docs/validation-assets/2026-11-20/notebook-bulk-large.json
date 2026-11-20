@@ -1,0 +1,60 @@
+{
+  "result": "PASS",
+  "synthetic_only": true,
+  "physical_device": false,
+  "real_account_access": false,
+  "native_bulk_assertions": {
+    "additional_books": 65,
+    "additional_sets": 130,
+    "synthetic_note_reads": 135,
+    "offline_reads": 0
+  },
+  "sqlite_assertions": {
+    "books_per_kind": 130,
+    "search_snapshots_checked": 260,
+    "oldest_boundary_exceeded": true,
+    "count_and_byte_quota_rollback_verified": true
+  },
+  "cases": {
+    "small": {
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "forbidden": 0,
+          "file_sqlite": true,
+          "workers_reaped": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "forbidden": 0,
+          "file_sqlite": true,
+          "workers_reaped": true
+        }
+      ]
+    },
+    "ko2": {
+      "profile_removed": true,
+      "installed_bytes_match": true,
+      "stages": [
+        {
+          "mode": "live",
+          "result": "PASS",
+          "forbidden": 0,
+          "file_sqlite": true,
+          "workers_reaped": true
+        },
+        {
+          "mode": "reopen",
+          "result": "PASS",
+          "forbidden": 0,
+          "file_sqlite": true,
+          "workers_reaped": true
+        }
+      ]
+    }
+  }
+}

@@ -100,4 +100,13 @@ assert(not Bulk.start(host,owner,current) and #tasks==0 and #state.notices==1)
 host,owner,state,current=fixture();owner.value.books={};for i=1,65 do owner.value.books[i]={bookId=tostring(i)} end
 assert(Bulk.start(host,owner,current) and #owner.bulk_context.ids==64 and owner.bulk_context.skipped==1 and #state.notices==0)
 Bulk.cancel(host,owner)
+package.loaded['weread.lib.my_cloud_marks_store'].MAX_BOOKS=5000
+host,owner,state,current=fixture();owner.value.books={};for i=1,130 do owner.value.books[i]={bookId=tostring(i)} end
+assert(Bulk.start(host,owner,current) and #owner.bulk_context.ids==130 and owner.bulk_context.skipped==0 and #state.notices==0,
+    'large notebook list stopped at the old 64-book limit')
+Bulk.cancel(host,owner)
+host,owner,state,current=fixture();owner.value.books={};for i=1,5001 do owner.value.books[i]={bookId=tostring(i)} end
+assert(Bulk.start(host,owner,current) and #owner.bulk_context.ids==5000 and owner.bulk_context.skipped==1
+    and owner.bulk_context.dialog.progress_max==10000 and #state.notices==0,'maximum catalog bound changed')
+Bulk.cancel(host,owner)
 print('PASS: bulk notebook caching, quota protection, cancellation and ownership')

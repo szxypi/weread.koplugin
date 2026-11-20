@@ -11,6 +11,25 @@ local function snapshot(id)
     return {schema=1,book_id=id or '900001',fetched_at=1000,updated={{bookmarkId='synthetic-mark',type=1,markText='合成引用',private='strip'}},
         chapters=json.decode('[]'),accessToken='strip'}
 end
+expect(Cache.MAX_BOOKS==5000)
+account='900010'
+local thoughts=Cache:new(library,codec,'thoughts')
+for i=1,130 do
+    local id=tostring(940000+i)
+    expect(cache:write(snapshot(id),{preserve_existing=true}))
+    expect(thoughts:write({schema=1,book_id=id,fetched_at=1000,reviews={{reviewId='synthetic-thought',content='合成想法'}}},
+        {preserve_existing=true}))
+end
+expect(#assert(cache:list_ids())==130 and #assert(thoughts:list_ids())==130)
+expect(cache:read('940001')~=nil and cache:read('940130')~=nil
+    and thoughts:read('940001')~=nil and thoughts:read('940130')~=nil)
+local after_limit=snapshot('940130');after_limit.updated[1].markText='bulk-130-only'
+expect(cache:write(after_limit,{preserve_existing=true}))
+local catalog={};for i=1,130 do catalog[#catalog+1]={bookId=tostring(940000+i)} end
+local search=require('weread.lib.notebook_search').search(catalog,cache,thoughts,'bulk-130-only')
+expect(search.checked==260 and search.not_cached==0 and #search.items==1
+    and search.items[1].book_id=='940130','cross-book search missed a saved book beyond the old cap')
+account='900000';Cache.MAX_BOOKS=64 -- Exercise both quota boundaries with a small fixture.
 expect(cache:write(snapshot()));expect(cache:read('900001').updated[1].markText=='合成引用')
 expect(cache:write(snapshot('CB_SyntheticNotes')))
 expect(cache:read('CB_SyntheticNotes').updated[1].markText=='合成引用')

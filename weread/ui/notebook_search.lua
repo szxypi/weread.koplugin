@@ -87,7 +87,7 @@ function M.start(host,owner,current,query)
     host:showBusy(_('Searching saved notes…\nTap or press a key to cancel.'),function() if owner.note_search_job==job then M.cancel(host,owner) end end)
     job.busy=host.busy_message
     local ok,worker=pcall(function()
-        return owner.note_search_worker or require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=512*1024,timeout=120}
+        return owner.note_search_worker or require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=512*1024,timeout=600}
     end)
     if not ok or not worker then M.cancel(host,owner);host:showInfo(_('Could not search saved notes.'));return false end
     owner.note_search_worker=worker

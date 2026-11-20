@@ -46,7 +46,7 @@ Python 实际四条回读确认后，Lua 对该字段单独规范化为有界整
 显式 401 最多通过既有父进程授权服务恢复一次，再从首批重新核对；其他失败保持原副本。
 
 想法写入同账号 library SQLite 的独立 `my_cloud_thoughts` 表，划线仍在 `my_cloud_marks` 表。
-两表各自保留最多 64 本、单份 4 MiB、JSON 总量 32 MiB，SQLite／WAL 开销另计；仅使用固定表名。
+两表各自保留最多 5,000 本、单份 4 MiB、JSON 总量 32 MiB，SQLite／WAL 开销另计；仅使用固定表名。
 事务保存和配额淘汰成功后才替换页面，失败回滚。想法／划线不能互写快照，淘汰想法不删除划线；下载内容清理不删除这些快照。
 
 两尺寸实际 PluginLoader／FileManager 详情入口、3 个真实想法原文弹窗、账号文件 SQLite 和全新离线进程回读均与独立 Python 模型一致。

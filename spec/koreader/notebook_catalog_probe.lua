@@ -68,7 +68,8 @@ local ok,reason=pcall(function()
         local marks=require('weread.lib.my_cloud_marks');local slot=16
         for _,book in ipairs(expected.books) do
             local id=marks.display_id(book.bookId)
-            if id and not seen[id] and #bulk_ids<64 then
+            if id and not seen[id] then
+                assert(#bulk_ids<64,'owner bulk acceptance scope exceeded')
                 seen[id]=true;bulk_ids[#bulk_ids+1]=id
                 bulk_urls['https://i.weread.qq.com/book/bookmarklist?bookId='..id..'&synckey=0']=slot;slot=slot+1
                 for _,count in ipairs({20,40,80,160,320,640,1280,2560,5000}) do

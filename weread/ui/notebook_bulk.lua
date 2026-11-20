@@ -56,7 +56,7 @@ function M.start(host,owner,is_current)
     end
     local shown,dialog=pcall(function() return require('weread.ui.download_dialog'):new{
         title=T(_('Saving cloud notes: %1/%2 sets'),'0',tostring(#ids*2)),
-        description=_('Each book has marks and thoughts. Up to 64 books; saved sets are kept if you cancel.'),progress_max=#ids*2,
+        description=_('Each book has marks and thoughts. Saved sets are kept if you cancel.'),progress_max=#ids*2,
         buttons={{{text=_('Cancel'),callback=function() finish('cancelled') end}}},
     } end)
     if not shown or not dialog then M.cancel(host,owner);host:showInfo(_('Could not start saving cloud notes.'));return false end

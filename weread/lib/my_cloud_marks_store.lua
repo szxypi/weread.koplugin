@@ -1,6 +1,8 @@
 -- Account-local display snapshots. Payload quotas exclude SQLite/WAL overhead.
 local Data=require('weread.lib.my_cloud_marks')
-local M={MAX_BOOKS=64,MAX_PAYLOAD=4*1024*1024,MAX_TOTAL=32*1024*1024};M.__index=M
+-- Match the notebook catalog's bounded 5,000 entries. The independent byte
+-- limit still bounds disk usage even when many books contain very few notes.
+local M={MAX_BOOKS=5000,MAX_PAYLOAD=4*1024*1024,MAX_TOTAL=32*1024*1024};M.__index=M
 function M:new(library,codec,variant)
     assert(variant==nil or variant=='thoughts','invalid personal note store')
     return setmetatable({library=library,codec=codec,table_name=variant=='thoughts' and 'my_cloud_thoughts' or 'my_cloud_marks',

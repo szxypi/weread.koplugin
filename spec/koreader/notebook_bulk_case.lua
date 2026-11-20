@@ -1,11 +1,17 @@
 -- Synthetic HTTP responses, actual native menu, worker pipe and SQLite.
 return function(plugin,owner,mode,counters,wait,tick)
     local json=require('json');local ffi=require('ffi')
+    local socket=require('socket')
     local client=require('weread.lib.client');local request=client.request
     local cache=require('weread.lib.my_cloud_marks_store')
     local all=owner.value.books;assert(#all>=4)
     local a,b=all[3].bookId,all[4].bookId
     assert(a=='900003' and b=='900004')
+    local large,permitted={}, {[a]=true,[b]=true}
+    for i=1,65 do
+        local id=tostring(910000+i);large[#large+1]={bookId=id,title='Synthetic large '..i}
+        permitted[id]=true
+    end
     local function item(label)
         for _,row in ipairs(owner.menu.item_table) do
             if row.text==require('weread.lib.i18n').tr(label) then return row end
@@ -23,7 +29,7 @@ return function(plugin,owner,mode,counters,wait,tick)
             local marks=options.url=='https://i.weread.qq.com/book/bookmarklist?bookId='..tostring(id)..'&synckey=0'
             local thoughts=options.url=='https://i.weread.qq.com/review/list?bookId='..tostring(id)
                 ..'&listType=11&listMode=0&mine=1&synckey=0&count=20'
-            if (id==a or id==b) and (marks or thoughts) and options.method=='GET' and options.body==nil
+            if permitted[id] and (marks or thoughts) and options.method=='GET' and options.body==nil
                 and options.skip_cookie and options.persist_response_cookies==false and options.sensitive
                 and h.vid=='900000' and h.accessToken=='synthetic-notebook-access' and not h.Cookie
                 and tonumber(ffi.C.getpid())~=parent then
@@ -49,12 +55,27 @@ return function(plugin,owner,mode,counters,wait,tick)
         wait(function() return job.done==1 end)
         job.dialog.buttons[1][1].callback();tick()
         assert(not owner.bulk_context and job.done==1 and counters[10]==5 and counters[11]==0)
+        owner.value.books=large
+        owner.menu:onMenuSelect(item('Save all notebook notes for offline use'))
+        wait(function() return owner.bulk_context~=nil end);job=owner.bulk_context
+        assert(#job.ids==65 and job.skipped==0 and job.dialog.progress_max==130)
+        local deadline=socket.gettime()+150
+        while owner.bulk_context do assert(socket.gettime()<deadline,'large notebook update deadline');tick() end
+        assert(job.done==130 and counters[10]==135 and counters[11]==0)
+        for _,book in ipairs(large) do
+            assert(read(book.bookId,'marks').updated[1].bookmarkId=='bulk-mark-'..book.bookId)
+            assert(read(book.bookId,'thoughts').reviews[1].reviewId=='bulk-thought-'..book.bookId)
+        end
         owner.value.books=all;client.request=request;plugin.showTransientInfo=transient
     else
         assert(read(a,'marks').updated[1].bookmarkId=='bulk-mark-'..a)
         assert(read(a,'thoughts').reviews[1].reviewId=='bulk-thought-'..a)
         assert(read(b,'marks').updated[1].bookmarkId=='bulk-mark-'..b)
         assert(read(b,'thoughts').reviews[1].reviewId=='bulk-thought-'..b)
+        for _,book in ipairs(large) do
+            assert(read(book.bookId,'marks').updated[1].bookmarkId=='bulk-mark-'..book.bookId)
+            assert(read(book.bookId,'thoughts').reviews[1].reviewId=='bulk-thought-'..book.bookId)
+        end
         assert(counters[10]==0 and counters[11]==0)
     end
     print('PASS: notebook bulk native worker, SQLite, cancellation and offline cache')
