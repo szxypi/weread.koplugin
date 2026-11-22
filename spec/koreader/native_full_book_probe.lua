@@ -11,6 +11,7 @@ logger.scoped=function() return logger end
 package.loaded['weread.lib.logger']=logger
 local json=require('json');local input=json.decode(assert(io.stdin:read('*a')))
 local owner=input.owner==true
+local live_web=owner and input.live_web==true
 assert(owner and os.getenv('WEREAD_OWNER_NATIVE_FULL_TMPFS')=='1' or
     not owner and os.getenv('WEREAD_SYNTHETIC')=='1')
 local home=assert(os.getenv('KO_HOME'));assert(home:match('^/dev/shm/'))
@@ -21,7 +22,14 @@ local chapters=owner and assert(input.chapters) or {{chapterUid='37',chapterIdx=
     {chapterUid='38',chapterIdx=2,title='Second'},{chapterUid='39',chapterIdx=3,title='Third'}}
 if input.web_asset then chapters[3].tar='https://weread.qq.com/synthetic/resources.tar' end
 local values={cache={download_book_images=true,native_full_book_resources=true},books={[book_id]=book}}
-local settings={mock_endpoint=not owner and input.mock_endpoint or nil,cache_dir=home..'/books',data_dir=home,
+if live_web then
+    assert(type(input.cookies)=='table' and input.cookies.wr_vid==input.credentials.vid
+        and type(input.cookies.wr_skey)=='string' and #input.cookies.wr_skey>=8)
+    values.cookies=input.cookies
+end
+if live_web and input.mock_endpoint then assert(os.getenv('WEREAD_SYNTHETIC')=='1') end
+local settings={mock_endpoint=(not owner or live_web and input.mock_endpoint) and input.mock_endpoint or nil,
+    cache_dir=home..'/books',data_dir=home,
     get=function(_,key,default) return values[key] or default end,
     set=function(_,key,value) values[key]=value end,flush=function() end,
     get_auth_scope=function() return scope end,auth_scope_matches=function(_,s)
@@ -29,6 +37,9 @@ local settings={mock_endpoint=not owner and input.mock_endpoint or nil,cache_dir
         if marker then marker:close();return false end
         return s==scope
     end}
+function settings:merge_set_cookie(value)
+    values.cookies=require('weread.lib.cookie').merge_set_cookie(values.cookies or {},value)
+end
 local lfs=require('libs/libkoreader-lfs');assert(lfs.mkdir(settings.cache_dir))
 local store={read=function() return input.credentials,1,nil,false end}
 local access=require('weread.lib.native_read_access');local capture=access.capture
@@ -54,22 +65,24 @@ local function body(uid)
     local image=uid~='39' and '<img src="https://img.qq.com/image.png?a=1&amp;b=2"/>' or ''
     return '<html><body>'..image..'<p>Full chapter '..uid..' native marker readable text.</p></body></html>'
 end
-Content.ensure_reader_state=function() end
+if not live_web then Content.ensure_reader_state=function() end end
 local real_finalize=Content.finalize_single_chapter_content
 local function web_body(uid)
     local raw=body(uid)
     if input.web_asset and uid=='39' then raw=raw:gsub('</body>','<img src="fixture.png"/></body>',1) end
     return raw..(not owner and uid=='39' and '<!-- different -->' or '')
 end
-Content.fetch_single_chapter_source=function(_,_,b,chapter,state)
-    state.css=state.css or 'p{color:green}'
-    local raw=web_body(tostring(chapter.chapterUid))
-    return raw,assert(Position.capture(b,chapter,raw,'web_xhtml'))
-end
-Content.finalize_single_chapter_content=function(client,settings_value,book_value,chapter,xhtml,state)
-    assert(not owner and chapter.chapterUid=='39')
-    if input.web_asset then return real_finalize(client,settings_value,book_value,chapter,xhtml,state) end
-    return xhtml,{}
+if not live_web then
+    Content.fetch_single_chapter_source=function(_,_,b,chapter,state)
+        state.css=state.css or 'p{color:green}'
+        local raw=web_body(tostring(chapter.chapterUid))
+        return raw,assert(Position.capture(b,chapter,raw,'web_xhtml'))
+    end
+    Content.finalize_single_chapter_content=function(client,settings_value,book_value,chapter,xhtml,state)
+        assert(not owner and chapter.chapterUid=='39')
+        if input.web_asset then return real_finalize(client,settings_value,book_value,chapter,xhtml,state) end
+        return xhtml,{}
+    end
 end
 if input.web_corrupt then
     local save=Content.save_full_download_chapter
@@ -91,7 +104,14 @@ end
 local client=require('weread.lib.client'):new(settings)
 if owner then
     local request=client.request
+    local guard=live_web and require('spec.helpers.native_full_live_guard').new(book_id,input.book_version,chapters,
+        input.credentials,require('weread.lib.protocol'),function(raw) return client:json_decode(raw) end,
+        require('weread.lib.native_chapter_remote').allowed)
     client.request=function(self,options)
+        if live_web then
+            assert(guard(options),'request outside read-only book scope')
+            return request(self,options)
+        end
         assert(options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
         local url=options.url
         assert((url:match('^https://i%.weread%.qq%.com/book/info%?') and options.method=='GET')
@@ -200,26 +220,75 @@ if orphan_name then
 end
 if owner then
     local styles,images={},0
+    local offline_chapters={}
+    local secrets={}
+    if live_web then
+        for key,value in pairs(input.cookies) do
+            if key~='wr_vid' and type(value)=='string' and #value>=8 then secrets[#secrets+1]=value end
+        end
+        for _,key in ipairs({'accessToken','refreshToken','deviceId'}) do
+            local value=input.credentials[key]
+            if type(value)=='string' and #value>=8 then secrets[#secrets+1]=value end
+        end
+        assert(#secrets>0)
+    end
+    local function check_secrets(data)
+        for _,secret in ipairs(secrets) do assert(not data:find(secret,1,true),'credential found in test file') end
+    end
     for _,chapter in ipairs(chapters) do
         local uid=chapter.chapterUid
         local proof=assert(Position.read_document(doc,book_id,uid));assert(proof.raw==body(uid))
         local rendered=assert(doc:getDocumentFileContent(proof.render_path))
+        check_secrets(proof.raw);check_secrets(rendered)
         local hash=assert(rendered:match('eink%-style%-(%x+)%.css'));styles[hash]=true
-        assert(doc:getDocumentFileContent('OEBPS/eink-style-'..hash..'.css'))
+        local css=assert(doc:getDocumentFileContent('OEBPS/eink-style-'..hash..'.css'));check_secrets(css)
         local hits=assert(doc:findAllText(chapter.search_token,false,0,8,false,0));assert(hits[1])
         local image=rendered:match('images/(eink%-%x+%.[a-z]+)')
+        local record={uid=uid,raw_sha256=require('weread.lib.crypto').sha256_hex(proof.raw),
+            search_token=chapter.search_token}
         if image then
             local bytes=assert(doc:getDocumentFileContent('OEBPS/images/'..image))
+            check_secrets(bytes)
             local bitmap=assert(require('ui/renderimage'):renderImageData(bytes,#bytes,false,100,100))
             assert(bitmap:getWidth()>0);bitmap:free();images=images+1
+            record.image=image;record.image_sha256=require('weread.lib.crypto').sha256_hex(bytes)
         end
+        offline_chapters[#offline_chapters+1]=record
     end
     local style_count=0;for hash in pairs(styles) do
         assert(opf:find('eink-style-'..hash,1,true));style_count=style_count+1
     end
     assert(images>0)
+    if live_web then
+        local file=assert(io.open(home..'/native-full-offline.json','wb'))
+        assert(file:write(json.encode{path=result,book_id=book_id,chapters=offline_chapters}));assert(file:close())
+        local max_length=1
+        for _,secret in ipairs(secrets) do assert(#secret<=4096);max_length=math.max(max_length,#secret) end
+        local count=0
+        local function audit(dir)
+            for name in lfs.dir(dir) do
+                if name~='.' and name~='..' then
+                    local path=dir..'/'..name
+                    local mode=lfs.symlinkattributes(path,'mode')
+                    if mode=='directory' then audit(path)
+                    elseif mode=='file' then
+                        count=count+1;assert(count<=4096)
+                        local handle=assert(io.open(path,'rb'));local tail=''
+                        while true do
+                            local chunk,err=handle:read(65536);assert(not err)
+                            if not chunk then break end
+                            local data=tail..chunk;check_secrets(data);tail=data:sub(-max_length)
+                        end
+                        assert(handle:close())
+                    end
+                end
+            end
+        end
+        audit(home);assert(count>0)
+    end
     doc:close();manager:close(widget)
-    print('WEREAD_FULL_RESULT='..json.encode{ok=true,owner=true,chapters=#chapters,styles=style_count,images=images})
+    print('WEREAD_FULL_RESULT='..json.encode{ok=true,owner=true,chapters=#chapters,styles=style_count,images=images,
+        live_web=live_web,credential_audit=live_web})
     return
 end
 local hashes={}

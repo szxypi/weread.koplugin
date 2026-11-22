@@ -14,6 +14,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from test_native_chapter_package import archive
 from test_native_chapter_source_runtime import PNG, REMOTE_URL
+from fetch_weread_epub import weread_e
+from mock_weread import shards
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -44,6 +46,17 @@ class Handler(BaseHTTPRequestHandler):
         elif target.hostname == 'weread.qq.com' and target.path == '/synthetic/resources.tar' and self.command == 'GET':
             server.tar_requests += 1
             data = server.tar_data
+        elif target.hostname == 'weread.qq.com' and target.path.startswith('/web/reader/') and self.command == 'GET':
+            state = {'reader': {'bookInfo': {'bookId':'42','title':'Synthetic','author':'Fixture'},
+                                'psvts':'mock-session','pclts':'mock-clock','progress':{},'currentChapter':{}}}
+            data = ('<script>window.__INITIAL_STATE__=' + json.dumps(state) + ';(function(){})();</script>').encode()
+        elif target.hostname == 'weread.qq.com' and target.path.startswith('/web/book/chapter/e_') and self.command == 'POST':
+            request = json.loads(self.rfile.read(int(self.headers.get('Content-Length', 0))))
+            uid = next((uid for uid in ('37','38') if request.get('c') == weread_e(uid)), None)
+            server.valid &= request.get('b') == weread_e('42') and uid is not None
+            part = target.path.rsplit('/',1)[1]
+            data = (shards('p{color:black}',1)[0] if part=='e_2' else
+                    shards(body(uid))[['e_0','e_1','e_3'].index(part)]).encode()
         elif target.hostname == 'i.weread.qq.com' and target.path == '/book/info' and self.command == 'GET':
             data = json.dumps(dict(bookId='42', format='epub', version=1)).encode()
         elif target.hostname == 'i.weread.qq.com' and target.path == '/book/chapterInfos' and self.command == 'POST':
@@ -80,7 +93,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
 
-def run(runtime, web_corrupt_only=False):
+def run(runtime, web_corrupt_only=False, live_web_only=False):
     server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode='w') as archive_file:
@@ -95,6 +108,40 @@ def run(runtime, web_corrupt_only=False):
                                                                       (1264, 1680, 300, True, False, True, False, False, False),
                                                                       (600, 800, 167, False, True, False, False, False, False),
                                                                       (600, 800, 167, False, False, False, True, False, False))
+        if live_web_only:
+            with tempfile.TemporaryDirectory(prefix='weread-native-live-mock-',dir='/dev/shm') as root:
+                xdg=Path(root)/'xdg';xdg.mkdir(mode=0o700)
+                env=dict(os.environ,KO_HOME=root,XDG_RUNTIME_DIR=str(xdg),LD_LIBRARY_PATH=str(runtime/'libs'),
+                         SDL_VIDEODRIVER='dummy',EMULATE_READER='1',EMULATE_BW_SCREEN='1',EMULATE_BB_TYPE='BB8',
+                         EMULATE_READER_W='1264',EMULATE_READER_H='1680',EMULATE_READER_DPI='300',
+                         WEREAD_SYNTHETIC='1',WEREAD_OWNER_NATIVE_FULL_TMPFS='1')
+                credentials=dict(vid='12345678',accessToken='synthetic-access',refreshToken='synthetic-refresh',
+                                 deviceId='eink334691225'+'0'*19)
+                chapters=[dict(chapterUid=uid,chapterIdx=i,title='Synthetic',source=body(uid),
+                               search_token='Full chapter '+uid+' native marker') for i,uid in enumerate(('37','38'),1)]
+                payload=dict(owner=True,live_web=True,book_id='42',book_version=1,chapters=chapters,
+                             credentials=credentials,cookies=dict(wr_vid=credentials['vid'],wr_skey='mock-cookie'),
+                             mock_endpoint='http://127.0.0.1:'+str(server.server_port))
+                server.resume=server.expired=False;server.chapters=[];server.valid=True;server.leaked=False
+                server.image_requests=server.tar_requests=0
+                child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_full_book_probe.lua'),str(REPO)],
+                                     input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
+                if child.returncode:
+                    raise AssertionError(child.stdout+child.stderr)
+                marker='WEREAD_FULL_RESULT='
+                line=next(line for line in child.stdout.splitlines() if line.startswith(marker))
+                assert json.loads(line[len(marker):])==dict(ok=True,owner=True,chapters=2,styles=2,images=2,
+                                                            live_web=True,credential_audit=True)
+                assert server.chapters==['37','38'] and server.valid and not server.leaked
+                reopened=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_full_offline_probe.lua'),str(REPO)],
+                                        text=True,env=env,cwd=runtime,capture_output=True,timeout=90)
+                if reopened.returncode:
+                    raise AssertionError(reopened.stdout+reopened.stderr)
+                offline='WEREAD_FULL_OFFLINE_RESULT='
+                result=next(line for line in reopened.stdout.splitlines() if line.startswith(offline))
+                assert json.loads(result[len(offline):])==dict(ok=True,chapters=2,images=2,network_blocked=True)
+            print('PASS: actual Web and E-Ink download against synthetic service')
+            return
         for width, height, dpi, resume, expired, corrupt, switch, web_asset, web_corrupt in cases:
             if web_corrupt_only and not web_corrupt:
                 continue
@@ -137,5 +184,6 @@ def run(runtime, web_corrupt_only=False):
 if __name__ == '__main__':
     parser=argparse.ArgumentParser();parser.add_argument('--koreader',type=Path,required=True)
     parser.add_argument('--web-corrupt-only',action='store_true')
+    parser.add_argument('--live-web-only',action='store_true')
     args=parser.parse_args()
-    run(args.koreader.resolve(),args.web_corrupt_only)
+    run(args.koreader.resolve(),args.web_corrupt_only,args.live_web_only)

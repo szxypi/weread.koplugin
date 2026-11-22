@@ -16,6 +16,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session',action='store_true',required=True)
     parser.add_argument('--book-offset',type=int,default=0,choices=range(0,51))
+    parser.add_argument('--live-web',action='store_true',help='Use the plugin Web downloader for the same chapters')
     parser.add_argument('--lua-command',nargs=argparse.REMAINDER,required=True)
     args=parser.parse_args()
     report=dict(result='UNVERIFIED',account_data_writes=0,authorization_requests=0,
@@ -42,6 +43,8 @@ def main():
                                  source=raw,search_token=search_token(raw.encode())))
         payload=dict(owner=True,credentials=credentials,book_id=sample['book_id'],
                      book_version=sample['expected']['version'],chapters=chapters)
+        if args.live_web:
+            payload.update(live_web=True,cookies=saved['cookies'])
         encoded=json.dumps(payload,ensure_ascii=False).encode()
         if len(encoded)>5*1024*1024: raise ValueError('source_size')
         child=subprocess.run(args.lua_command,input=encoded,stdout=subprocess.PIPE,stderr=subprocess.PIPE,
@@ -50,13 +53,26 @@ def main():
         if child.returncode or child.stdout.count(marker)!=1 or len(child.stdout)>65536:
             raise ValueError('native_full_unverified')
         result=json.loads(child.stdout.split(marker,1)[1].splitlines()[0])
-        if (set(result)!={'ok','owner','chapters','styles','images'} or result['ok'] is not True
+        if (set(result)!={'ok','owner','chapters','styles','images','live_web','credential_audit'} or result['ok'] is not True
                 or result['owner'] is not True or result['chapters']!=2
+                or result['live_web'] is not args.live_web
+                or result['credential_audit'] is not args.live_web
                 or type(result['styles']) is not int or not 1<=result['styles']<=2
                 or type(result['images']) is not int or not 1<=result['images']<=2):
             raise ValueError('native_full_unverified')
+        if args.live_web:
+            offline_marker=b'WEREAD_FULL_OFFLINE_RESULT='
+            if child.stdout.count(offline_marker)!=1:
+                raise ValueError('native_full_unverified')
+            offline=json.loads(child.stdout.split(offline_marker,1)[1].splitlines()[0])
+            if offline!=dict(ok=True,chapters=2,images=result['images'],network_blocked=True):
+                raise ValueError('native_full_unverified')
         report.update(result='PASS',chapters=2,native_chapters=2,styles=result['styles'],
-                      image_chapters=result['images'],source_metadata_preserved=True,offline_rendered=True)
+                      image_chapters=result['images'],source_metadata_preserved=True,offline_rendered=True,
+                      live_web_download=args.live_web)
+        if args.live_web:
+            report['offline_new_process']=True
+            report['temporary_files_credential_audit']=True
     except Exception as exc:
         allowed={'insufficient_chapters','web_unavailable','source_size','native_full_unverified'}
         report['reason']=str(exc) if str(exc) in allowed else 'preflight_or_network_failed'
