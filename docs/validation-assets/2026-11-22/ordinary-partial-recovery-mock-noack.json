@@ -1,0 +1,1 @@
+{"result": "PASS", "mock_only": true, "noack": false, "restore_noack": false, "dry_body_bound": true, "dry_posts": 0, "claimed_posts": 1, "acknowledged_posts": 1, "verified": 0, "coordinator": true, "actual_reader": true, "partial_recovery": true, "recovery_noack": true, "restore_verified": false, "real_account_posts": 0}

@@ -1,0 +1,56 @@
+import copy
+import json
+import hashlib
+import unittest
+
+from secure_ordinary_partial_recovery import PartialRecoveryStore
+from secure_weread_session import StoreError
+from test_secure_native_session import Backend
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
+from test_secure_ordinary_reconnect_trial import plan
+
+
+def binding():return dict(original_intent_sha256='a'*64,web_shelf_sha256='b'*64,native_shelf_sha256='c'*64,
+                          web_shelf_core_sha256='d'*64,native_shelf_core_sha256='e'*64,native_grant_sha256='f'*64,
+                          renewal_bridge_sha256='0'*64)
+
+
+class RecoveryStoreTests(unittest.TestCase):
+    def setUp(self):self.backend=Backend();self.store=PartialRecoveryStore(self.backend)
+    def test_one_claim_and_durable_retirement(self):
+        receipt=self.store.reserve(binding());self.assertTrue(self.store.pending())
+        for first,last in (('prepared','pending'),('pending','acknowledged'),('acknowledged','retired')):
+            receipt=self.store.advance(receipt,first,last)
+            self.assertEqual(PartialRecoveryStore(self.backend).read()[1],receipt)
+        self.assertFalse(self.store.pending())
+        with self.assertRaises(StoreError):self.store.reserve(binding())
+    def test_uncertain_claim_and_stale_receipt_cannot_repeat(self):
+        old=self.store.reserve(binding());new=self.store.advance(old,'prepared','pending')
+        with self.assertRaises(StoreError):self.store.advance(old,'pending','acknowledged')
+        with self.assertRaises(StoreError):self.store.advance(new,'prepared','pending')
+        with self.assertRaises(StoreError):self.store.reserve(binding())
+        self.assertEqual(self.store.read()[0]['phase'],'pending')
+    def test_malformed_binding_and_corrupt_state_fail_closed(self):
+        for key,value in [('original_intent_sha256','bad'),('native_shelf_sha256','a'*63)]:
+            item=binding();item[key]=value
+            with self.assertRaises(StoreError):self.store.reserve(item)
+        self.store.reserve(binding());value=json.loads(self.backend.data)
+        for key,bad in [('posts',1),('schema',True),('scope','foreign')]:
+            item=copy.deepcopy(value);item[key]=bad;self.backend.data=json.dumps(item).encode()
+            with self.assertRaises(StoreError):self.store.read()
+
+    def test_original_can_be_sealed_only_by_matching_retired_recovery(self):
+        original=OrdinaryReconnectStore(Backend());receipt=original.reserve(plan())
+        receipt=original.advance(receipt,'prepared','enter_pending')
+        receipt=original.advance(receipt,'enter_pending','enter_acknowledged')
+        item=binding();item['original_intent_sha256']=hashlib.sha256(receipt.pending).hexdigest()
+        r=self.store.reserve(item)
+        with self.assertRaises(StoreError):original.retire_after_partial_recovery(receipt,self.store)
+        r=self.store.advance(r,'prepared','pending');r=self.store.advance(r,'pending','acknowledged')
+        r=self.store.advance(r,'acknowledged','retired')
+        original.retire_after_partial_recovery(receipt,self.store)
+        self.assertEqual(original.read()[0]['phase'],'partial_restored');self.assertFalse(original.pending())
+        with self.assertRaises(StoreError):original.retire_after_partial_recovery(receipt,self.store)
+
+
+if __name__=='__main__':unittest.main()

@@ -4,6 +4,7 @@ Only a scoped baseline, target, counters and fingerprints are retained in a
 separate Keychain item. An ambiguous send leaves its pending state intact.
 """
 from contextlib import nullcontext
+import hashlib
 import json
 from pathlib import Path
 import re
@@ -26,6 +27,7 @@ PHASES = {'prepared': 0, 'enter_pending': 1, 'enter_acknowledged': 1, 'enter_ver
           'restore_pending': 3, 'restore_acknowledged': 3, 'retired': 3}
 ORDER = tuple(PHASES)
 TRANSITIONS = set(zip(ORDER, ORDER[1:]))
+PHASES['partial_restored'] = 1
 
 
 def validate_point(point):
@@ -96,7 +98,7 @@ class OrdinaryReconnectStore:
 
     def pending(self):
         state, _ = self.read()
-        return state is not None and state['phase'] != 'retired'
+        return state is not None and state['phase'] not in ('retired', 'partial_restored')
 
     def _write(self, value):
         raw = canonical(value)
@@ -124,4 +126,18 @@ class OrdinaryReconnectStore:
             if not isinstance(receipt, Receipt) or raw != receipt.pending or state is None or state['phase'] != before:
                 raise StoreError('ordinary_trial/replaced')
             state['phase'], state['posts'] = after, PHASES[after]
+            return self._write(state)
+
+    def retire_after_partial_recovery(self, receipt, recovery):
+        """Seal the partial attempt only after its distinct recovery is retired."""
+        from secure_ordinary_partial_recovery import PartialRecoveryStore
+        if not isinstance(receipt,Receipt) or not isinstance(recovery,PartialRecoveryStore):
+            raise StoreError('ordinary_trial/recovery')
+        with self.lock():
+            state,raw=self._load();completed,_=recovery.read()
+            if (not state or raw!=receipt.pending or state['phase']!='enter_acknowledged'
+                    or not completed or completed['phase']!='retired' or completed['posts']!=1
+                    or completed['binding']['original_intent_sha256']!=hashlib.sha256(raw).hexdigest()):
+                raise StoreError('ordinary_trial/recovery')
+            state['phase'],state['posts']='partial_restored',1
             return self._write(state)
