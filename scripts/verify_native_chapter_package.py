@@ -12,6 +12,7 @@ from datetime import datetime, timezone
 import hashlib
 from html.parser import HTMLParser
 import json
+import resource
 import subprocess
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
@@ -146,11 +147,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-offset', type=int, default=0, choices=range(0, 51))
-    parser.add_argument('--lua-command', nargs=argparse.REMAINDER)
+    lua = parser.add_mutually_exclusive_group()
+    lua.add_argument('--lua-command', nargs=argparse.REMAINDER)
+    lua.add_argument('--lua-source-command', nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.book_offset and not args.saved_session:
         parser.error('book offset requires saved session')
-    if args.lua_command and not args.saved_session:
+    if (args.lua_command or args.lua_source_command) and not args.saved_session:
         parser.error('Lua comparison requires saved session')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   account_data_writes=0, authorization_requests=0, native_download_requests=0,
@@ -158,6 +161,7 @@ def main():
     if args.saved_session:
         probe = None
         try:
+            resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
             saved = SessionStore().load()
             credentials = NativeSessionStore().load(saved['vid'])
             probe = ChapterProbe(capture_for_lua=bool(args.lua_command))
@@ -201,6 +205,33 @@ def main():
                 if actual != {'samples': [expected]}:
                     raise ProbeError('chapter/lua_comparison_mismatch')
                 report['koreader_lua_package_matches'] = True
+            if args.lua_source_command:
+                payload = json.dumps(dict(credentials=credentials, book_id=sample['book_id'], uid=str(chapter['uid'])),
+                                     separators=(',', ':')).encode()
+                child = subprocess.run(args.lua_source_command, input=payload, stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, timeout=120)
+                marker = b'\nWEREAD_NATIVE_SOURCE_RESULT='
+                report['lua_source_exit'] = child.returncode
+                report['lua_source_marker_count'] = child.stdout.count(marker)
+                if len(child.stdout) > 65536 or child.stdout.count(marker) != 1:
+                    raise ProbeError('chapter/lua_source_output')
+                actual = json.loads(child.stdout.split(marker, 1)[1])
+                if child.returncode:
+                    allowed = {'invalid', 'session_changed', 'rate_limited', 'auth_expired', 'service_rejected',
+                               'not_entitled', 'unavailable'}
+                    reason = actual.get('reason') if isinstance(actual, dict) else None
+                    raise ProbeError('chapter/lua_source_' + (reason if reason in allowed else 'failed'))
+                digest = lambda value: hashlib.sha256(value).hexdigest()
+                assets = [dict(digest=digest(item['data']), mime=item['media_type'], safe_href=True,
+                               parent_source='../' in item['source']) for item in native['assets']]
+                expected = dict(ok=True, requests=3, body_sha256=digest(native['source']), css_sha256=digest(native['css']),
+                                is_text=not native['html'], web_coordinate_authority=False, assets=assets,
+                                image_signatures_recognized=native['image_signatures_recognized'],
+                                unusable_resources=native['unusable_resources'])
+                if actual != expected:
+                    raise ProbeError('chapter/lua_source_mismatch')
+                report['koreader_native_source_matches'] = True
+                report['koreader_native_source_requests'] = 3
             report['result'] = 'NATIVE_AND_WEB_CHAPTER_COMPARED'
         except (PackageError, ProbeError, StoreError, TranslationError) as exc:
             report.update(result='UNVERIFIED', reason=str(exc))
