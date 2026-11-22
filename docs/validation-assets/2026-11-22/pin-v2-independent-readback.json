@@ -1,0 +1,12 @@
+{
+  "result": "RESTORED_READBACK_VERIFIED",
+  "account_data_writes": 0,
+  "gateway_read_posts": 2,
+  "credentials_written_to_files": false,
+  "original_shelf_restored": true,
+  "reading_fields_unchanged": true,
+  "book_update_time_compared": false,
+  "readback_rounds": 2,
+  "channels_per_round": 3,
+  "intent_state": "restored"
+}

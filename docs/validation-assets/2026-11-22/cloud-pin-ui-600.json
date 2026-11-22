@@ -1,0 +1,27 @@
+{
+  "result": "PASS",
+  "profile_removed": true,
+  "installed_bytes_match": true,
+  "stages": [
+    {
+      "result": "PASS",
+      "workers_reaped": true,
+      "phase": "complete",
+      "mode": "live",
+      "checks": 20,
+      "requests": 25,
+      "posts": 3,
+      "forbidden": 0
+    },
+    {
+      "mode": "reopen",
+      "checks": 13,
+      "requests": 34,
+      "posts": 4,
+      "forbidden": 0,
+      "result": "PASS",
+      "workers_reaped": true,
+      "phase": "complete"
+    }
+  ]
+}

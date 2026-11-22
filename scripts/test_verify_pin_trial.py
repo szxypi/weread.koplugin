@@ -23,6 +23,8 @@ class WriterTests(unittest.TestCase):
             (BASE+'/shelf/top',{'albumIds':[],'archiveIds':[],'bookIds':['42'],'isDel':1}),
             (BASE+'/shelf/delete',{'bookIds':['42']})])
         self.assertEqual(self.writer.writes_attempted,4)
+        self.assertEqual([row['stage'] for row in self.writer.receipts],['add','pin','unpin','remove'])
+        self.assertTrue(all(row['known_fields']==['succ'] and row['other_fields_count']==0 for row in self.writer.receipts))
     def test_reject_unpermitted_wrong_order_and_changed_grant(self):
         with self.assertRaises(Exception):self.writer.request('pin_trial_add',BASE+'/shelf/add',{'bookIds':['42']},self.credentials)
         with self.assertRaises(ValueError):self.writer.send('pin',self.credentials)

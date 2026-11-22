@@ -95,7 +95,15 @@ function M.show(host,id)
         items[#items+1]={text=_('Change private reading'),callback=function()
             if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id) end
         end}
-        if require('weread.ui.shelf_flag_change').pending(host) then
+        items[#items+1]={text=_('Change cloud pin'),callback=function()
+            if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id,false,'pinned') end
+        end}
+        local pending=require('weread.ui.shelf_flag_change').pending(host)
+        if type(pending)=='table' and pending.metadata and pending.metadata.kind=='pinned' then
+            items[#items+1]={text=_('Check pending cloud pin change'),callback=function()
+                if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id,true,'pinned') end
+            end}
+        elseif pending then
             items[#items+1]={text=_('Check pending private-reading change'),callback=function()
                 if host._shelf_state_menu==menu and current(host,owner) then require('weread.ui.shelf_flag_change').open(host,id,true) end
             end}

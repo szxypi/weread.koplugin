@@ -24,30 +24,33 @@ function M:_worker(task,callback)
     self.worker=self.worker or require('weread.lib.memory_worker'):new{scheduler=self.scheduler,codec=self.client,max_bytes=8*1024*1024}
     return self.worker:start(task,callback)
 end
-function M:prepare(id,guard,callback,resolving)
+function M:prepare(id,guard,callback,resolving,kind)
     if self.job or self.preview then return false,'busy' end
     local selected=Access.capture(self.settings,self.store);if not selected or selected.renewal_pending then return false,'login' end
     local record,reason=self.journal:read();if not record then return false,reason end
-    if resolving then if record.phase=='idle' then return false,'no_pending' end;id=record.metadata.book_id
+    if resolving then if record.phase=='idle' then return false,'no_pending' end;id=record.metadata.book_id;kind=record.metadata.kind
     elseif record.phase~='idle' then return false,'pending' end
+    kind=kind or 'private';if kind~='private' and kind~='pinned' then return false,'unavailable' end
     if not Contract.id(id) or not guard() then return false,'unavailable' end
     self.last_snapshot=nil
     local job={book_id=id,guard=guard,access=selected,started=self.now(),record=resolving and record or nil,revision=record.revision}
     self.job=job
     local called,started=pcall(self._worker,self,function()
-        if not resolving then return Task.preview(self.client,self.settings,selected,id) end
+        if not resolving then return Task.preview(self.client,self.settings,selected,id,nil,kind) end
         local observed=Task.inspect(self.client,self.settings,selected,id);local flags=Contract.flags(observed.raw);local row=flags[id]
         local read,point=pcall(Contract.point,observed.progress,id)
         return {metadata=record.metadata,observed=observed,current_present=row~=nil,current_private=row and row.private.value,
+            current_pinned=row and row.pinned.value,
             position_unchanged=read and Contract.position_hash(point)==record.metadata.position_hash or false}
     end,function(plan)
         if self.job~=job then return end
         if not self:current(job) then self:cancel();callback(nil,'session_changed');return end
         self.job=nil
-        if type(plan)~='table' or not Contract.valid_metadata(plan.metadata) or plan.metadata.book_id~=id or not plan.observed then callback(nil,'unavailable');return end
+        if type(plan)~='table' or not Contract.valid_metadata(plan.metadata) or plan.metadata.book_id~=id
+            or plan.metadata.kind~=kind or not plan.observed then callback(nil,'unavailable');return end
         local frozen={};for k,v in pairs(plan.metadata) do frozen[k]=v end
         job.metadata=frozen;job.observed=self.client:json_decode(self.client:json_encode(plan.observed));plan.resolving=resolving==true
-        job.current_present,job.current_private,job.position_unchanged=plan.current_present,plan.current_private,plan.position_unchanged
+        job.current_present,job.current_private,job.current_pinned,job.position_unchanged=plan.current_present,plan.current_private,plan.current_pinned,plan.position_unchanged
         self.preview,self.preview_job=plan,job;callback(plan)
     end)
     if not called or not started then self:cancel();return false,'unavailable' end
@@ -57,7 +60,8 @@ function M:preview_current(plan)
     local job=self.preview_job
     return self.preview==plan and job and self:current(job) and Contract.same(plan.metadata,job.metadata)
         and plan.resolving==(job.record~=nil)
-        and plan.current_present==job.current_present and plan.current_private==job.current_private and plan.position_unchanged==job.position_unchanged
+        and plan.current_present==job.current_present and plan.current_private==job.current_private
+        and plan.current_pinned==job.current_pinned and plan.position_unchanged==job.position_unchanged
 end
 function M:_save(observed)
     local ok,saved=pcall(self.persist,observed.snapshot)

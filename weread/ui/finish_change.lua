@@ -48,7 +48,9 @@ function M.open(host,id,resolving)
     if host._shelf_flag_change_ui then require('weread.ui.shelf_flag_change').cancel(host) end
     local private_pending,private_error=require('weread.ui.shelf_flag_change').pending(host)
     if private_pending then
-        host:showInfo(_('A previous private-reading change is unconfirmed. Check it before making another change.'));return false
+        host:showInfo(_(type(private_pending)=='table' and private_pending.metadata and private_pending.metadata.kind=='pinned'
+            and 'A previous cloud pin change is unconfirmed. Check it before making another change.'
+            or 'A previous private-reading change is unconfirmed. Check it before making another change.'));return false
     end
     if private_error=='storage' then
         host:showInfo(_('Could not prepare or save this private-reading change. Check E-Ink login, network and storage, then try again.'));return false

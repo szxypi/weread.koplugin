@@ -4,7 +4,7 @@ from contextlib import nullcontext
 from unittest.mock import patch
 
 from native_shelf_trial import bind
-from secure_pin_trial import PHASES,PinTrialStore,validate
+from secure_pin_trial import PHASES,PinTrialStore,validate,SERVICE,SERVICE_V2
 from secure_shelf_experiment import ShelfExperimentStore,StoreError
 from verify_owner_shelf_membership import members_digest
 
@@ -63,6 +63,14 @@ class PinTrialTests(unittest.TestCase):
             self.assertFalse(shelf.pending())
             shelf.begin(plans()['native']['membership'])
             self.assertTrue(shelf.pending())
+
+    def test_v2_pending_blocks_other_shelf_trials(self):
+        with patch('secure_pin_trial.PinTrialStore') as trial:
+            trial.side_effect=lambda *,service: type('Fake',(),{'pending':lambda _self:service==SERVICE_V2})()
+            shelf=ShelfExperimentStore(Backend(),lock=nullcontext);shelf.check_pin_trial=True
+            self.assertTrue(shelf.pending())
+            self.assertEqual([call.kwargs['service'] for call in trial.call_args_list],[SERVICE,SERVICE_V2])
+            with self.assertRaises(StoreError):shelf.begin(plans()['native']['membership'])
 
 
 if __name__=='__main__':unittest.main()

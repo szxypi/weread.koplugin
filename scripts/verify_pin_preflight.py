@@ -37,7 +37,19 @@ def progress_fingerprint(value):
     return fingerprint(projected)
 
 
-def prepare(probe,web,credentials,key,report):
+def reading_fingerprint(value):
+    # Membership operations can legitimately change this one metadata field.
+    # All reading fields and all unknown fields remain part of the digest.
+    progress_fingerprint(value)
+    book=value.get('book')
+    if not isinstance(book,dict) or type(book.get('updateTime')) is not int or book['updateTime']<0:
+        raise ValueError('pin/progress_invalid')
+    projected=dict(value);projected.pop('timestamp',None);projected['book']=dict(book)
+    del projected['book']['updateTime']
+    return fingerprint(projected)
+
+
+def prepare(probe,web,credentials,key,report,*,progress_digest=progress_fingerprint):
     native=probe.prepare(credentials)
     membership=native['membership'];probe.target=membership['book_id']
     native_now=probe.request('discovery_shelf',BASE+'/shelf/sync',credentials=credentials)
@@ -53,10 +65,12 @@ def prepare(probe,web,credentials,key,report):
     for name,source in (('native',native_now),('web',web_now),('gateway',official)):check(plans[name],source,False)
     progress=probe.request('pin_progress',BASE+'/book/getProgress?'+urlencode({'bookId':probe.target}),credentials=credentials)
     again=probe.request('pin_progress',BASE+'/book/getProgress?'+urlencode({'bookId':probe.target}),credentials=credentials)
-    if progress_fingerprint(progress)!=progress_fingerprint(again):raise ValueError('pin/progress_changed')
+    if (progress_digest(progress)!=progress_digest(again)
+            or progress_fingerprint(progress)!=progress_fingerprint(again)):
+        raise ValueError('pin/progress_changed')
     for name,source in (('native',probe.request('discovery_shelf',BASE+'/shelf/sync',credentials=credentials)),
                         ('web',web.request('shelf',WEB+'/web/shelf/sync')),('gateway',read_gateway())):check(plans[name],source,False)
-    return plans,progress_fingerprint(progress),hashlib.sha256(key.encode()).hexdigest()
+    return plans,progress_digest(progress),hashlib.sha256(key.encode()).hexdigest()
 
 
 def main(argv=None):

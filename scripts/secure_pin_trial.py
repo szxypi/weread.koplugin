@@ -12,9 +12,10 @@ from secure_shelf_experiment import canonical
 from secure_weread_session import ACCOUNT,MacKeychain,StoreError
 
 SERVICE='org.codex.weread.goal-pin-observation'
+SERVICE_V2='org.codex.weread.goal-pin-observation-v2'
 PHASES=('prepared','add_pending','add_acknowledged','add_verified','pin_pending','pin_checked',
         'unpin_pending','unpin_checked','remove_pending','restored')
-RECOVERY_PHASES=('add_cleanup_pending','add_cleanup_restored','add_cleanup_timestamp_changed')
+RECOVERY_PHASES=('add_cleanup_pending','add_cleanup_restored','add_cleanup_timestamp_changed','add_cleanup_reading_restored')
 
 
 def validate(value):
@@ -32,9 +33,11 @@ def validate(value):
 
 
 class PinTrialStore:
-    def __init__(self,backend=None,lock=None):
-        self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
-        path=Path(tempfile.gettempdir())/('codex-pin-observation-'+ACCOUNT+'.lock')
+    def __init__(self,backend=None,lock=None,*,service=SERVICE):
+        if service not in (SERVICE,SERVICE_V2):raise StoreError('pin_trial/service')
+        self.backend=backend if backend is not None else MacKeychain(service=service,account=ACCOUNT)
+        suffix='-v2' if service==SERVICE_V2 else ''
+        path=Path(tempfile.gettempdir())/('codex-pin-observation'+suffix+'-'+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
 
     def _read(self):
@@ -49,7 +52,7 @@ class PinTrialStore:
         with self.lock():return self._read()
 
     def pending(self):
-        value,_=self.read();return value is not None and value['phase'] not in ('restored','add_cleanup_restored','add_cleanup_timestamp_changed')
+        value,_=self.read();return value is not None and value['phase'] not in ('restored','add_cleanup_restored','add_cleanup_timestamp_changed','add_cleanup_reading_restored')
 
     def reserve(self,plans,progress_sha256,skill_sha256):
         with self.lock():
@@ -71,13 +74,15 @@ class PinTrialStore:
             if self.backend.load()!=next_raw:raise StoreError('pin_trial/readback')
             return value,next_raw
 
-    def cleanup(self,raw,*,verified=False):
+    def cleanup(self,raw,*,verified=False,reading_only=False):
         """Claim one separate removal after add, or finish after verified readback."""
         with self.lock():
             value,current=self._read()
             if not value or not isinstance(raw,bytes) or current!=raw:raise StoreError('pin_trial/replaced')
-            if value['phase']=='add_acknowledged' and verified is False:phase='add_cleanup_pending'
-            elif value['phase']=='add_cleanup_pending' and verified is True:phase='add_cleanup_restored'
+            if type(reading_only) is not bool:raise StoreError('pin_trial/sequence')
+            if value['phase']=='add_acknowledged' and verified is False and reading_only is False:phase='add_cleanup_pending'
+            elif value['phase']=='add_cleanup_pending' and verified is True:
+                phase='add_cleanup_reading_restored' if reading_only else 'add_cleanup_restored'
             else:raise StoreError('pin_trial/sequence')
             value['phase']=phase;next_raw=canonical(validate(value));self.backend.save(next_raw)
             if self.backend.load()!=next_raw:raise StoreError('pin_trial/readback')

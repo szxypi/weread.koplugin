@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 from secure_pin_trial import PinTrialStore
 from test_pin_trial_contract import Fixture
-from verify_pin_preflight import fingerprint
+from verify_pin_preflight import fingerprint,reading_fingerprint
 from resolve_pin_added_book import cleanup,RemovalProbe
 from verify_eink_login import BASE
 
@@ -45,6 +45,18 @@ class CleanupTests(unittest.TestCase):
             result=original('remove');f.bad='progress';return result
         with self.assertRaisesRegex(ValueError,'cleanup/progress'):cleanup(f.store,f.current,f.read,remove,apply=True)
         self.assertEqual(f.writes,['remove']);self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_pending')
+
+    def test_v2_cleanup_records_reading_projection_not_full_timestamp(self):
+        f=Fixture(False);f.progress={'book':{'updateTime':100,'chapterOffset':0},'timestamp':1}
+        _,raw=f.store.reserve(f.plan,reading_fingerprint(f.progress),'c'*64)
+        _,raw=f.store.advance(raw,'add_pending');f.store.advance(raw,'add_acknowledged');f.present=True
+        original=f.write
+        def remove():
+            result=original('remove');f.progress['book']['updateTime']+=1;return result
+        result=cleanup(f.store,f.current,f.read,remove,apply=True,progress_digest=reading_fingerprint,reading_only=True)
+        self.assertEqual(result['result'],'ADDED_BOOK_REMOVED_AND_READING_VERIFIED')
+        self.assertEqual(f.store.read()[0]['phase'],'add_cleanup_reading_restored')
+        self.assertFalse(f.store.pending())
     def test_removal_transport_is_one_shot(self):
         p=RemovalProbe();p.target='42';creds={'vid':'123','accessToken':'synthetic'};p.grant=fingerprint(creds)
         with patch('verify_eink_login.NativeProbe.request',return_value={'succ':1}) as request:

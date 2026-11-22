@@ -1,0 +1,28 @@
+{
+  "result": "READ_ONLY_PLAN_VERIFIED",
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credentials_written_to_files": false,
+  "shelf_books": 140,
+  "original_pin_provided": false,
+  "state_and_position_stable": true,
+  "lua_model_matches": true,
+  "stages": [
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "progress",
+      "status": 200
+    },
+    {
+      "stage": "shelf_check",
+      "status": 200
+    },
+    {
+      "stage": "progress_check",
+      "status": 200
+    }
+  ]
+}

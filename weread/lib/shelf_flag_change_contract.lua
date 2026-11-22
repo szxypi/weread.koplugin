@@ -61,6 +61,31 @@ function M.request(id,desired)
     return {bookIds={id},private=desired and 1 or 0}
 end
 local function request_hash(id,desired) return Hash.digest({'shelf-flag-request-v1','private',id,desired and 1 or 0}) end
+local function pin_request_hash(id,desired) return Hash.digest({'shelf-flag-request-v1','pinned',id,desired and 0 or 1}) end
+function M.pin_request(id,desired)
+    if not M.id(id) or type(desired)~='boolean' then fail('target') end
+    return {bookIds={id},albumIds={},archiveIds={},isDel=desired and 0 or 1}
+end
+function M.make_pin(source,progress,id,desired)
+    local body=M.pin_request(id,desired);local snapshot=M.flags(source);local row=snapshot[id]
+    if not row or row.pinned.reason=='invalid' then fail('unknown') end
+    local before=row.pinned.value
+    if before==nil and row.pinned.reason=='missing' then before='missing' end
+    if type(before)~='boolean' and before~='missing' then fail('unknown') end
+    -- A missing field is never treated as proof that the book was unpinned.
+    if not desired and before~=true then fail('unknown') end
+    for _i,item in pairs(snapshot) do for _j,flag in pairs(item) do if flag.reason=='invalid' then fail('invalid_flag') end end end
+    local point=M.point(progress,id);local groups=M.groups_hash(source);local before_hash=M.state_hash(source)
+    row.pinned={value=desired}
+    local after_hash=Hash.digest({'shelf-flag-state-v1',Base.flags_hash(snapshot),groups})
+    local alternate=after_hash
+    if not desired then
+        row.pinned={reason='missing'}
+        alternate=Hash.digest({'shelf-flag-state-v1',Base.flags_hash(snapshot),groups})
+    end
+    return {metadata={kind='pinned',book_id=id,before=before,desired=desired,before_hash=before_hash,after_hash=after_hash,
+        alternate_hash=alternate,position_hash=M.position_hash(point),request_hash=pin_request_hash(id,desired)},body=body}
+end
 function M.make(source,progress,id,desired)
     local body=M.request(id,desired);local snapshot=M.flags(source);local row=snapshot[id]
     local before=row and row.private.value
@@ -73,11 +98,18 @@ function M.make(source,progress,id,desired)
         position_hash=M.position_hash(point),request_hash=request_hash(id,desired)},body=body}
 end
 function M.valid_metadata(value)
-    if type(value)~='table' or value.kind~='private' or not M.id(value.book_id) or type(value.before)~='boolean' or type(value.desired)~='boolean' then return false end
+    if type(value)~='table' or (value.kind~='private' and value.kind~='pinned') or not M.id(value.book_id)
+        or type(value.desired)~='boolean' then return false end
+    local pin=value.kind=='pinned'
+    if type(value.before)~='boolean' and (not pin or value.before~='missing') then return false end
+    if pin and not value.desired and value.before~=true then return false end
     local allowed={kind=true,book_id=true,before=true,desired=true,before_hash=true,after_hash=true,position_hash=true,request_hash=true}
+    if pin then allowed.alternate_hash=true end
     local count=0;for key in pairs(value) do if not allowed[key] then return false end;count=count+1 end
-    if count~=8 then return false end
+    if count~=(pin and 9 or 8) then return false end
     for _i,key in ipairs({'before_hash','after_hash','position_hash','request_hash'}) do if not Hash.hash(value[key]) then return false end end
+    if pin then return Hash.hash(value.alternate_hash) and (not value.desired or value.alternate_hash==value.after_hash)
+        and value.request_hash==pin_request_hash(value.book_id,value.desired) end
     return value.request_hash==request_hash(value.book_id,value.desired)
 end
 function M.same(left,right)
@@ -86,6 +118,8 @@ function M.same(left,right)
 end
 function M.check(source,progress,metadata)
     if not M.valid_metadata(metadata) then fail('metadata') end
-    return M.state_hash(source)==metadata.after_hash and M.position_hash(M.point(progress,metadata.book_id))==metadata.position_hash
+    local hash=M.state_hash(source)
+    return (hash==metadata.after_hash or metadata.kind=='pinned' and hash==metadata.alternate_hash)
+        and M.position_hash(M.point(progress,metadata.book_id))==metadata.position_hash
 end
 return M

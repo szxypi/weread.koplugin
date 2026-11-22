@@ -7,31 +7,31 @@ from urllib.parse import urlencode
 
 from pin_trial_contract import verify
 from secure_native_session import NativeSessionStore
-from secure_pin_trial import PinTrialStore
+from secure_pin_trial import PinTrialStore,SERVICE_V2
 from secure_weread_session import ACCOUNT,MacKeychain,SessionStore
 from verify_eink_login import BASE
 from verify_finish_roundtrip import acknowledged
 from verify_pin_gateway import SERVICE,KeyWeb,gateway,validate
-from verify_pin_preflight import PinProbe,fingerprint,progress_fingerprint
+from verify_pin_preflight import PinProbe,fingerprint,progress_fingerprint,reading_fingerprint
 from verify_web_source_progress import BASE as WEB
 
 
-def baseline(state,current,read):
+def baseline(state,current,read,progress_digest=progress_fingerprint):
     values=[]
     for _ in range(2):
         current();sources,progress=read()
         if set(sources)!={'native','web','gateway'}:raise ValueError('cleanup/channels')
         target=verify(sources,state['plans'],True)
         if any(row['pinned']=={'value':True} for row in target.values()):raise ValueError('cleanup/pinned')
-        values.append((target,progress_fingerprint(progress)))
+        values.append((target,progress_digest(progress)))
     if values[0]!=values[1]:raise ValueError('cleanup/unstable')
     return values[0]
 
 
-def cleanup(store,current,read,remove,apply=False):
+def cleanup(store,current,read,remove,apply=False,*,progress_digest=progress_fingerprint,reading_only=False):
     state,raw=store.read()
     if not state or state['phase']!='add_acknowledged':raise ValueError('cleanup/phase')
-    baseline(state,current,read)
+    baseline(state,current,read,progress_digest)
     if not apply:return {'result':'CLEANUP_PREVIEW_VERIFIED','account_data_posts_attempted':0}
     _,raw=store.cleanup(raw)
     response=remove()
@@ -39,9 +39,10 @@ def cleanup(store,current,read,remove,apply=False):
     for _ in range(2):
         current();sources,progress=read()
         verify(sources,state['plans'],False)
-        if progress_fingerprint(progress)!=state['progress_sha256']:raise ValueError('cleanup/progress')
-    store.cleanup(raw,verified=True)
-    return {'result':'ADDED_BOOK_REMOVED_AND_ORIGINAL_VERIFIED','account_data_posts_attempted':1}
+        if progress_digest(progress)!=state['progress_sha256']:raise ValueError('cleanup/progress')
+    store.cleanup(raw,verified=True,reading_only=reading_only)
+    return {'result':'ADDED_BOOK_REMOVED_AND_READING_VERIFIED' if reading_only else 'ADDED_BOOK_REMOVED_AND_ORIGINAL_VERIFIED',
+            'account_data_posts_attempted':1}
 
 
 class RemovalProbe(PinProbe):
@@ -60,10 +61,10 @@ class RemovalProbe(PinProbe):
 
 
 def main(argv=None):
-    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true');parser.add_argument('--apply',action='store_true');args=parser.parse_args(argv)
+    parser=argparse.ArgumentParser(description=__doc__);parser.add_argument('--saved-session',action='store_true');parser.add_argument('--apply',action='store_true');parser.add_argument('--v2',action='store_true');args=parser.parse_args(argv)
     if args.apply and not args.saved_session:parser.error('--apply requires --saved-session')
     report={'result':'OFFLINE_ONLY','account_data_posts_attempted':0,'no_automatic_replay':True,'credentials_written_to_files':False}
-    p=RemovalProbe();web=KeyWeb();store=PinTrialStore();saved=credentials=key=None
+    p=RemovalProbe();web=KeyWeb();store=PinTrialStore(service=SERVICE_V2) if args.v2 else PinTrialStore();saved=credentials=key=None
     try:
         if args.saved_session:
             state,_=store.read()
@@ -83,7 +84,9 @@ def main(argv=None):
                          'web':web.request('shelf',WEB+'/web/shelf/sync'),'gateway':gateway(key)}
                 progress=p.request('pin_progress',BASE+'/book/getProgress?'+urlencode({'bookId':p.target}),credentials=credentials)
                 return sources,progress
-            report.update(cleanup(store,current,read,lambda:p.remove(credentials),apply=args.apply))
+            report.update(cleanup(store,current,read,lambda:p.remove(credentials),apply=args.apply,
+                                  progress_digest=reading_fingerprint if args.v2 else progress_fingerprint,reading_only=args.v2))
+            if args.v2:report['progress_projection']='exclude_server_clock_and_book_update_time'
     except (Exception,KeyboardInterrupt) as error:
         report['result']='UNVERIFIED'
         if str(error) in {'cleanup/phase','cleanup/owner','cleanup/key','cleanup/channels','cleanup/pinned',

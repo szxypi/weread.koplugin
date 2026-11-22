@@ -4,7 +4,7 @@ from unittest.mock import patch
 from native_shelf_trial import bind
 from verify_eink_login import BASE
 from verify_owner_shelf_membership import members_digest
-from verify_pin_preflight import PinProbe,prepare,progress_fingerprint
+from verify_pin_preflight import PinProbe,prepare,progress_fingerprint,reading_fingerprint
 
 
 def shelf():return {'books':[{'bookId':'41','title':'Synthetic','secret':0,'finishReading':0}],'archive':[]}
@@ -31,6 +31,17 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(progress_fingerprint(baseline),progress_fingerprint(dict(baseline,timestamp=2)))
         self.assertNotEqual(progress_fingerprint(baseline),progress_fingerprint(dict(baseline,future=2)))
         with self.assertRaises(ValueError):progress_fingerprint(dict(baseline,timestamp=True))
+
+    def test_reading_projection_excludes_only_two_timestamps(self):
+        baseline={'timestamp':1,'book':{'updateTime':100,'chapterUid':0,'chapterOffset':3},'future':1}
+        changed=copy.deepcopy(baseline);changed['timestamp']=2;changed['book']['updateTime']=101
+        self.assertEqual(reading_fingerprint(baseline),reading_fingerprint(changed))
+        changed['book']['chapterOffset']=4
+        self.assertNotEqual(reading_fingerprint(baseline),reading_fingerprint(changed))
+        changed=copy.deepcopy(baseline);changed['future']=2
+        self.assertNotEqual(reading_fingerprint(baseline),reading_fingerprint(changed))
+        changed['book']['updateTime']=True
+        with self.assertRaises(ValueError):reading_fingerprint(changed)
 
     def test_three_bound_shelves_and_two_observations(self):
         probe=Probe();report={'gateway_read_posts':0}

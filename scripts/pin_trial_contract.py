@@ -13,10 +13,10 @@ from verify_pin_preflight import progress_fingerprint
 CHANNELS=('native','web','gateway')
 
 
-def observe(plans,progress_sha256,current,read):
+def observe(plans,progress_sha256,current,read,progress_digest=progress_fingerprint):
     current()
     snapshots,progress=read()
-    if set(snapshots)!=set(CHANNELS) or progress_fingerprint(progress)!=progress_sha256:
+    if set(snapshots)!=set(CHANNELS) or progress_digest(progress)!=progress_sha256:
         raise ValueError('pin/observation')
     return snapshots
 
@@ -33,10 +33,10 @@ def verify(snapshots,plans,present):
     return result
 
 
-def run(plans,progress_sha256,skill_sha256,store,current,read,write):
+def run(plans,progress_sha256,skill_sha256,store,current,read,write,*,progress_digest=progress_fingerprint):
     """Execute the single pre-bound sequence, stopping on any uncertainty."""
     if store.read()[0] is not None:raise ValueError('pin/already_used')
-    for _ in range(2):verify(observe(plans,progress_sha256,current,read),plans,False)
+    for _ in range(2):verify(observe(plans,progress_sha256,current,read,progress_digest),plans,False)
     state,raw=store.reserve(deepcopy(plans),progress_sha256,skill_sha256)
     validate(state)
     target_flags=None;observations={};attempts=0
@@ -44,7 +44,7 @@ def run(plans,progress_sha256,skill_sha256,store,current,read,write):
         ('add','add_pending','add_verified',True),('pin','pin_pending','pin_checked',True),
         ('unpin','unpin_pending','unpin_checked',True),('remove','remove_pending','restored',False)):
         # Verify immediately before every new write, including unrelated data and position.
-        before=verify(observe(plans,progress_sha256,current,read),plans,operation!='add')
+        before=verify(observe(plans,progress_sha256,current,read,progress_digest),plans,operation!='add')
         if target_flags is not None:
             for channel in CHANNELS:
                 for field in ('private','finished'):
@@ -56,7 +56,7 @@ def run(plans,progress_sha256,skill_sha256,store,current,read,write):
         if not acknowledged(response):raise ValueError('pin/receipt_unknown')
         if operation=='add':_,raw=store.advance(raw,'add_acknowledged')
         pair=[]
-        for _ in range(2):pair.append(verify(observe(plans,progress_sha256,current,read),plans,present))
+        for _ in range(2):pair.append(verify(observe(plans,progress_sha256,current,read,progress_digest),plans,present))
         if pair[0]!=pair[1]:raise ValueError('pin/unstable')
         if present:
             after=pair[0]
@@ -73,9 +73,11 @@ def run(plans,progress_sha256,skill_sha256,store,current,read,write):
              and observations['unpin'][name]=={'value':False}]
     any_visible=any('value' in flag for stage in ('pin','unpin') for flag in observations[stage].values())
     result='PIN_OBSERVED_RESTORED' if visible else 'RESTORED_PIN_NOT_CONFIRMED' if any_visible else 'RESTORED_PIN_UNOBSERVABLE'
-    return dict(result=result,
+    report=dict(result=result,
         writes_attempted=attempts,pin_states=observations,observable_channels=visible,
-        original_members_flags_groups_and_progress_verified=True,intent_state='restored',no_automatic_replay=True)
+        original_members_flags_groups_verified=True,progress_projection_verified=True,intent_state='restored',no_automatic_replay=True)
+    if progress_digest is progress_fingerprint:report['original_members_flags_groups_and_progress_verified']=True
+    return report
 
 
 operation_before={'pin':'add','unpin':'pin','remove':'unpin'}

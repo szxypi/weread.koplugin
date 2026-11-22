@@ -3,7 +3,7 @@ import unittest
 
 from secure_pin_trial import PinTrialStore
 from test_secure_pin_trial import Backend,plans
-from verify_pin_preflight import fingerprint
+from verify_pin_preflight import fingerprint,reading_fingerprint
 from pin_trial_contract import run
 
 
@@ -78,6 +78,24 @@ class ContractTests(unittest.TestCase):
     def test_already_pinned_on_add_stops(self):
         f=Fixture();f.pinned=True
         with self.assertRaises(ValueError):f.run()
+        self.assertEqual(f.writes,['add']);self.assertEqual(f.store.read()[0]['phase'],'add_acknowledged')
+
+    def test_v2_allows_only_update_time_drift(self):
+        f=Fixture(False);f.progress={'book':{'updateTime':100,'chapterOffset':0},'timestamp':1}
+        initial=reading_fingerprint(f.progress);write=f.write
+        def changed_time(op):
+            result=write(op);f.progress['book']['updateTime']+=1;return result
+        result=run(f.plan,initial,'c'*64,f.store,f.current,f.read,changed_time,progress_digest=reading_fingerprint)
+        self.assertEqual(f.writes,['add','pin','unpin','remove'])
+        self.assertTrue(result['progress_projection_verified'])
+        self.assertNotIn('original_members_flags_groups_and_progress_verified',result)
+    def test_v2_changed_reading_position_stops_after_add(self):
+        f=Fixture(False);f.progress={'book':{'updateTime':100,'chapterOffset':0},'timestamp':1}
+        initial=reading_fingerprint(f.progress);write=f.write
+        def changed_position(op):
+            result=write(op);f.progress['book']['chapterOffset']=1;return result
+        with self.assertRaisesRegex(ValueError,'pin/observation'):
+            run(f.plan,initial,'c'*64,f.store,f.current,f.read,changed_position,progress_digest=reading_fingerprint)
         self.assertEqual(f.writes,['add']);self.assertEqual(f.store.read()[0]['phase'],'add_acknowledged')
 
 

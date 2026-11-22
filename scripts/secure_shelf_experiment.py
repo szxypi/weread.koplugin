@@ -60,11 +60,16 @@ class ShelfExperimentStore:
     def pending(self):
         with self.lock():pending=self._load()[0] is not None
         if pending:return True
-        return self.check_pin_trial and __import__('secure_pin_trial').PinTrialStore().pending()
+        return self.check_pin_trial and self._pin_pending()
+
+    @staticmethod
+    def _pin_pending():
+        module=__import__('secure_pin_trial')
+        return any(module.PinTrialStore(service=service).pending() for service in (module.SERVICE,module.SERVICE_V2))
 
     def begin(self,plan):
         validate_plan(plan)
-        if self.check_pin_trial and __import__('secure_pin_trial').PinTrialStore().pending():
+        if self.check_pin_trial and self._pin_pending():
             raise StoreError('shelf_experiment_unconfirmed')
         with self.lock():
             if self._load()[0] is not None:raise StoreError('shelf_experiment_unconfirmed')

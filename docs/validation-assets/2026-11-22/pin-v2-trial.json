@@ -1,0 +1,371 @@
+{
+  "result": "RESTORED_PIN_NOT_CONFIRMED",
+  "account_data_posts_attempted": 4,
+  "gateway_read_posts": 16,
+  "credentials_written_to_files": false,
+  "no_automatic_replay": true,
+  "writes_attempted": 4,
+  "pin_states": {
+    "add": {
+      "native": {
+        "reason": "missing"
+      },
+      "web": {
+        "reason": "missing"
+      },
+      "gateway": {
+        "reason": "missing"
+      }
+    },
+    "pin": {
+      "native": {
+        "value": true
+      },
+      "web": {
+        "value": true
+      },
+      "gateway": {
+        "value": true
+      }
+    },
+    "unpin": {
+      "native": {
+        "reason": "missing"
+      },
+      "web": {
+        "reason": "missing"
+      },
+      "gateway": {
+        "reason": "missing"
+      }
+    }
+  },
+  "observable_channels": [],
+  "original_members_flags_groups_verified": true,
+  "progress_projection_verified": true,
+  "intent_state": "restored",
+  "full_progress_excluding_server_clock_unchanged": false,
+  "progress_projection": "exclude_server_clock_and_book_update_time",
+  "write_receipts": [
+    {
+      "stage": "add",
+      "known_fields": [
+        "succ"
+      ],
+      "other_fields_count": 0
+    },
+    {
+      "stage": "pin",
+      "known_fields": [
+        "succ"
+      ],
+      "other_fields_count": 0
+    },
+    {
+      "stage": "unpin",
+      "known_fields": [
+        "succ"
+      ],
+      "other_fields_count": 0
+    },
+    {
+      "stage": "remove",
+      "known_fields": [
+        "succ"
+      ],
+      "other_fields_count": 0
+    }
+  ],
+  "native_stages": [
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "search",
+      "status": 200
+    },
+    {
+      "stage": "discovery_metadata",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "pin_trial_add",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "pin_trial_pin",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "pin_trial_unpin",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "pin_trial_remove",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    }
+  ],
+  "web_stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    }
+  ]
+}
