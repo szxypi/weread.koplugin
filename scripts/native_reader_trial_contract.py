@@ -1,7 +1,7 @@
 """Closed pipe/report schema for the real ReaderUI trial; no dispatch authority."""
 import re
 from verify_owner_reading import validate_stage as reading_stage,validate_cookies
-from secure_native_reader_trial import validate_plan
+from secure_native_reader_trial import validate_plan,validate_reconnect_plan
 from verify_eink_renewal import validate_credentials
 from txt_full_summary import digest
 from readtime_upload_model import zone
@@ -16,12 +16,16 @@ def validate_payload(value,armed,mock_port=None):
     if mock_port is not None:fields.add('reader_mock_port')
     if not isinstance(value,dict) or set(value)!=fields:raise ValueError('reader_trial/payload')
     trial=value['native_reader_trial']
-    if (not isinstance(trial,dict) or set(trial)!={'plan','armed','bind_percent','rpc_token','native_shelf_sha256','guest','time_zone'}
+    reconnect=isinstance(trial,dict) and trial.get('offline_reconnect') is True
+    expected={'plan','armed','bind_percent','rpc_token','native_shelf_sha256','guest','time_zone'}
+    if reconnect:expected.add('offline_reconnect')
+    if (not isinstance(trial,dict) or set(trial)!=expected
             or trial['armed'] is not armed or type(trial['bind_percent']) is not bool
             or not isinstance(trial['rpc_token'],str) or not re.fullmatch('[a-f0-9]{32}',trial['rpc_token'])
             or not isinstance(trial['native_shelf_sha256'],str) or not re.fullmatch('[a-f0-9]{64}',trial['native_shelf_sha256'])
             or not isinstance(trial['guest'],str) or not 1<=len(trial['guest'])<=4096):raise ValueError('reader_trial/payload')
-    validate_plan(trial['plan']);validate_credentials(value['native_grant']);validate_cookies(value['cookies'],value['vid']);zone(trial['time_zone'])
+    (validate_reconnect_plan if reconnect else validate_plan)(trial['plan'])
+    validate_credentials(value['native_grant']);validate_cookies(value['cookies'],value['vid']);zone(trial['time_zone'])
     plan=trial['plan'];grant=value['native_grant']
     if (grant['vid']!=value['vid'] or plan['owner_sha256']!=digest(value['vid']) or plan['grant_sha256']!=digest(grant)
             or value['native_source_excerpt'] is not True or value['source_format']!='web_txt'
@@ -42,26 +46,33 @@ def validate_payload(value,armed,mock_port=None):
     return value
 
 
-def validate_stage(stage,armed,complete=True):
+def validate_stage(stage,armed,complete=True,*,reconnect=False):
     if not isinstance(stage,dict):raise ValueError('reader_trial/stage')
     a=stage.get('native_reader_trial')
-    if (not isinstance(a,dict) or set(a)!=FLAGS|set(COUNTS)|{'phase'} or a['permit_writes'] is not armed
+    expected=FLAGS|set(COUNTS)|{'phase'}
+    if reconnect:expected.update(('offline_reconnect_verified','reconnect_diagnostic'))
+    if (not isinstance(a,dict) or set(a)!=expected or a['permit_writes'] is not armed
             or a['phase'] not in ('init','manual','restore','complete') or any(type(a[k]) is not bool for k in FLAGS)
+            or reconnect and type(a['offline_reconnect_verified']) is not bool
+            or reconnect and a['reconnect_diagnostic'] not in ('none','source_position_changed','source_changed','busy','login',
+                'pending','unavailable','storage','upload_readback_unconfirmed','source_remote_changed','source_data_unavailable',
+                'source_native_authentication_unavailable','other')
             or any(type(a[k]) is not int or not 0<=a[k]<=cap for k,cap in COUNTS.items())):raise ValueError('reader_trial/stage')
     reading_stage({k:v for k,v in stage.items() if k!='native_reader_trial'},'live',selection_preview=True)
     if complete and (stage['result']!='PASS' or a['phase']!='complete' or a['failed_line'] or a['native_denied']
             or not all(a[k] for k in ('source_reference','manual_controls','source_plan','sqlite_before_posts'))
             or a['steps']!=(2 if armed else 0) or a['native_posts']!=(2 if armed else 0) or a['acknowledged']!=(2 if armed else 0)
             or a['blocked_posts']!=(0 if armed else 1) or a['dispatch_blocked'] is armed
-            or a['restore_source'] is not armed or a['local_commit'] is not armed or a['native_gets']<7):raise ValueError('reader_trial/incomplete')
+            or a['restore_source'] is not armed or a['local_commit'] is not armed or a['native_gets']<7
+            or reconnect and a['offline_reconnect_verified'] is not True):raise ValueError('reader_trial/incomplete')
     return stage
 
 
-def validate_result(value,armed,owner):
+def validate_result(value,armed,owner,*,reconnect=False):
     if (not isinstance(value,dict) or set(value)!={'result','profile_removed','installed','stage','cookies'}
             or value['result'] not in ('PASS','UNVERIFIED') or type(value['profile_removed']) is not bool):raise ValueError('reader_trial/result')
     validate_cookies(value['cookies'],owner)
-    if value['stage'] is not None:validate_stage(value['stage'],armed,complete=value['result']=='PASS')
+    if value['stage'] is not None:validate_stage(value['stage'],armed,complete=value['result']=='PASS',reconnect=reconnect)
     if value['result']=='PASS':
         installed=value['installed']
         if (not value['profile_removed'] or value['stage'] is None or not isinstance(installed,dict)

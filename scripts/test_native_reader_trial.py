@@ -147,7 +147,7 @@ class ReaderTrialTests(unittest.TestCase):
         import verify_native_thought_trial as shared
         names=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore',
                'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore',
-               'NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore',
+               'NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeReconnectTrialStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore',
                'ReadtimeTrialStore','CrossDayTrialStore','MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
         with ExitStack() as context:
             factories={name:context.enter_context(patch.object(shared,name)) for name in names}
@@ -155,6 +155,12 @@ class ReaderTrialTests(unittest.TestCase):
             factories['NativeReaderTrialStore'].return_value.pending.return_value=True
             self.assertTrue(shared.other_pending(exclude_native_txt_flow=True,exclude_raw_txt_excerpt=True))
             self.assertFalse(shared.other_pending(exclude_native_reader_trial=True))
+            factories['NativeReaderTrialStore'].return_value.pending.return_value=False
+            factories['NativeReconnectTrialStore'].return_value.pending.return_value=True
+            self.assertTrue(shared.other_pending(exclude_native_reader_trial=True))
+            self.assertFalse(shared.other_pending(exclude_native_reconnect_trial=True))
+            factories['NativeReconnectTrialStore'].return_value.pending.return_value=False
+            factories['NativeReaderTrialStore'].return_value.pending.return_value=True
             factories['RawTxtExcerptStore'].return_value.pending.return_value=True
             self.assertTrue(shared.other_pending(exclude_native_reader_trial=True))
     def test_default_never_accesses_credentials_or_starts_a_child(self):

@@ -5,13 +5,13 @@ import subprocess
 import time
 from native_trial_pipe import Frames,write_initial,reply,stop
 from native_reader_trial_contract import validate_payload,validate_result
-from secure_native_reader_trial import validate_plan
+from secure_native_reader_trial import validate_plan,validate_reconnect_plan
 from secure_native_txt_roundtrip import point,POINT_FIELDS
 from native_txt_read_model import body
 from verify_native_position_lua import equivalent
 
 
-def check_metadata(metadata,plan,shelf_hash,reader_percent,bind_percent):
+def check_metadata(metadata,plan,shelf_hash,reader_percent,bind_percent,*,reconnect=False,target_check=None):
     fields={'book_id','before','desired','counts','version','shelf_sha256','source_sha256','file_id','basis'}
     if not isinstance(metadata,dict) or set(metadata)!=fields:raise ValueError('reader_trial/metadata')
     point(metadata['before']);point(metadata['desired'])
@@ -22,13 +22,19 @@ def check_metadata(metadata,plan,shelf_hash,reader_percent,bind_percent):
             or not isinstance(metadata['file_id'],str) or not re.fullmatch('[a-f0-9]{64}',metadata['file_id'])
             or type(reader_percent) is not int or not 0<=reader_percent<=100
             or metadata['desired']['raw_percent']!=reader_percent
-            or any(metadata['desired'][k]!=plan['target'][k] for k in POINT_FIELDS-{'raw_percent'})
+            or (not reconnect or bind_percent) and any(metadata['desired'][k]!=plan['target'][k] for k in POINT_FIELDS-{'raw_percent'})
             or bind_percent and metadata['desired']['raw_percent']!=plan['target']['raw_percent']):
         raise ValueError('reader_trial/metadata')
-    selected=deepcopy(plan);selected['target']['raw_percent']=reader_percent;validate_plan(selected);return selected
+    selected=deepcopy(plan)
+    if reconnect:
+        if not callable(target_check) or target_check(metadata['desired']) is not True:raise ValueError('reader_trial/source')
+        selected['target']=deepcopy(metadata['desired']);validate_reconnect_plan(selected)
+    else:
+        selected['target']['raw_percent']=reader_percent;validate_plan(selected)
+    return selected
 
 
-def execute(payload,command,store,report,*,prepare=False,current=None,before=None,after=None):
+def execute(payload,command,store,report,*,prepare=False,current=None,before=None,after=None,target_check=None):
     trial=payload['native_reader_trial'];armed=trial['armed'];plan=deepcopy(trial['plan'])
     validate_payload(payload,armed,payload.get('reader_mock_port'))
     state,receipt=store.read()
@@ -44,13 +50,14 @@ def execute(payload,command,store,report,*,prepare=False,current=None,before=Non
         while True:
             kind,value=frames.next()
             if kind=='RESULT':
-                runner=validate_result(value,armed,payload['vid'])
+                runner=validate_result(value,armed,payload['vid'],reconnect=trial.get('offline_reconnect') is True)
                 report['native_ui']={k:v for k,v in runner.items() if k!='cookies'};break
             awaiting=value;event=value.get('kind');seq=value.get('seq')
             if type(seq) is not int or not 1<=seq<=2:raise ValueError('reader_trial/sequence')
             if event=='plan':
                 if planned or seq!=1 or set(value)!={'kind','seq','metadata','reader_percent'}:raise ValueError('reader_trial/plan_sequence')
-                selected=check_metadata(value['metadata'],plan,trial['native_shelf_sha256'],value['reader_percent'],trial['bind_percent'])
+                selected=check_metadata(value['metadata'],plan,trial['native_shelf_sha256'],value['reader_percent'],trial['bind_percent'],
+                                        reconnect=trial.get('offline_reconnect') is True,target_check=target_check)
                 if not prepare and selected!=state['plan']:raise ValueError('reader_trial/plan_changed')
                 plan=selected;trial['plan']=deepcopy(plan);planned=1
             elif event in ('claim','dry_body'):

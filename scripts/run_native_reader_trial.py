@@ -45,12 +45,13 @@ def main(argv=None):
                     kind,value=frames.next()
                     if kind=='RESULT':
                         if set(value)!={'report','cookies'}:raise ValueError('reader_trial/frame')
-                        result['stage']=validate_stage(value['report'],a.armed,complete=False)
+                        result['stage']=validate_stage(value['report'],a.armed,complete=False,
+                                                       reconnect=payload['native_reader_trial'].get('offline_reconnect') is True)
                         result['cookies']=validate_cookies(value['cookies'],payload['vid']);break
                     sys.stdout.buffer.write(b'\n'+frames.prefix+b'STEP='+json.dumps(value,separators=(',',':')).encode()+b'\n');sys.stdout.buffer.flush()
                     reply(child.stdin,read_reply(sys.stdin.buffer))
                 if child.wait(timeout=15):raise ValueError('reader_trial/child')
-                validate_stage(result['stage'],a.armed)
+                validate_stage(result['stage'],a.armed,reconnect=payload['native_reader_trial'].get('offline_reconnect') is True)
             finally:stop_reader(child);child=None
             result.update(result='PASS',installed=check_installed(a.candidate,profile))
     except Exception:pass

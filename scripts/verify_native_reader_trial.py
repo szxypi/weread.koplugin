@@ -11,7 +11,7 @@ import json
 import resource
 import secrets
 import threading
-from secure_native_reader_trial import NativeReaderTrialStore,validate_plan
+from secure_native_reader_trial import NativeReaderTrialStore,NativeReconnectTrialStore,validate_plan,validate_reconnect_plan
 from secure_weread_session import SessionStore
 from secure_native_session import NativeSessionStore
 from verify_native_txt_position import Source,Native
@@ -20,6 +20,7 @@ from verify_raw_txt_excerpt import candidate
 from verify_reader_progress import project,find_node
 from verify_position_roundtrip import same_position
 from verify_eink_login import BASE
+from verify_source_coordinates import CoordinateError
 from verify_web_source_progress import BASE as WEB
 from verify_translation_preflight import save_refreshed_web_session
 from verify_cb_progress import cb_id
@@ -78,14 +79,17 @@ def reading_payload(web):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);access=p.add_mutually_exclusive_group();access.add_argument('--saved-session',action='store_true');access.add_argument('--mock',action='store_true')
-    modes=p.add_mutually_exclusive_group();modes.add_argument('--prepare',action='store_true');modes.add_argument('--dry-run',action='store_true');modes.add_argument('--apply',action='store_true');modes.add_argument('--resolve',action='store_true');modes.add_argument('--restore-only',action='store_true')
+    modes=p.add_mutually_exclusive_group();modes.add_argument('--prepare',action='store_true');modes.add_argument('--dry-run',action='store_true');modes.add_argument('--apply',action='store_true');modes.add_argument('--resolve',action='store_true');modes.add_argument('--restore-only',action='store_true');modes.add_argument('--inspect',action='store_true')
+    p.add_argument('--offline-reconnect',action='store_true');p.add_argument('--mock-noack',action='store_true')
     p.add_argument('--native-ui-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
-    active=a.prepare or a.dry_run or a.apply or a.resolve or a.restore_only
+    active=a.prepare or a.dry_run or a.apply or a.resolve or a.restore_only or a.inspect
     if (a.saved_session and not active or active and not (a.saved_session or a.mock)
             or a.native_ui_command is not None and not (a.prepare or a.dry_run or a.apply)
             or (a.prepare or a.dry_run or a.apply) and not a.native_ui_command
-            or (a.resolve or a.restore_only) and (not a.saved_session or a.native_ui_command)
-            or a.mock and not (a.prepare or a.dry_run or a.apply)):p.error('paired saved/native mode required')
+            or (a.resolve or a.restore_only or a.inspect) and (not a.saved_session or a.native_ui_command)
+            or a.mock and not (a.prepare or a.dry_run or a.apply)
+            or a.offline_reconnect and (a.resolve or a.restore_only) or a.inspect and not a.offline_reconnect
+            or a.mock_noack and not (a.mock and a.apply and a.offline_reconnect)):p.error('paired saved/native mode required')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,authentication_posts=0,
                 web_write_posts=0,historical_time_rows=0,private_data_on_regular_disk=False,real_reader_roundtrip_verified=False)
     web=native=credentials=saved=store=server=session=payload=None
@@ -96,6 +100,7 @@ def main(argv=None):
                 from native_reader_fixture import NativeReaderServer,GRANT,BOOK_ID,chapter_txt
                 from test_secure_native_session import Backend
                 server=NativeReaderServer();threading.Thread(target=server.serve_forever,daemon=True).start()
+                if a.mock_noack:server.native_mode='noack'
                 raw=chapter_txt(2);co=PlainSource(raw).locate('这是第2章的第1段。窗外的风穿过树梢')[0]
                 server.progress[BOOK_ID].update(chapterOffset=co,summary=PlainSource(raw).excerpt(co)['text'])
                 credentials=deepcopy(GRANT)
@@ -115,14 +120,15 @@ def main(argv=None):
                         status,value=server.route('GET',url,{})[:2];self.report['stages'].append(dict(stage=stage,status=status))
                         if status!=200:raise ValueError('reader_trial/mock_response')
                         return value
-                store=NativeReaderTrialStore(Backend());native_factory=MockReads
+                store=(NativeReconnectTrialStore if a.offline_reconnect else NativeReaderTrialStore)(Backend());native_factory=MockReads
             else:
                 from verify_native_thought_trial import other_pending
-                if other_pending(exclude_native_reader_trial=not a.prepare):raise ValueError('reader_trial/pending')
+                if other_pending(exclude_native_reader_trial=not a.prepare and not a.offline_reconnect,
+                                 exclude_native_reconnect_trial=not a.prepare and a.offline_reconnect):raise ValueError('reader_trial/pending')
                 session=SessionStore();saved=session.load();credentials=NativeSessionStore().load(saved['vid'])
                 web=ReadingSource();web.vid=saved['vid']
                 for key,value in saved['cookies'].items():web.set_cookie(key,value)
-                store=NativeReaderTrialStore();native_factory=Reads
+                store=(NativeReconnectTrialStore if a.offline_reconnect else NativeReaderTrialStore)();native_factory=Reads
             state,_receipt=store.read()
             if a.prepare and state is not None:raise ValueError('reader_trial/consumed')
             if not a.prepare and not a.mock and not state:raise ValueError('reader_trial/no_intent')
@@ -130,14 +136,23 @@ def main(argv=None):
             web.verify_account()
             if not web.find_sample(book_id=identity,limit=16):raise ValueError('reader_trial/no_source')
             native=native_factory(credentials,web.book_id)
-            if a.resolve or a.restore_only:
+            if a.inspect:
+                if not state or state['phase']!='retired' or state['posts']!=2:raise ValueError('reader_trial/intent')
+                for _ in range(2):check(web,native,credentials,state['plan'],state['plan']['baseline'],refresh=True)
+                report.update(result='NATIVE_RECONNECT_INDEPENDENT_READBACK_VERIFIED',original_restoration_verified=True,
+                              independent_readbacks=2,no_automatic_replay=True)
+            elif a.resolve or a.restore_only:
                 if a.restore_only:native=RecoveryProbe(credentials,web.book_id,restore_only=True)
                 recover(web,native,credentials,session,saved,store,report,resolving=a.resolve,restore_only=a.restore_only,
                         summary_method='literal_raw30_reader_viewport_percent')
             else:
                 plan,native_shelf_hash,guest=prepare_plan(web,native,credentials)
+                if a.offline_reconnect:
+                    plan['protocol']=NativeReconnectTrialStore.protocol
+                    validate_reconnect_plan(plan)
                 if state:
-                    plan['target']['raw_percent']=state['plan']['target']['raw_percent']
+                    if a.offline_reconnect:plan['target']=deepcopy(state['plan']['target'])
+                    else:plan['target']['raw_percent']=state['plan']['target']['raw_percent']
                     if state['phase']!='prepared' or state['plan']!=plan:raise ValueError('reader_trial/stale_intent')
                 if not a.mock:
                     web.verify_account();save_refreshed_web_session(session,saved,web);saved=session.load()
@@ -145,6 +160,7 @@ def main(argv=None):
                 payload=reading_payload(web);payload.update(vid=web.vid,cookies=cookies,native_source_excerpt=True,native_grant=credentials)
                 payload['native_reader_trial']=dict(plan=plan,armed=a.apply,bind_percent=not a.prepare,rpc_token=secrets.token_hex(16),
                                                    native_shelf_sha256=native_shelf_hash,guest=guest,time_zone=local_zone())
+                if a.offline_reconnect:payload['native_reader_trial']['offline_reconnect']=True
                 command=list(a.native_ui_command or [])
                 if a.mock:
                     payload['reader_mock_port']=server.server_port
@@ -155,11 +171,18 @@ def main(argv=None):
                 def after(seq,bound):
                     expected=bound['target' if seq==1 else 'baseline']
                     check(web,native,credentials,bound,expected,refresh=True);check(web,native,credentials,bound,expected)
+                def target_check(point):
+                    try:
+                        excerpt=PlainSource(web.sample['plain']).excerpt(point['chapter_offset'])
+                        return excerpt['scalars']==30 and excerpt['text']==point['summary']
+                    except (KeyError,TypeError,ValueError,CoordinateError):return False
                 if a.mock and not a.prepare:
                     dry=deepcopy(payload);dry['native_reader_trial'].update(armed=False,bind_percent=False,rpc_token=secrets.token_hex(16))
-                    execute(dry,[x for x in command if x!='--armed'],store,{},prepare=True,current=current,before=before,after=after)
+                    execute(dry,[x for x in command if x!='--armed'],store,{},prepare=True,current=current,before=before,after=after,
+                            target_check=target_check if a.offline_reconnect else None)
                     payload['native_reader_trial']['plan']=store.read()[0]['plan']
-                returned=execute(payload,command,store,report,prepare=a.prepare,current=current,before=before,after=after)
+                returned=execute(payload,command,store,report,prepare=a.prepare,current=current,before=before,after=after,
+                                 target_check=target_check if a.offline_reconnect else None)
                 if not a.mock:
                     web.cookies.clear()
                     for key,value in returned.items():web.set_cookie(key,value)

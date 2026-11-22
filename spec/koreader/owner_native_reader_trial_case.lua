@@ -7,6 +7,7 @@ return function(input,counters)
     local case={report={phase='init',permit_writes=trial.armed,source_reference=false,manual_controls=false,
         source_plan=false,restore_source=false,local_commit=false,sqlite_before_posts=false,dispatch_blocked=false,
         native_gets=0,native_posts=0,blocked_posts=0,native_denied=0,last_native_status=0,acknowledged=0,steps=0,failed_line=0}}
+    if trial.offline_reconnect then case.report.offline_reconnect_verified=false;case.report.reconnect_diagnostic='none' end
     local parent=tonumber(ffi.C.getpid());local restore_service
     local function clone(value) return json.decode(json.encode(value)) end
     local function rpc(kind,seq,extra)
@@ -63,7 +64,7 @@ return function(input,counters)
     function case:secrets()
         return {input.native_grant.accessToken,input.native_grant.refreshToken,input.native_grant.deviceId}
     end
-    function case:run(plugin,reader,pump,index,origin)
+    function case:run(plugin,reader,pump,index,origin,set_offline)
         self.plugin=plugin;local source,doc=plugin.source_position,reader.document
         local Credentials=require('weread.lib.native_credentials');self.original_credentials=Credentials.new
         Credentials.new=function(_self,settings)
@@ -86,7 +87,33 @@ return function(input,counters)
             assert(doc:isXPointerInCurrentPage(located.xpointer) and assert(index:capture(located.xpointer)).co==point.chapter_offset)
             return current
         end
-        jump(plan.target);self.report.source_reference=true;self.report.phase='manual';counters[27]=1
+        local sync=plugin.progress_sync
+        if trial.offline_reconnect then
+            local cfg=plugin.settings:get('sync');cfg.pull_on_open=true;cfg.ask_on_conflict=true;plugin.settings:set('sync',cfg)
+            local before={};for i=0,6 do before[i]=tonumber(counters[i]) end
+            local native_before=tonumber(counters[23]);set_offline(true);plugin:onNetworkDisconnected()
+            local page=reader:getCurrentPage()==1 and 2 or 1;assert(page<=reader.document:getPageCount())
+            reader.rolling:onGotoPage(page)
+            pump(function()
+                local point=source:current()
+                if reader:getCurrentPage()~=page or not point or sync:current_source_target()
+                    or point.chapter_offset==plan.baseline.chapter_offset then return false end
+                local anchor=index:locate(point.chapter_offset)
+                return anchor and doc:isXPointerInCurrentPage(anchor.xpointer)
+                    and assert(index:capture(anchor.xpointer)).co==point.chapter_offset
+            end)
+            local moved=assert(source:current());sync:checkpoint_local('offline_reconnect_trial')
+            local saved=assert(plugin.settings:get_book(input.book_id));local pending=assert(saved.pending_upload_position)
+            assert(pending.source_position and pending.source_position.chapter_offset==moved.chapter_offset and not sync.verified)
+            for i=0,6 do assert(tonumber(counters[i])==before[i],'reader_trial/offline_request') end
+            assert(tonumber(counters[23])==native_before and counters[24]==0)
+            set_offline(false);plugin:onNetworkConnected()
+            pump(function() return sync.state=='awaiting_choice' end)
+            saved=assert(plugin.settings:get_book(input.book_id));pending=assert(saved.pending_upload_position)
+            assert(pending.source_position.chapter_offset==moved.chapter_offset and counters[24]==0)
+            self.report.offline_reconnect_verified=true
+        else jump(plan.target) end
+        self.report.source_reference=true;self.report.phase='manual';counters[27]=1
         local uploader=plugin.source_upload;local original_prepare=uploader.prepare
         uploader:_native().service.task_options.zone=trial.time_zone
         uploader.prepare=function(active,intent,callback)
@@ -95,7 +122,8 @@ return function(input,counters)
                     assert(prepared.transport=='native_position' and prepared.basis=='raw_txt_utf16' and prepared.is_current())
                     local metadata=assert(active.native.job.metadata)
                     assert(C.valid(metadata) and P.equal(metadata.before,plan.baseline))
-                    if not trial.bind_percent then plan.target.raw_percent=metadata.desired.raw_percent end
+                    if not trial.bind_percent and trial.offline_reconnect then plan.target=clone(metadata.desired)
+                    elseif not trial.bind_percent then plan.target.raw_percent=metadata.desired.raw_percent end
                     assert(P.equal(metadata.desired,plan.target) and metadata.desired.raw_percent==intent.percent)
                     self.metadata=clone(metadata)
                     rpc('plan',1,{metadata=metadata,reader_percent=intent.percent})
@@ -105,12 +133,18 @@ return function(input,counters)
             end)
         end
         local config=plugin.settings:get('sync');config.ask_on_conflict=true;plugin.settings:set('sync',config)
-        local sync=plugin.progress_sync
-        assert(plugin:onWeReadSyncProgress());pump(function() return not sync.pulling end)
+        if not trial.offline_reconnect then assert(plugin:onWeReadSyncProgress());pump(function() return not sync.pulling end) end
         local UI=require('ui/uimanager');local choice=assert(UI:getTopmostVisibleWidget())
         assert(choice.cancel_text==require('weread.lib.plugin_util').tr('Keep KOReader progress'))
         choice.cancel_callback();UI:close(choice);self.report.manual_controls=true
         pump(function() return not sync.uploading end);uploader.prepare=original_prepare
+        if trial.offline_reconnect then
+            local diagnostic=plugin.settings:get_book(input.book_id).last_sync_error
+            local allowed={source_position_changed=true,source_changed=true,busy=true,login=true,pending=true,
+                unavailable=true,storage=true,upload_readback_unconfirmed=true,source_remote_changed=true,
+                source_data_unavailable=true,source_native_authentication_unavailable=true}
+            self.report.reconnect_diagnostic=diagnostic and (allowed[diagnostic] and diagnostic or 'other') or 'none'
+        end
         if not trial.armed then
             assert(counters[24]==0 and counters[26]==1 and uploader.native.service:pending().phase=='pending')
             assert(plugin.settings:get_book(input.book_id).pending_upload_position)

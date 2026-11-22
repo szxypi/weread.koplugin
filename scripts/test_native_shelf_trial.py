@@ -230,6 +230,7 @@ class RecoveryTests(unittest.TestCase):
             native_txt_roundtrip=contexts.enter_context(patch.object(shared,'NativeTxtRoundtripStore'))
             contexts.enter_context(patch.object(shared,'RawTxtExcerptStore')).return_value.pending.return_value=False
             contexts.enter_context(patch.object(shared,'NativeReaderTrialStore')).return_value.pending.return_value=False
+            contexts.enter_context(patch.object(shared,'NativeReconnectTrialStore')).return_value.pending.return_value=False
             contexts.enter_context(patch.object(shared,'NativeCloseTrialStore')).return_value.pending.return_value=False
             contexts.enter_context(patch.object(shared,'NativeTimerTrialStore')).return_value.pending.return_value=False
             contexts.enter_context(patch.object(shared,'NativeInitialPositionStore')).return_value.pending.return_value=False

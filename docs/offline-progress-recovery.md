@@ -80,3 +80,11 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 同一普通书流程在两尺寸使用合成服务完成选择本机后的两次模拟请求、独立位置读回及全新离线进程重开。工具禁止对真实普通书开启写入，真实同步及写后恢复仍待后续独立验证，不能把预演视为云端同步成功；实体设备、多设备并发及实际网络变化也未验收。
 
 首次普通尺寸预演在界面结束后的书架回读被只读工具自身的请求范围拒绝，结果按未验证保留，没有数据或授权写入；修正该只读请求的阶段名并加强发送前守卫后，两尺寸重新验证通过。记录：[首次未验证](validation-assets/2026-11-22/ordinary-reconnect-owner-first-unverified.json)、[普通尺寸预演](validation-assets/2026-11-22/ordinary-reconnect-owner-preview-600.json)、[KO2 预演](validation-assets/2026-11-22/ordinary-reconnect-owner-preview-ko2.json)、[普通尺寸合成](validation-assets/2026-11-22/ordinary-reconnect-mock-600.json)、[KO2 合成](validation-assets/2026-11-22/ordinary-reconnect-mock-ko2.json)。
+
+## 普通 TXT 重连后的真实同步与恢复
+
+随后使用真实账号的一章普通 TXT，在 KO2 模拟尺寸从插件进入原生阅读器，模拟断网并翻页，保存本机位置后重连，选择「保留 KOReader 进度」。实际原生同步发送一次零时长位置请求；明确回执和插件回读后，宿主独立核对网页／墨水屏位置及摘要、原文和目录、原生阅读时长计数与网页书架投影，才放行一次恢复原位置的请求。恢复后再次独立核对；另在全新宿主进程连续两次只读核对，原章节、偏移、百分比、摘要和上述观察状态均一致。两次数据请求均获得明确回执，验收期间没有网页位置写入或授权请求。
+
+两次请求使用独立持久意图，分别在发送前领取；每步完成独立核对才允许下一步，结果不明确不会自动重发。该意图现为 `retired`，两次额度均已消费，不能再次运行；原文位置和恢复信息只存放在本机钥匙串及临时内存环境中。两种模拟尺寸的合成服务完成相同往返；回执丢失场景只发生一次模拟发送，意图保留待核对。实体设备、自然网络切换、多设备并发、其他书籍和普通 XHTML 的真实重连写入仍待验收；服务端最近阅读时间或其他未返回的历史不保证恢复。
+
+首次准备遇到原生授权 HTTP 401，独立只读请求确认后续期一次，同账号与书架回读通过；本次续期有一次授权请求、零书籍数据写入。续期后准备阶段零写入通过，首次重复预演在来源准备之后、发送前停止，原因未能确定；意图仍为 `prepared`、写入领取为零。随后两次零写入预演均通过，才执行上述受限往返。完整记录：[过期](validation-assets/2026-11-22/native-reconnect-owner-expired.json)、[续期](validation-assets/2026-11-22/native-reconnect-owner-renewal.json)、[准备](validation-assets/2026-11-22/native-reconnect-owner-prepared.json)、[停止的预演](validation-assets/2026-11-22/native-reconnect-owner-dry-stopped.json)、[预演一](validation-assets/2026-11-22/native-reconnect-owner-dry-1.json)、[预演二](validation-assets/2026-11-22/native-reconnect-owner-dry-2.json)、[实际往返](validation-assets/2026-11-22/native-reconnect-owner-apply.json)、[新进程复核](validation-assets/2026-11-22/native-reconnect-owner-independent.json)；合成验证：[普通尺寸](validation-assets/2026-11-22/native-reconnect-mock-600.json)、[KO2](validation-assets/2026-11-22/native-reconnect-mock-ko2.json)、[回执丢失](validation-assets/2026-11-22/native-reconnect-mock-noack.json)。

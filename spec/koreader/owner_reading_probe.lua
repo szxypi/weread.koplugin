@@ -622,7 +622,7 @@ local ok,reason=pcall(function()
     end
     report.transport_guard_selftest=true
     function Client:request(options)
-        if input.raw_cloud_reconnect and forced_offline then
+        if (input.raw_cloud_reconnect or reader_trial_mode and input.native_reader_trial.offline_reconnect) and forced_offline then
             counters[6]=counters[6]+1;error('offline reconnect made network request',0)
         end
         local native_slot=native_read(options)
@@ -1283,7 +1283,8 @@ local ok,reason=pcall(function()
     report.legacy_progress_units_preserved=true
     if progress_case then progress_case:run(plugin,reader,pump,source_index,position) end
     if candidate_case then candidate_case:run(plugin,reader,pump,source_index,position,function(offline)
-        assert(input.raw_cloud_reconnect==true and type(offline)=='boolean');forced_offline=offline
+        assert((input.raw_cloud_reconnect==true or reader_trial_mode and input.native_reader_trial.offline_reconnect==true)
+            and type(offline)=='boolean');forced_offline=offline
     end) end
     if selection_case then selection_case:run(plugin,reader,pump,source_index,position) end
     if cb_full then
