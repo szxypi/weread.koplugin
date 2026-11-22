@@ -131,6 +131,13 @@ if not input.mismatch and not input.switch then
     assert(proof.raw==body and proof.format=='web_xhtml')
     local hits=assert(doc:findAllText(owner and assert(input.search_token) or 'Native source integrated marker 24',false,0,4,false,0))
     assert(hits[1] and hits[1].start)
+    if not owner then
+        local map=assert(require('weread.lib.source_coordinates').build(proof.raw))
+        local position=assert(map:locate('Native source integrated marker 24'))
+        local dom=assert(require('weread.lib.source_dom').open(doc,book_id,uid))
+        local point=assert(dom:locate(position.co))
+        assert(assert(dom:capture(point.xpointer)).co==position.co)
+    end
     local image=assert(doc:getDocumentFileContent('OEBPS/'..job.assets[1].href))
     local bitmap=assert(require('ui/renderimage'):renderImageData(image,#image,false,160,160))
     assert(bitmap:getWidth()>0 and bitmap:getHeight()>0);bitmap:free();doc:close()
