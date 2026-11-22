@@ -1,0 +1,9 @@
+{
+  "result": "ORDINARY_RECOVERY_RENEWAL_VERIFIED",
+  "account_data_posts": 0,
+  "authentication_posts_attempted": 1,
+  "authentication_posts_may_have_occurred": false,
+  "private_data_on_regular_disk": false,
+  "same_owner_and_device": true,
+  "native_shelf_verified": true
+}

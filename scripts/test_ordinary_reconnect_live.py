@@ -28,8 +28,8 @@ class LiveCoordinatorTests(unittest.TestCase):
         self.events=[];self.report={}
     def run_case(self,*,noack=False,observer=None):
         def bind(_html,_plan):return dict(context=self.context,pclts=self.pc)
-        def check(*args):
-            self.events.append(('check',args[4]['chapter_offset']))
+        def check(*args,**_kwargs):
+            self.events.append(('check',args[4]['chapter_offset'],args[4]['raw_percent']))
             return observer(*args) if observer else True
         def preview(_cmd,payload,check_body,report,*,check_context):
             self.assertIs(payload['armed'],False);self.assertTrue(check_context('synthetic context'))
@@ -49,6 +49,7 @@ class LiveCoordinatorTests(unittest.TestCase):
             gate.ack('restore',200,{'succ':1});report['restore_acknowledged']=True;gate.verify('restore')
             report['result']='ORDINARY_RESTORATION_VERIFIED'
         with patch.object(subject,'context_binding',side_effect=bind),patch.object(subject,'observe',side_effect=check), \
+             patch.object(subject,'capture_shelves',return_value={'web':{},'native':{}}), \
              patch.object(subject,'preview',side_effect=preview),patch.object(subject,'reader_execute',side_effect=reader), \
              patch.object(subject,'restore',side_effect=restore):
             subject.execute(self.store,self.plan,self.payload,['synthetic-runner'],self.web,object(),self.grant,self.probe,lambda:True,self.report)
@@ -59,6 +60,8 @@ class LiveCoordinatorTests(unittest.TestCase):
         self.assertTrue(self.report['dry_verified']);self.assertTrue(self.report['restoration_verified'])
         self.assertEqual(self.store.read()[0]['phase'],'retired')
         self.assertEqual(self.report['claimed_posts'],2);self.assertTrue(self.report['restore_claimed'])
+        self.assertIn(('check',300,12),self.events)
+        self.assertIn(('check',300,13),self.events)
         with self.assertRaises(ValueError):self.run_case()
 
     def test_unconfirmed_send_stops_and_retains_claim(self):

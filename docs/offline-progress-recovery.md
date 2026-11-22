@@ -105,6 +105,10 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 
 恢复流程使用独立的一次性记录：确认两端均处于已观察状态后，只允许一次零时长原位置恢复，并重新核对两端、原摘要、时长、正文和书架核心状态；完整书架字段如有变化单独报告。KO2 模拟器重现了“首次请求保留原百分比”，单次恢复和回执缺失后禁止重发均通过，见[恢复模拟](validation-assets/2026-11-22/ordinary-partial-recovery-mock.json)和[无回执模拟](validation-assets/2026-11-22/ordinary-partial-recovery-mock-noack.json)。真实恢复前原生授权返回 401，尚未发送恢复请求；续期须以独立记录关联原账号、设备及旧测试，确认新授权后才能继续。
 
+原生授权随后在两次确认过期后续期一次，并核对同账号与设备；两端再次确认测试页后，单次恢复收到明确回执。原坐标、百分比和摘要在恢复时及全新进程中各独立回读两次，三项时长、正文、目录及书架核心状态一致；完整书架部分字段与恢复前不同，原因和服务端历史仍未核实。原重连试验继续标记为未验证，独立恢复记录已封存，不可重发。见[续期](validation-assets/2026-11-22/ordinary-partial-recovery-renewal.json)、[恢复准备](validation-assets/2026-11-22/ordinary-partial-recovery-owner-prepared.json)、[恢复](validation-assets/2026-11-22/ordinary-partial-recovery-owner-restored.json)和[全新进程复核](validation-assets/2026-11-22/ordinary-partial-recovery-owner-independent.json)。
+
+针对这次观察，后续执行器现在分别核对进入请求后的“目标坐标、目标摘要、原百分比”和位置请求后的完整目标，不再将两个阶段混为一谈。书架核对先绑定完整初始快照，之后仅允许目标书的 `readUpdateTime` 非递减及目标书在列表中移动；其他书籍相对顺序、全部其他字段、标记和分组仍需一致。合成服务已模拟上述百分比及最近阅读变化并完成原生往返，见[普通尺寸](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-mock-600.json)、[KO2 尺寸](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-mock-ko2.json)和[回执缺失](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-noack.json)；这尚不代表新的真实账号试验通过。
+
 ## 普通 TXT 重连后的真实同步与恢复
 
 随后使用真实账号的一章普通 TXT，在 KO2 模拟尺寸从插件进入原生阅读器，模拟断网并翻页，保存本机位置后重连，选择「保留 KOReader 进度」。实际原生同步发送一次零时长位置请求；明确回执和插件回读后，宿主独立核对网页／墨水屏位置及摘要、原文和目录、原生阅读时长计数与网页书架投影，才放行一次恢复原位置的请求。恢复后再次独立核对；另在全新宿主进程连续两次只读核对，原章节、偏移、百分比、摘要和上述观察状态均一致。两次数据请求均获得明确回执，验收期间没有网页位置写入或授权请求。

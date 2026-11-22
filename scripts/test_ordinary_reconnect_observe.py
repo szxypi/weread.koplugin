@@ -74,5 +74,47 @@ class ObserveTests(unittest.TestCase):
         with patch.object(subject,'decode_content_shards',return_value='different'):
             with self.assertRaisesRegex(ValueError,'ordinary_trial/source'):self.check()
 
+    def test_entered_position_retains_original_percent(self):
+        entered=subject.entered_point(self.plan)
+        self.web.point=copy.deepcopy(entered);self.native.point=copy.deepcopy(entered)
+        self.assertTrue(subject.check(self.web,self.native,self.grant,self.plan,entered,lambda:True))
+        with self.assertRaisesRegex(ValueError,'ordinary_trial/web_state'):
+            subject.check(self.web,self.native,self.grant,self.plan,self.plan['target'],lambda:True)
+
+    def test_only_target_recent_time_and_target_position_may_change(self):
+        first={'books':[{'bookId':'900001','readUpdateTime':10,'title':'target'},
+                        {'bookId':'900002','readUpdateTime':1,'title':'other'},
+                        {'bookId':'900003','readUpdateTime':2,'title':'other2'}], 'lectureSynckey':100}
+        later=copy.deepcopy(first);later['lectureSynckey']=101
+        target=later['books'].pop(0);target['readUpdateTime']=11;later['books'].append(target)
+        self.assertTrue(subject.scoped_shelf_equal(first,later,'900001'))
+        altered=copy.deepcopy(later);altered['books'][0]['title']='different'
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001'))
+        altered=copy.deepcopy(later);altered['books'][-1]['title']='different'
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001'))
+        altered=copy.deepcopy(later);altered['books'][0],altered['books'][1]=altered['books'][1],altered['books'][0]
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001'))
+        altered=copy.deepcopy(later);altered['books'][-1]['readUpdateTime']=9
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001'))
+        altered=copy.deepcopy(later);altered['books'][-1]['readUpdateTime']=True
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001'))
+        altered=copy.deepcopy(later);del altered['books'][-1]['readUpdateTime']
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001'))
+        altered=copy.deepcopy(later);altered['books'].append(copy.deepcopy(altered['books'][-1]))
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001'))
+        altered=copy.deepcopy(later);altered['lectureSynckey']=99
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001'))
+
+    def test_observer_binds_original_shelf_before_allowing_target_read_time(self):
+        self.shelf['books'][0]['readUpdateTime']=10
+        self.plan['web_shelf_sha256']=digest({'books':[{'bookId':'900001','readUpdateTime':10}]})
+        self.plan['native_shelf_sha256']=self.plan['web_shelf_sha256']
+        snapshots=subject.capture_shelves(self.web,self.native,self.grant,self.plan,lambda:True)
+        self.shelf['books'][0]['readUpdateTime']=11
+        self.assertTrue(subject.check(self.web,self.native,self.grant,self.plan,self.plan['baseline'],lambda:True,shelf_baselines=snapshots))
+        self.shelf['books'][0]['title']='changed'
+        with self.assertRaisesRegex(ValueError,'ordinary_trial/shelf'):
+            subject.check(self.web,self.native,self.grant,self.plan,self.plan['baseline'],lambda:True,shelf_baselines=snapshots)
+
 
 if __name__=='__main__':unittest.main()

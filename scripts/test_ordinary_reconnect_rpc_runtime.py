@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Exercise the private RPC bridge against KOReader and a loopback fixture only."""
 import argparse
+from copy import deepcopy
 import hashlib
 import json
 import os
@@ -20,10 +21,11 @@ from ordinary_reconnect_broker import execute, preview
 from ordinary_reconnect_coordinator import Coordinator
 from ordinary_reconnect_live import execute as execute_trial
 import ordinary_reconnect_observe
+import ordinary_reconnect_live
 from ordinary_reconnect_restore import RestoreProbe, restore
 from ordinary_partial_recovery import RecoveryProbe, binding as recovery_binding, checked_pair, observed_point, restore_once
 from secure_ordinary_partial_recovery import PartialRecoveryStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore, PROTOCOL, HASHES
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore, PROTOCOL, HASHES, entered_point
 from test_secure_native_session import Backend
 from verify_cb_fixture_reconnect_trial import source_summary
 from verify_position_roundtrip import DEFAULT_TOKEN, same_position
@@ -39,14 +41,13 @@ def main():
     p.add_argument('--width',type=int,default=600);p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
     failure=p.add_mutually_exclusive_group();failure.add_argument('--noack',action='store_true');failure.add_argument('--restore-noack',action='store_true')
     failure.add_argument('--partial-recovery',action='store_true');failure.add_argument('--partial-recovery-noack',action='store_true');a=p.parse_args()
-    server=MockServer(0);server.content_format='epub';server.dynamic_reader_clock=True
+    server=MockServer(0);server.content_format='epub';server.dynamic_reader_clock=True;server.enter_preserves_percent=True
     source=chapter_html(1);model=FilteredSource(source)
     first=model.locate('这是第1章的第16段。我们沿着小路慢慢前行')[0]
     server.progress[BOOK_ID]=dict(chapterUid=1,chapterIdx=1,chapterOffset=first,progress=25,summary='old summary')
     if a.noack:server.control['progress_confirmation']='noack'
     if a.restore_noack:
         server.roundtrip_seed=True;server.roundtrip_posts=1;server.control['progress_roundtrip_mode']='restore-noack'
-    if a.partial_recovery or a.partial_recovery_noack:server.enter_preserves_percent=True
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
         env=dict(os.environ,WEREAD_FIXTURE_SYNTHETIC='1',WEREAD_FIXTURE_MOCK_PORT=str(server.server_port),LD_LIBRARY_PATH=str(a.koreader/'libs'))
@@ -65,7 +66,13 @@ def main():
         command=[sys.executable,str(Path(__file__).with_name('run_ordinary_reconnect_trial.py')),'--koreader',str(a.koreader),
                  '--candidate',str(a.candidate),'--width',str(a.width),'--height',str(a.height),'--dpi',str(a.dpi),
                  '--mock-port',str(server.server_port)]
-        captured={};scope={};grant={'synthetic':'grant'};catalog={'synthetic':'catalog'};shelf={'books':[{'bookId':BOOK_ID}]}
+        captured={};scope={};grant={'synthetic':'grant'};catalog={'synthetic':'catalog'}
+        shelf={'books':[{'bookId':'900002'},{'bookId':BOOK_ID,'readUpdateTime':100}]}
+        def shelf_snapshot():
+            result=deepcopy(shelf);posts=server.request_totals.get(('/web/book/read',''),0)
+            if posts:
+                target_row=result['books'].pop(1);target_row['readUpdateTime']+=posts;result['books'].insert(0,target_row)
+            return result
         initial=dict(book_id=BOOK_ID,chapter_uid='1',chapter_idx=1,chapter_offset=first,raw_percent=25,summary='old summary')
         def check_context(html):
             context=reader_context(dict(book_id=BOOK_ID),html)
@@ -105,14 +112,14 @@ def main():
                 self.reader={'psvts':'mock-session','token':DEFAULT_TOKEN,'pclts':0}
             def request(self,stage,url,body=None,**options):
                 if stage!='shelf' or body is not None:raise ValueError('mock/read_scope')
-                return shelf
+                return shelf_snapshot()
         class LocalNative:
             def request(self,stage,url,body=None,credentials=None):
                 if body is not None or credentials!=grant:raise ValueError('mock/read_scope')
                 if stage=='ordinary_rpc_progress':
                     raw=server.get_progress(BOOK_ID);raw['book'].update(readingTime=0,recordReadingTime=0,ttsTime=0);return raw
                 if stage=='ordinary_rpc_info':return dict(bookId=BOOK_ID,version=7)
-                if stage=='ordinary_rpc_shelf':return shelf
+                if stage=='ordinary_rpc_shelf':return shelf_snapshot()
                 raise ValueError('mock/read_scope')
         web=LocalWeb();restore_web=RestoreProbe(opener=LocalOpener())
         for client in (web,restore_web):
@@ -121,7 +128,13 @@ def main():
         payload.pop('ordinary_trial');report={}
         partial_report={};partial_recovered=False
         try:
-            with patch.object(ordinary_reconnect_observe,'decode_content_shards',return_value=source):
+            original_observe=ordinary_reconnect_live.observe
+            def legacy_observe(web_arg,native_arg,grant_arg,plan_arg,expected,current,**options):
+                if (a.partial_recovery or a.partial_recovery_noack) and expected==entered_point(plan_arg) and expected!=plan_arg['target']:
+                    expected=plan_arg['target']
+                return original_observe(web_arg,native_arg,grant_arg,plan_arg,expected,current,**options)
+            with patch.object(ordinary_reconnect_observe,'decode_content_shards',return_value=source), \
+                 patch.object(ordinary_reconnect_live,'observe',side_effect=legacy_observe):
                 try:execute_trial(store,captured['plan'],payload,command,web,LocalNative(),grant,restore_web,lambda:True,report)
                 except Exception:
                     if not (a.noack or a.restore_noack or a.partial_recovery or a.partial_recovery_noack):raise

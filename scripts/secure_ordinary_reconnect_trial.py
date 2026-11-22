@@ -66,6 +66,13 @@ def validate_plan(plan):
     return plan
 
 
+def entered_point(plan):
+    """The observed enter updates source location while keeping the old percent."""
+    validate_plan(plan)
+    first,target=plan['baseline'],plan['target']
+    return dict(first,chapter_offset=target['chapter_offset'],summary=target['summary'])
+
+
 class OrdinaryReconnectStore:
     def __init__(self, backend=None, lock=None):
         self.backend = backend if backend is not None else MacKeychain(service=SERVICE, account=ACCOUNT)

@@ -1,0 +1,23 @@
+{
+  "result": "ORDINARY_PARTIAL_RECOVERY_VERIFIED",
+  "checked_at": "2026-11-22T09:28:02.548691+00:00",
+  "account_data_posts": 1,
+  "authentication_posts": 0,
+  "private_data_on_regular_disk": false,
+  "original_trial_verified": false,
+  "phase": "complete",
+  "independent_readbacks": 2,
+  "original_position_and_summary_restored": true,
+  "time_counts_unchanged": true,
+  "source_catalog_unchanged": true,
+  "shelf_core_unchanged": true,
+  "restore": {
+    "result": "ORDINARY_PARTIAL_RECOVERY_VERIFIED",
+    "restore_claimed": true,
+    "restore_claim_interrupted": false,
+    "restore_acknowledged": true,
+    "original_position_restored": true,
+    "web_shelf_stable_fields_unchanged": false,
+    "native_shelf_stable_fields_unchanged": false
+  }
+}

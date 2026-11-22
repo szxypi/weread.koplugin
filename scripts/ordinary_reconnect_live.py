@@ -11,9 +11,9 @@ import secrets
 from ordinary_reconnect_body_guard import validate_body
 from ordinary_reconnect_broker import execute as reader_execute, preview
 from ordinary_reconnect_coordinator import Coordinator
-from ordinary_reconnect_observe import check as observe
+from ordinary_reconnect_observe import capture_shelves,check as observe
 from ordinary_reconnect_restore import RestoreProbe, restore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore, validate_plan
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore, entered_point, validate_plan
 from secure_weread_session import COOKIE_NAMES
 from txt_full_summary import digest
 from verify_position_roundtrip import same_position
@@ -65,7 +65,7 @@ def execute(store, plan, payload, command, web, native, grant, restore_probe, cu
         raise ValueError('ordinary_trial/intent')
     report.update(result='UNVERIFIED',dry_verified=False,claimed_posts=0,acknowledged_posts=0,
                   independently_verified=0,restore_claimed=False,restore_acknowledged=False,restoration_verified=False)
-    scope={};dry_report={};reader_report={};restore_report={}
+    scope={};dry_report={};reader_report={};restore_report={};shelf_baselines=None
     def scoped_current():
         def active_cookies(client):
             return {cookie.name:cookie.value for cookie in client.cookies
@@ -74,7 +74,7 @@ def execute(store, plan, payload, command, web, native, grant, restore_probe, cu
                 and restore_probe.authenticated and restore_probe.vid==web.vid and restore_probe.book_id==web.book_id
                 and active_cookies(web)==payload['cookies'] and active_cookies(restore_probe)==payload['cookies'])
     def stable(expected):
-        if observe(web,native,grant,plan,expected,scoped_current) is not True:raise ValueError('ordinary_trial/readback')
+        if observe(web,native,grant,plan,expected,scoped_current,shelf_baselines=shelf_baselines) is not True:raise ValueError('ordinary_trial/readback')
         return True
     def read_context(html):
         binding=context_binding(html,plan);scope.update(binding)
@@ -85,14 +85,18 @@ def execute(store, plan, payload, command, web, native, grant, restore_probe, cu
         return validate_body(plan,scope['context'],scope['pclts'],'enter',body)
     try:
         stable(plan['baseline'])
+        shelf_baselines=capture_shelves(web,native,grant,plan,scoped_current)
         dry=deepcopy(payload);dry.update(armed=False,ordinary_trial=dict(rpc_token=secrets.token_hex(16)))
         preview([*command,'--dry'],dry,dry_body,dry_report,check_context=dry_context)
         if dry_report.get('result')!='READER_POSITION_DRY_VERIFIED' or not scope:raise ValueError('ordinary_trial/dry')
         stable(plan['baseline']);report['dry_verified']=True
-        def before(stage,selected):return observe(web,native,grant,selected,selected['baseline' if stage=='enter' else 'target'],scoped_current)
+        def before(stage,selected):
+            expected=selected['baseline'] if stage=='enter' else entered_point(selected) if stage=='position' else selected['target']
+            return observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines)
         def after(stage,selected):
-            expected=selected['baseline' if stage=='restore' else 'target']
-            return observe(web,native,grant,selected,expected,scoped_current) and observe(web,native,grant,selected,expected,scoped_current)
+            expected=selected['baseline'] if stage=='restore' else entered_point(selected) if stage=='enter' else selected['target']
+            return (observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines)
+                    and observe(web,native,grant,selected,expected,scoped_current,shelf_baselines=shelf_baselines))
         gate=Coordinator(store,plan,scope['context'],scope['pclts'],before,after,armed=True)
         live=deepcopy(payload);live.update(armed=True,ordinary_trial=dict(rpc_token=secrets.token_hex(16)))
         reader_execute(command,live,gate,reader_report,check_context=read_context)

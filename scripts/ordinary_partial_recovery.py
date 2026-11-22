@@ -10,7 +10,7 @@ from fetch_weread_epub import decode_content_shards,weread_e
 from ordinary_reconnect_restore import RestoreProbe
 from readtime_upload_model import integer
 from secure_ordinary_partial_recovery import PartialRecoveryStore,validate_binding
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,validate_plan
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,entered_point,validate_plan
 from secure_weread_session import COOKIE_NAMES
 from shelf_flag_change_contract import state_hash
 from txt_full_summary import digest
@@ -22,8 +22,7 @@ from verify_web_source_progress import BASE as WEB
 
 
 def observed_point(plan):
-    validate_plan(plan);first,target=plan['baseline'],plan['target']
-    return dict(first,chapter_offset=target['chapter_offset'],summary=target['summary'])
+    return entered_point(plan)
 
 
 def verified_grant(plan,original_receipt,saved,grant,bridge_state,bridge_receipt):
