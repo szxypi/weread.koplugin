@@ -143,6 +143,7 @@ for i=1,2 do
     local chapter=chapters[i];local uid=chapter.chapterUid
     local text='chapter '..uid..' '..string.rep('ordinary synthetic text ',80)
         ..(unicode_case and ('Straße '..accented..' Σίσυφος') or 'amberneedle')
+        ..(limit_test and ' amberneedle amberneedle' or '')
         ..(canonical_case~='' and (' S'..string.char(204,135,204,163)..' canonical') or '')..' distinct ending '..uid
     local raw=txt_source and ('chapter '..uid..'\n\n    '..text) or '<html><body><p>'..text..'</p></body></html>'
     bodies[uid]=txt_source and Content.txt_to_xhtml(raw) or raw
@@ -252,7 +253,7 @@ assert(not owner.job and #owner.value==0);Search.scan=original;Search.discover=o
 owner.menu:onMenuSelect(owner.menu.item_table[1])
 wait(function() return (owner.finished or limit_test and owner.limit) and not owner.job end)
 local count=incomplete and 1 or 2
-assert(#owner.value==count and owner.checked==count and owner.missing==(no_catalog and 0 or 1))
+assert(#owner.value==count and owner.checked==(limit_test and 1 or count) and owner.missing==(no_catalog and 0 or 1))
 if limit_test then
     local _=require('weread.lib.i18n').tr
     assert(owner.limit and not owner.finished and owner.menu.item_table[1].text==
@@ -261,13 +262,32 @@ if limit_test then
     for i,item in ipairs(owner.menu.item_table) do
         if item.text==_('Download full book and search again') then action,index=item,i end
     end
-    assert(action and index<4,'download action was hidden behind search results')
+    assert(action and index<=4,'download action was hidden behind search results')
     plugin.isNetworkOnline=function() return true end;plugin.isNetworkConnected=plugin.isNetworkOnline
     owner.menu:onMenuSelect(action);assert(owner.download and owner.download.confirm)
     owner.download.confirm.cancel_callback()
     assert(owner.limit and #owner.value==2 and not owner.download and requests[0]==0)
+    local function select_action(label)
+        for _i,item in ipairs(owner.menu.item_table) do if item.text==_(label) then owner.menu:onMenuSelect(item);return end end
+        error('missing search action: '..label)
+    end
+    local first=owner.value
+    assert(owner.overflow and #owner.overflow==1)
+    select_action('Search next batch (keeps only the previous batch)')
+    wait(function() return owner.limit and not owner.job and owner.page==2 end)
+    assert(#owner.value==2 and owner.value[1].chapter_uid=='1' and owner.value[1].offset>first[2].offset
+        and owner.value[2].chapter_uid=='2' and owner.overflow and #owner.overflow==2)
+    select_action('Show previous result batch');assert(owner.show_previous and owner.previous==first)
+    select_action('Show current result batch');assert(not owner.show_previous)
+    select_action('Search next batch (keeps only the previous batch)')
+    wait(function() return owner.finished and not owner.job and owner.page==3 end)
+    assert(#owner.value==2 and owner.value[1].chapter_uid=='2' and owner.value[2].chapter_uid=='2'
+        and owner.value[1].offset>owner.previous[2].offset and owner.value[2].offset>owner.value[1].offset)
+    select_action('Show previous result batch');assert(owner.show_previous and #owner.previous==2)
+    assert(requests[0]==0,'continued local search attempted a network request')
+    UI:forceRePaint();Device.screen:shot(evidence..'/cached-search-batches.png')
     print('\nWEREAD_CACHED_SEARCH_LIMIT='..require('json').encode({result='PASS',warning_first=true,
-        download_available=true,cancel_preserved=true,network_requests=0}))
+        download_available=true,cancel_preserved=true,continued_batches=3,previous_batch=true,network_requests=0}))
     os.exit(0)
 end
 if unicode_case then for _i,hit in ipairs(owner.value) do

@@ -153,6 +153,65 @@ expect(owner.limit and not owner.finished and owner.menu.items[1].text==
     'Downloaded search result limit reached; results may be incomplete.'
     and download_button(owner)~=nil,'limited search hid its warning or download action')
 Cached.cancel(host);Cached.MAX_RESULTS=1000
+
+-- A worker may return more hits than fit in the current batch. Every hit
+-- must remain reachable without rescanning, including the final short batch.
+local search_module=require('weread.lib.cached_book_search')
+local original_scan=search_module.scan
+local batch_scans=0
+search_module.scan=function(input)
+    batch_scans=batch_scans+1
+    local hits={}
+    for index=1,5 do hits[index]={chapter_uid=input.chapter,context='hit '..index,offset=index} end
+    return {complete=true,unresolved=0,hits=hits}
+end
+Cached.MAX_RESULTS=2
+owner=open({chapters[1]});worker:complete()
+expect(owner.limit and #owner.value==2 and #owner.overflow==3 and batch_scans==1,
+    'search dropped hits at the batch boundary')
+local old_next=assert(find_item(owner.menu,'Search next batch (keeps only the previous batch)'))
+local old_hit=assert(find_item(owner.menu,'First · hit 1'))
+old_next.callback()
+expect(owner.limit and #owner.value==2 and owner.value[1].context=='hit 3' and #owner.overflow==1 and batch_scans==1,
+    'next batch skipped or rescanned worker results')
+old_next.callback();old_hit.callback()
+expect(owner.page==2 and not owner.navigation,'stale batch action changed the current search')
+assert(find_item(owner.menu,'Show previous result batch')).callback()
+expect(owner.show_previous and find_item(owner.menu,'First · hit 1') and find_item(owner.menu,'First · hit 2'),
+    'previous batch could not be viewed')
+assert(find_item(owner.menu,'Show current result batch')).callback()
+expect(not owner.show_previous and find_item(owner.menu,'First · hit 3') and batch_scans==1,
+    'returning to current batch changed the search')
+assert(find_item(owner.menu,'Search next batch (keeps only the previous batch)')).callback()
+expect(owner.finished and not owner.limit and #owner.value==1 and owner.value[1].context=='hit 5' and batch_scans==1,
+    'final partial batch lost a result')
+assert(find_item(owner.menu,'Show previous result batch')).callback()
+expect(find_item(owner.menu,'First · hit 3') and not find_item(owner.menu,'First · hit 1'),
+    'only the immediately preceding batch should be retained')
+Cached.cancel(host);Cached.MAX_RESULTS=1000;search_module.scan=original_scan
+
+Cached.MAX_RESULTS=2
+search_module.scan=function(input) return {complete=true,hits={
+    {chapter_uid=input.chapter,context='exact 1',offset=1},
+    {chapter_uid=input.chapter,context='exact 2',offset=2}}} end
+owner=open({chapters[1]});worker:complete()
+expect(owner.finished and not owner.limit and not find_item(owner.menu,'Search next batch (keeps only the previous batch)'),
+    'exact final batch falsely offered more results')
+Cached.cancel(host)
+search_module.scan=function(input)
+    if input.chapter=='1' then return {complete=true,hits={
+        {chapter_uid='1',context='first',offset=1},{chapter_uid='1',context='second',offset=2}}} end
+    return {complete=true,hits={{chapter_uid=input.chapter,context='later',offset=3}}}
+end
+owner=open({chapters[1],chapters[2]});worker:complete()
+assert(find_item(owner.menu,'Search next batch (keeps only the previous batch)')).callback()
+local stopped_worker=worker;host.busy_message.cancel();stopped_worker:complete()
+expect(not owner.job and #owner.value==0 and #owner.previous==2,'cancelled next batch committed stale results')
+assert(find_item(owner.menu,'Continue searching downloaded chapters')).callback();worker:complete()
+task=scheduled;scheduled=nil;task()
+expect(owner.finished and #owner.value==1 and owner.value[1].context=='later' and #owner.previous==2,
+    'cancelled next batch did not resume from the saved cursor')
+Cached.cancel(host);Cached.MAX_RESULTS=1000;search_module.scan=original_scan
 owner=finish_partial();local action=assert(download_button(owner));action.callback()
 local confirm=assert(owner.download.confirm);confirm.cancel_callback()
 expect(downloads==0 and not owner.download,'cancelled download changed search')

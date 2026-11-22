@@ -83,7 +83,7 @@ render=function(host,owner)
     Popup.redraw(owner.menu,function()
         if not current(host,owner) then return end
         local items={}
-        if not owner.finished and not owner.job and not owner.limit and not owner.download then
+        if not owner.show_previous and not owner.finished and not owner.job and not owner.limit and not owner.download then
             items[#items+1]={text=_('Continue searching downloaded chapters'),callback=function()
                 if current(host,owner) and not owner.job and not owner.navigation and not owner.download then start(host,owner) end
             end}
@@ -92,6 +92,38 @@ render=function(host,owner)
         -- list spans many pages or the search reached its result limit.
         local incomplete=owner.missing>0 or owner.catalog_missing or owner.discovery_incomplete or owner.limit or owner.unresolved>0
         if owner.limit then items[#items+1]={text=_('Downloaded search result limit reached; results may be incomplete.'),select_enabled=false} end
+        if owner.previous and not owner.job and not owner.download then
+            if owner.show_previous then
+                local previous=owner.previous
+                items[#items+1]={text=_('Show current result batch'),callback=function()
+                    if current(host,owner) and owner.show_previous and owner.previous==previous
+                        and not owner.job and not owner.navigation and not owner.download then
+                        owner.show_previous=false;render(host,owner)
+                    end
+                end}
+            else
+                local previous=owner.previous
+                items[#items+1]={text=_('Show previous result batch'),callback=function()
+                    if current(host,owner) and not owner.show_previous and owner.previous==previous
+                        and not owner.job and not owner.navigation and not owner.download then
+                        owner.show_previous=true;render(host,owner)
+                    end
+                end}
+            end
+        end
+        if owner.limit and not owner.show_previous and not owner.job and not owner.download then
+            local batch=owner.value
+            items[#items+1]={text=_('Search next batch (keeps only the previous batch)'),callback=function()
+                if current(host,owner) and owner.limit and not owner.show_previous and owner.value==batch
+                    and not owner.job and not owner.navigation and not owner.download then
+                    owner.previous=owner.value;owner.value={};owner.limit=false;owner.page=owner.page+1
+                    render(host,owner);start(host,owner)
+                end
+            end}
+        end
+        if owner.page>1 then
+            items[#items+1]={text=T(_('Downloaded search results: batch %1.'),owner.show_previous and owner.page-1 or owner.page),select_enabled=false}
+        end
         if incomplete then
             items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
                 owner.checked,owner.total,owner.missing),select_enabled=false}
@@ -120,17 +152,20 @@ render=function(host,owner)
                 end
             end}
         end
-        for _i,hit in ipairs(owner.value) do
+        local visible=owner.show_previous and owner.previous or owner.value
+        for _i,hit in ipairs(visible) do
             local row=Target.row(owner.id,owner.keyword,hit)
             items[#items+1]={text=(owner.titles[hit.chapter_uid] or _('Chapter unavailable'))..' · '..hit.context,
                 select_enabled=row~=nil,callback=function()
-                    if current(host,owner) and not owner.job and not owner.navigation and not owner.download and row then
+                    if current(host,owner) and (owner.show_previous and owner.previous or owner.value)==visible
+                        and not owner.job and not owner.navigation and not owner.download and row then
                         Navigation.start(host,owner,row,current)
                     end
                 end}
         end
-        if owner.finished and #owner.value==0 then
-            items[#items+1]={text=_('No locatable matches in downloaded chapters.'),select_enabled=false}
+        if owner.finished and #visible==0 then
+            items[#items+1]={text=_(owner.page>1 and 'No more locatable matches in downloaded chapters.'
+                or 'No locatable matches in downloaded chapters.'),select_enabled=false}
         end
         if not incomplete then
             items[#items+1]={text=T(_('Downloaded search: %1 of %2 chapters checked; %3 unavailable.'),
@@ -141,7 +176,7 @@ render=function(host,owner)
 end
 
 start=function(host,owner)
-    if not current(host,owner) or owner.job or owner.navigation or owner.download or owner.finished or owner.limit then return false end
+    if not current(host,owner) or owner.job or owner.navigation or owner.download or owner.finished or owner.limit or owner.show_previous then return false end
     local ok,worker=pcall(function()
         return owner.worker or require('weread.lib.memory_worker'):new{scheduler=UI,codec=host.client,max_bytes=1024*1024}
     end)
@@ -196,6 +231,18 @@ start=function(host,owner)
             if not called or not started then stop(host,owner);render(host,owner);host:showInfo(_('Could not search downloaded chapters.')) end
             return
         end
+        if owner.overflow then
+            local remaining={}
+            for _i,hit in ipairs(owner.overflow) do
+                if #owner.value<M.MAX_RESULTS then owner.value[#owner.value+1]=hit
+                else remaining[#remaining+1]=hit end
+            end
+            owner.overflow=#remaining>0 and remaining or nil
+            if #owner.value>=M.MAX_RESULTS then
+                owner.finished=not owner.overflow and not owner.queue[owner.index]
+                owner.limit=not owner.finished;stop(host,owner);render(host,owner);return
+            end
+        end
         local chapter=owner.queue[owner.index]
         if not chapter then owner.finished=true;stop(host,owner);render(host,owner);return end
         local from=owner.from
@@ -221,16 +268,21 @@ start=function(host,owner)
                 end
             end
             owner.unresolved=owner.unresolved+(result.unresolved or 0)
+            local overflow={}
             for _i,hit in ipairs(result.hits) do
-                if #owner.value>=M.MAX_RESULTS then owner.limit=true;break end
-                owner.value[#owner.value+1]=hit
+                if #owner.value<M.MAX_RESULTS then owner.value[#owner.value+1]=hit
+                else overflow[#overflow+1]=hit end
             end
+            owner.overflow=#overflow>0 and overflow or nil
             if result.missing or result.complete then
                 owner.checked=owner.checked+1
                 if result.missing then owner.missing=owner.missing+1 end
                 owner.index=owner.index+1;owner.from=1
             else owner.from=result.next_byte end
-            if owner.limit or #owner.value>=M.MAX_RESULTS then owner.limit=true;stop(host,owner);render(host,owner);return end
+            if #owner.value>=M.MAX_RESULTS then
+                owner.finished=not owner.overflow and not owner.queue[owner.index]
+                owner.limit=not owner.finished;stop(host,owner);render(host,owner);return
+            end
             render(host,owner)
             later()
         end)
@@ -288,6 +340,7 @@ fetch_catalog=function(host,owner)
         owner.queue,owner.missing,owner.total=entries,missing,total
         owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
         owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
+        owner.previous,owner.overflow,owner.show_previous,owner.page=nil,nil,false,1
         for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
         render(host,owner);start(host,owner)
     end)
@@ -348,6 +401,7 @@ download_missing=function(host,owner)
                     owner.queue,owner.missing,owner.total=entries,missing,total
                     owner.full=path;owner.index,owner.from,owner.checked,owner.unresolved=1,1,0,0
                     owner.finished,owner.limit,owner.value,owner.titles=false,false,{},{}
+                    owner.previous,owner.overflow,owner.show_previous,owner.page=nil,nil,false,1
                     for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
                     render(host,owner);start(host,owner)
                 end
@@ -392,7 +446,7 @@ function M.open(host,id,chapters,initial_keyword)
         document=document,file=document.file,session=host._reader_session_gen or 0,local_search=true,search_results=true,
         queue=entries,missing=missing,total=total,catalog_missing=catalog_missing,catalog=Reading.catalog(chapters),
         full=full,discovery_pending=catalog_missing and type(full)=='string' and full~='',
-        checked=0,index=1,from=1,unresolved=0,value={},titles={}}
+        checked=0,index=1,from=1,unresolved=0,value={},titles={},page=1}
     for _i,entry in ipairs(entries) do owner.titles[entry.uid]=entry.title end
     host._cached_book_search_owner=owner
     local Input=require('ui/widget/inputdialog');local input
