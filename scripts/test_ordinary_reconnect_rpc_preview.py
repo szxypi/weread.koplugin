@@ -38,6 +38,25 @@ class PreviewTests(unittest.TestCase):
             self.assertEqual(task.main(['--saved-session','--retry','--apply']),1)
         session.assert_not_called();runner.assert_not_called();self.assertEqual(json.loads(out.getvalue())['account_data_posts'],0)
 
+    def test_rejected_read_reports_status_without_response_data(self):
+        class Rejected:
+            def __init__(self):
+                self.report={'stages':[{'stage':'account','status':429,'body':'private response'}]}
+                self.authenticated=False;self.shards={}
+            def set_cookie(self,*args): pass
+            def verify_account(self): raise RuntimeError('private response')
+            def close(self): pass
+        with patch.object(task,'manual_command',return_value=['/source/scripts/run_cb_fixture_manual_ui.py']), \
+             patch.object(task,'SessionStore') as session, patch.object(task,'NativeSessionStore') as native, \
+             patch.object(task,'RestorablePreflight',Rejected),contextlib.redirect_stdout(io.StringIO()) as out:
+            session.return_value.load.return_value={'vid':'1','cookies':{}}
+            native.return_value.load.return_value={}
+            self.assertEqual(task.main(['--saved-session']),1)
+        result=json.loads(out.getvalue())
+        self.assertEqual(result['web_stages'],[{'stage':'account','status':429}])
+        self.assertNotIn('private response',out.getvalue())
+        self.assertEqual(result['account_data_posts'],0)
+
     def test_difference_paths_hide_user_data(self):
         first={'books':[{'bookId':'private-id','private-title':'old','updateTime':1}],'synckey':1}
         later={'books':[{'bookId':'another-id','private-title':'new','updateTime':2}],'synckey':2}

@@ -106,7 +106,7 @@ def main(argv=None):
     if a.retry and not (a.prepare or a.apply):p.error('retry scope requires a trial mode')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
                 authentication_posts=0,private_data_on_regular_disk=False,guarded_write_mode=False)
-    web=saved=grant=payload=restore_web=journal=None;private=set();live_report={}
+    web=native=saved=grant=payload=restore_web=journal=None;private=set();live_report={}
     try:
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0));report['phase']='environment'
@@ -253,12 +253,17 @@ def main(argv=None):
             if a.apply and report['result']!='ORDINARY_RECONNECT_TRIAL_VERIFIED' and not (live_report.get('claimed_posts')
                     or live_report.get('claim_interrupted') or live_report.get('restore_claimed') or live_report.get('restore_claim_interrupted')):
                 report['account_data_posts']=0
-        if restore_web:restore_web.close()
+        if restore_web:
+            report['restore_web_stages']=[{k:row[k] for k in ('stage','status','api_code') if k in row} for row in restore_web.report['stages']]
+            restore_web.close()
         if web:
             if web.authenticated:
                 try:web.verify_account();save_refreshed_web_session(store,store.load(),web)
                 except Exception:report['result']='UNVERIFIED';report['reason']='ordinary_rpc/session'
+            report['web_stages']=[{k:row[k] for k in ('stage','status','api_code') if k in row} for row in web.report['stages']]
             web.shards.clear();web.close()
+        if native:
+            report['native_stages']=[{k:row[k] for k in ('stage','status','error_code') if k in row} for row in native.report['stages']]
         for value in (saved,grant,payload):
             if isinstance(value,dict):value.clear()
     encoded=json.dumps(report,ensure_ascii=True)

@@ -109,7 +109,10 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 
 针对这次观察，后续执行器现在分别核对进入请求后的“目标坐标、目标摘要、原百分比”和位置请求后的完整目标，不再将两个阶段混为一谈。书架核对先绑定完整初始快照，之后仅允许目标书的最近阅读时间、列表位置和与当前阶段精确一致的进度发生变化，并要求同步游标不倒退；其他书籍相对顺序、全部其他字段、标记和分组仍需一致。合成服务已模拟上述百分比及最近阅读变化并完成原生往返，见[普通尺寸](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-mock-600.json)、[KO2 尺寸](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-mock-ko2.json)和[回执缺失](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-noack.json)；这尚不代表新的真实账号试验通过。
 
-为后续验证准备了独立的测试、恢复和授权关联存储范围；它们与已封存的记录分开，新的待处理测试也会阻止其他试验。KO2 模拟已覆盖[正常往返](validation-assets/2026-11-22/ordinary-retry-mock-success.json)、[进入回执不明确后的单次恢复](validation-assets/2026-11-22/ordinary-retry-mock-enter-noack-recovery.json)、[位置回执不明确后的单次恢复](validation-assets/2026-11-22/ordinary-retry-mock-partial-recovery.json)、[恢复回执缺失](validation-assets/2026-11-22/ordinary-retry-mock-recovery-noack.json)及[恢复回执缺失后的只读确认](validation-assets/2026-11-22/ordinary-retry-mock-readback-resolution.json)。新的真实账号范围已完成[零写入准备](validation-assets/2026-11-22/ordinary-retry-owner-prepared.json)，尚未发送；原试验和恢复记录保持原结论。
+为后续验证准备了独立的测试、恢复和授权关联存储范围；它们与已封存的记录分开，新的待处理测试也会阻止其他试验。KO2 模拟已覆盖[正常往返](validation-assets/2026-11-22/ordinary-retry-mock-success.json)、[进入回执不明确后的单次恢复](validation-assets/2026-11-22/ordinary-retry-mock-enter-noack-recovery.json)、[位置回执不明确后的单次恢复](validation-assets/2026-11-22/ordinary-retry-mock-partial-recovery.json)、[恢复回执缺失](validation-assets/2026-11-22/ordinary-retry-mock-recovery-noack.json)及[恢复回执缺失后的只读确认](validation-assets/2026-11-22/ordinary-retry-mock-readback-resolution.json)。新的真实账号范围先完成了[零写入准备](validation-assets/2026-11-22/ordinary-retry-owner-prepared.json)。
+
+
+2026-11-22 的第二次真实重连试验在第一条进入请求获得明确回执后，独立网页读取遭 HTTP 拒绝，随即停止，未发送后续位置请求；原记录未保存状态码，不能判断具体原因。随后以独立范围只读核对两次已知测试位置，单次恢复原位置，并在全新进程再次独立核对两次：原章节、位置、百分比、摘要、时长计数、原文、目录和书架核心状态一致。完整书架的部分字段与恢复前不同，不能断言排序或其他服务端历史恢复。该次完整重连试验仍为未验证，恢复成功不等于完整同步通过，原试验及恢复范围均不能重发。记录：[中断](validation-assets/2026-11-22/ordinary-retry-owner-apply.json)、[恢复准备](validation-assets/2026-11-22/ordinary-retry-recovery-prepared.json)、[单次恢复](validation-assets/2026-11-22/ordinary-retry-recovery-apply.json)、[新进程复核](validation-assets/2026-11-22/ordinary-retry-recovery-independent.json)。后续验证工具会保留去敏请求阶段及状态码，以便区分服务器拒绝原因；不会自动重发。
 
 ## 普通 TXT 重连后的真实同步与恢复
 
