@@ -811,7 +811,8 @@ class MockServer(ThreadingHTTPServer):
                 else:roundtrip_stage=0
                 if 'rt' in data and control['progress_confirmation'] != 'plain':
                     self.progress_confirmation_book, self.progress_confirmation_reads = book_id, 0
-            if 'rt' in data and control['progress_confirmation'] == 'noack': return 200, {}
+            if (getattr(self,'enter_noack',False) and 'rt' not in data
+                    or 'rt' in data and control['progress_confirmation'] == 'noack'): return 200, {}
             if ((control['progress_roundtrip_mode']=='probe-noack' and roundtrip_stage==3)
                     or (control['progress_roundtrip_mode']=='restore-noack' and roundtrip_stage==4)):return 200,{}
             return 200, dict(succ=1)
