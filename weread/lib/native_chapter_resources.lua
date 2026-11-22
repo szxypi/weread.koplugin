@@ -2,7 +2,7 @@
 -- are reported to the caller; this module never opens a URL or a filesystem path.
 local Crypto=require('weread.lib.crypto')
 local Protocol=require('weread.lib.protocol')
-local M={MAX_BYTES=8*1024*1024,MAX_ASSETS=2048}
+local M={MAX_BYTES=8*1024*1024,MAX_ASSETS=2048,MAX_REMOTE=64}
 local function fail(reason) error('native_resources/'..reason,0) end
 local function array(value,maximum)
     if type(value)~='table' then return false end
@@ -36,7 +36,13 @@ local function lookup(index,owner,reference)
     local value=reference:match('^%s*(.-)%s*$') or ''
     local lower=value:lower()
     if lower:match('^data:') or value:sub(1,1)=='#' then return value,'embedded' end
-    if lower:match('^https?://') or value:sub(1,2)=='//' then return value,'remote' end
+    if lower:match('^https?://') or value:sub(1,2)=='//' then
+        local key=value:gsub('&amp;','&')
+        local href=index.remote and index.remote[key]
+        if href==false then return nil,'ambiguous' end
+        if href then return href,'local' end
+        return value,'remote',key
+    end
     if lower:match('^[%a][%w+.-]*:') or value:sub(1,1)=='/' then return nil,'unsupported' end
     local ref=clean(value)
     if not ref or ref=='' then return nil,'unsupported' end
@@ -46,16 +52,18 @@ local function lookup(index,owner,reference)
     if href==false then return nil,'ambiguous' end
     return href,href and 'local' or 'missing'
 end
-local function index_assets(assets)
+local function index_assets(assets,remote_assets)
     if not array(assets,M.MAX_ASSETS) then fail('assets') end
-    local index={exact={},output={},seen={}}
+    if not array(remote_assets,M.MAX_REMOTE) then fail('assets') end
+    local index={exact={},remote={},output={},seen={}}
     local total=0
-    for _,asset in ipairs(assets) do
+    local function add_assets(rows,remote)
+    for _,asset in ipairs(rows) do
         if type(asset)~='table' or type(asset.source)~='string' or type(asset.data)~='string'
             or #asset.data==0 or #asset.data>M.MAX_BYTES then fail('asset') end
         total=total+#asset.data
         if total>64*1024*1024 then fail('assets') end
-        local path=clean(asset.source)
+        local path=remote and asset.source or clean(asset.source)
         local ext=({['image/png']='.png',['image/jpeg']='.jpg',['image/gif']='.gif',['image/webp']='.webp'})[asset.media_type]
         if not path or path=='' or not ext then fail('asset') end
         local data=asset.data
@@ -69,13 +77,27 @@ local function index_assets(assets)
         local function add(map,key)
             if map[key]==nil then map[key]=href elseif map[key]~=href then map[key]=false end
         end
-        add(index.exact,path)
+        if remote then
+            if not path:lower():match('^https?://') and path:sub(1,2)~='//' then fail('asset') end
+            add(index.remote,path:gsub('&amp;','&'))
+        else add(index.exact,path) end
         if not index.seen[href] then
             index.seen[href]=true
             index.output[#index.output+1]={href=href,media_type=asset.media_type,data=asset.data}
         end
     end
+    end
+    add_assets(assets,false)
+    add_assets(remote_assets,true)
     return index
+end
+local function record_remote(summary,key)
+    summary.remote=summary.remote+1
+    if not summary.remote_seen[key] then
+        if #summary.remote_urls>=M.MAX_REMOTE then fail('remote_limit') end
+        summary.remote_seen[key]=true
+        summary.remote_urls[#summary.remote_urls+1]=key
+    end
 end
 local function css_rewrite(css,owner,index,prefix,summary)
     if not valid_text(css) then fail('css') end
@@ -116,9 +138,9 @@ local function css_rewrite(css,owner,index,prefix,summary)
                     raw=css:sub(cursor,closing-1):match('^%s*(.-)%s*$')
                 end
                 if raw:find('[\\"\']') or raw:find('%(') then fail('css_url') end
-                local href,kind=lookup(index,owner,raw)
+                local href,kind,key=lookup(index,owner,raw)
                 if not href then fail(kind) end
-                if kind=='remote' then summary.remote=summary.remote+1
+                if kind=='remote' then record_remote(summary,key)
                 elseif kind=='local' then href=prefix..href;summary.localized=summary.localized+1 end
                 out[#out+1]=css:sub(start,at-1)..'url("'..href..'")'
                 at=closing+1;start=at
@@ -192,9 +214,9 @@ local function html_rewrite(body,owner,index,style_index,summary)
                     if resource then
                         if seen[lower] or found then fail('ambiguous') end
                         seen[lower],found=true,true
-                        local href,kind=lookup(index,owner,value)
+                        local href,kind,remote_key=lookup(index,owner,value)
                         if not href then fail(kind) end
-                        if kind=='remote' then summary.remote=summary.remote+1
+                        if kind=='remote' then record_remote(summary,remote_key)
                         elseif kind=='local' then href='../'..href;summary.localized=summary.localized+1 end
                         return key..equals..quote..href..quote
                     end
@@ -209,14 +231,14 @@ local function html_rewrite(body,owner,index,style_index,summary)
     end
     return table.concat(out)
 end
-function M.prepare(value)
+function M.prepare(value,remote_assets)
     local ok,result=pcall(function()
         if type(value)~='table' or value.source_channel~='eink' or value.coordinate_source_authoritative~=false
             or value.is_text~=false or not array(value.body_parts,2048) or #value.body_parts==0
             or not array(value.style_parts,2048) or not valid_text(value.body) or not valid_text(value.css)
             or type(value.unusable_resources)~='number' or value.unusable_resources<0
             or value.unusable_resources%1~=0 or value.unusable_resources>2048 then fail('source') end
-        local index=index_assets(value.assets)
+        local index=index_assets(value.assets,remote_assets or {})
         -- Combining multiple CSS sheets without their original cascade order
         -- could change formatting. Defer those packages to the existing path.
         if #value.style_parts>1 then fail('multiple_styles') end
@@ -227,7 +249,7 @@ function M.prepare(value)
             if not path or path=='' or style_index.exact[path] then fail('css') end
             style_index.exact[path]='present'
         end
-        local summary={localized=0,remote=0}
+        local summary={localized=0,remote=0,remote_urls={},remote_seen={}}
         local bodies,styles={},{}
         for _,part in ipairs(value.body_parts) do
             if type(part)~='table' or type(part.source)~='string' then fail('body') end
@@ -245,6 +267,7 @@ function M.prepare(value)
         end
         return {xhtml=table.concat(bodies,'\n'),css=table.concat(styles,'\n'),assets=index.output,
             remote_references=summary.remote,localized_references=summary.localized,
+            remote_urls=summary.remote_urls,
             unusable_resources=value.unusable_resources,source_channel='eink',coordinate_source_authoritative=false}
     end)
     if not ok then return nil,type(result)=='string' and result:match('^native_resources/[a-z_]+$') or 'native_resources/unavailable' end

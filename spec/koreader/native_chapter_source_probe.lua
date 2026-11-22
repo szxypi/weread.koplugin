@@ -24,7 +24,7 @@ local ok,result=pcall(function()
     local request=client.request
     client.request=function(self,options)
         count=count+1
-        assert(count<=3 and options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
+        assert(count<=67 and options.skip_cookie and options.persist_response_cookies==false and options.sensitive)
         local base='https://i.weread.qq.com'
         if count==1 then
             assert(options.url==base..'/book/info?bookId='..input.book_id and options.method=='GET')
@@ -32,9 +32,13 @@ local ok,result=pcall(function()
             assert(options.url==base..'/book/chapterInfos' and options.method=='POST')
             local body=json.decode(options.body)
             assert(body.bookIds[1]==input.book_id and #body.bookIds==1 and body.synckeys[1]==0)
-        else
+        elseif count==3 then
             assert(options.method=='GET' and options.url:find(base..'/book/chapterdownload?',1,true)==1
                 and options.url:find('stopAutoPayWhenBNE=1',1,true) and options.url:find('preview=0',1,true))
+        else
+            assert(input.fetch_remote==true and options.method=='GET'
+                and require('weread.lib.native_chapter_remote').allowed(options.url)==options.url
+                and not options.headers.vid and not options.headers.accessToken and not options.headers.Cookie)
         end
         return request(self,options)
     end
@@ -55,12 +59,24 @@ local ok,result=pcall(function()
         image_signatures_recognized=source.image_signatures_recognized,unusable_resources=source.unusable_resources}
     if input.prepare==true then
         local prepared,resource_reason=require('weread.lib.native_chapter_resources').prepare(source)
+        if prepared and input.fetch_remote==true then
+            prepared,resource_reason=require('weread.lib.native_chapter_remote').complete(client,source,
+                {is_current=function() return require('weread.lib.native_read_access').matches(settings,selected) end})
+            if not prepared then reason=resource_reason;error('remote_failed') end
+        end
         if prepared then
             output.resources={ok=true,localized=prepared.localized_references,remote=prepared.remote_references,
                 web_coordinate_authority=prepared.coordinate_source_authoritative}
-            if input.render==true then
+            if input.fetch_remote==true then output.resources.downloaded=prepared.downloaded_images end
+            if input.audit_remote==true then output.resources.downloaded_digests=prepared.downloaded_digests end
+            if input.render==true or input.owner_render==true then
                 local home=assert(os.getenv('KO_HOME'))
-                assert(os.getenv('WEREAD_SYNTHETIC')=='1' and home:match('^/dev/shm/') and prepared.remote_references==0)
+                local owner=input.owner_render==true
+                assert(home:match('^/dev/shm/') and prepared.remote_references==0)
+                if owner then
+                    assert(os.getenv('WEREAD_OWNER_NATIVE_IMAGE_TMPFS')=='1' and type(input.search_token)=='string'
+                        and #input.search_token>=6 and #input.search_token<=128)
+                else assert(os.getenv('WEREAD_SYNTHETIC')=='1') end
                 local lfs=require('libs/libkoreader-lfs');settings.cache_dir=home..'/native-cache'
                 if not lfs.attributes(settings.cache_dir) then assert(lfs.mkdir(settings.cache_dir)) end
                 local book={book_id=input.book_id,bookVersion=source.book_version,title='Synthetic native book',author='Fixture'}
@@ -72,21 +88,34 @@ local ok,result=pcall(function()
                 local Device=require('device');require('document/canvascontext'):init(Device)
                 local doc=assert(require('document/documentregistry'):openDocument(path))
                 assert(doc:loadDocument());doc:setFontFace('Noto Sans');doc:setFontSize(Device.screen:scaleBySize(24));doc:render()
-                local hits=assert(doc:findAllText('Native source integrated marker 24',false,0,4,false,0))
-                assert(doc:getPageCount()>=2 and hits[1] and hits[1].start)
+                local hits=assert(doc:findAllText(owner and input.search_token or 'Native source integrated marker 24',false,0,4,false,0))
+                assert(doc:getPageCount()>=(owner and 1 or 2) and hits[1] and hits[1].start)
                 assert(not require('weread.lib.position_source').read_document(doc,input.book_id,input.uid))
-                local href=assert(prepared.assets[1]).href
-                assert(doc:getDocumentFileContent('OEBPS/'..href)==prepared.assets[1].data)
-                assert(assert(doc:getDocumentFileContent('OEBPS/style.css')):find(href,1,true))
-                doc:close();output.resources.rendered=true
+                assert(#prepared.assets>0)
+                local saved_assets=json.decode('[]')
+                for _,asset in ipairs(prepared.assets) do
+                    assert(doc:getDocumentFileContent('OEBPS/'..asset.href)==asset.data)
+                    local bitmap=assert(require('ui/renderimage'):renderImageData(asset.data,#asset.data,false,160,160))
+                    assert(bitmap:getWidth()>0 and bitmap:getHeight()>0);bitmap:free()
+                    saved_assets[#saved_assets+1]={href=asset.href,digest=Crypto.sha256_hex(asset.data)}
+                end
+                if not owner then assert(assert(doc:getDocumentFileContent('OEBPS/style.css')):find(prepared.assets[1].href,1,true)) end
+                doc:close()
+                if owner then
+                    local state=assert(io.open(home..'/native-owner-state.json','wb'))
+                    assert(state:write(json.encode{path=path,book_id=input.book_id,uid=input.uid,assets=saved_assets}))
+                    assert(state:close());output.resources.owner_rendered=true
+                else output.resources.rendered=true end
             end
         else
             output.resources={ok=false,reason=resource_reason}
         end
     end
+    output.requests=count
     return output
 end)
 if reason~='invalid' and reason~='session_changed' and reason~='rate_limited' and reason~='auth_expired' and reason~='service_rejected'
-    and reason~='not_entitled' and reason~='unavailable' then reason='probe_failed' end
+    and reason~='not_entitled' and reason~='unavailable' and reason~='invalid_image' and reason~='remote_unsupported'
+    and reason~='source_changed' and reason~='invalid_source' then reason='probe_failed' end
 io.stdout:write('\nWEREAD_NATIVE_SOURCE_RESULT='..json.encode(ok and result or {ok=false,requests=count,reason=reason})..'\n')
 os.exit(ok and 0 or 1)

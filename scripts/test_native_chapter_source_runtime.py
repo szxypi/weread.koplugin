@@ -22,6 +22,10 @@ READING_BODY = ('<html><body><img src="../images/cover.png"/>'
                 + '</body></html>').encode()
 READING_PACKAGE = archive([('text/37.html', READING_BODY), ('style/book.css', 'p{background:url(../images/cover.png)}'),
                            ('images/cover.png', PNG)])
+REMOTE_URL = 'https://img.qq.com/image.png?a=1&b=2'
+REMOTE_BODY = READING_BODY.replace(b'../images/cover.png', b'https://img.qq.com/image.png?a=1&amp;b=2')
+REMOTE_PACKAGE = archive([('text/37.html', REMOTE_BODY),
+                          ('style/book.css', 'p{background:url("' + REMOTE_URL + '")}')])
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -42,7 +46,18 @@ class Handler(BaseHTTPRequestHandler):
         target = urlsplit(query.get('url', [''])[0])
         server.paths.append(target.path)
         code, headers, body = 200, {}, None
-        if target.hostname != 'i.weread.qq.com':
+        if target.hostname == 'img.qq.com' and target.path == '/image.png' and self.command == 'GET':
+            server.download_valid &= parse_qs(target.query) == {'a': ['1'], 'b': ['2']}
+            if server.mode == 'remote_rate':
+                code, body = 429, b'{}'
+            elif server.mode == 'remote_redirect':
+                code, body = 302, b''
+                headers['location'] = 'https://other.invalid/'
+            elif server.mode == 'remote_invalid':
+                body = b'not an image'
+            else:
+                body = PNG
+        elif target.hostname != 'i.weread.qq.com':
             code, body = 400, b''
         elif target.path == '/book/info' and self.command == 'GET':
             body = json.dumps(dict(bookId='42', format='epub', version=1)).encode()
@@ -65,6 +80,7 @@ class Handler(BaseHTTPRequestHandler):
                 body = json.dumps({'errcode': errcode}).encode()
             else:
                 body = (b'corrupt package' if server.mode == 'corrupt' else READING_PACKAGE if server.mode == 'read'
+                        else REMOTE_PACKAGE if server.mode.startswith('remote')
                         else base64.b64decode(ENCRYPTED))
                 if server.mode != 'missing_header':
                     headers['encryptkey'] = 'vwSvXMONEDngLYTAXw3olg=='
@@ -88,18 +104,24 @@ def run(runtime):
             xdg = Path(root) / 'xdg'
             xdg.mkdir(mode=0o700)
             env = dict(os.environ, KO_HOME=root, XDG_RUNTIME_DIR=str(xdg), LD_LIBRARY_PATH=str(runtime / 'libs'),
-                       SDL_VIDEODRIVER='dummy', EMULATE_READER='1', WEREAD_SYNTHETIC='1')
+                       SDL_VIDEODRIVER='dummy', EMULATE_READER='1', WEREAD_SYNTHETIC='1',
+                       WEREAD_OWNER_NATIVE_IMAGE_TMPFS='1')
             payload = dict(credentials=dict(vid='12345678', accessToken='synthetic-access',
                                             refreshToken='synthetic-refresh', deviceId='eink334691225' + '0'*19),
                            book_id='42', uid='37', mock_endpoint=endpoint, prepare=True)
-            for mode, reason, count in (('ok', None, 3), ('read', None, 3), ('paid', 'not_entitled', 2), ('rate', 'rate_limited', 3),
+            for mode, reason, count in (('ok', None, 3), ('read', None, 3), ('remote', None, 4), ('remote_owner', None, 4),
+                                        ('remote_rate', 'rate_limited', 4), ('remote_redirect', 'unavailable', 4),
+                                        ('remote_invalid', 'invalid_image', 4), ('paid', 'not_entitled', 2), ('rate', 'rate_limited', 3),
                                         ('auth', 'auth_expired', 3), ('missing_header', 'unavailable', 3),
                                         ('corrupt', 'unavailable', 3), ('rate_json', 'rate_limited', 3),
                                         ('auth_json', 'auth_expired', 3), ('denied_json', 'service_rejected', 3),
                                         ('catalog_rejected', 'service_rejected', 2)):
                 server.mode, server.paths, server.leaked = mode, [], False
                 server.catalog_valid, server.download_valid = True, True
-                payload['render'] = mode == 'read'
+                payload['render'] = mode in ('read', 'remote')
+                payload['fetch_remote'] = mode.startswith('remote')
+                payload['owner_render'] = mode == 'remote_owner'
+                payload['search_token'] = 'integrated' if mode == 'remote_owner' else None
                 process = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_chapter_source_probe.lua'),
                                           str(REPO)], cwd=runtime, env=env, input=json.dumps(payload).encode(),
                                          stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
@@ -110,9 +132,23 @@ def run(runtime):
                 assert not server.leaked and server.catalog_valid and server.download_valid, mode
                 if reason is None:
                     assert process.returncode == 0 and value['ok'], mode
-                    assert value['body_sha256'] == hashlib.sha256(READING_BODY if mode == 'read' else b'<p>Synthetic</p>').hexdigest(), mode
+                    expected_body = REMOTE_BODY if mode in ('remote', 'remote_owner') else READING_BODY if mode == 'read' else b'<p>Synthetic</p>'
+                    assert value['body_sha256'] == hashlib.sha256(expected_body).hexdigest(), mode
                     assert value['web_coordinate_authority'] is False, mode
-                    if mode == 'read':
+                    if mode == 'remote':
+                        assert value['resources'] == dict(ok=True, localized=2, remote=0, downloaded=1,
+                                                          web_coordinate_authority=False, rendered=True), mode
+                    elif mode == 'remote_owner':
+                        assert value['resources'] == dict(ok=True, localized=2, remote=0, downloaded=1,
+                                                          web_coordinate_authority=False, owner_rendered=True), mode
+                        offline = subprocess.run([str(runtime/'luajit'), str(REPO/'spec/koreader/native_chapter_owner_offline_probe.lua'),
+                                                  str(REPO)], cwd=runtime, env=env, stdout=subprocess.PIPE,
+                                                 stderr=subprocess.PIPE, timeout=60)
+                        marker = b'\nWEREAD_NATIVE_OFFLINE_RESULT='
+                        assert offline.returncode == 0 and offline.stdout.count(marker) == 1, mode
+                        assert json.loads(offline.stdout.split(marker, 1)[1]) == dict(ok=True, offline_network=0,
+                                                                                   assets=1, web_coordinate_authority=False), mode
+                    elif mode == 'read':
                         assert value['resources'] == dict(ok=True, localized=2, remote=0,
                                                           web_coordinate_authority=False, rendered=True), mode
                     else:

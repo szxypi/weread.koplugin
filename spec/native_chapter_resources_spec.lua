@@ -15,6 +15,15 @@ assert(prepared.xhtml:find('src="../'..href..'"',1,true) and prepared.xhtml:find
 assert(prepared.css:find('url("'..href..'")',1,true) and prepared.css:find('content:"url(ignored)"',1,true)
     and prepared.css:find('/* url(ignored) */',1,true))
 assert(prepared.localized_references==2 and prepared.remote_references==1 and prepared.coordinate_source_authoritative==false)
+assert(#prepared.remote_urls==1 and prepared.remote_urls[1]=='https://example.invalid/remote.png')
+local escaped=input('<img src="https://img.qq.com/a.png?a=1&amp;b=2"/>',
+    'p{background:url("https://img.qq.com/a.png?a=1&b=2")}',{})
+local pending=assert(Resources.prepare(escaped))
+assert(pending.remote_references==2 and #pending.remote_urls==1 and pending.xhtml:find('&amp;',1,true))
+local remote_assets={{source='https://img.qq.com/a.png?a=1&b=2',data=png,media_type='image/png'}}
+local offline=assert(Resources.prepare(escaped,remote_assets))
+assert(offline.remote_references==0 and #offline.remote_urls==0 and offline.localized_references==2
+    and offline.xhtml:find('../'..offline.assets[1].href,1,true) and offline.css:find(offline.assets[1].href,1,true))
 local duplicate={{source='one/p.png',data=png..'a',media_type='image/png'},{source='one/sub/../p.png',data=png..'b',media_type='image/png'}}
 local function denied(value,reason)
     local result,why=Resources.prepare(value);assert(not result and why=='native_resources/'..reason,tostring(why))

@@ -20,6 +20,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import Request
 
 from native_chapter_package import MAX_ARCHIVE, PackageError, password, read
+from native_chapter_remote_reference import digest as reference_image_digest, search_token
 from secure_native_session import NativeSessionStore
 from secure_weread_session import SessionStore, StoreError
 from verify_eink_login import BASE, HEADERS, NativeProbe, ProbeError
@@ -149,6 +150,8 @@ def main():
     parser.add_argument('--saved-session', action='store_true')
     parser.add_argument('--book-offset', type=int, default=0, choices=range(0, 51))
     parser.add_argument('--prepare-assets', action='store_true')
+    parser.add_argument('--fetch-remote', action='store_true')
+    parser.add_argument('--owner-render', action='store_true')
     lua = parser.add_mutually_exclusive_group()
     lua.add_argument('--lua-command', nargs=argparse.REMAINDER)
     lua.add_argument('--lua-source-command', nargs=argparse.REMAINDER)
@@ -159,9 +162,16 @@ def main():
         parser.error('Lua comparison requires saved session')
     if args.prepare_assets and not args.lua_source_command:
         parser.error('asset preparation requires a native source command')
+    if args.fetch_remote and not args.prepare_assets:
+        parser.error('remote image verification requires asset preparation')
+    if args.owner_render and not args.fetch_remote:
+        parser.error('owner rendering requires remote image verification')
     report = dict(result='OFFLINE_ONLY', checked_at=datetime.now(timezone.utc).isoformat(),
                   account_data_writes=0, authorization_requests=0, native_download_requests=0,
                   credentials_or_content_saved=False)
+    if args.owner_render:
+        report.pop('credentials_or_content_saved')
+        report.update(credentials_written_to_files=False, content_written_only_to_tmpfs=True)
     if args.saved_session:
         probe = None
         try:
@@ -211,7 +221,9 @@ def main():
                 report['koreader_lua_package_matches'] = True
             if args.lua_source_command:
                 payload = json.dumps(dict(credentials=credentials, book_id=sample['book_id'], uid=str(chapter['uid']),
-                                          prepare=args.prepare_assets),
+                                          prepare=args.prepare_assets, fetch_remote=args.fetch_remote,
+                                          audit_remote=args.fetch_remote, owner_render=args.owner_render,
+                                          search_token=search_token(native['source']) if args.owner_render else None),
                                      separators=(',', ':')).encode()
                 child = subprocess.run(args.lua_source_command, input=payload, stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, timeout=120)
@@ -220,10 +232,11 @@ def main():
                 report['lua_source_marker_count'] = child.stdout.count(marker)
                 if len(child.stdout) > 65536 or child.stdout.count(marker) != 1:
                     raise ProbeError('chapter/lua_source_output')
-                actual = json.loads(child.stdout.split(marker, 1)[1])
+                actual = json.loads(child.stdout.split(marker, 1)[1].splitlines()[0])
                 if child.returncode:
                     allowed = {'invalid', 'session_changed', 'rate_limited', 'auth_expired', 'service_rejected',
-                               'not_entitled', 'unavailable'}
+                               'not_entitled', 'unavailable', 'invalid_source', 'invalid_image', 'remote_unsupported',
+                               'source_changed'}
                     reason = actual.get('reason') if isinstance(actual, dict) else None
                     raise ProbeError('chapter/lua_source_' + (reason if reason in allowed else 'failed'))
                 digest = lambda value: hashlib.sha256(value).hexdigest()
@@ -232,18 +245,48 @@ def main():
                     if not isinstance(resources, dict) or type(resources.get('ok')) is not bool:
                         raise ProbeError('chapter/lua_resources_invalid')
                     if resources['ok']:
-                        if (set(resources) != {'ok', 'localized', 'remote', 'web_coordinate_authority'}
+                        expected_keys = {'ok', 'localized', 'remote', 'web_coordinate_authority'}
+                        if args.fetch_remote:
+                            expected_keys |= {'downloaded', 'downloaded_digests'}
+                        if args.owner_render:
+                            expected_keys.add('owner_rendered')
+                        if (set(resources) != expected_keys
                                 or type(resources['localized']) is not int or type(resources['remote']) is not int
                                 or not 0 <= resources['localized'] <= 10000 or not 0 <= resources['remote'] <= 10000
                                 or resources['web_coordinate_authority'] is not False):
                             raise ProbeError('chapter/lua_resources_invalid')
+                        if args.fetch_remote:
+                            values = resources.pop('downloaded_digests')
+                            if (resources['downloaded'] != 1 or resources['remote'] != 0 or not isinstance(values, list)
+                                    or len(values) != 1 or not isinstance(values[0], str)
+                                    or not re.fullmatch(r'[0-9a-f]{64}', values[0])):
+                                raise ProbeError('chapter/lua_remote_invalid')
+                            if reference_image_digest(native['source']) != values[0]:
+                                raise ProbeError('chapter/remote_image_mismatch')
+                            report['independent_remote_image_matches'] = True
+                            report['independent_remote_image_requests'] = 1
+                        if args.owner_render:
+                            if resources['owner_rendered'] is not True:
+                                raise ProbeError('chapter/owner_render_invalid')
+                            offline_marker=b'\nWEREAD_NATIVE_OFFLINE_RESULT='
+                            if child.stdout.count(offline_marker)!=1:
+                                raise ProbeError('chapter/owner_offline_output')
+                            offline=json.loads(child.stdout.split(offline_marker,1)[1].splitlines()[0])
+                            expected_assets=len({hashlib.sha256(item['data']).hexdigest() for item in native['assets']} | set(values))
+                            if offline!=dict(ok=True,offline_network=0,assets=expected_assets,web_coordinate_authority=False):
+                                raise ProbeError('chapter/owner_offline_mismatch')
+                            report['owner_epub_rendered'] = True
+                            report['owner_epub_offline_reopened'] = True
                     elif (set(resources) != {'ok', 'reason'} or not isinstance(resources['reason'], str)
                           or not re.fullmatch(r'native_resources/[a-z_]+', resources['reason'])):
                         raise ProbeError('chapter/lua_resources_invalid')
+                    if args.fetch_remote and not resources['ok']:
+                        raise ProbeError('chapter/lua_resources_unavailable')
                     report['resource_preparation'] = resources
                 assets = [dict(digest=digest(item['data']), mime=item['media_type'], safe_href=True,
                                parent_source='../' in item['source']) for item in native['assets']]
-                expected = dict(ok=True, requests=3, body_sha256=digest(native['source']), css_sha256=digest(native['css']),
+                expected = dict(ok=True, requests=3 + (resources['downloaded'] if args.fetch_remote else 0),
+                                body_sha256=digest(native['source']), css_sha256=digest(native['css']),
                                 is_text=not native['html'], web_coordinate_authority=False, assets=assets,
                                 image_signatures_recognized=native['image_signatures_recognized'],
                                 unusable_resources=native['unusable_resources'])
@@ -251,6 +294,8 @@ def main():
                     raise ProbeError('chapter/lua_source_mismatch')
                 report['koreader_native_source_matches'] = True
                 report['koreader_native_source_requests'] = 3
+                if args.fetch_remote:
+                    report['koreader_remote_image_requests'] = resources['downloaded']
             report['result'] = 'NATIVE_AND_WEB_CHAPTER_COMPARED'
         except (PackageError, ProbeError, StoreError, TranslationError) as exc:
             report.update(result='UNVERIFIED', reason=str(exc))
