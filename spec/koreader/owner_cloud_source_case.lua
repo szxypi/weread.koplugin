@@ -6,6 +6,10 @@ return function(input,mode,counters)
     local case={report={local_intent_created=false,cloud_choice=false,background_worker=false,raw_target=false,
         sync_verified=false,pending_cleared=false,checkpoint_saved=false,truthful_notice=false,parent_native_guard=false,
         offline_checkpoint=false,offline_local_only=false,native_denied=0,failed_line=0}}
+    if input.raw_cloud_reconnect then
+        case.report.reconnect_offline_saved=false;case.report.reconnect_no_requests=false
+        case.report.reconnect_choice_once=false;case.report.reconnect_intent_before_choice=false
+    end
     local fields={'book_id','chapter_uid','chapter_offset','file_id','book_version','raw_sha256','render_path','basis','upload_verified'}
     local function copy(value)
         local result={};for _i,key in ipairs(fields) do result[key]=assert(value)[key] end;return result
@@ -26,7 +30,7 @@ return function(input,mode,counters)
         self.reopen_checkpoint=copy(point)
         self.report.offline_checkpoint=true
     end
-    function case:run(plugin,reader,pump,index,origin)
+    function case:run(plugin,reader,pump,index,origin,set_offline)
         local source,sync,doc=plugin.source_position,plugin.progress_sync,reader.document
         for _i,name in ipairs({'getDocumentFileContent','getTextFromXPointers','getHTMLFromXPointers','getNextVisibleChar'}) do
             local method=doc[name];doc[name]=function(document,...)
@@ -41,11 +45,48 @@ return function(input,mode,counters)
             pump(function() return finished and source:current() end);assert(applied and source:current().chapter_offset==co)
         end
         if mode=='live' then
-            jump(trial.target.chapter_offset);sync:checkpoint_local('cloud_source_preview')
-            assert(plugin.settings:get_book(input.book_id).pending_upload_position.source_position.chapter_offset==trial.target.chapter_offset)
-            self.report.local_intent_created=true
-            local cfg=plugin.settings:get('sync');cfg.ask_on_conflict=true;plugin.settings:set('sync',cfg)
-            assert(plugin:onWeReadSyncProgress());pump(function() return not sync.pulling end)
+            local cfg=plugin.settings:get('sync');cfg.ask_on_conflict=true
+            if input.raw_cloud_reconnect then cfg.pull_on_open=true end
+            plugin.settings:set('sync',cfg)
+            if input.raw_cloud_reconnect then
+                -- Reproduce a real page movement while the plugin sees the network as offline.
+                -- The enclosing probe rejects all network calls during this interval.
+                local before={};for i=0,6 do before[i]=tonumber(counters[i]) end
+                set_offline(true);plugin:onNetworkDisconnected()
+                local current=reader:getCurrentPage();local target=current==1 and 2 or 1
+                reader.rolling:onGotoPage(target)
+                pump(function()
+                    local point=source:current()
+                    if reader:getCurrentPage()~=target or not point or sync:current_source_target()
+                        or point.chapter_offset==trial.baseline.chapter_offset then return false end
+                    local anchor=index:locate(point.chapter_offset)
+                    if not anchor or not doc:isXPointerInCurrentPage(anchor.xpointer) then return false end
+                    local captured=index:capture(anchor.xpointer)
+                    return captured and captured.co==point.chapter_offset
+                end)
+                local moved=assert(source:current());sync:checkpoint_local('offline_reconnect_validation')
+                local saved=assert(plugin.settings:get_book(input.book_id));local pending=assert(saved.pending_upload_position)
+                assert(pending.source_position and pending.source_position.chapter_offset==moved.chapter_offset)
+                assert(not sync.verified and not sync.uploading and sync.state=='offline')
+                self.report.reconnect_offline_saved=true;self.report.local_intent_created=true
+                plugin:onFlushSettings();plugin:onSuspend();plugin:onResume()
+                assert(not sync.verified and not sync.uploading)
+                for i=0,6 do assert(tonumber(counters[i])==before[i],'offline request') end
+                self.report.reconnect_no_requests=true
+                set_offline(false);plugin:onNetworkConnected()
+                pump(function() return sync.state=='awaiting_choice' end)
+                local choice=assert(UI:getTopmostVisibleWidget());plugin:onNetworkConnected()
+                assert(UI:getTopmostVisibleWidget()==choice and sync.state=='awaiting_choice')
+                self.report.reconnect_choice_once=true
+                saved=assert(plugin.settings:get_book(input.book_id))
+                assert(saved.pending_upload_position and saved.pending_upload_position.source_position.chapter_offset==moved.chapter_offset)
+                self.report.reconnect_intent_before_choice=true
+            else
+                jump(trial.target.chapter_offset);sync:checkpoint_local('cloud_source_preview')
+                assert(plugin.settings:get_book(input.book_id).pending_upload_position.source_position.chapter_offset==trial.target.chapter_offset)
+                self.report.local_intent_created=true
+                assert(plugin:onWeReadSyncProgress());pump(function() return not sync.pulling end)
+            end
             local dialog=assert(UI:getTopmostVisibleWidget())
             assert(dialog.ok_text==tr('Use WeRead progress') and dialog.cancel_text==tr('Keep KOReader progress'))
             local notice,transient=nil,plugin.showTransientInfo

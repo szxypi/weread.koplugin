@@ -7,7 +7,7 @@ import json
 import subprocess
 import unittest
 from unittest.mock import patch,Mock
-from owner_cloud_source_contract import FLAGS,FRAME,validate_payload,decode,decode_runner,compare
+from owner_cloud_source_contract import FLAGS,RECONNECT_FLAGS,FRAME,validate_payload,decode,decode_runner,compare
 from test_owner_reading import stage as reading_stage
 from test_native_reader_trial import payload as reader_payload
 import verify_owner_cloud_source as task
@@ -120,6 +120,25 @@ class CloudSourceTests(unittest.TestCase):
             with self.assertRaises(ValueError):decode(frame(v),'900000','live')
         v=envelope();v['report']['result']='UNVERIFIED';v['report']['cloud_source']['sync_verified']=False
         self.assertEqual(decode(frame(v),'900000','live')['report']['result'],'UNVERIFIED')
+
+    def test_reconnect_must_be_explicit_and_requires_each_live_checkpoint(self):
+        v=payload();v['raw_cloud_reconnect']=True
+        validate_payload(v,12345,reconnect=True)
+        with self.assertRaises(ValueError):validate_payload(v,12345)
+        for bad in (False,1,'yes'):
+            v['raw_cloud_reconnect']=bad
+            with self.assertRaises(ValueError):validate_payload(v,12345,reconnect=True)
+        for mode in ('live','reopen'):
+            value=envelope(mode);value['report']['cloud_source'].update({key:mode=='live' for key in RECONNECT_FLAGS})
+            decode(frame(value),'900000',mode,reconnect=True)
+            for key in RECONNECT_FLAGS:
+                mutated=deepcopy(value);mutated['report']['cloud_source'][key]=mode!='live'
+                with self.subTest(mode=mode,key=key),self.assertRaises(ValueError):decode(frame(mutated),'900000',mode,reconnect=True)
+        v=runner()
+        for row,mode in zip(v['report']['stages'],('live','reopen')):
+            row['cloud_source'].update({key:mode=='live' for key in RECONNECT_FLAGS})
+        decode_runner(frame(v),'900000',reconnect=True)
+        with self.assertRaises(ValueError):decode_runner(frame(v),'900000')
 
     def test_reader_timeout_reaps_all_worker_groups_through_existing_supervisor(self):
         child=Mock();child.communicate.side_effect=subprocess.TimeoutExpired('synthetic',180)

@@ -330,6 +330,7 @@ local ok,reason=pcall(function()
         candidate_case=dofile(arg[2])(input,mode,counters)
         report.unstarted=candidate_case.report
     elseif input.raw_cloud_preview then
+        assert(input.raw_cloud_reconnect==nil or input.raw_cloud_reconnect==true)
         assert(input.native_source_excerpt==true and input.source_format=='web_txt' and not full and arg[2]
             and arg[2]:match('/owner_cloud_source_case%.lua$'))
         candidate_case=dofile(arg[2])(input,mode,counters)
@@ -440,6 +441,7 @@ local ok,reason=pcall(function()
         return #host<=253 and host:match('^[a-z%d.-]+%.[a-z][a-z]+$') and not host:match('%.local$')
             and not host:match('%.localhost$') and not host:match('%.internal$')
     end
+    local forced_offline=false
     local function classify(client,options)
         if mode~='live' then return end
         local h=options.headers or {}
@@ -619,6 +621,9 @@ local ok,reason=pcall(function()
     end
     report.transport_guard_selftest=true
     function Client:request(options)
+        if input.raw_cloud_reconnect and forced_offline then
+            counters[6]=counters[6]+1;error('offline reconnect made network request',0)
+        end
         local native_slot=native_read(options)
         if native_slot then
             if counters[native_slot]>=(native_slot==25 and 2 or 1) or tonumber(ffi.C.getpid())==parent_pid then
@@ -760,7 +765,6 @@ local ok,reason=pcall(function()
         return follow(self,options,...)
     end
     local Common=require('weread.ui.common')
-    local forced_offline=false
     Common.isNetworkOnline,Common.isNetworkConnected=function() return mode=='live' and not forced_offline end,function() return mode=='live' and not forced_offline end
     local Loader=require('pluginloader');Loader.enabled_plugins,Loader.disabled_plugins,Loader.loaded_plugins={},{},{}
     for _i,entry in ipairs(Loader:_discover()) do if entry.name=='weread' or input.native_time_capture and entry.name=='statistics' then Loader:_load{entry} end end
@@ -1277,7 +1281,9 @@ local ok,reason=pcall(function()
         and after.source_position.chapter_offset==position.chapter_offset and (full or after.chapter_offset~=position.chapter_offset))
     report.legacy_progress_units_preserved=true
     if progress_case then progress_case:run(plugin,reader,pump,source_index,position) end
-    if candidate_case then candidate_case:run(plugin,reader,pump,source_index,position) end
+    if candidate_case then candidate_case:run(plugin,reader,pump,source_index,position,function(offline)
+        assert(input.raw_cloud_reconnect==true and type(offline)=='boolean');forced_offline=offline
+    end) end
     if selection_case then selection_case:run(plugin,reader,pump,source_index,position) end
     if cb_full then
         plugin,reader=dofile(fixtures..'cb_full_handoff_case.lua')(input,report.cb_handoff,plugin,reader,pump,tick,position)

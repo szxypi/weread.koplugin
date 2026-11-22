@@ -40,3 +40,14 @@ xvfb-run -a python3 scripts/test_discovery_runtime.py --reading-flow --offline-p
 
 KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录。
 去敏结果见[运行报告](validation-assets/2026-11-09/offline-progress-runtime.json)和[本轮验证](validation-2026-11-09.md)。
+
+
+## 真实账号的断网重连与选择云端
+
+2026-11-22 在官方 KOReader 模拟器的 600×800 和 KO2 尺寸，使用真实账号中的一册普通 TXT 验证只读恢复。通过插件书架进入原生阅读器后，模拟网络断开并实际翻页，独立确认翻页后的原文位置在当前页面；检查点及待同步位置在保存、休眠和唤醒后仍保留。断网阶段的插件请求全部拦截，并核对请求计数没有变化。
+
+模拟重连触发原生云端比较，重复发送联网事件没有打开第二个选择窗口；选择前仍保存本机待同步位置。选择微信读书进度后，插件后台核对来源、跳转至云端精确原文位置并清除旧待同步位置。随后全新离线进程重开，验证位置恢复且零请求。宿主在验收前后独立核对 Web 与墨水屏的云端位置、摘要、时长计数、书架、目录和原文，结果一致；真实账号数据修改和验收期间的授权 POST 均为零。
+
+同样的流程先在两种尺寸使用封闭合成服务验证，旧版手动选择流程也已回归。加强位置断言的首轮合成尝试因验证工具错误地要求普通页面存在保留锚点而超时，修正为直接核对该页的原文位置后通过；没有访问真实账号。真实账号初次准备时墨水屏接口返回 401，未进入阅读器；随后一次凭据续期核对同账号和书架并保存回读，再执行上述只读验收。
+
+去敏记录：[普通尺寸](validation-assets/2026-11-22/offline-reconnect-owner-600.json)、[KO2 尺寸](validation-assets/2026-11-22/offline-reconnect-owner-ko2.json)、[首次 401](validation-assets/2026-11-22/offline-reconnect-preflight-401.json)、[授权续期](validation-assets/2026-11-22/offline-reconnect-native-renewal.json)，以及合成账号的[普通尺寸](validation-assets/2026-11-22/offline-reconnect-mock-600.json)和 [KO2 尺寸](validation-assets/2026-11-22/offline-reconnect-mock-ko2.json)。验收使用软件模拟联网变化，未模拟实体 Wi-Fi 或断电；本轮只验证选择云端分支，不代表真实重连后选择本机位置上传、多设备并发或实体 KO2 已验收。
