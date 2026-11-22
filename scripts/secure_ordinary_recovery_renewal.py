@@ -22,9 +22,11 @@ def validate_binding(value):
 
 
 class RecoveryRenewalStore:
+    service=SERVICE
+    lock_name='codex-ordinary-recovery-renewal-'
     def __init__(self,backend=None,lock=None):
-        self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
-        path=Path(tempfile.gettempdir())/('codex-ordinary-recovery-renewal-'+ACCOUNT+'.lock')
+        self.backend=backend if backend is not None else MacKeychain(service=self.service,account=ACCOUNT)
+        path=Path(tempfile.gettempdir())/(self.lock_name+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
     def _load(self):
         raw=self.backend.load()
@@ -64,3 +66,8 @@ class RecoveryRenewalStore:
             value,raw=self._load()
             if not isinstance(receipt,Receipt) or not value or raw!=receipt.pending or value['phase']!='pending':raise StoreError('ordinary_renewal/replaced')
             value['phase']='verified';value['new_grant_sha256']=new_grant_sha256;return self._write(value)
+
+
+class RetryRecoveryRenewalStore(RecoveryRenewalStore):
+    service='org.codex.weread.goal-ordinary-recovery-renewal-v2'
+    lock_name='codex-ordinary-recovery-renewal-v2-'

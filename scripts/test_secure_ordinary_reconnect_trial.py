@@ -78,5 +78,12 @@ class OrdinaryReconnectStoreTests(unittest.TestCase):
         store = subject.OrdinaryReconnectStore(LostBackend())
         with self.assertRaisesRegex(StoreError, 'ordinary_trial/readback'): store.reserve(plan())
 
+    def test_retry_has_a_distinct_service_and_cannot_reset_original(self):
+        first=subject.OrdinaryReconnectStore(Backend());retry=subject.OrdinaryReconnectRetryStore(Backend())
+        self.assertNotEqual(first.service,retry.service);self.assertNotEqual(first.lock_name,retry.lock_name)
+        first.reserve(plan());retry.reserve(plan())
+        self.assertNotEqual(first.backend.data,retry.backend.data)
+        with self.assertRaises(StoreError):first.reserve(plan())
+
 
 if __name__ == '__main__': unittest.main()

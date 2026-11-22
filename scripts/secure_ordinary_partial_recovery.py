@@ -29,9 +29,11 @@ def validate_binding(value):
 
 
 class PartialRecoveryStore:
+    service=SERVICE
+    lock_name='codex-ordinary-partial-recovery-'
     def __init__(self,backend=None,lock=None):
-        self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
-        path=Path(tempfile.gettempdir())/('codex-ordinary-partial-recovery-'+ACCOUNT+'.lock')
+        self.backend=backend if backend is not None else MacKeychain(service=self.service,account=ACCOUNT)
+        path=Path(tempfile.gettempdir())/(self.lock_name+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
     def _load(self):
         raw=self.backend.load()
@@ -66,3 +68,8 @@ class PartialRecoveryStore:
             if not isinstance(receipt,Receipt) or raw!=receipt.pending or not value or value['phase']!=before:
                 raise StoreError('ordinary_recovery/replaced')
             value['phase'],value['posts']=after,PHASES[after];return self._write(value)
+
+
+class RetryPartialRecoveryStore(PartialRecoveryStore):
+    service='org.codex.weread.goal-ordinary-partial-recovery-v2'
+    lock_name='codex-ordinary-partial-recovery-v2-'

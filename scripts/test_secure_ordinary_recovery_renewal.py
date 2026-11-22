@@ -2,7 +2,7 @@ import copy
 import json
 import unittest
 
-from secure_ordinary_recovery_renewal import RecoveryRenewalStore
+from secure_ordinary_recovery_renewal import RecoveryRenewalStore,RetryRecoveryRenewalStore
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
 
@@ -25,6 +25,12 @@ class RenewalBridgeTests(unittest.TestCase):
         for key,bad in [('scope','wrong'),('new_grant_sha256','e'*64),('schema',True)]:
             item=copy.deepcopy(value);item[key]=bad;store.backend.data=json.dumps(item).encode()
             with self.assertRaises(StoreError):store.read()
+
+    def test_retry_renewal_has_a_separate_scope(self):
+        first=RecoveryRenewalStore(Backend());retry=RetryRecoveryRenewalStore(Backend())
+        self.assertNotEqual(first.service,retry.service);self.assertNotEqual(first.lock_name,retry.lock_name)
+        first.reserve(binding());retry.reserve(binding())
+        self.assertNotEqual(first.backend.data,retry.backend.data)
 
 
 if __name__=='__main__':unittest.main()

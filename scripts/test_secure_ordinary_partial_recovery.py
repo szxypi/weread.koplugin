@@ -3,7 +3,7 @@ import json
 import hashlib
 import unittest
 
-from secure_ordinary_partial_recovery import PartialRecoveryStore
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
 from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
@@ -51,6 +51,12 @@ class RecoveryStoreTests(unittest.TestCase):
         original.retire_after_partial_recovery(receipt,self.store)
         self.assertEqual(original.read()[0]['phase'],'partial_restored');self.assertFalse(original.pending())
         with self.assertRaises(StoreError):original.retire_after_partial_recovery(receipt,self.store)
+
+    def test_retry_recovery_has_a_separate_scope(self):
+        retry=RetryPartialRecoveryStore(Backend())
+        self.assertNotEqual(self.store.service,retry.service);self.assertNotEqual(self.store.lock_name,retry.lock_name)
+        self.store.reserve(binding());retry.reserve(binding())
+        self.assertNotEqual(self.store.backend.data,retry.backend.data)
 
 
 if __name__=='__main__':unittest.main()

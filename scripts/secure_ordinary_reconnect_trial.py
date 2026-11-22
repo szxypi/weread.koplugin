@@ -74,9 +74,11 @@ def entered_point(plan):
 
 
 class OrdinaryReconnectStore:
+    service = SERVICE
+    lock_name = 'codex-ordinary-reconnect-'
     def __init__(self, backend=None, lock=None):
-        self.backend = backend if backend is not None else MacKeychain(service=SERVICE, account=ACCOUNT)
-        path = Path(tempfile.gettempdir()) / ('codex-ordinary-reconnect-' + ACCOUNT + '.lock')
+        self.backend = backend if backend is not None else MacKeychain(service=self.service, account=ACCOUNT)
+        path = Path(tempfile.gettempdir()) / (self.lock_name + ACCOUNT + '.lock')
         self.lock = lock or ((lambda: project_lock(path)) if backend is None else nullcontext)
 
     def _load(self):
@@ -148,3 +150,9 @@ class OrdinaryReconnectStore:
                 raise StoreError('ordinary_trial/recovery')
             state['phase'],state['posts']='partial_restored',1
             return self._write(state)
+
+
+class OrdinaryReconnectRetryStore(OrdinaryReconnectStore):
+    """A distinct one-shot scope; it cannot reset or consume the old record."""
+    service = 'org.codex.weread.goal-ordinary-reconnect-v2'
+    lock_name = 'codex-ordinary-reconnect-v2-'

@@ -99,6 +99,7 @@ class BookmarkContractTests(unittest.TestCase):
                 contexts.enter_context(patch.object(task,'NativeReaderTrialStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(task,'NativeReconnectTrialStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(task,'OrdinaryReconnectStore')).return_value.pending.return_value=False
+                contexts.enter_context(patch.object(task,'OrdinaryReconnectRetryStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(task,'NativeCloseTrialStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(task,'NativeTimerTrialStore')).return_value.pending.return_value=False
                 contexts.enter_context(patch.object(task,'NativeInitialPositionStore')).return_value.pending.return_value=False
