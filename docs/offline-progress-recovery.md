@@ -118,6 +118,8 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 
 另在两种模拟屏幕使用合成账号复现进入请求确认后、下一次读取返回 HTTP 503：原生流程只领取并确认第一次修改，独立读取失败即停，没有派发位置请求；独立恢复范围随后只发送一次恢复，并检查原始位置和摘要。该 503 是人为模拟，不能解释此前真实拒绝；见[普通尺寸](validation-assets/2026-11-22/ordinary-enter-read-failure-small.json)和 [KO2 尺寸](validation-assets/2026-11-22/ordinary-enter-read-failure-ko2.json)。
 
+后续准备了第三个独立范围：原先两次试验与恢复记录不重置，新范围、恢复、续期和只读核对分别使用独立记录，并与其他试验互斥。合成服务在两尺寸验证[正常往返](validation-assets/2026-11-22/ordinary-third-mock-success-small.json)及 [KO2 尺寸](validation-assets/2026-11-22/ordinary-third-mock-success-ko2.json)；KO2 尺寸另验证[进入后读取失败](validation-assets/2026-11-22/ordinary-third-mock-read-failure-ko2.json)、[进入回执缺失](validation-assets/2026-11-22/ordinary-third-mock-enter-noack-ko2.json)、[位置回执缺失](validation-assets/2026-11-22/ordinary-third-mock-position-noack-ko2.json)、[恢复回执缺失后的只读确认](validation-assets/2026-11-22/ordinary-third-mock-restore-noack-ko2.json)和[恢复回执缺失不重发](validation-assets/2026-11-22/ordinary-third-mock-recovery-noack-ko2.json)。这些均为合成账号，不代表真实同步成功。新的真实账号范围已完成[零写入准备](validation-assets/2026-11-22/ordinary-third-owner-prepared.json)，已核对原位置、原文、目录、两端计数及书架，尚未发送真实进度请求。
+
 ## 普通 TXT 重连后的真实同步与恢复
 
 随后使用真实账号的一章普通 TXT，在 KO2 模拟尺寸从插件进入原生阅读器，模拟断网并翻页，保存本机位置后重连，选择「保留 KOReader 进度」。实际原生同步发送一次零时长位置请求；明确回执和插件回读后，宿主独立核对网页／墨水屏位置及摘要、原文和目录、原生阅读时长计数与网页书架投影，才放行一次恢复原位置的请求。恢复后再次独立核对；另在全新宿主进程连续两次只读核对，原章节、偏移、百分比、摘要和上述观察状态均一致。两次数据请求均获得明确回执，验收期间没有网页位置写入或授权请求。

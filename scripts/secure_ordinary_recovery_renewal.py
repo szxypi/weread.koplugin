@@ -71,3 +71,8 @@ class RecoveryRenewalStore:
 class RetryRecoveryRenewalStore(RecoveryRenewalStore):
     service='org.codex.weread.goal-ordinary-recovery-renewal-v2'
     lock_name='codex-ordinary-recovery-renewal-v2-'
+
+
+class ThirdRecoveryRenewalStore(RetryRecoveryRenewalStore):
+    service='org.codex.weread.goal-ordinary-recovery-renewal-v3'
+    lock_name='codex-ordinary-recovery-renewal-v3-'

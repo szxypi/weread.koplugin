@@ -8,9 +8,9 @@ import resource
 
 from ordinary_partial_recovery import checked_pair,verified_grant
 from secure_native_session import NativeSessionStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectRetryStore
-from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore
-from secure_ordinary_restore_readback import RestoreReadbackStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore
+from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore
+from secure_ordinary_restore_readback import RestoreReadbackStore,ThirdRestoreReadbackStore
 from secure_weread_session import COOKIE_NAMES,SessionStore
 from shelf_flag_change_contract import state_hash
 from txt_full_summary import digest
@@ -23,8 +23,9 @@ class Reads(Native):max_reads=32
 
 
 def main(argv=None):
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true');p.add_argument('--resolve',action='store_true');a=p.parse_args(argv)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true');p.add_argument('--resolve',action='store_true');p.add_argument('--third',action='store_true');a=p.parse_args(argv)
     if a.saved_session!=a.resolve:p.error('pair saved session and read-only resolution')
+    if a.third and not a.saved_session:p.error('third scope requires saved session')
     report=dict(result='OFFLINE_ONLY',account_data_posts=0,authentication_posts=0,private_data_on_regular_disk=False,
                 original_trial_verified=False,restore_replayed=False)
     saved=grant=web=None;private=set()
@@ -32,12 +33,13 @@ def main(argv=None):
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0))
             from verify_native_thought_trial import other_pending
-            original=OrdinaryReconnectRetryStore();state,receipt=original.read();bridge=RetryRecoveryRenewalStore();bs,br=bridge.read()
-            proof=RestoreReadbackStore();proof_state,_=proof.read()
+            original=(OrdinaryReconnectThirdStore if a.third else OrdinaryReconnectRetryStore)();state,receipt=original.read()
+            bridge=(ThirdRecoveryRenewalStore if a.third else RetryRecoveryRenewalStore)();bs,br=bridge.read()
+            proof=(ThirdRestoreReadbackStore if a.third else RestoreReadbackStore)();proof_state,_=proof.read()
             allowed=('enter_pending','enter_acknowledged','enter_verified','position_pending','position_acknowledged','position_verified',
                      'restore_pending','restore_acknowledged')
             if (not state or state['phase'] not in allowed
-                    or not receipt or other_pending(exclude_ordinary_reconnect_retry=True)):
+                    or not receipt or other_pending(exclude_ordinary_reconnect_retry=not a.third,exclude_ordinary_reconnect_third=a.third)):
                 raise ValueError('ordinary_restore_readback/intent')
             plan=state['plan'];session=SessionStore();saved=session.load();grant=NativeSessionStore().load(saved['vid'])
             if digest(saved)!=plan['web_session_sha256']:raise ValueError('ordinary_restore_readback/session')
@@ -51,7 +53,7 @@ def main(argv=None):
                 cookies={c.name:c.value for c in web.cookies if c.name in COOKIE_NAMES and c.domain in ('.weread.qq.com','weread.qq.com') and c.path=='/'}
                 return (original.read()==(state,receipt) and bridge.read()==(bs,br) and session.load()==saved
                         and NativeSessionStore().load(saved['vid'])==grant and cookies==saved['cookies']
-                        and not other_pending(exclude_ordinary_reconnect_retry=True))
+                        and not other_pending(exclude_ordinary_reconnect_retry=not a.third,exclude_ordinary_reconnect_third=a.third))
             sample=checked_pair(web,native,grant,plan,plan['baseline'],current,grant_sha)
             if (state_hash(sample['web_shelf'])!=plan['web_shelf_core_sha256']
                     or state_hash(sample['native_shelf'])!=plan['native_shelf_core_sha256']):raise ValueError('ordinary_restore_readback/shelf')

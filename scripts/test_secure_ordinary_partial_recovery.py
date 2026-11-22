@@ -3,10 +3,10 @@ import json
 import hashlib
 import unittest
 
-from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore
 from test_secure_ordinary_reconnect_trial import plan
 
 
@@ -72,6 +72,20 @@ class RecoveryStoreTests(unittest.TestCase):
         original.retire_after_partial_recovery(receipt,retry)
         self.assertEqual(original.read()[0]['phase'],'partial_restored_after_position');self.assertFalse(original.pending())
         self.assertEqual(original.read()[0]['posts'],2)
+
+    def test_third_scope_requires_its_own_retired_recovery(self):
+        original=OrdinaryReconnectThirdStore(Backend());receipt=original.reserve(dict(plan(),web_shelf_core_sha256='a'*64,native_shelf_core_sha256='b'*64))
+        receipt=original.advance(receipt,'prepared','enter_pending');receipt=original.advance(receipt,'enter_pending','enter_acknowledged')
+        item=dict(binding(),original_intent_sha256=hashlib.sha256(receipt.pending).hexdigest(),observed_state='entered',original_phase='enter_acknowledged')
+        wrong=RetryPartialRecoveryStore(Backend());r=wrong.reserve(item)
+        for first,last in (('prepared','pending'),('pending','acknowledged'),('acknowledged','retired')):r=wrong.advance(r,first,last)
+        with self.assertRaises(StoreError):original.retire_after_partial_recovery(receipt,wrong)
+        recovery=ThirdPartialRecoveryStore(Backend());r=recovery.reserve(item)
+        for first,last in (('prepared','pending'),('pending','acknowledged'),('acknowledged','retired')):r=recovery.advance(r,first,last)
+        original.retire_after_partial_recovery(receipt,recovery)
+        self.assertEqual(original.read()[0]['phase'],'partial_restored')
+        self.assertNotEqual(original.service,OrdinaryReconnectRetryStore.service)
+        self.assertNotEqual(recovery.service,wrong.service)
 
 
 if __name__=='__main__':unittest.main()

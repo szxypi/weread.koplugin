@@ -8,7 +8,8 @@ from unittest.mock import patch
 import ordinary_partial_recovery as task
 from secure_ordinary_partial_recovery import PartialRecoveryStore
 from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectRetryStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore
+from secure_ordinary_partial_recovery import ThirdPartialRecoveryStore
 from secure_ordinary_partial_recovery import RetryPartialRecoveryStore
 from test_ordinary_reconnect_observe import Web,Native
 from test_ordinary_reconnect_restore import Response
@@ -105,6 +106,14 @@ class RecoveryTests(unittest.TestCase):
         bound['original_phase']='position_pending'
         self.assertEqual(task.recovery_scope(original,original.read()[0],recovery,dict(bound,observed_state='target'),selected),selected['target'])
         with self.assertRaises(ValueError):task.recovery_scope(original,original.read()[0],self.recovery,bound,selected)
+
+    def test_third_recovery_cannot_use_second_scope_record(self):
+        original=OrdinaryReconnectThirdStore(Backend());recovery=ThirdPartialRecoveryStore(Backend())
+        selected=dict(plan(),web_shelf_core_sha256='a'*64,native_shelf_core_sha256='b'*64)
+        receipt=original.reserve(selected);original.advance(receipt,'prepared','enter_pending')
+        bound=dict(self.bound,observed_state='entered',original_phase='enter_pending')
+        self.assertEqual(task.recovery_scope(original,original.read()[0],recovery,bound,selected),task.observed_point(selected))
+        with self.assertRaises(ValueError):task.recovery_scope(original,original.read()[0],RetryPartialRecoveryStore(Backend()),bound,selected)
 
 
 if __name__=='__main__':unittest.main()

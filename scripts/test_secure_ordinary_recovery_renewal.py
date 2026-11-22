@@ -2,7 +2,7 @@ import copy
 import json
 import unittest
 
-from secure_ordinary_recovery_renewal import RecoveryRenewalStore,RetryRecoveryRenewalStore
+from secure_ordinary_recovery_renewal import RecoveryRenewalStore,RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
 
@@ -31,6 +31,14 @@ class RenewalBridgeTests(unittest.TestCase):
         self.assertNotEqual(first.service,retry.service);self.assertNotEqual(first.lock_name,retry.lock_name)
         first.reserve(binding());retry.reserve(binding())
         self.assertNotEqual(first.backend.data,retry.backend.data)
+
+    def test_third_renewal_is_separate_and_single_use(self):
+        second=RetryRecoveryRenewalStore(Backend());third=ThirdRecoveryRenewalStore(Backend())
+        self.assertNotEqual(second.service,third.service);self.assertNotEqual(second.lock_name,third.lock_name)
+        second.reserve(binding());old=second.backend.data
+        receipt=third.reserve(binding());third.claim(receipt)
+        self.assertEqual(second.backend.data,old)
+        with self.assertRaises(StoreError):third.claim(receipt)
 
 
 if __name__=='__main__':unittest.main()

@@ -23,9 +23,11 @@ def validate_binding(value):
 
 
 class RestoreReadbackStore:
+    service=SERVICE
+    lock_name='codex-ordinary-restore-readback-v2-'
     def __init__(self,backend=None,lock=None):
-        self.backend=backend if backend is not None else MacKeychain(service=SERVICE,account=ACCOUNT)
-        path=Path(tempfile.gettempdir())/('codex-ordinary-restore-readback-v2-'+ACCOUNT+'.lock')
+        self.backend=backend if backend is not None else MacKeychain(service=self.service,account=ACCOUNT)
+        path=Path(tempfile.gettempdir())/(self.lock_name+ACCOUNT+'.lock')
         self.lock=lock or ((lambda:project_lock(path)) if backend is None else nullcontext)
     def _load(self):
         raw=self.backend.load()
@@ -50,3 +52,8 @@ class RestoreReadbackStore:
             raw=canonical(value);self.backend.save(raw)
             if self.backend.load()!=raw:raise StoreError('ordinary_restore_readback/readback')
             self._load();return Receipt(raw)
+
+
+class ThirdRestoreReadbackStore(RestoreReadbackStore):
+    service='org.codex.weread.goal-ordinary-restore-readback-v3'
+    lock_name='codex-ordinary-restore-readback-v3-'

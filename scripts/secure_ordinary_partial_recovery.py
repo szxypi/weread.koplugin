@@ -85,3 +85,8 @@ class RetryPartialRecoveryStore(PartialRecoveryStore):
     service='org.codex.weread.goal-ordinary-partial-recovery-v2'
     lock_name='codex-ordinary-partial-recovery-v2-'
     validate_binding=staticmethod(validate_retry_binding)
+
+
+class ThirdPartialRecoveryStore(RetryPartialRecoveryStore):
+    service='org.codex.weread.goal-ordinary-partial-recovery-v3'
+    lock_name='codex-ordinary-partial-recovery-v3-'

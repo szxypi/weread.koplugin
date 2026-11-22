@@ -87,5 +87,14 @@ class OrdinaryReconnectStoreTests(unittest.TestCase):
         self.assertNotEqual(first.backend.data,retry.backend.data)
         with self.assertRaises(StoreError):first.reserve(plan())
 
+    def test_third_scope_preserves_both_prior_records(self):
+        first=subject.OrdinaryReconnectStore(Backend());second=subject.OrdinaryReconnectRetryStore(Backend())
+        third=subject.OrdinaryReconnectThirdStore(Backend());updated=dict(plan(),web_shelf_core_sha256='a'*64,native_shelf_core_sha256='b'*64)
+        first.reserve(plan());second.reserve(updated);before=(first.backend.data,second.backend.data)
+        self.assertEqual(len({first.service,second.service,third.service}),3)
+        self.assertEqual(len({first.lock_name,second.lock_name,third.lock_name}),3)
+        third.reserve(updated);self.assertEqual((first.backend.data,second.backend.data),before)
+        with self.assertRaises(StoreError):third.reserve(updated)
+
 
 if __name__ == '__main__': unittest.main()

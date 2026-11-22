@@ -147,7 +147,7 @@ class ReaderTrialTests(unittest.TestCase):
         import verify_native_thought_trial as shared
         names=('AnnotationExperimentStore','FinishExperimentStore','ShelfExperimentStore','PositionExperimentStore','NativeShelfTrialStore',
                'NativeFinishTrialStore','FlagTrialStore','NativeFlagTrialStore','TxtFullSummaryStore','TxtZeroTimeStore','NativeTxtPositionStore',
-               'NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeReconnectTrialStore','OrdinaryReconnectStore','OrdinaryReconnectRetryStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore',
+               'NativeTxtRoundtripStore','RawTxtExcerptStore','NativeReaderTrialStore','NativeReconnectTrialStore','OrdinaryReconnectStore','OrdinaryReconnectRetryStore','OrdinaryReconnectThirdStore','NativeCloseTrialStore','NativeTimerTrialStore','NativeInitialPositionStore','NativeInitialReaderStore','InitialMarkStyleStore','NonemptyMarksStore',
                'ReadtimeTrialStore','CrossDayTrialStore','MarkColorStore','MarkStyleTrialStore','BookmarkTrialStore','HighlightTrialStore')
         with ExitStack() as context:
             factories={name:context.enter_context(patch.object(shared,name)) for name in names}
@@ -168,6 +168,10 @@ class ReaderTrialTests(unittest.TestCase):
             self.assertTrue(shared.other_pending())
             self.assertFalse(shared.other_pending(exclude_ordinary_reconnect_retry=True))
             factories['OrdinaryReconnectRetryStore'].return_value.pending.return_value=False
+            factories['OrdinaryReconnectThirdStore'].return_value.pending.return_value=True
+            self.assertTrue(shared.other_pending(exclude_ordinary_reconnect_retry=True))
+            self.assertFalse(shared.other_pending(exclude_ordinary_reconnect_third=True))
+            factories['OrdinaryReconnectThirdStore'].return_value.pending.return_value=False
             factories['NativeReaderTrialStore'].return_value.pending.return_value=True
             factories['RawTxtExcerptStore'].return_value.pending.return_value=True
             self.assertTrue(shared.other_pending(exclude_native_reader_trial=True))

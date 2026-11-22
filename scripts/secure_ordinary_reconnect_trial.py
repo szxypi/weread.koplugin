@@ -151,16 +151,17 @@ class OrdinaryReconnectStore:
 
     def retire_after_partial_recovery(self, receipt, recovery):
         """Seal the partial attempt only after its distinct recovery is retired."""
-        from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore
+        from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,ThirdPartialRecoveryStore
         if not isinstance(receipt,Receipt) or not isinstance(recovery,PartialRecoveryStore):
             raise StoreError('ordinary_trial/recovery')
         with self.lock():
             state,raw=self._load();completed,_=recovery.read()
-            if isinstance(self,OrdinaryReconnectRetryStore):
-                phase_ok=(type(recovery) is RetryPartialRecoveryStore and state and completed and completed['binding'].get('original_phase')==state['phase'] and
+            if type(self) in (OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore):
+                expected=ThirdPartialRecoveryStore if type(self) is OrdinaryReconnectThirdStore else RetryPartialRecoveryStore
+                phase_ok=(type(recovery) is expected and state and completed and completed['binding'].get('original_phase')==state['phase'] and
                     (state['phase'] in ('enter_pending','enter_acknowledged','enter_verified') and completed and completed['binding'].get('observed_state')=='entered'
                      or state['phase'] in ('position_pending','position_acknowledged') and completed and completed['binding'].get('observed_state') in ('entered','target')))
-            else:phase_ok=type(recovery) is PartialRecoveryStore and state and state['phase']=='enter_acknowledged'
+            else:phase_ok=type(self) is OrdinaryReconnectStore and type(recovery) is PartialRecoveryStore and state and state['phase']=='enter_acknowledged'
             if (not state or raw!=receipt.pending or not phase_ok
                     or not completed or completed['phase']!='retired' or completed['posts']!=1
                     or completed['binding']['original_intent_sha256']!=hashlib.sha256(raw).hexdigest()):
@@ -179,9 +180,12 @@ class OrdinaryReconnectRetryStore(OrdinaryReconnectStore):
 
     def close_after_restore_readback(self,receipt,proof,bridge):
         """Seal an uncertain attempt only after a separate verified baseline readback."""
-        from secure_ordinary_restore_readback import RestoreReadbackStore
-        from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore
-        if not isinstance(receipt,Receipt) or not isinstance(proof,RestoreReadbackStore) or not isinstance(bridge,RetryRecoveryRenewalStore):
+        from secure_ordinary_restore_readback import RestoreReadbackStore,ThirdRestoreReadbackStore
+        from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore,ThirdRecoveryRenewalStore
+        expected_proof,expected_bridge=((ThirdRestoreReadbackStore,ThirdRecoveryRenewalStore) if type(self) is OrdinaryReconnectThirdStore
+                                        else (RestoreReadbackStore,RetryRecoveryRenewalStore))
+        if type(self) not in (OrdinaryReconnectRetryStore,OrdinaryReconnectThirdStore):raise StoreError('ordinary_trial/readback')
+        if not isinstance(receipt,Receipt) or type(proof) is not expected_proof or type(bridge) is not expected_bridge:
             raise StoreError('ordinary_trial/readback')
         with self.lock():
             state,raw=self._load();verified,_=proof.read();renewed,renewal_receipt=bridge.read()
@@ -206,3 +210,9 @@ class OrdinaryReconnectRetryStore(OrdinaryReconnectStore):
                 raise StoreError('ordinary_trial/readback')
             state['phase']={1:'baseline_readback_after_enter',2:'baseline_readback_after_position',3:'restore_readback_confirmed'}[state['posts']]
             return self._write(state)
+
+
+class OrdinaryReconnectThirdStore(OrdinaryReconnectRetryStore):
+    """Independent scope; previous trial and recovery records remain immutable."""
+    service='org.codex.weread.goal-ordinary-reconnect-v3'
+    lock_name='codex-ordinary-reconnect-v3-'
