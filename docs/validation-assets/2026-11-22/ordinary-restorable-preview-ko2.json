@@ -1,0 +1,24 @@
+{
+  "result": "ORDINARY_RECONNECT_DISARMED_VERIFIED",
+  "checked_at": "2026-11-22T08:10:45.410606+00:00",
+  "account_data_posts": 0,
+  "authentication_posts": 0,
+  "private_data_on_regular_disk": false,
+  "guarded_write_mode": false,
+  "offline_intent": true,
+  "reconnect_choice": true,
+  "signed_target_checked": true,
+  "write_blocked": true,
+  "independent_position_source_catalog_shelf_unchanged": true,
+  "tmpfs_profile_removed": true,
+  "screenshots": 0,
+  "selection_screen": {
+    "checked": 67,
+    "missing_position": 0,
+    "missing_summary": 35,
+    "long_summary": 30,
+    "incomplete_position": 0,
+    "candidates": 2
+  },
+  "original_summary_preserved_in_model": true
+}

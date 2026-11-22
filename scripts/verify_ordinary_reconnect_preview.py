@@ -21,6 +21,7 @@ from verify_reader_progress import project
 from verify_source_coordinates import FilteredSource
 from verify_translation_preflight import save_refreshed_web_session
 from verify_web_source_progress import BASE
+from ordinary_reconnect_selection import screen
 
 
 class CapturedPreflight(Preflight):
@@ -32,6 +33,27 @@ class CapturedPreflight(Preflight):
         if stage=='catalog_after':self.catalog=deepcopy(value)
         if stage=='shelf':self.shelf=deepcopy(value)
         return value
+
+
+class RestorablePreflight(CapturedPreflight):
+    """Choose a candidate without exposing its identity or writing to it."""
+    def select_shelf_book(self):
+        return self.selected_book
+
+    def prepare(self):
+        candidates, counts, shelf_count = screen(self)
+        self.report['selection_screen'] = counts
+        self.report['shelf_book_count'] = shelf_count
+        if not candidates:
+            raise ValueError('ordinary_reconnect/no_restorable_candidate')
+        for book in candidates:
+            self.selected_book = book
+            try:
+                return super().prepare()
+            except ValueError as exc:
+                if str(exc) != 'progress_preview_no_adjacent_point':
+                    raise
+        raise ValueError('ordinary_reconnect/no_restorable_candidate')
 
 
 def build_payload(web,saved):
@@ -54,6 +76,7 @@ def build_payload(web,saved):
 
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true')
+    p.add_argument('--preserve-summary',action='store_true',help='screen for a position whose original summary fits the ordinary upload model')
     p.add_argument('--width',type=int,default=600);p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
     p.add_argument('--lua-command',nargs=argparse.REMAINDER);a=p.parse_args(argv)
     if a.saved_session!=bool(a.lua_command) or not all(1<=n<=4096 for n in (a.width,a.height,a.dpi)):
@@ -64,10 +87,11 @@ def main(argv=None):
     try:
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0))
-            store=SessionStore();saved=store.load();web=CapturedPreflight();web.vid=saved['vid']
+            store=SessionStore();saved=store.load();web=(RestorablePreflight if a.preserve_summary else CapturedPreflight)();web.vid=saved['vid']
             secrets.update(str(value) for value in saved['cookies'].values())
             for key,value in saved['cookies'].items():web.set_cookie(key,value)
             web.verify_account();web.prepare()
+            if a.preserve_summary and not web.plan['same_position_summary_preserved']:raise ValueError('ordinary_reconnect/summary_changed')
             if not web.report.get('read_snapshot_consistent'):raise ValueError('ordinary_reconnect/stale')
             before=project(web.raw_progress,web.book_id);source_sha=hashlib.sha256(decode_content_shards(*(web.shards[k] for k in ('e_0','e_1','e_3'))).encode()).hexdigest()
             original_catalog=deepcopy(web.catalog);shelf_sha=state_hash(web.shelf)
@@ -91,6 +115,9 @@ def main(argv=None):
             report.update(result='ORDINARY_RECONNECT_DISARMED_VERIFIED',offline_intent=True,reconnect_choice=True,
                           signed_target_checked=True,write_blocked=True,independent_position_source_catalog_shelf_unchanged=True,
                           tmpfs_profile_removed=True,screenshots=0)
+            if a.preserve_summary:
+                report['selection_screen']=web.report['selection_screen']
+                report['original_summary_preserved_in_model']=True
     except Exception as error:
         report['result']='UNVERIFIED'
         if isinstance(error,ValueError) and re.fullmatch('ordinary_reconnect/[a-z_]+',str(error)):report['reason']=str(error)
