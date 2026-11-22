@@ -23,5 +23,8 @@ class InspectionTests(unittest.TestCase):
                 self.assertEqual(task.main(['--saved-session']),1)
             session.assert_not_called();self.assertEqual(json.loads(out.getvalue())['reason'],'ordinary_inspect/intent')
 
+    def test_retry_requires_saved_session(self):
+        with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):task.main(['--retry'])
+
 
 if __name__=='__main__':unittest.main()

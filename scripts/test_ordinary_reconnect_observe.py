@@ -4,6 +4,7 @@ import unittest
 from unittest.mock import patch
 
 import ordinary_reconnect_observe as subject
+from shelf_flag_change_contract import state_hash
 from test_secure_ordinary_reconnect_trial import plan
 from txt_full_summary import digest
 
@@ -115,6 +116,32 @@ class ObserveTests(unittest.TestCase):
         self.shelf['books'][0]['title']='changed'
         with self.assertRaisesRegex(ValueError,'ordinary_trial/shelf'):
             subject.check(self.web,self.native,self.grant,self.plan,self.plan['baseline'],lambda:True,shelf_baselines=snapshots)
+
+    def test_fresh_process_can_verify_core_without_claiming_full_shelf_equality(self):
+        self.plan.update(web_shelf_core_sha256=state_hash(self.shelf),native_shelf_core_sha256=state_hash(self.shelf))
+        self.shelf['books'][0]['readUpdateTime']=11
+        self.assertTrue(subject.check(self.web,self.native,self.grant,self.plan,self.plan['baseline'],lambda:True,shelf_core_only=True))
+        self.shelf['books'][0]['secret']=1
+        with self.assertRaisesRegex(ValueError,'ordinary_trial/shelf'):
+            subject.check(self.web,self.native,self.grant,self.plan,self.plan['baseline'],lambda:True,shelf_core_only=True)
+
+    def test_target_shelf_progress_must_match_exact_expected_state(self):
+        from fetch_weread_epub import web_app_id
+        first={'books':[{'bookId':'900001','readUpdateTime':10}], 'bookProgress':[
+            {'bookId':'900001','chapterUid':123,'chapterIdx':3,'chapterOffset':100,'progress':12,'appId':'old',
+             'updateTime':10,'synckey':10,'readingTime':20},
+            {'bookId':'900002','progress':33}], 'lectureSynckey':100,'synckey':100}
+        later=copy.deepcopy(first);later['lectureSynckey']=101;later['synckey']=101;later['books'][0]['readUpdateTime']=11
+        entry=later['bookProgress'].pop(0);entry.update(chapterOffset=300,appId=web_app_id(),updateTime=11,synckey=11)
+        later['bookProgress'].append(entry);expected=subject.entered_point(self.plan)
+        self.assertTrue(subject.scoped_shelf_equal(first,later,'900001',expected))
+        for field,value in [('chapterOffset',301),('progress',13),('readingTime',21),('appId','unknown'),('synckey',9)]:
+            altered=copy.deepcopy(later);altered['bookProgress'][-1][field]=value
+            with self.subTest(field=field):self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001',expected))
+        altered=copy.deepcopy(later);altered['bookProgress'][0]['progress']=34
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001',expected))
+        altered=copy.deepcopy(later);altered['synckey']=99
+        self.assertFalse(subject.scoped_shelf_equal(first,altered,'900001',expected))
 
 
 if __name__=='__main__':unittest.main()

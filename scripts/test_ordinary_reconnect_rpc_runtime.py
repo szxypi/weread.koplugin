@@ -14,7 +14,7 @@ from urllib.parse import quote
 from urllib.request import ProxyHandler, Request, build_opener
 from unittest.mock import patch
 
-from fetch_weread_epub import weread_e
+from fetch_weread_epub import weread_e,web_app_id
 from mock_weread import BOOK_ID, CHAPTERS, MockServer, chapter_html
 from ordinary_reconnect_body_guard import validate_body
 from ordinary_reconnect_broker import execute, preview
@@ -24,8 +24,10 @@ import ordinary_reconnect_observe
 import ordinary_reconnect_live
 from ordinary_reconnect_restore import RestoreProbe, restore
 from ordinary_partial_recovery import RecoveryProbe, binding as recovery_binding, checked_pair, observed_point, restore_once
-from secure_ordinary_partial_recovery import PartialRecoveryStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore, PROTOCOL, HASHES, entered_point
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore
+from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore
+from secure_ordinary_restore_readback import RestoreReadbackStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore, PROTOCOL, HASHES, entered_point
 from test_secure_native_session import Backend
 from verify_cb_fixture_reconnect_trial import source_summary
 from verify_position_roundtrip import DEFAULT_TOKEN, same_position
@@ -33,6 +35,7 @@ from verify_reader_context import project as reader_context
 from verify_reader_progress import project as reader_progress
 from verify_source_coordinates import FilteredSource
 from txt_full_summary import digest
+from shelf_flag_change_contract import state_hash
 
 
 def main():
@@ -40,13 +43,17 @@ def main():
     p.add_argument('--koreader',required=True,type=Path);p.add_argument('--candidate',required=True,type=Path)
     p.add_argument('--width',type=int,default=600);p.add_argument('--height',type=int,default=800);p.add_argument('--dpi',type=int,default=167)
     failure=p.add_mutually_exclusive_group();failure.add_argument('--noack',action='store_true');failure.add_argument('--restore-noack',action='store_true')
-    failure.add_argument('--partial-recovery',action='store_true');failure.add_argument('--partial-recovery-noack',action='store_true');a=p.parse_args()
+    failure.add_argument('--partial-recovery',action='store_true');failure.add_argument('--partial-recovery-noack',action='store_true')
+    failure.add_argument('--retry-recovery',action='store_true');failure.add_argument('--retry-recovery-noack',action='store_true')
+    failure.add_argument('--retry-restore-noack',action='store_true');failure.add_argument('--retry-success',action='store_true');a=p.parse_args()
+    retry_recovery_mode=a.retry_recovery or a.retry_recovery_noack
+    retry_mode=retry_recovery_mode or a.retry_restore_noack or a.retry_success
     server=MockServer(0);server.content_format='epub';server.dynamic_reader_clock=True;server.enter_preserves_percent=True
     source=chapter_html(1);model=FilteredSource(source)
     first=model.locate('这是第1章的第16段。我们沿着小路慢慢前行')[0]
     server.progress[BOOK_ID]=dict(chapterUid=1,chapterIdx=1,chapterOffset=first,progress=25,summary='old summary')
-    if a.noack:server.control['progress_confirmation']='noack'
-    if a.restore_noack:
+    if a.noack or a.retry_recovery or a.retry_recovery_noack:server.control['progress_confirmation']='noack'
+    if a.restore_noack or a.retry_restore_noack:
         server.roundtrip_seed=True;server.roundtrip_posts=1;server.control['progress_roundtrip_mode']='restore-noack'
     thread=threading.Thread(target=server.serve_forever,daemon=True);thread.start()
     try:
@@ -67,11 +74,17 @@ def main():
                  '--candidate',str(a.candidate),'--width',str(a.width),'--height',str(a.height),'--dpi',str(a.dpi),
                  '--mock-port',str(server.server_port)]
         captured={};scope={};grant={'synthetic':'grant'};catalog={'synthetic':'catalog'}
-        shelf={'books':[{'bookId':'900002'},{'bookId':BOOK_ID,'readUpdateTime':100}]}
+        shelf={'synckey':100,'books':[{'bookId':'900002'},{'bookId':BOOK_ID,'readUpdateTime':100}],
+               'bookProgress':[dict(bookId=BOOK_ID,chapterUid=1,chapterIdx=1,chapterOffset=first,progress=25,
+                                    appId='synthetic-other-reader',updateTime=100,synckey=100,readingTime=0)]}
         def shelf_snapshot():
             result=deepcopy(shelf);posts=server.request_totals.get(('/web/book/read',''),0)
             if posts:
+                result['synckey']+=posts
                 target_row=result['books'].pop(1);target_row['readUpdateTime']+=posts;result['books'].insert(0,target_row)
+                current=server.get_progress(BOOK_ID)['book'];item=result['bookProgress'][0]
+                item.update(chapterUid=current['chapterUid'],chapterIdx=current['chapterIdx'],chapterOffset=current['chapterOffset'],
+                            progress=current['progress'],appId=web_app_id(),updateTime=100+posts,synckey=100+posts)
             return result
         initial=dict(book_id=BOOK_ID,chapter_uid='1',chapter_idx=1,chapter_offset=first,raw_percent=25,summary='old summary')
         def check_context(html):
@@ -87,6 +100,7 @@ def main():
             selected['owner_sha256']=digest('900000')
             selected['grant_sha256']=digest(grant);selected['source_sha256']=hashlib.sha256(source.encode()).hexdigest()
             selected['catalog_sha256']=digest(catalog);selected['web_shelf_sha256']=digest(shelf);selected['native_shelf_sha256']=digest(shelf)
+            if retry_mode:selected.update(web_shelf_core_sha256=state_hash(shelf),native_shelf_core_sha256=state_hash(shelf))
             selected.update(protocol=PROTOCOL,baseline=initial,target=dict(initial,chapter_offset=target,raw_percent=value['pr'],summary=summary),
                             counts=dict(readingTime=0,recordReadingTime=0,ttsTime=0),version=7)
             context=scope['context']
@@ -96,7 +110,7 @@ def main():
         dry={};preview(command+['--dry'],payload,check_body,dry,check_context=check_context)
         if dry.get('result')!='READER_POSITION_DRY_VERIFIED' or server.request_totals.get(('/web/book/read',''),0)!=0:
             raise ValueError('mock/dry')
-        store=OrdinaryReconnectStore(Backend());store.reserve(captured['plan'])
+        store=(OrdinaryReconnectRetryStore if retry_mode else OrdinaryReconnectStore)(Backend());store.reserve(captured['plan'])
         class LocalOpener:
             def __init__(self):self.opener=build_opener(ProxyHandler({}))
             def open(self,request,timeout):
@@ -137,18 +151,42 @@ def main():
                  patch.object(ordinary_reconnect_live,'observe',side_effect=legacy_observe):
                 try:execute_trial(store,captured['plan'],payload,command,web,LocalNative(),grant,restore_web,lambda:True,report)
                 except Exception:
-                    if not (a.noack or a.restore_noack or a.partial_recovery or a.partial_recovery_noack):raise
-            if a.partial_recovery or a.partial_recovery_noack:
+                    if not (a.noack or a.restore_noack or a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode or a.retry_restore_noack):raise
+            if a.retry_restore_noack:
+                if (report.get('result')!='UNVERIFIED' or not report.get('restore_claimed') or report.get('restore_acknowledged')
+                        or store.read()[0]['phase']!='restore_pending' or server.request_totals.get(('/web/book/read',''),0)!=3):
+                    raise ValueError('mock/restore_readback')
+                import ordinary_partial_recovery as partial
+                original_state,original_receipt=store.read()
+                with patch.object(partial,'decode_content_shards',return_value=source):
+                    recovered=checked_pair(web,LocalNative(),grant,captured['plan'],captured['plan']['baseline'],lambda:True)
+                if (state_hash(recovered['web_shelf'])!=captured['plan']['web_shelf_core_sha256']
+                        or state_hash(recovered['native_shelf'])!=captured['plan']['native_shelf_core_sha256']):
+                    raise ValueError('mock/restore_readback')
+                proof=RestoreReadbackStore(Backend());bridge=RetryRecoveryRenewalStore(Backend());selected=captured['plan']
+                proof.record(dict(original_intent_sha256=hashlib.sha256(original_receipt.pending).hexdigest(),owner_sha256=selected['owner_sha256'],
+                    native_grant_sha256=digest(grant),renewal_bridge_sha256='0'*64,source_sha256=selected['source_sha256'],
+                    catalog_sha256=selected['catalog_sha256'],web_shelf_core_sha256=selected['web_shelf_core_sha256'],
+                    native_shelf_core_sha256=selected['native_shelf_core_sha256']))
+                store.close_after_restore_readback(original_receipt,proof,bridge)
+                if store.read()[0]['phase']!='restore_readback_confirmed' or server.request_totals.get(('/web/book/read',''),0)!=3:
+                    raise ValueError('mock/restore_readback')
+                partial_recovered=True
+            elif a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode:
+                expected_posts=2 if retry_recovery_mode else 1;expected_phase='position_pending' if retry_recovery_mode else 'enter_acknowledged'
                 if (captured['plan']['target']['raw_percent']==initial['raw_percent'] or report.get('result')!='UNVERIFIED'
-                        or report['claimed_posts']!=1 or report['acknowledged_posts']!=1
-                        or store.read()[0]['phase']!='enter_acknowledged' or server.request_totals.get(('/web/book/read',''),0)!=1):
+                        or report['claimed_posts']!=expected_posts or report['acknowledged_posts']!=1
+                        or store.read()[0]['phase']!=expected_phase or server.request_totals.get(('/web/book/read',''),0)!=expected_posts):
                     raise ValueError('mock/partial_enter')
                 import ordinary_partial_recovery as partial
-                original_state,original_receipt=store.read();recovery=PartialRecoveryStore(Backend())
+                original_state,original_receipt=store.read();recovery=(RetryPartialRecoveryStore if retry_recovery_mode else PartialRecoveryStore)(Backend())
                 with patch.object(partial,'decode_content_shards',return_value=source):
-                    observed=checked_pair(web,LocalNative(),grant,captured['plan'],observed_point(captured['plan']),lambda:True)
-                    bound=recovery_binding(original_receipt,observed,digest(grant),'0'*64);recovery_receipt=recovery.reserve(bound)
-                    if a.partial_recovery_noack:server.control['progress_confirmation']='noack'
+                    expected=captured['plan']['target'] if retry_recovery_mode else observed_point(captured['plan'])
+                    observed=checked_pair(web,LocalNative(),grant,captured['plan'],expected,lambda:True)
+                    bound=recovery_binding(original_receipt,observed,digest(grant),'0'*64,
+                        observed_state='target' if retry_recovery_mode else None,original_phase=expected_phase if retry_recovery_mode else None)
+                    recovery_receipt=recovery.reserve(bound)
+                    server.control['progress_confirmation']='noack' if a.partial_recovery_noack or a.retry_recovery_noack else 'plain'
                     def factory(*args):
                         probe=RecoveryProbe(*args,opener=LocalOpener());probe.vid='900000';probe.book_id=BOOK_ID;probe.authenticated=True
                         for key,value in payload['cookies'].items():probe.set_cookie(key,value)
@@ -156,17 +194,18 @@ def main():
                     try:restore_once(store,original_receipt,recovery,recovery_receipt,web,LocalNative(),grant,captured['plan'],
                                      bound,lambda:True,factory,partial_report)
                     except Exception:
-                        if not a.partial_recovery_noack:raise
-                if a.partial_recovery_noack:
+                        if not (a.partial_recovery_noack or a.retry_recovery_noack):raise
+                if a.partial_recovery_noack or a.retry_recovery_noack:
                     if (partial_report.get('result')!='UNVERIFIED' or recovery.read()[0]['phase']!='pending'
-                            or store.read()[0]['phase']!='enter_acknowledged'):raise ValueError('mock/partial_noack')
+                            or store.read()[0]['phase']!=expected_phase):raise ValueError('mock/partial_noack')
                 elif (partial_report.get('result')!='ORDINARY_PARTIAL_RECOVERY_VERIFIED'
-                        or recovery.read()[0]['phase']!='retired' or store.read()[0]['phase']!='partial_restored'):
+                        or recovery.read()[0]['phase']!='retired'
+                        or store.read()[0]['phase']!=('partial_restored_after_position' if retry_recovery_mode else 'partial_restored')):
                     raise ValueError('mock/partial_recovery')
-                if server.request_totals.get(('/web/book/read',''),0)!=2:raise ValueError('mock/partial_count')
-                partial_recovered=not a.partial_recovery_noack
+                if server.request_totals.get(('/web/book/read',''),0)!=expected_posts+1:raise ValueError('mock/partial_count')
+                partial_recovered=not (a.partial_recovery_noack or a.retry_recovery_noack)
         finally:web.close();restore_web.close()
-        if a.partial_recovery or a.partial_recovery_noack:
+        if a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode or a.retry_restore_noack:
             pass
         elif a.noack:
             if (report.get('result')!='UNVERIFIED' or report['claimed_posts']!=2 or report['acknowledged_posts']!=1
@@ -179,12 +218,13 @@ def main():
                 raise ValueError('mock/restore_noack')
         elif (report.get('result')!='ORDINARY_RECONNECT_TRIAL_VERIFIED' or store.read()[0]['phase']!='retired'
                 or server.request_totals.get(('/web/book/read',''),0)!=3):raise ValueError('mock/restore')
-        restored=partial_recovered if a.partial_recovery or a.partial_recovery_noack else not (a.noack or a.restore_noack)
+        restored=partial_recovered if a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode or a.retry_restore_noack else not (a.noack or a.restore_noack)
         print(json.dumps(dict(result='PASS',mock_only=True,noack=a.noack,restore_noack=a.restore_noack,dry_body_bound=True,dry_posts=0,
                               claimed_posts=report['claimed_posts'],acknowledged_posts=report['acknowledged_posts'],
                               verified=report['independently_verified'],coordinator=True,actual_reader=True,
-                              partial_recovery=a.partial_recovery or a.partial_recovery_noack,
-                              recovery_noack=a.partial_recovery_noack,restore_verified=restored,real_account_posts=0)))
+                              retry_scope=retry_mode,partial_recovery=a.partial_recovery or a.partial_recovery_noack or retry_recovery_mode,retry_recovery=retry_recovery_mode,
+                              recovery_noack=a.partial_recovery_noack or a.retry_recovery_noack,
+                              restore_readback_resolved=a.retry_restore_noack,restore_verified=restored,real_account_posts=0)))
     finally:server.shutdown();server.server_close();thread.join()
 
 if __name__=='__main__':main()

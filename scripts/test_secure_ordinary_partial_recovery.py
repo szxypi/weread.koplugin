@@ -6,7 +6,7 @@ import unittest
 from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore
 from secure_weread_session import StoreError
 from test_secure_native_session import Backend
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore
 from test_secure_ordinary_reconnect_trial import plan
 
 
@@ -55,8 +55,23 @@ class RecoveryStoreTests(unittest.TestCase):
     def test_retry_recovery_has_a_separate_scope(self):
         retry=RetryPartialRecoveryStore(Backend())
         self.assertNotEqual(self.store.service,retry.service);self.assertNotEqual(self.store.lock_name,retry.lock_name)
-        self.store.reserve(binding());retry.reserve(binding())
+        self.store.reserve(binding())
+        with self.assertRaises(StoreError):retry.reserve(binding())
+        with self.assertRaises(StoreError):retry.reserve(dict(binding(),observed_state='target',original_phase='enter_pending'))
+        retry.reserve(dict(binding(),observed_state='entered',original_phase='enter_pending'))
         self.assertNotEqual(self.store.backend.data,retry.backend.data)
+
+    def test_retry_position_phase_requires_matching_retired_recovery(self):
+        original=OrdinaryReconnectRetryStore(Backend());receipt=original.reserve(dict(plan(),web_shelf_core_sha256='a'*64,native_shelf_core_sha256='b'*64))
+        for before,after in (('prepared','enter_pending'),('enter_pending','enter_acknowledged'),
+                             ('enter_acknowledged','enter_verified'),('enter_verified','position_pending')):
+            receipt=original.advance(receipt,before,after)
+        retry=RetryPartialRecoveryStore(Backend())
+        item=dict(binding(),original_intent_sha256=hashlib.sha256(receipt.pending).hexdigest(),observed_state='target',original_phase='position_pending')
+        r=retry.reserve(item);r=retry.advance(r,'prepared','pending');r=retry.advance(r,'pending','acknowledged');retry.advance(r,'acknowledged','retired')
+        original.retire_after_partial_recovery(receipt,retry)
+        self.assertEqual(original.read()[0]['phase'],'partial_restored_after_position');self.assertFalse(original.pending())
+        self.assertEqual(original.read()[0]['posts'],2)
 
 
 if __name__=='__main__':unittest.main()

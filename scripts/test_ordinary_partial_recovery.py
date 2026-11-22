@@ -8,6 +8,8 @@ from unittest.mock import patch
 import ordinary_partial_recovery as task
 from secure_ordinary_partial_recovery import PartialRecoveryStore
 from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectRetryStore
+from secure_ordinary_partial_recovery import RetryPartialRecoveryStore
 from test_ordinary_reconnect_observe import Web,Native
 from test_ordinary_reconnect_restore import Response
 from test_secure_native_session import Backend
@@ -90,6 +92,19 @@ class RecoveryTests(unittest.TestCase):
         self.assertEqual(task.verified_grant(selected,self.original_receipt,saved,new,state,receipt)[0],digest(new))
         for foreign in (dict(new,vid='900099'),dict(new,deviceId='other')):
             with self.assertRaises(ValueError):task.verified_grant(selected,self.original_receipt,saved,foreign,state,receipt)
+
+    def test_retry_recovery_only_accepts_known_states_at_the_matching_phase(self):
+        original=OrdinaryReconnectRetryStore(Backend());recovery=RetryPartialRecoveryStore(Backend())
+        selected=dict(plan(),web_shelf_core_sha256='a'*64,native_shelf_core_sha256='b'*64);receipt=original.reserve(selected)
+        receipt=original.advance(receipt,'prepared','enter_pending')
+        bound=dict(self.bound,observed_state='entered',original_phase='enter_pending')
+        self.assertEqual(task.recovery_scope(original,original.read()[0],recovery,bound,selected),task.observed_point(selected))
+        with self.assertRaises(ValueError):task.recovery_scope(original,original.read()[0],recovery,dict(bound,observed_state='target'),selected)
+        for before,after in (('enter_pending','enter_acknowledged'),('enter_acknowledged','enter_verified'),('enter_verified','position_pending')):
+            receipt=original.advance(receipt,before,after)
+        bound['original_phase']='position_pending'
+        self.assertEqual(task.recovery_scope(original,original.read()[0],recovery,dict(bound,observed_state='target'),selected),selected['target'])
+        with self.assertRaises(ValueError):task.recovery_scope(original,original.read()[0],self.recovery,bound,selected)
 
 
 if __name__=='__main__':unittest.main()

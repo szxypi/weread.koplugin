@@ -13,24 +13,38 @@ import traceback
 
 from ordinary_partial_recovery import RecoveryProbe,binding,checked_pair,observed_point,restore_once,verified_grant
 from secure_native_session import NativeSessionStore
-from secure_ordinary_partial_recovery import PartialRecoveryStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
-from secure_ordinary_recovery_renewal import RecoveryRenewalStore
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore
+from secure_ordinary_recovery_renewal import RecoveryRenewalStore,RetryRecoveryRenewalStore
 from secure_weread_session import COOKIE_NAMES,SessionStore
 from txt_full_summary import digest
 from verify_native_txt_position import Native
 from verify_ordinary_reconnect_preview import CapturedPreflight
+from verify_position_roundtrip import same_position
+from verify_reader_progress import find_node,project
 from verify_translation_preflight import save_refreshed_web_session
 
 
 class Reads(Native):max_reads=64
 
 
+def choose_retry_state(plan,phase,raw):
+    choices=('entered',) if phase in ('enter_pending','enter_acknowledged','enter_verified') else ('entered','target') \
+        if phase in ('position_pending','position_acknowledged') else ()
+    book=plan['baseline']['book_id'];point=project(raw,book);node=find_node(raw,book)
+    for kind in choices:
+        expected=observed_point(plan) if kind=='entered' else plan['target']
+        if same_position(point,expected) and node.get('summary')==expected['summary']:return kind,expected
+    raise ValueError('ordinary_recovery/observed')
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true')
     mode=p.add_mutually_exclusive_group();mode.add_argument('--prepare',action='store_true');mode.add_argument('--apply',action='store_true')
+    p.add_argument('--retry',action='store_true',help='use the distinct follow-up trial and recovery scopes')
     a=p.parse_args(argv)
     if (a.prepare or a.apply)!=a.saved_session:p.error('pair saved session with exactly one mode')
+    if a.retry and not a.saved_session:p.error('retry scope requires saved session')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
                 authentication_posts=0,private_data_on_regular_disk=False,original_trial_verified=False)
     saved=grant=web=native=None;private=set();restore_report={}
@@ -38,12 +52,14 @@ def main(argv=None):
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0));report['phase']='intent'
             from verify_native_thought_trial import other_pending
-            original=OrdinaryReconnectStore();state,original_receipt=original.read();recovery=PartialRecoveryStore();rstate,rreceipt=recovery.read()
-            if (not state or state['phase']!='enter_acknowledged' or state['posts']!=1 or original_receipt is None
+            original=(OrdinaryReconnectRetryStore if a.retry else OrdinaryReconnectStore)();state,original_receipt=original.read()
+            recovery=(RetryPartialRecoveryStore if a.retry else PartialRecoveryStore)();rstate,rreceipt=recovery.read()
+            allowed=('enter_pending','enter_acknowledged','enter_verified','position_pending','position_acknowledged') if a.retry else ('enter_acknowledged',)
+            if (not state or state['phase'] not in allowed or original_receipt is None
                     or a.prepare and rstate is not None or a.apply and (not rstate or rstate['phase']!='prepared')
-                    or other_pending(exclude_ordinary_reconnect_trial=True)):raise ValueError('ordinary_recovery/intent')
+                    or other_pending(exclude_ordinary_reconnect_trial=not a.retry,exclude_ordinary_reconnect_retry=a.retry)):raise ValueError('ordinary_recovery/intent')
             plan=state['plan'];store=SessionStore();saved=store.load();grant=NativeSessionStore().load(saved['vid'])
-            bridge=RecoveryRenewalStore();bridge_state,bridge_receipt=bridge.read()
+            bridge=(RetryRecoveryRenewalStore if a.retry else RecoveryRenewalStore)();bridge_state,bridge_receipt=bridge.read()
             if digest(saved)!=plan['web_session_sha256']:raise ValueError('ordinary_recovery/session')
             grant_sha,bridge_sha=verified_grant(plan,original_receipt,saved,grant,bridge_state,bridge_receipt)
             private.update(str(v) for v in saved['cookies'].values());private.update(str(v) for v in grant.values() if isinstance(v,str))
@@ -57,9 +73,16 @@ def main(argv=None):
                          and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
                 return (now==state and receipt==original_receipt and store.load()==saved
                         and NativeSessionStore().load(saved['vid'])==grant and bridge.read()==(bridge_state,bridge_receipt) and cookies==saved['cookies']
-                        and not other_pending(exclude_ordinary_reconnect_trial=True))
-            report['phase']='readback';sample=checked_pair(web,native,grant,plan,observed_point(plan),current,grant_sha)
-            bound=binding(original_receipt,sample,grant_sha,bridge_sha)
+                        and not other_pending(exclude_ordinary_reconnect_trial=not a.retry,exclude_ordinary_reconnect_retry=a.retry))
+            report['phase']='readback'
+            if a.retry:
+                if current() is not True:raise ValueError('ordinary_recovery/currentness')
+                web.inspect(plan['baseline']['book_id'])
+                observed_state,expected=choose_retry_state(plan,state['phase'],web.raw_progress)
+            else:observed_state,expected=None,observed_point(plan)
+            sample=checked_pair(web,native,grant,plan,expected,current,grant_sha)
+            bound=binding(original_receipt,sample,grant_sha,bridge_sha,observed_state=observed_state,
+                          original_phase=state['phase'] if a.retry else None)
             if a.prepare:
                 if recovery.read()[0] is not None or current() is not True:raise ValueError('ordinary_recovery/intent')
                 recovery.reserve(bound);ready,_=recovery.read()

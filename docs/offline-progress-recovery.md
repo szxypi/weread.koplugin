@@ -107,9 +107,9 @@ KO2 尺寸追加 `--width 1264 --height 1680 --dpi 300`。每次使用新目录�
 
 原生授权随后在两次确认过期后续期一次，并核对同账号与设备；两端再次确认测试页后，单次恢复收到明确回执。原坐标、百分比和摘要在恢复时及全新进程中各独立回读两次，三项时长、正文、目录及书架核心状态一致；完整书架部分字段与恢复前不同，原因和服务端历史仍未核实。原重连试验继续标记为未验证，独立恢复记录已封存，不可重发。见[续期](validation-assets/2026-11-22/ordinary-partial-recovery-renewal.json)、[恢复准备](validation-assets/2026-11-22/ordinary-partial-recovery-owner-prepared.json)、[恢复](validation-assets/2026-11-22/ordinary-partial-recovery-owner-restored.json)和[全新进程复核](validation-assets/2026-11-22/ordinary-partial-recovery-owner-independent.json)。
 
-针对这次观察，后续执行器现在分别核对进入请求后的“目标坐标、目标摘要、原百分比”和位置请求后的完整目标，不再将两个阶段混为一谈。书架核对先绑定完整初始快照，之后仅允许目标书的 `readUpdateTime` 非递减及目标书在列表中移动；其他书籍相对顺序、全部其他字段、标记和分组仍需一致。合成服务已模拟上述百分比及最近阅读变化并完成原生往返，见[普通尺寸](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-mock-600.json)、[KO2 尺寸](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-mock-ko2.json)和[回执缺失](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-noack.json)；这尚不代表新的真实账号试验通过。
+针对这次观察，后续执行器现在分别核对进入请求后的“目标坐标、目标摘要、原百分比”和位置请求后的完整目标，不再将两个阶段混为一谈。书架核对先绑定完整初始快照，之后仅允许目标书的最近阅读时间、列表位置和与当前阶段精确一致的进度发生变化，并要求同步游标不倒退；其他书籍相对顺序、全部其他字段、标记和分组仍需一致。合成服务已模拟上述百分比及最近阅读变化并完成原生往返，见[普通尺寸](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-mock-600.json)、[KO2 尺寸](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-mock-ko2.json)和[回执缺失](validation-assets/2026-11-22/ordinary-reconnect-observed-enter-noack.json)；这尚不代表新的真实账号试验通过。
 
-为将来重新验证准备了独立的测试、恢复和授权关联存储范围；它们与已封存的记录分开，新的待处理测试也会阻止其他试验。这些新范围尚未接入真实执行或使用，原试验和恢复记录保持原结论。
+为后续验证准备了独立的测试、恢复和授权关联存储范围；它们与已封存的记录分开，新的待处理测试也会阻止其他试验。KO2 模拟已覆盖[正常往返](validation-assets/2026-11-22/ordinary-retry-mock-success.json)、[位置回执不明确后的单次恢复](validation-assets/2026-11-22/ordinary-retry-mock-partial-recovery.json)、[恢复回执缺失](validation-assets/2026-11-22/ordinary-retry-mock-recovery-noack.json)及[恢复回执缺失后的只读确认](validation-assets/2026-11-22/ordinary-retry-mock-readback-resolution.json)。后续真实范围尚未使用，原试验和恢复记录保持原结论。
 
 ## 普通 TXT 重连后的真实同步与恢复
 

@@ -9,8 +9,8 @@ import hashlib
 from fetch_weread_epub import decode_content_shards,weread_e
 from ordinary_reconnect_restore import RestoreProbe
 from readtime_upload_model import integer
-from secure_ordinary_partial_recovery import PartialRecoveryStore,validate_binding
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,entered_point,validate_plan
+from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore,validate_binding,validate_retry_binding
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore,entered_point,validate_plan
 from secure_weread_session import COOKIE_NAMES
 from shelf_flag_change_contract import state_hash
 from txt_full_summary import digest
@@ -78,12 +78,29 @@ def checked_pair(web,native,grant,plan,expected,current,grant_sha256=None):
     return later
 
 
-def binding(original_receipt,observed,grant_sha256,renewal_bridge_sha256):
+def binding(original_receipt,observed,grant_sha256,renewal_bridge_sha256,*,observed_state=None,original_phase=None):
     value=dict(original_intent_sha256=hashlib.sha256(original_receipt.pending).hexdigest(),
         web_shelf_sha256=digest(stable_shelf(observed['web_shelf'])),native_shelf_sha256=digest(stable_shelf(observed['native_shelf'])),
         web_shelf_core_sha256=state_hash(observed['web_shelf']),native_shelf_core_sha256=state_hash(observed['native_shelf']),
         native_grant_sha256=grant_sha256,renewal_bridge_sha256=renewal_bridge_sha256)
-    return validate_binding(value)
+    if observed_state is None and original_phase is None:return validate_binding(value)
+    value.update(observed_state=observed_state,original_phase=original_phase)
+    return validate_retry_binding(value)
+
+
+def recovery_scope(original,original_state,recovery,bound,plan):
+    phase=original_state.get('phase') if isinstance(original_state,dict) else None
+    if type(original) is OrdinaryReconnectStore and type(recovery) is PartialRecoveryStore:
+        if phase!='enter_acknowledged' or 'observed_state' in bound:raise ValueError('ordinary_recovery/intent')
+        return observed_point(plan)
+    if type(original) is not OrdinaryReconnectRetryStore or type(recovery) is not RetryPartialRecoveryStore:
+        raise ValueError('ordinary_recovery/intent')
+    if bound.get('original_phase')!=phase:raise ValueError('ordinary_recovery/intent')
+    observed=bound.get('observed_state')
+    if phase in ('enter_pending','enter_acknowledged','enter_verified') and observed=='entered':return observed_point(plan)
+    if phase in ('position_pending','position_acknowledged') and observed in ('entered','target'):
+        return observed_point(plan) if observed=='entered' else plan['target']
+    raise ValueError('ordinary_recovery/intent')
 
 
 class RecoveryProbe(RestoreProbe):
@@ -94,11 +111,12 @@ class RecoveryProbe(RestoreProbe):
     def guard(self,stage,url,body):
         if stage!='write_restore':return super().guard(stage,url,body)
         original,original_receipt=self.original.read();recovery,recovery_receipt=self.recovery.read()
-        if (not original or original['phase']!='enter_acknowledged' or original['plan']!=self.plan or original_receipt!=self.original_receipt
+        if (not original or original['plan']!=self.plan or original_receipt!=self.original_receipt
                 or not recovery or recovery['phase']!='pending' or recovery_receipt!=self.recovery_receipt
                 or recovery['binding']['original_intent_sha256']!=hashlib.sha256(original_receipt.pending).hexdigest()
                 or self.current() is not True or digest(self.vid)!=self.plan['owner_sha256']
                 or self.book_id!=self.plan['baseline']['book_id']):raise ValueError('ordinary_recovery/scope')
+        recovery_scope(self.original,original,self.recovery,recovery['binding'],self.plan)
         validate_payload(self.wire,'write_restore',body)
         return super().guard(stage,url,body)
 
@@ -108,13 +126,15 @@ def restore_once(original,original_receipt,recovery,recovery_receipt,web,native,
             or not callable(current) or not callable(probe_factory)):
         raise ValueError('ordinary_recovery/scope')
     state,receipt=original.read();pending,pending_receipt=recovery.read()
-    if (not state or state['phase']!='enter_acknowledged' or receipt!=original_receipt or state['plan']!=plan
+    if (not state or receipt!=original_receipt or state['plan']!=plan
             or not pending or pending['phase']!='prepared' or pending_receipt!=recovery_receipt or pending['binding']!=bound
             or current() is not True):raise ValueError('ordinary_recovery/intent')
+    expected=recovery_scope(original,state,recovery,bound,plan)
     report.update(result='UNVERIFIED',restore_claimed=False,restore_claim_interrupted=False,restore_acknowledged=False,
                   original_position_restored=False)
-    sample=checked_pair(web,native,grant,plan,observed_point(plan),current,bound['native_grant_sha256'])
-    if binding(original_receipt,sample,bound['native_grant_sha256'],bound['renewal_bridge_sha256'])!=bound:raise ValueError('ordinary_recovery/changed')
+    sample=checked_pair(web,native,grant,plan,expected,current,bound['native_grant_sha256'])
+    if binding(original_receipt,sample,bound['native_grant_sha256'],bound['renewal_bridge_sha256'],
+               observed_state=bound.get('observed_state'),original_phase=bound.get('original_phase'))!=bound:raise ValueError('ordinary_recovery/changed')
     context=sample['context'];fixed=context.get('pclts')
     if fixed is None or type(fixed) is str and fixed in ('','0') or type(fixed) is int and fixed==0:
         import time

@@ -81,7 +81,9 @@ class OrdinaryReconnectStoreTests(unittest.TestCase):
     def test_retry_has_a_distinct_service_and_cannot_reset_original(self):
         first=subject.OrdinaryReconnectStore(Backend());retry=subject.OrdinaryReconnectRetryStore(Backend())
         self.assertNotEqual(first.service,retry.service);self.assertNotEqual(first.lock_name,retry.lock_name)
-        first.reserve(plan());retry.reserve(plan())
+        first.reserve(plan())
+        with self.assertRaises(StoreError):retry.reserve(plan())
+        retry.reserve(dict(plan(),web_shelf_core_sha256='a'*64,native_shelf_core_sha256='b'*64))
         self.assertNotEqual(first.backend.data,retry.backend.data)
         with self.assertRaises(StoreError):first.reserve(plan())
 

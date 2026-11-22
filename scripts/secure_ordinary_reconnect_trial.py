@@ -20,6 +20,7 @@ SERVICE = 'org.codex.weread.goal-ordinary-reconnect-v1'
 PROTOCOL = 'ordinary-xhtml-offline-reconnect-zero-time-v1'
 HASHES = {'owner_sha256', 'grant_sha256', 'web_session_sha256', 'source_sha256', 'catalog_sha256',
           'web_shelf_sha256', 'native_shelf_sha256'}
+CORE_HASHES = {'web_shelf_core_sha256', 'native_shelf_core_sha256'}
 POINT = {'book_id', 'chapter_uid', 'chapter_idx', 'chapter_offset', 'raw_percent', 'summary'}
 COUNTS = {'readingTime', 'recordReadingTime', 'ttsTime'}
 PHASES = {'prepared': 0, 'enter_pending': 1, 'enter_acknowledged': 1, 'enter_verified': 1,
@@ -28,6 +29,10 @@ PHASES = {'prepared': 0, 'enter_pending': 1, 'enter_acknowledged': 1, 'enter_ver
 ORDER = tuple(PHASES)
 TRANSITIONS = set(zip(ORDER, ORDER[1:]))
 PHASES['partial_restored'] = 1
+PHASES['partial_restored_after_position'] = 2
+PHASES['restore_readback_confirmed'] = 3
+PHASES['baseline_readback_after_enter'] = 1
+PHASES['baseline_readback_after_position'] = 2
 
 
 def validate_point(point):
@@ -50,10 +55,13 @@ def validate_point(point):
 
 
 def validate_plan(plan):
-    if (not isinstance(plan, dict) or set(plan) != HASHES | {'protocol', 'baseline', 'target', 'counts', 'version'}
+    fields=HASHES | {'protocol', 'baseline', 'target', 'counts', 'version'}
+    if (not isinstance(plan, dict) or set(plan) not in (fields, fields | CORE_HASHES)
             or plan['protocol'] != PROTOCOL):
         raise StoreError('ordinary_trial/plan')
     if any(not isinstance(plan[k], str) or not re.fullmatch(r'[a-f0-9]{64}', plan[k]) for k in HASHES):
+        raise StoreError('ordinary_trial/plan')
+    if CORE_HASHES <= set(plan) and any(not isinstance(plan[k],str) or not re.fullmatch(r'[a-f0-9]{64}',plan[k]) for k in CORE_HASHES):
         raise StoreError('ordinary_trial/plan')
     validate_point(plan['baseline']); validate_point(plan['target'])
     first, target = plan['baseline'], plan['target']
@@ -76,6 +84,9 @@ def entered_point(plan):
 class OrdinaryReconnectStore:
     service = SERVICE
     lock_name = 'codex-ordinary-reconnect-'
+    def validate_plan(self, plan):
+        validate_plan(plan)
+        if CORE_HASHES & set(plan):raise StoreError('ordinary_trial/plan')
     def __init__(self, backend=None, lock=None):
         self.backend = backend if backend is not None else MacKeychain(service=self.service, account=ACCOUNT)
         path = Path(tempfile.gettempdir()) / (self.lock_name + ACCOUNT + '.lock')
@@ -95,7 +106,7 @@ class OrdinaryReconnectStore:
                     or value['phase'] not in PHASES or type(value['posts']) is not int
                     or value['posts'] != PHASES[value['phase']]):
                 raise ValueError()
-            validate_plan(value['plan'])
+            self.validate_plan(value['plan'])
             return value, raw
         except Exception:
             raise StoreError('ordinary_trial/intent_invalid') from None
@@ -107,7 +118,8 @@ class OrdinaryReconnectStore:
 
     def pending(self):
         state, _ = self.read()
-        return state is not None and state['phase'] not in ('retired', 'partial_restored')
+        return state is not None and state['phase'] not in ('retired', 'partial_restored', 'partial_restored_after_position',
+                                                            'restore_readback_confirmed','baseline_readback_after_enter','baseline_readback_after_position')
 
     def _write(self, value):
         raw = canonical(value)
@@ -120,7 +132,7 @@ class OrdinaryReconnectStore:
         return Receipt(raw)
 
     def reserve(self, plan):
-        validate_plan(plan)
+        self.validate_plan(plan)
         with self.lock():
             if self._load()[0] is not None:
                 raise StoreError('ordinary_trial/consumed')
@@ -139,16 +151,21 @@ class OrdinaryReconnectStore:
 
     def retire_after_partial_recovery(self, receipt, recovery):
         """Seal the partial attempt only after its distinct recovery is retired."""
-        from secure_ordinary_partial_recovery import PartialRecoveryStore
+        from secure_ordinary_partial_recovery import PartialRecoveryStore,RetryPartialRecoveryStore
         if not isinstance(receipt,Receipt) or not isinstance(recovery,PartialRecoveryStore):
             raise StoreError('ordinary_trial/recovery')
         with self.lock():
             state,raw=self._load();completed,_=recovery.read()
-            if (not state or raw!=receipt.pending or state['phase']!='enter_acknowledged'
+            if isinstance(self,OrdinaryReconnectRetryStore):
+                phase_ok=(type(recovery) is RetryPartialRecoveryStore and state and completed and completed['binding'].get('original_phase')==state['phase'] and
+                    (state['phase'] in ('enter_pending','enter_acknowledged','enter_verified') and completed and completed['binding'].get('observed_state')=='entered'
+                     or state['phase'] in ('position_pending','position_acknowledged') and completed and completed['binding'].get('observed_state') in ('entered','target')))
+            else:phase_ok=type(recovery) is PartialRecoveryStore and state and state['phase']=='enter_acknowledged'
+            if (not state or raw!=receipt.pending or not phase_ok
                     or not completed or completed['phase']!='retired' or completed['posts']!=1
                     or completed['binding']['original_intent_sha256']!=hashlib.sha256(raw).hexdigest()):
                 raise StoreError('ordinary_trial/recovery')
-            state['phase'],state['posts']='partial_restored',1
+            state['phase']='partial_restored_after_position' if state['posts']==2 else 'partial_restored'
             return self._write(state)
 
 
@@ -156,3 +173,36 @@ class OrdinaryReconnectRetryStore(OrdinaryReconnectStore):
     """A distinct one-shot scope; it cannot reset or consume the old record."""
     service = 'org.codex.weread.goal-ordinary-reconnect-v2'
     lock_name = 'codex-ordinary-reconnect-v2-'
+    def validate_plan(self,plan):
+        validate_plan(plan)
+        if not CORE_HASHES <= set(plan):raise StoreError('ordinary_trial/plan')
+
+    def close_after_restore_readback(self,receipt,proof,bridge):
+        """Seal an uncertain attempt only after a separate verified baseline readback."""
+        from secure_ordinary_restore_readback import RestoreReadbackStore
+        from secure_ordinary_recovery_renewal import RetryRecoveryRenewalStore
+        if not isinstance(receipt,Receipt) or not isinstance(proof,RestoreReadbackStore) or not isinstance(bridge,RetryRecoveryRenewalStore):
+            raise StoreError('ordinary_trial/readback')
+        with self.lock():
+            state,raw=self._load();verified,_=proof.read();renewed,renewal_receipt=bridge.read()
+            allowed=('enter_pending','enter_acknowledged','enter_verified','position_pending','position_acknowledged','position_verified',
+                     'restore_pending','restore_acknowledged')
+            if not state or raw!=receipt.pending or state['phase'] not in allowed or not verified:
+                raise StoreError('ordinary_trial/readback')
+            plan=state['plan'];bound=verified['binding'];original_hash=hashlib.sha256(raw).hexdigest()
+            if (bound['original_intent_sha256']!=original_hash or bound['owner_sha256']!=plan['owner_sha256']
+                    or bound['source_sha256']!=plan['source_sha256'] or bound['catalog_sha256']!=plan['catalog_sha256']
+                    or bound['web_shelf_core_sha256']!=plan['web_shelf_core_sha256']
+                    or bound['native_shelf_core_sha256']!=plan['native_shelf_core_sha256']):
+                raise StoreError('ordinary_trial/readback')
+            if renewed is None:
+                if (renewal_receipt is not None or bound['native_grant_sha256']!=plan['grant_sha256']
+                        or bound['renewal_bridge_sha256']!='0'*64):raise StoreError('ordinary_trial/readback')
+            elif (not renewal_receipt or renewed['phase']!='verified' or renewed['new_grant_sha256']!=bound['native_grant_sha256']
+                    or renewed['binding']['original_intent_sha256']!=original_hash
+                    or renewed['binding']['owner_sha256']!=plan['owner_sha256']
+                    or renewed['binding']['old_grant_sha256']!=plan['grant_sha256']
+                    or hashlib.sha256(renewal_receipt.pending).hexdigest()!=bound['renewal_bridge_sha256']):
+                raise StoreError('ordinary_trial/readback')
+            state['phase']={1:'baseline_readback_after_enter',2:'baseline_readback_after_position',3:'restore_readback_confirmed'}[state['posts']]
+            return self._write(state)

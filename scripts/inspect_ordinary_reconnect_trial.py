@@ -7,7 +7,7 @@ import resource
 
 from ordinary_reconnect_observe import check
 from secure_native_session import NativeSessionStore
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore
 from secure_weread_session import COOKIE_NAMES,SessionStore
 from txt_full_summary import digest
 from verify_native_txt_position import Native
@@ -19,7 +19,8 @@ class Reads(Native):max_reads=32
 
 
 def main(argv=None):
-    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true');a=p.parse_args(argv)
+    p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true');p.add_argument('--retry',action='store_true');a=p.parse_args(argv)
+    if a.retry and not a.saved_session:p.error('retry scope requires saved session')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
                 authentication_posts=0,private_data_on_regular_disk=False)
     saved=grant=web=None
@@ -27,8 +28,9 @@ def main(argv=None):
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0))
             from verify_native_thought_trial import other_pending
-            journal=OrdinaryReconnectStore();state,_=journal.read()
-            if not state or state['phase']!='retired' or state['posts']!=3 or other_pending(exclude_ordinary_reconnect_trial=True):
+            journal=(OrdinaryReconnectRetryStore if a.retry else OrdinaryReconnectStore)();state,_=journal.read()
+            if (not state or state['phase']!='retired' or state['posts']!=3
+                    or other_pending(exclude_ordinary_reconnect_trial=not a.retry,exclude_ordinary_reconnect_retry=a.retry)):
                 raise ValueError('ordinary_inspect/intent')
             plan=state['plan'];store=SessionStore();saved=store.load();grant=NativeSessionStore().load(saved['vid'])
             if digest(saved)!=plan['web_session_sha256'] or digest(grant)!=plan['grant_sha256'] or digest(saved['vid'])!=plan['owner_sha256']:
@@ -40,12 +42,12 @@ def main(argv=None):
                 cookies={cookie.name:cookie.value for cookie in web.cookies if cookie.name in COOKIE_NAMES
                          and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
                 return (store.load()==saved and NativeSessionStore().load(saved['vid'])==grant and cookies==saved['cookies']
-                        and not other_pending(exclude_ordinary_reconnect_trial=True))
-            for _ in range(2):check(web,native,grant,plan,plan['baseline'],current)
+                        and not other_pending(exclude_ordinary_reconnect_trial=not a.retry,exclude_ordinary_reconnect_retry=a.retry))
+            for _ in range(2):check(web,native,grant,plan,plan['baseline'],current,shelf_core_only=a.retry)
             web.verify_account();save_refreshed_web_session(store,saved,web)
             report.update(result='ORDINARY_RECONNECT_INDEPENDENT_READBACK_VERIFIED',independent_readbacks=2,
                           original_position_and_summary=True,time_counts_unchanged=True,source_catalog_shelf_fields_checked=True,
-                          no_automatic_replay=True)
+                          shelf_check='core_only' if a.retry else 'stable_fields',no_automatic_replay=True)
     except Exception as error:
         report['result']='UNVERIFIED'
         if isinstance(error,ValueError) and str(error) in {'ordinary_inspect/intent','ordinary_inspect/session'}:report['reason']=str(error)

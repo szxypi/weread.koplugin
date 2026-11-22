@@ -55,7 +55,7 @@ class RenewalTests(unittest.TestCase):
         with patch.object(task,'SessionStore') as session,contextlib.redirect_stdout(io.StringIO()) as out:
             self.assertEqual(task.main([]),0)
         session.assert_not_called();self.assertEqual(json.loads(out.getvalue())['result'],'OFFLINE_ONLY')
-        for args in (['--renew'],['--saved-session']):
+        for args in (['--renew'],['--saved-session'],['--retry'],['--retry','--renew']):
             with contextlib.redirect_stderr(io.StringIO()),self.assertRaises(SystemExit):task.main(args)
 
 

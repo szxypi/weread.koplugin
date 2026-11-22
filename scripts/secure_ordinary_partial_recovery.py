@@ -28,9 +28,20 @@ def validate_binding(value):
     return value
 
 
+def validate_retry_binding(value):
+    if (not isinstance(value,dict) or set(value)!=FIELDS|{'observed_state','original_phase'}
+            or value.get('observed_state') not in ('entered','target')
+            or value.get('original_phase') not in ('enter_pending','enter_acknowledged','enter_verified','position_pending','position_acknowledged')
+            or value['original_phase'].startswith('enter_') and value['observed_state']!='entered'):
+        raise StoreError('ordinary_recovery/binding')
+    validate_binding({key:value[key] for key in FIELDS})
+    return value
+
+
 class PartialRecoveryStore:
     service=SERVICE
     lock_name='codex-ordinary-partial-recovery-'
+    validate_binding=staticmethod(validate_binding)
     def __init__(self,backend=None,lock=None):
         self.backend=backend if backend is not None else MacKeychain(service=self.service,account=ACCOUNT)
         path=Path(tempfile.gettempdir())/(self.lock_name+ACCOUNT+'.lock')
@@ -45,7 +56,7 @@ class PartialRecoveryStore:
                     or type(value['schema']) is not int or value['schema']!=1 or value['scope']!=ACCOUNT
                     or not isinstance(value['attempt'],str) or not re.fullmatch(r'[a-f0-9]{32}',value['attempt'])
                     or value['phase'] not in PHASES or type(value['posts']) is not int or value['posts']!=PHASES[value['phase']]):raise ValueError()
-            validate_binding(value['binding']);return value,raw
+            self.validate_binding(value['binding']);return value,raw
         except Exception:raise StoreError('ordinary_recovery/intent_invalid') from None
     def read(self):
         with self.lock():
@@ -57,7 +68,7 @@ class PartialRecoveryStore:
         if self.backend.load()!=raw:raise StoreError('ordinary_recovery/readback')
         self._load();return Receipt(raw)
     def reserve(self,binding):
-        validate_binding(binding)
+        self.validate_binding(binding)
         with self.lock():
             if self._load()[0] is not None:raise StoreError('ordinary_recovery/consumed')
             return self._write(dict(schema=1,scope=ACCOUNT,attempt=secrets.token_hex(16),phase='prepared',posts=0,binding=binding))
@@ -73,3 +84,4 @@ class PartialRecoveryStore:
 class RetryPartialRecoveryStore(PartialRecoveryStore):
     service='org.codex.weread.goal-ordinary-partial-recovery-v2'
     lock_name='codex-ordinary-partial-recovery-v2-'
+    validate_binding=staticmethod(validate_retry_binding)

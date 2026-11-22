@@ -23,7 +23,7 @@ from shelf_flag_change_contract import state_hash
 from readtime_upload_model import integer
 from secure_native_session import NativeSessionStore
 from secure_ordinary_reconnect_trial import PROTOCOL, validate_plan
-from secure_ordinary_reconnect_trial import OrdinaryReconnectStore
+from secure_ordinary_reconnect_trial import OrdinaryReconnectStore,OrdinaryReconnectRetryStore
 from secure_weread_session import COOKIE_NAMES, SessionStore
 from txt_full_summary import digest
 from verify_cb_fixture_reconnect_trial import run_ui, source_summary
@@ -99,20 +99,24 @@ def native_snapshot(native, grant, book, baseline):
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--saved-session',action='store_true')
     mode=p.add_mutually_exclusive_group();mode.add_argument('--prepare',action='store_true');mode.add_argument('--apply',action='store_true')
+    p.add_argument('--retry',action='store_true',help='use the distinct follow-up trial scope')
     p.add_argument('--width',type=int,default=1264);p.add_argument('--height',type=int,default=1680);p.add_argument('--dpi',type=int,default=300);a=p.parse_args(argv)
     if not all(1<=v<=4096 for v in (a.width,a.height,a.dpi)):p.error('bounded display required')
     if (a.prepare or a.apply) and not a.saved_session:p.error('prepared trial requires saved session')
+    if a.retry and not (a.prepare or a.apply):p.error('retry scope requires a trial mode')
     report=dict(result='OFFLINE_ONLY',checked_at=datetime.now(timezone.utc).isoformat(),account_data_posts=0,
                 authentication_posts=0,private_data_on_regular_disk=False,guarded_write_mode=False)
     web=saved=grant=payload=restore_web=journal=None;private=set();live_report={}
     try:
         if a.saved_session:
             resource.setrlimit(resource.RLIMIT_CORE,(0,0));report['phase']='environment'
+            if a.prepare or a.apply:report['retry_scope']=a.retry
             if a.prepare or a.apply:
                 from verify_native_thought_trial import other_pending
-                journal=OrdinaryReconnectStore();state,_receipt=journal.read()
+                journal=(OrdinaryReconnectRetryStore if a.retry else OrdinaryReconnectStore)();state,_receipt=journal.read()
                 if (a.prepare and state is not None or a.apply and (not state or state['phase']!='prepared')
-                        or other_pending(exclude_ordinary_reconnect_trial=a.apply)):
+                        or other_pending(exclude_ordinary_reconnect_trial=a.apply and not a.retry,
+                                         exclude_ordinary_reconnect_retry=a.apply and a.retry)):
                     raise ValueError('ordinary_rpc/intent')
             command=manual_command();rpc_command=list(command)
             target='/source/scripts/run_cb_fixture_manual_ui.py'
@@ -163,6 +167,7 @@ def main(argv=None):
                     web_shelf_sha256=digest(stable_shelf(web_shelf)),native_shelf_sha256=digest(stable_shelf(native_shelf)),baseline=point,
                     target=dict(point,chapter_offset=offset,raw_percent=value['pr'],summary=target_summary),
                     counts=initial['counts'],version=versions[0])
+                if a.retry:selected.update(web_shelf_core_sha256=state_hash(web_shelf),native_shelf_core_sha256=state_hash(native_shelf))
                 validate_plan(selected)
                 target_point=selected['target'];fields={'appId','b','c','ci','co','sm','pr','ct','ps','pc','s'}
                 report['body_checks']=dict(fields=set(value)==fields,app=value.get('appId')==web_app_id(),
@@ -204,7 +209,8 @@ def main(argv=None):
                 cookies={cookie.name:cookie.value for cookie in web.cookies
                          if cookie.name in COOKIE_NAMES and cookie.domain in ('.weread.qq.com','weread.qq.com') and cookie.path=='/'}
                 return (store.load()==saved and NativeSessionStore().load(saved['vid'])==grant and cookies==saved['cookies']
-                        and not ((a.prepare or a.apply) and other_pending(exclude_ordinary_reconnect_trial=a.apply)))
+                        and not ((a.prepare or a.apply) and other_pending(exclude_ordinary_reconnect_trial=a.apply and not a.retry,
+                                                                          exclude_ordinary_reconnect_retry=a.apply and a.retry)))
             independent_check(web,native,grant,bound['plan'],bound['plan']['baseline'],current)
             if a.prepare:
                 if journal.read()[0] is not None or not current():raise ValueError('ordinary_rpc/intent')
