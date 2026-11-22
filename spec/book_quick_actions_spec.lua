@@ -121,4 +121,19 @@ for _,event in ipairs({'account','book'}) do
     if event=='account' then revoke() else selected.bookId='43' end
     flush();expect(calls==0,'stale local-group shortcut ran after '..event)
 end
+for _,pinned in ipairs({false,true}) do
+    local h,o,c=fixture();local calls=0
+    local pin={pinned=pinned,callback=function()calls=calls+1 end}
+    expect(Quick.open(h,o,book,c,nil,pin),'local pin shortcut did not open')
+    local label=pinned and 'Remove local pin' or 'Pin on this device'
+    local button=assert(by_label(o._shelf_popup,label));button.callback();flush()
+    expect(calls==1 and not o._shelf_popup,'local pin shortcut did not run once')
+    button.callback();flush();expect(calls==1,'dismissed local pin shortcut ran twice')
+end
+do
+    local h,o,c,revoke=fixture();local calls=0
+    Quick.open(h,o,book,c,nil,{callback=function()calls=calls+1 end})
+    by_label(o._shelf_popup,'Pin on this device').callback();revoke();flush()
+    expect(calls==0,'stale local pin shortcut ran after account change')
+end
 print('PASS: book quick actions ('..checks..' checks)')

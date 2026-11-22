@@ -595,11 +595,11 @@ function CoverCell:init()
         cover_layers[#cover_layers + 1] = badge
         self._finished_badge=badge
     end
-    if ShelfFlags.display(self.book,'pinned')==true then
+    if self.local_pinned or ShelfFlags.display(self.book,'pinned')==true then
         local padding=math.max(1,Screen:scaleBySize(2))
         local badge=FrameContainer:new{padding=padding,margin=0,bordersize=Size.border.thin,radius=0,
-            background=Blitbuffer.COLOR_WHITE,TextWidget:new{text=_('Pinned'),face=Font:getFace('cfont',12),
-                max_width=math.max(1,math.floor(metrics.card_width*.4)-padding*2)}}
+            background=Blitbuffer.COLOR_WHITE,TextWidget:new{text=_(self.local_pinned and 'Local pin' or 'Pinned'),face=Font:getFace('cfont',12),
+                max_width=math.max(1,math.floor(metrics.card_width*(self.local_pinned and .65 or .4))-padding*2)}}
         local inset=math.max(border,Screen:scaleBySize(4))
         badge.overlap_offset={inset,inset};cover_layers[#cover_layers+1]=badge;self._pinned_badge=badge
     end
@@ -1187,6 +1187,8 @@ function LibraryView:itemStatus(book)
         status = ShelfTime.date(self.last_read_times and self.last_read_times[book] or book.readUpdateTime) or ""
     end
     local parts={}
+    local id=self.local_pins and require('weread.lib.shelf_snapshot').persisted_id(book)
+    if id and self.local_pins[id] then parts[#parts+1]=_('Local pin') end
     if ShelfFlags.display(book,'pinned')==true then parts[#parts+1]=_('Pinned') end
     if is_private_book(book) then parts[#parts+1]=_('Private') end
     if status~='' then parts[#parts+1]=status end
@@ -1266,6 +1268,7 @@ function LibraryView:content()
                 or cell_height
             local cover_cell = CoverCell:new{
                 book = book,
+                local_pinned = self.local_pins and self.local_pins[require('weread.lib.shelf_snapshot').persisted_id(book) or '']==true,
                 finish_pending = self.finish_pending and self.finish_pending[tostring(book.bookId or book.book_id or '')],
                 cached = book._cached == true,
                 cover_path = self.cover_paths and self.cover_paths[book] or nil,
@@ -1566,6 +1569,7 @@ function M.show(data, callbacks)
         title = data.title,
         wp_enable = data.wp_enable ~= false,
         books = data.books,
+        local_pins = data.local_pins,
         last_read_times = data.last_read_times,
         groups = data.groups,
         group_membership_incomplete = data.group_membership_incomplete,

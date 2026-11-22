@@ -23,10 +23,11 @@ function M.display(row,name)
 end
 -- Stable display partition. Never edit the cloud snapshot or guess missing
 -- flags from folder membership, reading time or the server's row position.
-function M.pinned_first(books)
+function M.pinned_first(books,local_pins)
     local pinned,rest={},{}
     for _,book in ipairs(books or {}) do
-        local target=M.display(book,'pinned')==true and pinned or rest
+        local id=local_pins and require('weread.lib.shelf_snapshot').persisted_id(book)
+        local target=(M.display(book,'pinned')==true or id and local_pins[id]==true) and pinned or rest
         target[#target+1]=book
     end
     if #pinned==0 then return books end

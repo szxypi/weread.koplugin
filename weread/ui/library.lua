@@ -44,6 +44,19 @@ local function load_local_groups(host)
     host.shelf_local_state,host.shelf_local_original,host.shelf_local_owner=state or model.empty(),state,account
 end
 
+local function load_local_pins(host)
+    local model=require('weread.lib.local_shelf_pins')
+    local account=group_owner(host);local db=host.library_db
+    if not account or not db or type(db.getProfileState)~='function' then
+        host.shelf_pins_state,host.shelf_pins_original,host.shelf_pins_owner=nil,nil,nil;return
+    end
+    local ok,state=pcall(db.getProfileState,db,model.KEY)
+    if not ok or group_owner(host)~=account or state~=nil and not model.valid(state) then
+        host.shelf_pins_state,host.shelf_pins_original,host.shelf_pins_owner=nil,nil,nil;return
+    end
+    host.shelf_pins_state,host.shelf_pins_original,host.shelf_pins_owner=state or model.empty(),state,account
+end
+
 group_owner=function(host)
     local db=host.library_db
     if not db or type(db.accountKey)~='function' then return nil end
@@ -329,6 +342,7 @@ function M:applyShelfSnapshot(all_books, archives, preserve_volatile)
     end
     self.shelf_cloud_groups=self.shelf_groups
     load_local_groups(self)
+    load_local_pins(self)
     project_local_groups(self)
     if self.shelf_group_key and not ShelfGroups.unique(self.shelf_groups, self.shelf_group_key) then
         self.shelf_group_key = nil
@@ -762,6 +776,15 @@ function M:showShelfView(mode, keyword, old_view, options)
     if self.shelf_local_owner~=group_owner(self) then
         load_local_groups(self);project_local_groups(self)
     end
+    -- Re-read when reopening so a concurrent writer's newer state is visible.
+    local prior_pins,prior_owner=self.shelf_pins_state,self.shelf_pins_owner
+    load_local_pins(self)
+    local pin_model=require('weread.lib.local_shelf_pins')
+    if options.prepared_shelf and (prior_owner~=self.shelf_pins_owner or not pin_model.same(prior_pins,self.shelf_pins_state)) then
+        options.prepared_shelf,options.scroll_offset=nil,nil;options.page=1
+    end
+    local local_pins=self.shelf_pins_owner==group_owner(self)
+        and pin_model.index(self.shelf_pins_state) or nil
     mode = mode or "books"
     options.mode = mode
     options.keyword = keyword
@@ -780,7 +803,7 @@ function M:showShelfView(mode, keyword, old_view, options)
     local function filtered(source, with_download_state)
         local result = {}
         local sorted = sortBooks(source or {}, self.settings:get("shelf").sort_order,
-            with_download_state and saved_books or nil, recent_account)
+            with_download_state and saved_books or nil, recent_account,with_download_state and local_pins or nil)
         for _i, book in ipairs(sorted) do
             local matches_filters = not with_download_state
                 or self:bookMatchesFilters(book, saved_books, downloaded_cache)
@@ -886,6 +909,12 @@ function M:showShelfView(mode, keyword, old_view, options)
         next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
         self:showShelfView('books',keyword,view,next_options)
     end
+    local function refresh_local_pins()
+        if not current() then return end
+        local next_options={};for name,value in pairs(options) do next_options[name]=value end
+        next_options.prepared_shelf,next_options.scroll_offset=nil,nil;next_options.page=1
+        self:showShelfView('books',keyword,view,next_options)
+    end
     if navigation then navigation = self:discoveryNavigation("shelf", current) end
     view = LibraryView.show({
         mode = mode,
@@ -893,6 +922,7 @@ function M:showShelfView(mode, keyword, old_view, options)
         title = options.title,
         wp_enable = options.wp_enable,
         books = books,
+        local_pins = local_pins,
         last_read_times = last_read_times,
         finish_pending = require('weread.ui.finish_offline').snapshot(self),
         accounts = accounts,
@@ -1040,7 +1070,12 @@ function M:showShelfView(mode, keyword, old_view, options)
                 local action=local_groups.available(self,book) and function()
                     local_groups.book(self,view,book,current,refresh_local_groups)
                 end or nil
-                require('weread.ui.book_quick_actions').open(self, view, book, current,action)
+                local pins=require('weread.ui.local_shelf_pins')
+                local local_pin=pins.available(self,book) and {
+                    pinned=require('weread.lib.local_shelf_pins').contains(self.shelf_pins_state,book),
+                    callback=function() pins.toggle(self,book,current,refresh_local_pins) end,
+                } or nil
+                require('weread.ui.book_quick_actions').open(self, view, book, current,action,local_pin)
             end
         end or nil,
         on_page_changed = function(new_page)
@@ -1164,15 +1199,15 @@ function M:showShelfSearchDialog(view, mode, keyword, options, is_current)
     Popup.show(view,dialog,function(widget) self:showInputDialog(widget) end)
 end
 
-sortBooks = function(books, sort_order, saved_books, account)
+sortBooks = function(books, sort_order, saved_books, account, local_pins)
     if sort_order == "default" or not sort_order then
-        return ShelfFlags.pinned_first(books)
+        return ShelfFlags.pinned_first(books,local_pins)
     end
     local by_time = sort_order == "time_desc" or sort_order == "time_asc"
     local by_name = sort_order == "name_asc" or sort_order == "name_desc"
     local by_author = sort_order == "author_asc" or sort_order == "author_desc"
     local by_progress = sort_order == "progress_asc" or sort_order == "progress_desc"
-    if not by_time and not by_name and not by_author and not by_progress then return ShelfFlags.pinned_first(books) end
+    if not by_time and not by_name and not by_author and not by_progress then return ShelfFlags.pinned_first(books,local_pins) end
     local descending = sort_order == "time_desc" or sort_order == "name_desc" or sort_order == "author_desc" or sort_order == "progress_desc"
     local entries, sorted = {}, {}
     local trim = (by_author or by_name) and require("weread.lib.search_query").trim
@@ -1205,7 +1240,7 @@ sortBooks = function(books, sort_order, saved_books, account)
         return a.value < b.value
     end)
     for i, entry in ipairs(entries) do sorted[i] = entry.book end
-    return ShelfFlags.pinned_first(sorted)
+    return ShelfFlags.pinned_first(sorted,local_pins)
 end
 
 function M:showShelfPage()
@@ -1215,6 +1250,7 @@ function M:showShelfPage()
         return
     end
     local menu, buildItems
+    load_local_pins(self)
     local function refresh()
         menu:switchItemTable(nil, buildItems())
     end
@@ -1224,7 +1260,8 @@ function M:showShelfPage()
         local account = group_owner(self)
         local order=self.settings:get("shelf").sort_order
         if (order=='progress_asc' or order=='progress_desc') and self.prepareShelfProgress then self:prepareShelfProgress(books,saved_books) end
-        local sorted = sortBooks(books,order,saved_books,account)
+        local local_pins=self.shelf_pins_owner==account and require('weread.lib.local_shelf_pins').index(self.shelf_pins_state) or nil
+        local sorted = sortBooks(books,order,saved_books,account,local_pins)
         local downloaded_cache = {}
         self._shelf_saved_books = saved_books
         for _i, book in ipairs(sorted) do
@@ -1239,6 +1276,8 @@ function M:showShelfPage()
                     right_text = ShelfTime.date(DiscoveryData.recent_time(book,saved_books,account)) or ""
                 end
                 local labels={}
+                local id=local_pins and require('weread.lib.shelf_snapshot').persisted_id(book)
+                if id and local_pins[id] then labels[#labels+1]=_('Local pin') end
                 if ShelfFlags.display(book,'pinned')==true then labels[#labels+1]=_('Pinned') end
                 if ShelfFlags.display(book,'private')==true then labels[#labels+1]=_('Private') end
                 if right_text~='' then labels[#labels+1]=right_text end
