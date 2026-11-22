@@ -337,6 +337,7 @@ jobs:
           python3 scripts/test_pin_progress_timestamp_proof.py
           python3 scripts/test_inspect_pin_v2_restored.py
           python3 scripts/test_cloud_pin_model.py
+          python3 scripts/test_owner_cloud_pin_preview.py
           python3 scripts/test_native_shelf_flag_trial.py
           python3 scripts/test_resolve_finish_experiment.py
           python3 scripts/test_annotation_source_quotes.py

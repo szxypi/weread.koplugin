@@ -17,6 +17,19 @@ def request_hash(identity,desired):
     return digest(['shelf-flag-request-v1','pinned',identity,body['isDel']])
 
 
+def valid_metadata(value):
+    fields={'kind','book_id','before','desired','before_hash','after_hash','alternate_hash','position_hash','request_hash'}
+    if not isinstance(value,dict) or set(value)!=fields or value['kind']!='pinned' or type(value['desired']) is not bool:
+        return False
+    before=value['before']
+    if type(before) is not bool and before!='missing' or not value['desired'] and before is not True:return False
+    if any(not isinstance(value[key],str) or not re.fullmatch('[a-f0-9]{64}',value[key])
+           for key in ('before_hash','after_hash','alternate_hash','position_hash','request_hash')):return False
+    if value['desired'] and value['alternate_hash']!=value['after_hash']:return False
+    try:return value['request_hash']==request_hash(value['book_id'],value['desired'])
+    except ValueError:return False
+
+
 def make(source,progress,identity,desired):
     body=request(identity,desired);snapshot=flags(source);row=snapshot.get(identity)
     if not row or row['pinned'].get('reason')=='invalid':raise ValueError('cloud_pin/unknown')
