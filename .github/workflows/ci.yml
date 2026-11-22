@@ -327,6 +327,13 @@ jobs:
           python3 scripts/test_finish_change.py
           python3 scripts/test_shelf_flag_change.py
           python3 scripts/test_pin_observability.py
+          python3 scripts/test_pin_gateway.py
+          python3 scripts/test_pin_preflight.py
+          python3 scripts/test_secure_pin_trial.py
+          python3 scripts/test_pin_trial_contract.py
+          python3 scripts/test_verify_pin_trial.py
+          python3 scripts/test_resolve_pin_added_book.py
+          python3 scripts/test_inspect_pin_cleanup.py
           python3 scripts/test_native_shelf_flag_trial.py
           python3 scripts/test_resolve_finish_experiment.py
           python3 scripts/test_annotation_source_quotes.py

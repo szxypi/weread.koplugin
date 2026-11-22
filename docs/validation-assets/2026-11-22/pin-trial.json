@@ -1,0 +1,121 @@
+{
+  "result": "UNVERIFIED",
+  "account_data_posts_attempted": 1,
+  "gateway_read_posts": 6,
+  "credentials_written_to_files": false,
+  "no_automatic_replay": true,
+  "detail": "pin/observation",
+  "intent_state": "add_pending",
+  "native_stages": [
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "search",
+      "status": 200
+    },
+    {
+      "stage": "discovery_metadata",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    },
+    {
+      "stage": "pin_trial_add",
+      "status": 200
+    },
+    {
+      "stage": "discovery_shelf",
+      "status": 200
+    },
+    {
+      "stage": "pin_progress",
+      "status": 200
+    }
+  ],
+  "web_stages": [
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    },
+    {
+      "stage": "account",
+      "status": 200
+    },
+    {
+      "stage": "shelf",
+      "status": 200
+    }
+  ]
+}
