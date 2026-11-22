@@ -93,7 +93,7 @@ function M.stage(workspace,assets)
     return digest
 end
 
-function M.verify(workspace,digest)
+local function records(workspace,digest)
     local path=receipt_path(workspace,digest)
     local lfs=lfs_module()
     if not path or not lfs or (lfs.symlinkattributes and lfs.symlinkattributes(workspace.web_asset_receipt_dir,'mode')
@@ -104,17 +104,37 @@ function M.verify(workspace,digest)
     local raw,err=file:read(MAX_RECEIPT+1);local closed=file:close()
     raw=raw or ''
     if err or not closed or #raw>MAX_RECEIPT or Crypto.sha256_hex(raw)~=digest then return false end
-    local names,previous={},nil
+    local entries,previous={},nil
     for line in raw:gmatch('([^\n]+)\n') do
         local encoded,size,expected=line:match('^([0-9a-f]+):(%d+):([0-9a-f]+)$')
         local name=encoded and decode(encoded)
-        if not name or previous and name<=previous or #names>=MAX_ITEMS or #expected~=64 then return false end
-        local actual_size,actual=digest_file(workspace.asset_dir..'/'..name)
-        if not actual_size or tostring(actual_size)~=size or actual~=expected then return false end
-        names[#names+1]=name;previous=name
+        if not name or previous and name<=previous or #entries>=MAX_ITEMS or #expected~=64 then return nil end
+        entries[#entries+1]={name=name,size=size,digest=expected};previous=name
     end
     local lines=0;for _ in raw:gmatch('\n') do lines=lines+1 end
-    if lines~=#names or #raw>0 and raw:sub(-1)~='\n' then return false end
+    if lines~=#entries or #raw>0 and raw:sub(-1)~='\n' then return nil end
+    return entries
+end
+
+-- Read authenticated names without trusting the continued existence of old
+-- image files. This can identify stale files left by interrupted downloads.
+function M.names(workspace,digest)
+    local entries=records(workspace,digest)
+    if not entries then return false end
+    local names={}
+    for _,entry in ipairs(entries) do names[#names+1]=entry.name end
+    return true,names
+end
+
+function M.verify(workspace,digest)
+    local entries=records(workspace,digest)
+    if not entries then return false end
+    local names={}
+    for _,entry in ipairs(entries) do
+        local actual_size,actual=digest_file(workspace.asset_dir..'/'..entry.name)
+        if not actual_size or tostring(actual_size)~=entry.size or actual~=entry.digest then return false end
+        names[#names+1]=entry.name
+    end
     return true,names
 end
 

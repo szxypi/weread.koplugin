@@ -251,12 +251,17 @@ for i,chapter in ipairs(chapters) do
             local bitmap=assert(require('ui/renderimage'):renderImageData(bytes,#bytes,false,100,100))
             assert(bitmap:getWidth()>0);bitmap:free()
             assert(rendered:find('../images/'..name,1,true))
+            if input.web_corrupt then
+                assert(not opf:find('images/fixture.png',1,true))
+                local stale=doc:getDocumentFileContent('OEBPS/images/fixture.png')
+                assert(not stale or stale=='','stale Web image was packaged')
+            end
         end
     end
 end
 assert(hashes[1]~=hashes[2] and opf:find('eink-style-'..hashes[1],1,true)
     and opf:find('eink-style-'..hashes[2],1,true))
 local _,image_count=opf:gsub('media%-type="image/png"','')
-assert(image_count==(input.web_corrupt and 3 or input.web_asset and 2 or 1))
+assert(image_count==(input.web_asset and 2 or 1))
 doc:close();manager:close(widget)
 print('WEREAD_FULL_RESULT='..json.encode{ok=true,resumed=input.resume==true,chapters=3,styles=2,images=1})

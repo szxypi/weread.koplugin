@@ -765,20 +765,94 @@ end
 function Content.full_download_workspace_assets(workspace, chapters, css)
     local assets = {}
     if not workspace or not workspace.asset_dir then return assets end
-    local referenced
+    local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
+    if not ok_lfs then ok_lfs, lfs = pcall(require, "lfs") end
+    if not ok_lfs or not lfs or lfs.attributes(workspace.asset_dir, "mode") ~= "directory" then return assets end
+    local referenced,old_web,web_filter,native_filter
     if chapters then
         referenced = {}
+        old_web={}
+        web_filter=true
+        native_filter=true
+        local web=require('weread.lib.web_image_receipt')
+        local receipt_dir=workspace.web_asset_receipt_dir
+        local receipt_mode=receipt_dir and (lfs.symlinkattributes and lfs.symlinkattributes(receipt_dir,'mode')
+            or lfs.attributes(receipt_dir,'mode'))
+        if receipt_mode~='directory' then web_filter=false
+        else
+            local count=0
+            for entry in lfs.dir(receipt_dir) do
+                local digest=entry:match('^images%-([0-9a-f]+)%.txt$')
+                if digest and #digest==64 then
+                    local valid,names=web.names(workspace,digest)
+                    if valid then
+                        for _,name in ipairs(names) do
+                            if not old_web[name] then old_web[name]=true;count=count+1 end
+                        end
+                    end
+                end
+                if count>512 then break end
+            end
+            -- Bound scanning work; preserving old images is preferable to
+            -- guessing when a book has an unusually large resource set.
+            if count>512 then web_filter=false end
+        end
+        local rendered_paths={}
+        for index,chapter in ipairs(chapters) do
+            local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,index))}
+            if not checkpoint[1] then position_error(false) end
+            if checkpoint[7] then
+                local names=full_asset_receipt_names(workspace,checkpoint[8])
+                if not names then position_error(false) end
+                for _,name in ipairs(names) do referenced[name]=true end
+            elseif checkpoint[10] then
+                if checkpoint[11]~=workspace.native_owner then position_error(false) end
+                local valid,names=web.names(workspace,checkpoint[10])
+                if not valid then position_error(false) end
+                for _,name in ipairs(names) do referenced[name]=true end
+            else
+                -- Legacy Web checkpoints have no complete image list.
+                web_filter=false
+                native_filter=false
+            end
+            rendered_paths[#rendered_paths+1]=Content.full_download_rendered_chapter_path(workspace,chapter,index)
+        end
         -- Web image names can happen to look like native content-addressed
-        -- names. Keep those when the rendered text or common CSS references
-        -- them; native CSS assets are additionally bound by each receipt.
+        -- names. Keep referenced resources, including legacy raw links.
         local function collect_names(value)
-            for name in (value or ''):gmatch('eink%-[0-9a-f]+%.[a-z]+') do
+            value=value or ''
+            for name in value:gmatch('eink%-[0-9a-f]+%.[a-z]+') do
                 if native_asset_name(name) then referenced[name]=true end
+            end
+            if not web_filter and not native_filter then return end
+            -- CSS escapes and numeric/unknown entities can spell a path in
+            -- many forms. Retain the old files when their meaning is unclear.
+            local lower=value:lower()
+            if value:find('\\',1,true) or value:find('&#',1,true)
+                or lower:find('@import',1,true) or lower:find('data:',1,true) or lower:find('var(',1,true) then
+                web_filter=false;native_filter=false;return
+            end
+            local entities={amp='&',quot='"',apos="'",lt='<',gt='>'}
+            -- Decode once: an encoded literal such as &amp;quot; must not
+            -- become a quote after two successive substitutions.
+            local decoded=value:gsub('&([%a][%w]*);',function(entity)
+                return entities[entity] or '&'..entity..';'
+            end)
+            if decoded:find('&[%a][%w]*;') then web_filter=false;native_filter=false;return end
+            local unescaped=decoded:gsub('%%(%x%x)',function(hex) return string.char(tonumber(hex,16)) end)
+            for name in unescaped:gmatch('eink%-[0-9a-f]+%.[a-z]+') do
+                if native_asset_name(name) then referenced[name]=true end
+            end
+            if web_filter then
+                for name in pairs(old_web) do
+                    if not referenced[name] and (value:find(name,1,true) or decoded:find(name,1,true)
+                        or unescaped:find(name,1,true)) then referenced[name]=true end
+                end
             end
         end
         collect_names(css)
-        for index,chapter in ipairs(chapters) do
-            local file=io.open(Content.full_download_rendered_chapter_path(workspace,chapter,index),'rb')
+        for _,path in ipairs(rendered_paths) do
+            local file=io.open(path,'rb')
             if not file then position_error(false) end
             local tail=''
             while true do
@@ -787,29 +861,17 @@ function Content.full_download_workspace_assets(workspace, chapters, css)
                 if not chunk then break end
                 local text=tail..chunk
                 collect_names(text)
-                tail=text:sub(-80)
+                -- XML entities can expand a 255-byte filename sixfold.
+                tail=text:sub(-2048)
             end
             if not file:close() then position_error(false) end
-            local checkpoint={read_full_download_checkpoint(Content.full_download_checkpoint_path(workspace,chapter,index))}
-            if not checkpoint[1] then position_error(false) end
-            if checkpoint[7] then
-                local names=full_asset_receipt_names(workspace,checkpoint[8])
-                if not names then position_error(false) end
-                for _,name in ipairs(names) do referenced[name]=true end
-            end
         end
-    end
-    local ok_lfs, lfs = pcall(require, "libs/libkoreader-lfs")
-    if not ok_lfs then ok_lfs, lfs = pcall(require, "lfs") end
-    if not ok_lfs or not lfs
-        or lfs.attributes(workspace.asset_dir, "mode") ~= "directory" then
-        return assets
     end
     local excluded=false
     for name in lfs.dir(workspace.asset_dir) do
         if name ~= "." and name ~= ".." then
             local path = workspace.asset_dir .. "/" .. name
-            if referenced and native_asset_name(name) and not referenced[name] then
+            if referenced and not referenced[name] and (native_filter and native_asset_name(name) or web_filter and old_web[name]) then
                 excluded=true
             elseif lfs.attributes(path, "mode") == "file" then
                 local _, media_type = media_type_for_file(path)

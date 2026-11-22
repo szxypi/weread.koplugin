@@ -326,6 +326,12 @@ for _,asset in ipairs(Content.full_download_workspace_assets(workspace,chapters,
 end
 expect(selected_names['images/'..web_name] and not selected_names['images/'..orphan_name],
     'common stylesheet image was not retained or orphan image was included')
+selected_names={}
+local encoded_native=web_name:gsub('^eink%-','eink%%2d')
+for _,asset in ipairs(Content.full_download_workspace_assets(workspace,chapters,'body{background:url(images/'..encoded_native..')}')) do
+    selected_names[asset.href]=true
+end
+expect(selected_names['images/'..web_name], 'encoded Web image with a native-like name was excluded')
 expect(rendered_first:find('../eink-style-'..first_hash..'.css',1,true)
     and rendered_second:find('../eink-style-'..second_hash..'.css',1,true),
     'footnote rendering lost chapter-specific styles')
@@ -464,6 +470,69 @@ expect(not Content.full_download_chapter_exists(workspace,web_chapter,3,7,true),
 write(web_checkpoint_path,web_checkpoint)
 write(Content.full_download_rendered_chapter_path(workspace,chapters[1],1),rendered_first)
 local full_chapters={chapters[1],chapters[2],web_chapter}
+local stale_name='orphan & image.png'
+local stale_path=workspace.asset_dir..'/'..stale_name
+write(stale_path,'\137PNG\r\n\26\nold image')
+local old_web_digest=WebImages.stage(workspace,{{href='images/'..stale_name,path=stale_path,media_type='image/png'}})
+write(stale_path,'\137PNG\r\n\26\nchanged old image')
+local old_valid,old_names=WebImages.names(workspace,old_web_digest)
+expect(old_valid and #old_names==1 and old_names[1]==stale_name and not WebImages.verify(workspace,old_web_digest),
+    'old receipt could not identify an image after its contents changed')
+local unknown_name='untracked.png'
+write(workspace.asset_dir..'/'..unknown_name,'\137PNG\r\n\26\nuntracked')
+local function selected_web(css)
+    local names={}
+    for _,asset in ipairs(Content.full_download_workspace_assets(workspace,full_chapters,css or '')) do
+        names[asset.href]=true
+    end
+    return names
+end
+local filtered=selected_web()
+expect(not filtered['images/'..stale_name] and filtered['images/'..web_file]
+    and filtered['images/'..unknown_name],'known stale or unknown Web images were handled incorrectly')
+Content.save_full_download_rendered_chapter(workspace,web_chapter,3,
+    string.rep('x',65520)..'<img src="../images/orphan%20%26%20image.png"/>')
+expect(selected_web()['images/'..stale_name], 'percent-encoded reference across chunks lost its image')
+Content.save_full_download_rendered_chapter(workspace,web_chapter,3,
+    '<img src="../images/orphan &amp; image.png"/>')
+expect(selected_web()['images/'..stale_name], 'entity-encoded reference lost its image')
+local entity_name='literal &quot; image.png'
+local entity_path=workspace.asset_dir..'/'..entity_name
+write(entity_path,'\137PNG\r\n\26\nentity')
+WebImages.stage(workspace,{{href='images/'..entity_name,path=entity_path,media_type='image/png'}})
+Content.save_full_download_rendered_chapter(workspace,web_chapter,3,
+    '<img src="../images/literal &amp;quot; image.png"/>')
+expect(selected_web()['images/'..entity_name], 'nested literal entity was decoded twice and lost its image')
+Content.save_full_download_rendered_chapter(workspace,web_chapter,3,'<p>web &#160;</p>')
+expect(selected_web()['images/'..stale_name], 'ambiguous entity did not preserve older images')
+Content.save_full_download_rendered_chapter(workspace,web_chapter,3,'<p>web</p>')
+expect(selected_web('p{background:url("images/orphan%20%26%20image.png")}')['images/'..stale_name],
+    'CSS reference lost an older image')
+expect(selected_web('p{background:url("images/orphan\\20 image.png")}')['images/'..stale_name],
+    'ambiguous CSS escape did not preserve older images')
+expect(selected_web('@import url("other.css")')['images/'..stale_name],
+    'imported stylesheet did not preserve older images')
+local old_receipt_path=workspace.web_asset_receipt_dir..'/images-'..old_web_digest..'.txt'
+local old_receipt=read_all(old_receipt_path)
+write(old_receipt_path,old_receipt..'corrupt\n')
+expect(selected_web()['images/'..stale_name], 'a corrupt old receipt caused an unknown image to be removed')
+write(old_receipt_path,old_receipt)
+local bulk={}
+for i=1,513 do
+    local name=string.format('bulk-%04d.png',i)
+    local hex=name:gsub('.',function(c) return string.format('%02x',c:byte()) end)
+    bulk[#bulk+1]=hex..':1:'..string.rep('0',64)..'\n'
+end
+local bulk_raw=table.concat(bulk)
+local bulk_path=workspace.web_asset_receipt_dir..'/images-'..Crypto.sha256_hex(bulk_raw)..'.txt'
+write(bulk_path,bulk_raw)
+expect(selected_web()['images/'..stale_name], 'large history was not handled conservatively')
+assert(os.remove(bulk_path))
+Content.save_full_download_chapter(workspace,web_chapter,3,'<p>legacy</p>',7)
+local legacy_names=selected_web()
+expect(legacy_names['images/'..stale_name] and legacy_names['images/'..orphan_name],
+    'legacy Web checkpoint did not preserve older images')
+Content.save_full_download_chapter(workspace,web_chapter,3,'<p>web</p>',7,nil,nil,nil,web_digest)
 local without_web={}
 for _,asset in ipairs(Content.full_download_workspace_assets(workspace)) do
     if asset.href~='images/'..web_file then without_web[#without_web+1]=asset end
