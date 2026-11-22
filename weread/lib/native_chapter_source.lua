@@ -2,7 +2,7 @@
 -- adapter neither writes account data nor persists packages or credentials.
 local Access=require('weread.lib.native_read_access')
 local Auth=require('weread.lib.native_authorization')
-local Catalog=require('weread.lib.translation_generation_catalog')
+local Catalog=require('weread.lib.native_book_catalog')
 local Protocol=require('weread.lib.native_position_protocol')
 local Url=require('weread.lib.protocol')
 local Archive=require('weread.lib.native_chapter_archive')
@@ -59,9 +59,7 @@ function M.fetch(client,settings,selected,book_id,uid,options)
     local function owns() return current(settings,selected,options) end
     local auth=Auth:new(client,{expected_vid=selected.scope.vid,is_current=owns})
     local ok,value=pcall(function()
-        local info=auth:_request('chapter_info',BASE..'/book/info?bookId='..Url.urlencode(book_id),nil,selected.credentials)
-        local raw=auth:_request('chapter_catalog',BASE..'/book/chapterInfos',Catalog.catalog_body(book_id),selected.credentials)
-        local model=Catalog.catalog(raw,book_id,info)
+        local model=Catalog.read(auth,selected.credentials,book_id,'chapter')
         assert(chapter(model,uid),'native_chapter/not_entitled')
         assert(owns(),'native_chapter/session_changed')
         local headers={}

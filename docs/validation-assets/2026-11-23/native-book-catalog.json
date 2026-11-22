@@ -1,0 +1,21 @@
+{
+  "result": "PASS",
+  "scope": "real account read-only catalogs and native source regression",
+  "catalog_samples": [
+    {"chapters": 41, "explicitly_free_or_owned": 6},
+    {"chapters": 31, "explicitly_free_or_owned": 7},
+    {"chapters": 42, "explicitly_free_or_owned": 11}
+  ],
+  "python_lua_catalog_fields_match": true,
+  "shelf_unchanged": true,
+  "native_source_chapters": 1,
+  "native_source_requests": 3,
+  "native_source_matches_independent_decoder": true,
+  "unrecognized_resources_in_source_sample": 1,
+  "first_native_source_attempt": "exit_139_without_emulator_display_settings",
+  "retest_with_emulator_display": "PASS",
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "private_data_saved": false,
+  "physical_kindle_tested": false
+}

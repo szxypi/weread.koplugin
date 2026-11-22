@@ -14,7 +14,8 @@ package.loaded['weread.lib.native_authorization']={new=function(_self,_client,op
         end
         assert(stage=='chapter_catalog' and url=='https://i.weread.qq.com/book/chapterInfos'
             and body.bookIds[1]=='456' and body.synckeys[1]==0)
-        return {data={{bookId='456',updated={{chapterUid=7,wordCount=100,price=mode=='paid' and 10 or 0}}}}}
+        return {data={{bookId='456',updated={{chapterUid=7,wordCount=100,price=mode=='paid' and 10 or 0,
+            chapterIdx=mode=='bad_display' and 'invalid' or 1}}}}}
     end,cancel=function() closed=closed+1 end}
 end}
 package.loaded['weread.lib.native_chapter_archive']={read=function(data,envelope,vid,options)
@@ -49,6 +50,8 @@ local value=assert(run('ok'))
 assert(table.concat(calls,',')=='chapter_info,chapter_catalog,download,decode' and value.body=='body'
     and value.chapter_uid=='7' and value.book_version==7 and value.source_channel=='eink'
     and value.coordinate_source_authoritative==false and value.image_signatures_recognized==true)
+value=assert(run('bad_display'))
+assert(value.body=='body' and #calls==4,'invalid display metadata blocked an otherwise valid chapter download')
 for _,case in ipairs({{'paid','not_entitled',2},{'429','rate_limited',3},{'401','auth_expired',3},
     {'catalog429','rate_limited',1},{'rejected','service_rejected',1},
     {'header','unavailable',3},{'duplicate_header','unavailable',3},
@@ -59,5 +62,5 @@ calls={};valid=false;local result,reason=Source.fetch(client,{},selected,'456','
 assert(not result and reason=='session_changed' and #calls==0)
 valid=true;result,reason=Source.fetch(client,{},selected,'456','9007199254740992',options)
 assert(not result and reason=='invalid' and #calls==0)
-assert(closed==11,'authorization not closed')
+assert(closed==12,'authorization not closed')
 print('PASS: native chapter scope, entitlement, limited transport and source isolation')
