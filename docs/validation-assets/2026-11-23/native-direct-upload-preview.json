@@ -1,0 +1,14 @@
+{
+  "scope": "one existing XHTML chapter, native upload preview only",
+  "resolutions": ["600x800", "1264x1680"],
+  "native_and_web_source_equal": true,
+  "actual_native_reader_position": true,
+  "independent_offset_verified": true,
+  "cloud_position_unchanged": true,
+  "shelf_unchanged": true,
+  "account_data_writes": 0,
+  "authentication_posts": 0,
+  "credential_file_audit_passed": true,
+  "temporary_profiles_removed": true,
+  "limitations": ["one account and one chapter", "no progress upload or recovery tested", "physical Kindle not tested"]
+}

@@ -51,6 +51,7 @@ local function fixture()
         json_decode=function(_self,value) assert(value=='{reader}');return initial end,
         decode_http_json=function(_self,value)
             if value=='account' then return {vid=state.foreign and '900099' or '900000',errcode=state.account_error} end
+            if value=='progress' then return {bookId='900001',chapterUid=11,chapterIdx=0,chapterOffset=7,progress=5} end
             assert(value=='catalog');return catalog
         end}
     function client:request(options)
@@ -58,6 +59,10 @@ local function fixture()
         local count=#state.requests
         local text=({[1]='account',[2]='catalog',[3]='window.__INITIAL_STATE__={reader};(function(){})();',
             [4]='part0',[5]='part1',[6]='part3',[7]='catalog',[8]='account'})[count]
+        if state.progress then
+            text=({[1]='account',[2]='progress',[3]='catalog',[4]='window.__INITIAL_STATE__={reader};(function(){})();',
+                [5]='part0',[6]='part1',[7]='part3',[8]='catalog',[9]='progress',[10]='account'})[count]
+        end
         if state.oversized then text=string.rep('x',65537) end
         options.sink(text);options.sink(nil)
         if state.changed_at==count then state.valid=false end
@@ -102,6 +107,21 @@ expect(checked==2 and #check_state.requests==8,'catalog observer skipped a bound
 check_client,check_state=fixture()
 expect(not pcall(Check.fetch,check_client,expected,nil,nil,{verify_catalog=function() error('synthetic version mismatch') end})
     and #check_state.requests==2,'version rejection fetched source bytes')
+check_client,check_state=fixture();check_state.progress=true;checked=0
+Check.fetch(check_client,expected,nil,nil,{verify_progress=function(value)
+    checked=checked+1;return value.chapterOffset==7
+end})
+expect(checked==2 and #check_state.requests==10,'cloud progress was not checked at both source boundaries')
+for _i,bad in ipairs({1,2}) do
+    check_client,check_state=fixture();check_state.progress=true;checked=0
+    local success=pcall(Check.fetch,check_client,expected,nil,nil,{verify_progress=function()
+        checked=checked+1;return checked~=bad
+    end})
+    expect(not success and checked==bad and #check_state.requests==(bad==1 and 2 or 9),'changed cloud progress was accepted')
+end
+check_client,check_state=fixture();check_state.progress=true
+expect(not pcall(Check.fetch,check_client,expected,nil,nil,{verify_progress=function() return 'true' end})
+    and #check_state.requests==2,'non-boolean progress proof was accepted')
 for index,options in ipairs(normal_state.requests) do
     expect(options.sensitive and options.skip_cookie and options.persist_response_cookies==false
         and not options.headers.Authorization and options.headers.Cookie:find('synthetic-current-cookie',1,true),'read lost frozen access scope')

@@ -9,6 +9,8 @@ local entry={book_id='42',chapter_uid='37',chapter_idx=2,book_version=7,source_s
 local scope={vid='123',epoch=1};local native={scope=scope};local web={web={cookies={wr_vid='123'}}}
 local live=true;local source_changed=false;local file_changed=false;local web_error;local anchor_ok=true
 local target_reversible=true;local source_requests=0;local web_requests=0
+local anchor_text='valid target anchor';local anchor_offset=2
+package.preload['weread.lib.source_dom']=function() return {normalize=function(s) return s end} end
 package.preload['weread.lib.native_direct_cache']=function() return {
     valid_entry=function(e,id,account) return e==entry and id=='42' and account=='123' end,
     identify=function() if file_changed then return nil end;return entry end,
@@ -25,7 +27,7 @@ package.preload['weread.lib.source_currentness']=function() return {
     packet=function(actual,expected) return actual==expected end,
 } end
 package.preload['weread.lib.source_coordinates']=function() return {MAX_BYTES=2097152,build=function() return {
-    anchor=function(_,co) return {co=co,text='valid target anchor',point_offset=2} end,
+    anchor=function(_,co) return {co=co,text=anchor_text,point_offset=anchor_offset} end,
     locate_point=function() return target_reversible and {co=2000} or nil end,
 } end} end
 package.preload['weread.lib.source_position_worker']=function() return {MAX_CONTEXT_BYTES=8192,
@@ -38,6 +40,12 @@ local value=check();local reason
 expect(value and value.chapter_offset==1234 and value.basis=='filtered_xhtml_utf16'
     and value.source_current and value.upload_verified==false,'matching source did not produce read-only position')
 expect(source_requests==1 and web_requests==1,'position proof did not read each source')
+anchor_text='前😀一二三四五六七八九十一二三四五六七八九十二三';anchor_offset=1
+local candidate,_,_,summary=Position.prepare({}, {},entry,context.file,context,native,web,function() return live end,nil,{prepare_summary=true})
+expect(candidate and summary=='😀一二三四五六七八九十一二三四五六七八九','summary was not bounded by Unicode scalars')
+anchor_offset=100;candidate,reason=Position.prepare({}, {},entry,context.file,context,native,web,function() return live end,nil,{prepare_summary=true})
+expect(not candidate and reason=='summary_unavailable','empty summary was accepted')
+anchor_text='valid target anchor';anchor_offset=2
 local _,_,target=Position.prepare({}, {},entry,context.file,context,native,web,function() return live end,2000)
 expect(target and target.co==2000,'verified target anchor missing')
 target_reversible=false;_,_,target=Position.prepare({}, {},entry,context.file,context,native,web,function() return live end,2000)

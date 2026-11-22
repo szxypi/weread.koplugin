@@ -37,6 +37,8 @@ class Handler(BaseHTTPRequestHandler):
         code,headers,data=200,{},None
         if target.hostname=='i.weread.qq.com' and target.path=='/book/info' and self.command=='GET':
             data=json.dumps(dict(bookId='42',format='epub',version=1)).encode()
+        elif target.hostname=='i.weread.qq.com' and target.path=='/shelf/sync' and self.command=='GET' and server.mode.startswith('preview'):
+            data=json.dumps(dict(books=[dict(bookId='42',finishReading=0,secret=0)],archive=[])).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/book/getProgress' and self.command=='GET':
             server.valid &= parse_qs(target.query)=={'bookId':['42']}
             if server.mode=='cloud_move':time.sleep(0.8)
@@ -49,6 +51,8 @@ class Handler(BaseHTTPRequestHandler):
             if server.mode=='cross_after_switch' and count>=9:offset+=1
             if server.mode=='cross_unlocatable':offset=0
             if server.mode=='cloud_empty':uid,index,offset,progress,summary=0,0,0,0,''
+            if server.mode=='preview_changed' and count==2:offset+=1
+            if server.mode=='preview_missing':summary=None
             data=json.dumps(dict(bookId='42',chapterUid=uid,chapterIdx=index,chapterOffset=offset,progress=progress,
                 summary=summary,readingTime=100,recordReadingTime=0,ttsTime=0)).encode()
         elif target.hostname=='i.weread.qq.com' and target.path=='/book/chapterInfos' and self.command=='POST':
@@ -64,6 +68,10 @@ class Handler(BaseHTTPRequestHandler):
             server.valid &= parse_qs(target.query)=={'userVid':['12345678']}
             headers['Set-Cookie']='wr_skey'+'=synthetic-refreshed-cookie; Path=/; Secure'
             data=json.dumps(dict(vid='12345678')).encode()
+        elif target.hostname=='weread.qq.com' and target.path=='/web/book/getProgress' and self.command=='GET' and server.mode.startswith('preview'):
+            count=sum(path=='/web/book/getProgress' for _,_,path in server.calls)
+            offset=CLOUD_OFFSET+(1 if server.mode=='preview_web_changed' and count==2 else 0)
+            data=json.dumps(dict(bookId='42',chapterUid=37,chapterIdx=1,chapterOffset=offset,progress=50)).encode()
         elif target.hostname=='weread.qq.com' and target.path=='/web/book/chapterInfos' and self.command=='POST':
             request=json.loads(self.rfile.read(int(self.headers['Content-Length'])))
             server.valid &= request==dict(bookIds=['42'])
@@ -103,6 +111,7 @@ def compare_offset(result):
     assert point<len(indices) and model.starts[indices[point]]==result['offset']
 
 MODES=('match','mismatch','move','cloud','cloud_cancel','cloud_move','cloud_changed','cloud_after','cloud_other','cloud_empty',
+       'preview','preview_changed','preview_web_changed','preview_missing',
        'cross_cached','cross_download','cross_changed','cross_after_switch','cross_denied','cross_unlocatable')
 
 def run(runtime,modes=MODES):
@@ -131,13 +140,16 @@ def run(runtime,modes=MODES):
                         child=subprocess.run([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_position_reader_probe.lua')],
                             input=json.dumps(payload),text=True,env=env,cwd=runtime,capture_output=True,timeout=150)
                         result=frame(child,'WEREAD_POSITION_READER=');assert result['ok'] and result['mode']==mode
-                        if mode=='match':compare_offset(result)
+                        if mode in ('match','preview'):compare_offset(result)
                         assert server.valid and not server.leaked
                         assert all(path not in ('/web/book/read','/book/read') for _,_,path in server.calls)
-                        if mode not in ('move','cloud_move') and not mode.startswith('cross_'):
+                        if mode not in ('move','cloud_move') and not mode.startswith(('cross_','preview')):
                             assert sum(path=='/web/book/chapter/e_0' for _,_,path in server.calls)==(2 if mode in ('cloud','cloud_after') else 1)
                         if mode.startswith('cloud') and mode!='cloud_move':
                             assert sum(path=='/book/getProgress' for _,_,path in server.calls)==(4 if mode in ('cloud','cloud_after') else 2)
+                        if mode=='preview':
+                            assert sum(path=='/book/getProgress' for _,_,path in server.calls)==2
+                            assert sum(path=='/web/book/getProgress' for _,_,path in server.calls)==2
         print('PASS: installed native reader source proof and cloud navigation at both sizes')
     finally:server.shutdown();server.server_close();thread.join()
 

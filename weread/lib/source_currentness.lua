@@ -242,13 +242,19 @@ local function fetch(client,expected_value,selected,format,options,cb)
     local cb_initial=options and options.cb_initial
     local native_selected=options and options.native_selected
     if cb_remote and cb_initial then fail('expected') end
+    if options and options.verify_progress and (cb_remote or cb_initial or type(options.verify_progress)~='function') then fail('expected') end
     local progress_read=0
     local function progress()
         progress_read=progress_read+1
         local stamp=tostring(os.time()*1000+progress_read)
         local data=request('https://weread.qq.com/web/book/getProgress?bookId='..Protocol.urlencode(expected.book_id)..'&_='..stamp,nil,65536,true)
-        local matches=cb_initial and require('weread.lib.cb_initial_state').matches(data,cb_initial)
-            or cb_remote and require('weread.lib.cb_sync_guard').matches(data,cb_remote)
+        local matches
+        if options and options.verify_progress then
+            matches=options.verify_progress(data)==true
+        else
+            matches=cb_initial and require('weread.lib.cb_initial_state').matches(data,cb_initial)
+                or cb_remote and require('weread.lib.cb_sync_guard').matches(data,cb_remote)
+        end
         if not matches then fail('remote_changed') end
     end
     local native_before,native_counts_before
@@ -279,7 +285,7 @@ local function fetch(client,expected_value,selected,format,options,cb)
         end
         native_before,native_counts_before=point,counts
     end
-    if cb_remote or cb_initial then progress() end
+    if cb_remote or cb_initial or options and options.verify_progress then progress() end
     if cb_initial then native_progress() end
     local url='https://weread.qq.com/web/book/chapterInfos'
     local body={bookIds={expected.book_id}}
@@ -310,7 +316,7 @@ local function fetch(client,expected_value,selected,format,options,cb)
     local after=request(url,body,4*1024*1024,true)
     if options and options.verify_catalog then options.verify_catalog(after) end
     if cb_initial then native_progress() end
-    if cb_remote or cb_initial then progress() end
+    if cb_remote or cb_initial or options and options.verify_progress then progress() end
     account()
     current()
     local result=project(expected,before,reader,raw,after,cb)

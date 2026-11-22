@@ -62,6 +62,7 @@ def main(argv=None):
             phase='reader_position'
             private=dict(path=str(path),book_id=payload['book_id'],uid=payload['uid'],credentials=payload['credentials'],
                 web_cookies=payload['web_cookies'],cloud=payload.get('cloud') is True,
+                upload_preview=payload.get('upload_preview') is True,
                 cloud_denied=payload.get('cloud_denied') is True,cloud_cross=payload.get('cloud_cross') is True,
                 target_uid=payload.get('target_uid'),start_page=payload.get('start_page',1))
             code,out,repaint=run_child([str(runtime/'luajit'),str(REPO/'spec/koreader/native_direct_owner_error_guard.lua'),
@@ -73,10 +74,13 @@ def main(argv=None):
                 if match:report['position_line']=int(match.group(1))
             position=frame(out,b'WEREAD_DIRECT_OWNER_POSITION=')
             if position.get('ok') is False and position.get('reason') in {'invalid','unavailable','source_changed',
-                    'anchor_unavailable','source_unsupported','file_changed','session_changed','auth_expired','web_expired','rate_limited','cloud_changed'}:
+                    'anchor_unavailable','source_unsupported','file_changed','session_changed','auth_expired','web_expired','rate_limited','cloud_changed','baseline_unavailable','summary_unavailable'}:
                 report['reason']=position['reason']
             fields={'ok','text','point_offset','offset'}
-            if private['cloud']:
+            if private['upload_preview']:
+                fields.add('upload_preview')
+                if position.get('upload_preview') is not True:raise ValueError('upload_preview')
+            elif private['cloud']:
                 fields|={'relation','opened'}
                 if private['cloud_denied']:
                     fields.add('denied')

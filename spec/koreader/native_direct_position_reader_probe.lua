@@ -35,10 +35,12 @@ active.client.request=function(self,options)
     local url=options.url;assert(options.sensitive and options.skip_cookie and options.persist_response_cookies==false)
     assert(url=='https://i.weread.qq.com/book/info?bookId=42'
         or url=='https://i.weread.qq.com/book/getProgress?bookId=42'
+        or input.mode:find('^preview') and url=='https://i.weread.qq.com/shelf/sync'
         or url=='https://i.weread.qq.com/book/chapterInfos'
         or url:find('https://i.weread.qq.com/book/chapterdownload?',1,true)==1
         or url=='https://weread.qq.com/api/userInfo?userVid=12345678'
         or url=='https://weread.qq.com/web/book/chapterInfos'
+        or input.mode:find('^preview') and url:find('https://weread.qq.com/web/book/getProgress?',1,true)==1
         or url:find('https://weread.qq.com/web/reader/',1,true)==1
         or url:find('https://weread.qq.com/web/book/chapter/e_',1,true)==1)
     if url:find('https://weread.qq.com/web/',1,true)==1 then
@@ -60,6 +62,17 @@ local native_worker=require('weread.lib.memory_worker'):new{scheduler=UI,codec=h
 local captured,point
 host._native_direct_position_worker={cancel=function() native_worker:cancel() end,start=function(_,task,callback)
     local ctx=assert(host._native_direct_position);captured={text=ctx.input.text,offset=ctx.input.point_offset}
+    if input.mode:find('^preview') then
+        task=function()
+            local value,why=require('weread.lib.native_direct_upload_preview').prepare(host.client,host.settings,ctx.entry,
+                ctx.file,ctx.input,ctx.native,ctx.web,function() return true end)
+            if value then
+                assert(value.dispatch_authorized==false and value.desired.summary and value.desired.raw_percent==50)
+                return {position=value.position}
+            end
+            return {error=why}
+        end
+    end
     return native_worker:start(task,function(value) point=value.position or value.comparison and value.comparison.position;callback(value) end)
 end}
 local function open_menu()
@@ -131,6 +144,10 @@ else
         assert(host.checked_message==tr('The cloud position changed during the check. Your current page is kept.') and not point)
     elseif input.mode=='cloud_empty' then
         assert(host.checked_message==tr('There is no cloud reading position yet. Your current page is kept.'))
+    elseif input.mode=='preview_changed' or input.mode=='preview_web_changed' then
+        assert(host.checked_message==tr('The cloud position changed during the check. Your current page is kept.') and not point)
+    elseif input.mode=='preview_missing' then
+        assert(host.checked_message==tr('Could not check this reading position.') and not point)
     else
         assert(host.checked_message==tr('The local reading position was checked against the chapter source. Cloud sync is not enabled yet.'))
         assert(point and point.upload_verified==false and point.source_current and point.basis=='filtered_xhtml_utf16')
